@@ -27,9 +27,11 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
    assert.ok(stateFile.startsWith(path.join(evidence,'fixture')+path.sep),'Only this disposable fixture may be mutated');
    const initial=data('()=>resolverResponseFields(latestRun)');
    const card=id=>'[data-question-card="'+id+'"]';
-   const suggestion=id=>click(card(id)+'>button');
+   const suggestion=id=>click(card(id)+' [data-question-suggestion]');
+   const explain=id=>click(card(id)+' [data-question-explain]');
    if(mode==='partial'){
     browser('fill','#change-text','Continue?');
+    explain('card-1');
     browser('fill',card('card-1')+' textarea','Continue?');
     browser('eval','(async()=>{await refresh();return true})()');
     assert.equal(data('()=>document.querySelector('+JSON.stringify(card('card-1')+' textarea')+').value'),'Continue?');
@@ -72,6 +74,7 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
     browser('eval','(async()=>{await refresh();return true})()');
     wait('latestRun.questions[0]?.question==="What label after the correction?"');
     assert.equal(data('()=>document.querySelector('+JSON.stringify(card('card-1')+' textarea')+').value'),'');
+    explain('card-1');
     browser('fill',card('card-1')+' textarea','Save after review');
     click(card('card-1')+' .question-answer-submit');
     wait('latestRun.questions.length===0&&!taskChatPending.has(latestRun.run)');

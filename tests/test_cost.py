@@ -97,6 +97,36 @@ class CostProjectionTests(unittest.TestCase):
         silent = stage("gpt-5.6-luna", tokens={})
         self.assertIsNone(cost.crossing(run(silent, cap=0.000001), "gpt-5.6-sol", silent))
 
+    def test_a_refused_climb_names_the_attempt_the_arithmetic_and_the_cap_to_resume_with(self):
+        over = {
+            "projected": 0.42,
+            "spent": 4.8,
+            "total": 5.22,
+            "cap": 5.0,
+            "input_tokens": 120000,
+            "output_tokens": 30000,
+        }
+        self.assertEqual(
+            "The Tester's climb to GPT-6 Sol Max (gpt-6-sol at max effort) did not launch: projected at $0.42, "
+            "the last Tester attempt's 120,000 input and 30,000 output tokens at gpt-6-sol's price, it would take "
+            "the spend from $4.80 to $5.22, past the $5.00 cost cap. AutoCode never raises the cap; resume with "
+            "--max-cost-usd 5.22 or more (0 for no cap) to make this attempt",
+            cost.climb_stop(
+                over,
+                attempt="The Tester's climb to GPT-6 Sol Max",
+                basis="the last Tester attempt",
+                model="gpt-6-sol",
+                effort="max",
+            ),
+        )
+        # A route without an effort is named by its model; the cap to resume with rounds up to the next cent.
+        over.update(total=5.2201)
+        self.assertIn(
+            "The Builder's stronger attempt (claude-sonnet-5-5) did not launch",
+            cost.climb_stop(over, attempt="The Builder's stronger attempt", basis="b", model="claude-sonnet-5-5"),
+        )
+        self.assertIn("--max-cost-usd 5.23 or more", cost.climb_stop(over, attempt="A", basis="b", model="m"))
+
     def test_the_line_names_every_basis_and_the_cap(self):
         reported = stage(metrics={"provider_tokens": TOKENS, "provider_cost_usd": 0.5})
         line = cost.line(cost.view(run(stage(), reported, cap=12.5)))

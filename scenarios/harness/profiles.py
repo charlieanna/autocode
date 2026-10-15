@@ -67,6 +67,37 @@ PROFILES = {
             "completion",
         ],
     },
+    # Explicit bounded live visual-repair route matching the approved Native20 role models.
+    # This fixture retains its own shorter time and call limits; it is not Native20 acceptance.
+    "native20-ui-repair": {
+        "provider": "opencode",
+        "models": {
+            "requirements": "zai-coding-plan/glm-5.3-flash",
+            "planner": "zai-coding-plan/glm-5.3",
+            "reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "builder": "zai-coding-plan/glm-5.3",
+            "validator": "openai/gpt-6-sol",
+            "completion": "openai/gpt-6-sol",
+            "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        },
+        "effort": {role: "high" for role in ROLES},
+        "extra": [
+            "--engine",
+            "opencode",
+            "--resolver-model",
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--resolver-reasoning-effort",
+            "high",
+            "--pin-model-role",
+            "astra",
+            "--pin-model-role",
+            "terra",
+            "--pin-model-role",
+            "sol",
+            "--pin-model-role",
+            "completion",
+        ],
+    },
     # Runner defaults: no model flags, so AutoCode's DEFAULT_ROLE_MODELS apply.
     "default": {"provider": "opencode", "passthrough": True},
     "glm53": {

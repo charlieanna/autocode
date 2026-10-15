@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "sympy-matrix-derivatives",
+      "repository": "/srv/arena/sources/sympy-matrix-derivatives",
+      "base_commit": "a54c29577d037eeec79d321c981a15c0252ac210",
+      "base_tree": "2222222222222222222222222222222222222222",
+      "issue_ref": "sympy/sympy#25150",
+      "issue_path": "/srv/arena/cases/sympy-matrix-derivatives/issue.json",
+      "issue_sha256": "1f0f7dae7c7a41dba2bc4361b46dbdc2dcd72c99aba48c31da860aa0ba7091d4",
+      "oracle_path": "/srv/arena/cases/sympy-matrix-derivatives/oracle.py",
+      "oracle_sha256": "5fd82753027a69d8eea819d709be088700f261c75b10f3f7a46cbd451272bb66",
+      "split": "development",
+      "required_checks": [
+        "trace_linearity",
+        "affine_quadratic",
+        "trace_chain_rule",
+        "normalized_vector",
+        "matrix_elements",
+        "matrix_powers",
+        "mixed_explicit_array",
+        "preservation"
+      ],
+      "task": "Fix sympy/sympy#25150",
+      "reference_sha256": "93fdb8adbda733264209cedd5aacfb65356b26c6f4fde01722d41f147a901fa8",
+      "sha256": "058960907f23d60d287f4d122f0988a6fba9b02fdf6757f8eade549feee8a9de"
+    },
+    {
+      "id": "django-filteredrelation-join-lifecycle",
+      "repository": "/srv/arena/sources/django-filteredrelation-join-lifecycle",
+      "base_commit": "1111111111111111111111111111111111111111",
+      "base_tree": "2222222222222222222222222222222222222222",
+      "issue_ref": "django/django#16786",
+      "issue_path": "/srv/arena/cases/django-filteredrelation-join-lifecycle/issue.json",
+      "issue_sha256": "33a23aa37fc4fd2c701461acbcfdbda59d52c02045701735e70eb5f04eec9e9d",
+      "oracle_path": "/srv/arena/cases/django-filteredrelation-join-lifecycle/oracle.py",
+      "oracle_sha256": "366a012b5eb5c65ba1427a614a8b2d2a897451073a0b2bd782a145bdc3da0817",
+      "split": "regression",
+      "required_checks": [
+        "cross_join_rhs",
+        "chained_aliases",
+        "self_reference",
+        "coalesce_join",
+        "nested_alias_clone",
+        "unused_annotation",
+        "ordinary_preservation",
+        "independent_multijoins"
+      ],
+      "task": "Fix django/django#16786",
+      "reference_sha256": "83af80ce890736572f8bff8a03e47137acdb74e7d19b9fdebffe8914ca41174f",
+      "sha256": "7544c0714a7debddde1ff3f8ad221f5c173a5cc64d0e5cac76b6b1d62e29bf9a"
+    },
+    {
+      "id": "pytest-stop-fixture-teardown",
+      "repository": "/srv/arena/sources/pytest-stop-fixture-teardown",
+      "base_commit": "f017df443a589494b0a47488b1616db7c12dc8cd",
+      "base_tree": "2222222222222222222222222222222222222222",
+      "issue_ref": "pytest-dev/pytest#11706",
+      "issue_path": "/srv/arena/cases/pytest-stop-fixture-teardown/issue.json",
+      "issue_sha256": "5e2d8c25f896166040b69f3f12a005fdacc8cf9ffd6405863b4a098c00bd6fe4",
+      "oracle_path": "/srv/arena/cases/pytest-stop-fixture-teardown/oracle.py",
+      "oracle_sha256": "6f4ed40ae4f322d0bee8ed0e6db0b6693b147923e689af432e1193d8a68b527a",
+      "split": "holdout",
+      "required_checks": [
+        "maxfail_module",
+        "stepwise_module",
+        "maxfail_session",
+        "stepwise_session",
+        "setup_error_cleanup",
+        "all_finalizers_reported",
+        "same_fixture_maxfail",
+        "same_fixture_stepwise",
+        "same_fixture_setup",
+        "shouldfail_sticky",
+        "shouldstop_sticky",
+        "normal_fixture_reuse"
+      ],
+      "task": "Fix pytest-dev/pytest#11706",
+      "reference_sha256": "7d87fe2c938ba8ec19044f19de70871d872af2a55b28dc9133e9d75c9249aeca",
+      "sha256": "e4f23d782b91c8ff4ead729464299f93560e3d5ac30683659e003469c96fe0bf"
+    }
+  ]
+}

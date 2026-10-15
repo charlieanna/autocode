@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_tool_containment as containment
+import autocode_toolchain as toolchain
 from providers import opencode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -173,6 +174,45 @@ class PolicyTests(unittest.TestCase):
         ]
         self.assertEqual((genuine,), containment.recorded_scratch(records, "/workspace"))
         self.assertEqual((), containment.recorded_scratch(records, "/other"))
+
+    def test_recorded_backend_is_the_latest_contained_launchs_own_manifest(self):
+        # The status view names the boundary a launch actually ran in (#709), never this host's.
+        legacy = {"stage": "sol", "iteration": 1, "started_at": "t1", "tool_containment": {"scratch": "/s"}}
+        linux = {
+            "stage": "terra",
+            "iteration": 2,
+            "started_at": "t2",
+            "tool_containment": {"backend": "bubblewrap", "backend_version": "bubblewrap 0.9.0"},
+        }
+        waived = {"stage": "sol", "iteration": 2, "tool_containment": None, "uncontained_tools": True}
+        self.assertIsNone(containment.recorded_backend([]))
+        self.assertIsNone(
+            containment.recorded_backend([{"stage": "astra_plan"}, waived, "x", {"tool_containment": "x"}])
+        )
+        # A manifest saved before #709 names no backend: only Seatbelt existed then, as verify() reads it.
+        self.assertEqual(
+            {"backend": "seatbelt", "backend_version": None, "stage": "sol", "iteration": 1, "started_at": "t1"},
+            containment.recorded_backend([legacy]),
+        )
+        # Later uncontained or planning launches do not hide the last boundary that applied.
+        self.assertEqual(
+            {
+                "backend": "bubblewrap",
+                "backend_version": "bubblewrap 0.9.0",
+                "stage": "terra",
+                "iteration": 2,
+                "started_at": "t2",
+            },
+            containment.recorded_backend([legacy, linux, waived, {"stage": "astra_plan"}]),
+        )
+        # A name that is not a backend is not repeated as one.
+        for odd in (
+            {"backend": 7, "backend_version": ["x"]},
+            {"backend": ["bubblewrap"], "backend_version": {"v": 1}},
+            {"backend": "chroot", "backend_version": None},
+        ):
+            named = containment.recorded_backend([{"stage": "terra", "tool_containment": odd}])
+            self.assertEqual((None, None), (named["backend"], named["backend_version"]))
 
 
 class BubblewrapArgumentTests(unittest.TestCase):
@@ -690,7 +730,7 @@ class KernelTests(unittest.TestCase):
         self.events.write_text('{"type":"step_start"}\n')
         self.receipt = private / "accepted.json"
         self.receipt.write_text('{"accepted":true}\n')
-        self.roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(), ROOT / "tools"]
+        self.roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(), (ROOT / "tools").resolve()]
         self.env = {**os.environ, "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin:/opt/homebrew/bin"}
         self.before = {
             p: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -733,6 +773,28 @@ class KernelTests(unittest.TestCase):
         self.assertFalse(escape.exists())
         self.assertEqual(self.before, {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in self.before})
 
+    def test_status_view_names_the_boundary_recorded_for_a_contained_launch(self):
+        # #709: a real launch's boundary blocks a planted write outside the workspace, and the status
+        # view names the backend recorded for that launch. The view reads the stage record built from
+        # the launch's manifest; it does not observe the denial itself.
+        import autocode_provider_launch as provider_launch
+        import autocode_run_view as run_view
+
+        writer = containment.prepare(self.workspace, allow_write=True, read_roots=self.roots, environment=self.env)
+        escape = self.home / "planted-escape"
+        self.assert_denied(": > " + shlex.quote(str(escape)), writer)
+        self.assertFalse(escape.exists())
+        record = {
+            "stage": "terra",
+            "iteration": 1,
+            "started_at": "2026-10-15T00:00:00+00:00",
+            **provider_launch.stage_record({"engine": "opencode", "tool_containment": writer}),
+        }
+        named = run_view.view({"status": "RUNNING", "stages": [record]})["tool_containment_backend"]
+        self.assertEqual(NATIVE, named["backend"])
+        self.assertEqual(containment.backend_version(NATIVE), named["backend_version"])
+        self.assertEqual(("terra", 1), (named["stage"], named["iteration"]))
+
     def test_symlink_escape_denied_even_from_writable_scratch(self):
         link = Path(self.boundary["scratch"]) / "escape"
         link.symlink_to(self.outside)
@@ -764,6 +826,14 @@ class KernelTests(unittest.TestCase):
         self.assertFalse((self.workspace / "__pycache__").exists())
 
     def test_public_capture_cli_uses_only_owned_stage_scratch(self):
+        if type(self) is KernelTests:
+            tools_ready = toolchain.discover(self.workspace, ["python -m autocode_cli capture"], self.env)
+            self.boundary = containment.prepare(
+                self.workspace,
+                read_roots=[*self.roots, *tools_ready["read_roots"]],
+                protected_paths=[self.runtime],
+                environment=self.env,
+            )
         output = Path(self.boundary["scratch"]) / "approved-capture.json"
         command = shlex.join(
             [

@@ -7,8 +7,11 @@ no run results, and no campaign has been executed for it. It is a measurement
 specification, not a command accepted by the current Arena or scenario CLI.
 [`tools/reliability_ledger.py`](../tools/reliability_ledger.py) checks a
 published attempt ledger against it and reports the portfolio
-([below](#attempt-ledger-and-portfolio-report)). Automatic execution, ingestion
-from native result files and fresh holdout rotation remain separate work in #634.
+([below](#attempt-ledger-and-portfolio-report)), and
+[`tools/reliability_import.py`](../tools/reliability_import.py) fills ledger
+rows from scenario and Arena result records
+([below](#importing-native-results)). Automatic execution and fresh holdout
+rotation remain separate work in #634.
 
 The tasks include the three hard Python Arena cases; the existing bug-fix,
 feature and greenfield scenarios; the transactional import, ledger, durable
@@ -56,6 +59,13 @@ documented 3,600-second **per CLI invocation** timeout, 120-second oracle bound
 and three-iteration cap. These are not a 3,600-second total campaign ceiling;
 this declaration adds no total campaign ceiling or budget refill.
 
+The report compares each attempt's spent budget with these limits. An attempt
+that spent more than a declared limit did not run under the pinned budget: it
+blocks a comparison, and a `PASS` that did is not counted as a verified
+delivery. A harness that stops an attempt at its limit can record slightly
+more than the limit; the report still shows it as over, since a ledger row
+cannot tell that from a larger budget.
+
 Freeze the manifest hash before admission. Every schedule ID must appear
 exactly once in the published attempt ledger, including failures, errors,
 skips, unexercised or interrupted work and unattempted `DEFERRED` rows. Keep
@@ -102,17 +112,31 @@ with exit status 2, when:
   result, elapsed time, usage, cost or spent budget (an attempt that spent
   anything ran, and keeps its native outcome).
 
-It also refuses a declaration that weakens the acceptance rules it applies or
-lists a native outcome that has no portfolio outcome below.
+It also refuses a declaration that weakens the acceptance rules it applies,
+lists a native outcome that has no portfolio outcome below, or declares a task
+without a `limits` object whose values are finite nonnegative numbers: the
+spent budget is compared with those limits, so a task cannot leave them out.
 
-Each row holds the declared fields. `oracle_checks` is a list of `{name, ok}`
+Each row holds the declared fields. `source_revision` is the full commit that
+ran, or null when the record does not establish one (a checkout with
+uncommitted changes, or an Arena runner that is not the declared revision); a
+null revision is reported as a deviation. `oracle_checks` is a list of `{name, ok}`
 or null when ungraded, `interventions_decision_or_repair` a list of
 `{kind, note}` with kind `decision` (a legitimate answer or approval) or
 `repair` (a person fixed the work), and `elapsed_seconds`, `estimated_usd` and
 each `spent_budget` value a nonnegative number or null when unknown.
+`spent_budget` names its amounts after the task's declared `limits`
+(`harness_minutes` and `max_steps` for a scenario; `cli_invocation_seconds`,
+`oracle_seconds` and `max_iterations` for Arena). Each declared limit is
+reported as within, over or unknown: a spend equal to the limit is within it,
+and a missing or null spend is unknown, never within.
 `runtime_identity` names the pinned runtime versions and a `dependencies`
 freeze record; `actual_models_and_efforts` has the profile's `provider`,
-`models` and `effort` shape.
+`models` and `effort` shape. An imported Arena row also keeps the runner
+options as forwarded (`runner_options`) and `option_deviations`, a list of
+strings naming each option that differs from the declared configuration
+([below](#importing-native-results)). A live row that lists any is reported
+as a deviation; a value that is not a list of strings is refused.
 
 The report puts every attempt in exactly one portfolio outcome:
 
@@ -121,7 +145,7 @@ The report puts every attempt in exactly one portfolio outcome:
 | Verified delivery | `PASS` at a completion status, every oracle check passing (for Arena, every declared upstream check present), evidence references, the declared revision, runtime and live profile, and no repair |
 | Verified delivery after a human repair | The same, with at least one `repair` intervention |
 | Appropriate stop | `PASS` at a stop on a task that expects a stop; none of this campaign's tasks does |
-| Native PASS without complete evidence | A `PASS` missing checks or evidence, or recorded on another revision, runtime or profile |
+| Native PASS without complete evidence | A `PASS` missing checks or evidence, recorded on another or no revision, runtime or profile, or over a declared limit |
 | False completion | `FALSE_COMPLETE` |
 | Stopped (appropriateness not established) | Arena `STOPPED` or scenario `HONEST_BLOCKER` |
 | Ended without completing or stopping | Arena `FAIL` |
@@ -134,7 +158,97 @@ Live and fixture attempts are counted in separate sections and never pooled.
 Each section also reports decisions and repairs, cost across every attempt
 including failures (an unpriced attempt keeps the total unknown, beside the
 known subtotal), cost per verified delivery without repair, and elapsed time.
-A comparison is reported as blocked while any attempt has no judgement or
-differs from the declared revision, runtime or profile. Evidence references are
-the evaluator's declarations: the report checks their presence, not their
+Each section counts the attempts within every declared limit, over at least
+one, and with a spend unknown. A comparison is reported as blocked while any
+attempt has no judgement, differs from the declared revision, runtime or
+profile, or spent more than a declared limit. Evidence references are the
+evaluator's declarations: the report checks their presence, not their
 authenticity.
+
+## Importing native results
+
+`tools/reliability_import.py` fills a ledger's `DEFERRED` rows from the
+records the harnesses already write. The evaluator names the scheduled attempt
+each record belongs to; nothing is matched by guessing:
+
+```sh
+.venv/bin/python tools/reliability_import.py arena/campaign.json ledger.json \
+  --scenario scenario/bugfix-iso-weeks/01 .scenario-runs/RUN/result.json \
+  --arena arena/sympy-matrix-derivatives/01 .autocode/arena-hard-v1 ATTEMPT_ID \
+  --runtime-identity runtime.json
+```
+
+`--scenario` takes a scenario run's `result.json` (or its evidence directory).
+`--arena` takes an Arena store directory and an attempt ID, and reads that
+attempt from the store's `results.sqlite3`, opened read-only. Both repeat. The
+ledger is updated in place, and the command prints each imported attempt's
+native outcome and portfolio outcome with any gaps, deviations or overruns.
+
+The native verdict, status and oracle checks are copied as recorded, never
+rescored. What a record does not establish stays null:
+
+- A scenario run records its commit and whether `tools/` held uncommitted
+  changes; with changes, the revision is null. That flag covers `tools/` only:
+  a scenario record does not pin the scenario's own definition, oracle or
+  checks, so an edited scenario under `scenarios/` is not detected. Arena
+  records a content identity of its runner's `tools/`, not a commit: the
+  revision is the declared one only when that identity equals the declared
+  revision's, read from local Git objects, and null otherwise.
+- An Arena store records each case's base commit, required checks and the
+  SHA-256 of the oracle it ingested, and a digest of the whole case definition
+  that each attempt repeats. The import reads the case as Arena does: a case
+  whose digest no longer matches its definition, or whose digest is not the
+  one the attempt ran against, is refused. Its oracle digest must equal the
+  digest of the declared task's `oracle.py` at the declared revision, read
+  from local Git objects; another oracle is refused. The import, and its
+  tests, therefore need the pinned commit in local Git objects
+  (`git fetch --unshallow` in a shallow clone).
+- A scenario run's cost is the status view's spent amount only when that view
+  says it is complete; a floor is not the attempt's cost. Arena does not price
+  attempts, so its rows' cost stays unknown.
+- The scenario harness measures its wall-clock drive time (`harness_minutes`)
+  and its recorded CLI calls (`max_steps`). Arena measures none of its declared
+  limits per CLI invocation, so they stay unknown.
+- A live scenario run records its resolved profile. Arena records the runner
+  options it forwarded. The import reads the provider, and the model and effort
+  AutoCode gives each role, from them in AutoCode's order: `--single-model`
+  names every model, a role's own effort flag overrides `--reasoning-effort`
+  (which the scenario harness writes as the builder's effort), and
+  `--resolver-model` and `--resolver-reasoning-effort` override the resolver's
+  `--astra-*` flags. It also compares the options as a whole with the declared
+  configuration: the scenario harness's flags for the profile (`--provider`,
+  `--joint-planning`, the profile's extra options and the role flags) and the
+  task's `--max-iterations` cap. Each option that is missing, added or set to
+  another value is recorded in `option_deviations` and reported as a
+  deviation, so such an attempt's `PASS` is not a verified delivery.
+  `--test-command` is not compared, since the declaration leaves each case's
+  test command to the evaluator. A scripted (`--fake`) or hybrid run is
+  fixture evidence and cannot fill a live row. A hybrid run is recognized by
+  the `-hybrid` part of its mode, which the harness sets before it sets up
+  the hybrid route, so a hybrid run skipped before that setup is fixture
+  evidence too.
+- Neither record holds the runtime versions or the dependency freeze.
+  `--runtime-identity` adds the evaluator's admission record (a JSON object with
+  the pinned runtime keys and `dependencies`) to every row the call imports;
+  without it, those rows report the runtime as not recorded.
+
+Each answer and gate the harness gave on the person's behalf, and Arena's
+benchmark plan approval, is recorded as a `decision`, its note naming the
+answer's source or the gate. Neither harness records a repair: if a person
+repaired an attempt's work, add a `repair` intervention to its row by hand.
+
+The import refuses, with exit status 2 and the ledger unchanged, when the
+ledger already fails a check of the report, a row already holds an attempt (a
+retry needs a new declared schedule), a record would fill two rows, the record
+is of another task or kind, an Arena case in the store pins another base
+commit, other checks or another oracle than the declared task or changed after
+the attempt, or the resulting ledger fails any check of the report.
+
+A scenario attempt the harness admitted but never graded has an
+`attempt.json` and no `result.json`; the import refuses it rather than judge
+whether its process is still running. Import it once it finishes. When
+`scenarios/run.py stats` reports it `INTERRUPTED_UNGRADED` or
+`PENDING_UNGRADED`, write its row by hand: that native outcome, `oracle_checks`
+null, the run's evidence directory in `evidence_refs`, whatever the attempt
+record establishes (revision, profile, elapsed time) and null for the rest,
+and a reason. The report checks the hand-written row like any other.

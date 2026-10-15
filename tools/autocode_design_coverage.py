@@ -203,7 +203,7 @@ def ready(state):
         return True
     try:
         record = (state.get("settings") or {}).get("design_manifest")
-        if record and manifest.blockers(record):
+        if record and manifest.delivery_blockers(record):
             return False
         refs = report_refs(state, state.get("validation") or {})
         pins = (state.get("validation") or {}).get("evidence_hashes") or {}
@@ -247,6 +247,7 @@ def projection(state):
             catalog = manifest.verified_catalog(record)
             result["inventory"] = catalog
             result["inventory_blockers"] = list(catalog["blockers"])
+            result["delivery_blockers"] = list(catalog.get("delivery_blockers", catalog["blockers"]))
         except (ValueError, OSError, KeyError, TypeError) as error:
             result["inventory_error"] = str(error)
             result["inventory_blockers"] = [str(error)]

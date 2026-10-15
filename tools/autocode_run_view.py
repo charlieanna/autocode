@@ -57,6 +57,7 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_task_input as task_input
+    from . import autocode_tool_containment as tool_containment
     from . import autocode_verification_view as verification_view
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
@@ -90,6 +91,7 @@ except ImportError:
     import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
     import autocode_task_input as task_input
+    import autocode_tool_containment as tool_containment
     import autocode_usage
     import autocode_verification_view as verification_view
 
@@ -110,11 +112,12 @@ def view(
     runner_check_liveness=None,
     verification_obligation=None,
     conversation_journal=None,
+    design_input_preview=None,
     controller=None,
     run_dir=None,
     workspace=None,
 ) -> dict:
-    """Caller supplies fresh completion, evidence, repair and supervision inspections."""
+    """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
         from . import autocode_replay_view as replay_view
     except ImportError:
@@ -134,6 +137,9 @@ def view(
     supervision = active.get("supervision") if isinstance(active, dict) else None
     check = state.get("active_runner_check")
     check_supervision = check.get("supervision") if isinstance(check, dict) else None
+    # Saved stage records, then the running stage, so the running one is read first; a corrupt list reads empty.
+    stages = state.get("stages")
+    launches = [*(stages if isinstance(stages, list) else []), active]
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -189,7 +195,7 @@ def view(
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
         "evidence": evidence(state),
-        "approvals": approval_provenance.view(state),  # who approved each plan and review (#722)
+        "approvals": approval_provenance.view(state),  # who approved, edited the plan or resumed a pause (#722)
         # Canonical publication metadata is historical until the status interface
         # authenticates its files and current completion; no state mutation here.
         "evidence_report": evidence_report(state),
@@ -221,6 +227,10 @@ def view(
         # Built-in OpenCode non-planning stages: "contained" (kernel tool boundary) or
         # "uncontained_user_accepted" (--allow-uncontained-tools); None when no stage uses it (#413).
         "tool_containment": containment_policy.mode(state.get("settings")),
+        # The kernel boundary the latest contained launch ran in, from its own stage record (the running
+        # stage first): backend ("seatbelt" or "bubblewrap"), backend_version, stage, iteration and
+        # started_at. None until a stage launches contained (#709).
+        "tool_containment_backend": tool_containment.recorded_backend(launches),
         # The monorepo package the run works in (--package, autocode_package_scope); None for the whole repository.
         "package": package_scope.of(state.get("settings")),
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
@@ -261,6 +271,9 @@ def view(
     design = design_coverage.projection(state)
     if design is not None:
         result["design"] = design
+    if design_input_preview is not None:
+        # Verified new-run dry-run input: never persisted as settings or model evidence.
+        result["design_input_preview"] = deepcopy(design_input_preview)
     if state.get("task_preflight"):
         result["task_preflight"] = {
             key: deepcopy(state["task_preflight"].get(key))
@@ -457,8 +470,9 @@ def evidence(state: RunState) -> dict:
                       The view does not read the workspace: after rework, validator_status
                       still reports that validation until a newer one replaces it. Compare
                       this revision to the workspace before treating the status as current.
-    findings          the findings ledger: id, status, severity, finding, source, scope (sol: Tester,
-                      astra: Completion Reviewer, runner: a failed runner lifecycle observation, #451)
+    findings          the findings ledger: id, status, severity, finding, source, blocking, evidence,
+                      scope (sol: Tester, astra: Completion Reviewer, runner: a failed runner lifecycle
+                      observation, #451)
     finding_scope_moves  present once an approved revision moved criteria that open findings cite:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
                       to (every resulting row's id, milestone_id, criteria), contract_token, at
@@ -540,7 +554,10 @@ def evidence(state: RunState) -> dict:
         "validator_source_revision": validation.get("source_revision"),
         "findings": [
             {
-                **{key: row.get(key) for key in ("id", "status", "severity", "finding", "source")},
+                **{
+                    key: row.get(key)
+                    for key in ("id", "status", "severity", "finding", "source", "blocking", "evidence")
+                },
                 **({"scope": deepcopy(row["scope"])} if "scope" in row else {}),
             }
             for row in state.get("findings_ledger") or []
@@ -910,6 +927,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = review["action"]
         return need
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
+        native_need = recovery_view.native_cleanup_need(state)
+        if native_need is not None:
+            return native_need
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}

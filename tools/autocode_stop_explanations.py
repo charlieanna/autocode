@@ -102,7 +102,7 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused --max-iterations N (or the matching budget flag) raises the bound and continues.",
     ),
     "PAUSED_COST_LIMIT": (
-        "The run's spend reached the cost cap you set, or the Builder's stronger attempt is projected past it; "
+        "The run's spend reached the cost cap you set, or an attempt on a stronger route is projected past it; "
         "no stage launches past it.",
         "--resume-paused --max-cost-usd N with a higher cap (or 0 for none) continues; AutoCode never raises it.",
     ),
@@ -457,6 +457,17 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         if entry
         else (f"AutoCode stopped at {status!r}.", "Inspect the stop reason and resume when it is resolved.")
     )
+    if (
+        status == "PAUSED_PROCESS_CLEANUP"
+        and isinstance(needs, dict)
+        and needs.get("native_cleanup") is True
+        and needs.get("recovery_hint")
+    ):
+        # The native request predicate has already selected inspection-only or
+        # conditional abandonment advice. Do not contradict it with generic
+        # resume guidance; this text grants no original-owner authority.
+        means = "Native planning cleanup requires original-owner verification before another stage can run."
+        does = needs["recovery_hint"]
     owner = (
         "a person"
         if status

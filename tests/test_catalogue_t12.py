@@ -71,7 +71,9 @@ class DashboardCase(kit.CatalogueCase):
             )
         kind = "browser" if name in REAL_BROWSER_SUITES else "node_vm"
         try:
-            completed = run_browser_suite(name)
+            # The full21-screen + operational a11y suite took746s standalone;
+            # healthy catalogue workers exhausted420s. Other suites retain420s.
+            completed = run_browser_suite(name, timeout=1200 if name == "a11y" else 420)
         except BaseException as error:
             self.bundle.log(
                 "dashboard_suite",

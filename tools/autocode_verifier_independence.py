@@ -10,7 +10,8 @@ Asked by the dispatch guard before a launch (autocode_dispatch, which a human
 ``--answer route-<role>=MODEL`` also re-checks through), the Builder's stronger attempt
 deciding which checkers to move (autocode_builder_policy), a new run's retry policy refusing
 a strong model that would be checked by its own family, a tool's [builder_retry] table
-(providers/command.py) and the model catalogue's suggestions (#612).
+(providers/command.py), the model catalogue's suggestions, and a new run's check of the
+checker model its stronger attempt would move checkers to (autocode_route_ladder.serve) (#612).
 """
 
 from __future__ import annotations

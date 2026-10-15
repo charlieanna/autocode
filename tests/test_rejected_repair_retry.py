@@ -4,6 +4,8 @@ Each test drives feature-stock-refusals end to end with the scripted model, so t
 tests/suite_slow.json; the pure rules are in test_retained_work and test_recovery_novelty.
 """
 
+import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -106,7 +108,65 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         view = driver.view()
         self.assertIn("No causal progress", view.get("stop_reason", ""), view.get("status"))
         self.assertEqual(builders, self.stages(driver).count("terra"))
-        driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage")
+        try:
+            driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage")
+        except Exception as error:
+            # The harness suppresses display of its public CallTimeout context.
+            # Retain only bounded public timeout/output facts before scratch cleanup.
+            try:
+                cause = error.__context__
+                diagnostic = {
+                    "kind": "REJECTED_REPAIR_AUTHORIZED_RETRY_ORIGINAL_TIMEOUT_DIAGNOSTIC",
+                    "fixture_root": str(self.root),
+                    "error_type": type(error).__name__,
+                    "original_message": str(error)[:1024],
+                    "original_message_truncated": len(str(error)) > 1024,
+                    "context_type": type(cause).__name__ if cause is not None else None,
+                    "timeout_seconds": getattr(cause, "timeout", None),
+                    "cleanup_errors": getattr(cause, "cleanup_errors", None),
+                    "context_unknown": cause is None,
+                    "completed_cli_steps": [
+                        {
+                            "kind": str(step.get("kind", "unknown"))[:128],
+                            "exit": step.get("exit"),
+                            "seconds": step.get("seconds"),
+                        }
+                        for step in driver.steps[:30]
+                    ],
+                    "completed_cli_steps_count": len(driver.steps),
+                    "completed_cli_steps_truncated": len(driver.steps) > 30,
+                    "completed_cli_steps_exclude_status_calls": True,
+                    "diagnostic_truncated": False,
+                    "qualification_accepted": False,
+                }
+                for name, attribute in (("stdout", "output"), ("stderr", "stderr")):
+                    value = getattr(cause, attribute, None)
+                    if isinstance(value, (str, bytes)):
+                        data = value.encode("utf-8", errors="replace") if isinstance(value, str) else value
+                        diagnostic[name] = {
+                            "bytes": len(data),
+                            "sha256": hashlib.sha256(data).hexdigest(),
+                            "tail": data[-2048:].decode("utf-8", errors="replace"),
+                            "tail_truncated": len(data) > 2048,
+                        }
+                    else:
+                        diagnostic[name] = {"unknown": True}
+                encoded = json.dumps(diagnostic, sort_keys=True, ensure_ascii=True)
+                if len(encoded.encode("utf-8")) + 1 > 16384:
+                    encoded = json.dumps(
+                        {
+                            "kind": diagnostic["kind"],
+                            "diagnostic_truncated": True,
+                            "facts_unknown": True,
+                            "qualification_accepted": False,
+                        },
+                        sort_keys=True,
+                    )
+                print(encoded, flush=True)
+            except BaseException:
+                # No secondary capture, encoding or emission failure masks refusal.
+                pass
+            raise
         retry = self.assert_repaired(driver, driver.until_stopped())
         self.assertEqual("invocation", retry["recovery_novelty"]["grant_kind"])
 

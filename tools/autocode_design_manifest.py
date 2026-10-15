@@ -13,18 +13,29 @@ except ImportError:
 
 
 import copy
+import hashlib
+import json
 import math
+import os
 import re
 import shutil
+import stat
 import struct
 import tempfile
 from pathlib import Path, PurePosixPath
 
+PLANNING_INPUTS = "design-inputs-planning-v1"
+PLANNING_PARTITION = "planning-scope-partition.json"
+COMPLETE_PLANNING_INPUTS = "design-inputs-planning-v2"
+PLANNING_CATALOG = "planning-catalog.json"
+
 try:
     from . import autocode_design_inventory as inventory
+    from . import autocode_design_scope as scope
     from . import autocode_util as util
 except ImportError:
     import autocode_design_inventory as inventory
+    import autocode_design_scope as scope
     import autocode_util as util
 
 
@@ -204,8 +215,10 @@ def relative_path(value):
     return path
 
 
-def validate(body, *, root=None):
+def validate(body, *, root=None, admission=None):
     """Validate the inventory; return its catalog for version 2, otherwise None."""
+    if admission is not None and (body.get("version") != 2 or admission.manifest_hash != util.digest(body)):
+        raise ValueError("Approved scope differs from the complete version 2 inventory")
     if isinstance(body, dict) and body.get("version") == 2:
         util.validate_schema(body, SCHEMA_V2)
         if root is None:
@@ -248,8 +261,10 @@ def validate(body, *, root=None):
     else:
         util.validate_schema(body, SCHEMA)
     if body.get("version") == 2:
-        _validate_v2_cases(body, root)
-        catalog = inventory.catalog(body, root)  # reject conflicting definitions of a shared component/token
+        _validate_v2_cases(body, root, admission=admission)
+        catalog = inventory.catalog(
+            body, root, admission=admission
+        )  # reject conflicting definitions of a shared component/token
         paths = {}
         for artifact in all_artifacts(body):
             relative_path(artifact["path"])
@@ -317,7 +332,7 @@ def _validate_available_reference(row, kind):
         raise ValueError(f"Missing Figma {kind} must carry a reason and no guessed artifact: {row['id']}")
 
 
-def _validate_v2_cases(body, root):
+def _validate_v2_cases(body, root, *, admission=None):
     ids = set()
     page_ids = {(file["key"], page["id"]) for file in body["files"] for page in file["pages"]}
     identities, covered, paths = set(), set(), {}
@@ -358,6 +373,9 @@ def _validate_v2_cases(body, root):
                 raise ValueError("Conflicting design artifact hashes")
     expected_states = set()
     frame_set = set(inventory.screen_frames(body, root))
+    app_frames = (
+        set(scope.partition(sorted(frame_set), body["cases"], admission)[0]) if admission is not None else frame_set
+    )
     for file in body["files"]:
         state_identities = set()
         for row in file["screen_states"]:
@@ -382,8 +400,9 @@ def _validate_v2_cases(body, root):
             if identity in state_identities:
                 raise ValueError(f"Duplicate source screen state: {identity}")
             state_identities.add(identity)
-            expected_states.add(identity)
-    discovered = frame_set
+            if admission is None or frame in app_frames:
+                expected_states.add(identity)
+    discovered = app_frames
     if covered != discovered:
         raise ValueError(
             f"Figma source frames and cases differ; missing cases: {sorted(discovered - covered)}; "
@@ -430,17 +449,22 @@ def png_dimensions(path):
     return struct.unpack(">II", header[16:24])
 
 
-def verified_catalog(record):
+def verified_catalog(record, *, approved_scope=None, approved_scope_sha256=None):
     """Authenticate every retained pin and return the freshly validated v2 catalog.
 
     The result belongs to this inspection only. No prior-call catalog can replace
     the structure, identity, file hashes or dimensions checked here.
     """
     body, root = record["body"], Path(record["root"]).resolve()
-    catalog = validate(body, root=root)
+    selected = admitted_scope(record, approved_scope=approved_scope, approved_scope_sha256=approved_scope_sha256)
+    complete_root = _complete_planning_root(record)
+    if complete_root is not None:
+        # Authenticate type/identity/length before any index payload read.
+        _immutable_planning_input(complete_root / "inventory-manifest.json", _planning_partition_bytes(body))
+    catalog = validate(body, root=root, admission=selected)
     if record["manifest_hash"] != util.digest(body):
         raise ValueError("Saved design manifest identity changed")
-    if record.get("manifest_path"):
+    if record.get("manifest_path") and complete_root is None:
         index = Path(record["manifest_path"])
         if index.is_symlink() or not index.resolve().is_relative_to(root) or _read_json(index) != body:
             raise ValueError("Retained design inventory index is missing or changed")
@@ -448,6 +472,7 @@ def verified_catalog(record):
         path = root / artifact["path"]
         if (
             path.is_symlink()
+            or any(parent.is_symlink() for parent in path.parents if parent.is_relative_to(root))
             or not path.resolve().is_relative_to(root)
             or not path.is_file()
             or util.file_hash(path) != artifact["sha256"]
@@ -459,11 +484,15 @@ def verified_catalog(record):
         expected = tuple(round(dimensions[key] * case["export_scale"]) for key in ("width", "height"))
         if png_dimensions(root / case["artifacts"]["screenshot"]["path"]) != expected:
             raise ValueError(f"Reference export dimensions disagree with viewport/export_scale: {case['id']}")
+    if _planning_partition_path(record) is not None:
+        _planning_partition_locator(record, catalog["scope_partition"])
+        if _complete_planning_root(record) is not None:
+            _complete_planning_refs(record, catalog)
     return catalog
 
 
-def verify(record):
-    verified_catalog(record)
+def verify(record, *, approved_scope=None, approved_scope_sha256=None):
+    verified_catalog(record, approved_scope=approved_scope, approved_scope_sha256=approved_scope_sha256)
     return record
 
 
@@ -492,21 +521,269 @@ def _read_json(path):
         raise ValueError(f"Unreadable Figma inventory JSON: {path}") from error
 
 
-def load(path):
+def _scope_bytes(path, expected):
+    path = Path(path)
+    if (
+        path.is_symlink()
+        or any(parent.is_symlink() for parent in path.parents)
+        or not path.is_file()
+        or path.stat().st_size == 0
+    ):
+        raise ValueError("Approved scope must be a nonempty regular external artifact")
+    data = path.read_bytes()
+    if util.file_hash(path) != expected:
+        raise ValueError("Approved scope artifact changed")
+    return data
+
+
+def admitted_scope(record, *, approved_scope=None, approved_scope_sha256=None):
+    """Reauthenticate saved authority, or explicit transient operator input.
+
+    Only retain constructs scope_admission. load never discovers a pin in a
+    provider bundle; temporary operator paths are arguments, never record data.
+    """
+    allowed = {"body", "manifest_hash", "root", "manifest_path", "scope_admission"}
+    if not isinstance(record, dict) or set(record) - allowed:
+        raise ValueError("Unknown design record fields")
+    if bool(approved_scope) != bool(approved_scope_sha256):
+        raise ValueError("Approved scope requires both an external path and trusted SHA256")
+    saved = record.get("scope_admission")
+    if saved is not None:
+        if approved_scope is not None or approved_scope_sha256 is not None:
+            raise ValueError("Saved scope authority is immutable; do not replace its pin")
+        if (
+            not isinstance(saved, dict)
+            or set(saved) != {"path", "sha256"}
+            or not isinstance(saved["sha256"], str)
+            or not scope.SHA.fullmatch(saved["sha256"])
+            or saved["path"] != "approval/approved-scope-" + saved["sha256"] + ".json"
+            or not record.get("manifest_path")
+        ):
+            raise ValueError("Malformed retained scope authority")
+        root = Path(record["root"]).resolve()
+        selected = root / saved["path"]
+        if not selected.resolve().is_relative_to(root):
+            raise ValueError("Retained scope authority is outside its bundle")
+        data, pin = _scope_bytes(selected, saved["sha256"]), saved["sha256"]
+    elif approved_scope is not None:
+        data, pin = _scope_bytes(approved_scope, approved_scope_sha256), approved_scope_sha256
+    else:
+        return None
+    if record["body"].get("version") != 2:
+        raise ValueError("Approved scope requires the complete version 2 inventory")
+    return scope.admit(data, pin, record["manifest_hash"], record["body"]["cases"])
+
+
+def load(path, *, approved_scope=None, approved_scope_sha256=None):
     path = Path(path).resolve()
     body = _read_json(path)
-    return verify({"body": body, "manifest_hash": util.digest(body), "root": str(path.parent)})
+    return verify(
+        {"body": body, "manifest_hash": util.digest(body), "root": str(path.parent)},
+        approved_scope=approved_scope,
+        approved_scope_sha256=approved_scope_sha256,
+    )
 
 
-def retain(record, workspace):
-    """Retain ignored/external exports inside the new task's private input bundle."""
+def reload_public(record, path):
+    """Verify a public copy against the existing saved authority, never its own."""
     verify(record)
-    if any(
-        artifact["path"] == "inventory-manifest.json" or artifact["path"].startswith("inventory-manifest.json/")
-        for artifact in all_artifacts(record["body"])
+    saved = record.get("scope_admission")
+    arguments = (
+        {"approved_scope": Path(record["root"]) / saved["path"], "approved_scope_sha256": saved["sha256"]}
+        if saved
+        else {}
+    )
+    selected = load(path, **arguments)
+    if selected["manifest_hash"] != record["manifest_hash"]:
+        raise ValueError("Public design bundle differs from the approved retained Figma manifest")
+    return selected
+
+
+def _planning_partition_path(record):
+    root = Path(record["root"])
+    if not record.get("manifest_path") or root.parent.name not in (PLANNING_INPUTS, COMPLETE_PLANNING_INPUTS):
+        return None
+    if (
+        not root.is_absolute()
+        or root.parent.parent.name != ".autocode"
+        or Path(record["manifest_path"]) != root / "inventory-manifest.json"
+        or record["body"]["version"] != 2
+        or not record.get("scope_admission")
     ):
-        raise ValueError("inventory-manifest.json is reserved for the retained inventory index")
-    parent = Path(workspace).resolve() / ".autocode" / "design-inputs"
+        raise ValueError("Invalid retained planning inventory namespace")
+    return root / PLANNING_PARTITION
+
+
+def _planning_partition_bytes(partition):
+    return json.dumps(partition, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def _complete_planning_root(record):
+    root = Path(record["root"])
+    if root.parent.name != COMPLETE_PLANNING_INPUTS:
+        return None
+    if (
+        not root.is_absolute()
+        or root.parent.parent.name != ".autocode"
+        or root.name != record["manifest_hash"]
+        or record.get("manifest_path") != str(root / "inventory-manifest.json")
+        or record["body"]["version"] != 2
+        or not record.get("scope_admission")
+    ):
+        raise ValueError("Invalid complete planning inventory namespace")
+    return root
+
+
+def _immutable_planning_input(path, expected):
+    """Read only an owner-derived path and exact reconstructed bytes."""
+    path = Path(path)
+    if any(item.is_symlink() for item in (path, *path.parents)):
+        raise ValueError("Complete planning inputs cannot follow symlinks")
+    before = path.stat(follow_symlinks=False)
+    identity = lambda row: (
+        row.st_dev,
+        row.st_ino,
+        row.st_mode,
+        row.st_size,
+        row.st_mtime_ns,
+        row.st_ctime_ns,
+        row.st_uid,
+        row.st_nlink,
+    )
+
+    def valid(row):
+        return (
+            stat.S_ISREG(row.st_mode)
+            and stat.S_IMODE(row.st_mode) == 0o400
+            and row.st_uid == os.getuid()
+            and row.st_nlink == 1
+            and row.st_size == len(expected)
+        )
+
+    if not valid(before):
+        raise ValueError("Complete planning input must be an immutable regular file of exact length")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if not valid(opened) or identity(opened) != identity(before):
+            raise ValueError("Complete planning input changed before read")
+        actual = stream.read(len(expected) + 1)
+        finished = os.fstat(stream.fileno())
+    after = path.stat(follow_symlinks=False)
+    if any(identity(row) != identity(before) for row in (opened, finished, after)) or actual != expected:
+        raise ValueError("Complete planning input is missing or changed")
+    return {"path": str(path), "sha256": hashlib.sha256(expected).hexdigest(), "bytes": len(expected)}
+
+
+def _complete_planning_refs(record, catalog):
+    root = _complete_planning_root(record)
+    if root is None:
+        return {}
+    result = {}
+    for field, leaf, value in (
+        ("body", "inventory-manifest.json", record["body"]),
+        ("catalog", PLANNING_CATALOG, catalog),
+    ):
+        result[field] = {
+            **_immutable_planning_input(root / leaf, _planning_partition_bytes(value)),
+            "manifest_hash": record["manifest_hash"],
+            "scope_sha256": record["scope_admission"]["sha256"],
+        }
+    return result
+
+
+def _saved_planning_reader(settings, role):
+    if role not in ("requirements", "glm", "astra", "plan_reviewer"):
+        return False
+    route = settings.get("roles", {}).get(role)
+    if not isinstance(route, dict):
+        return False
+    engine = route.get("engine") or settings.get("engine")
+    provider = route.get("provider") or settings.get("provider") or engine
+    return engine == "opencode" and provider == "opencode"
+
+
+def planning_input_pins(settings, *, role):
+    """Exact input pins computed by CODE; never use a model's locator dict."""
+    record = settings.get("design_manifest")
+    if not record or not _saved_planning_reader(settings, role) or _complete_planning_root(record) is None:
+        return {}
+    verify(record)
+    catalog = inventory.catalog(record["body"], record["root"], admission=admitted_scope(record))
+    return {row["path"]: row["sha256"] for row in _complete_planning_refs(record, catalog).values()}
+
+
+def _planning_partition_locator(record, partition):
+    """Authenticate one reserved owner-produced file; never open a supplied locator."""
+    path = _planning_partition_path(record)
+    expected = _planning_partition_bytes(partition)
+    if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
+        raise ValueError("Retained planning scope partition cannot follow symlinks")
+    before = path.stat(follow_symlinks=False)
+    if not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != 0o400:
+        raise ValueError("Retained planning scope partition must be an immutable regular file")
+    if before.st_size != len(expected):
+        raise ValueError("Retained planning scope partition is missing or changed")
+    identity = lambda row: (row.st_dev, row.st_ino, row.st_mode, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or stat.S_IMODE(opened.st_mode) != 0o400
+            or opened.st_size != len(expected)
+            or identity(opened) != identity(before)
+        ):
+            raise ValueError("Retained planning scope partition is missing or changed")
+        actual = stream.read(len(expected) + 1)
+        finished = os.fstat(stream.fileno())
+    after = path.stat(follow_symlinks=False)
+    if any(identity(row) != identity(before) for row in (opened, finished, after)) or actual != expected:
+        raise ValueError("Retained planning scope partition is missing or changed")
+    return {
+        "path": str(path),
+        "sha256": hashlib.sha256(expected).hexdigest(),
+        "bytes": len(expected),
+        "manifest_hash": record["manifest_hash"],
+        "scope_sha256": record["scope_admission"]["sha256"],
+    }
+
+
+def retain(record, workspace, *, approved_scope=None, approved_scope_sha256=None):
+    """Retain complete references and byte-identical operator admission together."""
+    arguments = {"approved_scope": approved_scope, "approved_scope_sha256": approved_scope_sha256}
+    verify(record, **arguments)
+    admission = admitted_scope(record, **arguments)
+    selected_path = (
+        Path(record["root"]) / record["scope_admission"]["path"] if record.get("scope_admission") else approved_scope
+    )
+    scope_data = _scope_bytes(selected_path, admission.approval_sha256) if admission else None
+    scope_row = (
+        {"path": "approval/approved-scope-" + admission.approval_sha256 + ".json", "sha256": admission.approval_sha256}
+        if admission
+        else None
+    )
+    partition = (
+        inventory.catalog(record["body"], record["root"], admission=admission)["scope_partition"] if admission else None
+    )
+    for artifact in all_artifacts(record["body"]):
+        if (
+            artifact["path"] == "inventory-manifest.json"
+            or artifact["path"].startswith("inventory-manifest.json/")
+            or (admission is not None and (artifact["path"] == "approval" or artifact["path"].startswith("approval/")))
+            or (
+                admission is not None
+                and (artifact["path"] == PLANNING_PARTITION or artifact["path"].startswith(PLANNING_PARTITION + "/"))
+            )
+            or (
+                admission is not None
+                and (artifact["path"] == PLANNING_CATALOG or artifact["path"].startswith(PLANNING_CATALOG + "/"))
+            )
+        ):
+            raise ValueError("Inventory index, approval/ and planning partition are reserved retained input paths")
+    parent = Path(workspace).resolve() / ".autocode" / (COMPLETE_PLANNING_INPUTS if admission else "design-inputs")
+    if any(item.is_symlink() for item in (parent, parent.parent)):
+        raise ValueError("Retained design inputs cannot follow symlinks")
     parent.mkdir(parents=True, exist_ok=True)
     destination = parent / record["manifest_hash"]
     retained = {
@@ -514,25 +791,62 @@ def retain(record, workspace):
         "root": str(destination),
         "manifest_path": str(destination / "inventory-manifest.json"),
     }
+    if scope_row:
+        retained["scope_admission"] = scope_row
     if destination.exists():
-        verify({**record, "root": str(destination), "manifest_path": None})
+        if destination.is_symlink():
+            raise ValueError("Retained design inputs cannot follow symlinks")
+        # A same-body new pin cannot create/overwrite authority in an existing
+        # bundle. The exact saved artifact must already exist and verify.
+        if scope_row:
+            admitted_scope(retained)
+        else:
+            verify({**retained, "manifest_path": None})
         index = Path(retained["manifest_path"])
-        if not index.exists():
-            util.atomic_json(index, record["body"])  # add an index for a legacy retained bundle
-        return verify(retained)  # never replace a previously retained reference
-    temporary = Path(tempfile.mkdtemp(prefix=".design-", dir=parent))
+        if not index.exists() and not admission:
+            util.atomic_json(index, record["body"])
+        return verify(retained)
+    temporary_owner = Path(tempfile.mkdtemp(prefix=".design-", dir=parent))
+    temporary = temporary_owner / record["manifest_hash"]
+    temporary.mkdir(mode=0o700)
     try:
         for artifact in all_artifacts(record["body"]):
             target = temporary / artifact["path"]
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.exists():
                 shutil.copyfile(Path(record["root"]) / artifact["path"], target)
-        util.atomic_json(temporary / "inventory-manifest.json", record["body"])
-        verify({**record, "root": str(temporary), "manifest_path": str(temporary / "inventory-manifest.json")})
+        if scope_row:
+            target = temporary / scope_row["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(scope_data)
+        if partition is not None:
+            with (temporary / PLANNING_PARTITION).open("xb") as stream:
+                stream.write(_planning_partition_bytes(partition))
+                stream.flush()
+                os.fchmod(stream.fileno(), 0o400)
+                os.fsync(stream.fileno())
+        if admission:
+            # This is the full catalog, not planning_context's locator-bearing
+            # projection. Its source paths are the original relative artifact
+            # paths; only locators emitted after rename name the final root.
+            catalog = inventory.catalog(record["body"], temporary, admission=admission)
+            for leaf, value in (("inventory-manifest.json", record["body"]), (PLANNING_CATALOG, catalog)):
+                expected = _planning_partition_bytes(value)
+                with (temporary / leaf).open("xb") as stream:
+                    stream.write(expected)
+                    stream.flush()
+                    os.fchmod(stream.fileno(), 0o400)
+                    os.fsync(stream.fileno())
+                _immutable_planning_input(temporary / leaf, expected)
+            if catalog["scope_partition"] != partition:
+                raise ValueError("Copied planning inventory differs from the original source")
+        else:
+            util.atomic_json(temporary / "inventory-manifest.json", record["body"])
+        verify({**retained, "root": str(temporary), "manifest_path": str(temporary / "inventory-manifest.json")})
         temporary.rename(destination)
     finally:
-        if temporary.exists():
-            shutil.rmtree(temporary)
+        if temporary_owner.exists():
+            shutil.rmtree(temporary_owner)
     return verify(retained)
 
 
@@ -546,12 +860,14 @@ def context(settings, *, stage=None, current_task=None):
         raise util.Paused("PAUSED_DESIGN_REFERENCE", str(error)) from error
     result = copy.deepcopy(record)
     if record["body"]["version"] == 2:
-        result["catalog"] = inventory.catalog(record["body"], record["root"])
-        result["inventory_instruction"] = INSTRUCTION_V2
+        result["catalog"] = inventory.catalog(record["body"], record["root"], admission=admitted_scope(record))
+        result["inventory_instruction"] = INSTRUCTION_SCOPED if record.get("scope_admission") else INSTRUCTION_V2
         if stage in ("terra", "sol"):
             all_cases = copy.deepcopy(record["body"]["cases"])
             affected_paths = (current_task or {}).get("affected_paths", [])
-            projection = inventory.builder_slice(record["body"], record["root"], affected_paths)
+            projection = inventory.builder_slice(
+                record["body"], record["root"], affected_paths, admission=admitted_scope(record)
+            )
             # Builder receives only cases and inventory linked to its assigned source paths.
             # The full hash-bound body remains retained for planning and independent validation.
             result = {
@@ -564,9 +880,65 @@ def context(settings, *, stage=None, current_task=None):
                 "builder_scope": {
                     key: projection[key] for key in ("affected_paths", "case_ids", "unmapped_affected_paths")
                 },
-                "inventory_instruction": INSTRUCTION_V2,
+                "inventory_instruction": INSTRUCTION_SCOPED if record.get("scope_admission") else INSTRUCTION_V2,
             }
     return result
+
+
+def planning_context(settings, *, role):
+    """Lossless planning projection for the existing OpenCode workspace reader.
+
+    Public catalogs, old retained bundles, and providers without this exact read
+    boundary keep their full inline inventory. The locator grants no authority.
+    """
+    result = context(settings)
+    if not result or not _saved_planning_reader(settings, role):
+        return result
+    if _complete_planning_root(result) is not None:
+        refs = _complete_planning_refs(result, result["catalog"])
+        for field, ref in refs.items():
+            result[field] = {
+                **ref,
+                "retrieval": "Read this exact SHA256/byte-bound JSON input for the complete original "
+                + field
+                + "; no fields, source literals, resources or blockers are summarized.",
+            }
+        return result
+    if _planning_partition_path(result) is None:
+        return result
+    partition = result["catalog"]["scope_partition"]
+    result["catalog"]["scope_partition"] = {
+        **_planning_partition_locator(result, partition),
+        "retrieval": "Read this SHA256-bound JSON file for the complete original raw scope partition; no data is summarized.",
+    }
+    return result
+
+
+def preview(record, *, approved_scope=None, approved_scope_sha256=None):
+    """Read-only new-input projection; no transient authority enters settings."""
+    arguments = {"approved_scope": approved_scope, "approved_scope_sha256": approved_scope_sha256}
+    verify(record, **arguments)
+    admitted = admitted_scope(record, **arguments)
+    return {
+        "manifest_hash": record["manifest_hash"],
+        "case_ids": [row["id"] for row in record["body"]["cases"]],
+        "approved_scope_sha256": admitted.approval_sha256 if admitted else None,
+        "catalog": inventory.catalog(record["body"], record["root"], admission=admitted),
+        "retained": False,
+        "visual_acceptance": None,
+    }
+
+
+def delivery_blockers(record):
+    """Required app dependencies, while blockers() retains the complete catalog.
+
+    No admission is legacy full delivery. A scope pin is reauthenticated and
+    complete source validation/closure is rerun before restricting this gate.
+    """
+    verify(record)
+    if not record.get("scope_admission"):
+        return blockers(record)
+    return inventory.catalog(record["body"], record["root"], admission=admitted_scope(record))["delivery_blockers"]
 
 
 def blockers(record):
@@ -578,3 +950,25 @@ def blockers(record):
 INSTRUCTION = prompts.get("fragments/design-manifest/instruction.md")
 
 INSTRUCTION_V2 = prompts.get("fragments/design-manifest/instruction-v2.md")
+
+
+INSTRUCTION_SCOPED = """
+OPERATOR-APPROVED PRODUCT SCOPE
+The complete original source, full catalog and availability blockers remain
+retained. Only the externally authenticated cases are app implementation and
+visual acceptance obligations. scope_partition identifies the exact historical
+frame/resource complement outside approved product scope, without invented
+screenshots or human acceptance. Never omit source pages, owner definitions,
+variants, modes, aliases or required prototype targets to shrink delivery.
+Full-source availability gaps and app delivery blockers are reported separately.
+The unchanged design_coverage and VISUAL_CASE_CRITERIA obligations apply to every
+authenticated case and responsive target. Every case retains original native
+size, viewport, export scale, context and screenshot; no reference substitution
+or invented image/human acceptance is allowed. Figma stays read-only.
+"""
+
+
+INSTRUCTION_SCOPED_BASE = INSTRUCTION.replace(
+    "Every\npage-level or Section-level screen frame discovered in that source must have at\nleast one case; nested layout frames are not separate screens.",
+    "Every externally authenticated app case must retain its exact approved state,\nviewport and reference. Other discovered frames remain complete historical\nsource outside approved product scope, without invented implementation cases.",
+)

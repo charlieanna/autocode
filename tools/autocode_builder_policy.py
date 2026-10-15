@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import math
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -55,16 +54,17 @@ NO_STRONG_MODEL = (
     "Builder model (name one, and the model its checkers move to, under [builder_retry] in the provider "
     "config); human decision or replanning required"
 )
+# A new run whose provider did not list a model the stronger attempt needs has none (route_ladder.serve).
+NOT_OFFERED = (
+    "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
+    "because its provider does not offer {model}, which that attempt needs (start a run with "
+    "--builder-strong-model naming a model it lists); human decision or replanning required"
+)
 
 # The stronger attempt is the one route climb this policy spends; before it launches it is priced against the
 # person's cost cap (#611), so a run that cannot afford it stops with the arithmetic instead of climbing and
 # stopping at the cap afterwards.
-CLIMB_OVER_CAP = (
-    "The Builder's stronger attempt ({rung}) did not launch: projected at {projected}, the last Builder "
-    "attempt's {input_tokens:,} input and {output_tokens:,} output tokens at {model}'s price, it would take "
-    "the spend from {spent} to {total}, past the {cap} cost cap. AutoCode never raises the cap; resume with "
-    "--max-cost-usd {needed} or more (0 for no cap) to make this attempt"
-)
+CLIMB_OVER_CAP = {"attempt": "The Builder's stronger attempt", "basis": "the last Builder attempt"}
 
 
 def configured(strong_model=None, provider=None, single_model=None):
@@ -198,17 +198,9 @@ def _climb_within_cap(state: RunState) -> None:
         return
     over = cost.crossing(state, route.get("model"), attempts[-1])
     if over:
-        effort = route.get("reasoning_effort")
         raise s.Paused(
             "PAUSED_COST_LIMIT",
-            CLIMB_OVER_CAP.format(
-                rung=f"{route['model']} at {effort} effort" if effort else route["model"],
-                model=route["model"],
-                input_tokens=over["input_tokens"],
-                output_tokens=over["output_tokens"],
-                **{key: cost.usd(over[key]) for key in ("projected", "spent", "total", "cap")},
-                needed=f"{math.ceil(over['total'] * 100) / 100:.2f}",
-            ),
+            cost.climb_stop(over, **CLIMB_OVER_CAP, model=route["model"], effort=route.get("reasoning_effort")),
         )
 
 
@@ -271,11 +263,8 @@ def _tool_route(state, route):
 
 
 def _movable(state, route):
-    return not (
-        route.get("model_pinned")
-        or route.get("provider") not in (None, "openai")
-        or ("/" not in str(route.get("model")) and not _tool_route(state, route))
-    )
+    # One rule with the run-creation check of the checker model (route_ladder.serve).
+    return route_ladder.movable(state["settings"], route)
 
 
 def _tool_swap_problem(state, config, model):
@@ -339,7 +328,8 @@ def swap_checkers(state, current, config, model):
 def _escalate(state, current, config, route):
     """Move the Builder to the strong model, or say why this run cannot: (action, checkers, stop reason)."""
     if not config.get("strong_model"):
-        return "pause", {}, NO_STRONG_MODEL
+        missing = config.get("not_offered")
+        return "pause", {}, NOT_OFFERED.format(model=missing) if missing else NO_STRONG_MODEL
     engine = route.get("engine", state["settings"].get("engine"))
     # A configured tool whose Builder has a bare model name spells its models itself; a tool
     # that spells them provider/model keeps the configured spelling, alias included.

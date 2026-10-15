@@ -180,7 +180,11 @@ def context_packet(state, stage, state_path):
     if stage in ("requirements_gather", "requirements"):
         instruction += prompts.get("fragments/autoplanner/project-memory.md")
     if manifest_context:
-        instruction += design_manifest.INSTRUCTION
+        instruction += (
+            design_manifest.INSTRUCTION_SCOPED_BASE
+            if state["settings"].get("design_manifest", {}).get("scope_admission")
+            else design_manifest.INSTRUCTION
+        )
     if capture_context:
         instruction += visual.INSTRUCTION
         base["visual_capture_command"] = shlex.join(

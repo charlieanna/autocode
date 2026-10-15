@@ -839,9 +839,38 @@ the file's goal hash differs from the run's.
 A reviewer edits the front matter, then runs `autocode plan --render FILE` to regenerate the text.
 `--check` then prints the new goal hash and the one it was exported as. It exits 2 when the text no
 longer matches the front matter, for example when only the prose was edited, and names the line.
-It checks the file, not the plan: whether a run accepts the plan is decided when the plan is
-approved in that run, with `--approve-goal`, or revised with `--feedback` or `--edit-goal` (whose
-body is the front matter's `contract`).
+It checks the file, not the plan: whether a run accepts the plan is decided in that run.
+
+Once the pull request is merged, load the file into the run that drafted the plan:
+
+```sh
+autocode --goal-file plans/refunds.md          # or: --run-dir RUN
+```
+
+The file's plan becomes the run's next draft revision, as a body given to `--edit-goal` does, and
+any earlier approval token approves nothing. AutoCode first checks it as it checks a planner's
+draft and refuses it, leaving the run as it was, when:
+
+- the file cannot be read, or its text no longer matches its front matter;
+- it still holds `[REDACTED]` where the export masked credential-shaped text: loading it would make
+  the mask the plan's text. Restore the masked values (or reword that text) and render the file again;
+- the plan drops a literal the request states, such as `todo.py complete ID` or a format like
+  `ID TEXT [open|done]` (the message is the one the planner gets);
+- a Go test the request names is not proved by a criterion under that name;
+- a check names `git status`, or plans a command the shell cannot parse;
+- the runner's records in it (`brief_acceptance`, `risk_acceptance`, `source_trace`) are not the
+  run's current ones, because the file came from another run or from a plan revision the run has
+  since replaced. Export again, or delete those keys from the front matter to keep the run's own.
+
+It is refused too at an operational pause that does not offer feedback, as `--edit-goal` is.
+
+Then the plan goes through ordinary approval. In joint planning the Plan Reviewer reviews it first,
+as it reviews any edit, so resume the run (`autocode --run-dir RUN`) to get to the approval stop.
+That stop names the file and its goal hash, and says whether the plan it asks you to approve is
+still the plan loaded from it. A review of an unchanged plan records the new review in the runner's
+records, so that plan's goal hash differs from the file's; any other change is named. The approval
+token locks the revision on the screen, as always. `--goal-file` revises a saved run; it does not
+start a new one.
 
 ## Task chat message intent
 

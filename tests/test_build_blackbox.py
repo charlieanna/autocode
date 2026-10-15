@@ -160,9 +160,9 @@ class BuildBlackbox(unittest.TestCase):
             Path(base).mkdir(parents=True, exist_ok=True)
             self.root = Path(tempfile.mkdtemp(prefix=self._testMethodName + "-", dir=base)).resolve()
         else:
-            temp = tempfile.TemporaryDirectory()
-            self.addCleanup(temp.cleanup)
-            self.root = Path(temp.name).resolve()
+            self.root = Path(tempfile.mkdtemp()).resolve()
+            self.addCleanup(BuildBlackbox._cleanup_owned_root, self)
+        self._retain_on_timeout = False
         # Cleanups run last-in first-out, so this wait finishes before the root is removed.
         self.addCleanup(await_supervised_exit, self.root)
         self.project = self.root / "project"
@@ -208,6 +208,10 @@ class BuildBlackbox(unittest.TestCase):
         self.env.pop("AUTOCODE_PROVIDER", None)
         self.counter = 0
 
+    def _cleanup_owned_root(self):
+        if not self._retain_on_timeout:
+            shutil.rmtree(self.root)
+
     def command(self, unit, args):
         return [sys.executable, str(self.source / (unit + ".py")), "--workspace", str(self.project), *args]
 
@@ -233,25 +237,32 @@ class BuildBlackbox(unittest.TestCase):
                 self.command(unit, args), cwd=self.root, env=self.env, capture_output=True, text=True, timeout=limit
             )
         except subprocess.TimeoutExpired as error:
+            # Keep the owned fixture after cleanup, including when saving the
+            # diagnostic fails. The original timeout remains the cause.
+            self._retain_on_timeout = True
             # Keep what the call printed before its limit, the only evidence of how far it got (#1058).
             stdout, stderr = (
                 part.decode(errors="replace") if isinstance(part, bytes) else part or ""
                 for part in (error.stdout, error.stderr)
             )
-            receipt.write_text(
-                json.dumps(
-                    dict(
-                        command=self.command(unit, args),
-                        timed_out=limit,
-                        seconds=round(time.monotonic() - started, 1),
-                        stdout=stdout,
-                        stderr=stderr,
-                    ),
-                    indent=2,
+            evidence = f"its partial output is in {receipt}"
+            try:
+                receipt.write_text(
+                    json.dumps(
+                        dict(
+                            command=self.command(unit, args),
+                            timed_out=limit,
+                            seconds=round(time.monotonic() - started, 1),
+                            stdout=stdout,
+                            stderr=stderr,
+                        ),
+                        indent=2,
+                    )
                 )
-            )
+            except OSError:
+                evidence = f"its partial output could not be saved in {receipt}"
             raise AssertionError(
-                f"{unit} {' '.join(args[:3])} did not finish within {limit} s; its partial output is in {receipt}.\n"
+                f"{unit} {' '.join(args[:3])} did not finish within {limit} s; {evidence}.\n"
                 f"stdout tail: {stdout[-1500:]}\nstderr tail: {stderr[-1500:]}"
             ) from error
         receipt.write_text(
@@ -852,6 +863,69 @@ class BuildBlackbox(unittest.TestCase):
     @unittest.skipUnless(shutil.which("go"), "Go toolchain required")
     def test_product_d_go_registry_synthetic_oracle_not_executed_csharp(self):
         self.finish_product(products.registry(plan))
+
+
+class BuildBlackboxTimeoutDiagnosticsTests(unittest.TestCase):
+    def fixture(self, parent):
+        fixture = BuildBlackbox("test_02_three_workers_parallel_isolated_candidate_34")
+        fixture.root = Path(parent) / "owned-fixture"
+        fixture.root.mkdir()
+        fixture.project = fixture.root / "project"
+        fixture.source = fixture.root / "tools"
+        fixture.env = {"SECRET_ENV_SENTINEL": "must-not-save"}
+        fixture.counter = 0
+        fixture._retain_on_timeout = False
+        return fixture
+
+    def test_partial_output_and_original_timeout_cause_survive_fixture_cleanup(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self.fixture(temporary)
+            error = subprocess.TimeoutExpired(["fake-child"], 90, output=b"\xffpartial\n", stderr=b"private stderr\n")
+            with patch.object(subprocess, "run", side_effect=error) as launched:
+                with self.assertRaises(AssertionError) as caught:
+                    fixture.invoke("autocode_build", [])
+            self.assertIs(error, caught.exception.__cause__)
+            launched.assert_called_once()
+            self.assertEqual(90, launched.call_args.kwargs["timeout"])
+            receipt_path = fixture.root / "cli-1.json"
+            receipt = json.loads(receipt_path.read_text())
+            self.assertTrue(fixture._retain_on_timeout)
+            self.assertEqual(1, fixture.counter)
+            self.assertEqual("\ufffdpartial\n", receipt["stdout"])
+            self.assertEqual("private stderr\n", receipt["stderr"])
+            self.assertEqual(90, receipt["timed_out"])
+            self.assertNotIn("must-not-save", json.dumps(receipt))
+            self.assertNotIn("SECRET_ENV_SENTINEL", json.dumps(receipt))
+            fixture._cleanup_owned_root()
+            self.assertTrue(receipt_path.is_file())
+            fixture._retain_on_timeout = False
+            fixture._cleanup_owned_root()
+            self.assertFalse(fixture.root.exists())
+
+    def test_failed_receipt_writes_preserve_original_timeout_cause_and_owned_root(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self.fixture(temporary)
+            error = subprocess.TimeoutExpired(["fake-child"], 90, output=b"partial", stderr=b"stage started")
+            with (
+                patch.object(subprocess, "run", side_effect=error) as launched,
+                patch.object(Path, "write_text", side_effect=OSError("diagnostic write unavailable")),
+            ):
+                with self.assertRaises(AssertionError) as caught:
+                    fixture.invoke("autocode_build", [])
+            self.assertIs(error, caught.exception.__cause__)
+            launched.assert_called_once()
+            self.assertEqual(90, launched.call_args.kwargs["timeout"])
+            self.assertTrue(fixture._retain_on_timeout)
+            self.assertIn("partial output could not be saved", str(caught.exception))
+            self.assertIn("stage started", str(caught.exception))
+            self.assertNotIn("diagnostic write unavailable", str(caught.exception))
+            fixture._cleanup_owned_root()
+            self.assertTrue(fixture.root.is_dir())
+            self.assertFalse((fixture.root / "cli-1.json").exists())
 
 
 class HttpFixtureTests(unittest.TestCase):

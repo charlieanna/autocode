@@ -318,8 +318,22 @@ The file `metadata_xml` is the complete read-only document page roster and must
 enumerate all of the file's pages. When the connector refuses a document-root target, generate
 this roster faithfully from the pinned collector's actual `document_pages`, and
 identify it as generated XML. A connector's page listing may expose only the current
-page. Each page's `metadata_xml` is its complete read-only page tree. Both are stored
-as hash-bound relative artifacts. A page omitted from the manifest while present in the document page roster fails intake. Every discovered screen
+page. Each page's `metadata_xml` is its complete typed page tree. Native overview XML
+can elide component/instance descendants and alias component sets as frames or
+components as symbols. Retain those actual native responses and targeted probes
+separately, with an explicit record of checked, elided and type-ambiguous fields.
+Do not guess the missing nodes or call lossy XML labels original node types.
+
+For a complete original Plugin API receipt, `autocode_design_topology.generate`
+accepts the exact saved `source_json` bytes and produces deterministic typed XML.
+Its root has `metadata_kind="collector-derived"` and `source_sha256` equal to that
+page's `source_json.sha256`, binding the exact retained source artifact bytes.
+The loader verifies that hash and the complete canonical derivation, including
+unique IDs, parent membership, ordered children, reachability and finite geometry.
+This is **same-source derivation**, never independent connector metadata,
+independent geometry/type proof, or visual acceptance. Native source-property and
+resource validation remain required. Genuine complete native XML remains supported.
+Both metadata forms are stored as hash-bound relative artifacts. A page omitted from the manifest while present in the document page roster fails intake. Every discovered screen
 frame must have an explicit `screen_states` row, and each row must match exactly one
 case with the same state and viewport. That makes an omitted approved state/viewport
 case a hard intake error. The state table is an explicit inventory: native inspection
@@ -349,7 +363,9 @@ contours while retaining authored text, exact styled ranges and text-path/vector
 geometry. Both formats retain original visual properties,
 rich-text font families/styles, component and variant identities, instance references,
 all local variable modes plus remote bindings/aliases, image/vector resources and
-full prototype trigger/actions. Receipt node IDs must exactly match the complete XML.
+full prototype trigger/actions. Receipt node IDs must exactly match the complete XML;
+matching collector-derived XML checks representation consistency, not an independent
+observation of those nodes.
 Large getter receipts use bounded, losslessly compressed parts to avoid connector
 text truncation. Set the collector's `outputPart` to every reported index; reconstruct
 all parts with `autocode_design_sources.reassemble(parts)` before saving `source_json`.
@@ -531,3 +547,42 @@ reviewed input list. Engine, authentication, role routes, pins and limits stay u
 Identical relocated reference bytes keep their case identity; file names alone do not
 require fresh visual proof. Shared token aliases are reconciled by library key while
 original file-local IDs remain in the retained source receipts.
+
+
+### Externally reviewed product scope (version 2 inventories)
+
+A complete version 2 source inventory may contain historical frames outside the
+approved app. Supply both `--figma-approved-scope PATH` and
+`--figma-approved-scope-sha256 SHA256` with `--figma-manifest`. The trusted
+operator pin authenticates a reviewed artifact bound to the complete manifest
+and every approved case/state/viewport/reference row. A bundle cannot grant its
+own scope by declaring an approval file. No admission keeps the strict legacy
+requirement to map every discovered frame and full resource into cases.
+
+All original pages, nodes, actual component owners and variants, variable modes
+and aliases, fonts, assets and prototype endpoints still undergo full-source
+validation and remain retained. Scoped case refs must equal their actual
+transitive dependencies; historical resources cannot be linked as false usage.
+The retained `scope_admission` stores only a portable artifact path and its SHA,
+with byte-identical authority beside the bundle. Saved-run reload rechecks it;
+new-run flags cannot silently replace a saved pin.
+
+At the stopped, reconciled reference-revision boundary, pair both scope flags
+with `--revise-figma-manifest`, the inspected old `--expected-design-hash` and
+a concrete `--design-change-reason`. A scoped run requires a newly reviewed
+artifact bound to the complete replacement manifest. Ordinary resume cannot
+replace a pin, and unchanged manifest bytes cannot swap scope authority. The
+old bundle and its exact authority remain in reference history; the replacement
+pauses for independent plan review and fresh affected-case validation. The
+public `TaskRun.revise_design` accepts the same optional `approved_scope` and
+`approved_scope_sha256` keyword pair. Revision never grants implementation,
+image acceptance or human artifact acceptance.
+
+The public inventory retains full-source availability blockers and the exact
+used/retained frame and resource partition. App readiness and completion use
+verified **delivery blockers** for actual app dependencies; historical missing
+resources remain visible full-source gaps and do not become available. The
+separate full-resource qualification still needs its own evidence. A scoped
+`--dry-run` reports an unretained read-only input preview, without saving scope
+or running models. Admission and plan review never imply rendered fidelity,
+independent visual PASS, or human artifact acceptance.

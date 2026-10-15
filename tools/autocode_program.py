@@ -2287,18 +2287,23 @@ def _project_root(workspace):
     return project
 
 
-def cli_plan(argv):
-    parser = argparse.ArgumentParser(
+def _plan_parser():
+    result = argparse.ArgumentParser(
         prog="autocode program plan", description="Plan a large request as a program with the ordinary planning units"
     )
-    parser.add_argument("brief")
-    parser.add_argument("--workspace", type=Path, default=Path.cwd())
-    parser.add_argument("--engine", choices=["codex", "opencode"])
-    args, passthrough = parser.parse_known_args(argv)
+    result.add_argument("brief")
+    result.add_argument("--workspace", type=Path, default=Path.cwd())
+    result.add_argument("--engine", choices=["codex", "opencode"])
+    return result
+
+
+def cli_plan(argv):
+    arguments = _plan_parser()
+    args, passthrough = arguments.parse_known_args(argv)
     try:
         project = _project_root(args.workspace)
     except (OSError, ValueError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     runner = Path(__file__).with_name("autocode.py")
     command = [
         sys.executable,
@@ -2328,24 +2333,29 @@ def cli_plan(argv):
     return result.returncode
 
 
-def cli_derive(argv):
-    parser = argparse.ArgumentParser(
+def _derive_parser():
+    result = argparse.ArgumentParser(
         prog="autocode program derive", description="Write a program manifest from an approved plan's milestones"
     )
-    parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument(
+    result.add_argument("--run-dir", type=Path, required=True)
+    result.add_argument(
         "--workspace", type=Path, help="the plan run's workspace (default: the run directory's project)"
     )
-    parser.add_argument("--output", type=Path, help="manifest path (default: print to stdout)")
-    parser.add_argument("--name", help="program name (default: the approved outcome)")
-    args = parser.parse_args(argv)
+    result.add_argument("--output", type=Path, help="manifest path (default: print to stdout)")
+    result.add_argument("--name", help="program name (default: the approved outcome)")
+    return result
+
+
+def cli_derive(argv):
+    arguments = _derive_parser()
+    args = arguments.parse_args(argv)
     run_dir = args.run_dir.resolve()
     workspace = args.workspace or (run_dir.parents[2] if len(run_dir.parents) > 2 else run_dir)
     try:
         view = taskrun.TaskRun(Path(workspace).resolve(), run_dir).status()
         manifest = derive_manifest(view.get("approved_contract"), name=args.name, source_run=run_dir)
     except (OSError, ValueError, KeyError, taskrun.TaskRunError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     text = json.dumps(manifest, indent=2) + "\n"
     if args.output:
         args.output.write_text(text)
@@ -2358,33 +2368,37 @@ def cli_derive(argv):
     return 0
 
 
-def _common(parser):
-    parser.add_argument("manifest", type=Path)
-    parser.add_argument("--workspace", type=Path, default=Path.cwd())
+def _manifest_parser(name, description):
+    """A command that reads a program manifest in a workspace."""
+    result = argparse.ArgumentParser(prog="autocode program " + name, description=description)
+    result.add_argument("manifest", type=Path)
+    result.add_argument("--workspace", type=Path, default=Path.cwd())
+    return result
 
 
-def _open(parser, args):
+def _open(arguments, args):
     try:
         source, manifest = load_manifest(args.manifest)
         project = _project_root(args.workspace)
     except (OSError, ValueError, json.JSONDecodeError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     program_dir = project / ".autocode/programs" / program_key(manifest)
     return source, manifest, project, program_dir, program_dir / "state.json"
 
 
+def _show_parser():
+    return _manifest_parser("show", "Print the program agreement and the exact token that approves it")
+
+
 def cli_show(argv):
-    parser = argparse.ArgumentParser(
-        prog="autocode program show", description="Print the program agreement and the exact token that approves it"
-    )
-    _common(parser)
-    args = parser.parse_args(argv)
-    source, manifest, project, _program_dir, state_path = _open(parser, args)
+    arguments = _show_parser()
+    args = arguments.parse_args(argv)
+    source, manifest, project, _program_dir, state_path = _open(arguments, args)
     try:
         state = load_state(state_path, source, manifest, project)
         sync_agreement(state, manifest)
     except ValueError as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     record = state["agreement"]
     if record["pending"]:
         print(
@@ -2403,8 +2417,8 @@ def cli_show(argv):
     return 0
 
 
-def _mutate(parser, args, change):
-    source, manifest, project, program_dir, state_path = _open(parser, args)
+def _mutate(arguments, args, change):
+    source, manifest, project, program_dir, state_path = _open(arguments, args)
     workspaces.keep_out_of_git(project)
     program_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -2413,20 +2427,21 @@ def _mutate(parser, args, change):
             output = change(state, manifest)
             _save(state_path, state)
     except (util.Paused, ValueError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     print(json.dumps(output, indent=2))
     return 0
 
 
+def _approve_parser():
+    result = _manifest_parser("approve", "Approve the displayed program agreement revision by its exact token")
+    result.add_argument("--token", required=True)
+    return result
+
+
 def cli_approve(argv):
-    parser = argparse.ArgumentParser(
-        prog="autocode program approve",
-        description="Approve the displayed program agreement revision by its exact token",
-    )
-    _common(parser)
-    parser.add_argument("--token", required=True)
-    args = parser.parse_args(argv)
-    resolve_placeholders(args, parser, os.environ, fields=PROGRAM_TOKEN_ENV_VARS)
+    arguments = _approve_parser()
+    args = arguments.parse_args(argv)
+    resolve_placeholders(args, arguments, os.environ, fields=PROGRAM_TOKEN_ENV_VARS)
 
     def change(state, manifest):
         approve_agreement(state, manifest, args.token)
@@ -2438,20 +2453,23 @@ def cli_approve(argv):
             "their approval: each plans again and asks for approval in a fresh run.",
         }
 
-    return _mutate(parser, args, change)
+    return _mutate(arguments, args, change)
+
+
+def _request_change_parser():
+    result = _manifest_parser(
+        "request-change", "Raise a change request on a shared interface; nobody changes it quietly"
+    )
+    result.add_argument("--interface", required=True)
+    result.add_argument("--by", required=True, metavar="WORKSTREAM", help="the workstream that found the problem")
+    result.add_argument("--reason", required=True)
+    result.add_argument("--proposal", help="the change you propose")
+    return result
 
 
 def cli_request_change(argv):
-    parser = argparse.ArgumentParser(
-        prog="autocode program request-change",
-        description="Raise a change request on a shared interface; nobody changes it quietly",
-    )
-    _common(parser)
-    parser.add_argument("--interface", required=True)
-    parser.add_argument("--by", required=True, metavar="WORKSTREAM", help="the workstream that found the problem")
-    parser.add_argument("--reason", required=True)
-    parser.add_argument("--proposal", help="the change you propose")
-    args = parser.parse_args(argv)
+    arguments = _request_change_parser()
+    args = arguments.parse_args(argv)
 
     def change(state, manifest):
         if state["agreement"]["approved"] is None:
@@ -2474,58 +2492,63 @@ def cli_request_change(argv):
             f"resolve-change MANIFEST --request {request['id']} --reject --reason TEXT`.",
         }
 
-    return _mutate(parser, args, change)
+    return _mutate(arguments, args, change)
+
+
+def _resolve_change_parser():
+    result = _manifest_parser(
+        "resolve-change", "Reject an open change request (accepting one is an approved agreement revision)"
+    )
+    result.add_argument("--request", required=True)
+    result.add_argument("--reject", action="store_true", required=True)
+    result.add_argument("--reason", required=True)
+    return result
 
 
 def cli_resolve_change(argv):
-    parser = argparse.ArgumentParser(
-        prog="autocode program resolve-change",
-        description="Reject an open change request (accepting one is an approved agreement revision)",
-    )
-    _common(parser)
-    parser.add_argument("--request", required=True)
-    parser.add_argument("--reject", action="store_true", required=True)
-    parser.add_argument("--reason", required=True)
-    args = parser.parse_args(argv)
+    arguments = _resolve_change_parser()
+    args = arguments.parse_args(argv)
     return _mutate(
-        parser, args, lambda state, manifest: {"change_request": reject_request(state, args.request, args.reason)}
+        arguments, args, lambda state, manifest: {"change_request": reject_request(state, args.request, args.reason)}
     )
 
 
-def cli_run(argv, *, status_only=False):
-    parser = argparse.ArgumentParser(
-        prog="autocode program " + ("status" if status_only else "run"),
-        description="Run workstreams in parallel worktrees and merge them onto the integration branch",
-    )
-    _common(parser)
-    parser.add_argument("--max-parallel", type=int, default=2)
-    parser.add_argument(
+def _run_parser(name):
+    """`program run`, and `program status`, which reads the same arguments and launches nothing."""
+    result = _manifest_parser(name, "Run workstreams in parallel worktrees and merge them onto the integration branch")
+    result.add_argument("--max-parallel", type=int, default=2)
+    result.add_argument(
         "--authorize-deployment",
         action="store_true",
         help="allow deployment workstreams to start (their runs still need plan approval)",
     )
-    parser.add_argument("--engine", choices=["codex", "opencode"], help="engine for child code runs")
-    parser.add_argument(
+    result.add_argument("--engine", choices=["codex", "opencode"], help="engine for child code runs")
+    result.add_argument(
         "--retry-workstream",
         action="append",
         default=[],
         metavar="ID",
         help="retry a failed workstream in its existing worktree without bypassing child gates",
     )
-    parser.add_argument(
+    result.add_argument(
         "--check-timeout", type=int, default=CHECK_TIMEOUT, help="seconds each cumulative integration check may take"
     )
-    parser.add_argument("--dry-run", action="store_true", help="validate and preview without creating worktrees")
-    args, passthrough = parser.parse_known_args(argv)
+    result.add_argument("--dry-run", action="store_true", help="validate and preview without creating worktrees")
+    return result
+
+
+def cli_run(argv, *, status_only=False):
+    arguments = _run_parser("status" if status_only else "run")
+    args, passthrough = arguments.parse_known_args(argv)
     if args.max_parallel < 1:
-        parser.error("--max-parallel must be positive")
-    source, manifest, project, program_dir, state_path = _open(parser, args)
+        arguments.error("--max-parallel must be positive")
+    source, manifest, project, program_dir, state_path = _open(arguments, args)
     if args.dry_run or status_only:
         try:
             state = load_state(state_path, source, manifest, project)
             sync_agreement(state, manifest)
         except ValueError as error:
-            parser.error(str(error))
+            arguments.error(str(error))
         if status_only:
             # A read: the children's status views, without the lock and without saving.
             for record in state["workstreams"].values():
@@ -2555,7 +2578,7 @@ def cli_run(argv, *, status_only=False):
         with util.workspace_lock(program_dir):
             return execute(options, source, manifest, project, program_dir, state_path)
     except (util.Paused, ValueError, taskrun.TaskRunError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
 
 
 # The documentation inventory and runtime dispatch share these manual parser routes.
@@ -2591,6 +2614,34 @@ def cli(argv=None):
         )
         return 0 if argv and argv[0] in ("-h", "--help") else 2
     return commands[argv[0]](argv[1:])
+
+
+# The parser each command's cli_* reads, by the name COMMANDS dispatches it under.
+PARSERS = {
+    "plan": _plan_parser,
+    "derive": _derive_parser,
+    "run": lambda: _run_parser("run"),
+    "show": _show_parser,
+    "approve": _approve_parser,
+    "request-change": _request_change_parser,
+    "resolve-change": _resolve_change_parser,
+    "status": lambda: _run_parser("status"),
+}
+
+
+def parser():
+    """Every command `autocode program` dispatches, each with the options its cli_* reads.
+
+    cli() dispatches by hand and keeps its own usage text, so nothing parses with this parser:
+    `autocode completion` reads it to complete each command's options (autocode_shell_completion).
+    """
+    result = argparse.ArgumentParser(
+        prog="autocode program", description="Plan, approve and run a large request as parallel workstreams"
+    )
+    commands = result.add_subparsers(dest="command", metavar="COMMAND")
+    for name, build in PARSERS.items():
+        commands.add_parser(name, parents=[build()], add_help=False)
+    return result
 
 
 if __name__ == "__main__":

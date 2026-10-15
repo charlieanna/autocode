@@ -52,14 +52,57 @@ def recovery_checks(project, run):
     try:
         trace = project.parent / "capacity-trace.jsonl"
         rows = [json.loads(line) for line in trace.read_text().splitlines()]
-        first, second = rows
-        context = second.get("recovery_context") or {}
         attempts = [
             row
             for row in ((view.get("usage") or {}).get("accounting") or {}).get("attempts", [])
             if row.get("stage") == "astra_discovery" and not row.get("runner_owned") and not row.get("report_only")
         ]
-        failed, succeeded = attempts
+        fresh_request = False
+        hybrid_trace = project.parent / "hybrid" / "trace.jsonl"
+        is_hybrid = hybrid_trace.is_file()
+        if is_hybrid:
+            failed, succeeded, *later_attempts = attempts
+            served = [json.loads(line) for line in hybrid_trace.read_text().splitlines()]
+            discovery = [row for row in served if row.get("stage") == "astra_discovery" and not row.get("repair")]
+            injected, retry, *later_calls = discovery
+            if len(discovery) != len(attempts) or any(
+                call.get("side") != "live"
+                or call.get("report") != attempt.get("output")
+                or call.get("model") != attempt.get("model")
+                or attempt.get("exit_code") != 0
+                or attempt.get("rejected")
+                or attempt.get("interrupted")
+                for call, attempt in zip(later_calls, later_attempts, strict=True)
+            ):
+                raise ValueError("Later Requirements calls must be successful live continuations")
+            if len(rows) not in (1, 2):
+                raise ValueError("Expected one injected capacity failure and at most one stand-in retry")
+            if injected.get("side") != "scripted" or retry.get("side") != "live":
+                raise ValueError("Capacity retry must cross from the injected fault to the live side")
+            # report_file tools need not publish provider session IDs. Their
+            # distinct invocations are bound to the runner's accounting outputs.
+            fresh_request = (
+                bool(injected.get("report"))
+                and bool(retry.get("report"))
+                and injected["report"] != retry["report"]
+                and Path(failed["output"]).name == Path(injected["report"]).name
+                and succeeded.get("output") == retry["report"]
+            )
+            first = rows[0]
+            second = {
+                "stage": retry["stage"],
+                "model": retry["model"],
+                "outcome": "continue",
+                "recovery_context": retry.get("recovery_context"),
+            }
+            rows = [first, second]
+        else:
+            failed, succeeded = attempts
+            first, second = rows
+            fresh_request = (
+                bool(first.get("session")) and bool(second.get("session")) and first["session"] != second["session"]
+            )
+        context = second.get("recovery_context") or {}
         events_path = archived_file(run, context["events"])
         events = [json.loads(line) for line in events_path.read_text().splitlines()]
         snapshot = json.loads(archived_file(run, context["source_snapshot"]).read_text())
@@ -71,9 +114,7 @@ def recovery_checks(project, run):
             "one_capacity_failure_then_fresh_request",
             [row.get("outcome") for row in rows] == ["capacity", "continue"]
             and all(row.get("stage") == "astra_discovery" for row in rows)
-            and bool(first.get("session"))
-            and bool(second.get("session"))
-            and first["session"] != second["session"],
+            and fresh_request,
             str([{key: row.get(key) for key in ("stage", "outcome", "session")} for row in rows]),
         ),
         Check(
@@ -112,7 +153,9 @@ def recovery_checks(project, run):
             bool(first.get("model"))
             and first["model"] == second.get("model") == failed.get("model") == succeeded.get("model")
             and not view.get("route_assignments")
-            and not run.get("answers")
+            # Ordinary Requirements clarification can follow the automatic
+            # retry in a live run; it is not permission to change provider route.
+            and (is_hybrid or not run.get("answers"))
             and "feedback" not in run.get("cli_calls", []),
             str([row.get("model") for row in rows]),
         ),

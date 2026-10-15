@@ -1,7 +1,8 @@
 {
-  "tests.test_approval_provenance_cli": "Two real CLI fake-provider runs through plan approval, artifact review and completion (about 34 s locally, Linux cloud container), 2026-10-15",
+  "tests.test_approval_provenance_cli": "Five real CLI fake-provider runs: plan approval by flag and in the terminal conversation, a goal edit and an autocode resume, a resume a kept pause request holds, and an iteration-limit resume, each to the human review or completion (45 s locally, Linux cloud container at load average about 5), 2026-10-15",
   "tests.test_agent_step": "Two real CLI runs through the agent step's command line: the offline fixture provider (question, plan approval, completion, evidence) and a scenario-fake review of an uncommitted change (its recorded evidence); 27 s locally in a Linux cloud container, 49-66 s when it was loaded, 2026-10-15",
   "tests.test_mcp_server": "One real CLI run through the MCP server over stdio with the offline fixture provider; 38 s locally in a loaded Linux cloud container, 2026-10-15",
+  "tests.test_json_contract": "One real CLI fake-provider run through a requested pause, a question, plan approval, a human review and completion, running every --json command at each stop (40-52 s locally, loaded Linux cloud container), 2026-10-15",
   "tests.test_claude_provider_cli": "Eight real CLI runs through the built-in claude provider and its offline fixture (46.6 s locally, Linux cloud container, one module at a time), 2026-10-14",
   "scenarios.catalog.progressive-learning-journey.test_cli": "16 fake-provider public CLI progressive authority/restart checks; 1041 s on the #1176 branch locally, 2026-10-13; runs with --scenario-harness when scenarios or the suite changes, and on master",
   "tests.test_capacity_scenario": "Two real CLI capacity-recovery catalog runs plus oracle controls; 32.431 s locally on macOS, 2026-10-13",
@@ -33,6 +34,7 @@
   "tests.test_catalogue_t12": "347 s in CI (Ubuntu, 4 modules at a time), 2026-10-04; drives the dashboard suites in a real browser",
   "tests.test_rework_cli": "194 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_protected_oracles_cli": "88 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
+  "tests.test_goal_file_cli": "Two fake-provider CLI runs to plan approval, then plan files refused and one loaded, reviewed and approved; 62-75 s locally (Linux cloud container shared with nine other test runs), 2026-10-15 (#720)",
   "tests.test_verification_config": "74 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_report_retry": "48 s locally (macOS, changed-file gate), 2026-10-05; public CLI recovery and rejection controls",
   "tests.test_lease_queue_oracle": "11.3 s in CI (Ubuntu, 4 modules at a time), 2026-10-05; #462's process-recovery controls spawn fresh interpreters",
@@ -61,7 +63,7 @@
   "scenarios.test_native_cli": "188 s for 6 native Go, node:test and Vitest scenarios through the real CLI, locally (macOS), 2026-10-12; runs with --scenario-harness (#1088)",
   "scenarios.test_lying_matrix": "One full fake CLI run per catalog broken/ overlay (~165 runs); reliability lying-model matrix, 2026-10-12; runs with --scenario-harness or --include-slow",
   "tests.test_builder_worker_lifeline": "198 s wall (58 s CPU) for 5 tests locally (macOS, one module at a time, load average 370-400), 2026-10-13; real-CLI controller kills and resumes around held parallel Builders, and a stand-in worker whose SIGTERM teardown takes 14 s (#454)",
-  "tests.test_cost_cap": "Two fake-Codex TaskRun runs through a cost pause, a held resume and a raised cap (~14 s locally), 2026-10-14",
+  "tests.test_cost_cap": "Three real-CLI runs: two fake-Codex TaskRun runs through a cost pause, a held resume and a raised cap, and one build-fixture run whose Tester climbs its effort ladder and pauses before the climbed attempt (#611); 38 s alone and 54-75 s beside other modules (Linux cloud container, shared 4-CPU host), 2026-10-15",
   "tests.test_mutation_check_catalog": "19.5 s locally (Linux, 4 CPUs, one module at a time), 2026-10-14; five real regression proofs of bugfix-trivial and bugfix-iso-weeks variants, the four that pass running their mutants (#699)",
   "tests.test_planning_cycle_cli": "One fake-provider TaskRun v2 run through two planning cycles with feedback between; 21 s locally (Linux cloud container, one module at a time), 2026-10-15 (#1252)"
 }
