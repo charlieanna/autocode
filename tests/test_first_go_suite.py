@@ -70,7 +70,7 @@ class AbsentGoSuiteTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("go"), "Go is required for native suite proof")
 class FirstGoSuiteTests(unittest.TestCase):
-    def prove(self, seed, files, *, new_behavior=True, parent_module=False):
+    def prove(self, seed, files, *, new_behavior=True, parent_module=False, package=None):
         project = Project(seed)
         self.addCleanup(project.close)
         if parent_module:
@@ -78,7 +78,7 @@ class FirstGoSuiteTests(unittest.TestCase):
             # candidate's new module makes `go test` on the base say "matched no packages".
             (Path(project.temp.name) / "go.mod").write_text("module parent\n\ngo 1.21\n")
         project.write(files)
-        framework = verify.detect_framework(project.root)
+        framework = verify.detect_framework(project.root, package=package)
         self.assertIsNotNone(framework)
         self.assertEqual("go", framework.name)
         command = framework.suite
@@ -94,6 +94,7 @@ class FirstGoSuiteTests(unittest.TestCase):
             base_suite=base,
             new_behavior=new_behavior,
             timeout=60,
+            package=package,
         )
         return base, result
 
@@ -117,6 +118,53 @@ class FirstGoSuiteTests(unittest.TestCase):
         self.assertIn("does not contain main module", base["receipt"]["tail"])
         self.assertEqual(verify.PASS, result["verdict"], result)
         self.assertTrue(any(NOTE in note for note in result["notes"]), result["notes"])
+
+    def test_a_first_go_module_in_a_package_is_not_a_broken_suite(self):
+        # The package's suite is `cd packages/policy && go test ...`; the allowance reads the command inside the cd.
+        base, result = self.prove(
+            {"reference/Policy.cs": CS, "packages/policy/README.md": "policy\n"},
+            {
+                "packages/policy/go.mod": GO_MOD,
+                "packages/policy/policy.go": POLICY,
+                "packages/policy/policy_test.go": TEST_OK,
+            },
+            package="packages/policy",
+        )
+        self.assertTrue(base["receipt"]["command"].startswith("cd packages/policy && go test"), base["receipt"])
+        self.assertEqual("broken", base["health"])
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertIn("policy::TestDays", result["fail_to_pass"] + result["not_run_on_base"])
+        self.assertTrue(any(NOTE in note for note in result["notes"]), result["notes"])
+
+    def test_a_broken_first_go_module_in_a_package_is_still_rejected(self):
+        _, result = self.prove(
+            {"reference/Policy.cs": CS, "packages/policy/README.md": "policy\n"},
+            {
+                "packages/policy/go.mod": GO_MOD,
+                "packages/policy/policy.go": POLICY,
+                "packages/policy/policy_test.go": TEST_BAD,
+            },
+            package="packages/policy",
+        )
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+
+    def test_go_elsewhere_in_the_repository_keeps_the_base_suite_rule_for_a_package(self):
+        # The base inventory is still the whole repository's: Go in another package is a Go project.
+        _, result = self.prove(
+            {
+                "reference/Policy.cs": CS,
+                "packages/policy/README.md": "policy\n",
+                "packages/old/old.go": "package old\n",
+            },
+            {
+                "packages/policy/go.mod": GO_MOD,
+                "packages/policy/policy.go": POLICY,
+                "packages/policy/policy_test.go": TEST_OK,
+            },
+            package="packages/policy",
+        )
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertFalse(any(NOTE in note for note in result["notes"]), result["notes"])
 
     def test_existing_go_source_keeps_the_base_suite_rule(self):
         _, result = self.prove(

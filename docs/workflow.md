@@ -613,7 +613,9 @@ What the package changes:
   of the proving tests, run there too, with per-test results as for a whole
   project. A test's name is relative to the package (`test_greet.TestGreet.test_x`),
   and a node:test file there that runs another test runner is still not named
-  proof (#380).
+  proof (#380). A feature that adds the first Go module in the package, on a
+  base with no Go project, is not held to a base Go suite that cannot exist,
+  as at the root ([#685](bugs/2026-10-07-first-go-suite.md)).
 - Only the package's existing tests are retained as
   [original test gates](protected-tests.md), with the package suite as their
   command, so a large repository does not bind thousands of unrelated tests.
@@ -640,6 +642,10 @@ Not covered yet (#711):
   `venv` are linked into scratch copies. A package's own `node_modules` or
   `.venv` is not used.
 - A package run never reuses an earlier passing Python proof; it runs again.
+- The first-Go-module rule (#685) still looks for a Go project in the whole
+  repository. A Go module, workspace or Go source in another package counts, so
+  a first Go module in this package is then held to a base suite that cannot
+  run, and the proof stays `UNVERIFIED`.
 - The Tester's acceptance tests, written before the Builder starts, still run
   with the suite detected at the repository root.
 - Diff coverage and the mutation report, which never change a verdict, are not
