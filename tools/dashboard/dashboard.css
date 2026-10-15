@@ -868,6 +868,9 @@ a,.next-action,.workflow-active,.task-path li.done,.model-state.mutable,button.t
   .topbar{gap:8px}
   .topbar .breadcrumb{justify-content:center;text-align:center}
   .topbar .breadcrumb>span:first-child,.topbar .crumb-divider{display:none}
+  /* Larger text reflows the project title onto more lines of the auto-height
+     header instead of ellipsizing it between the two 96 px buttons. */
+  .topbar .breadcrumb strong{white-space:normal;overflow-wrap:anywhere;text-overflow:clip}
   #nav-toggle{width:96px;flex:0 0 auto;border:1px solid var(--m2b-hairline);border-radius:10px;background:var(--surface-default);font-size:13px;font-weight:600;color:var(--m2b-ink)}
   #nav-toggle [data-icon]{display:none}
   #nav-toggle .nav-toggle-label{display:inline}
