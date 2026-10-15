@@ -158,21 +158,27 @@ def compare(baseline, candidate):
     }
 
 
-def cli(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("baseline", type=Path)
-    parser.add_argument("candidate", type=Path)
-    parser.add_argument("--baseline-root", type=Path)
-    parser.add_argument("--candidate-root", type=Path)
-    parser.add_argument(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode compare-baseline` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("baseline", type=Path)
+    result.add_argument("candidate", type=Path)
+    result.add_argument("--baseline-root", type=Path)
+    result.add_argument("--candidate-root", type=Path)
+    result.add_argument(
         "--normalize-dependency-prefixes",
         action="store_true",
         help="For equivalent dependencies only: remove relative directory prefixes before node_modules in stack frames",
     )
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args(argv)
+    result.add_argument("--output", type=Path, required=True)
+    return result
+
+
+def cli(argv=None):
+    arguments = parser()
+    args = arguments.parse_args(argv)
     if args.output.resolve() in (args.baseline.resolve(), args.candidate.resolve()):
-        parser.error("Output must not overwrite input evidence")
+        arguments.error("Output must not overwrite input evidence")
     try:
         from .autocode_util import atomic_json
     except ImportError:

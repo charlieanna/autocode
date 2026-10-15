@@ -1,4 +1,6 @@
 {
+  "tests.test_agent_step": "Two real CLI runs through the agent step's command line: the offline fixture provider (question, plan approval, completion, evidence) and a scenario-fake review of an uncommitted change (its recorded evidence); 27 s locally in a Linux cloud container, 49-66 s when it was loaded, 2026-10-15",
+  "tests.test_mcp_server": "One real CLI run through the MCP server over stdio with the offline fixture provider; 38 s locally in a loaded Linux cloud container, 2026-10-15",
   "tests.test_claude_provider_cli": "Eight real CLI runs through the built-in claude provider and its offline fixture (46.6 s locally, Linux cloud container, one module at a time), 2026-10-14",
   "scenarios.catalog.progressive-learning-journey.test_cli": "16 fake-provider public CLI progressive authority/restart checks; 1041 s on the #1176 branch locally, 2026-10-13; runs with --scenario-harness when scenarios or the suite changes, and on master",
   "tests.test_capacity_scenario": "Two real CLI capacity-recovery catalog runs plus oracle controls; 32.431 s locally on macOS, 2026-10-13",

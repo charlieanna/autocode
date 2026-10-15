@@ -257,15 +257,21 @@ def remove(project, tree, registered):
     return archive
 
 
-def cli(argv) -> int:
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode clean-worktrees` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         prog="autocode clean-worktrees",
         description="Remove task worktrees whose runs are complete and whose branch holds their work. "
         "Lists what it would do unless --yes is given; branches are kept for merging.",
     )
-    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="The project (or one of its task worktrees)")
-    parser.add_argument("--yes", action="store_true", help="Remove the worktrees listed as removable")
-    args = parser.parse_args(argv)
+    result.add_argument("--workspace", type=Path, default=Path.cwd(), help="The project (or one of its task worktrees)")
+    result.add_argument("--yes", action="store_true", help="Remove the worktrees listed as removable")
+    return result
+
+
+def cli(argv) -> int:
+    arguments = parser()
+    args = arguments.parse_args(argv)
     try:
         project = Path(_git(args.workspace, "rev-parse", "--show-toplevel")).resolve()
         data = workspaces.metadata(project)
@@ -273,7 +279,7 @@ def cli(argv) -> int:
             project = Path(data["project_workspace"]).resolve()
         registered = _registered(project)
     except (OSError, ValueError, json.JSONDecodeError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     parent = (project / ".autocode" / "worktrees").resolve()
     programs = _program_owned(project)
     trees = sorted(p for p in registered if p.parent == parent)
