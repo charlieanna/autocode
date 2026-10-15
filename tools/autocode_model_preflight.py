@@ -123,12 +123,25 @@ def check(runner, state, run_dir, workspace, *, timeout=TIMEOUT_SECONDS) -> bool
             probed = saved.get("probed") or {}
         except (OSError, ValueError):
             probed = {}
+    wanted = [
+        model for model in distinct_models(state.get("settings")) if (probed.get(model) or {}).get("status") != "ok"
+    ]
+    if not wanted:
+        return False
+    settings = state.get("settings") or {}
+    try:
+        # The implicit call matches the stage gate exactly: the auth listing child gets the
+        # scrubbed launch projection, and a failure names the withheld variables itself.
+        adapter.check_subscription_routes(settings.get("roles") or {}, workspace)
+    except RuntimeError as error:
+        # A failed login listing must stop before any model call, the same
+        # property the stage's own admission gate enforces (tests/test_provider_credentials).
+        raise support.Paused(
+            "PAUSED_BILLING_ROUTE",
+            f"Model access preflight could not verify billing routes: {error}",
+        ) from error
     ran = False
-    for model in distinct_models(state.get("settings")):
-        # A failed or uncertain probe is re-run on the next launch: the operator may have
-        # fixed billing or login since, and a stale failure must not wave a dead route through.
-        if (probed.get(model) or {}).get("status") == "ok":
-            continue
+    for model in wanted:
         ran = True
         outcome = probe(adapter, model, workspace, Path(run_dir), timeout=timeout)
         probed[model] = outcome

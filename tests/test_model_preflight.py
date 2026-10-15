@@ -59,7 +59,10 @@ class PreflightCheckTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.run_dir = self.root / "run"
         self.run_dir.mkdir()
-        self.adapter = types.SimpleNamespace(_config={"auth": {"command": ["kilo", "auth", "list"], "routes": []}})
+        self.adapter = types.SimpleNamespace(
+            _config={"auth": {"command": ["kilo", "auth", "list"], "routes": []}},
+            check_subscription_routes=lambda roles, workspace=None, env=None: None,
+        )
         self.state = {
             "settings": {
                 "roles": {"astra": {"model": "plan/glm"}, "terra": {"model": "plan/mimo"}, "sol": {"model": "plan/glm"}}
@@ -126,6 +129,18 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual(["plan/glm", "plan/mimo", "plan/mimo", "plan/mimo"], self.calls)
         saved = json.loads((self.run_dir / "model-preflight.json").read_text())
         self.assertEqual("ok", saved["probed"]["plan/mimo"]["status"])
+
+    def test_failed_auth_listing_stops_before_any_probe_call(self):
+        def refuse(roles, workspace=None, env=None):
+            raise RuntimeError("cannot verify fixture login; auth listing failed")
+
+        self.adapter.check_subscription_routes = refuse
+        with self.assertRaises(support.Paused) as caught:
+            self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS})
+        self.assertEqual("PAUSED_BILLING_ROUTE", caught.exception.status)
+        self.assertIn("auth listing failed", str(caught.exception))
+        self.assertEqual([], self.calls)
+        self.assertFalse((self.run_dir / "model-preflight.json").exists())
 
     def test_transient_probe_noise_is_reported_and_the_run_continues(self):
         events = {"plan/glm": GARBLED_EVENTS, "plan/mimo": OK_EVENTS}
