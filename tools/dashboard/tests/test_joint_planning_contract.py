@@ -41,6 +41,19 @@ class JointPlanningContractTests(unittest.TestCase):
             raise unittest.SkipTest("Set AUTOCODE_RUNNER_SOURCE to test the real dashboard/runner contract")
         spec = importlib.util.spec_from_file_location("_dashboard_runner_contract", cls.runner_source)
         cls.runner = importlib.util.module_from_spec(spec)
+        # The runner hands itself to lower-level helpers as sys.modules[__name__], so the module
+        # must already be registered under spec.name when it executes (#1186). Restore the exact
+        # registry contents afterwards so no fixture module leaks into the rest of the suite.
+        previous = sys.modules.get(spec.name)
+        sys.modules[spec.name] = cls.runner
+
+        def restore_registry():
+            if previous is None:
+                sys.modules.pop(spec.name, None)
+            else:
+                sys.modules[spec.name] = previous
+
+        cls.addClassCleanup(restore_registry)
         with patch.object(sys, "path", [str(cls.runner_source.parent), *sys.path]):
             spec.loader.exec_module(cls.runner)
 
@@ -138,6 +151,11 @@ class JointPlanningContractTests(unittest.TestCase):
                 self.assertEqual(expected_engine, self.runner.planning.engine_for(settings, role))
                 self.assertEqual(expected_model, settings["roles"][role]["model"])
                 self.assertIsNone(settings["roles"][role]["provider"])
+
+    def test_loaded_runner_can_resolve_its_own_module_reference(self):
+        # The real runner hands itself to lower-level helpers as sys.modules[__name__] at 17
+        # sites; an unregistered fixture module makes every one of them raise KeyError (#1186).
+        self.assertIs(self.runner, sys.modules[self.runner.main.__globals__["__name__"]])
 
     def test_default_browser_creation_routes_discovery_to_glm_and_review_to_astra(self):
         self.assert_joint_routes(self.create_settings())
