@@ -201,10 +201,26 @@ class PauseCommandTests(unittest.TestCase):
         self.assertEqual(["M2"], args.retry_builder)
         self.assertIsNone(args.max_seconds)
 
-    def test_terminal_stop_and_dependency_need_no_recovery_command(self):
+    def test_terminal_stop_and_a_dependency_without_a_producer_need_no_recovery_command(self):
         self.assertIsNone(self.command({"kind": "resume"}, terminal=True))
         self.assertIsNone(self.command({"kind": "dependency"}))
         self.assertIsNone(self.command(None))
+
+    def test_a_dependency_names_the_wait_on_its_producer_run(self):
+        need = {
+            "kind": "dependency",
+            "producer_run": "/tmp/producer run",
+            "producer_workspace": "/tmp/producer ws",
+        }
+        self.assertEqual(
+            "autocode wait --run-dir '/tmp/producer run' --workspace '/tmp/producer ws'",
+            self.command(need),
+        )
+        # Without the workspace the wait still resolves it from the producer's own checkpoint.
+        self.assertEqual(
+            "autocode wait --run-dir '/tmp/producer run'",
+            self.command({"kind": "dependency", "producer_run": "/tmp/producer run"}),
+        )
 
 
 class RecoverySuffixTests(unittest.TestCase):
@@ -224,10 +240,19 @@ class RecoverySuffixTests(unittest.TestCase):
         self.assertIn("--resolver-token", suffix)
 
     def test_no_recovery_never_emits_an_impossible_command(self):
-        cases = ((None, {}), ({"kind": "answer"}, {"terminal": True}), ({"kind": "dependency"}, {}))
+        cases = (
+            (None, {}),
+            ({"kind": "answer"}, {"terminal": True}),
+            # A dependency without its producer run names nothing rather than a guess.
+            ({"kind": "dependency"}, {}),
+        )
         for need, kwargs in cases:
             with self.subTest(need=need, kwargs=kwargs):
                 self.assertEqual("", self.recovery(need, **kwargs))
+
+    def test_a_dependency_recovery_watches_the_producer(self):
+        suffix = self.recovery({"kind": "dependency", "producer_run": "/tmp/producer"})
+        self.assertIn("-- recovery: autocode wait --run-dir /tmp/producer", suffix)
 
     def test_a_changed_token_is_rendered_fresh_not_from_a_stale_copy(self):
         stale = {"kind": "answer", "resolver_token": "stale-token", "questions": [{"id": "Q1"}]}

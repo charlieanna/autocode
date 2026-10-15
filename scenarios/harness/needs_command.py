@@ -25,12 +25,14 @@ _PERSON_INT = (
 )
 
 _CHECK = r"""
+import importlib
 import shlex
 import sys
 from unittest import mock
 
 import autocode_args
 import autocode_configure
+import autocode_subcommands
 
 PERSON_INT = {person_int!r}
 text = sys.argv[1]
@@ -47,7 +49,12 @@ for index, word in enumerate(filled[:-1]):
     if word in PERSON_INT and filled[index + 1] == "N":
         filled[index + 1] = "10"
 with mock.patch.dict("os.environ", environ):
-    autocode_args.parse(None, filled, autocode_configure.DEFAULT_ROLE_MODELS)
+    # A registered subcommand parses with its own parser, the dispatch autocode performs.
+    if filled and filled[0] in autocode_subcommands.SUBCOMMANDS:
+        module = importlib.import_module(autocode_subcommands.SUBCOMMANDS[filled[0]])
+        module.parser().parse_args(filled[1:])
+    else:
+        autocode_args.parse(None, filled, autocode_configure.DEFAULT_ROLE_MODELS)
 """
 
 

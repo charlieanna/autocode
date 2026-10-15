@@ -156,6 +156,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_VISUAL_EVIDENCE",
                 "PAUSED_WORKFLOW_ROLLBACK",
                 "RESOLVER_PENDING",
+                "WAITING_FOR_DEPENDENCY",
             }
         ),
     }
