@@ -291,6 +291,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Truncated command output counts a final write even when it races with the watcher cutting the file, preserving accurate dropped-byte totals (#1376).
+
 - The native saved-profile refusal fixture supplies the JSON invocation adapter so it reaches its original pre-provider refusal assertion.
 - Accepting a replacement model for a parallel Builder consumes its routing question and leaves the parent paused for explicit resume, instead of stranding it in an unauthorized clarification (#1370).
 
