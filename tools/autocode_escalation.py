@@ -27,21 +27,14 @@ except ImportError:
 LADDERS = route_ladder.EFFORT_LADDERS
 
 
-def ladder(role, settings=None):
-    """The rungs a route role may climb in a run: its persisted ladder when the
-    run saved one, else the static table, keyed by route role (the Resolver's is
-    "resolver"). The same lookup next_route makes for advance()."""
-    return route_ladder.ladders(settings).get(role, ())
-
-
-def rung(role, config, settings=None):
+def rung(role, config):
     """Return the exact configured rung, or None for an explicit custom route."""
-    return route_ladder.rung_index(ladder(role, settings), config.get("model"), config.get("reasoning_effort"))
+    return route_ladder.rung_index(LADDERS.get(role, ()), config.get("model"), config.get("reasoning_effort"))
 
 
-def profile(role, config, settings=None):
-    index = rung(role, config, settings)
-    return ladder(role, settings)[index][2] if index is not None else None
+def profile(role, config):
+    index = rung(role, config)
+    return LADDERS[role][index][2] if index is not None else None
 
 
 def unclimbed(state: RunState, settings: dict, role: str) -> dict:

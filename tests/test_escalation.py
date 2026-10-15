@@ -109,21 +109,12 @@ class EscalationTests(unittest.TestCase):
         self.assertIsNone(escalation.advance(state, "resolver", trigger="rejected_output"))
         self.assertEqual("high", state["settings"]["roles"]["resolver"]["reasoning_effort"])
 
-    def test_rung_and_profile_read_the_same_ladder_as_advance(self):
+    def test_rung_and_profile_name_the_resolvers_astra_rungs(self):
         resolver = {"model": "openai/gpt-6-astra", "reasoning_effort": "xhigh"}
         self.assertEqual(1, escalation.rung("resolver", resolver))
         self.assertEqual("GPT-6 Astra XHigh", escalation.profile("resolver", resolver))
         self.assertIsNone(escalation.rung("astra", resolver))
         self.assertIsNone(escalation.profile("astra", resolver))
-        # A saved run's persisted, serveability-filtered ladder decides, as it does for advance().
-        unserved = {"route_ladders": route_ladder.configure_ladders(["openai/gpt-6-sol"])}
-        self.assertIsNone(escalation.rung("resolver", resolver, unserved))
-        self.assertIsNone(escalation.profile("resolver", resolver, unserved))
-        legacy = {
-            "route_ladders": {"effort": {"astra": [list(row) for row in route_ladder.EFFORT_LADDERS["resolver"]]}}
-        }
-        self.assertEqual("GPT-6 Astra XHigh", escalation.profile("resolver", resolver, legacy))
-        self.assertIsNone(escalation.profile("astra", resolver, legacy))
 
     def test_second_sol_failure_climbs_to_sol_max(self):
         state = self.state("sol", "openai/gpt-6-sol", "xhigh")

@@ -1609,6 +1609,22 @@ class RepairTests(unittest.TestCase):
         self.assertEqual("GPT-6 Sol High", saved["reasoning_escalations"][-1]["selected"]["profile"])
         self.assertNotIn("terra", saved["sessions"])
 
+    def test_a_rejected_task_plan_leaves_the_astra_route_where_it_was(self):
+        """The per-task Planner (astra_plan) runs on the astra route, which no longer climbs GPT-6 Astra
+        (#1345): a task plan rejected once report repair is spent pauses on the route it had."""
+        self.state["settings"].update(engine="opencode", report_repair={"max_attempts": 0})
+        self.state["settings"]["roles"]["astra"].update(
+            engine="opencode", provider=None, model="openai/gpt-6-astra", reasoning_effort="high"
+        )
+        record = self.stage_record(stage="astra_plan", role="astra")
+        with self.assertRaises(support.Paused) as paused:
+            runner.reject_completed_stage(self.state, self.run, record, ValueError("Missing task id"))
+        self.assertEqual("PAUSED_INVALID_OUTPUT", paused.exception.status)
+        astra = self.state["settings"]["roles"]["astra"]
+        self.assertEqual(("openai/gpt-6-astra", "high"), (astra["model"], astra["reasoning_effort"]))
+        self.assertEqual([], self.state.get("reasoning_escalations", []))
+        self.assertEqual("a-session", self.state["sessions"]["astra"])
+
     def test_rejected_active_is_not_reconciled_again(self):
         self.state["active_stage"] = {"rejected": True}
         with patch.object(runner, "load_stage_report") as load, self.assertRaises(support.Paused):

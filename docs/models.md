@@ -79,16 +79,26 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on `openai/gpt-6-sol` (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.
 
-The Resolver runs on a route of its own, `resolver`, which starts as a copy of the
-`astra` route the first time the Resolver runs; `--resolver-model` and
-`--resolver-reasoning-effort` set it directly. Only that route climbs the Astra ladder.
-The per-task Planner (`astra_plan`) stays on the `astra` route and keeps its configured
-effort however often its reports are rejected, so a Resolver route copied from it later
-starts at the configured effort, not a climbed one. A run saved before this was fixed
-kept the Astra ladder under `astra` in `route_ladders`; it is read as the Resolver's
-ladder, and the saved state is not rewritten. A climb is not a settings change for the
-recovery packet the Resolver works from: the climbed attempt is held or admitted by that
-packet's causal-progress check, as the attempt before it was.
+The Resolver runs on a route of its own, `resolver`. It starts as a copy of the `astra`
+route, which the per-task Planner (`astra_plan`) runs on; `autocode models` lists that
+route as "Resolver and per-task Planner (`--astra-model`)". The Resolver's route is
+created the first time a Resolver stage runs, or by `--resolver-model`. Which flag sets it:
+
+- On an OpenCode-engine run (the default), `--resolver-model` and
+  `--resolver-reasoning-effort` set the Resolver's route alone. `--astra-model` and
+  `--astra-reasoning-effort` set the per-task Planner's route, and reach the Resolver
+  only while its route has not been created yet.
+- A Codex-engine run (`--engine codex`), and a saved run without joint planning, ignore
+  `--resolver-model` and `--resolver-reasoning-effort`: the Resolver starts from the
+  `astra` route that `--astra-model` and `--astra-reasoning-effort` set.
+
+Only the Resolver's route climbs the Astra ladder. The per-task Planner keeps its
+configured effort however often its reports are rejected, so a Resolver route copied
+from the `astra` route later starts at the configured effort, not a climbed one. A run
+saved before this was fixed kept the Astra ladder under `astra` in `route_ladders`; it
+is read as the Resolver's ladder, and the saved state is not rewritten. A climb is not
+a settings change for the recovery packet the Resolver works from: the climbed attempt
+is held or admitted by that packet's causal-progress check, as the attempt before it was.
 
 The one-stage jobs use the Plan Reviewer's model on a route of their own: the
 Investigator (bug fixes), the Analyst (discuss) and the Designer (design reviews),
@@ -117,8 +127,8 @@ climbed route's rate; when that projection would take the spend past the cap, th
 pauses `PAUSED_COST_LIMIT`, naming the rung and the arithmetic, instead of launching it.
 
 > **Note on role names.** The CLI flags keep the older tier names — `--astra-model`
-> (the per-task Planner, and the Resolver's starting route unless `--resolver-model`
-> sets it), `--terra-model` (Builder), `--sol-model` (Tester) — because those
+> (the per-task Planner, and the route the Resolver starts from; see above),
+> `--terra-model` (Builder), `--sol-model` (Tester) — because those
 > names are in saved run state. They are not model choices: `--terra-model
 > zai-coding-plan/glm-5.3` selects the model used for the Builder role.
 

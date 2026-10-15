@@ -274,6 +274,8 @@ PR template asks for an entry here; a change without one is incomplete.
   recovery packet bound before a climb still holds after it, so the climbed attempt meets the packet's usual
   causal-progress check (`--retry-failed-stage` authorizes one attempt) instead of a stale handoff. Under
   `--max-cost-usd`, a Resolver climb is priced before its attempt launches, as every climb is (#611, #1345).
+  `autocode models` and doctor now name the `astra` route "Resolver and per-task Planner", and the docs say
+  which runs take `--resolver-model` (OpenCode-engine runs) and which seed the Resolver from `--astra-model`.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).

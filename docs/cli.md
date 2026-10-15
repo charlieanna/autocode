@@ -367,8 +367,8 @@ spent time and recovery allowances remain intact.
 | `--astra-provider`, `--terra-provider`, `--sol-provider`, `--completion-provider` | Per-role Codex provider override (Responses API); the saved engine stays the same. |
 | `--reasoning-effort`, `--astra-reasoning-effort`, `--terra-reasoning-effort`, `--sol-reasoning-effort`, `--completion-reasoning-effort` | Shared or execution-role reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`). |
 | `--glm-reasoning-effort`, `--requirements-reasoning-effort`, `--plan-reviewer-reasoning-effort` | Reasoning effort for the Planner, Requirements or Plan Reviewer. |
-| `--resolver-model`, `--resolver-reasoning-effort` | Override the saved Resolver model or reasoning effort without changing its engine. |
-| `--pin-model-role astra\|terra\|sol\|completion` | Keep the selected role model and reasoning effort instead of escalating automatically; repeat for multiple roles. |
+| `--resolver-model`, `--resolver-reasoning-effort` | Override the saved Resolver model or reasoning effort without changing its engine. OpenCode-engine runs only: a Codex-engine run, or a saved run without joint planning, ignores them, and its Resolver starts from the `astra` route (`--astra-model`). See [Models](models.md#default-models). |
+| `--pin-model-role astra\|terra\|sol\|completion` | Keep the selected role model and reasoning effort instead of escalating automatically; repeat for multiple roles. Of these routes only `terra`, `sol` and `completion` have an effort ladder; the Resolver's own route climbs GPT-6 Astra and has no choice here. `astra` pins the route the Resolver's route is copied from, so on a new run it pins the Resolver too; once a run's Resolver route exists (a Resolver stage ran, or `--resolver-model` created it), no flag pins it. |
 | `--migrate-only` | Run the opt-in legacy migration and stop (see [Testing](testing.md#legacy-migration--opt-in-only)). |
 
 Saved model changes (role model flags or answers to a stopped role's model question)

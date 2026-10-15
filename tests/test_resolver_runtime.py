@@ -1227,8 +1227,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
 
     def test_cli_rejected_diagnosis_climbs_the_resolver_route_one_astra_rung(self):
         """A Resolver report rejected on the real dispatch path climbs the Resolver's own route
-        (route role "resolver") from GPT-6 Astra High to XHigh, and the astra route that the
-        per-task Planner runs on stays where it was (#1345)."""
+        (route role "resolver") from GPT-6 Astra High to XHigh (#1345)."""
         self.repeated_terra_failure()
         self.state["settings"]["report_repair"] = {"max_attempts": 0}
         self.state["settings"]["roles"]["astra"].update(model="gpt-6-astra", reasoning_effort="high")
@@ -1249,9 +1248,8 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual(
             ("GPT-6 Astra High", "GPT-6 Astra XHigh"), (event["previous"]["profile"], event["selected"]["profile"])
         )
-        resolver, astra = saved["settings"]["roles"]["resolver"], saved["settings"]["roles"]["astra"]
+        resolver = saved["settings"]["roles"]["resolver"]
         self.assertEqual(("gpt-6-astra", "xhigh"), (resolver["model"], resolver["reasoning_effort"]))
-        self.assertEqual(("gpt-6-astra", "high"), (astra["model"], astra["reasoning_effort"]))
         self.assertNotIn("resolver", saved["sessions"])
         # The climb is not a changed setting for the recovery packet bound before it: resuming
         # holds on the packet's causal-progress check with a request the operator can answer,
