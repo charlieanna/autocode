@@ -15,13 +15,16 @@ is JSON), which index the same way.
 
 from __future__ import annotations
 
-# Effort rungs per role, strongest last. Only the Resolver (astra) climbs
-# GPT-6 Astra: it is too expensive for any other role (user 2026-09-28). A
-# role whose route matches no rung (the default GLM Builder, a GLM Validator
+# Effort rungs per route role (the settings["roles"] key a stage runs on and
+# escalates by), strongest last. Only the Resolver climbs GPT-6 Astra: it is
+# too expensive for any other role (user 2026-09-28). The Resolver stages run
+# on their own "resolver" route, which starts as a copy of the "astra" route;
+# the per-task Planner (astra_plan) stays on "astra" and climbs nothing (#1345).
+# A role whose route matches no rung (the default GLM Builder, a GLM Validator
 # or Completion Owner, the Plan Reviewer) has no effort ladder; the Builder's
 # stronger attempt is the strong rung from its retry policy instead.
 EFFORT_LADDERS = {
-    "astra": (
+    "resolver": (
         ("openai/gpt-6-astra", "high", "GPT-6 Astra High"),
         ("openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"),
         ("openai/gpt-6-astra", "max", "GPT-6 Astra Max"),
@@ -115,14 +118,25 @@ def configure_ladders(listed_models=None):
     return {"effort": {role: [list(rung) for rung in ladder] for role, ladder in served.items()}}
 
 
+# Ladder keys a saved run may persist under a route role that no longer
+# climbs them, and the route role they belong to. Runs saved before #1345 keyed
+# the Resolver's Astra ladder "astra", the per-task Planner's route.
+SAVED_LADDER_ROLES = {"astra": "resolver"}
+
+
 def ladders(settings):
     """A run's effort ladders as tuples of rung tuples: the persisted
     serveability-filtered table, or the static tables for runs saved before
-    route_ladders existed."""
+    route_ladders existed. A ladder saved under an old key is read as its
+    route role's (SAVED_LADDER_ROLES), without rewriting the saved state."""
     persisted = (settings or {}).get("route_ladders") or {}
     effort = persisted.get("effort")
     if not effort:
         return EFFORT_LADDERS
+    effort = dict(effort)
+    for saved, role in SAVED_LADDER_ROLES.items():
+        if saved in effort:
+            effort.setdefault(role, effort.pop(saved))
     return {role: tuple(tuple(rung) for rung in ladder) for role, ladder in effort.items() if ladder}
 
 

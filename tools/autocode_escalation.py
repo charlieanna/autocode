@@ -19,14 +19,21 @@ except ImportError:
 LADDERS = route_ladder.EFFORT_LADDERS
 
 
-def rung(role, config):
+def ladder(role, settings=None):
+    """The rungs a route role may climb in a run: its persisted ladder when the
+    run saved one, else the static table. The one lookup rung(), profile() and
+    advance() share, keyed by route role (the Resolver's is "resolver")."""
+    return route_ladder.ladders(settings).get(role, ())
+
+
+def rung(role, config, settings=None):
     """Return the exact configured rung, or None for an explicit custom route."""
-    return route_ladder.rung_index(LADDERS.get(role, ()), config.get("model"), config.get("reasoning_effort"))
+    return route_ladder.rung_index(ladder(role, settings), config.get("model"), config.get("reasoning_effort"))
 
 
-def profile(role, config):
-    index = rung(role, config)
-    return LADDERS[role][index][2] if index is not None else None
+def profile(role, config, settings=None):
+    index = rung(role, config, settings)
+    return ladder(role, settings)[index][2] if index is not None else None
 
 
 def advance(state, role, *, trigger, detail="", struggle_id=None):
@@ -51,18 +58,18 @@ def advance(state, role, *, trigger, detail="", struggle_id=None):
     config = roles.get(role)
     if not isinstance(config, dict) or config.get("model_pinned") or config.get("provider") not in (None, "openai"):
         return None
-    ladder = route_ladder.ladders(settings).get(role, ())
-    index = route_ladder.rung_index(ladder, config.get("model"), config.get("reasoning_effort"))
+    rungs = ladder(role, settings)
+    index = route_ladder.rung_index(rungs, config.get("model"), config.get("reasoning_effort"))
     if index is None:
         return None
-    rung = route_ladder.next_rung(ladder, config.get("model"), config.get("reasoning_effort"))
-    if rung is None:
+    selected = route_ladder.next_rung(rungs, config.get("model"), config.get("reasoning_effort"))
+    if selected is None:
         return None
-    model, effort, label = rung
+    model, effort, label = selected
     previous = {
         "model": config.get("model"),
         "reasoning_effort": config.get("reasoning_effort"),
-        "profile": ladder[index][2],
+        "profile": rungs[index][2],
     }
     engine = config.get("engine", settings.get("engine", "codex"))
     config.update(model=route_ladder.format_model(model, engine), reasoning_effort=effort)

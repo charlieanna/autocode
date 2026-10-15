@@ -1225,6 +1225,28 @@ class OperationalDiagnosisTests(unittest.TestCase):
             self.assertEqual(public, assert_operational_wait(self, self.state, "PAUSED_NO_PROGRESS"))
         self.assertEqual(1, len(launches))
 
+    def test_cli_rejected_diagnosis_climbs_the_resolver_route_one_astra_rung(self):
+        """A Resolver report rejected on the real dispatch path climbs the Resolver's own route
+        (route role "resolver") from GPT-6 Astra High to XHigh, and the astra route that the
+        per-task Planner runs on stays where it was (#1345)."""
+        self.repeated_terra_failure()
+        self.state["settings"]["report_repair"] = {"max_attempts": 0}
+        self.state["settings"]["roles"]["astra"].update(model="gpt-6-astra", reasoning_effort="high")
+        with self.provider(value={}) as launches:
+            self.assertEqual(2, self.cli("--diagnose-failed-stage"))
+        self.assertEqual([("astra_diagnose", "resolver")], [(row["stage"], row["route_role"]) for row in launches])
+        saved = support.read(self.run / "state.json")
+        self.assertEqual("PAUSED_INVALID_OUTPUT", saved["status"])
+        [event] = saved["reasoning_escalations"]
+        self.assertEqual(("resolver", "rejected_output"), (event["role"], event["trigger"]))
+        self.assertEqual(
+            ("GPT-6 Astra High", "GPT-6 Astra XHigh"), (event["previous"]["profile"], event["selected"]["profile"])
+        )
+        resolver, astra = saved["settings"]["roles"]["resolver"], saved["settings"]["roles"]["astra"]
+        self.assertEqual(("gpt-6-astra", "xhigh"), (resolver["model"], resolver["reasoning_effort"]))
+        self.assertEqual(("gpt-6-astra", "high"), (astra["model"], astra["reasoning_effort"]))
+        self.assertNotIn("resolver", saved["sessions"])
+
     def test_uncertain_launch_is_not_refunded_or_replayed_on_reload(self):
         self.repeated_terra_failure()
         self.admit()
