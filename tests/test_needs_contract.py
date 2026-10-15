@@ -8,6 +8,7 @@ when tools/ invents an undocumentated state key.
 from __future__ import annotations
 
 import copy
+import importlib
 import shlex
 import unittest
 from pathlib import Path
@@ -17,6 +18,7 @@ import autocode_args
 import autocode_configure
 import autocode_pause_command as pause_command
 import autocode_run_view as run_view
+import autocode_subcommands as subcommands
 
 # Every kind needs() can return. Add a fixture below when this set grows.
 KNOWN_KINDS = frozenset(
@@ -90,7 +92,7 @@ KIND_STATES = {
     "dependency": {
         "status": "WAITING_FOR_DEPENDENCY",
         "stop_reason": "waiting on producer",
-        "dependency_wait": {"producer_run": "/tmp/producer"},
+        "dependency_wait": {"producer_run": "/tmp/producer", "producer_workspace": "/tmp/producer-ws"},
         "settings": {},
     },
     "retry_job": {
@@ -131,7 +133,7 @@ KIND_ACCEPTANCE = {
     "review": lambda args: args.approve_review == ["AC1"] and args.review_token == "review-token",
     "planning_budget": lambda args: args.resume_paused and args.planning_review_call_limit == 10,
     "resume": lambda args: args.resume_paused,
-    "dependency": lambda args: args is None,  # no recovery command
+    "dependency": lambda args: args.run_dir == Path("/tmp/producer") and args.workspace == Path("/tmp/producer-ws"),
     "retry_job": lambda args: args.resume_paused and args.retry_failed_stage and args.job_retry_token == "job-token",
     "recover_source": lambda args: args.explain,
 }
@@ -160,7 +162,12 @@ def _fill_person_placeholders(words: list[str]) -> list[str]:
 
 
 def parse_next_command(text: str):
-    """Parse a displayed next_command into args; returns (args, argv) or (None, None) when text is None."""
+    """Parse a displayed next_command into args; returns (args, argv) or (None, None) when text is None.
+
+    A command whose first word is a registered subcommand parses with that subcommand's own
+    parser — the same dispatch `autocode` itself performs — so a subcommand-shaped recovery
+    is held to the parser that will actually run it, not the main parser's permissive task slot.
+    """
     if text is None:
         return None, None
     words = shlex.split(text)
@@ -173,6 +180,9 @@ def parse_next_command(text: str):
     words.pop(0)
     words = _fill_person_placeholders(words)
     with mock.patch.dict("os.environ", environ):
+        if words and words[0] in subcommands.SUBCOMMANDS:
+            module = importlib.import_module(subcommands.SUBCOMMANDS[words[0]])
+            return module.parser().parse_args(words[1:]), words
         args, _ = autocode_args.parse(None, words, autocode_configure.DEFAULT_ROLE_MODELS)
     return args, words
 
@@ -198,9 +208,6 @@ class NeedsContractTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 view = run_view.view({**copy.deepcopy(state), "workspace": "/tmp/ws", "run_dir": "/tmp/run"})
                 self.assertEqual(kind, (view.get("needs") or {}).get("kind"))
-                if kind == "dependency":
-                    self.assertIsNone(view.get("next_command"))
-                    continue
                 # continue / approve_plan without a displayed path still offers a relaunch
                 self.assertIsNotNone(view.get("next_command"), view)
                 args, _ = parse_next_command(view["next_command"])

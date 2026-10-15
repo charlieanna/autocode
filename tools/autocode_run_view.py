@@ -725,6 +725,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      (after a refusal, `action` is that answer until a
                                                      model is named)
     recover_source missing original identity       inspect archive and source before a new run
+    dependency    another run's accepted delivery   autocode wait --run-dir PRODUCER — returns when the
+                                                     producer needs a person or ends; the delivery and
+                                                     the resume are the dependency worker's, not a
+                                                     person's command on this run
     continue      nothing; relaunch to proceed      the same command with --run-dir
     """
     status = state.get("status", "")
@@ -800,6 +804,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "kind": "dependency",
             "reason": state.get("stop_reason"),
             "producer_run": (state.get("dependency_wait") or {}).get("producer_run"),
+            "producer_workspace": (state.get("dependency_wait") or {}).get("producer_workspace"),
         }
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]

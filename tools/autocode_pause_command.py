@@ -18,8 +18,18 @@ except ImportError:
 
 def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=False):
     """One action, or None when no recovery is offered; all paths/values are shell quoted."""
-    if not need or terminal or need.get("kind") == "dependency":
+    if not need or terminal:
         return None
+    if need.get("kind") == "dependency":
+        # The run's own recovery is the dependency worker's delivery, not a command on this run;
+        # what a person can do is watch the producer until it reaches them or ends (#1253's wait).
+        producer = need.get("producer_run")
+        if not producer:
+            return None
+        words = ["autocode", "wait", "--run-dir", str(producer)]
+        if need.get("producer_workspace"):
+            words.extend(("--workspace", str(need["producer_workspace"])))
+        return shlex.join(words)
     prefix = ["autocode"]
     if run_dir:
         prefix.extend(("--run-dir", str(run_dir)))
@@ -108,8 +118,8 @@ def _display(words):
 def recovery(need, *, run_dir=None, workspace=None, terminal=False) -> str:
     """The #909 recovery suffix: the exact copy-pasteable command with the live
     token, refreshed at render time from the caller's current need. Empty when
-    no recovery exists (no need, terminal, dependency) — a pause never emits a
-    command its own CLI would reject."""
+    no recovery exists (no need, terminal, a dependency without its producer) —
+    a pause never emits a command its own CLI would reject."""
     rendered = command(need, run_dir=run_dir, workspace=workspace, terminal=terminal)
     return f" -- recovery: {rendered}" if rendered else ""
 

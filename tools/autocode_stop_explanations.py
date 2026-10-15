@@ -433,6 +433,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "A Resolver decision is pending; the run will not proceed past it.",
         "--resume-paused continues after the decision is recorded.",
     ),
+    "WAITING_FOR_DEPENDENCY": (
+        "The run waits for another run's accepted delivery; nothing is wrong with this run.",
+        "`autocode wait --run-dir <producer>` returns when that producer needs you or ends; the delivery itself arrives from the dependency worker.",
+    ),
 }
 
 

@@ -60,6 +60,22 @@ class WaitCommandTests(unittest.TestCase):
         self.assertIn("--resume-paused", out)
         sleep.assert_not_called()
 
+    def test_a_dependency_wait_names_the_wait_on_its_producer_run(self):
+        root = project(
+            status="WAITING_FOR_DEPENDENCY",
+            stop_reason="Waiting for prerequisite task to finish and pass independent review.",
+            dependency_wait={
+                "producer_run": "/tmp/producer-ws/.autocode/runs/producer",
+                "producer_workspace": "/tmp/producer-ws",
+            },
+        )
+        with mock.patch.object(util, "sleep") as sleep:
+            code, out, err = self.capture(["--workspace", str(root)])
+        self.assertEqual(2, code, err)
+        self.assertIn("needs_you", out)
+        self.assertIn("autocode wait --run-dir /tmp/producer-ws/.autocode/runs/producer", out)
+        sleep.assert_not_called()
+
     def test_an_unowned_running_checkpoint_ends_the_wait_as_controller_lost(self):
         # No controller receipt, both exclusion locks free, no workers recorded: the
         # saved RUNNING status is a claim nothing alive backs, which is the gap the

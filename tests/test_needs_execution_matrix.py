@@ -706,7 +706,7 @@ class NeedsExecutionMatrixTests(unittest.TestCase):
         before = self.run.bind_dependency(specification)
         self.assertEqual("dependency", before["needs"]["kind"])
         self.assertEqual("nothing needed from you until the other run delivers", before["progress"]["needs_you"])
-        self.assertIsNone(before["next_command"])
+        self.assertEqual(f"autocode wait --run-dir {producer_run} --workspace {producer}", before["next_command"])
         held = self.run.advance()
         self.assertEqual(before["needs"], held["needs"])
         self.assertEqual(self.protected(before), self.protected(held))

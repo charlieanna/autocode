@@ -21,7 +21,11 @@ def named_pause_states(root: Path = TOOLS) -> set[str]:
     for path in python_sources(root):
         text = path.read_text()
         named.update(re.findall(r"PAUSED_[A-Z_]+", text))
-        named.update(re.findall(r"WAITING_FOR_USER|AWAITING_GOAL_APPROVAL|BLOCKED_HUMAN|RESOLVER_PENDING", text))
+        named.update(
+            re.findall(
+                r"WAITING_FOR_USER|AWAITING_GOAL_APPROVAL|BLOCKED_HUMAN|RESOLVER_PENDING|WAITING_FOR_DEPENDENCY", text
+            )
+        )
     # Truncated prefixes (PAUSED_MILESTONE_ etc.) are not states.
     return {status for status in named if not status.endswith("_")}
 
