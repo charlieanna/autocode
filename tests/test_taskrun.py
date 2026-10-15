@@ -823,8 +823,9 @@ class TaskRunTests(unittest.TestCase):
         their records at the project level: .autocode/programs (`autocode program`),
         .autocode/task-flows (`autocode tasks MANIFEST`) and .autocode-components (`autocode
         components ARCH`), with worktrees on branches of their own (autocode/program-<key>/...,
-        components/<id>-<hex>). A single job adds .autocode and the files it ``delivered`` to the
-        project; launched without --in-place, also its task worktree and that worktree's branch.
+        components/<id>-<hex>). A single job adds .autocode, its learned project record, and the
+        files it ``delivered`` to the project; launched without --in-place, also its task worktree
+        and that worktree's branch.
         """
         workspace = self.workspace.resolve()
         after = self.footprint()
@@ -833,7 +834,14 @@ class TaskRunTests(unittest.TestCase):
         self.assertTrue((run.run_dir / "state.json").is_file(), run.run_dir)
         self.assertEqual(run.workspace / ".autocode" / "runs", run.run_dir.parent)
         self.assertEqual(before.entries | {".autocode", *delivered}, after.entries)
-        self.assertEqual(before.status | {"!! .autocode/"} | {f"?? {name}" for name in delivered}, after.status)
+        outside_autocode = lambda rows: {
+            row for row in rows if not row.endswith(".autocode/") and not row.startswith("!! .autocode/")
+        }
+        self.assertEqual(
+            outside_autocode(before.status) | {f"?? {name}" for name in delivered},
+            outside_autocode(after.status),
+        )
+        self.assertTrue((workspace / ".autocode" / "project.json").is_file())
         self.assertEqual(before.worktrees | ({tree} if tree else set()), after.worktrees)
         # No existing ref moves: the job never commits to the project's own branch.
         self.assertEqual({}, {ref: commit for ref, commit in before.refs.items() if after.refs.get(ref) != commit})
@@ -850,9 +858,14 @@ class TaskRunTests(unittest.TestCase):
         # only if it is per-run housekeeping (a log, a lock); a record that coordinates runs does not.
         housekeeping = {".gitignore", "runs", "usage.jsonl", "usage.lock", "writer.lock"}
         if tree:  # the project keeps only the task worktree; the run and its housekeeping are inside it
-            self.assertEqual({".gitignore", "worktree-create.lock", "worktrees"}, names(workspace / ".autocode"))
+            self.assertEqual(
+                {".gitignore", "project-memory.lock", "project.json", "worktree-create.lock", "worktrees"},
+                names(workspace / ".autocode"),
+            )
             self.assertEqual({tree.name}, names(workspace / ".autocode" / "worktrees"))
             housekeeping.add("task-workspace.json")
+        else:
+            housekeeping.update({"project-memory.lock", "project.json"})
         self.assertEqual(housekeeping, names(run.workspace / ".autocode"))
         self.assertEqual({run.run_dir.name}, names(run.workspace / ".autocode" / "runs"))
         # The progressive record is written only when the Planner proposes progressive delivery,

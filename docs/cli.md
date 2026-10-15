@@ -37,6 +37,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode compare-baseline` | Compare Vitest failure evidence (see [Execution](execution.md#baseline-comparison)). |
 | `autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS` / `autocode-issue review-pr` | Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. `--post` submits COMMENT only after every new-side anchor and the head are rechecked (see [Pull request reviews](issues.md#reviewing-a-pull-request)). |
 | `autocode review --workspace PATH [--run-dir RUN]` | Inspect pending human-review criteria and their recorded evidence, then approve, reject with a note, or skip. Reads decisions from terminal or piped input. `--show` and `--json` display without prompting; decisions never start a model. See [Human review](execution.md#human-review-in-the-terminal). |
+| `autocode forget [--workspace PATH] [--json]` | Clear only the learned project record; keep explicit configuration, saved runs and evidence. See [Project memory](project-memory.md). |
 | `autocode clean-worktrees [--yes]` | List, then with `--yes` remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
 | `autocode prune-run RUN [--yes]` | List, then with `--yes` delete a run's settled evidence bytes: finished verification-copy trees (`tool-containment-*/scratch`) and settled job-source stores (`<attempt>.source/`). Manifests, receipts and hashes are retained, so what was there stays provable; `state.json` is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown. |
 | `autocode bundle RUN [--out FILE] [--with-diff] [--json]` | Write one redacted archive of a run for a bug report (default `WORKSPACE/.autocode/bundles/RUN.tar.gz`): the replay recording `replay RUN --export` writes, so a maintainer can [replay](replay.md) it; `state.json`, `activity.jsonl`, the stage reports, the check-replay receipts and the last 200 lines of each provider event stream; the resolved settings, `doctor --json` output and the version. Every file it writes passes the credential redaction exports use, plus the values of secret-named environment variables; a recording that redaction would still change is left out, and the manifest says why. No workspace source unless `--with-diff` adds the run's diff (against its base commit, else the uncommitted work). `manifest.json` lists each file's sha256; cite the printed manifest hash in a bug report or a `docs/bugs/` note instead of pasting logs. The run directory is only read. |
@@ -426,6 +427,16 @@ value its flag would refuse stops a new run before it starts, naming the file an
 the key. `autocode doctor` lists each setting a new run would take and the file
 it came from, and fails on such a file.
 
+### Project memory
+
+Completed tasks save shareable learned project facts in `.autocode/project.json`.
+Its test command is a default below flags and both explicit project files;
+historical human conventions are Requirements context, never new acceptance
+criteria or approval. Saved runs retain their original snapshot.
+`autocode doctor` shows the record and setting sources. `autocode forget` clears
+only the learned file. See [Project memory](project-memory.md) for provenance,
+sharing, the versioned schema and the two-run behavior.
+
 ### Advanced run inputs
 
 | Flag | Meaning |
@@ -498,6 +509,7 @@ also accepts `-h` / `--help`.
 | `autocode conversation` | `--workspace`, `--run-dir`, `--text`, `--title`, `--request-id`, `--expected-revision`, `--supersedes-request-id`, `--question-id`, `--resolver-token`, `--expected-plan-token`, `--timeout` | Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow `--`. On `send`, `--supersedes-request-id` queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON. |
 | `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See [Standalone verification](verify.md). |
 | `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
+| `autocode forget` | `--workspace`, `--json` | Clear the selected project's learned record only; configuration and saved runs remain. |
 | `autocode models` | `--workspace`, `--provider`, `--json`, `--prices` | Project/provider model availability and default routes; optionally JSON; `--prices` shows the dated price table and each default route's rate. |
 | `autocode review-pr` | `--out`, `--post`, `--json` | New owned review directory, optional COMMENT-only posting after full finding/head admission, and JSON findings/evidence; creation/provider options follow `--`. |
 | `autocode review` | `--workspace`, `--run-dir`, `--show`, `--json` | Saved task workspace and run (otherwise the workspace's only run); text or JSON evidence without decisions. With neither display flag, ask approve/reject/skip for each pending criterion. |

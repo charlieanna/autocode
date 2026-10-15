@@ -80,6 +80,7 @@ OPERATOR_SUBCOMMANDS = (
     "arena",
     "dashboard",
     "unattended",
+    "forget",
 )
 
 STOP_NOTICE = """\

@@ -31,6 +31,7 @@ PR template asks for an entry here; a change without one is incomplete.
   portable `lock_file` (`msvcrt` on Windows) and `atomic_json` no longer fails there syncing a directory. A
   Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)
   records the audit and what remains. Use WSL until it is green.
+- Completed runs can remember shareable project test defaults and genuine human conventions for future Requirements, with explicit-setting precedence, doctor display and `autocode forget`; every task keeps its own criteria and approvals (#719).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
