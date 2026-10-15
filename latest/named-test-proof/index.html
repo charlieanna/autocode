@@ -1184,6 +1184,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Mutation check">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tests-in-a-reviewed-patch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests in a reviewed patch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1794,6 +1811,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Mutation check">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tests-in-a-reviewed-patch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests in a reviewed patch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2122,10 +2156,29 @@ that the test is wrong.</p>
 <p>It complements the check replay's sanity gate (<code>tools/autocode_test_quality.py</code>),
 which rejects test bodies that assert nothing at all. A test that asserts
 something, but not enough, passes that gate and shows up here.</p>
-<p>The review workflow, for example the <code>review-vacuous-tests</code> scenario, runs no
-named proof: it proves each finding with a delivered test that must fail on the
-change, so there is no passing proving test to mutate. The mutation check does
-not cover it yet.</p>
+<h3 id="tests-in-a-reviewed-patch">Tests in a reviewed patch<a class="headerlink" href="#tests-in-a-reviewed-patch" title="Permanent link">&para;</a></h3>
+<p>The review workflow keeps two test groups separate. A reviewer's delivered
+finding tests must fail on the change to prove its blocking findings. They are
+not the passing tests used for mutation checks.</p>
+<p>For an explicit <code>change_patch</code>, the runner selects added or modified standard
+Python test files from that patch, excluding <code>review/</code>. It applies the pinned
+patch in its clean scratch copy, runs those original tests, and selects only
+complete, observed passing test IDs. Every selected ID must pass again before
+mutants run. It never executes the model's free-form <code>tests_run</code> strings or
+falls back to the whole suite.</p>
+<p>The check changes only product lines actually added by the patch, excluding
+context lines, tests and unchanged files. It uses the same Python operators,
+six-mutant file limit and one 900-second budget. Missing patches, unsupported
+runners, absent test selections and changes without eligible mutation sites
+produce an explicit not-run note. An empty selection is not evidence that the
+tests reject wrong code. Unknown process cleanup remains a hold.</p>
+<p>Review results expose <code>subject: reviewed_patch_tests</code> in
+<code>evidence.mutation_check</code>, with the patch hash, selected files and test IDs.
+Survivors are keyed by those actual test IDs, rather than invented acceptance
+criteria. The findings artifact and canonical
+<code>workflow_result.mutation_check</code> retain the same report; Markdown presents it
+under <strong>Review test mutation check</strong>. This creates no named regression proof
+and changes neither the review verdict nor the finding-test requirement.</p>
 <h2 id="contained-tester-evidence">Contained Tester Evidence<a class="headerlink" href="#contained-tester-evidence" title="Permanent link">&para;</a></h2>
 <p>A contained Tester cannot bind or connect sockets. If the named regression
 tests exercise real HTTP/end-to-end behavior, it must not run that network-dependent
