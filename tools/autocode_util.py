@@ -156,12 +156,13 @@ def digest(value):
 
 # Token shapes that must never leave the run directory in an export (#712).
 # Raw captures stay untouched; this pass is applied where text is copied out.
-# An `sk-` key starts a word: AutoCode's own `risk-<sha256>` declaration ids are not keys (#720).
+# A word that starts `risk-` is not an `sk-` key: AutoCode's own `risk-<sha256>` declaration ids (#720).
+# Only that word: a key after a letter is still masked, as after the `n` of a JSON-escaped newline.
 _SECRET_PATTERNS = (
     re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9_-]{10,}"),
-    re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}"),
+    re.compile(r"sk-ant-[A-Za-z0-9_-]{10,}"),
+    re.compile(r"(?<!\bri)sk-[A-Za-z0-9]{20,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/-]{12,}"),
     re.compile(r'(?i)\b(?:api[_-]?key|secret|token|password|passwd)\b\s*[=:]\s*[\'"]?[^\s\'"]{8,}'),

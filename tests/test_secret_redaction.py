@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -33,14 +34,17 @@ class RedactionTests(unittest.TestCase):
         for text in ("the token is not here", "PASS 5/5", "", "ghp_short"):
             self.assertEqual(text, util.redact(text))
 
-    def test_an_sk_key_starts_a_word_so_a_risk_declaration_id_is_kept(self):
+    def test_a_risk_declaration_id_is_not_an_sk_key(self):
         declaration = "risk-84112fe04da75ec5cd47e9041294565394e6bc3c180a2d78dd711800f3b0cb07"
         self.assertEqual(declaration, util.redact(declaration))
-        self.assertEqual("brisk-ant-0123456789abcdef", util.redact("brisk-ant-0123456789abcdef"))
+        self.assertEqual(f'{{"id": "{declaration}"}}', util.redact(f'{{"id": "{declaration}"}}'))
         for sample in (
             'KEY="sk-0123456789abcdefghijklmnopqrstuv"',
             "use sk-0123456789abcdefghijklmnopqrstuv",
             "x_sk-ant-oia0123456789",
+            # A key on its own line of a JSON-encoded transcript follows the `n` of `\n`.
+            json.dumps({"output": "key:\nsk-0123456789abcdefghijklmnopqrstuv"}),
+            json.dumps({"output": "key:\nsk-ant-oia0123456789abcdef"}),
         ):
             with self.subTest(sample=sample):
                 self.assertIn("[REDACTED]", util.redact(sample))

@@ -149,7 +149,8 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Fixed
 
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
-  masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; an `sk-` key must start a word (#720).
+  masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
+  masked (#720).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).

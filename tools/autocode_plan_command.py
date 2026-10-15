@@ -84,8 +84,10 @@ def render(path: Path) -> str:
 
 
 def read(path: Path) -> str:
+    """The file's text as written: a carriage return inside a plan's text is not a line break."""
     try:
-        return path.read_text(encoding="utf-8")
+        with path.open(encoding="utf-8", newline="") as stream:
+            return stream.read()
     except UnicodeDecodeError as error:
         raise ValueError(f"{path} is not UTF-8 text: {error}") from None
 

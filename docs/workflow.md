@@ -742,6 +742,17 @@ from state), creates a new draft revision and displays its delta. It invalidates
 approval, validation and human reviews. Previous contracts/evidence stay archived.
 Approval can never be inferred from a model response or a generic `--resume-paused`.
 
+The contract records outcome/user, the ordered end-to-end user flow, deliverables,
+behaviors and failures, exclusions,
+constraints/permissions, assumptions and their provenance, delegated decisions,
+stable criterion IDs with verification methods, human-review flags and open questions.
+It also includes a minimal technical approach and small implementation milestones,
+each linked to existing acceptance criteria; every required criterion is covered.
+All listed acceptance criteria are required. Optional enhancements go in the deferred
+backlog and do not participate in the completion gate.
+
+See also: [Execution and completion](execution.md) · [Models](models.md) · [Providers](providers.md)
+
 ### Reviewing a plan in a pull request
 
 On a team, what will be built is worth reviewing before any model builds it.
@@ -772,17 +783,6 @@ longer matches the front matter, for example when only the prose was edited, and
 It checks the file, not the plan: whether a run accepts the plan is decided when the plan is
 approved in that run, with `--approve-goal`, or revised with `--feedback` or `--edit-goal` (whose
 body is the front matter's `contract`).
-
-The contract records outcome/user, the ordered end-to-end user flow, deliverables,
-behaviors and failures, exclusions,
-constraints/permissions, assumptions and their provenance, delegated decisions,
-stable criterion IDs with verification methods, human-review flags and open questions.
-It also includes a minimal technical approach and small implementation milestones,
-each linked to existing acceptance criteria; every required criterion is covered.
-All listed acceptance criteria are required. Optional enhancements go in the deferred
-backlog and do not participate in the completion gate.
-
-See also: [Execution and completion](execution.md) · [Models](models.md) · [Providers](providers.md)
 
 ## Task chat message intent
 

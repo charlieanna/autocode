@@ -142,6 +142,15 @@ class PlanCommandTests(unittest.TestCase):
         self.assertIn(f"differs from revision 2 as exported, goal hash {util.digest(BODY)}", out)
         self.assertIn("- Localization and time zones", path.read_text().split("\n"))
 
+    def test_a_carriage_return_inside_the_plan_does_not_make_its_exported_text_stale(self):
+        body = dict(BODY, intended_outcome="Greet a user\rby name")
+        saved_run(self.root, goal_contract={"task_id": "task-1", "revision": 2, "body": body})
+        path = self.root / "plan.md"
+        self.assertEqual(0, self.plan("--export", str(path), "--workspace", str(self.root))[0])
+        code, out, err = self.plan("--check", str(path))
+        self.assertEqual((0, ""), (code, err))
+        self.assertEqual(f"{path}: goal hash {util.digest(body)}; the plan exported from revision 2\n", out)
+
     def test_an_unreadable_plan_file_is_refused_without_a_traceback(self):
         path = self.root / "plan.md"
         path.write_text("# Plan\n")
