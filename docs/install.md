@@ -210,8 +210,9 @@ source <(autocode completion zsh)    # after compinit; or save it as _autocode i
 autocode completion fish | source    # or save it as ~/.config/fish/completions/autocode.fish
 ```
 
-`program`'s commands and `dashboard` complete only `--help`. A saved script lists the
-options of the version that wrote it, so write it again after upgrading.
+`capture`, `registry`, `intervention`, `dashboard` and `program`'s commands complete only
+`--help`. A saved script lists the options of the version that wrote it, so write it again
+after upgrading.
 
 ### Releasing
 
