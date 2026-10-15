@@ -815,6 +815,17 @@ OpenCode's own permission checks only, and each such stage record says
 native Codex engine (unless its Investigator is pinned to an OpenCode model) and
 configured providers.
 
+`tool_containment_backend` names the kernel boundary the latest contained launch ran
+in, read from that launch's own stage record (the running stage first), never from
+the machine reading the status: `backend` (`seatbelt` or `bubblewrap`; `null` if the
+record names neither), `backend_version` (the macOS release, or `bwrap --version`), and
+that launch's `stage`, `iteration` and `started_at`. A launch saved before backends were
+recorded reads as `seatbelt` with a `null` version, since Seatbelt was the only backend
+then. Launches without a boundary (planning, uncontained, configured providers, Codex)
+are passed over, so after a run turns uncontained this still names the last boundary
+that applied; `tool_containment` says whether the run's stages are contained now. It
+is `null` until a stage launches contained.
+
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
 contract, source, report and evidence hashes, and the ordinary retry charged by
@@ -890,6 +901,16 @@ TaskRun methods; adding a scope or a needs-table row requires an execution case.
 | `blocker` | `answer`: use `respond_operational`, not an ordinary answer | Corrective information does not edit the contract or authorize execution |
 | `operational_exhaustion` | `answer`: use `respond_operational`, not an ordinary answer | Existing limits hold; information is considered at the next explicit resume |
 | `intake` | `answer`: answer the Resolver intake question with its current token | Intent is saved; no project plan or execution approval is implied |
+
+## Supervision timing in status
+
+`view.liveness.timing` reports an authenticated supervision receipt's
+`monotonic_elapsed_seconds`, `wall_elapsed_seconds`, `admitted_stage_limit_seconds`,
+`excess_wall_seconds`, `suspension_tolerance_seconds` and
+`likely_host_or_vm_suspension`. Legacy or malformed timing is `null`. A runner
+check exposes the same evidence at `view.runner_check.liveness.timing`. This is
+passive evidence: stage, idle and tool limits and supervision triggers continue
+to use monotonic awake time only.
 
 ## Runner checks in status
 

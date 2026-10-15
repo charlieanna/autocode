@@ -28,6 +28,29 @@ def requirements():
     return value
 
 
+def design_coverage_plan(record):
+    contract = body()
+    contract["initial_task"] = {
+        "objective": "Deliver and verify the greeting flow",
+        "affected_paths": ["greet.py"],
+        "kind": "implement",
+        "milestone_id": "M1",
+        "requirements": ["R1"],
+        "acceptance_criteria": ["C1"],
+        "validation_plan": ["Execute greeting and invalid-input regression checks"],
+    }
+    owned = sorted({path for case in record["body"]["cases"] for path in case["implementation_paths"]})
+    contract["milestones"][0]["affected_paths"] = [*owned, "greet.py"]
+    contract["design_coverage"] = {
+        "manifest_hash": record["manifest_hash"],
+        "cases": [
+            {"id": case["id"], "criterion_ids": ["C1"], "milestone_ids": ["M1"]} for case in record["body"]["cases"]
+        ],
+        "responsive_derivations": [],
+    }
+    return contract
+
+
 class V2FlowTests(unittest.TestCase):
     def state(self):
         return {
@@ -516,6 +539,45 @@ class V2FlowTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self.assertFalse(planning.is_planning(state, stage))
         self.assertEqual("astra", planning.role_for(state, "astra_plan"))
+
+    def test_v2_plan_applies_the_design_coverage_its_own_schema_advertised(self):
+        import autocode_design_manifest as design_manifest
+
+        from tests.test_design_manifest import inventory_bundle
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
+        record = design_manifest.load(inventory_bundle(root / "inventory")[0])
+
+        def apply(contract):
+            state = self.state()
+            state["settings"]["design_manifest"] = record
+            autopilot.apply_planning(
+                state,
+                "plan",
+                {"contract": contract, "summary": "planned"},
+                {"output": str(root / "plan.json"), "stage": "plan"},
+            )
+            return state
+
+        planned = design_coverage_plan(record)
+        state = apply(planned)
+        self.assertEqual(planned["design_coverage"], state["goal_contract"]["body"]["design_coverage"])
+        self.assertEqual(planned, state["planning"]["reports"]["plan"]["report"]["contract"])
+        self.assertEqual("planned", state["discovery_summary"])
+        for change in ("missing_case", "unknown_criterion", "malformed_coverage", "stale_reference"):
+            broken = design_coverage_plan(record)
+            if change == "missing_case":
+                broken["design_coverage"]["cases"].pop()
+            elif change == "unknown_criterion":
+                broken["design_coverage"]["cases"][0]["criterion_ids"] = ["NOT_A_CRITERION"]
+            elif change == "malformed_coverage":
+                broken["design_coverage"]["cases"] = "not a list"
+            else:
+                broken["design_coverage"]["manifest_hash"] = "b" * 64
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                apply(broken)
 
 
 def plan_body():

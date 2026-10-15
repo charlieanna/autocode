@@ -11,7 +11,33 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      docs: ${{ steps.select.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Select affected checks
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            python tools/ci_scope.py --base "$BASE" --head "$HEAD" --github-output "$GITHUB_OUTPUT"
+          else
+            python tools/ci_scope.py --full --github-output "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: scope
+    if: needs.scope.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

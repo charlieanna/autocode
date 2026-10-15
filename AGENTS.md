@@ -174,11 +174,16 @@ change to `tools/`, pass the task-focused tests and fake-provider regression
 that exercise the changed behavior. Use `--changed` when its broader selection
 is justified by the actual impact; do not run every fake scenario by default.
 
-A pull request's CI runs `--changed --all-fast`: every test module except
-the slow ones it did not change. `--changed` alone cannot see a CLI-level
-test, which imports the harness rather than the module it drives, and that
-gap turned master red after #232, #242 and #330. A push to master runs every
-test, including the slow ones. A break only a slow module catches can
+A pull request's CI runs `--changed` against the event's pinned base commit.
+Explicit resource and CLI-consumer mappings in `tools/ci_test_selection.py`
+cover dependencies the import selector cannot see; update those mappings when
+adding a dynamically loaded resource or a public CLI consumer. Required mapped
+consumers run even when listed as slow. `tools/ci_scope.py` selects relevant
+browser, container, platform and packaging jobs, with a stable `ci-required`
+check that rejects a failed or unexpectedly skipped selected job. PR checks use
+fake providers; strict host admission and cleanup still apply. A push to master
+runs every test and every existing master job, including the slow ones.
+A break only a slow module catches can
 therefore first show up on master: fix it forward straight away. Making a slow test fast (in-process instead of a CLI
 subprocess, a copied Git fixture instead of `git init`, a fake clock instead
 of a wait) and taking it off the slow list is progress. Run the full suite yourself only when you change something many

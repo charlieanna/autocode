@@ -23,11 +23,13 @@ try:
     from . import autocode_prices as prices
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
+    from . import autocode_route_ladder as route_ladder
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_prices as prices
     import autocode_role_transport as role_transport
     import autocode_roles as roles
+    import autocode_route_ladder as route_ladder
     import autocode_verifier_independence as verifier_independence
 
 # Ladder entry points when both families are present (docs/models.md).
@@ -415,7 +417,9 @@ def render_advice(advice: dict, provider: str = "OpenCode") -> str:
     return "\n".join(lines)
 
 
-def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input, out=print, inventory=None) -> dict:
+def choose(
+    settings: dict, provider, workspace, *, interactive: bool, ask=input, out=print, inventory=None, named_strong=None
+) -> dict:
     """New runs: stop before any model call when a role's model cannot be used.
 
     Checks the OpenCode-shaped routes against the provider's own list: a saved run could
@@ -423,6 +427,9 @@ def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input,
     cannot list its models starts the run as before.
     In chat the user may accept every replacement, which is written into the routes as
     --<role>-model flags would be; otherwise the run stops with the list and the flags.
+    The same list then checks every rung the run's roles may climb to
+    (autocode_route_ladder.serve): ``named_strong`` is a --builder-strong-model the
+    person named, which is refused rather than dropped when the list lacks a model it needs.
     """
     if role_transport.enabled(settings):
         for facade, routes, _identity in role_transport.groups(settings, provider, workspace):
@@ -463,7 +470,7 @@ def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input,
     # Availability comes from the provider, not a hardcoded model policy.
     advice = advise(roles, available, refused_missing=False)
     if not advice["missing"]:
-        return settings
+        return _serve(settings, available, named_strong)
     signed_in = getattr(provider, "openai_auth", None)
     if signed_in and any(model.startswith("openai/") for model in available):
         advice = advise(roles, available, openai_auth=signed_in(workspace), refused_missing=False)
@@ -475,7 +482,14 @@ def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input,
         raise RuntimeError("No model was changed and nothing was launched; start the run with the flags above")
     for role, suggestion in advice["suggestions"].items():
         settings["roles"][role]["model"] = suggestion["model"]
-    return settings
+    return _serve(settings, available, named_strong)
+
+
+def _serve(settings: dict, available, named_strong) -> dict:
+    try:
+        return route_ladder.serve(settings, available, named_strong=named_strong)
+    except ValueError as error:
+        raise RuntimeError(f"{error}. Nothing was launched") from None
 
 
 def default_roles(provider) -> dict[str, dict]:

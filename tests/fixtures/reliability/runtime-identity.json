@@ -1,0 +1,8 @@
+{
+  "autocode_version": "0.7.1",
+  "python": "3.14.6",
+  "psutil": "7.2.2",
+  "provider": "opencode",
+  "provider_version": "1.18.33",
+  "dependencies": "campaign-deps.lock sha256:3f5d0c2a9b8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817065f4e"
+}

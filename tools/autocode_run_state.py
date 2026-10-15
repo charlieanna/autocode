@@ -265,6 +265,7 @@ KEYS: frozenset[str] = frozenset(
         "user_request",
         "validation",
         "validation_archive",
+        "validation_only_rounds",
         "validator_rechecks",
         "verification_count",
         "verifications",
@@ -316,6 +317,9 @@ class RunState(TypedDict, total=False):
     user_request: dict | None  # a pending decision request
     validation: dict | None  # the latest independent validation (autoreview)
     validation_archive: list  # superseded validations
+    # One {attempt, frontier, at} per admitted validation-only Validator round; appended and read only by
+    # autocode_validation_rounds.admit (via its KEY constant, which the key scan in tests/test_run_state.py follows).
+    validation_only_rounds: list[dict]
     findings_ledger: list  # open/closed findings (autocode_findings)
     implementation: dict | None  # the Builder build-candidate record
     # What the run a checkpoint continuation restored from spent: {usd, unpriced_stages, partial_stages}

@@ -70,6 +70,7 @@ class OwnerDeadlineTests(unittest.TestCase):
         )
         with (
             patch.object(supervision.time, "monotonic", lambda: clock[0]),
+            patch.object(supervision.time, "time", return_value=2_000_000_000.0),
             patch.object(supervision.processes, "live_processes", return_value=[OWNER]),
             patch.object(supervision.subprocess, "Popen", popen),
             patch.object(supervision, "_identity", lambda pid: {"pid": pid}),
@@ -98,6 +99,14 @@ class OwnerDeadlineTests(unittest.TestCase):
         checkpoint.assert_not_called()
         select_wait.assert_not_called()
         read_ack.assert_not_called()
+        self.assertEqual(
+            {
+                "wall_origin_seconds": 2_000_000_000.0,
+                "monotonic_origin_seconds": 1000.0,
+                "admitted_stage_limit_seconds": sent[0]["deadline"] - 1000.0,
+            },
+            sent[0]["timing"],
+        )
         return sent[0]["deadline"], waits[0]
 
     def test_slow_setup_does_not_extend_the_keepers_deadline_or_restart_admission(self):

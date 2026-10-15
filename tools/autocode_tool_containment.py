@@ -62,6 +62,7 @@ CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
 # The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
 SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
+NO_OPENCODE = "strict tool containment cannot find the opencode executable on PATH"
 
 
 def backend():
@@ -140,13 +141,24 @@ def unavailable(workspace=None, environment=None):
     env = dict(os.environ if environment is None else environment)
     executable = shutil.which("opencode", path=env.get("PATH", ""))
     if not executable:
-        return "strict tool containment cannot find the opencode executable on PATH"
+        return opencode_problem(None)
     try:
         result = subprocess.run(
             [executable, "--version"], env=env, cwd=workspace, capture_output=True, text=True, timeout=15
         )
     except (OSError, subprocess.SubprocessError) as error:
         return f"strict tool containment could not read the OpenCode version: {error}"
+    return opencode_problem(result)
+
+
+def opencode_problem(result):
+    """Why the OpenCode whose ``opencode --version`` gave ``result`` cannot run contained, or None.
+
+    ``result`` is that command's CompletedProcess, or None when no opencode is on PATH.
+    unavailable() and `autocode doctor` (which runs the command its own way) share this rule.
+    """
+    if result is None:
+        return NO_OPENCODE
     version = result.stdout.strip()
     if result.returncode or version != SUPPORTED_VERSION:
         found = version if version and not result.returncode else f"unknown (exit {result.returncode})"
@@ -1270,3 +1282,26 @@ def recorded_scratch(records, workspace):
         if path.name == "scratch" and path.parent.parent == private and CONTROL_NAME.fullmatch(path.parent.name):
             found.append(path)
     return tuple(dict.fromkeys(found))
+
+
+def recorded_backend(records):
+    """The kernel boundary the latest contained launch among these stage records ran in, or None.
+
+    Read from that launch's own manifest (prepare()), never from this host, so a run moved to
+    another machine still says where each launch was contained: ``backend``, ``backend_version``
+    and the launch's ``stage``, ``iteration`` and ``started_at``. Launches without a manifest
+    (planning, uncontained, configured providers, Codex) are passed over. A manifest saved
+    before #709 names no backend; only Seatbelt existed then, as verify() reads it. A name that
+    is not a backend, or a version that is not text, reads as None.
+    """
+    for record in reversed(records):
+        boundary = record.get("tool_containment") if isinstance(record, dict) else None
+        if not isinstance(boundary, dict):
+            continue
+        name, version = boundary.get("backend", SEATBELT), boundary.get("backend_version")
+        return {
+            "backend": name if isinstance(name, str) and name in POLICY_FILES else None,
+            "backend_version": version if isinstance(version, str) else None,
+            **{key: record.get(key) for key in ("stage", "iteration", "started_at")},
+        }
+    return None

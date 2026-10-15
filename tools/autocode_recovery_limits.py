@@ -1,5 +1,7 @@
 """Admission policy for existing recovery allowances and unchanged denial holds."""
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -49,7 +51,7 @@ BOUND_ADVICE = {
     ),
     "PAUSED_COST_LIMIT": (
         "To acknowledge this cost pause, use autocode resume --max-cost-usd N "
-        "with a cap above the spend so far (and at least the cap the stop names for a stronger Builder attempt), "
+        "with a cap above the spend so far (and at least the cap the stop names for an attempt on a stronger route), "
         "or 0 for no cost cap. AutoCode never raises this cap itself; "
         "you may reassert an already saved cap that is still above the spend; unrelated settings do not "
         "acknowledge this pause."
@@ -215,7 +217,7 @@ def stop_reason(state, count, maximum, *, allow_grant=True):
     return None
 
 
-def repeated_failure_resume_guard(state: "RunState", *, authorization=None, repeated_failure, current_revision, paused):
+def repeated_failure_resume_guard(state: RunState, *, authorization=None, repeated_failure, current_revision, paused):
     """A restart or plain resume cannot erase an unchanged repeated failure.
 
     A recognized recovery path that reroutes the run changes the saved status

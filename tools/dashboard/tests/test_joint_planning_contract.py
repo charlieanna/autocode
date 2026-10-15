@@ -142,6 +142,11 @@ class JointPlanningContractTests(unittest.TestCase):
                 self.assertEqual(expected_model, settings["roles"][role]["model"])
                 self.assertIsNone(settings["roles"][role]["provider"])
 
+    def test_loaded_runner_can_resolve_its_own_module_reference(self):
+        # The real runner hands itself to lower-level helpers as sys.modules[__name__] at 17
+        # sites; an unregistered fixture module makes every one of them raise KeyError (#1186).
+        self.assertIs(self.runner, sys.modules[self.runner.main.__globals__["__name__"]])
+
     def test_default_browser_creation_routes_discovery_to_glm_and_review_to_astra(self):
         self.assert_joint_routes(self.create_settings())
 

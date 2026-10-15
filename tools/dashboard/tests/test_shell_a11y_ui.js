@@ -332,27 +332,67 @@ function focusProbe(selector, surfaceSelector, kind) {
     'const e=document.querySelector(' + JSON.stringify(selector) + ');const surface=document.querySelector(' + JSON.stringify(surfaceSelector) + ')||document.querySelector(".main-area");' +
     'if(!e||!surface)throw Error("Missing focus probe");try{e.focus({focusVisible:true});}catch{e.focus();}e.setAttribute("data-focus-visible-test","");' +
     'const s=getComputedStyle(e),transparent=v=>v==="rgba(0, 0, 0, 0)"||v==="transparent",painted=node=>{for(let current=node;current;current=current.parentElement){const color=getComputedStyle(current).backgroundColor;if(!transparent(color))return color;}return getComputedStyle(document.documentElement).getPropertyValue("--surface-default").trim();},end=s.boxShadow.indexOf(")");' +
-    'return {kind:' + JSON.stringify(kind) + ',selector:' + JSON.stringify(selector) + ',actualFocus:e.matches(":focus-visible"),outlineColor:s.outlineColor,outlineStyle:s.outlineStyle,outlineWidth:s.outlineWidth,outlineOffset:s.outlineOffset,innerColor:end>=0?s.boxShadow.slice(0,end+1):"",boxShadow:s.boxShadow,control:transparent(s.backgroundColor)?painted(e.parentElement):s.backgroundColor,surface:painted(surface)};' +
+    // Computed styles report a valid outline even when an ancestor scroll box
+    // clips it (#564), so record how far the painted indicator reaches beyond
+    // the border box and which clipping ancestors no longer contain it.
+    'const shadowLengths=(String(s.boxShadow).match(/-?[0-9.]+px/g)||[]).map(parseFloat);' +
+    'const spread=shadowLengths.length>3?shadowLengths[3]:0;' +
+    'const shadowOutset=shadowLengths.length?Math.max(Math.abs(shadowLengths[0])+spread,Math.abs(shadowLengths[1])+spread):0;' +
+    'const outset=Math.max(0,(parseFloat(s.outlineOffset)||0)+(parseFloat(s.outlineWidth)||0),shadowOutset);' +
+    'const own=e.getBoundingClientRect(),ring={left:own.left-outset,top:own.top-outset,right:own.right+outset,bottom:own.bottom+outset},clippers=[];' +
+    'for(let parent=e.parentElement;parent;parent=parent.parentElement){' +
+    'const ps=getComputedStyle(parent),cutsX=/hidden|clip|scroll|auto/.test(ps.overflowX),cutsY=/hidden|clip|scroll|auto/.test(ps.overflowY);if(!cutsX&&!cutsY)continue;' +
+    'const pb=parent.getBoundingClientRect(),view={left:pb.left+parent.clientLeft,top:pb.top+parent.clientTop,right:pb.left+parent.clientLeft+parent.clientWidth,bottom:pb.top+parent.clientTop+parent.clientHeight};' +
+    'const cut=(cutsX&&(ring.left<view.left-0.5||ring.right>view.right+0.5))||(cutsY&&(ring.top<view.top-0.5||ring.bottom>view.bottom+0.5));' +
+    'clippers.push({name:parent.id||parent.className||parent.tagName,overflowX:ps.overflowX,overflowY:ps.overflowY,view,cut});}' +
+    'return {kind:' + JSON.stringify(kind) + ',selector:' + JSON.stringify(selector) + ',actualFocus:e.matches(":focus-visible"),outlineColor:s.outlineColor,outlineStyle:s.outlineStyle,outlineWidth:s.outlineWidth,outlineOffset:s.outlineOffset,innerColor:end>=0?s.boxShadow.slice(0,end+1):"",boxShadow:s.boxShadow,control:transparent(s.backgroundColor)?painted(e.parentElement):s.backgroundColor,surface:painted(surface),' +
+    'indicatorOutset:outset,clippingAncestors:clippers,borderBottomColor:transparent(s.borderBottomColor)?"":s.borderBottomColor,borderBottomWidth:s.borderBottomWidth,ariaSelected:e.getAttribute("aria-selected")};' +
   '}';
   return data(code);
 }
 
-function assessFocus(probe, theme) {
+function assessFocus(probe, theme, expectations = {}) {
   // A computed outline-width survives outline-style none unpainted (#879).
   assert.ok(probe.outlineStyle !== 'none' && probe.outlineStyle !== 'hidden' && parseFloat(probe.outlineWidth) >= 2,
     theme + ' ' + probe.kind + ' has a 2 px outer focus layer: ' + probe.outlineStyle + ' ' + probe.outlineWidth);
-  assert.match(probe.boxShadow, /2px/, theme + ' ' + probe.kind + ' has a 2 px inner focus layer');
+  // A ring drawn inside the control's own box needs no paired outer layer: the
+  // shadow ring exists to separate an outward indicator from a filled control.
+  const ringDepth = -(parseFloat(probe.outlineOffset) || 0);
+  const insideOwnBox = ringDepth > 0 && probe.indicatorOutset <= 0;
+  if (!insideOwnBox) {
+    assert.match(probe.boxShadow, /2px/, theme + ' ' + probe.kind + ' has a 2 px inner focus layer');
+  }
   const ratios = {
     outerToControl: contrast(probe.outlineColor, probe.control),
     outerToSurface: contrast(probe.outlineColor, probe.surface),
-    innerToControl: contrast(probe.innerColor, probe.control),
-    innerToSurface: contrast(probe.innerColor, probe.surface),
   };
+  if (!insideOwnBox) {
+    ratios.innerToControl = contrast(probe.innerColor, probe.control);
+    ratios.innerToSurface = contrast(probe.innerColor, probe.surface);
+  }
+  if (expectations.boundaryAdjacent && probe.borderBottomColor && parseFloat(probe.borderBottomWidth) > 0) {
+    // The control's own painted boundary counts as an adjacent colour unless at
+    // least 2 px of the control's background separates it from the indicator:
+    // an outward ring reaches it through the paired shadow layer, and an inset
+    // ring reaches it when its band spans the boundary's own width (#903).
+    const boundary = parseFloat(probe.borderBottomWidth);
+    const separation = insideOwnBox
+      ? ringDepth - (parseFloat(probe.outlineWidth) || 0) - boundary
+      : -probe.indicatorOutset;
+    if (separation < 2) {
+      ratios.indicatorToOwnBoundary = contrast(probe.outlineColor, probe.borderBottomColor);
+    }
+  }
   for (const [pair, ratio] of Object.entries(ratios)) {
     assert.ok(ratio >= 3,
       theme + ' ' + probe.kind + ' ' + pair + ' is at least 3:1 (recorded ' + ratio.toFixed(3) + ')');
   }
-  return {...probe, theme, ratios};
+  if (expectations.unclipped) {
+    const cut = (probe.clippingAncestors || []).filter(entry => entry.cut);
+    assert.deepEqual(cut, [], theme + ' ' + probe.kind +
+      ' paints its complete focus ring inside every clipping ancestor: ' + JSON.stringify(cut));
+  }
+  return {...probe, theme, ratios, insideOwnBox};
 }
 
 function captureRelevantScroll(name, viewport) {
@@ -1082,12 +1122,17 @@ function assertM2Scenario(name, viewport) {
       representativeFlows.push(flow);
     }
 
+    // The artifact strip is itself a scroll container, so its ring is measured
+    // against the strip (a clipped ring still reports valid computed styles,
+    // #564) and against the tab's own painted accent boundary (#903).
+    const tabRing = {unclipped: true, boundaryAdjacent: true};
     for (const theme of ['light', 'dark']) {
       openScenario(info, 'plan', viewports[0]);
       setTheme(theme);
       focusMeasurements.push(assessFocus(focusProbe('#continue-run', '.main-area', 'primary'), theme));
       focusMeasurements.push(assessFocus(focusProbe('#task-back', '.main-area', 'secondary'), theme));
-      focusMeasurements.push(assessFocus(focusProbe('.detail-tabs [data-tab="now"]', '.context-pane', 'tab'), theme));
+      focusMeasurements.push(assessFocus(focusProbe('.detail-tabs [data-tab="now"]', '.context-pane', 'tab'), theme, tabRing));
+      focusMeasurements.push(assessFocus(focusProbe('.detail-tabs [data-tab="plan"]', '.context-pane', 'selected tab'), theme, tabRing));
       data('()=>{const d=document.querySelector("#project-removal-dialog");if(!d.open)d.showModal();return true;}');
       focusMeasurements.push(assessFocus(focusProbe('#project-removal-confirm', '#project-removal-dialog', 'destructive dialog control'), theme));
       focusMeasurements.push(assessFocus(focusProbe('#project-removal-cancel', '#project-removal-dialog', 'dialog safe action'), theme));
@@ -1104,6 +1149,13 @@ function assertM2Scenario(name, viewport) {
       openScenario(info, 'plan', viewports[2]);
       setTheme(theme);
       focusMeasurements.push(assessFocus(focusProbe('#nav-toggle', '.topbar', 'drawer trigger'), theme));
+      // The phone reaches the artifact pane through its details sheet, where the
+      // strip becomes the sheet's bottom bar and scrolls horizontally. Measure
+      // the selected tab there and the last tab at the strip's scroll end.
+      browser('click', '#details-drawer-toggle');
+      browser('wait', '--fn', 'document.querySelector(".app-shell").classList.contains("details-open")');
+      focusMeasurements.push(assessFocus(focusProbe('.detail-tabs [data-tab="plan"]', '.context-pane', 'mobile selected tab'), theme, tabRing));
+      focusMeasurements.push(assessFocus(focusProbe('.detail-tabs [data-tab="overview"]', '.context-pane', 'mobile last tab at the strip scroll end'), theme, tabRing));
     }
 
     browser('set', 'media', 'light', 'reduced-motion');

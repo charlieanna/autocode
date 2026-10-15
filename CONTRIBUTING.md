@@ -106,6 +106,11 @@ or fault injection; a fake returning PASS without exercising the defect is not
 evidence. Add the architecture check when imports or module boundaries change.
 Documentation-only edits need link/source checks, not behavior-test reruns.
 
+On macOS, a running Docker Desktop can provide supported Linux execution for
+exactly one fake provider-backed unittest selector or named fake scenario; see
+[One focused Linux fake run from macOS](docs/testing.md#one-focused-linux-fake-run-from-macos).
+It does not weaken macOS host admission and does not accept live-provider flags.
+
 Use the same pinned lint tools as CI for Python changes (select affected paths
 while iterating):
 
