@@ -523,6 +523,28 @@ class V2PlanningCycleTests(unittest.TestCase):
         with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
             self.review(state, "plan_review", "refused.json")
 
+    def test_feedback_after_a_plan_that_skipped_requirements_begins_a_new_cycle(self):
+        state = self.state()
+        # A bug fix or a checked design hands over straight to the Planner: no Requirements handoff yet.
+        state.update(status="RUNNING", phase="PLANNING", next_stage="plan")
+        autopilot.apply_planning(state, "plan", {"contract": plan_body(), "summary": "Plan"}, {"output": "plan.json"})
+        self.review(state, "plan_review", "review.json", exit_code=0)
+        autopilot.apply_planning(
+            state, "plan_review", {"summary": "Concern", "concerns": [self.CONCERN]}, {"output": "review.json"}
+        )
+        self.review(state, "plan_finalize", "final.json", exit_code=0)
+        state["status"] = "PAUSED_PLANNING_BUDGET"
+
+        goals.feedback(state, "Print the greeting on its own line")
+        self.admit(state, summary="Requirements with the greeting on its own line")
+
+        self.assertEqual(0, state["planning"]["astra_calls"], "The old cycle's charges must not refuse the new review")
+        self.assertEqual([2], [cycle["astra_calls"] for cycle in state.get("planning_history", [])])
+        self.assertEqual(["feedback:" + state["brief_feedback"][-1]["id"]], state["planning"]["inputs"])
+        autopilot.apply_planning(state, "plan", {"contract": plan_body(), "summary": "Plan"}, {"output": "plan-2.json"})
+        self.assertEqual("plan_review", state["next_stage"])
+        self.review(state, "plan_review", "review-2.json", exit_code=0)
+
     def test_a_record_saved_before_the_rule_keeps_its_charges_until_new_input(self):
         state = self.state()
         self.reviewed_cycle(state)
