@@ -268,6 +268,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
+- Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
+  to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,
+  it was never probed when the built-in OpenCode ran the other roles, and its prepaid route could fail after paid
+  work. Every tool's login is checked before the first request, and passes are kept per tool, so a pass on one tool
+  never counts for the same model on another. Runs that use one tool are probed exactly as before, and their saved
+  passes are still reused (#1287).
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).

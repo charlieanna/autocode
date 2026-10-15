@@ -47,6 +47,7 @@ class ModelPreflightAttemptTests(unittest.TestCase):
         }
         self.state = {
             "settings": {
+                "engine": "opencode",
                 "roles": {"sol": {"model": self.model}},
                 "transport_identities": {"opencode": self.identity},
             },
@@ -145,7 +146,7 @@ class ModelPreflightAttemptTests(unittest.TestCase):
             self.model,
             self.checkpoint,
             lambda: self.seconds,
-            preflight_identity=preflight._cache_identity(self.adapter, self.state["settings"]),
+            preflight_identity=preflight._receipt_identity(self.adapter, self.identity),
         )
         self.write_events(attempt.directory)
         metadata = self.ownership(attempt.directory, phase=phase, observed=observed)

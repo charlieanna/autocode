@@ -1008,6 +1008,37 @@ class ExplicitRoleTransportTests(unittest.TestCase):
                 self.cli_configure([*self.args(), *extras])
         self.assertIs(self.open, self.cli.opencode)
 
+    def test_model_preflight_probes_the_selected_role_through_its_own_tool(self):
+        import autocode_model_preflight as preflight
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        settings = self.observed[-1]
+        # The selected tool declares billing logins; the built-in OpenCode run tool does not.
+        self.external._config = {"auth": {"command": ["kilo", "auth", "list"], "routes": []}}
+        self.external.check_subscription_routes.reset_mock()
+        self.open.check_subscription_routes.reset_mock()
+        probes = []
+
+        def execute(**kwargs):
+            probes.append((kwargs["adapter"], kwargs["model"]))
+            kwargs["directory"].mkdir(parents=True, exist_ok=True)
+            rows = [{"type": "step_start", "sessionID": "probe"}, {"type": "step_finish", "sessionID": "probe"}]
+            (kwargs["directory"] / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            return {"exit_code": 0, "timed_out": False, "metrics": {}}
+
+        run_dir = self.workspace / "run"
+        run_dir.mkdir()
+        runner = SimpleNamespace(opencode=self.cli.opencode)
+        with mock.patch.object(preflight.transport, "execute", side_effect=execute):
+            self.assertTrue(preflight.check(runner, {"settings": settings}, run_dir, self.workspace))
+        self.assertEqual([(self.external, "anthropic/fixture-claude")], probes)
+        self.external.check_subscription_routes.assert_called_once_with(
+            {"sol": settings["roles"]["sol"]}, self.workspace
+        )
+        self.open.check_subscription_routes.assert_not_called()
+
     def test_external_facade_remains_ineligible_for_native_image_preparation(self):
         import autocode_provider_launch as launch
         import autocode_util
