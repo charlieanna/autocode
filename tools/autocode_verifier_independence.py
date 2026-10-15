@@ -1,29 +1,38 @@
 """Verifier independence: the one rule for which model may check which model's work.
 
-Pure domain logic over route dicts; imports only autocode_model_identity. A verifier never
-runs the model that produced the work it judges: the same exact model is always a clash
-(native Codex and OpenCode spellings of one GPT tier included), and GLM and MiMo are
-families, so GLM checks MiMo work and MiMo checks GLM work (user 2026-09-26).
+Pure domain logic over route dicts; imports only autocode_model_identity and the screen
+names in autocode_roles. A verifier never runs the model that produced the work it judges:
+the same exact model is always a clash (native Codex and OpenCode spellings of one GPT tier
+included), and GLM and MiMo are families, so GLM checks MiMo work and MiMo checks GLM work
+(user 2026-09-26).
 
-Every path that changes a route asks this module: the dispatch guard before a launch
-(autocode_dispatch), the Builder's stronger attempt deciding which checkers to move
-(autocode_builder_policy), a new run's retry policy refusing a strong model that would be
-checked by its own family, and the model catalogue's suggestions (#612).
+Asked by the dispatch guard before a launch (autocode_dispatch, which a human
+``--answer route-<role>=MODEL`` also re-checks through), the Builder's stronger attempt
+deciding which checkers to move (autocode_builder_policy), a new run's retry policy refusing
+a strong model that would be checked by its own family, a tool's [builder_retry] table
+(providers/command.py) and the model catalogue's suggestions (#612).
 """
 
 from __future__ import annotations
 
 try:
     from . import autocode_model_identity as model_identity
+    from . import autocode_roles as roles
 except ImportError:
     import autocode_model_identity as model_identity
+    import autocode_roles as roles
 
-# (producer, verifier, label): the roles whose models must stay independent. Labels name the
-# jobs as the screen does (autocode_roles); this module stays below it.
+
+def _label(producer_job, verifier_job):
+    return f"{roles.SCREEN[producer_job]}/{roles.SCREEN[verifier_job]}"
+
+
+# (producer, verifier, label): the roles whose models must stay independent, labelled with
+# the jobs' screen names.
 PAIRS = (
-    ("terra", "sol", "Builder/Tester"),
-    ("terra", "completion", "Builder/Completion Reviewer"),
-    ("glm", "plan_reviewer", "Planner/Plan Reviewer"),
+    ("terra", "sol", _label("builder", "tester")),
+    ("terra", "completion", _label("builder", "completion")),
+    ("glm", "plan_reviewer", _label("planner", "plan_reviewer")),
 )
 
 
