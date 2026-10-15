@@ -963,6 +963,7 @@ def run_role(
             exit_code = child.poll()
         except processes.ProcessError as error:
             cleanup_error = str(error)
+            timed_out = processes.retain_stage_timeout(error, activity) or timed_out
             exit_code = child.poll()
             record["processes"] = getattr(error, "processes", record.get("processes", []))
             save(
@@ -985,7 +986,7 @@ def run_role(
                 else:
                     interrupted = True
             except processes.ProcessError as error:
-                cleanup_error = str(error)
+                cleanup_error = "; ".join(filter(None, (cleanup_error, str(error))))
             except KeyboardInterrupt:  # the stage's one interrupt, after its provider was collected
                 interrupted = True
             independent = supervision.receipt(record["supervision"])

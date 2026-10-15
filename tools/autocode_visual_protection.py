@@ -26,6 +26,7 @@ from pathlib import Path
 try:
     from . import autocode_native_locators as native_locators
     from . import autocode_native_stage_recovery as stage_recovery
+    from . import autocode_native_cancellation as cancellation
     from . import autocode_output_cap as output_cap
     from .providers import opencode_events
     from . import autocode_command_receipt as command_receipts
@@ -51,6 +52,7 @@ try:
 except ImportError:
     import autocode_native_locators as native_locators
     import autocode_native_stage_recovery as stage_recovery
+    import autocode_native_cancellation as cancellation
     import autocode_output_cap as output_cap
     from providers import opencode_events
     import autocode_command_receipt as command_receipts
@@ -81,6 +83,8 @@ _KINDS = frozenset(
     (
         "origin",
         "prepared",
+        cancellation.HELD,
+        cancellation.CANCELLED,
         "sealed",
         "released",
         "finished",
@@ -614,6 +618,22 @@ class NativeProtection:
         _require(not self._active and not self._pending and not self._active_checks and not self._pending_checks,
                  "planning abandonment cannot borrow a current native handle")
         rows, prepared, sealed, released, finished = self._chain()
+        if state.get("status") == "PAUSED_PROCESS_CLEANUP":
+            retained, terminal = cancellation.authenticate(
+                rows=rows, prepared=prepared, sealed=sealed, released=released, finished=finished,
+                state=state, record=record, snapshot=snapshot, binding=self._launch_binding(state, snapshot),
+                fresh_snapshot=self._fresh_snapshot(rows), safe=self._safe, read_json=_json,
+                check_record=check_finished_record)
+            if commit:
+                after = self._safe(retained["after_ref"])
+                if not after.exists():
+                    util.atomic_json(after, snapshot)
+                terminal["pins"][str(after)] = util.file_hash(after)
+                self._ownership()
+                self._pins(terminal["pins"])
+                _require(snapshot == self._fresh_snapshot(rows), "source changed while cancelling held launch")
+                self._append(cancellation.CANCELLED, terminal)
+            return retained
         pending = set(prepared) - set(finished)
         _require(len(pending) == 1 and not any(row["kind"].startswith("approval-") for row in rows),
                  "missing sole unapproved unfinished native stage")
@@ -697,6 +717,35 @@ class NativeProtection:
                                   "after": deepcopy(snapshot), "possible_writes": [], "pins": pins,
                                   "explicit_planning_abandonment": True})
         return retained
+
+    @_technical_hold
+    def observe_held_supervisor(self, handle, barrier, child):
+        """Original supervisor-issued child, still blocked before native inspection."""
+        _require(type(handle) is PreparedLaunch and handle.owner is self
+                 and self._pending.get(handle.nonce) is handle, "missing live original held preparation")
+        self._ownership()
+        _require(type(barrier) is barriers.WriterBarrier and barrier._child is child
+                 and barrier._spawned and not barrier._released,
+                 "held admission needs the original blocked barrier/Popen")
+        envelope = supervision.launch_envelope(child)
+        _require(barrier._envelope is envelope, "held admission lost its original supervisor capability")
+        facts = envelope.authenticate(child, command=barrier._bootstrap,
+            environment_sha256=barrier.environment_sha256, options_identity=barrier._launch_identity)
+        body = _json(handle.body)
+        _require(body["command_sha256"] == barrier.command_sha256
+                 and body["environment_sha256"] == barrier.environment_sha256,
+                 "held admission target differs from original preparation")
+        metadata = facts["supervision"]
+        observed = cancellation.held_body(handle.row_id, body, metadata)
+        _require(metadata["owner"]["pid"] == self.pid, "held supervisor belongs to a foreign controller")
+        receipt = supervision.receipt(metadata)
+        _require(receipt is not None and receipt.get("phase") == "armed"
+                 and not receipt.get("cleanup_error"), "original held supervisor did not arm")
+        rows = self._rows()
+        _require(not any(row["kind"] in (cancellation.HELD, "sealed", "released", "finished", cancellation.CANCELLED)
+                         and row["body"].get("prepared_id") == handle.row_id for row in rows),
+                 "held supervisor was already observed or released")
+        return self._append(cancellation.HELD, observed)["id"]
 
     @_technical_hold
     def require_prepared_source(self, handle):
@@ -897,6 +946,23 @@ class NativeProtection:
                 self._recheck_planning_inputs(body)
                 self._isolation_pins(body["native_isolation"])
                 prepared[row["id"]] = row
+            elif kind == cancellation.HELD:
+                ident = body["prepared_id"]
+                _require(ident in prepared and ident not in sealed and ident not in finished,
+                         "held supervision without its untouched original preparation")
+                cancellation.held_row(rows[: row["sequence"] + 1], ident, prepared[ident]["body"])
+            elif kind == cancellation.CANCELLED:
+                ident = body["prepared_id"]
+                _require(ident in prepared and ident not in finished, "foreign/repeated held cancellation")
+                held = cancellation.held_row(rows, ident, prepared[ident]["body"])
+                _require(held["sequence"] < row["sequence"], "cancellation precedes original held admission")
+                self._pins(body["pins"])
+                cancellation.check_terminal(body, prepared[ident]["body"], held,
+                                            released=ident in released, check_record=check_finished_record)
+                _require(_json(self._safe(body["record"]["before_ref"], file=True).read_bytes()) == body["after"]
+                         and _json(self._safe(body["record"]["after_ref"], file=True).read_bytes()) == body["after"],
+                         "cancelled launch lost its unchanged original source")
+                finished[ident] = row  # Closed for continuity, never successful finished evidence.
             elif kind in ("sealed", "released", "finished"):
                 ident = body["prepared_id"]
                 _require(ident in prepared, "launch phase without original preparation")
@@ -1506,7 +1572,8 @@ class NativeProtection:
         assigned = [
             (p, finished[ident])
             for ident, p in prepared.items()
-            if p["body"]["binding"]["contract"] == binding["contract"]
+            if finished[ident]["kind"] == "finished"
+            and p["body"]["binding"]["contract"] == binding["contract"]
             and isinstance(p["body"]["binding"]["task"], dict)
         ]
         builders = [(p, f) for p, f in assigned if p["body"]["record_identity"]["stage"] == "terra"]
@@ -2402,7 +2469,8 @@ class NativeProtection:
                 self._pending.get(handle.nonce) is handle or self._active.get(handle.nonce, (None,))[0] is handle,
                 "original replay operation ended or changed owner",
             )
-        matches = [(prepared[ident], row) for ident, row in finished.items() if row["body"]["record"] == record]
+        matches = [(prepared[ident], row) for ident, row in finished.items()
+                   if row["kind"] == "finished" and row["body"]["record"] == record]
         _require(len(matches) == 1, "missing/ambiguous original native stage launch")
         return rows, matches[0][0], matches[0][1]
 
@@ -2421,7 +2489,8 @@ class NativeProtection:
         writers = [
             (prepared[ident], row)
             for ident, row in finished.items()
-            if isinstance(prepared[ident]["body"]["binding"]["task"], dict)
+            if row["kind"] == "finished"
+            and isinstance(prepared[ident]["body"]["binding"]["task"], dict)
             and prepared[ident]["body"]["binding"]["contract"] == binding["contract"]
             and prepared[ident]["body"]["record_identity"]["stage"] == "terra"
         ]

@@ -29,7 +29,24 @@ except ImportError as missing:  # autocode.py loads this module for --version an
 
 
 class ProcessError(RuntimeError):
-    pass
+    # Set only by the original wait_for_stage supervisor during exceptional
+    # unwind. This preserves accounting, never cleanup/recovery authority.
+    stage_timeout: dict[str, str] | None = None
+
+
+def retain_stage_timeout(error, activity):
+    """Keep only this wait's original decision in existing caller accounting.
+
+    The error still owns its fact when no activity monitor exists. A present
+    monitor receives a copy; its old contents never establish a timeout or
+    replace the original authentication/cleanup error.
+    """
+    decision = error.stage_timeout
+    if decision is None:
+        return False
+    if activity is not None:
+        activity.timeout = dict(decision)
+    return True
 
 
 def process_ids():
@@ -505,6 +522,8 @@ def wait_for_stage(
     last_publish = 0
     last_activity_key = None
     escalation_timer = None
+    timeout_decision = None
+    escaping_error = None
 
     def signal_provider(sig):
         if child.poll() is not None:
@@ -522,10 +541,12 @@ def wait_for_stage(
             pass
 
     def stop_at_deadline(reason):
-        nonlocal latest_activity, escalation_timer
+        nonlocal latest_activity, escalation_timer, timeout_decision
         with firing:
             if stopped.is_set() or watchdog_fired.is_set() or child.poll() is not None:
                 return
+            if reason["kind"] in ("stage", "idle", "tool"):
+                timeout_decision = dict(reason)
             if activity is not None:
                 activity.timeout = reason
                 # Never acquire the monitor's lock on the termination path: a
@@ -731,6 +752,9 @@ def wait_for_stage(
             receipts.done.wait(0.05)
         receipts.flush(checkpoint)
         publish_activity(force=True)
+    except BaseException as error:
+        escaping_error = error
+        raise
     finally:
         # Interruption or a failed save must not let the process worker escape
         # this call. Callbacks stay serialized on the controller thread. A signal
@@ -751,6 +775,11 @@ def wait_for_stage(
             # replay an already failed write or mask uncertain cleanup.
             if not receipts.checkpoint_failed:
                 receipts.flush(checkpoint)
+        except BaseException as error:
+            # Cleanup may supersede the body error, including with another
+            # exception type. Track only the exception this wait propagates.
+            escaping_error = error
+            raise
         finally:
             stopped.set()
             if hard_timer:
@@ -763,6 +792,11 @@ def wait_for_stage(
                 escalation_timer.cancel()
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
+            # on_root or cleanup can raise after this supervisor has already
+            # stopped the held child. Preserve that original decision on the
+            # SAME error without replacing its authentication/cleanup failure.
+            if isinstance(escaping_error, ProcessError):
+                escaping_error.stage_timeout = dict(timeout_decision) if timeout_decision is not None else None
     if watchdog_errors:
         raise ProcessError("Activity supervision failed; tracked workers have been stopped") from watchdog_errors[0]
     result = child.wait(timeout=1), watchdog_fired.is_set()

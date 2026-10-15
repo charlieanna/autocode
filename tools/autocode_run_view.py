@@ -835,6 +835,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             need["action"] = review["action"]
         return need
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
+        native_need = recovery_view.native_cleanup_need(state)
+        if native_need is not None:
+            return native_need
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}

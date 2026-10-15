@@ -50,7 +50,7 @@ def request(state, selected, stages):
     record = state.get("active_stage")
     goal = state.get("goal_contract") or {}
     require(
-        state.get("status") in ("PAUSED_PROVIDER_TIMEOUT", output_cap.STATUS)
+        state.get("status") in ("PAUSED_PROVIDER_TIMEOUT", output_cap.STATUS, "PAUSED_PROCESS_CLEANUP")
         and state.get("settings", {}).get("planning_flow") == "v2"
         and state.get("current_task") is None
         and goal.get("approval_status") != "approved"
@@ -84,6 +84,12 @@ def request(state, selected, stages):
                 "output limit must be an original collected clean exit, not an uncertain stop")
     else:
         require(record.get("timed_out") is True, "planning timeout was not recorded as timed out")
+        if state.get("status") == "PAUSED_PROCESS_CLEANUP":
+            require(record.get("exit_code") != 0
+                    and record.get("timeout_kind") in ("idle", "tool", "stage")
+                    and isinstance(record.get("timeout_reason"), str) and bool(record["timeout_reason"])
+                    and not record.get("supervision_errors"),
+                    "cleanup stop lacks its original collected deadline decision")
     return record
 
 
@@ -122,9 +128,12 @@ def abandoned(state, record, selected, *, at):
     candidate = deepcopy(state)
     rejected = deepcopy(record)
     collected_length = state.get("status") == output_cap.STATUS
+    cancelled = state.get("status") == "PAUSED_PROCESS_CLEANUP"
     rejected.update(abandoned=True, rejected=True,
                     rejection_reason=("Operator abandoned original collected native planning output limit; incomplete response retained"
                                       if collected_length else
+                                      "Operator abandoned original cancelled native planning launch; no response adopted"
+                                      if cancelled else
                                       "Operator abandoned original stopped native planning timeout; partial response retained"))
     candidate.setdefault("stages", []).append(rejected)
     candidate.setdefault("history", []).append(deepcopy(rejected))
@@ -137,9 +146,12 @@ def abandoned(state, record, selected, *, at):
                                      "events": record["events"], "source_snapshot": record["after_ref"],
                                      "instruction": ("Original native output limit abandoned after authenticated collected stop; incomplete report is not successful evidence."
                                                      if collected_length else
+                                                     "Original native held launch cancelled after verified stop; no report is successful evidence."
+                                                     if cancelled else
                                                      "Original native timeout abandoned after verified stop; partial report is not successful evidence.")}
     run_status.pause(candidate, "PAUSED_STAGE_ABANDONED",
                      ("Original native planning output limit retained. Resume explicitly; no agent launched."
-                      if collected_length else "Original native planning timeout retained. Resume explicitly; no agent launched."),
+                      if collected_length else "Original native held planning cancellation retained. Resume explicitly; no agent launched."
+                      if cancelled else "Original native planning timeout retained. Resume explicitly; no agent launched."),
                      next_stage=record["stage"])
     return candidate

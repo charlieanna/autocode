@@ -35,7 +35,9 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
     owner = controller_owner.inspect(state, run_dir, workspace) if (Path(run_dir) / "state.json").is_file() else None
     state = controller_owner.project(state, owner)
     if getattr(args, "explain", False):
-        text = stop_explanations.explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
+        text = stop_explanations.explain(
+            state.get("status") or "", stop_reason=state.get("stop_reason") or "", needs=runner.run_view.needs(state)
+        )
         print(text["what_happened"])
         print()
         print(text["what_it_means"])

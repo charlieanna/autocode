@@ -313,6 +313,11 @@ def _problems(state, turns):
 
 def _asked(needs, state=None):
     kind = (needs or {}).get("kind")
+    if (
+        (state or {}).get("status") == "PAUSED_PROCESS_CLEANUP"
+        and (needs or {}).get("native_cleanup") is True and needs.get("recovery_hint")
+    ):
+        return needs["recovery_hint"]
     if kind == "answer":
         return f"{_count(len(needs.get('questions') or []), 'question')} to answer"
     if kind == "review":

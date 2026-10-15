@@ -146,6 +146,8 @@ class NativeRunContext:
                     inner, receipt_path=receipt_path, timeout=timeout, checkpoint=checkpoint, **launch_options
                 ) as child:
                     barrier.spawned(child)
+                    if not check and not body["grants"] and body["binding"]["task"] is None:
+                        owner.observe_held_supervisor(prepared, barrier, child)
 
                     def on_root(tree, release_token):
                         nonlocal launch_seal
