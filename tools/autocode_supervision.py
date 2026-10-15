@@ -24,12 +24,14 @@ from pathlib import Path
 
 try:
     from . import autocode_command_receipt as receipts
+    from . import autocode_elapsed_timing as elapsed_timing
     from . import autocode_process as processes
     from . import autocode_session_boundary as boundary
     from . import autocode_supervision_handoff as handoff
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
+    import autocode_elapsed_timing as elapsed_timing
     import autocode_process as processes
     import autocode_session_boundary as boundary
     import autocode_supervision_handoff as handoff
@@ -296,7 +298,9 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         raise SupervisionError("Supervision requires a direct, thread-safe argv launch")
     if options.get("start_new_session") is not True:
         raise SupervisionError("Supervised provider must have its own session")
-    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0
+    ):
         raise SupervisionError("Supervision timeout must be positive or disabled")
     if cleanup_policy not in ("freeze_tree", "interrupt_root"):
         raise SupervisionError("Unknown supervision cleanup policy")
@@ -326,6 +330,9 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     errors = []
     monitor = None
     started = time.monotonic()
+    timing_admission = elapsed_timing.admission(time.time(), started, timeout)
+    if timing_admission is None:
+        raise SupervisionError("Supervision timing origin is invalid")
     marks = []  # (step, monotonic): where a launch limit went if the keeper never arms (#989)
     completed = False
     keeper_stderr = None
@@ -420,6 +427,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                 {
                     "metadata": metadata,
                     "deadline": started + timeout if timeout else None,
+                    "timing": timing_admission,
                     "cleanup_policy": cleanup_policy,
                     **(
                         {"session_socket": bootstrap_parent.fileno(), "session_callback": callback_child_fd}
@@ -669,6 +677,7 @@ def protect_owner(
     until cleanup settles; ordinary provider keepers never inherit that lease.
     """
     entered = time.monotonic()
+    wall_entered = time.time()
     unbounded = timeout is None and deadline is None
     if not unbounded and any(
         isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
@@ -686,6 +695,11 @@ def protect_owner(
         raise SupervisionError("Harness launch nonce is invalid")
     if effective is not None and effective <= entered:
         raise SupervisionError("Harness launch deadline has expired")
+    timing_admission = elapsed_timing.admission(
+        wall_entered, entered, None if effective is None else effective - entered
+    )
+    if timing_admission is None:
+        raise SupervisionError("Harness timing origin is invalid")
     path = Path(receipt_path).resolve()
     if path.exists():
         raise SupervisionError("Harness supervision receipt already exists")
@@ -739,6 +753,7 @@ def protect_owner(
             {
                 "metadata": metadata,
                 "deadline": owner_deadline,
+                "timing": timing_admission,
                 "cleanup_policy": "interrupt_root",
                 "kill_after_seconds": kill_after,
             },
