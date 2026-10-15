@@ -138,6 +138,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The lazy-validator scenario now requires the Validator attempt and its recorded
+  citation refusal; empty run evidence and unrelated pauses cannot pass (#1142).
+
 - Keep valid Node 22.14 ordinary test results usable as named proof when Node's
   event omits the test type; suites and malformed retained evidence keep their
   existing checks (#1266).
