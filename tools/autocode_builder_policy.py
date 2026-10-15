@@ -1,7 +1,13 @@
 """Runner-owned retry decisions. Models diagnose; configuration selects routes."""
 
+from __future__ import annotations
+
 import copy
 import math
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_cost as cost
@@ -162,7 +168,7 @@ def guard(state):
         _climb_within_cap(state)
 
 
-def _climb_within_cap(state):
+def _climb_within_cap(state: RunState) -> None:
     """Pause before the stronger attempt launches when its projected cost would cross the cost cap (#611).
 
     The projection is the last Builder attempt's tokens at the stronger route's price (autocode_cost.crossing).

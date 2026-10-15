@@ -25,6 +25,10 @@ Imports only autocode_usage and autocode_prices, which import only the standard 
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_prices as prices
@@ -141,7 +145,7 @@ def attempt(model, record):
     return {"usd": price, "input_tokens": tokens["input_tokens"], "output_tokens": tokens["output_tokens"]}
 
 
-def crossing(state, model, record):
+def crossing(state: RunState, model, record):
     """The arithmetic when one more attempt on `model`, projected from `record` (attempt), would take the
     known spend past the cap: {"projected", "spent", "total", "cap", "input_tokens", "output_tokens"}.
 

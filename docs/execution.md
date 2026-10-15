@@ -680,7 +680,7 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
   (see [Builder retry policy](models.md#builder-retry-policy)), that attempt is priced before it launches: the last Builder
   attempt's recorded tokens at the stronger model's rate. If the spend so far plus that projection would
   pass the cap, the run stops with `PAUSED_COST_LIMIT` before the attempt starts, and the stop names the
-  model and effort, the tokens and prices behind the projection, the total and the cap to resume with,
+  model and effort, the tokens behind the projection, the spend, the total and the cap to resume with,
   for example `projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the $5.00 cost
   cap ... resume with --max-cost-usd 5.22 or more`. The projection is an estimate, not a bound: a
   stronger model at a higher effort can use more tokens than the attempt it follows. Without a cap, a
@@ -688,11 +688,12 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
   pauses here; once the stronger attempt has launched, the stage-boundary check governs it. A parallel
   Builder sees only its own spend, so this check runs in the serial run only.
 - **How it continues.** Only you decide: `autocode resume --max-cost-usd M` (or `--resume-paused
-  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. Restating a saved cap that is still
-  above the spend acknowledges it too; restating an exhausted cap, a plain resume, information alone
-  or any other setting does not, and the run stays paused. AutoCode never raises this cap itself:
-  it is not a runner default, `--autoresolver-managed-limits` does not delegate it, and AutoResolver's
-  one-time doubling of default budgets never applies to it.
+  --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stronger Builder attempt's
+  stop, `M` must be at least the cap that stop names, or the run pauses again before the attempt.
+  Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
+  cap, a plain resume, information alone or any other setting does not, and the run stays paused.
+  AutoCode never raises this cap itself: it is not a runner default, `--autoresolver-managed-limits`
+  does not delegate it, and AutoResolver's one-time doubling of default budgets never applies to it.
 - **What it is not.** The price table holds list prices for metered API use. A subscription or
   coding-plan route is billed by its plan, so its spend here is the API-equivalent figure, not your
   bill. Per-request premiums (cache writes, long-context surcharges) are not visible in a stage's
