@@ -361,6 +361,8 @@ def compile_runtime() -> None:
     replay, which read it as a changed dependency. Nothing else in the checkout is compiled: tests
     snapshot it."""
     compileall.compile_dir(str(REPO_ROOT / "tools"), quiet=2)
+    if os.name != "posix":
+        return  # execution_identity reads os.uname(), so no check replay hashes these trees here
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # the stdlib's own test data compiles with SyntaxWarnings
         for root in interpreter_roots():
