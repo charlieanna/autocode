@@ -177,12 +177,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- Dashboard links between the conversation and the artifact pane now work on phones. At 759 px and below,
-  chat links such as Open preview, View changes, View plan, Review checks and Inspect open the Details
-  drawer on the pane they select. Work and Plan links (Open in conversation, Review in conversation) close
-  that drawer, open any collapsed section around their chat target and focus it. Previously the selected
-  pane stayed hidden, or the target could not take focus because the conversation was still inert. The
-  links still only navigate, and polling never reopens the drawer or moves focus (#1054).
+- Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
+  with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
+  not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
+  link now opens that pane at every width rather than focusing the hidden plan rail. Reviewed and approved plans
+  keep their presentation and chat-only approval controls (#1056).
 - A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
@@ -217,6 +216,12 @@ PR template asks for an entry here; a change without one is incomplete.
 - Supervision qualification docs now match the accepted macOS portable policy and distinguish completed provider/harness fault coverage from unqualified standalone helpers (#454).
 - Keep the main CLI within its existing architecture size limit by moving iteration-limit policy to the build loop, preserving the compatibility name and limit behavior (#1256, #881).
 - Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
+- Dashboard links between the conversation and the artifact pane now work on phones. At 759 px and below,
+  chat links such as Open preview, View changes, View plan, Review checks and Inspect open the Details
+  drawer on the pane they select. Work and Plan links (Open in conversation, Review in conversation) close
+  that drawer, open any collapsed section around their chat target and focus it. Previously the selected
+  pane stayed hidden, or the target could not take focus because the conversation was still inert. The
+  links still only navigate, and polling never reopens the drawer or moves focus (#1054).
 - Explicit run-state parameters now use the shared `RunState` contract, so type checks reject unknown keys and invalid recovery-counter values instead of silently accepting plain dictionaries. Guarded relative imports preserve installed CLI startup; a signature ratchet prevents regression (#881, #695).
 - Document contributor layers, canonical stage names and workflow-job wiring, and align verification guidance with focused fake tests and current CI platforms (Refs #695).
 - Every documented task-run need and Resolver scope now has a fast execution-contract test through
