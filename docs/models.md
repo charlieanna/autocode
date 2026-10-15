@@ -99,7 +99,10 @@ operator-abandoned uncertain response, a Builder batch with no source progress, 
 failed validation routed back for implementation or revalidation. The next request
 uses the stronger rung and a fresh role session. Autocode does not silently replay
 the failed request, advances at most once for the same failed iteration, and never
-overwrites an explicit custom model/provider route.
+overwrites an explicit custom model/provider route. Under a [money cap](execution.md#money-cap)
+that request is priced before it launches, from the role's last attempt's tokens at the
+climbed route's rate; when that projection would take the spend past the cap, the run
+pauses `PAUSED_COST_LIMIT`, naming the rung and the arithmetic, instead of launching it.
 
 > **Note on role names.** The CLI flags keep the older tier names — `--astra-model`
 > (Resolver), `--terra-model` (Builder), `--sol-model` (Tester) — because those
