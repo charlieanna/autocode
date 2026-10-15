@@ -27,6 +27,30 @@ def requirements():
     return value
 
 
+def design_coverage_plan(record):
+    contract = body()
+    contract["initial_task"] = {
+        "objective": "Deliver and verify the greeting flow",
+        "affected_paths": ["greet.py"],
+        "kind": "implement",
+        "milestone_id": "M1",
+        "requirements": ["R1"],
+        "acceptance_criteria": ["C1"],
+        "validation_plan": ["Execute greeting and invalid-input regression checks"],
+    }
+    owned = sorted({path for case in record["body"]["cases"] for path in case["implementation_paths"]})
+    contract["milestones"][0]["affected_paths"] = [*owned, "greet.py"]
+    contract["design_coverage"] = {
+        "manifest_hash": record["manifest_hash"],
+        "cases": [
+            {"id": case["id"], "criterion_ids": ["C1"], "milestone_ids": ["M1"]}
+            for case in record["body"]["cases"]
+        ],
+        "responsive_derivations": [],
+    }
+    return contract
+
+
 class V2FlowTests(unittest.TestCase):
     def state(self):
         return {
