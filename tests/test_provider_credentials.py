@@ -306,11 +306,14 @@ class ProviderCredentialCLI(unittest.TestCase):
         view = run.status()
         self.assertFalse(view["done"])
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]
+        # Model-access probes at build start and the stage launch are all audited model
+        # calls; every one of them receives only the explicitly passed secret.
         stages = [row for row in calls if row["args"][:1] == ["exec"]]
-        self.assertEqual(1, len(stages))
-        self.assertIn("FIXTURE_API_KEY", stages[0]["names"])
-        self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", stages[0]["names"])
-        self.assertNotIn("OTHER_PASSWORD", stages[0]["names"])
+        self.assertGreaterEqual(len(stages), 1)
+        for row in stages:
+            self.assertIn("FIXTURE_API_KEY", row["names"])
+            self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", row["names"])
+            self.assertNotIn("OTHER_PASSWORD", row["names"])
         self.assertNotIn(CANARY, json.dumps(view))
 
     def test_static_auth_listing_then_stage_401_explains_withheld_candidates(self):

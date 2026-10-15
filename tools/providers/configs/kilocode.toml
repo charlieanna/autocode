@@ -38,6 +38,14 @@ models = "alibaba-token-plan/"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
+# The Xiaomi Token Plan login serves xiaomi-token-plan-sgp/... (MiMo) on the operator's own plan.
+# Without this route such a model pauses with PAUSED_BILLING_ROUTE; kilo/xiaomi/... bills the
+# Kilo Gateway instead and needs prepaid credits.
+[[auth.routes]]
+models = "xiaomi-token-plan-sgp/"
+pattern = "^\\s*[●•]\\s+Xiaomi Token Plan \\(Singapore\\)\\s+(\\S+)\\s*$"
+expect = "api"
+
 # Each coding plan keeps its own login and quota. Availability of optional
 # zai-coding-plan/... models depends on the installed Kilo and configured account.
 [[auth.routes]]
