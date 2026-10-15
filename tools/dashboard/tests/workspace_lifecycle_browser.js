@@ -6,6 +6,7 @@ const {spawn, execFileSync} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const {dashboardReadinessExpression, waitForReadiness} = require('./browser_readiness');
+const {pressEscape} = require('./browser_escape');
 
 const root = path.resolve(__dirname, '../../..');
 const fixture = path.join(__dirname, 'unified_browser_fixture.py');
@@ -204,7 +205,7 @@ async function ac19(info) {
   // Escape closes the details drawer as well.
   browser('click', '#details-drawer-toggle');
   waitForCondition('document.querySelector(".app-shell").classList.contains("details-open")', 'the details drawer reopened');
-  browser('press', 'Escape');
+  pressEscape(browser, evaluate);
   waitForCondition('!document.querySelector(".app-shell").classList.contains("details-open")', 'Escape closes the details drawer');
 
   const manifest = {
@@ -461,7 +462,7 @@ async function ac20(info) {
       waitForCondition('document.querySelector(".app-shell").classList.contains("details-open")', viewport.name + ' details drawer reopened for keyboard traversal');
       browser('wait', '120');
       drawerWalkRecorded = drawerTraversal();
-      browser('press', 'Escape');
+      pressEscape(browser, evaluate);
       waitForCondition('!document.querySelector(".app-shell").classList.contains("details-open")', viewport.name + ' Escape closes the traversed details drawer');
       const returned = activeFocus();
       assert.equal(returned && returned.name, 'details-drawer-toggle',
@@ -492,7 +493,7 @@ async function ac20(info) {
         ]});
       }
       data('()=>{applyTheme("light");return true;}');
-      browser('press', 'Escape');
+      pressEscape(browser, evaluate);
       waitForCondition('!document.querySelector(".app-shell").classList.contains("nav-open")', viewport.name + ' Escape closes the traversed project drawer');
       // The focus hand-back follows the drawer's inert/display transition and
       // can land a tick after the class change: settle before reading it.
