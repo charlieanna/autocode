@@ -26,10 +26,19 @@ import uuid
 from pathlib import Path
 
 try:
+    from .autocode_util import atomic_json
+except ImportError:
+    from autocode_util import atomic_json
+
+try:
+    from . import autocode_cost as cost
+    from . import autocode_preflight_attempts as attempts
     from . import autocode_process as processes
     from . import autocode_support as support
     from . import provider_conformance_transport as transport
 except ImportError:
+    import autocode_cost as cost
+    import autocode_preflight_attempts as attempts
     import autocode_process as processes
     import autocode_support as support
     import provider_conformance_transport as transport
@@ -74,9 +83,11 @@ def _classify(events_path: Path) -> tuple[str | None, str]:
     return status, message or status
 
 
-def probe(adapter, model, workspace, run_dir, *, timeout=TIMEOUT_SECONDS) -> dict:
+def probe(
+    adapter, model, workspace, run_dir, *, timeout=TIMEOUT_SECONDS, directory=None, checkpoint=None, deadline=None
+) -> dict:
     """One tiny read-only call for ``model``; returns its recorded outcome."""
-    directory = run_dir / "model-preflight" / model.replace("/", "__") / f"attempt-{uuid.uuid4().hex}"
+    directory = directory or run_dir / "model-preflight" / model.replace("/", "__") / f"attempt-{uuid.uuid4().hex}"
     started = time.monotonic()
     try:
         result = transport.execute(
@@ -92,6 +103,8 @@ def probe(adapter, model, workspace, run_dir, *, timeout=TIMEOUT_SECONDS) -> dic
             env=dict(os.environ),
             timeout=timeout,
             supervised=True,
+            checkpoint=checkpoint,
+            deadline=deadline,
         )
     except (processes.ProcessError, OSError) as error:
         raise support.Paused(
@@ -115,19 +128,44 @@ def probe(adapter, model, workspace, run_dir, *, timeout=TIMEOUT_SECONDS) -> dic
         "detail": message,
         "blocking": status in BLOCKING_STATUSES,
         "evidence": str(directory),
+        "metrics": result.get("metrics") or {},
+        "exit_code": result.get("exit_code"),
+        "timed_out": bool(result.get("timed_out")),
     }
 
 
-def check(runner, state, run_dir, workspace, *, timeout=TIMEOUT_SECONDS) -> bool:
-    """Probe every billing-routed role model this run has not probed yet.
+def _allowance(runner, state, run_dir, workspace, timeout):
+    reached = cost.exceeded(state)
+    if reached:
+        raise support.Paused(
+            "PAUSED_COST_LIMIT",
+            f"Spend so far {cost.usd(reached[0])} reached the {cost.usd(reached[1])} cap before model access.",
+        )
+    limits = (state.get("settings") or {}).get("limits") or {}
+    maximum = limits.get("max_seconds")
+    if maximum and state.get("active_seconds", 0) >= maximum:
+        recover = getattr(runner, "recover_default_budget", None)
+        if recover is None or not recover(state, run_dir, workspace, "max_seconds"):
+            raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached before model access")
+        maximum = ((state.get("settings") or {}).get("limits") or {}).get("max_seconds")
+    remaining = maximum - state.get("active_seconds", 0) if maximum else None
+    return min(timeout, remaining) if timeout is not None and remaining is not None else remaining or timeout
 
-    True when at least one probe ran. Raises ``support.Paused`` on an access-class
-    failure so the run stops before any stage spend, with the model named.
+
+def check(runner, state, run_dir, workspace, *, timeout=TIMEOUT_SECONDS, checkpoint=None, before_probe=None) -> bool:
+    """Run admitted, charged probes; marker-only legacy passes remain readable.
+
+    checkpoint durably saves the caller's state. before_probe consumes queued
+    human input under the caller's existing lock, including after the last call.
     """
     adapter = getattr(runner, "opencode", None)
     if adapter is None or not billing_aware(adapter):
         return False
-    marker = Path(run_dir) / "model-preflight.json"
+    checkpoint = checkpoint or (lambda: None)
+    before_probe = before_probe or (lambda: None)
+    run_dir = Path(run_dir)
+    attempts.reconcile(runner, state, run_dir, checkpoint)
+    marker = run_dir / "model-preflight.json"
     probed: dict[str, dict] = {}
     if marker.is_file():
         try:
@@ -135,32 +173,56 @@ def check(runner, state, run_dir, workspace, *, timeout=TIMEOUT_SECONDS) -> bool
             probed = saved.get("probed") or {}
         except (OSError, ValueError):
             probed = {}
+    # The charged checkpoint is authoritative if marker publication was interrupted.
+    for record in attempts.records(state, run_dir):
+        if record.get("preflight_complete") and record.get("accounted") and record.get("preflight_outcome"):
+            probed[record["model"]] = record["preflight_outcome"]
     wanted = [
         model for model in distinct_models(state.get("settings")) if (probed.get(model) or {}).get("status") != "ok"
     ]
     if not wanted:
         return False
+    before_probe()
+    _allowance(runner, state, run_dir, workspace, timeout)
     settings = state.get("settings") or {}
     try:
-        # The implicit call matches the stage gate exactly: the auth listing child gets the
-        # scrubbed launch projection, and a failure names the withheld variables itself.
         adapter.check_subscription_routes(settings.get("roles") or {}, workspace)
     except RuntimeError as error:
-        # A failed login listing must stop before any model call, the same
-        # property the stage's own admission gate enforces (tests/test_provider_credentials).
         raise support.Paused(
             "PAUSED_BILLING_ROUTE",
             f"Model access preflight could not verify billing routes: {error}",
         ) from error
-    ran = False
     for model in wanted:
-        ran = True
-        outcome = probe(adapter, model, workspace, Path(run_dir), timeout=timeout)
+        before_probe()
+        allowed = _allowance(runner, state, run_dir, workspace, timeout)
+        attempt = attempts.Attempt(runner, state, run_dir, adapter, model, checkpoint, time.monotonic)
+        finite_time = ((state.get("settings") or {}).get("limits") or {}).get("max_seconds")
+        try:
+            outcome = probe(
+                adapter,
+                model,
+                workspace,
+                run_dir,
+                timeout=allowed,
+                directory=attempt.directory,
+                checkpoint=attempt.admit,
+                deadline=attempt.started + allowed if finite_time and allowed is not None else None,
+            )
+        except BaseException as error:
+            attempt.finish(error=error)
+            # A Stop may be acknowledged only after native cleanup is verified.
+            if attempt.record.get("preflight_complete"):
+                before_probe()
+            if isinstance(error, KeyboardInterrupt):
+                raise support.Paused(
+                    "PAUSED_INTERRUPTED", "Model access probe interrupted; evidence retained"
+                ) from error
+            raise
+        outcome = attempt.finish(outcome)
         probed[model] = outcome
-        marker.write_text(json.dumps({"version": 1, "probed": probed}, indent=2) + "\n")
-        if outcome["status"] == "ok":
-            print(f"Model preflight: {model} ok ({outcome['seconds']}s)", flush=True)
-            continue
+        atomic_json(marker, {"version": 1, "probed": probed})
+        # Stop wins over budget and must also apply after the final probe.
+        before_probe()
         if outcome["blocking"]:
             raise support.Paused(
                 outcome["status"],
@@ -168,9 +230,13 @@ def check(runner, state, run_dir, workspace, *, timeout=TIMEOUT_SECONDS) -> bool
                 "Billing or login for this route cannot serve the model; fix it before any stage spend. "
                 f"Probe evidence: {outcome['evidence']}",
             )
-        print(
-            f"Model preflight: {model} uncertain ({outcome['status']}: {outcome['detail'] or 'no detail'}); "
-            "continuing, the stage budget still applies",
-            flush=True,
-        )
-    return ran
+        _allowance(runner, state, run_dir, workspace, timeout)
+        if outcome["status"] == "ok":
+            print(f"Model preflight: {model} ok ({outcome['seconds']}s)", flush=True)
+        else:
+            print(
+                f"Model preflight: {model} uncertain ({outcome['status']}: {outcome['detail'] or 'no detail'}); "
+                "continuing within the remaining run budget",
+                flush=True,
+            )
+    return True
