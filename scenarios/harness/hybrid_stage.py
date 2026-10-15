@@ -118,6 +118,7 @@ def main(argv: list[str]) -> int:
                     "role": values["role"],
                     "model": values["model"],
                     "report": values["report"],
+                    "recovery_context": handoff(prompt).get("recovery_context"),
                     "at": datetime.now(UTC).isoformat(),
                 }
             )

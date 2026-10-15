@@ -11,3 +11,7 @@ max_steps = 20
 [fake]
 check = "python3 -m unittest test_greet.py"
 fault = "capacity_once"
+
+[hybrid]
+# Only the first Requirements call is scripted; recovery and delivery are live.
+first_attempt = ["astra_discovery"]
