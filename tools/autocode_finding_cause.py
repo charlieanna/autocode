@@ -16,8 +16,8 @@ The validate-only bookkeeping pause reuses the same identity so an empty recheck
 cannot be dispatched twice in a row for a row another empty recheck already
 produced at an unchanged source revision.
 
-This module imports nothing from AutoCode: it operates on ledger rows and the
-plain run-state dict in place.
+At runtime this module imports nothing from AutoCode (RunState is imported for
+type checking only): it operates on ledger rows and the plain run-state dict in place.
 """
 
 from __future__ import annotations

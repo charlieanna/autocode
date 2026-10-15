@@ -52,8 +52,9 @@ only gap its ``reason`` says so (read by ``autocode_validation_rounds``).
 Each move is recorded once, on the row it started from: ``scope_history`` gains
 ``{"from", "to", "contract_token", "at"}``, ``to`` listing every resulting row's ``id``,
 ``milestone_id`` and ``criteria``. Read by ``autocode_run_view.evidence`` (``finding_scope_moves``)
-and by people reading the ledger. Imports only cycle-free modules: the contract identity, the
-workflow approval rule and the finding cause identity.
+and by people reading the ledger. At runtime it imports only cycle-free modules: the contract
+identity, the workflow approval rule and the finding cause identity. RunState is imported for type
+checking only.
 """
 
 from __future__ import annotations
