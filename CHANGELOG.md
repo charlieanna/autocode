@@ -11,6 +11,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode plan --export PATH` writes a saved run's current plan as a Markdown file to review in a pull request:
+  a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body, the same in any run)
+  and the revision it came from, then the plan as text generated from it; never the approval token, and
+  credential-shaped text is masked as in `autocode bundle`.
+  `autocode plan --check PATH` prints a plan file's goal hash and exits 2 when its text no longer matches its
+  front matter; `autocode plan --render PATH` regenerates the text after the front matter was edited. Starting a
+  run from such a file is not part of this change (#720).
+
 - Approvals record who gave them (#722, first part): each plan approval (`--approve-goal`, or yes in the
   terminal conversation) and each artifact acceptance (`--approve-review`, `autocode review`, or y at the review
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
@@ -184,6 +192,10 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
+  masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
+  masked (#720).
 
 - `--planning-v2`: feedback, an answer, a follow-up or a program's plan guidance that changes the Requirements
   handoff now begins a new planning cycle with the configured Plan Reviewer allowance, as on the default flow.
