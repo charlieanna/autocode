@@ -10,6 +10,10 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from dataclasses import replace
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_native_assignment as assignments
@@ -84,7 +88,7 @@ class NativeVisualFactory:
         self._parent_sink, self._parent_sink_type = sink, sink_type
 
     @protection._technical_hold
-    def verify_first_writer_delta(self, state, *, snapshot, builder, stopped):
+    def verify_first_writer_delta(self, state: RunState, *, snapshot, builder, stopped):
         authority = writer.NativeWriterAuthority.historical(self.protection, state, snapshot=snapshot)
         with authority.admissions._operation() as operation:
             rows = authority.admissions._operation_rows(operation)
@@ -111,7 +115,7 @@ class NativeVisualFactory:
         )
 
     @protection._technical_hold
-    def current_decision_review(self, state, *, snapshot):
+    def current_decision_review(self, state: RunState, *, snapshot):
         self.protection.require_task_authority(state, snapshot=snapshot)
         bound = self.protection._binding(state, snapshot)
         selected = []
@@ -123,7 +127,7 @@ class NativeVisualFactory:
         return selected[0]
 
     @protection._technical_hold
-    def decision_review_proof(self, state, *, snapshot, selector):
+    def decision_review_proof(self, state: RunState, *, snapshot, selector):
         original = self.verify_decision_review(selector)
         _require(
             original["metadata"]["binding"] == self.protection._binding(state, snapshot),
@@ -145,7 +149,7 @@ class NativeVisualFactory:
         )
 
     @protection._technical_hold
-    def require_resolver_request(self, state, *, snapshot):
+    def require_resolver_request(self, state: RunState, *, snapshot):
         bound = self.protection._binding(state, snapshot)
         request = state.get("resolution_request") or {}
         records = [
@@ -298,7 +302,7 @@ class NativeVisualFactory:
         return selected
 
     @protection._technical_hold
-    def assign_task(self, operation, state, decision, snapshot, record):
+    def assign_task(self, operation, state: RunState, decision, snapshot, record):
         selected = self.current_decision_review(state, snapshot=snapshot)
         normalized = assignments.normalized(state, decision)
         bound = self.protection._binding(state, snapshot)
@@ -333,7 +337,7 @@ class NativeVisualFactory:
         return kind
 
     @protection._technical_hold
-    def scope_authority(self, *, state, snapshot):
+    def scope_authority(self, *, state: RunState, snapshot):
         # NativeReviewHistory freshly authenticates immutable original image,
         # config, functional, native delivery and actual protected launch bytes.
         # The callback shape is not a trust input: this is the concrete method.
@@ -388,10 +392,12 @@ class NativeVisualFactory:
         )
 
     @protection._technical_hold
-    def prepare_checkpoint(self, state, *, review_selector, completion_record, accepted_decision, snapshot):
+    def prepare_checkpoint(self, state: RunState, *, review_selector, completion_record, accepted_decision, snapshot):
         facts = self.history.fresh_facts(state=state, snapshot=snapshot)
-        admission = scope.admit(state["goal_contract"]["body"], state["settings"]["design_manifest"]["body"])
-        owner = state["current_task"]["milestone_id"]
+        admission = scope.admit(
+            cast(dict, state["goal_contract"])["body"], state["settings"]["design_manifest"]["body"]
+        )
+        owner = cast(dict, state["current_task"])["milestone_id"]
         prior = admission["milestone_ids"][: admission["milestone_ids"].index(owner)]
         selectors = {mid: facts["checkpoint_selectors"][mid] for mid in prior}
         return self.history.prepare_checkpoint(
@@ -529,7 +535,9 @@ class NativeVisualFactory:
         )
 
     @protection._technical_hold
-    def prepare_launch(self, state, snapshot, record, *, boundary, command, environment, native_role_isolation):
+    def prepare_launch(
+        self, state: RunState, snapshot, record, *, boundary, command, environment, native_role_isolation
+    ):
         if not boundary["allow_write"]:
             return self.protection.prepare_launch(
                 state,
@@ -579,11 +587,11 @@ class NativeVisualFactory:
             self.protection._preparing_writer = None
 
     @protection._technical_hold
-    def require_task_authority(self, state, *, snapshot):
+    def require_task_authority(self, state: RunState, *, snapshot):
         return self.protection.require_task_authority(state, snapshot=snapshot)
 
     @protection._technical_hold
-    def first_writer_proof(self, state, *, snapshot):
+    def first_writer_proof(self, state: RunState, *, snapshot):
         """Original first-task scope only; no dispatch or image acceptance."""
         binding = self.protection._binding(state, snapshot)
         assigned = self.protection._initial_task_authority(binding, self.protection._idle()[0])
@@ -614,12 +622,12 @@ class NativeVisualFactory:
         )
 
     @protection._technical_hold
-    def first_writer_owner(self, state, *, snapshot):
+    def first_writer_owner(self, state: RunState, *, snapshot):
         """Concrete authenticator; unavailable execution evidence stays held."""
         return writer.NativeWriterAuthority(self.protection, state, snapshot=snapshot)
 
     @protection._technical_hold
-    def require_planning_origin(self, state, *, snapshot):
+    def require_planning_origin(self, state: RunState, *, snapshot):
         return self.protection.require_planning_origin(state, snapshot=snapshot)
 
     @protection._technical_hold
@@ -631,7 +639,7 @@ class NativeVisualFactory:
         return self.protection.finish_launch(handle, record, after)
 
     @protection._technical_hold
-    def require_final_integration(self, state, *, snapshot, review_selector):
+    def require_final_integration(self, state: RunState, *, snapshot, review_selector):
         original = self.history.verify_review(review_selector)
         derived = self.scope_authority(state=state, snapshot=snapshot)
         receipt = original["metadata"]["receipt"]
