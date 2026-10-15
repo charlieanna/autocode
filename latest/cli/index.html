@@ -2348,7 +2348,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/2c75e3715713941c1caf5e9ed67bced2b2a141b0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/53c64190a9da372866400135c097ffdf55219a3e/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2485,7 +2485,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode completion bash\|zsh\|fish</code></td>
-<td>Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (<code>output read</code>, <code>arena run</code>) and their options, or its argument's choices (<code>completion bash</code>). <code>capture</code>, <code>registry</code>, <code>intervention</code>, <code>dashboard</code> and <code>program</code>'s commands complete only <code>--help</code>. Load it with <code>source &lt;(autocode completion bash)</code> (zsh the same, after <code>compinit</code>; fish <code>autocode completion fish \| source</code>), or save it; see <a href="../install/#shell-completion">Shell completion</a>.</td>
+<td>Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (<code>output read</code>, <code>arena run</code>, <code>program approve</code>) and their options, or its argument's choices (<code>completion bash</code>). <code>capture</code>, <code>registry</code>, <code>intervention</code> and <code>dashboard</code> complete only <code>--help</code>. Load it with <code>source &lt;(autocode completion bash)</code> (zsh the same, after <code>compinit</code>; fish <code>autocode completion fish \| source</code>), or save it; see <a href="../install/#shell-completion">Shell completion</a>.</td>
 </tr>
 <tr>
 <td><code>autocode models [--provider NAME] [--workspace PATH] [--json] [--prices]</code></td>
@@ -2548,7 +2548,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/2c75e3715713941c1caf5e9ed67bced2b2a141b0/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/53c64190a9da372866400135c097ffdf55219a3e/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2611,7 +2611,7 @@ brief before continuing.</p>
 </tr>
 <tr>
 <td><code>--json</code></td>
-<td>Stdout carries exactly one JSON object; everything else the invocation prints goes to stderr. A finished or paused run prints the same payload <code>--status</code> prints. A user action (an approval, answer, feedback, resolver response and the like) prints that payload plus <code>result</code>: <code>exit_code</code>, <code>saved</code>, <code>message</code> (the text a person would have read) and <code>error</code>, which is <code>{"code": "input_rejected", "message": …}</code> when the input was refused and null otherwise. A refusal before the run loads prints <code>{"result": …}</code> alone. A refusal also ends stderr with <code>{"error": …}</code> on its own line. Exit codes are unchanged (<a href="#exit-codes">Exit codes</a>); a usage error still prints argparse's text. The read-only commands (<code>--status</code>, <code>--explain</code>, <code>--dry-run</code>, <code>doctor --json</code>, <code>registry</code>, <code>usage --json</code>) print their own output and are unaffected.</td>
+<td>Stdout carries exactly one JSON object unless the invocation ends with an error message (below); everything else the invocation prints goes to stderr. A finished or paused run prints the same payload <code>--status</code> prints. A user action (an approval, answer, feedback, resolver response and the like) prints that payload plus <code>result</code>: <code>exit_code</code>, <code>saved</code>, <code>message</code> (the text a person would have read) and <code>error</code>, which is <code>{"code": "input_rejected", "message": …}</code> when the input was refused and null otherwise. A refusal before the run loads prints <code>{"result": …}</code> alone. Any other invocation that loaded the run and returned without printing the payload, such as one stopped by <code>--pause-after-stage</code> or a time or iteration limit, prints the saved run's payload plus <code>result</code>. An invocation that ends with an error message instead (<code>autocode: …</code> or argparse's <code>usage:</code> text on stderr) prints nothing on stdout; a setting a saved run cannot take, such as <code>--single-model</code> or <code>--spec-first</code>, is refused this way. A refusal reported in <code>result</code> also ends stderr with <code>{"error": …}</code> on its own line. <a href="../schemas/status-view.schema.json">status-view.schema.json</a> describes the status payload. The lone <code>{"result": …}</code> does not validate against the schema's root; its <code>result</code> validates against the schema's <code>properties.result</code>. Exit codes are unchanged (<a href="#exit-codes">Exit codes</a>); a usage error still prints argparse's text. The read-only commands (<code>--status</code>, <code>--explain</code>, <code>--dry-run</code>, <code>doctor --json</code>, <code>registry</code>, <code>usage --json</code>) print their own output and are unaffected.</td>
 </tr>
 <tr>
 <td><code>--explain</code></td>
@@ -2837,12 +2837,16 @@ not approve a plan or start a model.</p>
 <td>Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop).</td>
 </tr>
 <tr>
+<td><code>--goal-file PATH</code></td>
+<td>Load a plan file (<code>autocode plan --export</code>, reviewed and edited in a pull request) into a saved run as its next draft revision, as <code>--edit-goal</code> loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its text no longer matches its front matter, it still holds text the export masked as credential-shaped, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, <code>git status</code> in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). It does not start a new run. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
+</tr>
+<tr>
 <td><code>--approve-review C1 --review-token '…'</code></td>
 <td>Record a human-review decision for criterion <code>C1</code>.</td>
 </tr>
 <tr>
 <td><code>--as NAME</code></td>
-<td>With <code>--approve-goal</code> or <code>--approve-review</code> on a shared machine: the name of the person approving, saved with the approval beside the Git identity as their claim, never verified (<a href="../execution/#who-approved">Who approved</a>).</td>
+<td>With <code>--approve-goal</code>, <code>--approve-review</code>, <code>--edit-goal</code> or a resume (<code>--resume-paused</code>, or <code>autocode resume</code> at a pause) on a shared machine: the name of the person approving, editing or resuming, saved beside the Git identity as their claim, never verified (<a href="../execution/#who-approved">Who approved</a>). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it.</td>
 </tr>
 <tr>
 <td><code>--reject-review C1 --review-token '…' --review-note TEXT</code></td>
@@ -2923,7 +2927,7 @@ design review approved; any other document is planned from requirements as usual
 <p>The wrong one is refused with exit 2 and the run left as it was. <code>--follow-up</code> on an unfinished
 run lists the alternatives (answer, approve or correct, resume). On a finished run, <code>--answer</code>,
 <code>--delegate</code> or <code>--delegate-all</code> says: "This run is finished and waits for no answer; reply to
-the questions in its report with --follow-up TEXT", and <code>--feedback</code>, <code>--edit-goal</code> or
+the questions in its report with --follow-up TEXT", and <code>--feedback</code>, <code>--edit-goal</code>, <code>--goal-file</code> or
 <code>--reject-assumption</code> says it would reopen the run without a new turn. Without <code>--run-dir</code>,
 <code>--follow-up</code> is also refused when a run started after the latest finished one has not finished:
 the message lists that run, and the command that continues the finished one anyway. Through
@@ -3106,7 +3110,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/2c75e3715713941c1caf5e9ed67bced2b2a141b0/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/53c64190a9da372866400135c097ffdf55219a3e/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3749,20 +3753,87 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/2c75e3715713941c1caf5e9ed67bced2b2a141b0/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/53c64190a9da372866400135c097ffdf55219a3e/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
 analyze the work read-only. Keep that directory outside the target workspace.</p>
 <h2 id="exit-codes">Exit codes<a class="headerlink" href="#exit-codes" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>0</strong> — an action was saved, or the task completed (<code>status == "TASK_COMPLETE"</code>).</li>
-<li><strong>2</strong> — user input, pause, or error. Inspect <code>--status</code>; do not rely on the exit code alone.</li>
-</ul>
-<p>Scripts should prefer <code>--json</code>: the payload's <code>status</code>, <code>done</code> and <code>needs</code> fields say
-which of the three it was, where an exit code cannot, and after an action <code>result.saved</code>
-and <code>result.error.code</code> say whether it was saved or refused. The exit codes stay 0 and 2
-for compatibility — argparse also uses 2 for usage errors.</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Outcome</th>
+<th>When</th>
+<th>What <code>--json</code> prints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td><code>completed</code></td>
+<td>The task completed: <code>view.done</code> is true.</td>
+<td>The status payload; with <code>result</code> when the invocation also acted.</td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td><code>saved</code></td>
+<td>A user action (an approval, answer, review decision, feedback and the like) was saved.</td>
+<td>The status payload plus <code>result</code>, whose <code>saved</code> is true.</td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td><code>read</code></td>
+<td>A read printed what it read: <code>--status</code>, <code>runs</code>, or <code>events</code> without <code>--follow</code>.</td>
+<td>That output; <code>--status</code> prints the status payload.</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>stopped</code></td>
+<td>The run stopped short of completing: it waits on a person (a question, an approval, a review, a requested pause) or on its environment, a provider or AutoCode. <code>view.pause_category</code> says whose action it needs and <code>view.next_command</code> what answers it. <code>wait</code> also exits 2 for a stopped run, and for endings that are not stops (below).</td>
+<td>The status payload; with <code>result</code> unless the run printed the payload itself as it stopped. <code>wait --json</code> prints its own outcome object instead (below).</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>refused</code></td>
+<td>The input was refused and nothing was saved.</td>
+<td>For a refused action on the loaded run, the status payload plus <code>result</code>, whose <code>error.code</code> is <code>input_rejected</code>; for a refusal before the run loads, that <code>result</code> alone. A setting the saved run cannot take (<code>--single-model</code>, <code>--spec-first</code>) prints nothing: <code>autocode: …</code> on stderr.</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>usage</code></td>
+<td>The arguments did not parse, or a later check of them ended with argparse's error.</td>
+<td>Nothing on stdout: argparse's usage text on stderr.</td>
+</tr>
+</tbody>
+</table>
+<p><code>autocode wait</code> only watches a run, and its <code>outcome</code> says why the wait ended. It exits 0
+for <code>complete</code>. It exits 2 for <code>needs_you</code> (the run waits on you) and <code>stopped</code> (the run
+stopped otherwise), and also for three endings that are not stops of the run:
+<code>controller_lost</code> (the saved status says RUNNING but nothing owns the run), <code>timeout</code>
+(<code>--timeout</code> elapsed first) and <code>unreadable</code> (the checkpoint could not be read). It also
+exits 2 when it cannot tell which run to wait on (none is saved, or several are and no
+<code>--run-dir</code> names one), with <code>autocode wait: …</code> on stderr and nothing on stdout. Otherwise
+<code>wait --json</code> prints that outcome object (<code>outcome</code>, <code>status</code>, <code>reason</code> and, when it has
+one, <code>next_command</code>), never the status payload.</p>
+<p><code>tests/test_json_contract.py</code> holds the CLI to this table on a fake run that stops only to
+wait on you (<code>view.pause_category</code> is <code>your_decision</code>): at a requested pause
+(<code>--pause-after-stage</code>), a question, the plan approval and a human review, then it
+completes. At each stop the test runs <code>--status</code>, a plain relaunch, the command
+<code>view.next_command</code> offers (resume, answer, approve the plan, approve the review), that
+command with stale tokens, <code>wait --json</code>, <code>runs --json</code>, <code>events</code> and a usage error. It
+validates each status payload the main command prints under <code>--json</code> or <code>--status</code> against
+<a href="../schemas/status-view.schema.json">status-view.schema.json</a>, and the lone <code>{"result": …}</code>
+against its <code>properties.result</code>. It validates each <code>events</code> line against
+<a href="../schemas/run-event.schema.json">run-event.schema.json</a>, and checks that <code>wait --json</code> and
+<code>runs --json</code>, which print their own shapes, report the same status and <code>next_command</code> as
+the status view. The fake run never stops for its environment, a provider or AutoCode.
+<code>tests/test_json_output.py</code> covers two of those stops, the iteration and time limits, and
+nothing yet covers the others.</p>
+<p>Because 2 has several meanings, scripts should prefer <code>--json</code>: <code>view.done</code>, <code>view.needs</code>
+and <code>view.pause_category</code> say which outcome it was, and after an action <code>result.saved</code> and
+<code>result.error.code</code> say whether it was saved or refused. The exit codes stay 0 and 2 for
+compatibility.</p>
 <p>See also: <a href="../install/">Install</a> · <a href="../workflow/">Workflow</a> · <a href="../execution/">Execution</a></p>
 <h2 id="exact-tool-output">Exact tool output<a class="headerlink" href="#exact-tool-output" title="Permanent link">&para;</a></h2>
 <p>Use <code>--tool-output-mode raw|conservative</code> for AutoCode capture/file-read display.

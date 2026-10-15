@@ -2204,7 +2204,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/2c75e3715713941c1caf5e9ed67bced2b2a141b0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/53c64190a9da372866400135c097ffdf55219a3e/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2474,7 +2474,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/2c75e3715713941c1caf5e9ed67bced2b2a141b0/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/53c64190a9da372866400135c097ffdf55219a3e/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -2754,7 +2754,10 @@ detail; list polling does not hash every project checkout.</p>
 <h2 id="status-view">Status view<a class="headerlink" href="#status-view" title="Permanent link">&para;</a></h2>
 <p>Produced by <code>tools/autocode_run_view.py</code> from the saved state. Fields may be
 added; existing fields keep their names and meanings, and <code>schema</code> changes if a
-meaning must change.</p>
+meaning must change. <a href="../schemas/status-view.schema.json">schemas/status-view.schema.json</a>
+describes the status payload <code>--status</code> and <code>--json</code> print, with this view under <code>view</code>:
+every field it requires is always present, and a consumer must ignore fields it
+does not know.</p>
 <p><code>action()</code> is the same composition of <code>needs</code>, <code>pause_category</code> and <code>next_command</code>
 that <code>view()</code> returns those three fields from, without the evidence, usage and
 completion accounting around them. A caller that only needs the next action takes
@@ -2983,17 +2986,20 @@ was approved. A coordinating layer such as
 <code>autocode program</code> reads a child run's approved criteria here (<code>program derive</code> and
 the inherited-requirement check), never from <code>state.json</code>. Like <code>displayed_plan</code>, it
 is neither execution permission nor completion proof.</p>
-<p><code>approvals</code> lists every plan and review approval the run recorded, oldest first (#722):
-<code>kind</code> (<code>plan</code> or <code>review</code>), <code>at</code>, <code>actor</code> (<code>user_cli</code> for a person, <code>workflow_policy</code>
-for a small bug fix approved under the workflow policy), <code>contract_token</code> (the plan
-token approved, null for a review), <code>criterion</code> (the accepted criterion, null for a plan)
-and <code>provenance</code>: <code>git_user_name</code>, <code>git_user_email</code>, <code>host</code>, <code>command</code> (<code>autocode</code> and
+<p><code>approvals</code> lists every plan and review approval, goal edit and pause-releasing resume the
+run recorded, oldest first (#722): <code>kind</code> (<code>plan</code>, <code>review</code>, <code>edit</code> or <code>resume</code>), <code>at</code>,
+<code>actor</code> (<code>user_cli</code> for a person, <code>workflow_policy</code> for a small bug fix approved under the
+workflow policy), <code>contract_token</code> (the plan token approved, or the draft an edit installed;
+null for a review or a resume), <code>criterion</code> (the accepted criterion, null otherwise),
+<code>pause_status</code> (the pause a resume took the run out of, such as <code>PAUSED_TIME_LIMIT</code>, or the
+one a pause intervention interrupted; null otherwise) and <code>provenance</code>: <code>git_user_name</code>,
+<code>git_user_email</code>, <code>host</code>, <code>command</code> (<code>autocode</code>, the <code>resume</code> command word when typed, and
 the invocation's option names, never their values) and <code>claimed_as</code> (the <code>--as</code> name, or
 null). None of it is verified (<a href="../execution/#who-approved">Who approved</a>). <code>provenance</code> is
-null for an approval saved before AutoCode recorded it and for a workflow-policy approval.
-It is a history: an approval stays listed after a newer plan or a rejection replaces it, so
-read what is in force from <code>approved_contract</code> and <code>evidence.acceptance[].human_reviewed</code>.
-It is empty until the first approval.</p>
+null for a record saved before AutoCode kept it and for a workflow-policy approval. It is a
+history: an approval stays listed after a newer plan or a rejection replaces it, so read what
+is in force from <code>approved_contract</code> and <code>evidence.acceptance[].human_reviewed</code>. It is empty
+until the first record.</p>
 <p><code>routes</code> maps every configured role to the <code>model</code> and <code>engine</code> its next launch
 uses. <code>provider</code> names the provider those OpenCode-engine routes launch through
 (<code>opencode</code>, <code>claude</code> for the <a href="../providers/#claude-code-provider">built-in Claude Code provider</a>,
