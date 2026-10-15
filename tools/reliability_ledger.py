@@ -7,6 +7,8 @@ were never attempted (`DEFERRED`). This module checks a ledger against its
 declaration and reports each kind of result separately: verified delivery,
 false completion, appropriate stopping, human decisions and repairs, cost with
 failed attempts included, and time. Live and fixture rows are never pooled.
+Each attempt's spent budget is compared with its task's declared limits: an
+attempt that spent more than a limit did not run under the pinned budget.
 
 It is a report reader. It never launches AutoCode, an oracle or a model, never
 rescores a native outcome and never promotes a version. Evidence references are
@@ -15,6 +17,8 @@ evaluator declarations; they are not authenticated here.
     python tools/reliability_ledger.py template arena/campaign.json > ledger.json
     python tools/reliability_ledger.py report arena/campaign.json ledger.json
     python tools/reliability_ledger.py report arena/campaign.json ledger.json --json
+
+`tools/reliability_import.py` fills rows from scenario and Arena result records.
 """
 
 from __future__ import annotations
@@ -107,7 +111,9 @@ class LedgerError(ValueError):
     """The ledger or its declaration cannot be reported as a campaign record."""
 
 
-def _json(data: bytes, label: str) -> dict:
+def parse_json(data: bytes, label: str) -> dict:
+    """A JSON object, refusing a repeated key or a non-finite number."""
+
     def unique(pairs):
         result = {}
         for key, value in pairs:
@@ -204,6 +210,12 @@ def _check_campaign(campaign: dict) -> None:
             raise LedgerError(f"task {name}: this report has no portfolio outcome for native outcomes {unknown}")
         if task.get("execution_kind") not in ("live", "fixture"):
             raise LedgerError(f"task {name} must be live or fixture")
+        limits = task.get("limits")
+        if not isinstance(limits, dict):
+            raise LedgerError(f"task {name} must declare its limits")
+        for limit, value in limits.items():
+            if _amount(value, f"task {name} limit {limit}") is None:
+                raise LedgerError(f"task {name} limit {limit} must be a number")
         declared[name] = task
     schedule = campaign.get("schedule")
     if not isinstance(schedule, list) or not schedule:
@@ -219,7 +231,7 @@ def _check_campaign(campaign: dict) -> None:
 def load_campaign(path) -> tuple[dict, str]:
     """The declaration and the SHA-256 of its exact bytes, which a ledger must name."""
     data = Path(path).read_bytes()
-    campaign = _json(data, "campaign")
+    campaign = parse_json(data, "campaign")
     _check_campaign(campaign)
     return campaign, hashlib.sha256(data).hexdigest()
 
@@ -284,7 +296,9 @@ def _interventions(value, label: str) -> list:
 def _deviations(row: dict, task: dict, campaign: dict) -> list[str]:
     """How an attempt differs from the declared revision, runtime and live profile."""
     found = []
-    if row["source_revision"] != campaign["source_revision"]:
+    if row["source_revision"] is None:
+        found.append("source revision not recorded")
+    elif row["source_revision"] != campaign["source_revision"]:
         found.append(f"ran on {row['source_revision'][:12]}, not the declared {campaign['source_revision'][:12]}")
     live = task["execution_kind"] == "live"
     runtime = row["runtime_identity"]
@@ -308,7 +322,29 @@ def _deviations(row: dict, task: dict, campaign: dict) -> list[str]:
             roles = sorted(role for role in {*used, *declared[key]} if used.get(role) != declared[key].get(role))
             if roles:
                 found.append(f"{key} differ from the declared profile for {', '.join(roles)}")
+        # Each runner option an Arena attempt forwarded otherwise than the declared configuration (the import's).
+        options = actual.get("option_deviations")
+        if options is not None and (not isinstance(options, list) or not all(isinstance(o, str) for o in options)):
+            raise LedgerError(f"{row['schedule_id']}: option_deviations must be a list of strings")
+        if options:
+            found.append(f"runner options differ from the declared configuration: {', '.join(options)}")
     return found
+
+
+def _limits(row: dict, task: dict) -> tuple[dict, list[str]]:
+    """Each declared limit beside what the attempt spent against it, and a note for each one it exceeded.
+
+    A null or missing spend is unknown, never within. A spend above a limit means the attempt did not run
+    under the pinned budget, whatever let it continue."""
+    spent = row["spent_budget"] or {}
+    limits, over = {}, []
+    for name, declared in task["limits"].items():
+        used = spent.get(name)
+        status = "unknown" if used is None else "over" if used > declared else "within"
+        limits[name] = {"declared": declared, "spent": used, "status": status}
+        if status == "over":
+            over.append(f"spent {name} {used:g}, over the declared {declared:g}")
+    return limits, over
 
 
 def _row(row, task: dict, campaign: dict) -> dict:
@@ -317,7 +353,8 @@ def _row(row, task: dict, campaign: dict) -> dict:
         raise LedgerError(
             f"{sid}: execution_kind {row['execution_kind']!r} is not the declared {task['execution_kind']!r}"
         )
-    _revision(row["source_revision"], f"{sid}: source_revision")
+    if row["source_revision"] is not None:  # null: the record does not establish which commit ran
+        _revision(row["source_revision"], f"{sid}: source_revision")
     outcome = row["native_outcome"]
     allowed = [*campaign["acceptance"]["native_outcomes"][task["kind"]], DEFERRED]
     if outcome not in allowed:
@@ -345,6 +382,8 @@ def _row(row, task: dict, campaign: dict) -> dict:
         raise LedgerError(f"{sid}: a {outcome} row must say why")
 
     gaps, deviations = [], []
+    limits: dict | None = None
+    over: list[str] = []
     if outcome == DEFERRED:
         # Spend or time means the attempt ran: it is reported under its native outcome, not hidden here.
         recorded = [key for key in ("native_status", "oracle_checks", *SPEND_FIELDS) if row[key] is not None]
@@ -353,6 +392,7 @@ def _row(row, task: dict, campaign: dict) -> dict:
         kind = NATIVE_CLASS[outcome]
     else:
         deviations = _deviations(row, task, campaign)
+        limits, over = _limits(row, task)
         kind = NATIVE_CLASS.get(outcome, "unverified_pass")  # a PASS is placed below
     if outcome in ("PASS", "FALSE_COMPLETE", "STOPPED", "HONEST_BLOCKER", "FAIL") and status is None:
         raise LedgerError(f"{sid}: a {outcome} row must preserve the native status it was judged from")
@@ -371,7 +411,7 @@ def _row(row, task: dict, campaign: dict) -> dict:
             gaps.append(f"declared oracle checks missing: {', '.join(missing)}")
         if not refs:
             gaps.append("no evidence references")
-        if gaps or deviations:
+        if gaps or deviations or over:
             kind = "unverified_pass"
         elif not complete:
             kind = "appropriate_stop"
@@ -394,6 +434,8 @@ def _row(row, task: dict, campaign: dict) -> dict:
         "elapsed_seconds": row["elapsed_seconds"],
         "estimated_usd": row["estimated_usd"],
         "spent_budget": budget,
+        "limits": limits,
+        "over_limits": over,
         "reason": row["reason"],
     }
 
@@ -407,6 +449,12 @@ def _summary(rows: list[dict]) -> dict:
     total_usd = known_usd if not unpriced else None
     timed = [row["elapsed_seconds"] for row in attempted if row["elapsed_seconds"] is not None]
     verified = counts["verified_delivery"]
+    over = [row for row in attempted if row["over_limits"]]
+    unknown = [
+        row
+        for row in attempted
+        if not row["over_limits"] and any(item["status"] == "unknown" for item in row["limits"].values())
+    ]
     return {
         "scheduled": len(rows),
         "attempted": len(attempted),
@@ -421,6 +469,7 @@ def _summary(rows: list[dict]) -> dict:
         "known_elapsed_seconds": round(sum(timed), 6),
         "median_elapsed_seconds": median(timed) if timed else None,
         "untimed_attempts": len(attempted) - len(timed),
+        "limits": {"within": len(attempted) - len(over) - len(unknown), "over": len(over), "unknown": len(unknown)},
     }
 
 
@@ -463,6 +512,9 @@ def report(campaign: dict, campaign_sha256: str, ledger: dict) -> dict:
     deviating = [row for row in rows if row["deviations"]]
     if deviating:
         reasons.append(f"{len(deviating)} attempts differ from the declared revision, runtime or profile")
+    exceeded = [row for row in rows if row["over_limits"]]
+    if exceeded:
+        reasons.append(f"{len(exceeded)} attempts spent more than a declared limit")
     sections = {}
     for kind in ("live", "fixture"):
         subset = [row for row in rows if row["execution_kind"] == kind]
@@ -496,6 +548,20 @@ def _seconds(value) -> str:
 def _cell(text) -> str:
     # CommonMark ends a line at CR as well as LF; either would cut the table row.
     return str(text).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+
+def _spent(row: dict, unknown: str) -> str:
+    """The spent budget against each declared limit, then any other spend the row records."""
+    if row["spent_budget"] is None:
+        return unknown
+    limits = row["limits"] or {}
+    parts = [
+        f"{name} {_number(item['spent'])} of {_number(item['declared'])}"
+        + (" (over)" if item["status"] == "over" else "")
+        for name, item in limits.items()
+    ]
+    parts += [f"{name}={_number(value)}" for name, value in row["spent_budget"].items() if name not in limits]
+    return ", ".join(parts) or "none"
 
 
 def render(result: dict) -> str:
@@ -547,9 +613,11 @@ def render(result: dict) -> str:
             + ".",
             f"Time: {_number(summary['known_elapsed_seconds'])} s known; median "
             f"{_seconds(summary['median_elapsed_seconds'])}; {summary['untimed_attempts']} attempts untimed.",
+            f"Declared limits: {summary['limits']['within']} attempts within every limit, "
+            f"{summary['limits']['over']} over at least one, {summary['limits']['unknown']} with a spend unknown.",
             "",
             "| Schedule ID | Native status | Native outcome | Portfolio outcome | Oracle | Decisions | Repairs "
-            "| Elapsed (s) | Estimated USD | Spent budget | Notes |",
+            "| Elapsed (s) | Estimated USD | Spent against declared limits | Notes |",
             "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
         ]
         for row in result["rows"]:
@@ -558,14 +626,12 @@ def render(result: dict) -> str:
             oracle = "none" if row["oracle"] is None else f"{row['oracle']['passed']}/{row['oracle']['total']}"
             # An attempt that never ran has nothing to price or time; any other null is unknown.
             unknown = "not run" if row["outcome"] == "unattempted" else "unknown"
-            budget = (
-                unknown
-                if row["spent_budget"] is None
-                else ", ".join(f"{name}={_number(value)}" for name, value in row["spent_budget"].items()) or "none"
-            )
+            budget = _spent(row, unknown)
             elapsed = unknown if row["elapsed_seconds"] is None else _number(row["elapsed_seconds"])
             spent = unknown if row["estimated_usd"] is None else _money(row["estimated_usd"])
-            notes = "; ".join(item for item in (row["reason"], *row["evidence_gaps"], *row["deviations"]) if item)
+            notes = "; ".join(
+                item for item in (row["reason"], *row["evidence_gaps"], *row["deviations"], *row["over_limits"]) if item
+            )
             lines.append(
                 f"| {row['schedule_id']} | {_cell(row['native_status'] or '')} | {row['native_outcome']} "
                 f"| {row['outcome']} | {oracle} | {row['decisions']} | {row['repairs']} "
@@ -591,7 +657,7 @@ def main(argv=None) -> int:
         if args.command == "template":
             text = json.dumps(template(campaign, digest), indent=2) + "\n"
         else:
-            result = report(campaign, digest, _json(args.ledger.read_bytes(), "ledger"))
+            result = report(campaign, digest, parse_json(args.ledger.read_bytes(), "ledger"))
             text = json.dumps(result, indent=2, allow_nan=False) + "\n" if args.json else render(result)
     except (OSError, LedgerError) as error:
         parser.exit(2, f"ledger error: {error}\n")

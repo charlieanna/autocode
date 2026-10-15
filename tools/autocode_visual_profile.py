@@ -26,10 +26,14 @@ from pathlib import Path
 
 try:
     from . import autocode_contract_identity as contract
+    from . import autocode_kilo_native as kilo
+    from . import autocode_native_locators as native_locators
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
 except ImportError:
     import autocode_contract_identity as contract
+    import autocode_kilo_native as kilo
+    import autocode_native_locators as native_locators
     import autocode_tool_containment as containment
     import autocode_util as util
 
@@ -114,7 +118,13 @@ def _profile(state):
     )
     rows = [row[len(MARKER) :] for row in constraints if row.startswith(MARKER)]
     _require(len(rows) == 1, "Exactly one approved VISUAL_REVIEW_PROFILE constraint is required")
-    value = _json(rows[0])
+    return profile_value(_json(rows[0]))
+
+
+def profile_value(value):
+    """Validate complete explicit profile data; this grants no approval."""
+    if isinstance(value, dict) and value.get("mode") == kilo.MODE:
+        return kilo.profile_value(value, builtin_version=VERSION, max_requests=MAX_REQUESTS, image_bounds=IMAGE_BOUNDS)
     keys = {
         "version",
         "mode",
@@ -128,7 +138,22 @@ def _profile(state):
         "max_requests",
         "image_limits",
     }
-    _require(isinstance(value, dict) and set(value) == keys, "Unsupported visual profile fields")
+    _require(
+        isinstance(value, dict) and set(value) in (keys, keys | {"capture_runtime"}),
+        "Unsupported visual profile fields",
+    )
+    if "capture_runtime" in value:
+        capture = value["capture_runtime"]
+        _require(
+            isinstance(capture, dict)
+            and set(capture) == {"path", "sha256"}
+            and isinstance(capture["path"], str)
+            and capture["path"].startswith(".autocode/")
+            and ".." not in Path(capture["path"]).parts
+            and str(Path(capture["path"])) == capture["path"]
+            and _sha(capture["sha256"]),
+            "Capture runtime needs its exact owned manifest and hash",
+        )
     _require(
         type(value["version"]) is int
         and value["version"] == 1
@@ -163,7 +188,20 @@ def _profile(state):
         and all(type(limits[key]) is int and 0 < limits[key] <= ceiling for key, ceiling in IMAGE_BOUNDS.items()),
         "Unsupported byte-preserving image bounds",
     )
-    return value
+    return deepcopy(value)
+
+
+def initial_intent(text):
+    """Only a complete directive in original operator input selects native mode.
+
+    Ordinary prose, repository files and model-generated contracts are not
+    activation sources. The original journal binds these exact bytes/data.
+    """
+    rows = [line[len(MARKER) :] for line in text.splitlines() if line.startswith(MARKER)]
+    if not rows:
+        return None
+    _require(len(rows) == 1, "Exactly one initial VISUAL_REVIEW_PROFILE directive is required")
+    return profile_value(_json(rows[0]))
 
 
 def _sdk(root, expected):
@@ -299,7 +337,8 @@ def authority(state, worker, workspace, run_dir):
         _no_credentials(settings)
         route = settings["roles"]["sol"]
         _require(
-            set(route) <= {"engine", "provider", "model", "reasoning_effort"}
+            set(route) <= {"engine", "provider", "model", "reasoning_effort", "model_pinned"}
+            and ("model_pinned" not in route or type(route["model_pinned"]) is bool)
             and (route.get("engine") or settings.get("engine")) == "opencode"
             and route.get("provider") in (None, "opencode")
             and settings.get("provider") in (None, "opencode")
@@ -327,13 +366,31 @@ def authority(state, worker, workspace, run_dir):
             and util.digest(identity) == profile["transport_identity_sha256"],
             "Saved transport identity differs from the approved visual profile",
         )
+        # The built-in adapter always fingerprints and injects this one bundled
+        # progress hook. Its exact bytes are approved through transport identity;
+        # no configured plugin, arbitrary path or non-null config is admitted.
+        activity = Path(__file__).resolve().parent / "providers" / "opencode_activity.mjs"
+        fingerprints = identity.get("config_hashes")
         _require(
-            isinstance(identity.get("config_hashes"), dict)
-            and identity["config_hashes"]
-            and all(value is None for value in identity["config_hashes"].values())
+            isinstance(fingerprints, dict)
+            and fingerprints
+            and all(name == str(activity) or value is None for name, value in fingerprints.items())
             and isinstance(identity.get("environment_config_hashes"), dict)
             and all(value is None for value in identity["environment_config_hashes"].values()),
             "Existing custom/global configuration cannot be preserved by this isolated profile",
+        )
+        _require(
+            activity.is_file()
+            and not activity.is_symlink()
+            and stat.S_ISREG(activity.stat().st_mode)
+            and _sha(fingerprints.get(str(activity)))
+            and util.file_hash(activity) == fingerprints[str(activity)],
+            "Bundled activity plugin changed or is not approved in the saved transport",
+        )
+        activity_bytes = activity.read_bytes()
+        _require(
+            hashlib.sha256(activity_bytes).hexdigest() == fingerprints[str(activity)],
+            "Bundled activity plugin changed while reading",
         )
         base = worker["command"]
         _require(
@@ -375,7 +432,7 @@ def authority(state, worker, workspace, run_dir):
             boundary.get("allow_write") is False
             and Path(boundary["workspace"]).resolve() == root
             and boundary.get("tools") == ["bash"]
-            and _json(env.get("AUTOCODE_TOOL_CONTAINMENT", "{}")) == boundary,
+            and native_locators.boundary_matches(env.get("AUTOCODE_TOOL_CONTAINMENT", "{}"), boundary),
             "Visual profile requires an unchanged read-only contained shell",
         )
         _require(
@@ -395,10 +452,10 @@ def authority(state, worker, workspace, run_dir):
         config = _json(env["OPENCODE_CONFIG_CONTENT"])
         original_config = _json(worker["environment"]["OPENCODE_CONFIG_CONTENT"])
         _require(
-            isinstance(original_config, dict) and not original_config.get("plugin"),
-            "Existing custom plugins cannot be preserved by this isolated profile",
+            isinstance(original_config, dict) and original_config.get("plugin") == [activity.as_uri()],
+            "Only the approved bundled activity plugin may precede image delivery",
         )
-        expected_config = {**original_config, "plugin": [Path(plugin_path).as_uri()]}
+        expected_config = {**original_config, "plugin": [activity.as_uri(), Path(plugin_path).as_uri()]}
         _require(config == expected_config, "Parent-prepared configuration differs from the actual contained worker")
         ignored = {"OPENCODE_CONFIG_CONTENT", "AUTOCODE_IMAGE_AUDIT"}
         _require(
@@ -443,7 +500,9 @@ def authority(state, worker, workspace, run_dir):
         _require(
             util.file_hash(plugin) == util.file_hash(helper), "Prepared image plugin differs from the runner helper"
         )
-        _require(config.get("plugin") == [plugin.as_uri()], "Unexpected inherited plugin or plugin order")
+        _require(
+            config.get("plugin") == [activity.as_uri(), plugin.as_uri()], "Unexpected inherited plugin or plugin order"
+        )
         audit = _json(env["AUTOCODE_IMAGE_AUDIT"])
         _require(
             isinstance(audit, dict)
@@ -528,6 +587,11 @@ def authority(state, worker, workspace, run_dir):
             and _sdk(destination, profile["sdk_manifest_sha256"]) == files,
             "SDK changed during stage-local copy",
         )
+        staged_activity = target / "activity.mjs"
+        _write(staged_activity, activity_bytes, pins)
+        _require(
+            util.file_hash(activity) == fingerprints[str(activity)], "Bundled activity plugin changed during staging"
+        )
         final = deepcopy(config)
         final.update(
             share="disabled",
@@ -536,7 +600,7 @@ def authority(state, worker, workspace, run_dir):
             model=profile["model"],
             small_model=profile["model"],
             enabled_providers=["openai"],
-            plugin=[plugin.as_uri()],
+            plugin=[staged_activity.as_uri(), plugin.as_uri()],
         )
         final["agent"].update({name: {"disable": True} for name in ("title", "summary", "compaction")})
         child.update(
@@ -569,6 +633,11 @@ def authority(state, worker, workspace, run_dir):
             "contract_revision": state["goal_contract"]["revision"],
             "child_identity": child_identity,
             "original_transport": identity,
+            "activity_plugin": {
+                "source": str(activity),
+                "sha256": fingerprints[str(activity)],
+                "staged": str(staged_activity),
+            },
             "permission": policy,
             "bash_rule_order": list(policy["bash"].items()),
             "globally_wider_permissions": False,

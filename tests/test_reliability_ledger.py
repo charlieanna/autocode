@@ -37,7 +37,8 @@ class LedgerTests(unittest.TestCase):
         return next(row for row in document["attempts"] if row["schedule_id"] == sid)
 
     def attempt(self, document: dict, sid: str, outcome="PASS", status="TASK_COMPLETE", **changes) -> dict:
-        """An attempt on the declared revision, runtime and profile, with every declared check passing."""
+        """An attempt on the declared revision, runtime and profile, within its declared limits, with every
+        declared check passing."""
         task = self.task_of[sid]
         names = (task.get("upstream") or {}).get("checks") or ["delivered_behaviour"]
         definition = self.campaign["profile"]["definition"]
@@ -53,7 +54,7 @@ class LedgerTests(unittest.TestCase):
             elapsed_seconds=600,
             usage={"input_tokens": 1000, "output_tokens": 200},
             estimated_usd=1.5,
-            spent_budget={"harness_minutes": 10},
+            spent_budget={name: limit / 2 for name, limit in task["limits"].items()},
             reason="" if outcome == "PASS" else f"native {outcome}",
         )
         row.update(changes)
@@ -239,6 +240,9 @@ class LedgerTests(unittest.TestCase):
                 "effort"
             ].update(builder="high"),
             "actual models and efforts not recorded": lambda row: row.update(actual_models_and_efforts=None),
+            "runner options differ from the declared configuration: --joint-planning missing": lambda row: row[
+                "actual_models_and_efforts"
+            ].update(option_deviations=["--joint-planning missing"]),
             "ran on ": lambda row: row.update(source_revision="c" * 40),
         }
         for note, change in variants.items():
@@ -251,6 +255,76 @@ class LedgerTests(unittest.TestCase):
                 self.assertIn(note, "; ".join(checked["evidence_gaps"] + checked["deviations"]))
                 self.assertEqual(0, result["sections"]["live"]["outcomes"]["verified_delivery"])
                 self.assertTrue(result["comparison"]["blocked"])
+        on_profile = self.fresh()
+        self.attempt(on_profile, ARENA_ROW)["actual_models_and_efforts"]["option_deviations"] = []
+        rows = {row["schedule_id"]: row for row in self.check(on_profile)["rows"]}
+        self.assertEqual("verified_delivery", rows[ARENA_ROW]["outcome"])
+        for value in ("--joint-planning missing", [1], {}):
+            broken = self.fresh()
+            self.attempt(broken, ARENA_ROW)["actual_models_and_efforts"]["option_deviations"] = value
+            with self.subTest(option_deviations=value):
+                self.refused(broken, "option_deviations must be a list of strings")
+
+    def test_spent_budget_is_compared_with_each_declared_limit(self):
+        document = self.fresh()
+        # bugfix-iso-weeks declares 90 harness minutes and 40 steps.
+        self.attempt(document, SCENARIO_ROW, spent_budget={"harness_minutes": 95, "max_steps": 12})
+        self.attempt(
+            document,
+            "scenario/bugfix-iso-weeks/01",
+            outcome="FALSE_COMPLETE",
+            spent_budget={"harness_minutes": 30, "max_steps": 41},
+        )
+        self.attempt(document, "scenario/greenfield-todo-cli/01", spent_budget={"harness_minutes": 60})
+        self.attempt(document, ARENA_ROW, spent_budget=None)
+        self.attempt(document, "arena/pytest-stop-fixture-teardown/02")
+        result = self.check(document)
+        rows = {row["schedule_id"]: row for row in result["rows"]}
+        over = rows[SCENARIO_ROW]
+        self.assertEqual(["spent harness_minutes 95, over the declared 90"], over["over_limits"])
+        self.assertEqual(
+            {
+                "harness_minutes": {"declared": 90, "spent": 95, "status": "over"},
+                "max_steps": {"declared": 40, "spent": 12, "status": "within"},
+            },
+            over["limits"],
+        )
+        self.assertEqual("unverified_pass", over["outcome"], "a PASS over its pinned budget is not a delivery")
+        self.assertEqual("false_completion", rows["scenario/bugfix-iso-weeks/01"]["outcome"])
+        # Exactly the declared limit is within it; a missing or null spend is unknown, never within.
+        greenfield = rows["scenario/greenfield-todo-cli/01"]
+        self.assertEqual(("within", "unknown"), tuple(item["status"] for item in greenfield["limits"].values()))
+        self.assertEqual("verified_delivery", greenfield["outcome"])
+        self.assertEqual({"unknown"}, {item["status"] for item in rows[ARENA_ROW]["limits"].values()})
+        self.assertIsNone(rows["arena/sympy-matrix-derivatives/01"]["limits"], "a DEFERRED row spent nothing")
+        live = result["sections"]["live"]
+        self.assertEqual({"within": 1, "over": 2, "unknown": 2}, live["limits"])
+        self.assertIn("2 attempts spent more than a declared limit", result["comparison"]["reasons"])
+        text = ledger.render(result)
+        line = next(line for line in text.splitlines() if line.startswith(f"| {SCENARIO_ROW} |"))
+        self.assertIn("| harness_minutes 95 of 90 (over), max_steps 12 of 40 |", line)
+        self.assertIn("spent harness_minutes 95, over the declared 90", line)
+        self.assertIn("2 over at least one, 2 with a spend unknown", text)
+        arena = next(line for line in text.splitlines() if line.startswith("| arena/pytest-stop-fixture-teardown/02 |"))
+        self.assertIn("cli_invocation_seconds 1800 of 3600, oracle_seconds 60 of 120, max_iterations 1.5 of 3", arena)
+
+    def test_a_record_that_does_not_establish_its_commit_keeps_a_null_revision(self):
+        document = self.fresh()
+        self.attempt(document, ARENA_ROW, source_revision=None)
+        self.attempt(document, SCENARIO_ROW, outcome="FALSE_COMPLETE", source_revision=None)
+        result = self.check(document)
+        rows = {row["schedule_id"]: row for row in result["rows"]}
+        self.assertEqual("unverified_pass", rows[ARENA_ROW]["outcome"])
+        self.assertIn("source revision not recorded", rows[ARENA_ROW]["deviations"])
+        self.assertEqual("false_completion", rows[SCENARIO_ROW]["outcome"])
+        self.assertIn(
+            "2 attempts differ from the declared revision, runtime or profile", result["comparison"]["reasons"]
+        )
+        for value in ("8375b73", "c" * 41, ""):
+            broken = self.fresh()
+            self.attempt(broken, ARENA_ROW, source_revision=value)
+            with self.subTest(value=value):
+                self.refused(broken, "full 40-character commit")
 
     def test_comparison_is_blocked_only_while_an_attempt_lacks_a_judgement_or_deviates(self):
         judged = self.fresh()
@@ -297,6 +371,21 @@ class LedgerTests(unittest.TestCase):
         ):
             campaign = copy.deepcopy(self.campaign)
             change(campaign["acceptance"])
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "campaign.json"
+                path.write_text(json.dumps(campaign))
+                with self.subTest(name), self.assertRaisesRegex(ledger.LedgerError, pattern):
+                    ledger.load_campaign(path)
+
+    def test_a_campaign_without_usable_limits_is_refused(self):
+        for name, change, pattern in (
+            ("missing", lambda task: task.pop("limits"), "must declare its limits"),
+            ("negative", lambda task: task["limits"].update(max_steps=-1), "finite nonnegative number"),
+            ("null", lambda task: task["limits"].update(max_steps=None), "limit max_steps must be a number"),
+            ("text", lambda task: task["limits"].update(max_steps="40"), "finite nonnegative number"),
+        ):
+            campaign = copy.deepcopy(self.campaign)
+            change(campaign["tasks"][3])
             with tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "campaign.json"
                 path.write_text(json.dumps(campaign))

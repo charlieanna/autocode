@@ -484,8 +484,10 @@ class Driver:
         """Drive until the run is done or needs something the driver does not serve.
         ``say_at`` (``needs:<kind>``) stops at that need instead of serving it, so the
         caller can serve it its own way (plan_compare compares plans at ``needs:approve_plan``)."""
+        pending_view = None
         while True:
-            view = self.view()
+            view = self.view() if pending_view is None else pending_view
+            pending_view = None
             need = view["needs"]
             self.assert_needs_command_accepted(view)
             if pause := self.pause_to_acknowledge(view):
@@ -510,6 +512,7 @@ class Driver:
                 keys = ("status", "next_stage", "iteration", "phase")
                 if not after["done"] and all(after[key] == view[key] for key in keys):
                     raise DriveError(f"no progress at {view['status']!r} (next_stage={view['next_stage']!r})")
+                pending_view = after
             else:
                 try:
                     self.serve(need)

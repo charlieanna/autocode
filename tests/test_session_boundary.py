@@ -61,8 +61,10 @@ class SessionBoundaryTests(unittest.TestCase):
                 if supported:
                     self.assertEqual(boundary._ABIS[machine], boundary.require_supported())
                 else:
-                    with self.assertRaises(boundary.UnsupportedBoundary):
+                    with self.assertRaises(boundary.UnsupportedBoundary) as refused:
                         boundary.require_supported()
+                    # Only macOS falls back to portable supervision (#1195); every other host still refuses.
+                    self.assertEqual(host == "darwin", isinstance(refused.exception, boundary.PortableHost))
                 libc.assert_not_called()
 
     def test_generated_filter_mediates_setsid_and_rejects_unqualified_abis(self):

@@ -36,6 +36,16 @@ def literal_paths(paths):
     return sorted(result)
 
 
+def is_canonical_paths(paths):
+    """Check saved JSON scope without normalizing or changing retained data."""
+    if not isinstance(paths, list):
+        return False
+    try:
+        return paths == literal_paths(paths)
+    except ValueError:
+        return False
+
+
 def _identity(path, info):
     if stat.S_ISLNK(info.st_mode):
         return "symlink:" + os.readlink(path)

@@ -11,9 +11,11 @@ import json
 try:
     from . import autocode_design_manifest as manifest
     from . import autocode_util as util
+    from . import autocode_visual_scope as visual_scope
 except ImportError:
     import autocode_design_manifest as manifest
     import autocode_util as util
+    import autocode_visual_scope as visual_scope
 
 
 CASE = manifest.obj({"id": manifest.TEXT, "criterion_ids": manifest.TEXTS, "milestone_ids": manifest.TEXTS})
@@ -108,7 +110,15 @@ def _validate_visual_declaration(body, coverage):
 
 
 def validate(record, body, *, ready=False):
+    slice_policy = visual_scope.policy(body)
     if not record or record["body"]["version"] != 2:
+        if slice_policy:
+            if body.get("open_blocking_questions") and not ready:
+                return  # Clarification can precede complete slice ownership.
+            if not record:
+                raise ValueError("Visual slice gates require a retained design inventory")
+            manifest.verify(record)
+            visual_scope.admit(body, record["body"])
         return
     coverage = body.get("design_coverage")
     if not coverage and body.get("open_blocking_questions") and not ready:
@@ -144,6 +154,9 @@ def validate(record, body, *, ready=False):
         expected = "approved_constraints" if targets[row["target_id"]]["constraints"] else "derived_behavior"
         if row["basis"] != expected or not row["behavior"].strip():
             raise ValueError("Absent responsive references need the actual constraints or explicit derived behavior")
+
+    if slice_policy and (ready or not body.get("open_blocking_questions")):
+        visual_scope.admit(body, record["body"])
 
 
 def case_criteria(body):

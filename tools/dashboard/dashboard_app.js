@@ -228,17 +228,26 @@ function setProjectRemovalUncertain(workspace,value){if(typeof projectUncertain!
 function expiredTemporaryEntry(run) { return run.workspace_cleanup?.eligible===true&&run.workspace_cleanup?.reason==='confirmed_missing'; }
 // A task's execution worktree is not a project (#809). The sidebar, the
 // selected project, project actions and new conversations use the project it
-// belongs to; task status and task actions keep run.workspace, the worktree.
-function runProject(run) { return run?.project_workspace||run?.workspace||''; }
+// belongs to: an explicit project, then a linked conversation's project, then
+// the execution workspace. Task status and task actions keep run.workspace.
+function runProjectWorkspace(run,data=latestData) {
+  const linked=run?.run?(data?.conversations||[]).find(doc=>doc.attachment?.status==='linked'&&doc.attachment.run===run.run):null;
+  return run?.project_workspace||linked?.attachment?.project_workspace||run?.workspace||'';
+}
+function runProject(run, data=latestData) { return runProjectWorkspace(run,data); }
+function taskProjectWorkspace(run,data=latestData) {
+  if(run?.project_removed)return run.project_workspace||run.workspace||'';
+  return removedProject(run?.workspace,data)?run.workspace:runProjectWorkspace(run,data);
+}
 function taskWorktreeProjects(data=latestData) {
   const projects=new Map();
-  for(const run of data?.runs||[])if(run.workspace&&run.project_workspace&&run.project_workspace!==run.workspace)projects.set(run.workspace,run.project_workspace);
+  for(const run of data?.runs||[]){const project=runProjectWorkspace(run,data);if(run.workspace&&project&&project!==run.workspace)projects.set(run.workspace,project);}
   return projects;
 }
 function projectScope(path, data=latestData) { return taskWorktreeProjects(data).get(path)||path||''; }
 function dashboardProjects(data) {
-  const runs=data.runs||[],worktrees=taskWorktreeProjects(data),own=workspace=>runs.filter(run=>runProject(run)===workspace);
-  return [...new Set([...(data.workspaces||[]),...runs.map(runProject).filter(Boolean)])].filter(workspace=>!worktrees.has(workspace)&&!removedProject(workspace,data)&&!(own(workspace).length&&own(workspace).every(expiredTemporaryEntry)));
+  const runs=data.runs||[],worktrees=taskWorktreeProjects(data),own=workspace=>runs.filter(run=>runProjectWorkspace(run,data)===workspace);
+  return [...new Set([...(data.workspaces||[]),...runs.map(run=>runProjectWorkspace(run,data)).filter(Boolean)])].filter(workspace=>!worktrees.has(workspace)&&!removedProject(workspace,data)&&!(own(workspace).length&&own(workspace).every(expiredTemporaryEntry)));
 }
 function renderTemporaryHistory(data){
   const host=$('#temporary-history');if(!host)return;
@@ -272,6 +281,11 @@ function renderProjectManager(data) {
 function renderProjectScope() {
   const host=$('#project-scope-actions');host.replaceChildren();host.hidden=!projectFilter;$('#project-scope-menu').hidden=!projectFilter;if(!projectFilter)return;
   host.append(Object.assign(n('p',projectFilter),{className:'project-path'}),projectActionButton(projectFilter,removedProject(projectFilter)?'restore':'remove',removedProject(projectFilter)?'Restore project':'Remove project'));
+}
+function renderTaskProjectIdentity(run) {
+  const project=taskProjectWorkspace(run);
+  $('#task-project').textContent=projectLabel(project);$('#task-project').title=project;
+  if(currentView==='task-detail'){$('#breadcrumb-title').textContent=projectTitle(project);$('#breadcrumb-title').title=project;}
 }
 function renderTaskProjectActions(workspace, removed=false) {
   const host=$('#task-project-actions');host.replaceChildren();if(!workspace)return;
@@ -421,6 +435,12 @@ function taskTitle(run) {
   const recovered=basename(run.run).replace(/^\d{8}-\d{6}-/,'').replace(/-[a-f0-9]{8,64}$/i,'').replace(/-/g,' ');
   const first=(raw||recovered||'Untitled task').split(/(?<=[.!?])\s+(?=[A-Z])/)[0];
   return concise(first,86);
+}
+function taskHeroTitle(run) {
+  const outcome=!String(run.goal?.origin||'').startsWith('migration_draft')&&String(run.goal?.body?.intended_outcome||'').trim();
+  // A saved conversation label stays in navigation. The open workspace
+  // describes its saved goal, unless the user supplied an explicit title.
+  return run.display_title||!outcome?taskTitle(run):taskTitle({...run,task:outcome});
 }
 function projectTitle(workspace) { return projectLabel(workspace); }
 // The project's own name (its folder), used for sidebar group headers and the
@@ -662,6 +682,11 @@ function taskScopeTitle() {return projectFilter?projectTitle(projectFilter):task
 function badge(run) { const info = statusInfo(run), element = n('span',runtimeLabel(run)); element.className = 'badge '+info.tone; element.title = run.status || run.error || ''; return element; }
 function taskStatusBadge(run) {
   const element=badge(run);
+  if(statusInfo(run).label==='Answer needed'&&run.human_escalation?.scope==='clarification'&&run.goal?.approval_status!=='approved'){
+    element.textContent=roleDisplayName('requirements');element.className='badge planning-request';
+    element.title=runtimeLabel(run)+'. '+statusInfo(run).reason; element.setAttribute('aria-label',element.textContent+'. '+element.title);
+  }
+  if(statusInfo(run).group==='running')element.dataset.compactLabel=statusInfo(run).label;
   if(statusInfo(run).group!=='complete')return element;
   const timestamp=completionTimestamp(run);
   if(timestamp.state!=='recorded')return element;
@@ -811,7 +836,7 @@ function monitorDetailsPanel(run) {
     for(const finding of monitor.findings||[]){const row=card('','monitor-event');row.append(n('span',(finding.id?finding.id+' · ':'')+(finding.finding||'Finding details unavailable')),n('small',human(finding.severity)+(finding.source?' · raised by '+human(finding.source):'')+(finding.milestone?' · '+finding.milestone:'')+(finding.assigned_task?' · fix: '+finding.assigned_task:'')+((finding.times_reported||1)>1?' · reported '+finding.times_reported+'×':'')+(finding.not_rechecked?' · not rechecked':'')));history.append(row);}
     if(!monitor.findings?.length)history.append(n('p','No open findings recorded. This is not proof of completion.'));details.append(activity,history);host.append(details);
     for(const metric of monitor.metrics||[])host.append(metricPanel(metric));
-    const counts=run.counts||{},criteria=card('','monitor-criteria');criteria.append(n('h3','Acceptance checks'),n('p',(counts.pass||0)+' passed · '+(counts.fail||0)+' failed or blocked · '+(counts.unknown||0)+' unverified'),button('View evidence & reviews →',()=>activateTab('execution'),'text-button'));host.append(criteria);
+    const counts=run.counts||{},criteria=card('','monitor-criteria');criteria.append(n('h3','Acceptance checks'),n('p',(counts.pass||0)+' passed · '+(counts.fail||0)+' failed or blocked · '+(counts.unknown||0)+' unverified'),button('View evidence & reviews →',()=>activateTab('execution',true),'text-button'));host.append(criteria);
   return host;
 }
 function operationalPreview(value,limit=136) {
@@ -888,10 +913,10 @@ function renderTaskOverview(run) {
   if(run.monitor?.orchestration_batch)host.append(orchestrationPanel(run.monitor.orchestration_batch));
   const assignment=run.astra_plan?.current_assignment;
   if(assignment)host.append(disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run));
-  const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':statusInfo(run).label==='Approve plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan'),'text-button'));context.append(plan);
+  const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':statusInfo(run).label==='Approve plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan',true),'text-button'));context.append(plan);
   const checkpoint=card('',''),latest=[...(run.monitor?.history||[])].sort((a,b)=>Date.parse(b.finished_at)-Date.parse(a.finished_at))[0];checkpoint.append(n('h3','Last saved step'));
   if(latest){checkpoint.append(n('p',stageName({...run,stage:latest.stage})+' · iteration '+(latest.iteration??'?')),n('p',(latest.rejected?'Output rejected':latest.interrupted?'Interrupted':latest.timed_out?'Timed out':stageSucceeded(latest)?'Step finished':'Step stopped')+' · '+new Date(latest.finished_at).toLocaleString()));}else checkpoint.append(n('p','No completed step recorded.'));
-  checkpoint.append(button('View history →',()=>activateTab('overview'),'text-button'));context.append(checkpoint);host.append(context);
+  checkpoint.append(button('View history →',()=>activateTab('overview',true),'text-button'));context.append(checkpoint);host.append(context);
   host.hidden=currentTab!=='overview';
 }
 function markMonitorStale(){document.querySelectorAll('.monitor-panel').forEach(panel=>{
@@ -925,18 +950,22 @@ function setView(view) {
   if(view!=='task-detail')closeDetailsDrawer();
   if(['tasks','conversations','settings','new-task','archived'].includes(view))rememberSelection(view==='new-task'?'new':view==='tasks'?taskSelection():view);
   for (const id of ['tasks','new-task','task-detail','settings','conversations','draft-conversation','archived']) $('#'+id).hidden = id !== view;
-  $('#breadcrumb-title').textContent = view==='archived'?'Archived':view === 'tasks' ? taskScopeTitle() : view === 'new-task' ? 'New conversation' : view === 'settings' ? 'Settings' : ['conversations','draft-conversation'].includes(view)?'Conversation':projectTitle(chosen?.project||projectScope(chosen?.workspace));
+  const selectedRun=latestRun?.run===chosen?.run?latestRun:(latestData?.runs||[]).find(run=>run.run===chosen?.run);
+  const project=view==='task-detail'?(selectedRun?taskProjectWorkspace(selectedRun):chosen?.project||projectScope(chosen?.workspace)):'';
+  $('#breadcrumb-title').textContent = view==='archived'?'Archived':view === 'tasks' ? taskScopeTitle() : view === 'new-task' ? 'New conversation' : view === 'settings' ? 'Settings' : ['conversations','draft-conversation'].includes(view)?'Conversation':projectTitle(project);
+  $('#breadcrumb-title').title=project;
   closeNavigation();
   if(view!=='task-detail')stopPreview();
   document.querySelectorAll('[data-view]').forEach(element => element.classList.toggle('selected',element.dataset.view === (view==='draft-conversation'?'conversations':view) && (view!=='tasks'||(!projectFilter&&taskFilter==='all'))));
 }
 const WORKSPACE_PANES = ['now', 'plan', 'preview', 'changes', 'execution', 'overview'];
-function activateTab(tab) {
+function activateTab(tab, reveal=false) {
   if(latestRun?.task_archived){showArchivedRun(latestRun);return;}
   // The chat column and its composer are part of the conversation view in
   // every pane. 'interview' stays as the alias callers use to surface chat
   // without changing which artifact pane is open.
-  if(tab==='interview')tab=WORKSPACE_PANES.includes(currentTab)?currentTab:'now';
+  const showChat=tab==='interview';
+  if(showChat){closeDetailsDrawer();tab=WORKSPACE_PANES.includes(currentTab)?currentTab:'now';}
   const changed=currentTab!==tab;currentTab = tab;
   const paneTitle=$('#details-pane-title');if(paneTitle)paneTitle.textContent=({now:'Work',plan:'Your plan',preview:'Preview',changes:'Changes',execution:'Checks',overview:'History'})[tab]||'Work';
   $('#task-overview').hidden=tab!=='overview'||!latestRun||!!latestRun?.project_removed;
@@ -955,6 +984,9 @@ function activateTab(tab) {
   if(changed)settleThreadScroll();
   document.querySelectorAll('[data-tab]').forEach(element => { const selected=element.dataset.tab===tab;element.classList.toggle('selected',selected);element.setAttribute('aria-selected',String(selected));element.setAttribute('tabindex',selected?'0':'-1'); });
   if(taskReadError)disableStaleControls();
+  // Only an explicit artifact link reveals the mobile pane. Passive refresh
+  // keeps the user's drawer state and focus unchanged.
+  if(reveal&&!showChat&&matchMedia('(max-width:759px)').matches)openDetailsDrawer();
 }
 function openRun(run, tab = 'now') {
   $('#archive-task').disabled=true;$('#delete-task').disabled=true;
@@ -963,15 +995,15 @@ function openRun(run, tab = 'now') {
   const changed = chosen?.run !== run.run;
   if(changed&&typeof cancelApprovalReceipts==='function')cancelApprovalReceipts();
   if(changed){$('#task-overview').hidden=true;$('#now').dataset.rendered='';$('#now').replaceChildren(n('p','Loading current state…'));scrollThreadToEnd=true;pendingThreadAnchorKey='task-scroll:'+run.run;stopPreview();evidenceRun='';evidenceRequest++;$('#changes-content').replaceChildren();$('#thread-checkpoint').replaceChildren();$('#task-objective').textContent='';$('#conversation').dataset.rendered='';}
-  const project=runProject(run);
+  const project=runProjectWorkspace(run);
   chosen = {workspace:run.workspace,run:run.run,project}; activeConversation = null; latestRun = null; seq++;
   if(project&&project!==activeProject){activeProject=project;persist('active-project',activeProject);}
   taskReadError='';taskReadAt=null;$('#task-load-notice').hidden=true;
   rememberSelection(runSelection(run));
-  renderTaskProjectActions(project);$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
-  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectLabel(project); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
+  renderTaskProjectActions(taskProjectWorkspace(run));$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
+  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectLabel(taskProjectWorkspace(run)); $('#task-title').textContent=taskHeroTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
   $('#task-back').textContent='← '+(taskReturn.project?projectTitle(taskReturn.project):'All work');
-  setView('task-detail'); activateTab(tab); refresh(); window.scrollTo({top:0}); syncNewTaskScope();
+  setView('task-detail'); renderTaskProjectIdentity(run); activateTab(tab); refresh(); window.scrollTo({top:0}); syncNewTaskScope();
 }
 function filterTasks(filter, project = projectFilter) { taskFilter = filter; projectFilter = project; setView('tasks'); if (latestData) renderTasks(latestData); }
 $('#task-back').onclick=()=>filterTasks(taskReturn.filter||'all',taskReturn.project||'');
@@ -1081,7 +1113,11 @@ $('#details-scrim').onclick=closeDetailsDrawer;
 addEventListener('resize',()=>{const narrow=typeof matchMedia==='function'&&matchMedia('(max-width: 759px)').matches;if(!narrow)closeDetailsDrawer();closeNavigation();syncNavigationInert();});
 syncNavigationInert();
 document.addEventListener('keydown',event=>{
-  if(event.key==='Escape'){closeNavigation();closeDetailsDrawer();document.querySelectorAll('.context-menu[open]').forEach(menu=>menu.open=false);return;}
+  if(event.key==='Escape'){
+    const shell=$('.app-shell'),menus=[...document.querySelectorAll('.context-menu[open]')];
+    if(shell.classList.contains('nav-open')||shell.classList.contains('details-open')||menus.length)event.preventDefault();
+    closeNavigation();closeDetailsDrawer();menus.forEach(menu=>menu.open=false);return;
+  }
   if(event.key==='Tab'&&$('.app-shell').classList.contains('nav-open')){const focusable=navigationFocusables();if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
   if(event.key==='Tab'&&$('.app-shell').classList.contains('details-open')){const focusable=detailsDrawerFocusables();if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
 });
@@ -1302,12 +1338,15 @@ function activeProjectTitle() {
   const project=projectScope(activeProject);
   if(!project)return '';
   if(latestData){
-    const known=[...new Set([...(latestData.workspaces||[]),...(latestData.runs||[]).map(runProject).filter(Boolean)])];
+    const known=dashboardProjects(latestData);
     if(!known.includes(project))return '';
   }
   return projectLabel(project);
 }
 function syncNewTaskScope() {
+  const activeRun=(latestData?.runs||[]).find(run=>run.workspace===activeProject);
+  const project=activeRun?runProjectWorkspace(activeRun):activeProject;
+  if(project!==activeProject){activeProject=project;persist('active-project',activeProject);}
   const title=activeProjectTitle(),text=title?'New conversation in '+title:'New conversation';
   const label=$('#new-task-scope-label');if(label)label.textContent=text;
   const control=$('[data-new-task]');if(control)control.setAttribute('aria-label',text);
@@ -1358,13 +1397,13 @@ function projectGroupNode(path,rows,query) {
   return group;
 }
 function sidebarConversationRows(data,projects) {
-  const runs=(data.runs||[]).filter(run=>run.run&&!run.error&&!expiredTemporaryEntry(run)&&!removedProject(run.workspace)&&!removedProject(runProject(run)));
+  const runs=(data.runs||[]).filter(run=>run.run&&!run.error&&!expiredTemporaryEntry(run)&&!removedProject(run.workspace,data)&&!removedProject(runProjectWorkspace(run,data),data));
   const linked=new Map();
   for(const doc of data.conversations||[])if(doc.attachment?.status==='linked'&&doc.attachment.run)linked.set(doc.attachment.run,doc);
   const rows=[];
   for(const run of runs){
     const doc=linked.get(run.run);
-    rows.push({key:'run:'+run.run,workspace:runProject(run),title:taskTitle(run),
+    rows.push({key:'run:'+run.run,workspace:runProjectWorkspace(run,data),title:taskTitle(run),
                attention:runConversationAttention(run),complete:statusInfo(run).group==='complete',
                selected:chosen?.run===run.run||(doc&&doc.id===activeConversation),open:()=>openRun(run)});
   }
@@ -1373,7 +1412,7 @@ function sidebarConversationRows(data,projects) {
     if(doc.attachment?.status==='linked'&&runs.some(run=>run.run===doc.attachment.run))continue;
     const workspace=projectScope(conversationWorkspace(doc),data);
     if(workspace&&removedProject(workspace))continue;
-    if(workspace&&!projects.includes(workspace)&&!(data.runs||[]).some(run=>runProject(run)===workspace))continue;
+    if(workspace&&!projects.includes(workspace)&&!(data.runs||[]).some(run=>runProjectWorkspace(run,data)===workspace))continue;
     rows.push({key:'doc:'+doc.id,workspace,title:doc.title||'Untitled conversation',
                attention:docConversationAttention(doc),complete:false,
                selected:activeConversation===doc.id,open:()=>openConversation(doc.id)});
@@ -1401,7 +1440,7 @@ function renderProjectGroups(data) {
 }
 function renderTasks(data) {
   const runs=data.runs||[],actual=runs.filter(run=>run.run),projects=dashboardProjects(data);
-  renderArchiveSuggestions(actual.filter(run=>!projectFilter||runProject(run)===projectFilter));
+  renderArchiveSuggestions(actual.filter(run=>!projectFilter||runProjectWorkspace(run,data)===projectFilter));
   const countFor=list=>Object.fromEntries(taskGroups().map(([key])=>[key,list.filter(run=>statusInfo(run).group===key).length]));
   const current=projectCurrentRuns(actual).filter(run=>!expiredTemporaryEntry(run)),counts=countFor(current);
   $('#all-count').textContent=current.length+unattachedConversations(data).length;$('#project-count').textContent=projects.length;
@@ -1413,7 +1452,7 @@ function renderTasks(data) {
   renderProjectScope();
   $('#workspace-heading').textContent=projectFilter?projectTitle(projectFilter):'All work';
   $('#workspace-description').textContent=projectFilter?'Active work and saved history in this project.':'From the first idea to the finished change.';
-  const scope=runs.filter(run=>!projectFilter||runProject(run)===projectFilter),projectSummary=projectRunSummary(scope),currentProjectRuns=projectFilter?projectCurrentRuns(scope):scope.filter(run=>!isPreviewRun(run)),defaultScope=currentProjectRuns.filter(run=>!isPreviewRun(run)&&!expiredTemporaryEntry(run)),savedHistory=scope.filter(run=>expiredTemporaryEntry(run)||isPreviewRun(run)||(projectFilter&&!defaultScope.includes(run))),visibleCounts=countFor(defaultScope.filter(run=>run.run)),summary=$('#workspace-summary');visibleCounts.other=savedHistory.filter(run=>run.run).length;summary.replaceChildren();
+  const scope=runs.filter(run=>!projectFilter||runProjectWorkspace(run,data)===projectFilter),projectSummary=projectRunSummary(scope),currentProjectRuns=projectFilter?projectCurrentRuns(scope):scope.filter(run=>!isPreviewRun(run)),defaultScope=currentProjectRuns.filter(run=>!isPreviewRun(run)&&!expiredTemporaryEntry(run)),savedHistory=scope.filter(run=>expiredTemporaryEntry(run)||isPreviewRun(run)||(projectFilter&&!defaultScope.includes(run))),visibleCounts=countFor(defaultScope.filter(run=>run.run)),summary=$('#workspace-summary');visibleCounts.other=savedHistory.filter(run=>run.run).length;summary.replaceChildren();
   renderProjectOverview(scope);
   for(const [key,label] of workspaceFilterDefinitions){const count=visibleCounts[key]||0,item=button('',()=>filterTasks(key),'summary-filter');item.dataset.workspaceFilter=key;focusKey(item,'workspace-filter:'+key);item.setAttribute('aria-label',label+' '+count);item.setAttribute('aria-pressed',String(taskFilter===key));item.append(n('span',label),n('strong',String(count)));summary.append(item);}
   const query=searchText.toLowerCase(),filtered=(taskFilter==='other'?savedHistory:defaultScope).filter(run=>(taskFilter==='all'||taskFilter==='other'||statusInfo(run).group===taskFilter)&&(!query||[run.task,run.workspace,run.status,statusInfo(run).reason,statusInfo(run).label].some(value=>String(value||'').toLowerCase().includes(query))));
@@ -1421,7 +1460,7 @@ function renderTasks(data) {
   $('#task-scope-note').textContent=(taskFilter==='all'&&projectFilter?projectSummaryLabel(projectSummary)+(projectSummary.previews?' · dry runs hidden':''):taskFilter==='all'?'Active work and saved history':taskGroups().find(group=>group[0]===taskFilter)?.[1]||'All statuses')+' · '+(projectFilter?projectTitle(projectFilter):'All projects')+' · '+visibleTaskCount+' '+(visibleTaskCount===1?'task':'tasks')+(query?' matching your search':'');
   if(currentView==='tasks')$('#breadcrumb-title').textContent=taskScopeTitle();
   const host=$('#runs');host.replaceChildren();
-  const drafts=unattachedConversations(data).filter(doc=>(!projectFilter||doc.attachment?.workspace===projectFilter)&&(!query||String(doc.title).toLowerCase().includes(query)));
+  const drafts=unattachedConversations(data).filter(doc=>(!projectFilter||conversationWorkspace(doc)===projectFilter)&&(!query||String(doc.title).toLowerCase().includes(query)));
   if(taskFilter==='all'&&drafts.length){const section=card('','task-group'),heading=card('','task-group-heading');heading.append(n('h2','Planning conversations'),n('span',drafts.length));section.append(heading);for(const doc of drafts){const row=focusKey(button('',()=>openConversation(doc.id),'conversation-row'),'draft-row:'+doc.id),copy=card('','conversation-row-copy');copy.append(n('h2',concise(doc.title||'Untitled conversation',86)),n('p',doc.attachment?.workspace?basename(doc.attachment.workspace):'Project optional'));row.append(Object.assign(n('span','G'),{className:'astra-avatar'}),copy,Object.assign(n('span',conversationStatus(doc)),{className:'badge'}));section.append(row);}host.append(section);}
   const sections=[
     ['attention','Waiting on you','Questions, plan approval, or a review that only you can resolve.'],
@@ -1437,12 +1476,12 @@ function renderTasks(data) {
     for(const run of members){
       const info=statusInfo(run),facts=workspaceRowFacts(run),row=card('','task-row'),main=card('','task-main'),copy=card('','task-copy');
       row.dataset.workspacePriority=String(workspacePriority(run));row.dataset.runtimeState=facts.state;
-      main.append(Object.assign(n('span',projectTitle(runProject(run)).slice(0,1).toUpperCase()),{className:'project-avatar'}));
+      main.append(Object.assign(n('span',projectTitle(runProjectWorkspace(run,data)).slice(0,1).toUpperCase()),{className:'project-avatar'}));
       const title=n('span',taskTitle(run));title.className='task-name';title.title=String(run.task||run.error||'');
-      const meta=n('div','Project: '+projectTitle(runProject(run))+' · '+facts.updated);meta.className='task-meta';meta.title=run.run||run.workspace||'';copy.append(title,meta);main.append(copy);
+      const meta=n('div','Project: '+projectTitle(runProjectWorkspace(run,data))+' · '+facts.updated);meta.className='task-meta';meta.title=run.run||run.workspace||'';copy.append(title,meta);main.append(copy);
       const reason=card('','task-reason');reason.append(Object.assign(n('p',facts.step),{className:'task-row-step'}),Object.assign(n('p',facts.freshness),{className:'task-row-freshness'}));reason.title=String(info.reason||'');
       const action=card('','task-row-action');action.append(badge(run),Object.assign(n('span',facts.action+' →'),{className:'next-action'}));row.append(main,reason,action);
-      if(run.run&&!run.error){row.tabIndex=0;focusKey(row,'task-row:'+run.run);row.setAttribute('role','button');row.setAttribute('aria-label',info.action+': '+taskTitle(run)+' · '+projectTitle(runProject(run))+' · '+taskIdentity(run));row.onclick=()=>openRun(run);row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.onclick();}};}
+      if(run.run&&!run.error){row.tabIndex=0;focusKey(row,'task-row:'+run.run);row.setAttribute('role','button');row.setAttribute('aria-label',info.action+': '+taskTitle(run)+' · '+projectTitle(runProjectWorkspace(run,data))+' · '+taskIdentity(run));row.onclick=()=>openRun(run);row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.onclick();}};}
       else {row.classList.add('unavailable');action.lastChild.textContent='Check the project folder';}section.append(row);
     }host.append(section);
   }
@@ -1689,7 +1728,7 @@ function renderAstraPlan(run) {
   const initialLabel=data.initial_plan_approval==='approved'?'Initial approved plan (recorded)':data.initial_plan_approval==='historically approved/inactive'?'Initial historically approved plan (inactive)':'Initial plan (approval unavailable)';
   rail.append(Object.assign(n('p',data.current_plan?.length?'CURRENT PLAN':'INITIAL PLAN'),{className:'rail-kicker'}),planList(data.current_plan?.length?data.current_plan:data.initial_plan));
   rail.append(Object.assign(n('p','Current plan approval status: '+(data.current_plan_approval||'unavailable')),{className:'rail-status'}));
-  rail.append(button('View full plan & history →',()=>activateTab('plan'),'text-button'));
+  rail.append(button('View full plan & history →',()=>activateTab('plan',true),'text-button'));
   const sections=[['Initial plan',initialLabel,planList(data.initial_plan)],['Current plan','Approval: '+(data.current_plan_approval||'unavailable'),planList(data.current_plan)]];
   for(const [title,note,body]of sections){const section=card('','history-section');section.append(n('h2',title),Object.assign(n('p',note),{className:'field-note'}),body);full.append(section);}
   const current=card('','history-section');current.append(n('h2','Current assigned step'));current.append(data.current_assignment?assignmentCard(data.current_assignment,run.run):n('p','No current assigned step is recorded.'));current.append(Object.assign(n('p','An assignment is not proof of completion. Execution and validation are shown separately.'),{className:'field-note'}));full.append(current);
@@ -1704,38 +1743,67 @@ function renderAstraPlan(run) {
 }
 function waitingMessage(request){const lines=[];for(const [label,key]of [['Decision needed','decision_needed'],['Question','question'],['Discovered','discovered'],['Impact','impact'],['Options','options'],['Proposed change','proposed_delta']]){let value=request[key];if(Array.isArray(value))value=value.join(' · ');if(typeof value==='string'&&value.trim())lines.push(label+': '+value);}return lines.length?lines.join('\n'):'Resolver is waiting for your input. Details are unavailable in the saved state.';}
 function questionDraftKey(run,id){return 'question-draft:'+run.run+':'+id;}
+function issuedQuestionDefault(run,question){
+  if(!resolverReplyCurrent(run,resolverResponseFields(run),['clarification','permission','goal_change','operational_exhaustion','blocker']))return '';
+  const issued=(run.human_escalation.questions||[]).find(row=>String(row.id)===String(question.id));
+  return issued&&issued.question===question.question&&typeof question.proposed_default==='string'
+    &&question.proposed_default.trim()&&question.proposed_default===issued.proposed_default?question.proposed_default:'';
+}
+function questionCardHeading(run){const count=(run.questions||[]).length;return count===1&&run.human_escalation?.scope==='clarification'&&run.goal?.approval_status!=='approved'?'One decision before planning':count===1?'Your decision':'Resolver · Question '+Math.max(1,(run.questions||[]).findIndex(question=>String(question.id)===$('#question-target').value)+1)+' of '+count;}
 function renderQuestionAnswer(element,question,run){
-  const id=String(question.id),fields=resolverResponseFields(run),key=questionDraftKey(run,id),saved=readSavedRequest(key);
+  const id=String(question.id),fields=resolverResponseFields(run),key=questionDraftKey(run,id),saved=readSavedRequest(key),suggested=issuedQuestionDefault(run,question);
   const form=n('form','');form.className='question-answer-form';
   const label=n('label','Your answer'),input=focusKey(n('textarea',''),'question:'+run.run+':'+id+':answer');
   input.id='question-answer-'+encodeURIComponent(id);input.rows=2;input.maxLength=16000;input.value=saved?.text||'';label.htmlFor=input.id;
   const send=focusKey(button('Send this answer',()=>submit()),'question:'+run.run+':'+id+':send');send.className='question-answer-submit';
-  const disabled=()=>!!taskReadError||taskActionBusy(run)||taskChatPending.has(run.run);
-  input.disabled=disabled();send.disabled=disabled()||!input.value.trim();
-  input.oninput=()=>{persist(key,JSON.stringify({text:input.value,request_token:fields.resolver_token}));send.disabled=disabled()||!input.value.trim();};
+  const disabled=()=>!!taskReadError||taskActionBusy(run)||taskChatPending.has(run.run),choices=[];
+  const updateDisabled=()=>{const busy=disabled();input.disabled=busy;send.disabled=busy||!input.value.trim();for(const choice of choices)choice.disabled=busy;};
+  updateDisabled();
+  input.oninput=()=>{persist(key,JSON.stringify({text:input.value,request_token:fields.resolver_token}));updateDisabled();};
   async function submit(){
     if(disabled()||!input.value.trim())return;
     const payload={question_id:id,text:input.value.trim(),explicit_answer:true,...fields},request=savedRequest('question-request:'+run.run+':'+id,payload);
-    send.disabled=true;input.disabled=true;
+    send.disabled=true;input.disabled=true;for(const choice of choices)choice.disabled=true;
     const result=await sendTaskChat(run,{...request.payload,request_id:request.id});
-    input.disabled=disabled();send.disabled=disabled()||!input.value.trim();
+    updateDisabled();
     if(result&&!['error','failed','uncertain','launch_failed'].includes(result.status))persist(key,'');
   }
   form.onsubmit=event=>{event.preventDefault();submit();};
-  form.append(label,input,send);
+  const options=n('div','');options.className='question-answer-options';
+  for(const [index,option]of (Array.isArray(question.options)?question.options:[]).entries()){
+    const label=typeof option==='string'?option:option?.label,
+      value=typeof option==='string'?option:typeof option?.value==='string'?option.value:label;
+    if(typeof label!=='string'||!label.trim()||typeof value!=='string'||!value.trim())continue;
+    const choice=focusKey(button(label,()=>{if(disabled())return;input.value=value;input.oninput();return submit();}),'question:'+run.run+':'+id+':option:'+index);
+    choice.setAttribute('aria-label','Send answer: '+label);choice.disabled=disabled();choices.push(choice);options.append(choice);
+  }
+  if(choices.length)form.append(options);
+  const freeform=n('div','');freeform.className='question-freeform';freeform.append(label,input,send);
+  freeform.hidden=!!suggested&&!saved?.text;
+  form.hidden=freeform.hidden&&!choices.length;
+  form.append(freeform);
   if(saved?.text&&saved.request_token!==fields.resolver_token)form.append(Object.assign(n('p','Saved draft from an earlier request. Review it before sending.'),{className:'field-note'}));
   element.append(form);
+  return ()=>{form.hidden=false;freeform.hidden=false;input.focus();};
 }
 function renderQuestion(host,question,run) {
   if(!resolverReplyCurrent(run,resolverResponseFields(run),['clarification','permission','goal_change','operational_exhaustion','blocker'])||!(run.human_escalation.questions||[]).some(current=>String(current.id)===String(question.id)&&current.question===question.question))return;
-  const id=String(question.id),element=card('','chat-message pending');element.dataset.questionCard=id;
-  element.append(Object.assign(n('p','Resolver · '+(operationalRequest(run)?'Corrective information':'Needs your answer')),{className:'speaker'}),n('p',question.question||'Question unavailable'));
+  const id=String(question.id),element=card('','chat-message pending'),suggested=issuedQuestionDefault(run,question);element.dataset.questionCard=id;
+  element.append(Object.assign(n('p',operationalRequest(run)?'Resolver · Corrective information':questionCardHeading(run)),{className:'speaker'}),n('p',question.question||'Question unavailable'));
   const context=card('','question-context');if(question.why)context.append(n('span',question.why));
-  if(question.proposed_default)context.append(n('span','Suggested: '+question.proposed_default));
-  if(Array.isArray(question.options)&&question.options.length)context.append(n('span','Options: '+question.options.map(option=>typeof option==='string'?option:option.label||JSON.stringify(option)).join(' · ')));
-  element.append(context);
-  if(question.proposed_default&&!operationalRequest(run)){const delegate=focusKey(button('Accept suggested answer',()=>sendTaskChat(run,{question_id:id,delegate:true,text:'',request_id:newRequestId(),...resolverResponseFields(run)})),'question:'+run.run+':'+id+':delegate');delegate.disabled=taskActionBusy(run)||taskChatPending.has(run.run);element.append(delegate);}
-  if(!operationalRequest(run))renderQuestionAnswer(element,question,run);
+  if(context.childElementCount)element.append(context);
+  const actions=card('','question-decision-actions');
+  if(suggested&&!operationalRequest(run)){
+    const delegate=focusKey(button(suggested+' · Suggested',()=>sendTaskChat(run,{question_id:id,delegate:true,text:'',request_id:newRequestId(),...resolverResponseFields(run)}),'primary'),'question:'+run.run+':'+id+':delegate');
+    delegate.dataset.questionSuggestion=id;delegate.title='Use the saved suggested answer. Plan approval is separate.';delegate.disabled=!!taskReadError||taskActionBusy(run)||taskChatPending.has(run.run);actions.append(delegate);
+  }
+  if(!operationalRequest(run)){
+    if(actions.childElementCount)element.append(actions);const explain=renderQuestionAnswer(element,question,run);
+    if(suggested){
+      const control=focusKey(button('Let me explain',()=>{if(!control.disabled)explain();}),'question:'+run.run+':'+id+':explain');
+      control.dataset.questionExplain=id;control.disabled=!!taskReadError||taskActionBusy(run)||taskChatPending.has(run.run);actions.append(control);
+    }
+  }
   host.append(element);
 }
 function renderChatIntent(row,entry,identity) {
@@ -1766,11 +1834,14 @@ function answerHistoryItems(messages){
   }
   return result;
 }
-function renderMessageHistory(host,messages,identity){
-  const items=answerHistoryItems(messages),split=Math.max(0,items.length-4),older=card('','earlier-content');
+function renderMessageHistory(host,messages,identity,context){
+  context=context||{};
+  const items=answerHistoryItems(conversationTimeline(messages,context.checkpoints||[],context.notices||[])),split=Math.max(0,items.length-4),older=card('','earlier-content');
   const latestAssistant=messages.findLast(entry=>entry.role!=='user');
   const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,expanded:entry===latestAssistant||entry===messages.at(-1),text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.role==='user'&&entry.kind)renderChatIntent(row,entry,identity);if(entry.provenance==='unrecorded')row.append(Object.assign(n('p','Saved answer · origin not recorded'),{className:'answer-provenance field-note'}));if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.client_request_id||entry.request_id||entry.id,retry:true})));};
   const renderItem=(parent,item)=>{
+    if(item.saved_checkpoint){parent.append(savedCheckpointCard(context.run,item.saved_checkpoint));return;}
+    if(item.recovery_notice){const recovery=workRecoveryPanel(context.run);recovery.classList.add('chat-recovery');recovery.setAttribute('aria-label','Technical recovery in progress');parent.append(recovery);return;}
     if(!item.answers)return render(parent,item);
     const entries=item.answers,body=card('','answer-history-content'),suggested=entries.filter(entry=>entry.delegate).length;
     for(const entry of entries){render(body,entry);body.append(Object.assign(n('p',entry.delegate?'You accepted the suggested answer':entry.provenance==='unrecorded'?'Saved answer · origin not recorded':'You wrote this answer'),{className:'answer-provenance field-note'}));}
@@ -1827,6 +1898,33 @@ function sessionCheckpoints(run) {
   if(run.status==='TASK_COMPLETE')list.push({id:'final',kind:'final',label:'Final candidate',at:run.completed_at||list.at(-1)?.at||'',iteration:null,candidate});
   return list.sort((left,right)=>(Date.parse(left.at)||0)-(Date.parse(right.at)||0));
 }
+// Merge genuine saved build boundaries into the transcript without changing
+// message order or manufacturing a checkpoint from current task activity.
+function eligibleConversationCheckpoint(cp){const at=messageTime({at:cp?.at});return cp?.kind==='built'&&Number.isFinite(at)&&at>0;}
+function conversationTimeline(messages,checkpoints=[],notices=[]) {
+  const first=messageTime(messages[0]||{}),bounded=Number.isFinite(first)&&first>0;
+  // The saved transcript may be a recent interval. Older checkpoint records
+  // remain in History; do not splice them into a later recorded conversation.
+  // An unknown first timestamp cannot establish a lower boundary. A new
+  // checkpoint may follow the latest Builder message before Tester replies.
+  const visible=checkpoints.filter(cp=>eligibleConversationCheckpoint(cp)&&(!bounded||messageTime({at:cp.at})>=first));
+  const items=[...messages],events=[...visible.map(cp=>({saved_checkpoint:cp,at:cp.at})),...notices];
+  const at=item=>messageTime(item.saved_checkpoint?{at:item.saved_checkpoint.at}:item);
+  for(const event of events.sort((left,right)=>at(left)-at(right))){
+    const recorded=at(event),next=recorded?items.findIndex(item=>at(item)>recorded):-1;
+    items.splice(next<0?items.length:next,0,event);
+  }
+  return items;
+}
+function savedCheckpointCard(run,cp) {
+  const label='Checkpoint saved · candidate '+cp.candidate;
+  const host=button('',()=>{if(matchMedia('(max-width:759px)').matches)openDetailsDrawer();if(cp.hasDiff&&cp.stageIndex!=null)revealChangeStage(run,cp.stageIndex);else activateTab('overview');},'saved-conversation-checkpoint');
+  host.dataset.savedCheckpoint=cp.id;host.dataset.messageKey='saved-checkpoint:'+cp.id;
+  host.setAttribute('aria-label',label+'. '+checkpointCandidateText(cp)+' Open the saved checkpoint.');
+  host.append(n('strong',label),n('p',cp.sourceRevision?'Saved revision '+cp.sourceRevision.slice(0,8)+'. Current verification is in Checks.':'Build step saved. Current verification is in Checks.'),
+    Object.assign(n('span',cp.hasDiff?'Compare changes from this checkpoint ↗':'Inspect saved checkpoint ↗'),{className:'checkpoint-link'}));
+  return host;
+}
 function checkpointChangedText(cp) {
   if(cp.kind==='plan')return 'The approved plan revision only. Approval does not change project files.';
   if(cp.kind==='final')return 'The completed result of the final candidate. Open Changes to inspect its saved snapshot.';
@@ -1862,11 +1960,11 @@ function checkpointAnswers(run,cp,isLatest) {
   return list;
 }
 function revealChangeStage(run,stageIndex) {
-  activateTab('changes');
+  activateTab('changes',true);
   const key='details:'+run.run+'\0diff-stage:'+stageIndex;
   let attempts=0;
   const reveal=()=>{
-    const summary=typeof document!=='undefined'?document.querySelector('[data-focus-key="'+key+'"]'):null;
+    const summary=typeof document!=='undefined'?[...document.querySelectorAll('[data-focus-key]')].find(element=>element.dataset.focusKey===key):null;
     if(summary?.parentElement){summary.parentElement.open=true;summary.parentElement.scrollIntoView({block:'start'});return;}
     if(++attempts<40&&typeof setTimeout==='function')setTimeout(reveal,100);
   };
@@ -1953,13 +2051,13 @@ function lifecycleCard(event,context={}){
   }
   if(event.links.length){
     const linkRow=card('','lifecycle-links');
-    for(const link of event.links)linkRow.append(button(link.label+' →',()=>activateTab(link.path),'text-button'));
+    for(const link of event.links)linkRow.append(button(link.label+' →',()=>activateTab(link.path,true),'text-button'));
     node.append(linkRow);
   }
   if(event.actions.length){
     const row=card('','lifecycle-actions');
     for(const action of event.actions){
-      if(action.kind==='tab')row.append(button(action.label,()=>activateTab(action.target||'now'),'text-button'));
+      if(action.kind==='tab')row.append(button(action.label,()=>activateTab(action.target||'now',true),'text-button'));
       else if(action.kind==='callback'&&typeof context[action.target]==='function')row.append(button(action.label,context[action.target],'text-button'));
     }
     if(row.childElementCount)node.append(row);
@@ -2072,7 +2170,7 @@ function renderPlanRail(run){
   if(draft)host.append(planDraftPreviewCard(draft,{frozen:run.goal?.approval_status==='approved'&&!run.conversation?.plan_gate?.pending_product_change,ready:statusInfo(run).label==='Approve plan'&&!run.conversation?.plan_gate?.pending_product_change,allDrafts:run.conversation?.plan_drafts,key:run.conversation?.id||run.run}));
   else host.append(n('h2','Your plan'),n('p','The Planner will build a draft here as the requirements become clear.'));
   if(run.astra_plan?.current_assignment)host.append(Object.assign(n('p','Current milestone'),{className:'rail-kicker'}),n('p',run.astra_plan.current_assignment.objective));
-  host.append(button('Full plan & history',()=>activateTab('plan'),'text-button'));
+  host.append(button('Full plan & history',()=>activateTab('plan',true),'text-button'));
 }
 function approveBuildStatusLine(run){return approveBuildState.get(run.run)?.message||'';}
 async function approveAndBuild(run){
@@ -2108,19 +2206,30 @@ function renderInlineTaskAction(run){
   // chat transcript (saved feedback intervention
   // intervention-figma-chat-plan-alignment-20260930-2113), never beside the
   // composer or inside an artifact pane.
-  const host=$('#inline-task-action');if(!host)return;host.replaceChildren();
+  const host=$('#inline-task-action');if(!host)return;
+  // Native details toggles are delivered asynchronously. Polling can replace
+  // the connected card first, so retain the actual user-expanded state only
+  // for this same issued approval revision before removing that card.
+  const previous=[...host.children].find(child=>child.dataset.approvalOptions==='true');
+  if(statusInfo(run).label==='Approve plan'&&!run.conversation?.plan_gate?.pending_product_change&&run.goal_token&&previous?.dataset.approvalRun===run.run&&previous.dataset.approvalToken===run.goal_token){
+    detailsState.set(run.run+'\0approval-only:'+run.goal_token,previous.open);
+  }
+  host.replaceChildren();
   if(run.conversation?.plan_gate?.pending_product_change){host.append(n('strong','Requirement change saved'),n('p','The '+roleDisplayName('planner')+' and '+roleDisplayName('plan_reviewer')+' must review a new revision before another build can start.'));host.hidden=false;return;}
   const ready=statusInfo(run).label==='Approve plan',approved=run.goal?.approval_status==='approved',busy=taskActionBusy(run)||approveBuildState.has(run.run)||taskReadError;
   if(ready&&run.goal_token){
     host.append(n('strong','Plan ready · revision '+run.goal.revision),n('p','Independent plan review accepted this revision. Review the plan, then approve and build.'));
     const actions=card('','lifecycle-actions');
     const request=button('Request changes',()=>{$('#change-text').focus();$('#change-text').scrollIntoView({block:'center',behavior:'smooth'});});
-    const approve=focusKey(button('Approve plan revision '+run.goal.revision,()=>submitTaskAction(run,'approve_goal',{token:run.goal_token,confirmation:run.goal_token}),'primary'),'approve:'+run.run+':'+run.goal_token);
+    const approve=focusKey(button('Approve plan revision '+run.goal.revision,()=>submitTaskAction(run,'approve_goal',{token:run.goal_token,confirmation:run.goal_token})),'approve:'+run.run+':'+run.goal_token);
+    approve.title='Approve this exact revision without starting a build.';approve.setAttribute('aria-label','Approve plan revision '+run.goal.revision+' without building');
     approve.disabled=busy||(run.questions||[]).length>0;
     const combined=button('Approve & build revision '+run.goal.revision,()=>approveAndBuild(run),'primary');combined.disabled=approve.disabled;
     // This card is rebuilt on every poll: the focus key lets restoreFocus keep
     // a keyboard user on View plan after it reveals the plan.
-    actions.append(focusKey(button('View plan',()=>showArtifactPane('plan')),'view-plan:'+run.run+':'+run.goal_token),request,approve,combined);host.append(actions);
+    actions.append(focusKey(button('View plan',()=>showArtifactPane('plan')),'view-plan:'+run.run+':'+run.goal_token),request,combined);host.append(actions);
+    const approvalOnly=disclosure('Approve without building','approval-only:'+run.goal_token,[n('p','Approve this revision now. Starting the build remains a separate action.'),approve],run.run);
+    approvalOnly.dataset.approvalOptions='true';approvalOnly.dataset.approvalRun=run.run;approvalOnly.dataset.approvalToken=run.goal_token;host.append(approvalOnly);
   }else if(approved&&primaryAction(run,busy).kind==='continue'){
     host.append(n('strong','Approved contract · revision '+run.goal.revision));const start=button(primaryAction(run,busy).label,()=>submitTaskAction(run,'continue'),'primary');start.disabled=busy;host.append(start);
   }
@@ -2181,11 +2290,8 @@ function renderConversation(run) {
   if(root.dataset.rendered===signature)return;const scroll=$('#interview');scrollThreadToEnd=scrollThreadToEnd||scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;root.dataset.rendered=signature;root.replaceChildren();
   root.dataset.conversationId=run.conversation?.id||run.conversation_id||'';
   if(run.transcript?.warning)root.append(Object.assign(n('p',run.transcript.warning),{className:'field-note'}));
-  renderMessageHistory(root,taskMessages(run),run.run);
-  if(statusInfo(run).label==='Recovering'){
-    const recovery=workRecoveryPanel(run);recovery.classList.add('chat-recovery');
-    recovery.setAttribute('aria-label','Technical recovery in progress');root.append(recovery);
-  }
+  const notices=statusInfo(run).label==='Recovering'?[{recovery_notice:true,at:run.active_stage?.started_at||''}]:[];
+  renderMessageHistory(root,taskMessages(run),run.run,{run,checkpoints,notices});
   if(statusInfo(run).group==='complete'){
     const ready=card('','chat-ready');ready.append(n('h3','Ready to inspect'),
       n('p','The runner recorded this task as complete. Inspect the preview, saved changes and verification evidence alongside this conversation.'));
@@ -2198,7 +2304,6 @@ function renderConversation(run) {
   if(statusInfo(run).label==='Answer needed'){
     const questions=run.questions||[];
     for(const question of questions)renderQuestion(root,question,run);
-    root.append(answerSafetyPanel(questions.length));
   }
   if(operationalRequest(run)){
     for(const question of run.questions||[])renderQuestion(root,question,run);
@@ -2213,6 +2318,19 @@ function planEntryText(entry) {
   if(typeof entry==='string')return entry;
   if(!entry||typeof entry!=='object')return String(entry||'Not recorded');
   return entry.criterion||entry.requirement||entry.text||entry.description||entry.objective||entry.title||JSON.stringify(entry);
+}
+function planHeaderText(run) {
+  const title=taskTitle(run),outcome=String(run.goal?.body?.intended_outcome||'').trim();
+  return {title,subtitle:outcome&&outcome.replace(/\s+/g,' ')!==title?outcome:''};
+}
+function planModelDetails(run) {
+  const routes=new Map();
+  for(const [role,model] of Object.entries(run.model_settings?.roles||{}))if(typeof model==='string'&&model.trim())routes.set(role,model);
+  for(const [role,execution] of Object.entries(run.monitor?.roles||{}))if(typeof execution?.model==='string'&&execution.model.trim())routes.set(role,execution.model);
+  const host=card('','plan-model-details');
+  host.append(n('h3','Role and model details'),n('p',routes.size?routes.size+' saved model '+(routes.size===1?'route':'routes'):'No saved model routes recorded.'),
+    disclosure('View models & effort','plan-model-details',[workflowModelsPanel(run)],run.run));
+  return host;
 }
 function planDocumentSection(title,entries,ordered=false) {
   const section=card('','plan-document-section'),items=Array.isArray(entries)?entries:entries?[entries]:[];
@@ -2253,7 +2371,9 @@ function renderBrief(run) {
   const ready=statusInfo(run).label==='Approve plan',revision=run.goal.revision??'?';
   const reviewer=run.goal.approval_event?.actor||run.goal.reviewer||roleDisplayName('plan_reviewer'),origin=run.goal.origin||brief.origin||'Saved task plan';
   const stamped=run.goal.approval_event?.at||run.goal.updated_at||run.updated_at||run.created_at;
-  heading.append(Object.assign(n('p','Plan revision '+revision+' · '+(approved?'Reviewed & approved':ready?'Ready for your review':'Draft')),{className:'plan-revision-label'}),n('h2',brief.intended_outcome||taskTitle(run)));
+  const header=planHeaderText(run);
+  heading.append(Object.assign(n('p','Plan revision '+revision+' · '+(approved?'Reviewed & approved':ready?'Ready for your review':'Draft')),{className:'plan-revision-label'}),n('h2',header.title));
+  if(header.subtitle)heading.append(Object.assign(n('p',header.subtitle),{className:'plan-outcome-subtitle'}));
   const provenance=Object.assign(n('p','Origin: '+origin+' · Reviewer: '+reviewer+' · State: '+(approved?'Approved':ready?'Ready':'Draft')+' · '+(stamped?new Date(stamped).toLocaleString():'Timestamp unavailable')),{className:'plan-provenance'});
   const body=card('','brief-body plan-document-body');
   body.append(planDocumentSection('Intended outcome',[brief.intended_outcome||'No intended outcome recorded.']));
@@ -2265,7 +2385,7 @@ function renderBrief(run) {
   const earlier=Array.isArray(brief.history)?brief.history:brief.previous_revision?[brief.previous_revision]:['Earlier plan revisions remain available in saved History.'];
   body.append(disclosure('Earlier-revision disclosure','earlier-plan-revisions:'+run.goal_token,[planDocumentSection('Earlier revisions',earlier)],run.run));
   body.append(disclosure('Read the complete plan','complete-brief:'+run.goal_token,[renderDocument(brief)],run.run));
-  body.append(disclosure('Technical details','raw-brief:'+run.goal_token,[n('pre',JSON.stringify({revision:run.goal.revision,token:run.goal_token,source:run.goal},null,2))],run.run));box.append(heading);
+  body.append(disclosure('Technical details','raw-brief:'+run.goal_token,[n('pre',JSON.stringify({revision:run.goal.revision,token:run.goal_token,source:run.goal},null,2))],run.run));box.append(heading,requirementsSummaryCard(run,false));
   if(!approved&&!ready)box.append(Object.assign(n('p','This is a draft. The next action is shown in Work; approval becomes available when the current planning step is ready.'),{className:'field-note plan-note'}));
   if(run.goal_token&&(approved||ready)&&!run.conversation?.plan_gate?.pending_product_change){
     // Human approvals happen only in the chat transcript (saved feedback
@@ -2291,6 +2411,7 @@ function renderBrief(run) {
     item.append(mark,n('span',task.label));overview.append(item);
   }
   const current=card('','plan-current-task'),facts=stateFacts(run);current.append(n('h3','Current task'),n('p',run.work_summary?.tasks?.find(task=>task.state==='working')?.label||run.current_task?.objective||facts.objective),n('p',facts.step));
+  box.append(Object.assign(n('p','Delivery checklist'),{className:'plan-delivery-kicker'}),overview,planModelDetails(run),current);
   // A plan awaiting approval must expose its constraints and work sequence
   // before the reader opens the complete saved-plan disclosure. The action
   // itself stays in the conversation transcript.
@@ -2298,12 +2419,12 @@ function renderBrief(run) {
     box.append(planDocumentSection('Constraints',brief.constraints),
                planDocumentSection('Implementation sequence',brief.implementation_sequence||brief.technical_approach||brief.milestones||brief.plan,true));
   }
-  box.append(overview,current,disclosure('Requirements and verification','plan-requirements:'+run.goal_token,[checklist],run.run),disclosure('Saved plan details','saved-plan-details:'+run.goal_token,[provenance,body],run.run));
+  box.append(disclosure('Requirements and verification','plan-requirements:'+run.goal_token,[checklist],run.run),disclosure('Saved plan details','saved-plan-details:'+run.goal_token,[provenance,body],run.run));
   if(run.astra_plan?.current_plan?.length){const strategy=card('','current-strategy');strategy.append(n('h3','Current execution approach'),n('p','The team’s latest work sequence within this task. This is separate from the plan approval above.'),planList(run.astra_plan.current_plan));box.append(strategy);}host.append(box);
 }
 function output(parent,actions) {for(const action of actions||[]){const status=action.exit_status===2?'needs attention':action.status;parent.append(disclosure(action.label+' · '+status,'action:'+action.id,[n('pre','Exit: '+(action.exit_status??'pending')+'\nstdout:\n'+(action.stdout||'')+'\nstderr:\n'+(action.stderr||''))],'actions'));}}
 function renderExecution(run){
-  const host=$('#execution_view');host.replaceChildren(n('h2','Checks & evidence'));
+  const host=$('#execution_view');host.replaceChildren(Object.assign(n('h2','Verification'),{className:'checks-kicker'}));
   if(!(run.criteria||[]).length&&!run.validation?.source_revision)host.append(emptyState('No checks recorded yet.','No verification evidence has been saved for “'+taskTitle(run)+'”. Checks appear here after the Tester runs.'));
   if(run.review_token&&run.review_criteria?.length){
     // Review approvals happen only in the chat transcript: the Checks pane
@@ -2314,13 +2435,33 @@ function renderExecution(run){
     if(current&&run.human_request_authorized===true&&pending.length)review.append(button('Review in conversation →',()=>focusChatAction('review:'+run.run+':'+pending[0].id)));
     review.append(disclosure('Review identity','review-token',[n('code',run.review_token)],run.run));host.append(review);
   }
-  host.append(disclosure('Activity, findings & Builder batches','monitor-details',[monitorDetailsPanel(run)],run.run));
-  const currentCounts=run.work_summary?{pass:run.work_summary.counts.checked,fail:run.work_summary.counts.failed,unknown:run.work_summary.counts.unchecked}:run.counts;
-  const stats=card('','execution-summary');for(const [key,label]of [['pass','criteria passed'],['fail','need attention'],['unknown','not yet verified']]){const item=n('span',label);item.prepend(n('strong',currentCounts?.[key]||0));stats.append(item);}host.append(stats);
+  const requirementRows=workRequirementRows(run);
+  const currentCounts=run.work_summary?{pass:run.work_summary.counts.checked,fail:run.work_summary.counts.failed,unknown:run.work_summary.counts.unchecked}:{pass:requirementRows.filter(row=>row.state==='checked').length,fail:requirementRows.filter(row=>row.state==='failed').length,unknown:requirementRows.filter(row=>row.state!=='checked'&&row.state!=='failed').length};
+  const passed=currentCounts?.pass||0,failed=currentCounts?.fail||0,unchecked=currentCounts?.unknown||0;
+  const total=passed+failed+unchecked,current=run.verification?.freshness==='current';
+  // Color communicates the authenticated current coverage, never a saved
+  // PASS or a completed task whose evidence is stale.
+  const complete=current&&total>0&&passed===total&&!failed&&!unchecked;
+  const stats=card('','execution-summary'+(complete?' verification-complete':''));
+  stats.dataset.verificationFreshness=run.verification?.freshness||'not_inspected';
+  stats.append(n('p',passed+' of '+total+' requirements checked'),
+    n('p',passed+' passed · '+failed+' failed or blocked · '+unchecked+' not checked. '+(current?'Current evidence for this source.':'Current evidence is not verified.')));
   const validation=run.validation||{},results=new Map((Array.isArray(validation.criterion_results)?validation.criterion_results:[]).filter(row=>row&&typeof row==='object').map(row=>[row.id,row]));
-  host.append(Object.assign(n('p',validation.source_revision?'Saved verification · source '+String(validation.source_revision).slice(0,18):results.size?'Saved verification · source not recorded':'No verification report has been saved yet.'),{className:'field-note'}));
-  for(const reason of run.verification?.reasons||[])host.append(Object.assign(n('p',reason),{className:'field-note'}));
-  for(const criterion of run.criteria||[]){const row=card('','check-row'),result=results.get(criterion.id)||{},status=({checked:'pass',failed:'fail'}[workRequirementRows(run).find(item=>String(item.criterion.id)===String(criterion.id))?.state]||'unverified');row.dataset.workDetail='requirement';row.dataset.workId=String(criterion.id);row.tabIndex=-1;focusKey(row,'work-requirement:'+run.run+':'+criterion.id);row.append(Object.assign(n('span',human(status)),{className:'badge '+(status==='pass'?'complete':status==='fail'?'failed':'')}),n('strong',criterion.criterion||criterion.description||criterion.id));row.append(n('p',criterion.verification_method?'Planned check: '+criterion.verification_method:'No verification method was recorded.'));if(criterion.human_review)row.append(n('p','Human acceptance is required separately in chat.'));if(result.evidence_refs?.length)row.append(disclosure('Recorded evidence · '+result.evidence_refs.length,'evidence:'+criterion.id,[renderDocument(result)],run.run));host.append(row);}
+  const record=[];record.push(Object.assign(n('p',validation.source_revision?'Saved verification · source '+String(validation.source_revision).slice(0,18):results.size?'Saved verification · source not recorded':'No verification report has been saved yet.'),{className:'field-note'}));
+  for(const reason of run.verification?.reasons||[])record.push(Object.assign(n('p',reason),{className:'field-note'}));
+  host.append(stats);
+  for(const criterion of run.criteria||[]){
+    const row=card('','check-row'),result=results.get(criterion.id)||{},status=({checked:'pass',failed:'fail'}[requirementRows.find(item=>String(item.criterion.id)===String(criterion.id))?.state]||'unverified');
+    row.dataset.workDetail='requirement';row.dataset.workId=String(criterion.id);row.dataset.checkState=status;row.tabIndex=-1;focusKey(row,'work-requirement:'+run.run+':'+criterion.id);
+    const method=[n('p',criterion.verification_method?'Planned check: '+criterion.verification_method:'No verification method was recorded.')];
+    if(criterion.human_review)method.push(n('p','Human acceptance is required separately in chat.'));
+    if(result.evidence_refs?.length)method.push(disclosure('Recorded evidence · '+result.evidence_refs.length,'evidence:'+criterion.id,[renderDocument(result)],run.run));
+    const label=(status==='pass'?'PASS':status==='fail'?'FAILED':'NOT CHECKED')+' · '+(criterion.criterion||criterion.description||criterion.id)+' · Inspect';
+    const detail=disclosure(label,'check-details:'+criterion.id,method,run.run);detail.className='check-detail';
+    row.append(detail);host.append(row);
+  }
+  host.append(disclosure('Verification record & freshness','verification-record',record,run.run));
+  host.append(disclosure('Activity, findings & Builder batches','monitor-details',[monitorDetailsPanel(run)],run.run));
   for(const problem of run.work_summary?.problems||[]){const row=card('','problem-detail');row.dataset.workDetail='problem';row.dataset.workId=String(problem.id);row.tabIndex=-1;focusKey(row,'work-problem:'+run.run+':'+problem.id);row.append(n('h3',problem.label),n('p',[problem.id,problem.severity,problem.source?'Reported by '+roleDisplayName(problem.source):null,problem.times_reported>1?'Reported '+problem.times_reported+' times':null].filter(Boolean).join(' · ')));host.append(row);}
   if(validation.checks?.length)host.append(disclosure('Executed checks ('+validation.checks.length+')','executed-checks',[renderDocument(validation.checks)],run.run));
   if(validation.end_to_end_result)host.append(disclosure('End-to-end result','e2e-check',[renderDocument(validation.end_to_end_result)],run.run));
@@ -2332,20 +2473,24 @@ function renderExecution(run){
 
 async function loadChanges(force=false){
   if(!chosen?.run)return;const run={...chosen},ticket=++evidenceRequest,host=$('#changes-content');evidenceRun=run.run;
-  host.replaceChildren(Object.assign(n('p','Loading saved changes…'),{className:'field-note'}));
+  host.replaceChildren(Object.assign(n('p','Loading saved changes…'),{className:'field-note'}));$('#changes-summary').textContent='Saved changes';
   try{const base='/api/evidence?workspace='+encodeURIComponent(run.workspace)+'&run='+encodeURIComponent(run.run),key=run.run;
     if(force)for(const id of evidenceCache.keys())if(id.startsWith(key+'\0'))evidenceCache.delete(id);
     const data=await api(base);if(ticket!==evidenceRequest||chosen?.run!==run.run)return;host.replaceChildren();
+    const paths=new Set((data.stages||[]).flatMap(stage=>Array.isArray(stage.changed_files)?stage.changed_files.filter(path=>typeof path==='string'):[]));
+    $('#changes-summary').textContent=paths.size?'Changes · '+paths.size+' recorded '+(paths.size===1?'file':'files'):'Saved changes';
     if(!data.stages?.length){host.append(emptyState('No saved changes yet.','No code snapshots have been saved for “'+taskTitle(latestRun&&latestRun.run===run.run?latestRun:run)+'”. Diffs appear when an implementation step finishes.'));return;}
     for(const stage of [...data.stages].reverse()){
-      const body=card('','diff-content'),item=disclosure(stageName({...latestRun,stage:stage.stage})+' · '+(stage.finished_at?new Date(stage.finished_at).toLocaleString():'Saved snapshot')+(stage.rejected?' · rejected output':stage.interrupted?' · interrupted':''),'diff-stage:'+stage.index,[body],run.run);item.className='diff-stage';let loading=false,loaded=false;const remember=item.ontoggle;
+      const body=card('','diff-content'),item=disclosure(stageName({...latestRun,stage:stage.stage})+' · '+(stage.finished_at?new Date(stage.finished_at).toLocaleString():'Saved snapshot')+(stage.rejected?' · rejected output':stage.interrupted?' · interrupted':''),'diff-stage:'+stage.index,[body],run.run);item.className='diff-stage'+(Array.isArray(stage.changed_files)&&stage.changed_files.length?' has-recorded-files':'');let loading=false,loaded=false;const remember=item.ontoggle;
       const read=async()=>{if(!item.open||loading||loaded)return;loading=true;body.replaceChildren(n('p','Loading snapshot…'));try{
         const cacheKey=key+'\0'+stage.index,result=evidenceCache.get(cacheKey)||await api(base+'&stage='+stage.index);evidenceCache.set(cacheKey,result);if(!item.isConnected||ticket!==evidenceRequest)return;body.replaceChildren();
+        const files=card('','snapshot-files');
         if(Array.isArray(stage.changed_files))for(const [index,path]of stage.changed_files.entries()){
           const file=card('','changed-file'),content=card('','file-contents');
-          const open=button('View current '+String(path),async()=>{open.disabled=true;content.replaceChildren(n('p','Reading current file…'));try{const data=await api(base+'&stage='+stage.index+'&file='+index);if(!file.isConnected||ticket!==evidenceRequest)return;content.replaceChildren(Object.assign(n('p','Current file contents · this file may have changed since the saved step.'),{className:'field-note'}),data.binary?n('p','Binary file. Text preview is unavailable.'):n('pre',data.text));if(data.truncated)content.append(n('p','Showing the first 192 KB.'));}catch(error){content.replaceChildren(Object.assign(n('p','Current file unavailable. It may have been removed or renamed.'),{className:'error'}));}finally{open.disabled=false;}},'text-button');file.append(open,content);body.append(file);
+          const open=button('View current '+String(path),async()=>{open.disabled=true;content.replaceChildren(n('p','Reading current file…'));try{const data=await api(base+'&stage='+stage.index+'&file='+index);if(!file.isConnected||ticket!==evidenceRequest)return;content.replaceChildren(Object.assign(n('p','Current file contents · this file may have changed since the saved step.'),{className:'field-note'}),data.binary?n('p','Binary file. Text preview is unavailable.'):n('pre',data.text));if(data.truncated)content.append(n('p','Showing the first 192 KB.'));}catch(error){content.replaceChildren(Object.assign(n('p','Current file unavailable. It may have been removed or renamed.'),{className:'error'}));}finally{open.disabled=false;}},'text-button');file.append(open,content);files.append(file);
         }
-        if(result.text){const pre=n('pre','');pre.className='diff-output';for(const line of result.text.split('\n'))pre.append(Object.assign(n('span',line||' '),{className:'diff-line '+(line.startsWith('+++')||line.startsWith('---')||line.startsWith('@@')||line.startsWith('diff ')?'header':line.startsWith('+')?'added':line.startsWith('-')?'removed':'')}));body.append(pre);}else body.append(Object.assign(n('p','No tracked diff in this snapshot. Newly created files can be read above.'),{className:'field-note'}));
+        if(files.children.length)body.append(files);
+        if(result.text){const detail=card('','saved-diff-card'),pre=n('pre','');pre.className='diff-output';for(const line of result.text.split('\n'))pre.append(Object.assign(n('span',line||' '),{className:'diff-line '+(line.startsWith('+++')||line.startsWith('---')||line.startsWith('@@')||line.startsWith('diff ')?'header':line.startsWith('+')?'added':line.startsWith('-')?'removed':'')}));detail.append(n('h3','Saved diff'),pre);body.append(detail);}else body.append(Object.assign(n('p','No tracked diff in this snapshot. Newly created files can be read above.'),{className:'field-note'}));
         if(result.truncated)body.append(Object.assign(n('p','Large snapshot: showing the first 192 KB. The full diff remains in the task folder.'),{className:'field-note'}));loaded=true;
       }catch(error){body.replaceChildren(Object.assign(n('p',error.message),{className:'error'}),button('Retry loading',read));}finally{loading=false;}};
       item.ontoggle=()=>{remember?.();read();};host.append(item);
@@ -2370,21 +2515,23 @@ function mountPreview(run,url){
   const host=$('#preview-content'),identity=JSON.stringify([previewStorageKey(run),url,previewChangeKey(run)]);
   if(host.dataset.previewIdentity===identity&&host.querySelector('iframe'))return;
   host.replaceChildren();host.dataset.previewIdentity=identity;
-  const toolbar=card('','preview-toolbar'),link=n('a','Open in a new tab ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';
-  toolbar.append(n('p','If the app cannot be embedded, open it in a new tab.'),link);
-  const frame=n('iframe','');frame.className='preview-frame';frame.title='Local app preview';frame.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');frame.referrerPolicy='no-referrer';frame.src=url;host.append(toolbar,frame);
+  const frame=n('iframe','');frame.className='preview-frame';frame.title='Local app preview';frame.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');frame.referrerPolicy='no-referrer';frame.src=url;host.append(frame);
 }
 function renderPreviewState(){
   const note=$('#preview-empty-note');if(!note)return;
   const run=previewContext(),saved=savedPreview(run);
   const title=taskTitle(run);
   const persistent=stored(previewStorageKey(run))===saved||stored('preview:'+run.run)===saved;
+  const setup=$('#preview-setup'),contextIdentity=JSON.stringify([previewStorageKey(run),saved]);
+  if(setup.dataset.previewSetupIdentity!==contextIdentity){setup.open=!saved;setup.dataset.previewSetupIdentity=contextIdentity;}
+  $('#preview-reload').disabled=true;$('#preview-open').hidden=true;
   note.textContent=saved?(persistent?'Saved for this project':'Open for this browser session only')+' · “'+title+'”: '+saved:'No app address is saved for this project yet · “'+title+'”. Start your app, then enter its local address below.';
   if(!saved){stopPreview();return;}
-  try{mountPreview(run,localPreviewUrl(saved,location.href));}
+  try{const url=localPreviewUrl(saved,location.href);mountPreview(run,url);$('#preview-reload').disabled=false;$('#preview-open').href=url;$('#preview-open').hidden=false;}
   catch(error){stopPreview();$('#preview-error').textContent=error.message;}
 }
 $('#refresh-changes').onclick=()=>loadChanges(true);
+$('#preview-reload').onclick=()=>{if(!savedPreview(previewContext()))return;stopPreview();renderPreviewState();};
 $('#preview-form').onsubmit=event=>{
   event.preventDefault();if(!chosen?.run)return;
   try{const run=previewContext(),url=localPreviewUrl($('#preview-url').value.trim(),location.href);sessionPreviewUrls.set(previewStorageKey(run),url);persist(previewStorageKey(run),url);$('#preview-error').textContent='';stopPreview();renderPreviewState();}
@@ -2407,6 +2554,12 @@ function interruptedAttempt(run){
   return ['PAUSED_PROVIDER_UNCERTAIN','PAUSED_UNCERTAIN_STAGE'].includes(run.status) ? run.interventions?.attempt_id : null;
 }
 function taskActionBusy(run){return taskActionPending.has(run.run)||(run.actions||[]).some(action=>['queued','running'].includes(action.status));}
+function hasPrimaryQuestionReply(run,id){
+  if(taskReadError||taskActionBusy(run)||taskChatPending.has(run.run)||operationalRequest(run)
+    ||!resolverReplyCurrent(run,resolverResponseFields(run),['clarification','permission','goal_change']))return false;
+  const question=(run.questions||[]).find(row=>String(row.id)===String(id));
+  return !!question&&!!issuedQuestionDefault(run,question);
+}
 function primaryAction(run,busy=false){
   const info=statusInfo(run);
   if(run.status==='TASK_COMPLETE')return {kind:'checks',label:'Review checks'};
@@ -2577,6 +2730,22 @@ function workRequirementRows(run) {
   const results=new Map((run.verification?.freshness==='current'?run.verification.coverage||[]:[]).map(row=>[String(row.id),row.state]));
   return (run.criteria||[]).map(criterion=>({criterion,state:results.get(String(criterion.id))||'unchecked'}));
 }
+function requirementsSummaryCard(run,verification=true) {
+  const rows=workRequirementRows(run),host=card('','requirements-summary');
+  host.append(n('h3','Requirements'));
+  if(!rows.length){host.append(n('p','No requirements have been saved yet.'));return host;}
+  const checked=rows.filter(row=>row.state==='checked').length,failed=rows.filter(row=>row.state==='failed').length;
+  const unchecked=rows.length-checked-failed;
+  if(verification){
+    host.append(n('p',[checked+' checked',failed?failed+' failed':null,unchecked+' unchecked'].filter(Boolean).join(' · ')),
+      n('p',checked?'Checkmarks require current evidence for this source.':'Not checked on this source yet.'));
+  }else{
+    const questions=(run.questions||[]).length;
+    host.append(n('p',rows.length+' saved requirements · '+questions+' unresolved '+(questions===1?'question':'questions')),
+      n('p','Saved scope; verification is recorded separately in Checks.'));
+  }
+  return host;
+}
 function openWorkDetail(kind,id){
   activateTab('execution');
   if(matchMedia('(max-width:759px)').matches)openDetailsDrawer();
@@ -2595,7 +2764,7 @@ function renderTaskProgress(run){
   const control=$('#task-progress-summary'),summary=run.work_summary;
   control.hidden=!summary||!!run.task_archived||!!run.project_removed;
   if(control.hidden)return;
-  control.textContent=summary.line;control.title=control.textContent;
+  control.replaceChildren(Object.assign(n('span',summary.line),{className:'task-progress-full'}),Object.assign(n('span',summary.task_label||summary.line),{className:'task-progress-compact'}));control.title=summary.line;control.setAttribute('aria-label',summary.line);
   control.onclick=()=>{activateTab('now');if(matchMedia('(max-width:759px)').matches)openDetailsDrawer();const list=$('#now .work-task-list');if(list){list.open=true;const summary=list.querySelector('summary');summary?.focus();requestAnimationFrame(()=>{if(summary?.isConnected&&document.activeElement===summary)summary.scrollIntoView({block:'start'});});}};
 }
 function workChecklistPanel(run,linked=false) {
@@ -2617,7 +2786,8 @@ function workChecklistPanel(run,linked=false) {
   }
   if(linked){
     const details=disclosure('Requirements and evidence · '+rows.length,'work-requirement-list',[list],run.run);
-    details.classList.add('work-requirement-list');host.append(details);
+    details.classList.add('work-requirement-list');
+    const summary=requirementsSummaryCard(run,true);summary.append(details);host.append(summary);
   }else host.append(list);
   host.append(Object.assign(n('p','Requirements come from the saved plan. Checkmarks require current evidence.'),{className:'monitor-caption'}));
   return host;
@@ -2666,11 +2836,12 @@ function renderPrimaryAction(run){
   stopControl.textContent=stopStanding?'Stopped':stopRequested?'Stop requested':sendingRequests.has(requestKey(run.run,'stop'))?'Requesting stop…':'Stop';
   stopControl.onclick=()=>sendChange(run,'stop');
   const pauseRequested=run.interventions?.pause_intent&&!run.interventions.pause_intent.acknowledged_at||(run.interventions?.entries||[]).some(entry=>entry.kind==='pause'&&['queued','requested'].includes(entry.status));
-  pause.textContent=pauseRequested?'Pause requested':sendingRequests.has(requestKey(run.run,'pause'))?'Requesting pause…':'Pause after current step';pause.disabled=!!pauseRequested||sendingRequests.has(requestKey(run.run,'pause'))||blocked;
+  const pauseLabel=pauseRequested?'Pause requested':sendingRequests.has(requestKey(run.run,'pause'))?'Requesting pause…':'Pause after current step';
+  pause.textContent=pauseLabel==='Pause after current step'?'Pause':pauseLabel;pause.setAttribute('aria-label',pauseLabel);pause.title=pauseLabel;pause.disabled=!!pauseRequested||sendingRequests.has(requestKey(run.run,'pause'))||blocked;
   // Completed work has its primary inspection action in the chat's ready
   // card. Keep Checks reachable without competing with Open preview. A
   // completion whose evidence is stale still needs the primary Checks action.
-  pause.classList.toggle('primary',!pause.hidden);control.classList.toggle('primary',!control.hidden&&statusInfo(run).group!=='complete');
+  pause.classList.toggle('primary',!pause.hidden);control.classList.toggle('primary',!control.hidden&&statusInfo(run).group!=='complete'&&!(action.kind==='answer'&&hasPrimaryQuestionReply(run,$('#question-target').value)));
   pause.onclick=()=>sendChange(run,'pause');control.textContent=action.label;control.disabled=!!action.disabled||taskChatPending.has(run.run)||blocked||modelBlocked;
   const gate=$('#task-model-gate');if(gate){gate.hidden=!modelBlocked;gate.textContent=modelBlocked&&typeof taskModelGateCopy==='function'?taskModelGateCopy(run):'';if(modelBlocked)control.setAttribute?.('aria-describedby','task-model-gate');else control.removeAttribute?.('aria-describedby');}
   control.onclick=()=>{
@@ -2854,7 +3025,7 @@ function renderRecoveryCard(host,run,recovery){
         return submitTaskAction(run,'recover_pause',{recovery_token:recovery.token,recovery_action:item.id});
       }
       if(item.kind==='inspect'){showArtifactPane('now');return;}
-      if(item.kind==='new_conversation'){return startProjectConversation(runProject(run));}
+      if(item.kind==='new_conversation'){return startProjectConversation(runProjectWorkspace(run));}
       activateTab('interview');
       if(item.kind==='decision'){
         const request=[...document.querySelectorAll('[data-question-card]')].find(row=>!row.hidden)||$('#inline-task-action');
@@ -2958,6 +3129,16 @@ async function sendTaskChat(run,retry) {
   } catch(error) {taskChatErrors.set(run.run,{...request,error:error.message});}
   finally {taskChatPending.delete(run.run);if(chosen?.run===run.run)renderLiveControls(latestRun||run);refresh();}
 }
+function updateComposerDraftNote(run){
+  const input=$('#change-text'),note=$('#task-delivery');
+  // Pending requests retain the complete visible safety explanation.
+  if(operationalRequest(run)||(run.questions||[]).length||taskChatPending.has(run.run)||run.status==='TASK_COMPLETE')return;
+  const text=input.value,storedExactly=!!text&&stored('task-draft:'+run.run)===text;
+  const guidance='Questions use saved status. Plan changes need confirmation before being applied.';
+  note.textContent=text?(storedExactly?'Draft saved · Preserved across drawers':'Draft kept while this page remains open'):'Ask a question or describe a change.';
+  note.title=guidance;note.setAttribute('aria-label',note.textContent+'. '+guidance);
+  const models=$('#composer-models>summary');if(models){models.textContent='Models ▾';models.title='Inspect saved models and reasoning';}
+}
 function renderLiveControls(run){
   if(run.task_archived||taskArchiveBlocked(run.run)){$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;return;}
   if(run.project_removed||projectBlocked(run.workspace)){$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;return;}
@@ -2971,18 +3152,19 @@ function renderLiveControls(run){
   const questions=statusInfo(run).label==='Answer needed'?run.questions||[]:[],operational=operationalRequest(run),target=$('#question-target'),selected=target.value,signature=JSON.stringify(questions.map(question=>[question.id,question.question]));
   if(target.dataset.options!==signature){target.replaceChildren();for(const question of questions)target.append(Object.assign(n('option',question.question||question.id),{value:String(question.id)}));target.value=questions.some(question=>String(question.id)===selected)?selected:String(questions[0]?.id||'');target.dataset.options=signature;}
   target.hidden=questions.length<2;$('#question-target-label').hidden=target.hidden;$('#question-target-label').textContent=questions.length>1?'Choose the first unresolved question ('+questions.length+' total)':'Your answer';
-  target.onchange=event=>document.querySelectorAll('[data-question-card]').forEach(element=>{const selected=questions.length?element.dataset.questionCard===target.value:operational;element.hidden=!selected;element.classList.toggle('selected-question',selected);if(selected&&questions.length){element.querySelector('.speaker').textContent='Resolver · Question '+(questions.findIndex(question=>String(question.id)===target.value)+1)+' of '+questions.length;if(event)element.scrollIntoView({block:'nearest'});}});target.onchange();
+  target.onchange=event=>{document.querySelectorAll('[data-question-card]').forEach(element=>{const selected=questions.length?element.dataset.questionCard===target.value:operational;element.hidden=!selected;element.classList.toggle('selected-question',selected);if(selected&&questions.length){element.querySelector('.speaker').textContent=questionCardHeading(run);if(event)element.scrollIntoView({block:'nearest'});}});if(event)renderPrimaryAction(run);};target.onchange();
   $('#change-label').textContent=operational?'Information for Resolver':questions.length?'Your answer':'Message your team';
   input.placeholder=operational?'Provide corrective information; the task will stay paused':questions.length?'Answer the question above…':'Message the task…';
   const unavailable=data.mode==='unavailable',needsRecovery=!!interruptedAttempt(run),busy=taskActionBusy(run),sending=taskChatPending.has(run.run);
   const sendBlocked=!!taskReadError||run.status==='TASK_COMPLETE'||unavailable||sending||((questions.length>0||operational)&&busy);
   $('#send-change').disabled=sendBlocked||!input.value.trim();$('#send-change').textContent=sending?'Sending…':operational?'Send to Resolver':questions.length?'Send answer ↑':'Send ↑';
   $('#send-change').title='Enter to send · Shift + Enter for a new line';
-  input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);$('#send-change').disabled=sendBlocked||!!taskReadError||!input.value.trim();};
+  input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);$('#send-change').disabled=sendBlocked||!!taskReadError||!input.value.trim();updateComposerDraftNote(run);};
   requestAnimationFrame(()=>resizeComposer(input));
   $('#change-form').onsubmit=event=>{event.preventDefault();sendTaskChat(run);};renderPrimaryAction(run);renderTaskAttention(run);
-  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for Resolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?(run.completion_current===false?'Completion was recorded earlier. Inspect current checks before starting more work in a new conversation.':'This task is complete. Start a new conversation for more work.'):'Questions use saved status. Plan changes need confirmation before being applied.';
-  $('#live-mode').textContent=operational?'This does not approve goals, change permissions, reset budgets, or continue execution.':questions.length?'This does not approve a plan or start implementation.':unavailable?'Live controls are unavailable.':run.status==='TASK_COMPLETE'&&run.completion_current===false?'Saved messages are retained while you inspect current checks.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
+  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for Resolver. The task stays paused.':questions.length?'Answer here, or choose a suggestion above. Plan approval is separate.':run.status==='TASK_COMPLETE'?(run.completion_current===false?'Completion was recorded earlier. Inspect current checks before starting more work in a new conversation.':'This task is complete. Start a new conversation for more work.'):'Questions use saved status. Plan changes need confirmation before being applied.';
+  updateComposerDraftNote(run);
+  $('#live-mode').textContent=operational?'This does not approve goals, change permissions, reset budgets, or continue execution.':questions.length?'':unavailable?'Live controls are unavailable.':run.status==='TASK_COMPLETE'&&run.completion_current===false?'Saved messages are retained while you inspect current checks.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
   $('#live-error').textContent=data.error||'';
   const host=$('#change-history');host.replaceChildren();const entries=data.entries||data.requests||[],chatIds=new Set((run.chat_messages||[]).map(entry=>entry.id));
   for(const entry of entries)if(!chatIds.has(entry.id)&&!['applied','resumed','delivered'].includes(entry.status))host.append(requestRow(entry,run));
@@ -3014,38 +3196,36 @@ function showRemovedRun(run) {
   stopPreview();evidenceRequest++;evidenceRun='';
   $('#archive-task').disabled=true;$('#delete-task').disabled=true;
   $('#task-overview').hidden=true;
-  // Restore what was removed: the project, or a worktree removed as a project before #809.
-  const project=removedProject(run.workspace)?run.workspace:runProject(run);
-  latestRun=run;$('#task-title').textContent='Project removed';$('#task-project').textContent=projectLabel(project);$('#task-project').title=run.workspace;$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
+  latestRun=run;$('#task-title').textContent='Project removed';renderTaskProjectIdentity(run);$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
   for(const id of ['conversation','brief-current','goal','plan-full','execution_view','actions','task-attention'])$('#'+id).replaceChildren();
   $('#task-attention').hidden=true;$('#detail-grid').hidden=true;$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
-  const host=$('#task-removed-banner');host.replaceChildren(n('h2','Restore '+projectTitle(project)+' to view this task'),n('p','Its files and history stay on disk. Running tasks keep going.'),Object.assign(n('p',project),{className:'project-path'}),projectActionButton(project,'restore','Restore project'));host.hidden=false;renderTaskProjectActions(project,true);
+  const project=taskProjectWorkspace(run),host=$('#task-removed-banner');host.replaceChildren(n('h2','Restore '+projectTitle(project)+' to view this task'),n('p','Its files and history stay on disk. Running tasks keep going.'),Object.assign(n('p',project),{className:'project-path'}),projectActionButton(project,'restore','Restore project'));host.hidden=false;renderTaskProjectActions(project,true);
 }
 function showArchivedRun(run){
   stopPreview();evidenceRequest++;evidenceRun='';
   latestRun=run;$('#archive-task').disabled=true;$('#delete-task').disabled=true;
-  $('#task-title').textContent='Task archived';$('#task-project').textContent=projectLabel(runProject(run));$('#task-project').title=run.workspace;
+  $('#task-title').textContent='Task archived';renderTaskProjectIdentity(run);
   $('#task-subtitle').textContent='Restore this task to view its history and controls.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
   for(const id of ['task-overview','task-attention','detail-grid','live-controls'])$('#'+id).hidden=true;
   for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
   const host=$('#task-removed-banner');host.replaceChildren(n('h2','This task is archived'),n('p','Its files and history are preserved. Archiving does not stop a running worker.'),archiveButton(run,'restore','Restore task'));host.hidden=false;
-  renderTaskProjectActions(runProject(run));
+  renderTaskProjectActions(taskProjectWorkspace(run));
 }
 function showRun(run,focus){
   taskReadError='';taskReadAt=Date.now();$('#task-load-notice').hidden=true;$('#sync-state').replaceChildren(Object.assign(n('img'),{src:'/static/connected.svg',alt:'',width:6,height:6}),document.createTextNode('Task checked just now'));
   $('#task-stale-state').hidden=true;
   document.querySelectorAll('[data-stale-disabled]').forEach(control=>{control.disabled=control.dataset.staleDisabled==='true';if(control.dataset.staleDescription)control.setAttribute?.('aria-describedby',control.dataset.staleDescription);else control.removeAttribute?.('aria-describedby');delete control.dataset.staleDisabled;delete control.dataset.staleDescription;});
   if(run.task_archived){showArchivedRun(run);restoreFocus(focus);return;}
-  if(run.project_removed||removedProject(run.workspace)||removedProject(runProject(run))){showRemovedRun(run);restoreFocus(focus);return;}
-  $('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;renderTaskProjectActions(runProject(run));
+  if(run.project_removed||removedProject(taskProjectWorkspace(run))){showRemovedRun(run);restoreFocus(focus);return;}
+  $('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;renderTaskProjectActions(taskProjectWorkspace(run));
   // A task opened from a saved link or a restored checkpoint names only its
   // worktree until its view arrives; the view names its project (#809).
   if(run.project_workspace&&chosen?.run===run.run&&chosen.project!==run.project_workspace){chosen.project=run.project_workspace;if(activeProject!==chosen.project){activeProject=chosen.project;persist('active-project',activeProject);syncNewTaskScope();}$('#breadcrumb-title').textContent=projectTitle(chosen.project);}
   latestRun=run;$('#continue').disabled=false;if(typeof settleApprovalReceipt==='function')settleApprovalReceipt(run);
   $('#archive-task').disabled=archivePending.has(run.run);$('#archive-task').onclick=()=>reviewTaskArchive(run);$('#delete-task').disabled=false;$('#delete-task').onclick=()=>reviewTaskDelete(run);
   renderTaskOverview(run);
-  $('#task-project').textContent=projectLabel(runProject(run));$('#task-project').title=run.workspace;
-  const task=String(run.task||'Untitled task');$('#task-title').textContent=taskTitle(run);$('#task-title').title=task;
+  renderTaskProjectIdentity(run);
+  const task=String(run.task||'Untitled task');$('#task-title').textContent=taskHeroTitle(run);$('#task-title').title=task;
   $('#task-subtitle').textContent=taskSentence(run,taskActionBusy(run));$('#task-status').replaceChildren(typeof taskStatusBadge==='function'?taskStatusBadge(run):badge(run));
   $('#task-objective').textContent=taskPosition(run);
   const settings=run.model_settings||{},roles=settings.roles||{},roleNames=Object.keys(roles);
@@ -3055,6 +3235,8 @@ function showRun(run,focus){
 function renderThreadCheckpoint(run){
   const host=$('#thread-checkpoint');host.replaceChildren();host.className='thread-checkpoint';
   const info=statusInfo(run),assignment=run.astra_plan?.current_assignment,activity=run.monitor?.activity||[];
+  if(info.group==='running'&&$('#conversation').querySelector('[data-saved-checkpoint]'))return void(host.hidden=true);
+  if(info.group==='complete'&&$('#conversation').querySelector('.chat-ready'))return void(host.hidden=true);
   if(info.group==='running'){host.append(n('strong','Latest task update'),n('p',assignment?.objective||run.monitor?.objective||'Work is in progress.'));if(activity.length)host.append(Object.assign(n('p',activity.slice(-2).map(entry=>entry.label).join(' · ')),{className:'field-note'}));}
   else if(info.label==='Approve plan')return void(host.hidden=true);
   else if(info.group==='complete')host.append(n('strong','Work completed'),n('p',(run.counts?.pass||0)+' acceptance checks reported passing. Open Changes and Checks to review the result.'));

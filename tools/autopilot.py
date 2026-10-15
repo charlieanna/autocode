@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 try:
+    from . import autocode_code_citations as code_citations
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_code_citations as code_citations
     import autocode_source_scope as source_scope
 
 
@@ -21,6 +23,7 @@ try:
     from . import autocode_check_refs as check_refs
     from . import autocode_check_replay as check_replay
     from . import autocode_completion as completion_gate
+    from . import autocode_completion_result as completion_result
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency as efficiency
     from . import autocode_escalation as escalation
@@ -32,6 +35,7 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
+    from . import autocode_native_invocation as native_invocation
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_planning_clarification as clarification
     from . import autocode_planning_graph as planning_graph
@@ -66,6 +70,7 @@ except ImportError:
     import autocode_check_refs as check_refs
     import autocode_check_replay as check_replay
     import autocode_completion as completion_gate
+    import autocode_completion_result as completion_result
     import autocode_design_coverage as design_coverage
     import autocode_efficiency as efficiency
     import autocode_escalation as escalation
@@ -77,6 +82,7 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
+    import autocode_native_invocation as native_invocation
     import autocode_planning_artifacts as planning_artifacts
     import autocode_planning_clarification as clarification
     import autocode_planning_graph as planning_graph
@@ -268,7 +274,7 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     builder_failure.dispatch_guard(state, stage, workspace)
     if stage == "terra":
         builder_policy.guard(state)
-    runtime.milestones.dispatch_guard(state, stage)
+    native_invocation.dispatch_guard(runtime, state, stage)
     runtime.workflow.dispatch_guard(state, stage, workspace)
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
@@ -328,28 +334,7 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
 
 
 def _check_code_refs(state, refs, field="code_refs"):
-    if not state.get("workspace"):
-        return
-    root = Path(state.get("workspace") or "")
-    if not root.is_dir():
-        return
-    files = planning_unit.workspace_inventory(root, state.get("task", ""))["files"]
-    if not files:
-        return
-    if not refs:
-        raise ValueError(f"Report must cite existing source in {field}")
-    for ref in refs:
-        raw, line_text = planning_unit.split_code_ref(root, str(ref))
-        target = planning_unit.cited_file(root, raw, field, ref)
-        if line_text:
-            citation = re.fullmatch(r"(\d+)(?:-(\d+))?(?:\s+.*)?", line_text)
-            if not citation:
-                raise ValueError(f"{field} entry {ref} has no line number")
-            line = int(citation[1])
-            end = int(citation[2] or citation[1])
-            count = len(target.read_text(errors="replace").splitlines())
-            if line < 1 or end < line or end > max(count, 1):
-                raise ValueError(f"{field} entry {ref} points past the end of the file")
+    code_citations.require(state, refs, field, planning_unit=planning_unit)
 
 
 def _bind_plan(state, value, origin, record):
@@ -429,7 +414,10 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
     if "conflict_resolutions" in planning_unit.SCHEMAS[stage]["properties"]:
         value = {"conflict_resolutions": [], **value}
     if stage in planning_unit.V2_STAGES:
-        support.validate_schema(value, planning_unit.SCHEMAS[stage])
+        # This run's schema, the one advertised to the model: a version-2 design
+        # manifest extends the contract with design_coverage (#1231). Validating
+        # against the static table rejects a field the run itself required.
+        support.validate_schema(value, planning_unit.schema_for(state, stage))
         answers = {"plan_revise": "responses", "plan_finalize": "decisions"}.get(stage)
         if answers:  # the report and its handoff keep only the rows that answer a review concern
             concerns = state["planning"]["reports"]["plan_review"]["report"]["concerns"]
@@ -874,10 +862,12 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
         raise ValueError(
             "Technically passing validation lacks successful executed checks: list each check you ran, with its exit code"
         )
+    native = getattr(runtime, "native_calls", None)
+    native_execution = native.verification_execution(state, record) if native is not None else None
     replay_context = progressive_state.context(state)
     whole = human_pending or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context)
     clean_run, clean_identity = launch_inputs.runners(
-        state, workspace, run_dir, verify.scratch_run, verify.execution_identity
+        state, workspace, run_dir, verify.scratch_run, verify.execution_identity if native is None else None
     )
     validation["check_replay"] = (
         check_replay.replay(
@@ -889,6 +879,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
             approved_state=state,
             progressive_context=replay_context,
             execution_identity=clean_identity,
+            native_execution=native_execution,
             all_brief_observations=whole,
             all_risk_observations=whole,
             keep_lifecycle_failure=stage == "sol",
@@ -906,6 +897,14 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
             run_dir=run_dir,
             current_snapshot=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
             accepted_validation=validation,
+            **(
+                {
+                    "scope_authority": native.context.factory.scope_authority,
+                    "native_history": native.context.factory.history,
+                }
+                if native is not None
+                else {}
+            ),
         )
         if visual_receipt:
             validation["evidence_hashes"].update(visual_receipt["evidence_hashes"])
@@ -935,7 +934,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     findings_ledger.record_validation(state, value, record)
     if stage == "sol":
         risk_findings.reconcile(state, validation["check_replay"], record, saved=not correction_open)
-    milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
+    if native is None:
+        milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
     if modern:
         state["human_reviews"] = {}
         state.pop("displayed_review", None)
@@ -1226,6 +1226,10 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
         findings_ledger.record_decision(state, value, record)
         if diagnosed or (milestones.progress(state) or {}).get("builder_reassessment"):
             queue_resolution(state, value, record)
+        elif getattr(runtime, "native_calls", None) is not None:
+            # Native correction keeps the existing independent Resolver and its
+            # genuine recovery/retry gates; no direct-assignment shortcut.
+            queue_resolution(state, value, record)
         elif not rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir):
             resolver_recovery.route_known_change(
                 runtime, state, value, record, run_dir=run_dir, retry_policy=builder_policy
@@ -1293,56 +1297,34 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             save_record(state, record)
             return
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
-            try:
-                from . import autocode_replay_checks as recorded_checks
-            except ImportError:
-                import autocode_replay_checks as recorded_checks
-            if recorded_checks.simulated(state.get("settings")):
-                recorded_checks.require_supported(state)
-                try:
-                    from . import autocode_test_cases as test_cases
-                except ImportError:
-                    import autocode_test_cases as test_cases
-                logical = completion_gate.logical_completion_ready(state, value, current)
-                recorded_checks.finish(
-                    state,
-                    record,
-                    value,
-                    workspace,
-                    logical_ready=recorded_checks.archival_ready(
-                        state,
-                        current,
-                        logical_ready=logical,
-                        required_case_ids=[case["id"] for case in test_cases.proof_cases(state, all_due=True)]
-                        if regression.required(state, all_due=True)
-                        else None,
-                    ),
-                )
-                state.update(final_decision=value, completed_at=now())
-                if modern:
-                    state["phase"] = "COMPLETE"
-                goals.record_decision(state, value)
-                save_record(state, record)
+            if completion_result.apply(
+                state,
+                current,
+                record,
+                value,
+                workspace,
+                modern=modern,
+                native_calls=lambda: getattr(runtime, "native_calls", None),
+                logical_completion_ready=completion_gate.logical_completion_ready,
+                regression_required=regression.required,
+                require_visual_completion=visual_runtime.require_completion,
+                prepare_progressive_completion=progressive_state.prepare_completion,
+                blocking_entries=findings_ledger.blocking_entries,
+                ledger_rejection=completion_gate.ledger_rejection,
+                missing_human_reviews=goals.missing_human_reviews,
+                completion_ready=completion_gate.completion_ready,
+                regression_complete=regression.complete,
+                regression_rejection=regression.rejection,
+                completion_rejection=completion_gate.rejection,
+                milestones_enabled=milestones.enabled,
+                accept_milestone=milestones.accept,
+                commit_fields=lambda fields: state.update(fields),
+                now=now,
+                record_decision=goals.record_decision,
+                save_record=save_record,
+                paused=support.Paused,
+            ):
                 return
-            visual_runtime.require_completion(state, current_snapshot=current)
-            progressive_state.prepare_completion(
-                state, current, record, product_findings=findings_ledger.blocking_entries(state)
-            )
-            if modern and findings_ledger.blocking_entries(state):
-                raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.ledger_rejection(state))
-            if modern and goals.missing_human_reviews(state):
-                raise support.Paused(
-                    "PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first"
-                )
-            if not completion_gate.completion_ready(state, value, current):
-                if not regression.complete(state, current["revision"], all_due=True):
-                    raise support.Paused("PAUSED_COMPLETION_GATE", regression.rejection(state))
-                raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.rejection(state))
-            state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)
-            if milestones.enabled(state):
-                milestones.accept(state, current)
-            if modern:
-                state["phase"] = "COMPLETE"
         elif value["status"] == "BLOCKED":
             if modern:
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "BLOCKED requires a structured user_request")
@@ -1436,7 +1418,14 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                     return
             current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
             try:
-                kind = lifecycle.assign_task(state, value, current) if modern else "implement"
+                native = getattr(runtime, "native_calls", None)
+                kind = (
+                    native.assign_task(lifecycle.assign_task, state, value, current, record)
+                    if modern and native is not None
+                    else lifecycle.assign_task(state, value, current)
+                    if modern
+                    else "implement"
+                )
             except support.Paused as error:
                 if not error.status.startswith("PAUSED_MILESTONE_"):
                     raise

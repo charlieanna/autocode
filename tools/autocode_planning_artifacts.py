@@ -369,6 +369,10 @@ def commit_pending(state, run_dir, persist):
     created = flush_pending(state, run_dir)
     try:
         persist(state)
+    except util.JSONCommitUncertain:
+        # Replacement was attempted. The persisted parent may already name
+        # these original handoffs: preserve all bytes for reconciliation.
+        raise
     except Exception:
         rollback_created(created, run_dir)
         raise

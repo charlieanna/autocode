@@ -1269,5 +1269,134 @@ class PublicAggregationTests(unittest.TestCase):
             efficiency.aggregate([first, second])
 
 
+class Version2VisualProjectionTests(unittest.TestCase):
+    """Verified source + injected consumer projections, never image acceptance."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="efficiency-v2-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+
+    def record(self, *, scoped=False):
+        import autocode_design_manifest as design
+        import autocode_util as util
+
+        from tests.test_design_manifest import inventory_bundle
+
+        path, body = inventory_bundle(self.root / ("scoped" if scoped else "legacy"))
+        arguments = {}
+        if scoped:
+            body["cases"] = [body["cases"][1]]
+            body["cases"][0]["inventory_refs"] = {
+                name: [] for name in ("components", "variables", "fonts", "assets", "transitions")
+            }
+            path.write_text(json.dumps(body))
+            authority = self.root / "synthetic-operator-scope.json"
+            authority.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "manifest_hash": util.digest(body),
+                        "approved_case_ids": [row["id"] for row in body["cases"]],
+                        "approval_evidence": [{"kind": "approved_scope_decision", "sha256": "a" * 64}],
+                    }
+                )
+            )
+            arguments = {"approved_scope": authority, "approved_scope_sha256": util.file_hash(authority)}
+        raw = design.load(path, **arguments)
+        return design.retain(raw, self.root / ("scoped-workspace" if scoped else "legacy-workspace"), **arguments)
+
+    def state(self, record):
+        ids = [f"C{index + 1}" for index in range(len(record["body"]["cases"]))]
+        return {
+            "status": "RUNNING",
+            "settings": {"design_manifest": record},
+            "acceptance_criteria": [{"id": cid} for cid in [*ids, "shared-visual", "functional"]],
+        }
+
+    def projection(self, state):
+        return InjectedVisualProjectionTests.projection(
+            self, state, tuple("PASS" for _ in state["settings"]["design_manifest"]["body"]["cases"])
+        )
+
+    def measure(self, state, projection):
+        return efficiency.summary(state, now=40, visual_acceptance=projection)["visual"]
+
+    def test_complete_verified_v2_inventory_projects_actual_case_frames(self):
+        state = self.state(self.record())
+        visual = self.measure(state, self.projection(state))
+        self.assertTrue(visual["projection_valid"], visual["issues"])
+        self.assertEqual((3, 3), (visual["accepted_states"], visual["accepted_frames"]))
+        self.assertEqual(3, visual["requested_states"])
+
+    def test_authenticated_app_scope_keeps_historical_frames_outside_delivery_counts(self):
+        import autocode_design_manifest as design
+
+        record = self.record(scoped=True)
+        catalog = design.context({"design_manifest": record})["catalog"]
+        self.assertEqual(3, catalog["full_source_frame_count"])
+        self.assertEqual(2, len(catalog["scope_partition"]["retained_frames"]))
+        state = self.state(record)
+        visual = self.measure(state, self.projection(state))
+        self.assertTrue(visual["projection_valid"], visual["issues"])
+        self.assertEqual((1, 1), (visual["accepted_states"], visual["accepted_frames"]))
+        self.assertEqual((1, 1), (visual["requested_states"], visual["requested_frames"]))
+
+    def test_full_source_artifact_drift_refuses_even_injected_current_projection(self):
+        record = self.record()
+        state = self.state(record)
+        projection = self.projection(state)
+        self.assertTrue(self.measure(state, projection)["projection_valid"])
+        page = record["body"]["files"][0]["pages"][0]
+        path = Path(record["root"]) / page["source_json"]["path"]
+        path.write_bytes(path.read_bytes() + b" ")
+        visual = self.measure(state, projection)
+        self.assertFalse(visual["projection_valid"])
+        self.assertIsNone(visual["accepted_states"])
+        self.assertTrue(any("verification" in message for message in visual["issues"]))
+
+    def test_changed_retained_scope_authority_is_not_a_visual_count_authority(self):
+        record = self.record(scoped=True)
+        state = self.state(record)
+        projection = self.projection(state)
+        self.assertTrue(self.measure(state, projection)["projection_valid"])
+        path = Path(record["root"]) / record["scope_admission"]["path"]
+        path.write_bytes(path.read_bytes() + b" ")
+        visual = self.measure(state, projection)
+        self.assertFalse(visual["projection_valid"])
+        self.assertIsNone(visual["accepted_frames"])
+        self.assertTrue(any("verification" in message for message in visual["issues"]))
+
+    def test_v2_foreign_incomplete_or_inconsistent_projection_still_refuses(self):
+        state = self.state(self.record())
+        valid = self.projection(state)
+        for change in ("missing", "foreign", "inconsistent"):
+            with self.subTest(change=change):
+                value = deepcopy(valid)
+                if change == "missing":
+                    value["cases"].pop()
+                elif change == "foreign":
+                    value["cases"][0]["node_id"] = "foreign"
+                else:
+                    value["cases"][0]["current_accepted"] = False
+                visual = self.measure(state, value)
+                self.assertFalse(visual["projection_valid"])
+                self.assertIsNone(visual["accepted_states"])
+
+    def test_verified_v2_source_and_raw_saved_pass_never_supply_visual_acceptance(self):
+        record = self.record(scoped=True)
+        state = self.state(record)
+        state["visual_acceptance"] = self.projection(state)
+        state["current_visual_acceptance"] = True
+        state["validation"] = {
+            "design_manifest_hash": record["manifest_hash"],
+            "design_results": [{"id": row["id"], "status": "PASS"} for row in record["body"]["cases"]],
+        }
+        visual = self.measure(state, None)
+        self.assertIsNone(visual["projection_valid"])
+        self.assertIsNone(visual["accepted_states"])
+        self.assertIsNone(visual["current_all_accepted"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,8 +7,15 @@ The reconstructed receipt's document_pages must match that actual root roster.
 Collect every roster page. For each page, retain ALL outputPart indices with identical receipt SHA256,
 identity and part count, then reconstruct through autocode_design_sources.reassemble(parts).
 Save that complete reconstructed original receipt as source_json, never a transport envelope or truncated JSON.
-Retain the complete connected page metadata XML. When the connector refuses a DOCUMENT target, generate
-its DOCUMENT roster XML faithfully from the retained document_pages; identify it as generated, not a REST export.
+Retain each actual native page metadata XML and targeted probe exactly as returned. Native overview XML
+may elide component/instance descendants or label COMPONENT_SET as frame and COMPONENT as symbol.
+When it is incomplete or type-ambiguous, generate the complete typed page metadata_xml only with
+autocode_design_topology.generate(the exact saved source_json bytes). Its collector-derived provenance
+and source_sha256 bind it to that page's source_json artifact hash. This is SAME-SOURCE DERIVATION,
+not independent metadata or acceptance. Retain native XML/probes and checked/elided/ambiguous reconciliation
+separately in the collection evidence directory; never invent missing independent observations.
+When the connector refuses a DOCUMENT target, generate its DOCUMENT roster XML faithfully from the
+retained document_pages; identify it as generated, not a REST export.
 Missing/drifting parts or unreadable source properties are BLOCKED. Do not skip source facts to fit tool limits.
 Include every discovered top-level/Section screen frame and every supplied state. Do not deduplicate away
 unique variants, states or prototype actions. Map every case to the requested product route/state,

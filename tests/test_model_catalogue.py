@@ -15,6 +15,7 @@ from unittest.mock import patch
 HERE = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(HERE))
 
+import autocode_builder_policy as policy  # noqa: E402
 import model_catalogue as mc  # noqa: E402
 
 CATALOGUE = [
@@ -292,6 +293,67 @@ class ChooseTest(unittest.TestCase):
         self.assertIs(
             settings, mc.choose(settings, FakeProvider(self.AVAILABLE, auth="api"), Path("."), interactive=False)
         )
+
+    def climbing(self):
+        """A run whose judges are on GPT-6 Luna, with the default stronger Builder attempt (#612)."""
+        settings = new_settings(
+            plan_reviewer="openai/gpt-6-luna", sol="openai/gpt-6-luna", completion="openai/gpt-6-luna"
+        )
+        settings["builder_retry"] = {
+            "strong_model": "openai/gpt-6-sol",
+            "strong_reasoning_effort": "xhigh",
+            "checker_model": "zai-coding-plan/glm-5.3",
+        }
+        return settings
+
+    def test_the_same_list_leaves_a_run_without_a_stronger_attempt_it_does_not_offer(self):
+        settings = mc.choose(
+            self.climbing(), FakeProvider(self.AVAILABLE - {"openai/gpt-6-sol"}), Path("."), interactive=False
+        )
+        self.assertIsNone(settings["builder_retry"]["strong_model"])
+        self.assertEqual("openai/gpt-6-sol", settings["builder_retry"]["not_offered"])
+        offered = mc.choose(self.climbing(), FakeProvider(self.AVAILABLE), Path("."), interactive=False)
+        self.assertEqual("openai/gpt-6-sol", offered["builder_retry"]["strong_model"])
+
+    def test_in_chat_the_accepted_routes_are_checked_for_the_stronger_attempt_too(self):
+        settings = self.climbing()
+        settings["roles"]["sol"]["model"] = "openai/gpt-7"
+        chosen = mc.choose(
+            settings,
+            FakeProvider(self.AVAILABLE - {"openai/gpt-6-sol"}),
+            Path("."),
+            interactive=True,
+            ask=lambda _prompt: "y",
+            out=lambda _text: None,
+        )
+        self.assertEqual("openai/gpt-6-luna", chosen["roles"]["sol"]["model"])
+        self.assertIsNone(chosen["builder_retry"]["strong_model"])
+        self.assertEqual("openai/gpt-6-sol", chosen["builder_retry"]["not_offered"])
+        # The Builder then makes one more ordinary retry and pauses, naming the model its provider lacks.
+        chosen["builder_retry"].update(enabled=True, ordinary_retries=1)
+        state = {
+            "settings": chosen,
+            "goal_contract": {"hash": "approved"},
+            "current_task": {"id": "task1", "milestone_id": "M1"},
+            "status": "RUNNING",
+        }
+        actions = [policy.failure(state, f"e{n}", "failure") for n in (1, 2, 3)]
+        self.assertEqual(["retry", "retry", "pause"], actions)
+        self.assertEqual(
+            "Execution failure: " + policy.NOT_OFFERED.format(model="openai/gpt-6-sol"), state["stop_reason"]
+        )
+
+    def test_a_stronger_model_the_person_named_and_the_list_lacks_stops_the_new_run(self):
+        settings = self.climbing()
+        settings["builder_retry"]["strong_model"] = "openai/gpt-7-nope"
+        before = copy.deepcopy(settings)
+        with self.assertRaises(RuntimeError) as raised:
+            mc.choose(
+                settings, FakeProvider(self.AVAILABLE), Path("."), interactive=False, named_strong="openai/gpt-7-nope"
+            )
+        self.assertIn("--builder-strong-model openai/gpt-7-nope is not offered", str(raised.exception))
+        self.assertTrue(str(raised.exception).endswith("Nothing was launched"))
+        self.assertEqual(before, settings)
 
     def test_a_provider_that_cannot_list_or_a_codex_run_starts_as_before(self):
         settings = new_settings(sol="openai/gpt-7")

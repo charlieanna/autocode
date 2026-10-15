@@ -21,6 +21,7 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_process as processes
 import autocode_prompts as prompts
 import autocode_run_view as run_view
+import autocode_source_snapshot as source_snapshot
 import autocode_taskrun as taskrun
 import autocode_util as util
 import goal_fixtures
@@ -99,6 +100,7 @@ class RunViewTests(unittest.TestCase):
                 "liveness",
                 "information_review",
                 "tool_containment",
+                "tool_containment_backend",
                 "escalation_outcomes",
                 "job_report_recovery",
                 "verification_obligation",
@@ -344,7 +346,16 @@ class RunViewTests(unittest.TestCase):
             },
             "human_reviews": {"AC2": {"token": "r1"}},
             "findings_ledger": [
-                {"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo", "times_reported": 2}
+                {
+                    "id": "F1",
+                    "status": "open",
+                    "severity": "low",
+                    "finding": "Prefer a clearer name",
+                    "source": "sol",
+                    "blocking": False,
+                    "evidence": "parser.py:14",
+                    "times_reported": 2,
+                }
             ],
             "regression_proof": {
                 "verdict": "PASS",
@@ -390,9 +401,18 @@ class RunViewTests(unittest.TestCase):
             ],
             evidence["acceptance"],
         )
-        # source names who raised it (sol, astra or runner); this legacy row has none.
         self.assertEqual(
-            [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo", "source": None}],
+            [
+                {
+                    "id": "F1",
+                    "status": "open",
+                    "severity": "low",
+                    "finding": "Prefer a clearer name",
+                    "source": "sol",
+                    "blocking": False,
+                    "evidence": "parser.py:14",
+                }
+            ],
             evidence["findings"],
         )
         self.assertEqual(
@@ -873,6 +893,49 @@ class TaskRunTests(unittest.TestCase):
         self.assertFalse((run.run_dir / "progressive").exists())
         self.assertNotIn("progressive", view)
 
+    def test_plan_approval_assigns_the_selected_ignored_source_revision(self):
+        # Existing deliverables must enter the assignment inventory only after
+        # the real CLI approval; no saved state or approval flags are injected.
+        originals = {"README.md": b"Existing documentation\n", "greet.py": b"# Existing greeting implementation\n"}
+        for name, raw in originals.items():
+            (self.workspace / name).write_bytes(raw)
+        (self.workspace / "test_greet.py").write_text("# Existing regression tests\n")
+        (self.workspace / "private-note.txt").write_text("Outside the approved deliverables\n")
+        with (self.workspace / ".git/info/exclude").open("a") as exclude:
+            exclude.write("/README.md\n/greet.py\n/private-note.txt\n")
+        ignored = subprocess.check_output(["git", "-C", str(self.workspace), "check-ignore", *originals], text=True)
+        self.assertEqual(set(originals), set(ignored.splitlines()))
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], {key: view[key] for key in ("status", "needs")})
+        self.assertIsNone(view["current_task"])
+        raw_source = util.snapshot(self.workspace)
+        expected = source_snapshot.snapshot(self.workspace, paths=["greet.py", "test_greet.py", "README.md"])
+        self.assertEqual(["README.md", "greet.py", "test_greet.py"], expected["source_paths"])
+        for name in originals:
+            self.assertNotIn(name, raw_source["files"])
+            self.assertEqual(util.file_hash(self.workspace / name), expected["files"][name])
+        self.assertNotIn("private-note.txt", expected["files"])
+        self.assertNotEqual(raw_source["revision"], expected["revision"])
+
+        approved = run.approve_plan(view["needs"]["token"])
+        self.assertEqual("READY_TO_EXECUTE", approved["phase"], approved)
+        # The public CLI status includes the complete bounded assignment.
+        result = subprocess.run(
+            [*run.command, "--workspace", str(self.workspace), "--run-dir", str(run.run_dir), "--status"],
+            env={**os.environ, **self.env},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        status = json.loads(result.stdout)
+        task = status["current_task"]
+        self.assertEqual(view["needs"]["token"], status["contract_token"])
+        self.assertEqual(set(expected["source_paths"]), set(task["affected_paths"]))
+        self.assertEqual(expected["revision"], task["source_revision"])
+        self.assertEqual(originals, {name: (self.workspace / name).read_bytes() for name in originals})
+
     def use_question_preserving_planner(self, *, genuine_questions=0):
         # Reproduce the live Planner faithfully carrying a question from its handoff.
         provider = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
@@ -1318,6 +1381,35 @@ class TaskRunClientTests(unittest.TestCase):
         ):
             run._invoke("retry failed stage", "--resume-paused", "--retry-failed-stage", advancing=True)
 
+    def test_assign_model_preserves_long_rejection_reason_from_either_stream(self):
+        reason = "Input rejected: Cross-model verification violated; Builder/Tester: identical model"
+        guidance = "Next command: " + "/a/long/runtime/path/" * 100
+        for stream in ("stdout", "stderr"):
+            with self.subTest(stream=stream):
+                run = taskrun.TaskRun(
+                    Path("/work/repo"),
+                    Path("/work/repo/.autocode/runs/one"),
+                    options=("--sol-model", "gpt-5.6-sol"),
+                )
+                message = reason + "\n" + guidance
+                completed = subprocess.CompletedProcess(
+                    [],
+                    2,
+                    stdout=message if stream == "stdout" else "",
+                    stderr=message if stream == "stderr" else "",
+                )
+                with (
+                    patch.object(taskrun, "run_process", return_value=completed),
+                    patch.object(run, "status") as status,
+                    self.assertRaisesRegex(taskrun.TaskRunError, "Cross-model verification violated") as raised,
+                ):
+                    run.assign_model("sol", "gpt-5.6-terra", resolver_token="opaque-token")
+                self.assertIs(completed, raised.exception.process)
+                self.assertLess(len(str(raised.exception)), 900)
+                self.assertNotIn("Next command:", str(raised.exception))
+                self.assertEqual(("--sol-model", "gpt-5.6-sol"), run.options)
+                status.assert_not_called()
+
     def test_retry_failed_stage_uses_explicit_inspected_retry(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}) as status:
@@ -1708,6 +1800,298 @@ class TaskRunProcessTests(unittest.TestCase):
             taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
         self.assertIsNone(raised.exception.process)
         self.assertIsNone(raised.exception.run_dir)
+
+
+_MIXED_TRANSPORT_FIXTURE = r"""#!/usr/bin/env python3
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+
+name = Path(sys.argv[0]).name
+log = Path('__LOG__')
+models = (['fixture-claude'] if name == 'kilocode' else
+          ['zai-coding-plan/glm-5.3-flash', 'zai-coding-plan/glm-5.3',
+           'xiaomi-token-plan-sgp/mimo-v2.6-pro'])
+def record(value):
+    with log.open('a') as stream:
+        stream.write(json.dumps({'tool': name, **value}) + '\n')
+if sys.argv[1:] == ['--version']:
+    print('1.16.0')
+    raise SystemExit(0)
+if sys.argv[1:] == ['models']:
+    record({'operation': 'models', 'models': models})
+    print('\n'.join(models))
+    raise SystemExit(0)
+if sys.argv[1:3] == ['auth', 'list']:
+    print('● Anthropic api')
+    raise SystemExit(0)
+prompt = sys.stdin.read()
+data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+model = sys.argv[sys.argv.index('--model') + 1]
+effort_flag = '--variant' if '--variant' in sys.argv else '--effort'
+effort = sys.argv[sys.argv.index(effort_flag) + 1]
+if model not in models:
+    record({'operation': 'refused', 'model': model})
+    raise SystemExit(9)
+session_arg = sys.argv[sys.argv.index('--session') + 1] if '--session' in sys.argv else None
+session = session_arg or (name + '_' + uuid.uuid4().hex)
+record({'operation': 'launch', 'stage': data['stage'], 'model': model, 'effort': effort,
+        'session': session, 'resume_session': session_arg, 'argv': sys.argv[1:]})
+spec = importlib.util.spec_from_file_location('mixed_greeting_fixture', '__FIXTURE__')
+fixture = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fixture)
+# Reuse the deterministic greeting provider, never another test or a model.
+with tempfile.TemporaryDirectory(dir=log.parent) as temporary:
+    output = Path(sys.argv[sys.argv.index('--report') + 1]) if '--report' in sys.argv else Path(temporary) / 'report.json'
+    sys.argv = ['fixture', '-o', str(output), *(['resume', session] if session_arg else [])]
+    original_stdin = sys.stdin
+    try:
+        sys.stdin = io.StringIO(prompt)
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            code = fixture.main()
+    finally:
+        sys.stdin = original_stdin
+    if code:
+        raise SystemExit(code)
+    report = json.loads(output.read_text())
+    reviews = [json.loads(line) for line in log.read_text().splitlines()
+               if json.loads(line).get('operation') == 'launch'
+               and json.loads(line).get('stage') == 'astra_review']
+    if data['stage'] == 'astra_review' and len(reviews) == 1:
+        # A deliberate fake permission stop gives the real CLI one continuation
+        # on the same reader role. It grants no artifact/product acceptance.
+        report.update(status='BLOCKED', blocker='Await the fixture read-only confirmation permission',
+                      user_request={'kind': 'permission',
+                                    'discovered': 'The fixture requires an explicit read-only confirmation decision.',
+                                    'impact': 'The final reader must wait before repeating its existing confirmation.',
+                                    'decision_needed': 'Allow the existing read-only greeting confirmation?',
+                                    'options': ['Allow', 'Decline'],
+                                    'proposed_delta': 'No goal, scope, criterion, or behavior change.'})
+    commands = [json.loads(line)['item'] for line in captured.getvalue().splitlines()
+                if json.loads(line).get('type') == 'item.completed']
+    rows = [{'type': 'step_start', 'sessionID': session,
+             'part': {'id': 'start', 'messageID': 'message'}}]
+    for item in commands:
+        rows.append({'type': 'tool_use', 'sessionID': session,
+                     'part': {'id': item['id'], 'messageID': 'message', 'tool': 'bash',
+                              'state': {'status': 'completed', 'input': {'command': item['command']},
+                                        'metadata': {'exit': item['exit_code']},
+                                        'output': item['aggregated_output']}}})
+    rows += [{'type': 'text', 'sessionID': session,
+              'part': {'id': 'report', 'messageID': 'message', 'text': json.dumps(report)}},
+             {'type': 'step_finish', 'sessionID': session,
+              'part': {'id': 'finish', 'messageID': 'message', 'reason': 'stop',
+                       'tokens': {'input': 10, 'output': 10, 'reasoning': 0,
+                                  'cache': {'read': 0, 'write': 0}}}}]
+    for row in rows:
+        print(json.dumps(row), flush=True)
+"""
+
+
+class MixedRoleTransportTaskRunTests(unittest.TestCase):
+    """Real public CLI, approval, concrete fake commands and retained session/report parsing.
+
+    Provider executables are deterministic scripts with disjoint catalogues. No
+    controller/configure/admission/report function or result is mocked. This is
+    ordinary transport qualification, never native isolation or image acceptance.
+    """
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="mixed-role-taskrun-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.workspace = self.root / "project"
+        self.workspace.mkdir()
+        subprocess.run(["git", "init", "-q", self.workspace], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                self.workspace,
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "base",
+            ],
+            check=True,
+        )
+        binary = self.root / "bin"
+        binary.mkdir()
+        self.log = self.root / "provider-operations.jsonl"
+        self.log.write_text("")
+        script = _MIXED_TRANSPORT_FIXTURE.replace("__LOG__", str(self.log)).replace(
+            "__FIXTURE__", str(HERE / "live_fixture_provider.py")
+        )
+        for name in ("opencode", "kilocode"):
+            executable = binary / name
+            executable.write_text(script)
+            executable.chmod(0o755)
+        config_dir = self.root / "config" / "autocode" / "providers"
+        config_dir.mkdir(parents=True)
+        self.config = config_dir / "kilocode.toml"
+        self.config.write_text(
+            'name = "kilocode"\ncommand = ["kilocode", "run", "--model", "{model}", "--effort", "{effort}", '
+            '"--report", "{report}"]\nprompt = "stdin"\noutput = "opencode_events"\n'
+            'resume = ["--session", "{session}"]\nmodels_command = ["kilocode", "models"]\n'
+            'version_command = ["kilocode", "--version"]\n[roles]\n'
+            + "\n".join(
+                f'{role} = {{ model = "fixture-claude", effort = "high" }}'
+                for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
+            )
+            + "\n"
+        )
+        self.env = {
+            "PATH": f"{binary}{os.pathsep}{os.environ['PATH']}",
+            "HOME": str(self.root / "home"),
+            "XDG_CONFIG_HOME": str(self.root / "config"),
+            "XDG_DATA_HOME": str(self.root / "data"),
+            "XDG_CACHE_HOME": str(self.root / "cache"),
+            "AUTOCODE_HOME": str(self.root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "OPENCODE_PURE": "1",
+        }
+        self.options = (
+            "--evidence-provenance",
+            "fake",
+            "--engine",
+            "opencode",
+            "--provider",
+            "opencode",
+            "--joint-planning",
+            "--no-adaptive-planning",
+            "--reasoning-effort",
+            "high",
+            "--requirements-model",
+            "zai-coding-plan/glm-5.3-flash",
+            "--requirements-reasoning-effort",
+            "high",
+            "--glm-model",
+            "zai-coding-plan/glm-5.3",
+            "--glm-reasoning-effort",
+            "high",
+            "--terra-model",
+            "zai-coding-plan/glm-5.3",
+            "--plan-reviewer-model",
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--plan-reviewer-reasoning-effort",
+            "high",
+            "--resolver-model",
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "--resolver-reasoning-effort",
+            "high",
+            "--astra-model",
+            "fixture-claude",
+            "--sol-model",
+            "fixture-claude",
+            "--completion-model",
+            "fixture-claude",
+            "--pin-model-role",
+            "astra",
+            "--pin-model-role",
+            "terra",
+            "--pin-model-role",
+            "sol",
+            "--pin-model-role",
+            "completion",
+            "--max-parallel-builders",
+            "1",
+            "--allow-uncontained-tools",
+        )
+        self.start_options = tuple(
+            value for role in ("astra", "sol", "completion") for value in ("--role-transport", role + "=kilocode")
+        )
+
+    def operations(self, kind=None):
+        values = [json.loads(line) for line in self.log.read_text().splitlines()]
+        return [row for row in values if kind is None or row["operation"] == kind]
+
+    def start(self):
+        return taskrun.TaskRun.start(
+            self.workspace, BRIEF, options=self.options, start_options=self.start_options, env=self.env, timeout=300
+        )
+
+    def test_public_start_approval_stage_dispatch_reports_sessions_and_reattach(self):
+        run = self.start()
+        before = run.status()
+        self.assertEqual("approve_plan", before["needs"]["kind"], before)
+        self.assertEqual("zai-coding-plan/glm-5.3-flash", before["routes"]["requirements"]["model"])
+        self.assertEqual("zai-coding-plan/glm-5.3", before["routes"]["glm"]["model"])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", before["routes"]["plan_reviewer"]["model"])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", before["routes"]["resolver"]["model"])
+        self.assertEqual("fixture-claude", before["routes"]["sol"]["model"])
+        # Reattach without repeating the immutable start-only selection.
+        attached = taskrun.TaskRun(self.workspace, run.run_dir, options=self.options, env=self.env, timeout=300)
+        attached.approve_plan(before["needs"]["token"])
+        held = attached.advance_until_input()
+        self.assertEqual("answer", held["needs"]["kind"], held)
+        self.assertEqual("permission", held["needs"]["request_kind"])
+        question = held["needs"]["questions"][0]
+        attached.answer(question["id"], "Allow")
+        result = attached.advance_until_input()
+        self.assertEqual("TASK_COMPLETE", result["status"], result)
+        self.assertEqual(before["routes"], result["routes"])
+        launches = self.operations("launch")
+        self.assertTrue(launches)
+        self.assertTrue(all(row["effort"] == "high" and row["session"] for row in launches))
+        self.assertTrue(all(row["session"].startswith(row["tool"] + "_") for row in launches))
+        self.assertTrue(all(row["resume_session"] in (None, row["session"]) for row in launches))
+        expected = {
+            "requirements_gather": ("opencode", "zai-coding-plan/glm-5.3-flash"),
+            "astra_discovery": ("opencode", "zai-coding-plan/glm-5.3"),
+            "astra_challenge": ("opencode", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
+            "terra": ("opencode", "zai-coding-plan/glm-5.3"),
+            "sol": ("kilocode", "fixture-claude"),
+            "astra_review": ("kilocode", "fixture-claude"),
+        }
+        for stage, wanted in expected.items():
+            actual = [row for row in launches if row["stage"] == stage]
+            self.assertTrue(actual, stage)
+            self.assertTrue(all((row["tool"], row["model"]) == wanted for row in actual), actual)
+        readers = [row for row in launches if row["stage"] == "astra_review"]
+        self.assertEqual(2, len(readers), readers)
+        self.assertEqual("kilocode", readers[0]["tool"])
+        self.assertIsNone(readers[0]["resume_session"])
+        self.assertEqual(readers[0]["session"], readers[1]["resume_session"])
+        self.assertEqual(readers[0]["session"], readers[1]["session"])
+        self.assertIn("--session", readers[1]["argv"])
+        self.assertNotIn(readers[0]["session"], {row["session"] for row in launches if row["tool"] == "opencode"})
+        catalogues = self.operations("models")
+        self.assertTrue(any(row["tool"] == "opencode" for row in catalogues))
+        self.assertTrue(any(row["tool"] == "kilocode" for row in catalogues))
+        self.assertTrue(all("fixture-claude" not in row["models"] for row in catalogues if row["tool"] == "opencode"))
+        evidence = attached.evidence_report()["document"]
+        stages = {row["stage"]: row for row in evidence["attempts"] if not row["runner_owned"]}
+        self.assertEqual("fixture-claude", stages["sol"]["model"])
+        self.assertEqual(0, stages["sol"]["exit_code"])
+        self.assertEqual("TASK_COMPLETE", taskrun.TaskRun.attach(self.workspace, env=self.env).status()["status"])
+
+    def test_saved_override_and_selected_identity_drift_refuse_before_any_launch(self):
+        run = self.start()
+        launches = len(self.operations("launch"))
+        saved = taskrun.TaskRun(
+            self.workspace, run.run_dir, options=(*self.options, *self.start_options), env=self.env, timeout=300
+        )
+        with self.assertRaisesRegex(taskrun.TaskRunError, "only available when starting a new run"):
+            saved.advance()
+        self.assertEqual(launches, len(self.operations("launch")))
+        attached = taskrun.TaskRun(self.workspace, run.run_dir, options=self.options, env=self.env, timeout=300)
+        attached.approve_plan(run.status()["needs"]["token"])
+        # Change only the owned fake CLI config; never private checkpoint bytes.
+        self.config.write_text(self.config.read_text() + "\n# changed fake identity\n")
+        self.assertEqual("PAUSED_TRANSPORT_CHANGED", attached.advance()["status"])
+        self.assertEqual(launches, len(self.operations("launch")))
 
 
 if __name__ == "__main__":

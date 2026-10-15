@@ -15,13 +15,18 @@ Callers pass the resolver services, so this module imports nothing from the runn
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_util as util
 except ImportError:
     import autocode_util as util
 
 
-def close(state, ids, reason, *, current, supersede):
+def close(state: RunState, ids, reason, *, current, supersede):
     """Close each named open finding as the user's decision. Raises ValueError and changes nothing on bad input."""
     reason = (reason or "").strip()
     if not reason:
@@ -53,6 +58,6 @@ def close(state, ids, reason, *, current, supersede):
     )
     asked = set(((published or {}).get("request") or {}).get("finding_ids") or [])
     if asked & set(named) and supersede(state, "The user closed findings this request asked about"):
-        state.update(status="RUNNING", phase="EXECUTING")
+        state.update({"status": "RUNNING", "phase": "EXECUTING"})
         state.pop("stop_reason", None)
     return named

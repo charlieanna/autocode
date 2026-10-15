@@ -85,8 +85,8 @@ class ProviderRegistryTests(unittest.TestCase):
             # A model outside every declared route refuses before any auth probe;
             # declared Gateway models instead require their own OAuth login below.
             with mock.patch.dict(os.environ, {**base, "FAKE_LOGIN_OUTPUT": ""}, clear=True):
-                unrelated = {"astra": {"model": "anthropic/claude-sonnet-4"}}
-                with self.assertRaisesRegex(RuntimeError, "no subscription route for anthropic/claude-sonnet-4"):
+                unrelated = {"astra": {"model": "unconfigured/model"}}
+                with self.assertRaisesRegex(RuntimeError, "no subscription route for unconfigured/model"):
                     provider.check_subscription_routes(unrelated, Path(temp))
 
     def test_bundled_kilo_plan_and_gateway_routes_require_their_own_login(self):
@@ -95,6 +95,7 @@ class ProviderRegistryTests(unittest.TestCase):
             ("zai-coding-plan/glm-5.3", "Z.AI Coding Plan", "api"),
             ("zhipuai-coding-plan/glm-5.3", "Zhipu AI Coding Plan", "api"),
             ("kilo/z-ai/glm-5.3", "Kilo Gateway", "oauth"),
+            ("anthropic/claude-opus-5-5", "Anthropic", "api"),
         )
         with tempfile.TemporaryDirectory() as temp:
             binary = Path(temp) / "bin"
