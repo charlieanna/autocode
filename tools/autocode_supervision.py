@@ -148,7 +148,8 @@ class _LaunchEnvelope:
             require(
                 type(tree) is processes.ProcessTree
                 and tree.pid == child.pid
-                and tree.capture_root() == metadata["provider"],
+                # The admitted identity also records SID; the tree root carries only birth fields.
+                and tree.capture_root() == processes.identity(metadata["provider"]),
                 "actual supervisor root birth differs",
             )
         return {

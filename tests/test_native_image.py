@@ -126,7 +126,9 @@ class NativeImageConfigTests(unittest.TestCase):
             "environment_config_hashes": {},
         }
         self.environment = {"PATH": str(self.binary.parent) + ":/usr/bin:/bin", "HOME": str(self.root / "unused-auth")}
-        identity.update(opencode.configuration_identity(self.root, env=self.environment))
+        # Qualify on the same simulated macOS host that prepare() launches on.
+        with patch.object(containment.sys, "platform", "darwin"):
+            identity.update(opencode.configuration_identity(self.root, env=self.environment))
         self.profile = {
             "version": 1,
             "mode": "isolated-builtin-openai",
