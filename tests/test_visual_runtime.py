@@ -667,9 +667,12 @@ class VisualRuntimeTests(unittest.TestCase):
             self.assertEqual("SCOPED_VERIFIED", result["status"])
             self.assertTrue(result["scope_all_accepted"])
             self.assertFalse(result["current_all_accepted"])
+            # Without runner CODE, projection stays lock-free UNKNOWN — not NOT_READY (#1255).
             unknown = visual.projection(self.state, current_snapshot=self.snapshot())
-            self.assertEqual("NOT_READY", unknown["status"])
-            self.assertFalse(unknown["current_all_accepted"])
+            self.assertEqual("UNKNOWN", unknown["status"])
+            self.assertIsNone(unknown["current_all_accepted"])
+            self.assertIn("lock-free", unknown["reason"])
+            self.assertIsNone(visual.completion_check(self.state, current_snapshot=self.snapshot())["passed"])
             self.assertFalse(
                 visual.completion_check(
                     self.state, current_snapshot=self.snapshot(), scope_authority=self.controlled_scope_authority
@@ -1686,6 +1689,40 @@ class VisualRuntimeTests(unittest.TestCase):
         status = json.loads(output.getvalue())
         self.assertFalse(status["completion_current"])
         self.assertEqual(0, status["view"]["efficiency"]["delivery"]["verified_deliveries"])
+
+    def test_scoped_status_reports_visual_acceptance_unknown_without_claiming_not_ready(self):
+        # #1255: public --status is lock-free. A scoped native run without the
+        # runner's CODE scope authority must not report NOT_READY / false
+        # completion_current; acceptance stays unknown until the runner binds it.
+        self.install_test_only_scope()
+        self.state.update(status="TASK_COMPLETE", iteration=1, sessions={}, final_decision={})
+        output = io.StringIO()
+        with (
+            self.owned_fixture_snapshot(),
+            patch.object(autocode.completion_gate, "completion_ready", return_value=True),
+            patch.object(autocode.support, "snapshot", return_value=self.snapshot()),
+            patch.object(source_scope, "snapshot", return_value=self.snapshot()),
+            contextlib.redirect_stdout(output),
+        ):
+            autocode_status_command.render(
+                autocode,
+                self.state,
+                SimpleNamespace(run_dir=self.run, engine="opencode", inspect_evidence=False, explain=False),
+                self.root,
+                self.run,
+            )
+        status = json.loads(output.getvalue())
+        # Functional gates may pass; scoped visual proof stays unknown, not false.
+        self.assertIsNone(status["completion_current"])
+        projection = visual.projection(self.state, current_snapshot=self.snapshot())
+        self.assertEqual("UNKNOWN", projection["status"])
+        self.assertIsNone(projection["current_all_accepted"])
+        self.assertIn("lock-free", projection["reason"])
+        # Efficiency keeps inventory UNKNOWN rows; empty authority payload is not "invalid".
+        summary = status["view"]["efficiency"]["visual"]
+        self.assertIsNone(summary["current_all_accepted"])
+        self.assertIn("lock-free", summary["reason"])
+        self.assertNotIn("invalid trusted visual projection", summary["reason"])
 
 
 class VisualRuntimeCliTests(unittest.TestCase):
