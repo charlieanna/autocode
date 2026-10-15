@@ -177,6 +177,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292).
+
 - A CLI test that hits the subprocess fixture's 240-second deadline now reports what the killed CLI had printed:
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
