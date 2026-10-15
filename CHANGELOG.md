@@ -140,6 +140,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
+  never writes completion metadata into an unrelated file that reused the descriptor (#1278).
+
 - The lazy-validator scenario now requires the Validator attempt and its recorded
   citation refusal; empty run evidence and unrelated pauses cannot pass (#1142).
 

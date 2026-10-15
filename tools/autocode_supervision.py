@@ -266,6 +266,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     callback_child_fd = callback_child.fileno()
     launch_nonce = uuid.uuid4().hex
     owned_fds = {control_r, control_w, ack_r, ack_w, release_r, release_w}
+    owned_fds_lock = threading.Lock()
     keeper = child = None
     metadata = None
     stopped = threading.Event()
@@ -281,9 +282,18 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     keeper_stderr_path = Path(path).parent / f"keeper-stderr-{uuid.uuid4().hex[:12]}.log"
 
     def close_fd(fd):
-        if fd in owned_fds:
-            owned_fds.remove(fd)
-            os.close(fd)
+        with owned_fds_lock:
+            if fd in owned_fds:
+                owned_fds.remove(fd)
+                os.close(fd)
+
+    def send_owned(fd, value):
+        # The watchdog may revoke the writer while the caller reaps its provider.
+        # Its number can already belong to another file: checking ownership and
+        # writing must be atomic with close, rather than merely ignoring EBADF.
+        with owned_fds_lock:
+            if fd in owned_fds:
+                _send(fd, value)
 
     try:
         # The parent's handle closes right after the spawn (Popen dups it for
@@ -486,7 +496,7 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         with suppress(BrokenPipeError):
             # A fast normal provider may already have been cleaned and its
             # keeper exited. The final receipt and exit status below decide.
-            _send(control_w, {"finished": metadata["nonce"]})
+            send_owned(control_w, {"finished": metadata["nonce"]})
         close_fd(control_w)
         try:
             keeper.wait(timeout=8)
@@ -514,7 +524,9 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
     finally:
         # Closing the only writer is authoritative owner loss. The bootstrap
         # also sees EOF if setup failed before provider release.
-        for fd in tuple(owned_fds):
+        with owned_fds_lock:
+            remaining_fds = tuple(owned_fds)
+        for fd in remaining_fds:
             close_fd(fd)
         if keeper is not None:
             try:
