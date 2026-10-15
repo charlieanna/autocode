@@ -156,6 +156,7 @@ PR template asks for an entry here; a change without one is incomplete.
   off for the run (#935), every CLI process a test launched compiled the ~330 runtime modules from source,
   about three quarters of a `--status` query's CPU, which on a loaded parallel run can push the concurrent
   task-workspace test past its 10-second status limit. Nothing writes bytecode during the run (#999).
+- Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
