@@ -84,22 +84,28 @@ def merge(project: Path, tree: Path, *, into: str | None = None) -> tuple[bool, 
     return True, f"merged {branch} into {target}"
 
 
-def cli(argv) -> int:
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode merge` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         prog="autocode merge",
         description="Merge a delivered task worktree's branch into the branch the run started from.",
     )
-    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="The project (or one of its task worktrees)")
-    parser.add_argument(
+    result.add_argument("--workspace", type=Path, default=Path.cwd(), help="The project (or one of its task worktrees)")
+    result.add_argument(
         "--into", default=None, help="Branch to merge into (default: the base branch the run started from)"
     )
-    parser.add_argument(
+    result.add_argument(
         "worktree",
         nargs="?",
         default=None,
         help="The task worktree to merge (default: the only one under .autocode/worktrees)",
     )
-    args = parser.parse_args(argv)
+    return result
+
+
+def cli(argv) -> int:
+    arguments = parser()
+    args = arguments.parse_args(argv)
     try:
         project = Path(_git(args.workspace, "rev-parse", "--show-toplevel")).resolve()
         data = workspaces.metadata(project)
@@ -115,10 +121,10 @@ def cli(argv) -> int:
                 if p.parent == parent and worktrees._task_branch(p, legacy=True)
             )
             if len(trees) != 1:
-                parser.error("name the worktree to merge; there is not exactly one task worktree")
+                arguments.error("name the worktree to merge; there is not exactly one task worktree")
             tree = trees[0]
     except (OSError, ValueError, json.JSONDecodeError) as error:
-        parser.error(str(error))
+        arguments.error(str(error))
     ok, message = merge(project, tree, into=args.into)
     print(message)
     return 0 if ok else 1

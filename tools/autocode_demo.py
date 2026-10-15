@@ -216,15 +216,21 @@ def run_demo(root: Path) -> dict:
     return record
 
 
-def cli(argv=None) -> int:
-    parser = argparse.ArgumentParser(
+def parser() -> argparse.ArgumentParser:
+    """The arguments `autocode demo` reads; `autocode completion` reads them too."""
+    result = argparse.ArgumentParser(
         prog="autocode demo",
         description="Watch an offline plan, approval, build and completion gate with a fake provider.",
     )
-    parser.add_argument(
+    result.add_argument(
         "--directory", type=Path, help="Create a new demo directory here (default: a fresh temporary directory)."
     )
-    args = parser.parse_args(argv)
+    return result
+
+
+def cli(argv=None) -> int:
+    arguments = parser()
+    args = arguments.parse_args(argv)
     try:
         if args.directory is None:
             root = Path(tempfile.mkdtemp(prefix="autocode-demo-")).resolve()
