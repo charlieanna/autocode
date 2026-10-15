@@ -292,6 +292,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
+- The Resolver now climbs its effort ladder: a Resolver report still rejected once report repair is spent, or
+  an uncertain Resolver attempt the operator abandons, moves the Resolver from GPT-6 Astra High to XHigh and
+  then Max with a fresh session, and records a `reasoning_escalations` event. The ladder was keyed to the
+  `astra` route, so the Resolver (which runs on its own `resolver` route) stayed on High, while the
+  per-task Planner on the `astra` route climbed GPT-6 Astra against the 2026-09-28 decision; it no longer
+  does. Saved runs read a ladder persisted under `astra` as the Resolver's, with no state migration. A
+  recovery packet bound before a climb still holds after it, so the climbed attempt meets the packet's usual
+  causal-progress check (`--retry-failed-stage` authorizes one attempt) instead of a stale handoff. Under
+  `--max-cost-usd`, a Resolver climb is priced before its attempt launches, as every climb is (#611, #1345).
+  `autocode models` and doctor now name the `astra` route "Resolver and per-task Planner", and the docs say
+  which runs take `--resolver-model` (OpenCode-engine runs) and which seed the Resolver from `--astra-model`.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).
