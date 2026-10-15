@@ -64,15 +64,34 @@ def iteration_limit_reached(iteration, ceiling):
 
 def run(runner, args, state, state_path, run_dir, workspace):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
-    model_preflight.check(runner, state, run_dir, workspace)
 
-    def before_code_stage(current):
+    def consume_boundary(current):
         try:
             if runner.consume_interventions(current, run_dir, workspace):
                 print(f"{current['status']}: {current['stop_reason']}")
                 raise runner.orchestrator.LoopExit(2)
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
+
+    def before_probe():
+        consume_boundary(state)
+        if (run_dir / "pause-requested").exists():
+            raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous model access probe saved")
+
+    try:
+        model_preflight.check(
+            runner,
+            state,
+            run_dir,
+            workspace,
+            checkpoint=lambda: runner.write_json(state_path, state),
+            before_probe=before_probe,
+        )
+    except runner.orchestrator.LoopExit as stopped:
+        return stopped.code
+
+    def before_code_stage(current):
+        consume_boundary(current)
         regression.before_review(current, None, workspace, run_dir)
         try:
             launch_inputs.guard(current, workspace, run_dir)

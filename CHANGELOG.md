@@ -157,6 +157,7 @@ PR template asks for an entry here; a change without one is incomplete.
   not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
   link now opens that pane at every width rather than focusing the hidden plan rail. Reviewed and approved plans
   keep their presentation and chat-only approval controls (#1056).
+- Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
   never writes completion metadata into an unrelated file that reused the descriptor (#1278).
