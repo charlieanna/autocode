@@ -40,6 +40,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
     from . import autocode_stop as stop
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_run_records as records
     import autocode_stop as stop
@@ -322,16 +324,9 @@ def admit(runner, args, parser, state, state_path, run_dir, workspace, decided):
         print(f"Input rejected: {error}", file=sys.stderr)
         return 2
     if state["settings"].get("engine") == "opencode":
-        routes = {
-            r: config
-            for r, config in state["settings"]["roles"].items()
-            if planning.engine_for(state["settings"], r) == "opencode"
-        }
-        inventory = getattr(args, "_model_inventory", None)
-        if inventory is None:
-            runner.opencode.check_models(routes, workspace)
-        else:
-            inventory.check_models(routes)
+        role_transport.check_models(
+            state["settings"], runner.opencode, workspace, inventory=getattr(args, "_model_inventory", None)
+        )
     if conversation_ingress.record_build_start(
         state, getattr(args, "expected_goal_token", None), token_for=goals.token, is_approved=goals.approved
     ):

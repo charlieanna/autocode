@@ -81,6 +81,32 @@ assert.doesNotMatch(planText(recorded),/6 roles|Independent|PASS|Accepted/,'conf
 assert.match(planText(planContext.planModelDetails({run:'r'})),/No saved model routes recorded/,'missing routes remain explicitly unavailable');
 console.log('Saved Plan title, distinct outcome and honest model-route inspection checks passed.');
 
+// The visible Plan must show the actual current conversation draft selected
+// before final review installs a goal contract. Viewing it grants no approval.
+const draftNode=(tag,text='')=>({tagName:tag.toUpperCase(),textContent:text,children:[],dataset:{},
+ append(...items){this.children.push(...items);},replaceChildren(...items){this.children=[...items];},setAttribute(name,value){this[name]=value;}});
+const draftHost=draftNode('div');
+const draftContext=vm.createContext({$:()=>draftHost,n:draftNode,card:()=>draftNode('div'),
+ disclosure:(label,key,body)=>{const node=draftNode('details');node.append(draftNode('summary',label),...body);return node;},
+ renderDocument:()=>draftNode('pre','Saved earlier draft'),planEntryText:row=>row.objective||row.id,
+ taskTitle:run=>run.task,statusInfo:()=>({label:'Planning'})});
+vm.runInContext(source.slice(source.indexOf('function currentConversationDraft('),source.indexOf('function renderQuietPlanPreview(')),draftContext);
+vm.runInContext(source.slice(source.indexOf('function renderBrief('),source.indexOf('function output(')),draftContext);
+const attachedDraft={revision:8,status:'current',goal:'The current attached draft',requirements:['Preserve all work'],milestones:[{id:'M1',objective:'Verify the visible Plan'}],outstanding_questions:[{question:'Which saved checkpoint?'}],attribution:{model:'zai-coding-plan/glm-5.3',reasoning_effort:'high'},freshness:{state:'fresh',updated_at:'2026-10-12T03:00:00Z'}};
+const draftRun={run:'attached-run',task:'Original task',conversation:{id:'attached-conversation',plan_drafts:[attachedDraft],plan_gate:{architect_reviewed:false}}};
+draftContext.renderBrief(draftRun);
+assert.match(planText(draftHost),/The current attached draft/,'An attached current draft must be visible before a goal contract exists');
+assert.match(planText(draftHost),/glm-5.3 · high/);assert.match(planText(draftHost),/Preserve all work/);assert.match(planText(draftHost),/Which saved checkpoint/);
+assert.match(planText(draftHost),/Draft only.*Independent plan review and your approval are required/);
+assert.doesNotMatch(planText(draftHost),/No saved plan yet|Plan not ready yet|Reviewed & approved/);
+draftContext.renderBrief({...draftRun,goal:{revision:7,origin:'glm_draft',approval_status:'draft',body:{intended_outcome:'An older saved contract'}}});
+assert.match(planText(draftHost),/The current attached draft/);assert.doesNotMatch(planText(draftHost),/An older saved contract/);
+const reviewedGoal={revision:9,approval_status:'approved',body:{intended_outcome:'The reviewed contract',requirements:['Exact approved scope']}};
+assert.equal(draftContext.runPlanDraft({...draftRun,goal:reviewedGoal}).goal,'The reviewed contract','An approved contract remains authoritative without a pending product change');
+assert.equal(draftContext.runPlanDraft({...draftRun,goal:reviewedGoal,conversation:{...draftRun.conversation,plan_gate:{pending_product_change:true}}}),attachedDraft,'A pending product change keeps the current draft separate from old approval');
+assert.equal((function buttons(node){return (node.tagName==='BUTTON'?1:0)+node.children.reduce((total,child)=>total+buttons(child),0);})(draftHost),0,'Draft inspection offers no approval or build action');
+console.log('Visible attached draft and unchanged reviewed-contract selection checks passed.');
+
 // Payload boundaries: chatting needs no project; answering never invents an
 // approval or switches the selected question. These are exercised functions.
 const payloadSource=source.slice(source.indexOf('function conversationStatus('),source.indexOf('function icon('));

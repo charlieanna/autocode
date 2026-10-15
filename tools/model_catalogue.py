@@ -20,8 +20,10 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
+    from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_role_transport as role_transport
     import autocode_roles as roles
 
 # Ladder entry points when both families are present (docs/models.md).
@@ -417,6 +419,28 @@ def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input,
     In chat the user may accept every replacement, which is written into the routes as
     --<role>-model flags would be; otherwise the run stops with the list and the flags.
     """
+    if role_transport.enabled(settings):
+        for facade, routes, _identity in role_transport.groups(settings, provider, workspace):
+            subset = {
+                **settings,
+                "roles": {role: dict(route) for role, route in routes.items()},
+                "transport_identities": {},
+            }
+            # The subgroup retains the concrete provider so the identity validator
+            # does not mistake a deliberately bounded catalogue view for a lost marker.
+            subset["provider"] = routes[next(iter(routes))].get("provider") or settings.get("provider")
+            selected = choose(
+                subset,
+                facade,
+                workspace,
+                interactive=interactive,
+                ask=ask,
+                out=out,
+                inventory=inventory if facade is provider else None,
+            )
+            for role, route in selected["roles"].items():
+                settings["roles"][role]["model"] = route["model"]
+        return settings
     roles = {
         role: route
         for role, route in settings.get("roles", {}).items()

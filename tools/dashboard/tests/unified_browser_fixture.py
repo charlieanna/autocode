@@ -403,6 +403,9 @@ def scenario_states(workspace):
         "pending-answer": pending_answer,
         "unavailable-model": unavailable_model,
     }
+    states["flow-attached-draft"] = base_state(
+        workspace, "Attached draft awaiting independent review", status="RUNNING", stage="astra_plan", role="glm"
+    )
     # Isolated copies make the three full browser flows independently
     # repeatable: a successful answer, approval, start, or recovery in one
     # viewport cannot become hidden state for another viewport's evidence.
@@ -544,6 +547,76 @@ def scenario_states(workspace):
     return states
 
 
+def attach_plan_draft_fixture(workspace, run, state):
+    """Fixture-only draft context; no model execution or goal approval."""
+    import autocode_conversation as conversation_protocol
+    import autocode_conversation_ingress as conversation_ingress
+
+    routes = copy.deepcopy(conversation_model_fields()["conversation_routes"])
+    document = {
+        "id": "10561056105610561056105610561056",
+        "title": "Attached draft awaiting independent review",
+        "created_at": FIXTURE_NOW,
+        "messages": [{
+            "id": "fixture-draft-human-1",
+            "role": "user",
+            "speaker": "You",
+            "text": "Keep human actions in chat and preserve project-scoped saved work.",
+            "created_at": FIXTURE_NOW,
+            "status": "received",
+            "client_request_id": "fixture-draft-request-1",
+            "logical_turn_id": "fixture-draft-turn-1",
+            "in_reply_to": None,
+        }],
+        "configured_routes": routes,
+        "requirements": {"revisions": [], "provenance": []},
+        "drafts": [],
+        "plan_drafts": [{
+            "id": "fixture-attached-plan-draft-1",
+            "revision": 1,
+            "created_at": FIXTURE_NOW,
+            "status": "current",
+            "goal": "Draft the attached conversation before independent review",
+            "requirements": [
+                "Keep human actions in this conversation.",
+                "Preserve project-scoped saved work.",
+            ],
+            "milestones": ["Inspect the repository before finalizing the plan."],
+            "parallelism": [],
+            "outstanding_questions": ["Which existing behaviors must remain unchanged?"],
+            "requirements_revision": 1,
+            "logical_turn_id": "fixture-draft-turn-1",
+            "attribution": {"role": "planner", **routes["planner"]},
+            "freshness": {"state": "fresh", "updated_at": FIXTURE_NOW},
+        }],
+    }
+    # Remove inherited reviewed/completed specimen data before projecting this
+    # attached, pre-review draft. The saved draft itself grants no authority.
+    for key in (
+        "goal_contract", "displayed_goal", "planning", "planning_history",
+        "validation", "active_runner_check", "current_task", "criteria_revision",
+        "pending_questions", "answers", "user_request", "human_request",
+        "user_events", "approval_event", "completed_at", "completion",
+        "completion_record", "_fixture_accepted", "_fixture_verification",
+        "active_stage", "progress_messages",
+    ):
+        state.pop(key, None)
+    state.update(
+        status="RUNNING", phase="PLANNING", stage="astra_plan",
+        next_stage="astra_plan", iteration=0, stages=[], plan=[],
+        acceptance_criteria=[],
+    )
+    state["_fixture_monitor"].update(
+        objective=document["title"], active_role="glm", next_stage="astra_plan",
+        findings=[], activity=[], history=[],
+        live={"state": "none", "label": "No active worker recorded"},
+    )
+    handoff = conversation_protocol.handoff_from_document(document)
+    staged = conversation_protocol.stage_handoff(workspace, handoff)
+    state["task"] = conversation_protocol.task_text(handoff)
+    assert conversation_ingress.ingest(state, run, workspace, staged)
+
+
 def fixture_base_directory():
     # Keep temporary fixture state inside the checkout/evidence root. Tests can
     # override this location for a run-specific evidence directory.
@@ -583,6 +656,8 @@ def main():
             run = runs_root / name
             run.mkdir(parents=True)
             state.update(run_dir=str(run), task_id="browser-fixture-" + name)
+            if name == "flow-attached-draft":
+                attach_plan_draft_fixture(workspace, run, state)
             if "_fixture_saved_diff" in state:
                 (run / "saved.diff").write_text(state.pop("_fixture_saved_diff"), encoding="utf8")
             if preview_fixture and name.startswith("flow-preview-"):

@@ -360,7 +360,10 @@ class ProcessTree:
                 cleanup_error.processes = owned
                 raise
             if isinstance(error, subprocess.TimeoutExpired):
-                failure = ProcessError("Cannot verify child exit after cleanup; the workspace remains blocked")
+                failure = ProcessError(
+                    f"Cannot verify child exit: provider command {child.pid} was not reaped after cleanup; "
+                    "the workspace remains blocked"
+                )
                 failure.processes = owned
                 raise failure from error
             error.processes = owned

@@ -60,6 +60,32 @@ def _option(command, name, *, required=True):
     return command[index + 1]
 
 
+def non_shell_denied(rules):
+    """Require a final deny-default policy with no later non-Bash grants.
+
+    OpenCode retains inherited rules in its ordered response. An exact final
+    universal deny overrides every earlier category/pattern, including asks.
+    Preserve that response; a later category allowance is still a refusal.
+    """
+    if not isinstance(rules, list) or not rules:
+        return False
+    last_deny = None
+    for index, row in enumerate(rules):
+        if (
+            not isinstance(row, dict)
+            or set(row) != {"permission", "pattern", "action"}
+            or not all(isinstance(value, str) and value for value in row.values())
+            or row["action"] not in ("allow", "deny", "ask")
+        ):
+            return False
+        if row == {"permission": "*", "pattern": "*", "action": "deny"}:
+            last_deny = index
+    return last_deny is not None and all(
+        row["permission"] == "bash" or row["action"] == "deny"
+        for row in rules[last_deny + 1 :]
+    )
+
+
 def _inputs(command, environment):
     _require(
         isinstance(command, list)

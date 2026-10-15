@@ -189,6 +189,7 @@ class CommandProvider:
         if not selected:
             return None
         self.check_forbidden_environment(env)
+        timeout_seconds = auth.get("timeout_seconds", 15)
         try:
             result = env_prep.preflight_run(
                 auth["command"],
@@ -197,14 +198,22 @@ class CommandProvider:
                 require_executable=env is not None,
                 capture_output=True,
                 text=True,
-                timeout=15,
+                timeout=timeout_seconds,
             )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise RuntimeError(f"cannot verify {name} login; no provider request was launched") from error
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"cannot verify {name} login; auth listing timed out after {timeout_seconds} seconds; "
+                "no provider request was launched"
+            ) from None
+        except OSError:
+            raise RuntimeError(
+                f"cannot verify {name} login; auth listing could not start; no provider request was launched"
+            ) from None
         if result.returncode:
             hint = provider_env.withheld_hint(agent_env.withheld(os.environ)) if env is None else ""
             raise RuntimeError(
-                f"cannot verify {name} login; {auth['command'][0]} auth listing failed" + (f". {hint}" if hint else "")
+                f"cannot verify {name} login; auth listing failed (exit {result.returncode}); "
+                "no provider request was launched" + (f". {hint}" if hint else "")
             )
         summary = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout + result.stderr)
         for route in selected:
@@ -531,6 +540,9 @@ def _validate_auth(auth) -> None:
         or not all(isinstance(part, str) and part.strip() for part in command)
     ):
         raise ValueError("[auth] command must be a non-empty array of strings")
+    timeout_seconds = auth.get("timeout_seconds", 15)
+    if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 60:
+        raise ValueError("[auth] timeout_seconds must be an integer from 1 to 60")
     forbid = auth.get("forbid_env", [])
     if not isinstance(forbid, list) or not all(isinstance(item, str) and item.strip() for item in forbid):
         raise ValueError("[auth] forbid_env must be an array of environment variable names")

@@ -25,6 +25,12 @@ def resolve(name: str):
         except ImportError:  # Script-style execution from tools/.
             from providers import opencode
         return opencode
+    if name == "kilocode":
+        try:
+            from .providers import kilocode
+        except ImportError:
+            from providers import kilocode
+        return kilocode.load(name)
     try:
         from .providers import command
     except ImportError:

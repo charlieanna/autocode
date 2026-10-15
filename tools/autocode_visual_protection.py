@@ -24,11 +24,19 @@ from functools import wraps
 from pathlib import Path
 
 try:
+    from . import autocode_native_locators as native_locators
+    from . import autocode_native_stage_recovery as stage_recovery
+    from . import autocode_output_cap as output_cap
+    from .providers import opencode_events
     from . import autocode_command_receipt as command_receipts
     from . import autocode_contract_identity as contracts
+    from . import autocode_design_manifest as design_manifest
+    from . import autocode_roles as roles
     from . import autocode_native_assignment as assignments
     from . import autocode_native_capture_policy as capture_policy
+    from . import autocode_native_check_runtime as check_runtime
     from . import autocode_process as processes
+    from . import autocode_supervision as supervision
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
     from . import autocode_tool_containment as containment
@@ -41,11 +49,19 @@ try:
     from . import autocode_visual_source_transition as source_transition
     from . import autocode_writer_barrier as barriers
 except ImportError:
+    import autocode_native_locators as native_locators
+    import autocode_native_stage_recovery as stage_recovery
+    import autocode_output_cap as output_cap
+    from providers import opencode_events
     import autocode_command_receipt as command_receipts
     import autocode_contract_identity as contracts
+    import autocode_design_manifest as design_manifest
+    import autocode_roles as roles
     import autocode_native_assignment as assignments
     import autocode_native_capture_policy as capture_policy
+    import autocode_native_check_runtime as check_runtime
     import autocode_process as processes
+    import autocode_supervision as supervision
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_tool_containment as containment
@@ -481,7 +497,8 @@ class NativeProtection:
 
     @_technical_hold
     def __init__(
-        self, workspace, run_dir, *, run_handle, checkout_handle, start_state, snapshot, activation_intent=None
+        self, workspace, run_dir, *, run_handle, checkout_handle, start_state, snapshot, activation_intent=None,
+        planning_abandonment_intent=None,
     ):
         start_approved = _contract_approved(start_state)
         self.workspace = Path(workspace).absolute()
@@ -565,7 +582,11 @@ class NativeProtection:
                 "initial native activation inputs changed or are absent; no legacy adoption",
             )
         self._chain()
-        self._source_continuity(snapshot)
+        if planning_abandonment_intent is None:
+            self._source_continuity(snapshot)
+        else:
+            record = stage_recovery.constructor_record(planning_abandonment_intent, start_state)
+            self.planning_abandonment(start_state, record, snapshot=snapshot, commit=False)
 
     @_technical_hold
     def require_planning_origin(self, state, *, snapshot):
@@ -576,6 +597,106 @@ class NativeProtection:
         self._ownership()
         self._source_continuity(snapshot)
         self._launch_binding(state, snapshot)
+
+    @_technical_hold
+    def planning_abandonment(self, state, record, *, snapshot, commit=False):
+        """Explicitly close one released readonly planning stop; never adopt its report.
+
+        A restart cannot invent an original same-process finish. This narrow
+        reconciliation instead requires the original sealed root's stopped
+        supervisor and marks the retained response rejected, under both locks.
+        """
+        goal = state.get("goal_contract") or {}
+        _require(not _contract_approved(state) and state.get("current_task") is None
+                 and goal.get("approval_status") != "approved" and not goal.get("approval_event"),
+                 "planning abandonment is preapproval only")
+        self._ownership()
+        _require(not self._active and not self._pending and not self._active_checks and not self._pending_checks,
+                 "planning abandonment cannot borrow a current native handle")
+        rows, prepared, sealed, released, finished = self._chain()
+        pending = set(prepared) - set(finished)
+        _require(len(pending) == 1 and not any(row["kind"].startswith("approval-") for row in rows),
+                 "missing sole unapproved unfinished native stage")
+        ident = next(iter(pending))
+        body = prepared[ident]["body"]
+        _require(ident in sealed and ident in released and not body["grants"]
+                 and body["boundary"]["allow_write"] is False and body["binding"]["task"] is None,
+                 "timeout lacks its original released readonly planning root")
+        current = self._launch_binding(state, snapshot)
+        _require(body["binding"] == current and snapshot == rows[0]["body"]["source"]
+                 and snapshot == self._fresh_snapshot(rows),
+                 "planning abandonment changed source, draft, settings or runtime")
+        retained = deepcopy(record)
+        after_path = Path(body["record_identity"]["after_ref"])
+        retained.update(after_ref=str(after_path), source_revision=snapshot["revision"], changed_files=[])
+        check_finished_record(body["record_identity"], history.record_identity(retained))
+        metadata = record.get("supervision") or {}
+        original_supervision = sealed[ident]["body"]["barrier"]["supervision_envelope"]["supervision"]
+        root = sealed[ident]["body"]["root"]
+        _require(metadata == original_supervision and original_supervision["provider"] == root,
+                 "timeout supervisor differs from the original sealed owner/keeper/nonce")
+        self._safe(metadata["receipt"], file=True)
+        receipt = supervision.receipt(metadata)
+        _require(isinstance(receipt, dict) and receipt.get("phase") == "stopped"
+                 and receipt.get("cause") in ("provider_stopped", "controller_finished", "stage_deadline")
+                 and not receipt.get("cleanup_error")
+                 and isinstance(receipt.get("processes"), list) and bool(receipt["processes"])
+                 and processes.matches(root, receipt.get("provider"))
+                 and receipt["provider"].get("group") == root.get("group"),
+                 "missing exact original stopped timeout supervisor")
+        _require(record.get("pid") == root["pid"]
+                 and isinstance(record.get("processes") or [], list),
+                 "saved timeout root/inventory differs from the original seal")
+        originals = [*(record.get("processes") or []), *receipt["processes"],
+                     receipt["provider"], receipt["keeper"], original_supervision["owner"]]
+        _require(any(processes.matches(root, item) for item in receipt["processes"]),
+                 "stopped supervisor lost its original root inventory")
+        _require(not processes.live_processes(originals), "original native root/keeper/descendants remain live")
+        length_hash = None
+        if state.get("status") == output_cap.STATUS:
+            _require(receipt.get("cause") in ("provider_stopped", "controller_finished"),
+                     "output limit contradicts its original collected supervisor cause")
+            _require(record.get("engine") == "opencode" and record.get("accounted") is True
+                     and record.get("timed_out") is False and record.get("exit_code") == 0
+                     and not any(record.get(key) for key in
+                                 ("report_only", "dry_run", "rejected", "abandoned", "interrupted", "supervision_errors")),
+                     "output limit is not an original collected planning stop")
+            raw_length = self._safe(record["events"], file=True).read_bytes()
+            length_hash = hashlib.sha256(raw_length).hexdigest()
+            text = raw_length.decode("utf-8")
+            _require(output_cap.terminal_transport(text), "output limit has unknown, mixed or incomplete transport")
+            rows_length = [json.loads(line) for line in text.splitlines() if line.strip()]
+            _require(output_cap.authenticated(record, opencode_events.normalized_events(rows_length)),
+                     "output limit lacks its original session and structured terminal length")
+        before = _json(self._safe(record["before_ref"], file=True).read_bytes())
+        _require(before == snapshot, "timeout before-image differs from unchanged source")
+        after_path = self._safe(str(after_path))
+        if after_path.exists():
+            _require(_json(self._safe(str(after_path), file=True).read_bytes()) == snapshot,
+                     "retained timeout after-image is stale")
+        pins = {name: util.file_hash(self._safe(name, file=True))
+                for name in (record["events"], record["before_ref"], metadata["receipt"])}
+        if length_hash is not None:
+            pins[record["events"]] = length_hash
+        for key in ("output", "reported_output"):
+            name = record.get(key)
+            if name and self._safe(name).exists():
+                pins[name] = util.file_hash(self._safe(name, file=True))
+        if length_hash is not None:
+            self._pins(pins)
+        if not commit:
+            return retained
+        if not after_path.exists():
+            util.atomic_json(after_path, snapshot)
+        pins[str(after_path)] = util.file_hash(after_path)
+        self._ownership()
+        self._pins(pins)
+        _require(snapshot == self._fresh_snapshot(rows), "source changed while reconciling the timeout")
+        retained.update(rejected=True, abandoned=True)
+        self._append("finished", {"prepared_id": ident, "record": history.record_identity(retained),
+                                  "after": deepcopy(snapshot), "possible_writes": [], "pins": pins,
+                                  "explicit_planning_abandonment": True})
+        return retained
 
     @_technical_hold
     def require_prepared_source(self, handle):
@@ -614,6 +735,7 @@ class NativeProtection:
             "pending original source/runtime changed before release",
         )
         self._pins(body["pins"])
+        self._recheck_planning_inputs(body)
         self._isolation_pins(body["native_isolation"])
 
     @staticmethod
@@ -772,6 +894,7 @@ class NativeProtection:
                     "source/runtime escaped the actual original launch continuity",
                 )
                 self._pins(body["pins"])
+                self._recheck_planning_inputs(body)
                 self._isolation_pins(body["native_isolation"])
                 prepared[row["id"]] = row
             elif kind in ("sealed", "released", "finished"):
@@ -925,6 +1048,21 @@ class NativeProtection:
             "original native executable changed",
         )
 
+    def _planning_input_pins(self, binding, record):
+        if binding["task"] is not None or record.get("stage") not in roles.ALL_PLANNING_STAGES:
+            return {}
+        pins = design_manifest.planning_input_pins(binding["settings"], role=record_route(record))
+        for name in pins:
+            path = self._safe(name, file=True)
+            _require(path.parent.parent.parent == self.workspace / ".autocode",
+                     "planning inputs are outside the original workspace input namespace")
+        return pins
+
+    def _recheck_planning_inputs(self, body):
+        pins = self._planning_input_pins(body["binding"], body["record_identity"])
+        _require(all(body["pins"].get(path) == digest for path, digest in pins.items()),
+                 "prepared planning inputs differ from their original pins")
+
     def _native_config(
         self, boundary, command, environment, state, record, native_role_isolation, *, writer_execution=None
     ):
@@ -940,6 +1078,18 @@ class NativeProtection:
         except ImportError:
             import autocode_native_conformance as native_conformance
             import autocode_native_role_isolation as isolation
+        if type(native_role_isolation) is isolation.KiloRoleIsolation:
+            descriptor = native_role_isolation.verify_launch(state=state, command=command, environment=environment,
+                                                           boundary=boundary, writer_execution=writer_execution)
+            _require(boundary["allow_write"] is False and descriptor.get("backend") == "kilocode",
+                     "Kilo reviewer cannot acquire writer or borrowed backend authority")
+            self._isolation_pins(descriptor)
+            pins = {name: util.file_hash(self._safe(name, file=True)) for name in
+                    (boundary["profile"], boundary["shell"], boundary["conformance"], boundary["client_profile"])}
+            pins.update(descriptor["files"])
+            pins.update(native_role_isolation.image_pins(record.get("visual_runtime")))
+            pins[descriptor["manifest"]] = descriptor["manifest_sha256"]
+            return pins, descriptor
         containment.verify(boundary)
         _require(
             type(native_role_isolation) is isolation.NativeRoleIsolation,
@@ -975,7 +1125,7 @@ class NativeProtection:
             record.get("engine") == "opencode"
             and boundary["workspace"] == str(self.workspace)
             and boundary["tools"] == ["bash"]
-            and _json(environment.get("AUTOCODE_TOOL_CONTAINMENT", "null")) == boundary
+            and native_locators.boundary_matches(environment.get("AUTOCODE_TOOL_CONTAINMENT", "null"), boundary)
             and environment.get("SHELL") == boundary["shell"],
             "target lost actual kernel shell boundary",
         )
@@ -1030,7 +1180,7 @@ class NativeProtection:
             and all(action in ("allow", "deny") for action in permission["bash"].values())
             and containment.shell_permissions(rules) == permission
             and list(containment.shell_permissions(rules)["bash"].items()) == list(permission["bash"].items())
-            and all(row["action"] == "deny" for row in rules if row["permission"] != "bash")
+            and native_conformance.non_shell_denied(rules)
             and config["shell"] == boundary["shell"],
             "exact effective shell-only policy changed",
         )
@@ -1559,7 +1709,15 @@ class NativeProtection:
         )
         self._pins(body["pins"])
         self._isolation_pins(descriptor)
-        return {"descriptor": deepcopy(descriptor), "boundary": deepcopy(body["boundary"])}
+        result = {"descriptor": deepcopy(descriptor), "boundary": deepcopy(body["boundary"])}
+        if descriptor.get("backend") == "kilocode":
+            sealed = [row for row in _rows if row["kind"] == "sealed" and row["body"]["prepared_id"] == original["id"]]
+            _require(len(sealed) == 1, "original Kilo image launch has no unique actual held-root seal")
+            result["source_launch_seal"] = {"prepared_sha256": util.digest(body), "prepared_id": original["id"],
+                                             "root": deepcopy(sealed[0]["body"]["root"]),
+                                             "command_sha256": body["command_sha256"],
+                                             "environment_sha256": body["environment_sha256"]}
+        return result
 
     def _check_boundary(self, body):
         boundary = body["boundary"]
@@ -1567,7 +1725,7 @@ class NativeProtection:
             return capture_policy.verify_boundary(self.workspace, self.run, body)
         _require(
             set(boundary)
-            == {
+            in ({
                 "scratch",
                 "tree",
                 "profile",
@@ -1578,7 +1736,10 @@ class NativeProtection:
                 "copy",
                 "output",
                 "result_slots",
-            },
+            }, {
+                "scratch", "tree", "profile", "profile_sha256", "setup", "runtime_roots",
+                "executables", "copy", "output", "result_slots", "node_runtime",
+            }),
             "unknown check boundary field",
         )
         scratch = self._safe(boundary["scratch"])
@@ -1595,6 +1756,11 @@ class NativeProtection:
             "check does not own this exact clean-copy boundary",
         )
         expected_roots = sorted({str(Path(sys.prefix).resolve()), str(Path(sys.base_prefix).resolve())})
+        runtime = check_runtime.inputs(self.workspace, body["binding"]["contract"]["body"],
+                                       setup=boundary["setup"])
+        _require(boundary.get("node_runtime") == runtime
+                 and ("node_runtime" in boundary) is (runtime is not None),
+                 "check Node runtime differs from original approved inputs")
         native = copies.native_git_setup(scratch) if boundary["setup"] else None
         if native is not None:
             expected_roots = sorted({*expected_roots, native["executable"]})
@@ -1656,6 +1822,7 @@ class NativeProtection:
             denied_write_paths=(() if boundary["setup"] else (tree,)),
             write_files=(output,),
         )
+        expected += check_runtime.policy(runtime)
         _require(
             profile.read_text() == expected and util.file_hash(profile) == boundary["profile_sha256"],
             "check kernel policy changed or widened",
@@ -2029,6 +2196,7 @@ class NativeProtection:
             native_role_isolation,
             **({"writer_execution": writer_execution} if boundary["allow_write"] else {}),
         )
+        pins.update(self._planning_input_pins(binding, record))
         grants = (
             containment.writer_footprint(self.workspace, boundary["write_paths"]) if boundary["allow_write"] else []
         )
@@ -2086,8 +2254,16 @@ class NativeProtection:
         def seal(actual_child, actual_tree, facts):
             self._ownership()
             self._pins(body["pins"])
+            self._recheck_planning_inputs(body)
             self._isolation_pins(body["native_isolation"])
-            containment.verify(body["boundary"])
+            if body["native_isolation"].get("backend") == "kilocode":
+                try:
+                    from .autocode_kilo_isolation import verify_boundary
+                except ImportError:
+                    from autocode_kilo_isolation import verify_boundary
+                verify_boundary(body["boundary"])
+            else:
+                containment.verify(body["boundary"])
             root = actual_tree.capture_root()
             _require(
                 actual_child is child
@@ -2128,6 +2304,7 @@ class NativeProtection:
             "original supervisor has not quiesced its actual root/descendants",
         )
         body = _json(handle.body)
+        self._recheck_planning_inputs(body)
         check_finished_record(
             body["record_identity"],
             history.record_identity(record),

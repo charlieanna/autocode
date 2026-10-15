@@ -235,11 +235,13 @@ class InProcessCommandSeamTests(unittest.TestCase):
                 commands.util, "run_process", side_effect=AssertionError("unsafe seam bypass")
             ) as seam, patch.object(
                 commands.supervision, "launch", side_effect=RuntimeError("supervisor selected")
-            ) as launch, patch.object(commands.time, "monotonic", return_value=100):
+            ) as launch, patch.object(commands.time, "monotonic", return_value=100), patch.object(
+                commands, "shell", return_value="/bin/bash"
+            ):
                 with self.assertRaisesRegex(RuntimeError, "supervisor selected"):
                     commands.run(request, self.root, self.root / f"shell-{index}.log", timeout=30, env=self.env)
                 seam.assert_not_called()
-                self.assertEqual(["/bin/sh", "-c", request], launch.call_args.args[0])
+                self.assertEqual(["/bin/bash", "-o", "pipefail", "-c", request], launch.call_args.args[0])
                 self.assertEqual(self.root, launch.call_args.kwargs["cwd"])
 
     def test_native_deadline_activity_and_admission_requests_never_use_the_seam(self):

@@ -150,18 +150,19 @@ def owned(record, recorded=()):
 
 
 def pending(record):
-    """Its keeper is still cleaning up: the receipt reads armed or stopping and a keeper is alive to finish it.
+    """An authenticated keeper is still alive within its settlement window.
 
-    A keeper that died unpublished leaves the receipt running for good; waiting for it would only delay.
+    Terminal receipts are published before the keeper exits. Wait for that exit too;
+    a keeper that died unpublished cannot finish its receipt and is not waited for.
     """
-    if settled(record) != "running":
+    if settled(record) not in {"running", "stopped", "discharged"}:
         return False
     keeper = (read(record) or {}).get("keeper")
     return _identity(keeper) and bool(processes.live_processes([keeper]))
 
 
 def await_settled(records, seconds=SETTLE_SECONDS):
-    """Wait, bounded, while any keeper is still cleaning up; a later check decides what remains."""
+    """Wait, bounded, for authenticated keepers to exit; a later check decides what remains."""
     deadline = time.monotonic() + seconds
     while any(pending(record) for record in records if record) and time.monotonic() < deadline:
         time.sleep(0.05)

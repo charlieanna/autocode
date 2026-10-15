@@ -18,6 +18,7 @@ from pathlib import Path
 try:
     from . import autocode_command_supervision as supervision
     from . import autocode_go_tests as go_tests
+    from . import autocode_native_check_runtime as check_runtime
     from . import autocode_native_launch as native_launch
     from . import autocode_native_parent as parent
     from . import autocode_node_tests as node_tests
@@ -33,6 +34,7 @@ try:
 except ImportError:
     import autocode_command_supervision as supervision
     import autocode_go_tests as go_tests
+    import autocode_native_check_runtime as check_runtime
     import autocode_native_launch as native_launch
     import autocode_native_parent as parent
     import autocode_node_tests as node_tests
@@ -296,6 +298,7 @@ class NativeCheckExecution:
     def _execute(self, command, log_path, *, timeout, setup, environment):
         facts = self._fresh()
         scope = self.scope
+        runtime = check_runtime.inputs(self.workspace, facts["binding"]["contract"]["body"], setup=setup)
         roots = sorted({str(Path(sys.prefix).resolve()), str(Path(sys.base_prefix).resolve())})
         native = copies.native_git_setup(scope["scratch"]) if setup else None
         if native is not None:
@@ -316,6 +319,7 @@ class NativeCheckExecution:
             denied_write_paths=(() if setup else (scope["tree"],)),
             write_files=(log_path,),
         )
+        policy += check_runtime.policy(runtime)
         profile.write_text(policy)
         profile.chmod(0o400)
         binaries = [
@@ -337,6 +341,7 @@ class NativeCheckExecution:
             "copy": deepcopy(scope["copy"]),
             "output": str(log_path),
             "result_slots": [str(pair[0]) for pair in scope["slots"].values()],
+            **({"node_runtime": runtime} if runtime is not None else {}),
         }
         target = ["/usr/bin/sandbox-exec", "-f", str(profile), "/bin/bash", "--noprofile", "--norc", "-c", command]
         handle = self.owner.prepare_check(

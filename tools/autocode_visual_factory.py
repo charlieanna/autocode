@@ -43,7 +43,8 @@ def _scope_json(value):
 class NativeVisualFactory:
     @protection._technical_hold
     def __init__(
-        self, workspace, run_dir, *, run_handle, checkout_handle, start_state, snapshot, activation_intent=None
+        self, workspace, run_dir, *, run_handle, checkout_handle, start_state, snapshot, activation_intent=None,
+        planning_abandonment_intent=None,
     ):
         self.protection = protection.NativeProtection(
             workspace,
@@ -53,6 +54,8 @@ class NativeVisualFactory:
             start_state=start_state,
             snapshot=snapshot,
             activation_intent=activation_intent,
+            **({"planning_abandonment_intent": planning_abandonment_intent}
+               if planning_abandonment_intent is not None else {}),
         )
         self.history = history.NativeReviewHistory(workspace, run_dir, protection=self.protection)
         self.workspace = self.protection.workspace

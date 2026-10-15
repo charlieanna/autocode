@@ -33,6 +33,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_roles as role_names
+    from . import autocode_role_transport as role_transport
     from . import autocode_route_ladder as route_ladder
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_roles as role_names
+    import autocode_role_transport as role_transport
     import autocode_route_ladder as route_ladder
     import autocode_support as support
     import autocode_task_preflight as task_preflight
@@ -117,6 +119,7 @@ def check_subscription(identity):
 
 
 def configure(args, state, *, planning, milestones, autopilot, opencode=None):
+    role_transport.guard(args, state)
     if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
         try:
             from . import autocode_replay_transport as replay_transport
@@ -361,8 +364,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                 "reasoning_effort": getattr(args, "glm_reasoning_effort", None),
             }
             settings.setdefault("transport_identities", {})["opencode"] = settings["transport_identity"]
-            opencode.check_models(settings["roles"], Path(state["workspace"]))
-            opencode.check_subscription_routes(settings["roles"], Path(state["workspace"]))
+            role_transport.check_models(settings, opencode, Path(state["workspace"]))
+            role_transport.check_subscription_routes(settings, opencode, Path(state["workspace"]))
         if joint:
             configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
         if getattr(args, "planning_v2", False):
@@ -574,6 +577,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         configure_joint(settings, args, fresh=True, planning=planning, opencode=opencode)
     if getattr(args, "conversation_handoff", None):
         planner_routes.configure_runner_profile(settings, args)
+    role_transport.configure(settings, args, state["workspace"])
     if getattr(args, "planning_v2", False):
         settings["planning_flow"] = "v2"
     if adaptive.new_run_setting(
@@ -680,11 +684,16 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         settings["roles"]["plan_reviewer"]["model"] = args.plan_reviewer_model
     if getattr(args, "plan_reviewer_reasoning_effort", None):
         settings["roles"]["plan_reviewer"]["reasoning_effort"] = args.plan_reviewer_reasoning_effort
+    if fresh:
+        role_transport.configure(settings, args, getattr(args, "workspace", None))
     configured_tool = getattr(opencode, "CONFIGURED", False)
     for role, config in settings["roles"].items():
         # One rule for a launch and for a model named at a quota stop (autocode_quota_route).
         problem = quota_route.model_problem(
-            role, config.get("model"), role_engine=planning.engine_for(settings, role), configured_tool=configured_tool
+            role,
+            config.get("model"),
+            role_engine=planning.engine_for(settings, role),
+            configured_tool=role_transport.configured(settings, role, configured_tool),
         )
         if problem:
             raise ValueError(problem)
@@ -729,7 +738,7 @@ def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None
     if opencode is None:
         opencode = autocode_opencode
     settings = state["settings"]
-    if settings.get("replay_recording"):
+    if settings.get("replay_recording") or role_transport.enabled(settings):
         return False
     if settings.get("engine") != "opencode":
         return False  # Explicit legacy --engine codex runs retain their contract.

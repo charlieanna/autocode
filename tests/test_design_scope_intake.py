@@ -489,14 +489,19 @@ class ScopedPublicCliTests(unittest.TestCase):
         view = run.status()
         self.assertEqual([self.body["cases"][0]["id"]], view["design"]["case_ids"])
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
-        retained = self.workspace / ".autocode/design-inputs" / util.digest(self.body)
+        saved = json.loads(run._invoke("status", "--status").stdout)["settings"]["design_manifest"]
+        self.assertEqual(view["design"]["manifest_hash"], saved["manifest_hash"])
+        retained = Path(saved["root"])
+        self.assertTrue(retained.resolve().is_relative_to(self.workspace / ".autocode"))
+        self.assertEqual(self.pin, saved["scope_admission"]["sha256"])
         self.assertEqual(
-            self.authority.read_bytes(), (retained / "approval" / ("approved-scope-" + self.pin + ".json")).read_bytes()
+            self.authority.read_bytes(), (retained / saved["scope_admission"]["path"]).read_bytes()
         )
         shutil.rmtree(self.path.parent)
         self.authority.unlink()
         current = run.status()
         self.assertEqual(view["design"]["case_ids"], current["design"]["case_ids"])
+        self.assertEqual(view["design"]["inventory"], current["design"]["inventory"])
         self.assertNotIn("inventory_error", current["design"])
         self.assertIsNone(
             current["design"]["current_visual_acceptance"], "Synthetic CLI retention is never native acceptance"

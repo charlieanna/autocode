@@ -35,6 +35,74 @@ import autocode_verify as verify
 import autocode_visual_protection as protection
 
 
+_FAILED_ATTEMPT_FIELDS = {
+    "admission.json": (
+        "schema", "command", "cwd", "output", "timeout_seconds", "deadline_monotonic", "supervision",
+    ),
+    "supervision.json": (
+        "schema", "nonce", "owner", "keeper", "provider", "receipt", "started_at", "phase",
+        "processes", "cause", "cleanup_error", "observed_at",
+    ),
+    "result.json": (
+        "exit_code", "timed_out", "duration_seconds", "output_sha256", "supervision_sha256",
+    ),
+}
+_FIXED_GIT = "/Library/Developer/CommandLineTools/usr/bin/git"
+_FAILURE_LOG_LIMIT = 4 * 1024 * 1024
+_FAILURE_TAIL_BYTES = 512
+
+
+def _failed_check_attempt(run, attempt):
+    """Bounded facts from one original fixture attempt; never a verdict or credential dump."""
+    metadata = {}
+    for name, keys in _FAILED_ATTEMPT_FIELDS.items():
+        path = attempt / name
+        if not path.is_file() or path.is_symlink():
+            continue
+        with path.open("rb") as stream:
+            raw = stream.read(_FAILURE_LOG_LIMIT + 1)
+        if len(raw) > _FAILURE_LOG_LIMIT:
+            raise ValueError("Owned command metadata exceeds its existing receipt limit")
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError("Owned command metadata is not an object")
+        metadata[name] = {
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "fields": {key: value[key] for key in keys if key in value},
+        }
+    admission = metadata.get("admission.json", {}).get("fields", {})
+    command = admission.get("command")
+    if isinstance(command, str) and command in {
+        shlex.join([_FIXED_GIT, *args]) for args in copies.GIT_SETUP_ARGUMENTS
+    }:
+        output = admission.get("output")
+        if not isinstance(output, str):
+            raise ValueError("Fixed setup output is missing")
+        path = Path(output)
+        if (
+            path.parent != attempt.parent.parent
+            or not path.name.startswith("setup-")
+            or path.suffix != ".log"
+            or path.is_symlink()
+            or not path.is_file()
+            or not path.resolve().is_relative_to(run)
+        ):
+            raise ValueError("Fixed setup output is outside its original owned attempt")
+        with path.open("rb") as stream:
+            raw = stream.read(_FAILURE_LOG_LIMIT + 1)
+        if len(raw) > _FAILURE_LOG_LIMIT:
+            raise ValueError("Fixed setup output exceeds its diagnostic bound")
+        result = metadata.get("result.json", {}).get("fields", {})
+        if result and result.get("output_sha256") != hashlib.sha256(raw).hexdigest():
+            raise ValueError("Fixed setup output differs from its original result")
+        metadata["fixed_setup_output"] = {
+            "bytes": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "tail": raw[-_FAILURE_TAIL_BYTES:].decode("utf-8", "replace"),
+        }
+    return metadata
+
+
 def _fault_ready_command():
     script = (
         "from pathlib import Path; import json,os,signal; "
@@ -154,43 +222,19 @@ class _ControlledNativeCheckFixture:
             self.addCleanup(self._retain_failed_check_metadata)
 
     def _retain_failed_check_metadata(self):
-        """Publish owned command metadata before this fixture's temporary cleanup.
+        """Keep bounded original failure facts before disposable fixture cleanup.
 
-        Failure diagnostics only: no state, check-log bodies, process queries or
-        new authority. The original test outcome and ownership checks remain.
+        This is diagnostic only: no state, arbitrary check-log bodies, process
+        queries or new authority. Every failure here leaves the original test
+        failure unchanged, including failures while reporting diagnostics.
         """
-        result = getattr(getattr(self, "_outcome", None), "result", None)
-        if result is None or not any(
-            test is self or getattr(test, "test_case", None) is self
-            for test, _traceback in (*result.errors, *result.failures)
-        ):
-            return
-        fields = {
-            "admission.json": (
-                "schema",
-                "command",
-                "cwd",
-                "output",
-                "timeout_seconds",
-                "deadline_monotonic",
-                "supervision",
-            ),
-            "supervision.json": (
-                "schema",
-                "nonce",
-                "owner",
-                "keeper",
-                "provider",
-                "receipt",
-                "started_at",
-                "phase",
-                "processes",
-                "cause",
-                "cleanup_error",
-                "observed_at",
-            ),
-        }
         try:
+            result = getattr(getattr(self, "_outcome", None), "result", None)
+            if result is None or not any(
+                test is self or getattr(test, "test_case", None) is self
+                for test, _traceback in (*result.errors, *result.failures)
+            ):
+                return
             attempts = sorted(
                 {
                     path
@@ -203,22 +247,7 @@ class _ControlledNativeCheckFixture:
                 }
             )
             for attempt in attempts:
-                metadata = {}
-                for name, keys in fields.items():
-                    path = attempt / name
-                    if not path.is_file() or path.is_symlink():
-                        continue
-                    with path.open("rb") as stream:
-                        raw = stream.read(4 * 1024 * 1024 + 1)
-                    if len(raw) > 4 * 1024 * 1024:
-                        raise ValueError("Owned command metadata exceeds its existing receipt limit")
-                    value = json.loads(raw)
-                    if not isinstance(value, dict):
-                        raise ValueError("Owned command metadata is not an object")
-                    metadata[name] = {
-                        "sha256": hashlib.sha256(raw).hexdigest(),
-                        "fields": {key: value[key] for key in keys if key in value},
-                    }
+                metadata = _failed_check_attempt(self.run, attempt)
                 print(
                     json.dumps(
                         {
@@ -232,20 +261,23 @@ class _ControlledNativeCheckFixture:
                     ),
                     flush=True,
                 )
-        except (OSError, ValueError) as error:
-            # Preserve the failing assertion/exception if diagnostics are unavailable.
-            print(
-                json.dumps(
-                    {
-                        "kind": "native-check-fixture-failure-metadata-unavailable",
-                        "test": self.id(),
-                        "error": type(error).__name__ + ": " + str(error),
-                        "diagnostic_only": True,
-                    },
-                    sort_keys=True,
-                ),
-                flush=True,
-            )
+        except BaseException as error:
+            # Reporting cannot replace the original failed assertion/exception.
+            try:
+                print(
+                    json.dumps(
+                        {
+                            "kind": "native-check-fixture-failure-metadata-unavailable",
+                            "test": self.id(),
+                            "error_type": type(error).__name__,
+                            "diagnostic_only": True,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+            except BaseException:
+                pass
 
     def approve(self):
         handle = self.factory.prepare_initial_approval(self.state, self.token, snapshot=self.raw)
@@ -301,6 +333,78 @@ class _ControlledNativeCheckFixture:
             self.root, self.run / "checks" / name, command=command, timeout=30, native_execution=execution
         )
         return execution, receipt
+
+
+class NativeCheckFailureDiagnosticsTests(unittest.TestCase):
+    """Failure-only projection is bounded; this does not launch an original check."""
+
+    def test_fixed_git_setup_keeps_distinct_original_causes_and_bounded_result(self):
+        with tempfile.TemporaryDirectory(prefix="native-check-diagnostic-unit-") as temporary:
+            run = Path(temporary).resolve()
+            causes = ("provider_stopped", "stage_deadline")
+            for number, cause in enumerate(causes, 1):
+                parent = run / "checks" / str(number)
+                attempt = parent / "command-supervision" / "original"
+                attempt.mkdir(parents=True)
+                output = parent / f"setup-{number}.log"
+                raw = b"prior private bytes\n" + b"x" * 600 + cause.encode()
+                output.write_bytes(raw)
+                command = shlex.join([_FIXED_GIT, *copies.GIT_SETUP_ARGUMENTS[0]])
+                (attempt / "admission.json").write_text(json.dumps({"command": command, "output": str(output)}))
+                (attempt / "supervision.json").write_text(json.dumps({"phase": "stopped", "cause": cause}))
+                (attempt / "result.json").write_text(
+                    json.dumps(
+                        {
+                            "exit_code": None,
+                            "timed_out": cause == "stage_deadline",
+                            "duration_seconds": 15.0,
+                            "output_sha256": hashlib.sha256(raw).hexdigest(),
+                            "supervision_sha256": "pinned original receipt",
+                            "tail": "SECRET_FROM_UNTRUSTED_RESULT_TAIL",
+                        }
+                    )
+                )
+                facts = _failed_check_attempt(run, attempt)
+                self.assertEqual(facts["supervision.json"]["fields"]["cause"], cause)
+                self.assertEqual(facts["result.json"]["fields"]["timed_out"], cause == "stage_deadline")
+                self.assertEqual(facts["fixed_setup_output"]["bytes"], len(raw))
+                self.assertEqual(facts["fixed_setup_output"]["sha256"], hashlib.sha256(raw).hexdigest())
+                self.assertLessEqual(len(facts["fixed_setup_output"]["tail"].encode()), _FAILURE_TAIL_BYTES)
+                self.assertNotIn("prior private bytes", json.dumps(facts))
+                self.assertNotIn("SECRET_FROM_UNTRUSTED_RESULT_TAIL", json.dumps(facts))
+
+    def test_arbitrary_check_output_and_result_tail_are_not_retained(self):
+        with tempfile.TemporaryDirectory(prefix="native-check-diagnostic-unit-") as temporary:
+            run = Path(temporary)
+            parent = run / "checks" / "actual"
+            attempt = parent / "command-supervision" / "original"
+            attempt.mkdir(parents=True)
+            output = parent / "setup-1.log"
+            output.write_text("SECRET_FROM_ARBITRARY_CHECK")
+            (attempt / "admission.json").write_text(
+                json.dumps({"command": "python3 -c 'print(1)'", "output": str(output)})
+            )
+            (attempt / "result.json").write_text(
+                json.dumps({"exit_code": None, "tail": "SECRET_FROM_RESULT", "environment": "SECRET_FROM_ENV"})
+            )
+            facts = _failed_check_attempt(run, attempt)
+            self.assertNotIn("fixed_setup_output", facts)
+            self.assertEqual(facts["result.json"]["fields"], {"exit_code": None})
+            self.assertNotIn("SECRET_FROM_", json.dumps(facts))
+            # Malformed admission fields and a broken diagnostic emitter cannot
+            # replace a failure already recorded by unittest.
+            (attempt / "admission.json").write_text(
+                json.dumps({"command": ["unhashable"], "output": str(output)})
+            )
+            self.assertNotIn("fixed_setup_output", _failed_check_attempt(run, attempt))
+            from types import SimpleNamespace
+
+            probe = SimpleNamespace(run=run, id=lambda: "original_failed_test")
+            probe._outcome = SimpleNamespace(
+                result=SimpleNamespace(errors=[(probe, "original failure")], failures=[])
+            )
+            with patch("builtins.print", side_effect=OSError("diagnostic output unavailable")):
+                _ControlledNativeCheckFixture._retain_failed_check_metadata(probe)
 
 
 class NativeCheckExecutionTests(_ControlledNativeCheckFixture, unittest.TestCase):

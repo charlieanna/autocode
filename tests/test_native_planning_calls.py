@@ -71,6 +71,7 @@ class PreparedSourceAdmissionTests(unittest.TestCase):
                 }
             },
         }
+        self.prepare_input_context()
         self.raw = util.snapshot(self.root)
         self.context = native_launch.NativeRunContext(
             self.root,
@@ -120,6 +121,9 @@ class PreparedSourceAdmissionTests(unittest.TestCase):
                 native_role_isolation=None,
             )
 
+    def prepare_input_context(self):
+        pass
+
     def launch(self, handle=None):
         return self.context.held_launch(
             handle or self.prepared,
@@ -144,6 +148,12 @@ class PreparedSourceAdmissionTests(unittest.TestCase):
                 with self.launch():
                     self.fail("tripwire must stop before process creation")
         launch.assert_called_once()
+
+    def test_unreleased_timeout_cannot_be_reconciled_as_a_stopped_original(self):
+        record = json.loads(self.prepared.body)["record_identity"]
+        with self.assertRaisesRegex(util.Paused, "current native handle|released readonly planning root"):
+            self.owner.planning_abandonment(self.state, record, snapshot=self.raw, commit=True)
+        self.assertFalse(Path(record["after_ref"]).exists())
 
     def assert_refuses_before_child(self, handle=None):
         with patch.object(supervision, "launch") as launch:
@@ -175,6 +185,60 @@ class PreparedSourceAdmissionTests(unittest.TestCase):
     def test_generic_idle_and_new_preparation_remain_strict(self):
         with self.assertRaisesRegex(util.Paused, "actual launch/check crash gap remains; no automatic backfill"):
             self.owner._source_continuity(self.raw)
+
+
+class PlanningInputPinAdmissionTests(unittest.TestCase):
+    """The real constructor derives input pins outside controlled transport."""
+
+    setUp = PreparedSourceAdmissionTests.setUp
+    launch = PreparedSourceAdmissionTests.launch
+    assert_refuses_before_child = PreparedSourceAdmissionTests.assert_refuses_before_child
+
+    def prepare_input_context(self):
+        import autocode_design_manifest as manifest
+        from tests.test_design_manifest import PlanningPartitionContextTests
+
+        path, body = PlanningPartitionContextTests.scoped_bundle(self.root / "exports")
+        approval = self.root / "approved-scope.json"
+        approval.write_text(json.dumps({
+            "version": 1, "manifest_hash": util.digest(body),
+            "approved_case_ids": [row["id"] for row in body["cases"]],
+            "approval_evidence": [{"kind": "approved_scope_decision", "sha256": "a" * 64}],
+        }))
+        args = {"approved_scope": approval, "approved_scope_sha256": util.file_hash(approval)}
+        self.inputs = manifest.retain(manifest.load(path, **args), self.root, **args)
+        self.state["settings"]["design_manifest"] = self.inputs
+
+    def test_owner_computed_inputs_are_sealed_without_transport_supplied_pins(self):
+        import autocode_design_manifest as manifest
+
+        pins = manifest.planning_input_pins(self.state["settings"], role="glm")
+        self.assertEqual(2, len(pins))
+        prepared = json.loads(self.prepared.body)
+        self.assertEqual(pins, {path: prepared["pins"][path] for path in pins})
+        self.assertEqual(self.inputs, prepared["binding"]["settings"]["design_manifest"])
+        with patch.object(supervision, "launch", side_effect=RuntimeError("input admission tripwire")) as launch:
+            with self.assertRaisesRegex(RuntimeError, "input admission tripwire"):
+                with self.launch():
+                    self.fail("tripwire must stop before child creation")
+        launch.assert_called_once()
+
+    def test_prepared_catalog_replacement_refuses_before_child(self):
+        path = Path(self.inputs["root"]) / "planning-catalog.json"
+        original = path.read_bytes()
+        path.unlink()
+        path.write_bytes(b"0" * len(original))
+        path.chmod(0o400)
+        self.assert_refuses_before_child()
+
+    def test_same_bytes_writable_catalog_refuses_before_child_and_retained_replay(self):
+        path = Path(self.inputs["root"]) / "planning-catalog.json"
+        original = path.read_bytes()
+        path.chmod(0o600)
+        self.assertEqual(original, path.read_bytes())
+        self.assert_refuses_before_child()
+        with self.assertRaises((ValueError, util.Paused)):
+            self.owner._chain_cold()
 
 
 class ParentSinkFailureTests(unittest.TestCase):
@@ -466,7 +530,7 @@ class OuterParentDispositionTests(unittest.TestCase):
                 return_value={"scope": "goal_approval", "request_id": "controlled-issued-request"},
             ),
             patch.object(runner.run_actions.lifecycle, "present", return_value="Controlled approved plan"),
-            patch.object(runner.run_actions.autopilot, "publish_handoffs"),
+            patch.object(runner.run_actions.action_decisions.autopilot, "publish_handoffs"),
         ):
             return runner.run_setup.run_locked(
                 proxy, args, parser, self.state, self.path, self.run, self.run, native=calls, checkout_owned=True
@@ -905,6 +969,8 @@ class InitialIntentAndScopeTests(unittest.TestCase):
     def test_final_output_and_capture_environment_precede_native_seal_preparation(self):
         authority = object.__new__(isolation.NativeRoleIsolation)
         authority.containment_request = lambda **kwargs: {}
+        descriptor = {"manifest": "/controlled/native-manifest.json", "manifest_sha256": "a" * 64}
+        authority._descriptor = descriptor  # Controlled loader result; no native authority.
         provided = {
             "PATH": "/usr/bin:/bin",
             "AUTOCODE_OUTPUT_MODE": "report_file",
@@ -915,7 +981,11 @@ class InitialIntentAndScopeTests(unittest.TestCase):
 
         def launch(*args, **kwargs):
             seen.append(deepcopy(kwargs))
-            environment = {**kwargs["env"], "AUTOCODE_NATIVE_ROLE_ISOLATION": "{}"}
+            environment = {
+                **kwargs["env"],
+                "AUTOCODE_NATIVE_ROLE_ISOLATION": json.dumps(descriptor),
+                "AUTOCODE_TOOL_CONTAINMENT": json.dumps({"native_role_isolation": descriptor}),
+            }
             return ["controlled", "literal command"], environment, {}
 
         adapter = SimpleNamespace(

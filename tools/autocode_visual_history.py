@@ -611,6 +611,8 @@ class NativeReviewHistory:
     def _replay_native_profile(self, old, context, read, metadata, profile):
         actual = self.protection.verify_original_image_configuration(metadata["record"], context)
         descriptor, boundary = actual["descriptor"], actual["boundary"]
+        if descriptor.get("backend") == "kilocode":
+            return self._replay_kilo_profile(old, context, read, metadata, profile, actual)
         manifest = _json(read(descriptor["manifest"]))
         _require(
             all(
@@ -701,6 +703,57 @@ class NativeReviewHistory:
                 not Path(name).is_absolute() and ".." not in Path(name).parts and _sha(read(sdk / name)) == digest,
                 "Original native SDK member changed",
             )
+
+    def _replay_kilo_profile(self, old, context, read, metadata, profile, actual):
+        """Original protected launch and parent source bytes, never CURRENT."""
+        try:
+            from . import autocode_kilo_native as kilo
+            from . import autocode_kilo_source_relay as source
+        except ImportError:
+            import autocode_kilo_native as kilo
+            import autocode_kilo_source_relay as source
+        selected = kilo.selected(profile, old["settings"], "sol")
+        _require(selected is not None, "original Kilo profile/role binding changed")
+        binding, identity = selected
+        descriptor, boundary = actual["descriptor"], actual["boundary"]
+        manifest = _json(read(descriptor["manifest"]))
+        _require(_sha(read(descriptor["manifest"])) == descriptor["manifest_sha256"]
+                 and all(manifest[key] == value for key, value in descriptor.items()
+                         if key not in ("manifest", "manifest_sha256"))
+                 and manifest["saved_settings_sha256"] == util.digest(old["settings"])
+                 and manifest["saved_transport_sha256"] == util.digest(identity) == binding["transport_identity_sha256"]
+                 and descriptor["compiled_identity"]["sha256"] == binding["executable_sha256"]
+                 and manifest["sdk_manifest_sha256"] == binding["sdk_manifest_sha256"],
+                 "original compiled Kilo/source/profile bytes changed")
+        for name, sha in descriptor["files"].items():
+            _require(_sha(read(name)) == sha, "original Kilo SDK/plugin/config changed")
+        inline = descriptor["configuration_sources"]["inline"]
+        final_raw = read(inline["path"]); final = _json(final_raw)
+        observed = _json(read(boundary["conformance"]))["launch_identity"]
+        _require(_sha(final_raw) == inline["sha256"] == observed["final_inline_sha256"]
+                 and util.digest(final) == context["config_sha256"]
+                 and descriptor["child_identity"] == {key: observed[key] for key in descriptor["child_identity"]}
+                 and observed["command_sha256"] == util.digest(context["command"])
+                 and final["enabled_providers"] == ["anthropic"]
+                 and final["model"] == final["small_model"] == kilo.MODEL
+                 and final["provider"]["anthropic"]["options"] == {"apiKey": source.PUBLIC_API_KEY,
+                                                                    "baseURL": "https://api.anthropic.com/v1"}
+                 and final["plugin"] == [Path(context["plugin_path"]).as_uri()],
+                 "original Kilo config/transport changed")
+        audit = context["audit_options"]
+        _require(audit["max_requests"] == profile["max_requests"]
+                 and audit["plugin_sha256"] == context["plugin_sha256"]
+                 and audit["binding_sha256"] == util.digest(metadata["receipt"]["binding"])
+                 and audit["reviewer"] == {"provider": "kilocode", "model": kilo.MODEL, "agent": "autocode_sol"},
+                 "original Kilo audit/source binding changed")
+        locator = descriptor["source_relay"]
+        parent_path = locator["journal_path"]
+        _require(parent_path in metadata["receipt"]["evidence_hashes"]
+                 and _sha(read(parent_path)) == metadata["receipt"]["evidence_hashes"][parent_path],
+                 "original closed parent source journal is not in protected publication")
+        source.register_retained_original(source._REGISTRATION, locator=locator, parent_bytes=read(parent_path),
+                                          audit_bytes=read(context["audit_path"]), launch_seal=actual["source_launch_seal"],
+                                          hooks=locator["source_hooks"], audit_options=audit)
 
     def _replay_scope(self, metadata, *, seen, cache):
         """Rederive original scope from authenticated original dependencies.
@@ -1003,7 +1056,13 @@ class NativeReviewHistory:
                 "verdict": row["verdict"],
                 "case_criteria": deepcopy(row["criterion_ids"]),
             }
-        observed = delivery.verify_retained(
+        transport = delivery
+        if context.get("native_isolation", {}).get("backend") == "kilocode":
+            try:
+                from . import autocode_kilo_image_delivery as transport
+            except ImportError:
+                import autocode_kilo_image_delivery as transport
+        observed = transport.verify_retained(
             metadata["record"],
             events=events,
             report=raw,

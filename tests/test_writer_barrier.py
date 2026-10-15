@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import autocode_process as processes
 import autocode_writer_barrier as barrier
+import autocode_native_locators as locators
 from autocode_activity import ActivityMonitor
 
 
@@ -113,6 +114,34 @@ class WriterBarrierTests(unittest.TestCase):
         gate.close()
         self.assertEqual(126, self.wait(child))
         self.assertFalse(self.marker.exists())
+
+    def test_large_owned_inventory_uses_small_exact_child_locators_after_seal(self):
+        descriptor = {"manifest": str(self.root / "isolation.json"), "manifest_sha256": "a" * 64,
+                      "files": {"/owned/sdk/" + "x" * 240 + str(i): "b" * 64 for i in range(3660)}}
+        boundary = {"tools": ["bash"], "allow_write": False, "native_role_isolation": descriptor}
+        duplicated = {**self.environment, "AUTOCODE_NATIVE_ROLE_ISOLATION": json.dumps(descriptor),
+                      "AUTOCODE_TOOL_CONTAINMENT": json.dumps(boundary)}
+        with self.assertRaisesRegex(barrier.BarrierError, "payload is unsupported"):
+            barrier.WriterBarrier(self.command, duplicated, payload_directory=self.root)
+        self.environment.update(
+            AUTOCODE_NATIVE_ROLE_ISOLATION=json.dumps(locators.descriptor_value(descriptor)),
+            AUTOCODE_TOOL_CONTAINMENT=json.dumps(locators.boundary_value(boundary)),
+        )
+        self.command = [sys.executable, "-I", "-S", "-B", "-c",
+                        "import json,os,pathlib,sys; pathlib.Path(sys.argv[1]).write_text(json.dumps("
+                        "{k:json.loads(os.environ[k]) for k in "
+                        "['AUTOCODE_NATIVE_ROLE_ISOLATION','AUTOCODE_TOOL_CONTAINMENT']}))", str(self.marker)]
+        with barrier.WriterBarrier(self.command, self.environment, payload_directory=self.root) as gate:
+            self.assertLess(gate.facts()["payload_identity"]["bytes"], 8192)
+            child = self.start(gate)
+            def seal(*_):
+                self.assertFalse(self.marker.exists())
+            self.assertEqual(0, self.wait(child, on_root=lambda tree, token:
+                                        gate.release_after_seal(child, tree, seal, token)))
+        received = json.loads(self.marker.read_bytes())
+        self.assertEqual(locators.descriptor_value(descriptor), received["AUTOCODE_NATIVE_ROLE_ISOLATION"])
+        self.assertTrue(locators.boundary_matches(received["AUTOCODE_TOOL_CONTAINMENT"], boundary))
+        self.assertEqual(3660, len(descriptor["files"]))
 
     def test_failed_seal_is_cleaned_by_original_supervisor_without_target(self):
         with barrier.WriterBarrier(self.command, self.environment, payload_directory=self.root) as gate:

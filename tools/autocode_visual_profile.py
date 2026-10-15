@@ -25,13 +25,17 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_native_locators as native_locators
     from . import autocode_contract_identity as contract
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
+    from . import autocode_kilo_native as kilo
 except ImportError:
+    import autocode_native_locators as native_locators
     import autocode_contract_identity as contract
     import autocode_tool_containment as containment
     import autocode_util as util
+    import autocode_kilo_native as kilo
 
 
 MARKER = "VISUAL_REVIEW_PROFILE="
@@ -119,6 +123,8 @@ def _profile(state):
 
 def profile_value(value):
     """Validate complete explicit profile data; this grants no approval."""
+    if isinstance(value, dict) and value.get("mode") == kilo.MODE:
+        return kilo.profile_value(value, builtin_version=VERSION, max_requests=MAX_REQUESTS, image_bounds=IMAGE_BOUNDS)
     keys = {
         "version",
         "mode",
@@ -426,7 +432,7 @@ def authority(state, worker, workspace, run_dir):
             boundary.get("allow_write") is False
             and Path(boundary["workspace"]).resolve() == root
             and boundary.get("tools") == ["bash"]
-            and _json(env.get("AUTOCODE_TOOL_CONTAINMENT", "{}")) == boundary,
+            and native_locators.boundary_matches(env.get("AUTOCODE_TOOL_CONTAINMENT", "{}"), boundary),
             "Visual profile requires an unchanged read-only contained shell",
         )
         _require(

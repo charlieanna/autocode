@@ -18,6 +18,21 @@ from providers.command import CommandProvider
 
 
 class ProviderLaunchTests(unittest.TestCase):
+    def test_native_handoff_keeps_all_task_input_with_small_owned_manifest_locator(self):
+        descriptor = {"manifest": "/owned/isolation.json", "manifest_sha256": "a" * 64,
+                      "files": {"/owned/sdk/" + "x" * 240 + str(i): "b" * 64 for i in range(3660)}}
+        boundary = {"scratch": "/owned/scratch", "tools": ["bash"], "allow_write": False,
+                    "native_role_isolation": descriptor}
+        data = {"requirements": "Exact complete original approved brief", "cases": list(range(20)),
+                "criteria": list(range(22)), "commands": ["python3 test_app.py", "literal second", "literal third"]}
+        prompt = "Original instructions\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+        rendered = launch.containment_prompt(prompt, {"tool_containment": boundary})
+        actual = json.loads(rendered.rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(data, {k: v for k, v in actual.items() if k != "tool_containment"})
+        self.assertTrue(launch.native_locators.boundary_matches(actual["tool_containment"], boundary))
+        self.assertLess(len(rendered), 4096)
+        self.assertEqual(3660, len(descriptor["files"]))
+
     def test_stage_record_preserves_each_provider_launch_contract(self):
         cases = [
             ({"engine": "codex"}, {}),

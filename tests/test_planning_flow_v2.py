@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 import shutil
@@ -12,11 +13,13 @@ import autocode as runner
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_planning as planning
+import autocode_program_guidance as guidance
 import autocode_resolver_human as human
 import autocode_stage_context as stage_context
 import autocode_support as support
+import autocode_util as util
 import autopilot
-from goal_fixtures import body
+from goal_fixtures import body, seed_greeting_workspace
 
 
 def requirements():
@@ -195,6 +198,242 @@ class V2FlowTests(unittest.TestCase):
         planning.charge(state, "plan_finalize")
         with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
             planning.charge(state, "plan_finalize")
+
+    def _cycle_state(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        workspace = Path(temp.name).resolve()
+        seed_greeting_workspace(workspace)
+        util.git(workspace, "init", "-q", timeout=10)
+        util.git(workspace, "add", ".", timeout=10)
+        util.git(workspace, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                    "-c", "commit.gpgsign=false", "commit", "-qm", "fixture", timeout=10)
+        run_dir = workspace / ".autocode" / "runs" / "cycle"
+        run_dir.mkdir(parents=True)
+        state = self.state()
+        state.update(workspace=str(workspace), run_dir=str(run_dir), active_seconds=1788.5,
+                     stages=[], history=[], failure_history={"old": {"count": 2}})
+        state["settings"].update(
+            limits={"max_seconds": 7200, "stage_timeout_seconds": 900, "idle_timeout_seconds": 300},
+            roles={role: {"model": role, "reasoning_effort": "high"}
+                   for role in ("requirements", "glm", "plan_reviewer", "terra", "sol", "completion")},
+        )
+        goals.clarification_episode(state)
+        return state
+
+    def _cycle_contract(self):
+        contract = body()
+        command = "python3 -m unittest discover -s . -t ."
+        contract["acceptance_criteria"][0]["verification_method"] = command
+        contract["initial_task"] = {
+            "objective": "Deliver and verify the greeting flow",
+            "affected_paths": ["greet.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Print Hello, NAME for a nonempty name"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": [command],
+        }
+        return contract
+
+    def _cycle_requirements(self, state, summary="clear"):
+        value = requirements()
+        value["acceptance_criteria"] = copy.deepcopy(self._cycle_contract()["acceptance_criteria"])
+        autopilot.apply_planning(
+            state, "requirements", {"requirements": value, "summary": summary},
+            {"stage": "requirements", "output": "requirements.json"},
+        )
+
+    def _cycle_plan(self, state):
+        autopilot.apply_planning(
+            state, "plan", {"contract": self._cycle_contract(), "summary": "planned"},
+            {"stage": "plan", "output": "plan.json"},
+        )
+
+    def _complete_cycle(self, state):
+        self._cycle_requirements(state)
+        self._cycle_plan(state)
+        review = {"stage": "plan_review", "output": "review.json", "exit_code": 0}
+        planning.charge(state, "plan_review", record=review)
+        autopilot.apply_planning(state, "plan_review", {"summary": "reviewed", "concerns": []}, review)
+        autopilot.apply_planning(
+            state, "plan_revise", {"contract": self._cycle_contract(), "summary": "revised", "responses": []},
+            {"stage": "plan_revise", "output": "revision.json"},
+        )
+        final_value = {"contract": self._cycle_contract(), "summary": "final", "decisions": []}
+        final_path = Path(state["run_dir"]) / "final.json"
+        support.atomic_json(final_path, final_value)
+        final = {"stage": "plan_finalize", "output": str(final_path), "exit_code": 0,
+                 "source_revision": support.snapshot(Path(state["workspace"]))["revision"]}
+        planning.charge(state, "plan_finalize", record=final)
+        autopilot.apply_planning(state, "plan_finalize", final_value, final)
+        state["stages"].append(final)
+        state["history"].append(copy.deepcopy(final))
+        human.evaluate(state)
+        lifecycle.present(state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
+
+    def test_v2_first_cycle_requires_review_and_finalization_with_two_call_limit(self):
+        state = self._cycle_state()
+        self._complete_cycle(state)
+        self.assertEqual([], state.get("planning_history", []))
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertIn("requirements", state["planning"]["reports"])
+        self.assertEqual(state["displayed_goal"], state["planning"]["final_token"])
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
+            planning.charge(state, "plan_finalize")
+
+    def test_v2_feedback_archives_complete_cycle_and_preserves_run_limits_usage(self):
+        state = self._cycle_state()
+        self._complete_cycle(state)
+        previous = copy.deepcopy(state["planning"])
+        preserved = {key: copy.deepcopy(state[key])
+                     for key in ("settings", "active_seconds", "stages", "history", "failure_history", "task")}
+        goals.feedback(state, "Correct the technical transcription; keep the original scope")
+        self.assertEqual(previous, state["planning"])
+        self._cycle_requirements(state)
+        fresh = copy.deepcopy(state["planning"])
+        self._cycle_plan(state)
+        # Exercise admission first: the old V2 path refuses the first new review with 2/2 used.
+        planning.charge(state, "plan_review")
+        planning.charge(state, "plan_finalize")
+        self.assertEqual(previous, state["planning_history"][-1])
+        self.assertEqual(0, fresh["astra_calls"])
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertIsNone(fresh["final_token"])
+        self.assertEqual("plan_review", state["next_stage"])
+        self.assertEqual(["requirements"], list(fresh["reports"]))
+        self.assertEqual(preserved, {key: state[key] for key in preserved})
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
+            planning.charge(state, "plan_finalize")
+
+    def test_v2_intervention_feedback_renews_cycle_only_after_accepted_requirements(self):
+        state = self._cycle_state()
+        self._complete_cycle(state)
+        previous = copy.deepcopy(state["planning"])
+        old_episode = state["clarification_episode"]["id"]
+        token = state["requirements_artifact_token"]
+        goals.apply_intervention_feedback(
+            state, {"id": "fix", "text": "Preserve the exact canonical filenames",
+                    "observed_goal_token": state["displayed_goal"]}, {"applied_at": "2026-10-14T00:00:00+00:00"},
+        )
+        self.assertNotEqual(old_episode, state["clarification_episode"]["id"])
+        self.assertEqual("intervention-fix", state["clarification_episode"]["started_by"])
+        self.assertEqual("requirements", state["next_stage"])
+        self.assertEqual(previous, state["planning"])
+        self._cycle_requirements(state)
+        self.assertEqual(token, state["requirements_artifact_token"])
+        self.assertEqual(previous, state["planning_history"][-1])
+        self.assertEqual("intervention-fix", state["planning"]["v2_cycle"]["boundary"]["clarification_input"])
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(2, planning.review_call_limit(state))
+
+    def test_v2_program_guidance_renews_review_without_new_investigation_episode(self):
+        state = self._cycle_state()
+        self._complete_cycle(state)
+        previous = copy.deepcopy(state["planning"])
+        episode = copy.deepcopy(state["clarification_episode"])
+        token = state["requirements_artifact_token"]
+        event = guidance.apply(state, "Restore the exact canonical filenames; preserve scope and limits",
+                               state["displayed_goal"])
+        self.assertEqual(episode, state["clarification_episode"])
+        self.assertEqual(previous, state["planning"])
+        self._cycle_requirements(state)
+        self.assertEqual(token, state["requirements_artifact_token"])
+        self.assertEqual(previous, state["planning_history"][-1])
+        self.assertEqual(event["id"], state["planning"]["v2_cycle"]["boundary"]["program_guidance"])
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(2, planning.review_call_limit(state))
+
+    def test_v2_report_retries_and_revisions_do_not_start_duplicate_cycles(self):
+        state = self._cycle_state()
+        self._cycle_requirements(state)
+        self._cycle_plan(state)
+        planning.charge(state, "plan_review")
+        previous = copy.deepcopy(state["planning"])
+        invalid = requirements()
+        invalid["acceptance_criteria"] = []
+        with self.assertRaisesRegex(ValueError, "stable ID, behavior and verification method"):
+            autopilot.apply_planning(state, "requirements", {"requirements": invalid, "summary": "invalid"},
+                                     {"output": "invalid.json"})
+        self.assertEqual(previous, state["planning"])
+        self._cycle_requirements(state, summary="same input, refreshed report")
+        self._cycle_plan(state)
+        self.assertEqual(1, state["planning"]["astra_calls"])
+        self.assertEqual(previous["v2_cycle"], state["planning"]["v2_cycle"])
+        self.assertEqual([], state.get("planning_history", []))
+        autopilot.apply_planning(state, "plan_review", {"summary": "reviewed", "concerns": []},
+                                 {"output": "review.json"})
+        autopilot.apply_planning(
+            state, "plan_revise", {"contract": self._cycle_contract(), "summary": "revised", "responses": []},
+            {"output": "revision.json"},
+        )
+        planning.charge(state, "plan_finalize")
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
+            planning.charge(state, "plan_review")
+        self.assertEqual([], state.get("planning_history", []))
+
+    def test_v2_lazy_initial_episode_cannot_renew_review_capacity(self):
+        state = self.state()
+        self._cycle_requirements(state)
+        self._cycle_plan(state)
+        planning.charge(state, "plan_review")
+        previous = copy.deepcopy(state["planning"]["v2_cycle"])
+        goals.clarification_episode(state)
+        self.assertEqual("initial_task", state["clarification_episode"]["started_by"])
+        self._cycle_requirements(state, summary="same initial intent")
+        self.assertEqual(1, state["planning"]["astra_calls"])
+        self.assertEqual(previous, state["planning"]["v2_cycle"])
+        self.assertEqual([], state.get("planning_history", []))
+
+    def test_v2_unmarked_spent_cycle_baselines_retry_without_free_review_capacity(self):
+        state = self._cycle_state()
+        self._complete_cycle(state)
+        # Model the genuine pre-fix record shape, which has no cycle marker.
+        state["planning"].pop("v2_cycle")
+        state["planning"].update(review_call_limit=2, review_call_limit_origin="user_explicit")
+        previous = copy.deepcopy(state["planning"])
+        history = copy.deepcopy(state.get("planning_history", []))
+        preserved = {key: copy.deepcopy(state[key])
+                     for key in ("settings", "active_seconds", "stages", "history", "failure_history", "task")}
+        self._cycle_requirements(state, summary="retry the unchanged operator input")
+        baseline = copy.deepcopy(state["planning"]["v2_cycle"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(previous["reports"]["plan_review"], state["planning"]["reports"]["plan_review"])
+        self.assertEqual(previous["reports"]["plan_finalize"], state["planning"]["reports"]["plan_finalize"])
+        self.assertEqual(previous["review_charges"], state["planning"]["review_charges"])
+        self.assertEqual(previous["final_token"], state["planning"]["final_token"])
+        self.assertEqual("user_explicit", state["planning"]["review_call_limit_origin"])
+        self._cycle_requirements(state, summary="another changed report, same operator input")
+        self._cycle_plan(state)
+        self.assertEqual(baseline, state["planning"]["v2_cycle"])
+        self.assertEqual(history, state.get("planning_history", []))
+        self.assertEqual(preserved, {key: state[key] for key in preserved})
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used") as denied:
+            planning.charge(state, "plan_review")
+        # A later explicit feedback boundary may begin one genuinely new cycle.
+        state["status"] = denied.exception.status
+        goals.feedback(state, "Correct the canonical filename; keep scope and limits")
+        before_new = copy.deepcopy(state["planning"])
+        self._cycle_requirements(state)
+        self.assertEqual(before_new, state["planning_history"][-1])
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertEqual(preserved, {key: state[key] for key in preserved})
+
+    def test_v2_existing_empty_cycle_keeps_zero_usage_without_duplicate_archival(self):
+        state = self.state()
+        state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+        self._cycle_requirements(state)
+        self._cycle_plan(state)
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertEqual([], state.get("planning_history", []))
+        planning.charge(state, "plan_review")
+        planning.charge(state, "plan_finalize")
+        with self.assertRaisesRegex(planning.s.Paused, "2/2 plan-review calls used"):
+            planning.charge(state, "plan_review")
 
     def test_v2_roles_routes_and_context_engine_are_consistent(self):
         settings = {

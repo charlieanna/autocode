@@ -13,12 +13,22 @@ except ImportError:
 
 
 import copy
+import hashlib
+import json
 import math
+import os
 import re
 import shutil
+import stat
 import struct
 import tempfile
 from pathlib import Path, PurePosixPath
+
+
+PLANNING_INPUTS = "design-inputs-planning-v1"
+PLANNING_PARTITION = "planning-scope-partition.json"
+COMPLETE_PLANNING_INPUTS = "design-inputs-planning-v2"
+PLANNING_CATALOG = "planning-catalog.json"
 
 try:
     from . import autocode_design_inventory as inventory
@@ -440,10 +450,14 @@ def png_dimensions(path):
 def verify(record, *, approved_scope=None, approved_scope_sha256=None):
     body, root = record["body"], Path(record["root"]).resolve()
     selected = admitted_scope(record, approved_scope=approved_scope, approved_scope_sha256=approved_scope_sha256)
+    complete_root = _complete_planning_root(record)
+    if complete_root is not None:
+        # Authenticate type/identity/length before any index payload read.
+        _immutable_planning_input(complete_root / "inventory-manifest.json", _planning_partition_bytes(body))
     validate(body, root=root, admission=selected)
     if record["manifest_hash"] != util.digest(body):
         raise ValueError("Saved design manifest identity changed")
-    if record.get("manifest_path"):
+    if record.get("manifest_path") and complete_root is None:
         index = Path(record["manifest_path"])
         if index.is_symlink() or not index.resolve().is_relative_to(root) or _read_json(index) != body:
             raise ValueError("Retained design inventory index is missing or changed")
@@ -463,6 +477,11 @@ def verify(record, *, approved_scope=None, approved_scope_sha256=None):
         expected = tuple(round(dimensions[key] * case["export_scale"]) for key in ("width", "height"))
         if png_dimensions(root / case["artifacts"]["screenshot"]["path"]) != expected:
             raise ValueError(f"Reference export dimensions disagree with viewport/export_scale: {case['id']}")
+    if _planning_partition_path(record) is not None:
+        catalog = inventory.catalog(body, root, admission=selected)
+        _planning_partition_locator(record, catalog["scope_partition"])
+        if _complete_planning_root(record) is not None:
+            _complete_planning_refs(record, catalog)
     return record
 
 
@@ -569,6 +588,135 @@ def reload_public(record, path):
     return selected
 
 
+def _planning_partition_path(record):
+    root = Path(record["root"])
+    if not record.get("manifest_path") or root.parent.name not in (PLANNING_INPUTS, COMPLETE_PLANNING_INPUTS):
+        return None
+    if (
+        not root.is_absolute()
+        or root.parent.parent.name != ".autocode"
+        or Path(record["manifest_path"]) != root / "inventory-manifest.json"
+        or record["body"]["version"] != 2
+        or not record.get("scope_admission")
+    ):
+        raise ValueError("Invalid retained planning inventory namespace")
+    return root / PLANNING_PARTITION
+
+
+def _planning_partition_bytes(partition):
+    return json.dumps(partition, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def _complete_planning_root(record):
+    root = Path(record["root"])
+    if root.parent.name != COMPLETE_PLANNING_INPUTS:
+        return None
+    if (not root.is_absolute() or root.parent.parent.name != ".autocode"
+            or root.name != record["manifest_hash"]
+            or record.get("manifest_path") != str(root / "inventory-manifest.json")
+            or record["body"]["version"] != 2 or not record.get("scope_admission")):
+        raise ValueError("Invalid complete planning inventory namespace")
+    return root
+
+
+def _immutable_planning_input(path, expected):
+    """Read only an owner-derived path and exact reconstructed bytes."""
+    path = Path(path)
+    if any(item.is_symlink() for item in (path, *path.parents)):
+        raise ValueError("Complete planning inputs cannot follow symlinks")
+    before = path.stat(follow_symlinks=False)
+    identity = lambda row: (row.st_dev, row.st_ino, row.st_mode, row.st_size,
+                            row.st_mtime_ns, row.st_ctime_ns, row.st_uid, row.st_nlink)
+    def valid(row):
+        return (stat.S_ISREG(row.st_mode) and stat.S_IMODE(row.st_mode) == 0o400
+                and row.st_uid == os.getuid() and row.st_nlink == 1 and row.st_size == len(expected))
+    if not valid(before):
+        raise ValueError("Complete planning input must be an immutable regular file of exact length")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if not valid(opened) or identity(opened) != identity(before):
+            raise ValueError("Complete planning input changed before read")
+        actual = stream.read(len(expected) + 1)
+        finished = os.fstat(stream.fileno())
+    after = path.stat(follow_symlinks=False)
+    if any(identity(row) != identity(before) for row in (opened, finished, after)) or actual != expected:
+        raise ValueError("Complete planning input is missing or changed")
+    return {"path": str(path), "sha256": hashlib.sha256(expected).hexdigest(), "bytes": len(expected)}
+
+
+def _complete_planning_refs(record, catalog):
+    root = _complete_planning_root(record)
+    if root is None:
+        return {}
+    result = {}
+    for field, leaf, value in (("body", "inventory-manifest.json", record["body"]),
+                               ("catalog", PLANNING_CATALOG, catalog)):
+        result[field] = {
+            **_immutable_planning_input(root / leaf, _planning_partition_bytes(value)),
+            "manifest_hash": record["manifest_hash"],
+            "scope_sha256": record["scope_admission"]["sha256"],
+        }
+    return result
+
+
+def _saved_planning_reader(settings, role):
+    if role not in ("requirements", "glm", "astra", "plan_reviewer"):
+        return False
+    route = settings.get("roles", {}).get(role)
+    if not isinstance(route, dict):
+        return False
+    engine = route.get("engine") or settings.get("engine")
+    provider = route.get("provider") or settings.get("provider") or engine
+    return engine == "opencode" and provider == "opencode"
+
+
+def planning_input_pins(settings, *, role):
+    """Exact input pins computed by CODE; never use a model's locator dict."""
+    record = settings.get("design_manifest")
+    if not record or not _saved_planning_reader(settings, role) or _complete_planning_root(record) is None:
+        return {}
+    verify(record)
+    catalog = inventory.catalog(record["body"], record["root"], admission=admitted_scope(record))
+    return {row["path"]: row["sha256"] for row in _complete_planning_refs(record, catalog).values()}
+
+
+def _planning_partition_locator(record, partition):
+    """Authenticate one reserved owner-produced file; never open a supplied locator."""
+    path = _planning_partition_path(record)
+    expected = _planning_partition_bytes(partition)
+    if path.is_symlink() or any(parent.is_symlink() for parent in path.parents):
+        raise ValueError("Retained planning scope partition cannot follow symlinks")
+    before = path.stat(follow_symlinks=False)
+    if not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != 0o400:
+        raise ValueError("Retained planning scope partition must be an immutable regular file")
+    if before.st_size != len(expected):
+        raise ValueError("Retained planning scope partition is missing or changed")
+    identity = lambda row: (row.st_dev, row.st_ino, row.st_mode, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or stat.S_IMODE(opened.st_mode) != 0o400
+            or opened.st_size != len(expected)
+            or identity(opened) != identity(before)
+        ):
+            raise ValueError("Retained planning scope partition is missing or changed")
+        actual = stream.read(len(expected) + 1)
+        finished = os.fstat(stream.fileno())
+    after = path.stat(follow_symlinks=False)
+    if any(identity(row) != identity(before) for row in (opened, finished, after)) or actual != expected:
+        raise ValueError("Retained planning scope partition is missing or changed")
+    return {
+        "path": str(path),
+        "sha256": hashlib.sha256(expected).hexdigest(),
+        "bytes": len(expected),
+        "manifest_hash": record["manifest_hash"],
+        "scope_sha256": record["scope_admission"]["sha256"],
+    }
+
+
 def retain(record, workspace, *, approved_scope=None, approved_scope_sha256=None):
     """Retain complete references and byte-identical operator admission together."""
     arguments = {"approved_scope": approved_scope, "approved_scope_sha256": approved_scope_sha256}
@@ -583,14 +731,25 @@ def retain(record, workspace, *, approved_scope=None, approved_scope_sha256=None
         if admission
         else None
     )
+    partition = (
+        inventory.catalog(record["body"], record["root"], admission=admission)["scope_partition"]
+        if admission
+        else None
+    )
     for artifact in all_artifacts(record["body"]):
         if (
             artifact["path"] == "inventory-manifest.json"
             or artifact["path"].startswith("inventory-manifest.json/")
             or (admission is not None and (artifact["path"] == "approval" or artifact["path"].startswith("approval/")))
+            or (
+                admission is not None
+                and (artifact["path"] == PLANNING_PARTITION or artifact["path"].startswith(PLANNING_PARTITION + "/"))
+            )
+            or (admission is not None and
+                (artifact["path"] == PLANNING_CATALOG or artifact["path"].startswith(PLANNING_CATALOG + "/")))
         ):
-            raise ValueError("inventory-manifest.json and approval/ are reserved retained input paths")
-    parent = Path(workspace).resolve() / ".autocode" / "design-inputs"
+            raise ValueError("Inventory index, approval/ and planning partition are reserved retained input paths")
+    parent = Path(workspace).resolve() / ".autocode" / (COMPLETE_PLANNING_INPUTS if admission else "design-inputs")
     if any(item.is_symlink() for item in (parent, parent.parent)):
         raise ValueError("Retained design inputs cannot follow symlinks")
     parent.mkdir(parents=True, exist_ok=True)
@@ -612,10 +771,12 @@ def retain(record, workspace, *, approved_scope=None, approved_scope_sha256=None
         else:
             verify({**retained, "manifest_path": None})
         index = Path(retained["manifest_path"])
-        if not index.exists():
+        if not index.exists() and not admission:
             util.atomic_json(index, record["body"])
         return verify(retained)
-    temporary = Path(tempfile.mkdtemp(prefix=".design-", dir=parent))
+    temporary_owner = Path(tempfile.mkdtemp(prefix=".design-", dir=parent))
+    temporary = temporary_owner / record["manifest_hash"]
+    temporary.mkdir(mode=0o700)
     try:
         for artifact in all_artifacts(record["body"]):
             target = temporary / artifact["path"]
@@ -626,12 +787,34 @@ def retain(record, workspace, *, approved_scope=None, approved_scope_sha256=None
             target = temporary / scope_row["path"]
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(scope_data)
-        util.atomic_json(temporary / "inventory-manifest.json", record["body"])
+        if partition is not None:
+            with (temporary / PLANNING_PARTITION).open("xb") as stream:
+                stream.write(_planning_partition_bytes(partition))
+                stream.flush()
+                os.fchmod(stream.fileno(), 0o400)
+                os.fsync(stream.fileno())
+        if admission:
+            # This is the full catalog, not planning_context's locator-bearing
+            # projection. Its source paths are the original relative artifact
+            # paths; only locators emitted after rename name the final root.
+            catalog = inventory.catalog(record["body"], temporary, admission=admission)
+            for leaf, value in (("inventory-manifest.json", record["body"]), (PLANNING_CATALOG, catalog)):
+                expected = _planning_partition_bytes(value)
+                with (temporary / leaf).open("xb") as stream:
+                    stream.write(expected)
+                    stream.flush()
+                    os.fchmod(stream.fileno(), 0o400)
+                    os.fsync(stream.fileno())
+                _immutable_planning_input(temporary / leaf, expected)
+            if catalog["scope_partition"] != partition:
+                raise ValueError("Copied planning inventory differs from the original source")
+        else:
+            util.atomic_json(temporary / "inventory-manifest.json", record["body"])
         verify({**retained, "root": str(temporary), "manifest_path": str(temporary / "inventory-manifest.json")})
         temporary.rename(destination)
     finally:
-        if temporary.exists():
-            shutil.rmtree(temporary)
+        if temporary_owner.exists():
+            shutil.rmtree(temporary_owner)
     return verify(retained)
 
 
@@ -667,6 +850,31 @@ def context(settings, *, stage=None, current_task=None):
                 },
                 "inventory_instruction": INSTRUCTION_SCOPED if record.get("scope_admission") else INSTRUCTION_V2,
             }
+    return result
+
+
+def planning_context(settings, *, role):
+    """Lossless planning projection for the existing OpenCode workspace reader.
+
+    Public catalogs, old retained bundles, and providers without this exact read
+    boundary keep their full inline inventory. The locator grants no authority.
+    """
+    result = context(settings)
+    if not result or not _saved_planning_reader(settings, role):
+        return result
+    if _complete_planning_root(result) is not None:
+        refs = _complete_planning_refs(result, result["catalog"])
+        for field, ref in refs.items():
+            result[field] = {**ref, "retrieval": "Read this exact SHA256/byte-bound JSON input for the complete original "
+                             + field + "; no fields, source literals, resources or blockers are summarized."}
+        return result
+    if _planning_partition_path(result) is None:
+        return result
+    partition = result["catalog"]["scope_partition"]
+    result["catalog"]["scope_partition"] = {
+        **_planning_partition_locator(result, partition),
+        "retrieval": "Read this SHA256-bound JSON file for the complete original raw scope partition; no data is summarized.",
+    }
     return result
 
 

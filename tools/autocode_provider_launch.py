@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 try:
+    from . import autocode_native_locators as native_locators
     from . import autocode_agent_env as agent_env
     from . import autocode_containment_policy as containment_policy
     from . import autocode_native_role_isolation as native_isolation
@@ -18,6 +19,7 @@ try:
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
 except ImportError:
+    import autocode_native_locators as native_locators
     import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
     import autocode_native_role_isolation as native_isolation
@@ -98,6 +100,11 @@ def prepare(
             provider=provider,
         )
     native_launch = enforce_tool_boundary
+    try:
+        from .providers.kilocode import KiloProvider
+    except ImportError:
+        from providers.kilocode import KiloProvider
+    kilo_owner = type(native_role_isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
     uncontained = containment_policy.accepted(settings)
     if native_image_preparation is not None:
         try:
@@ -110,7 +117,7 @@ def prepare(
             type(native_image_preparation) is not images.NativeImagePreparation
             or native_image_preparation.isolation is not native_role_isolation
             or engine != "opencode"
-            or getattr(adapter, "CONFIGURED", False)
+            or getattr(adapter, "CONFIGURED", False) and not kilo_owner
             or route_role != "sol"
             or planning
             or allow_write
@@ -127,8 +134,8 @@ def prepare(
         raise util.Paused("PAUSED_TOOL_CONTAINMENT", "Native isolated planning must remain readonly")
     if native_role_isolation is not None and (
         engine != "opencode"
-        or getattr(adapter, "CONFIGURED", False)
-        or type(native_role_isolation) is not native_isolation.NativeRoleIsolation
+        or getattr(adapter, "CONFIGURED", False) and not kilo_owner
+        or type(native_role_isolation) is not native_isolation.NativeRoleIsolation and not kilo_owner
         or not enforce_tool_boundary
     ):
         raise util.Paused(
@@ -149,7 +156,7 @@ def prepare(
         if (
             enforce_tool_boundary
             and (not planning or native_role_isolation is not None)
-            and not getattr(adapter, "CONFIGURED", False)
+            and (not getattr(adapter, "CONFIGURED", False) or kilo_owner)
         ):
             session = None
             runtime = Path(__file__).resolve().parent
@@ -233,6 +240,7 @@ def prepare(
         and not planning
         and not allow_write
         and sandbox == "workspace-write"
+        and not kilo_owner
         and (engine == "codex" or getattr(adapter, "CONFIGURED", False))
     ):
         try:
@@ -272,10 +280,12 @@ def prepare(
     if copy:
         worker["verification_copy"] = copy
     if native_role_isolation is not None:
-        worker["native_role_isolation"] = json.loads(environment["AUTOCODE_NATIVE_ROLE_ISOLATION"])
+        descriptor = native_role_isolation.environment_descriptor(environment)
+        worker["native_role_isolation"] = descriptor
+        worker["tool_containment"] = native_locators.expand_boundary(environment["AUTOCODE_TOOL_CONTAINMENT"], descriptor)
     if native_image_preparation is not None:
         worker["visual_runtime"] = native_image_preparation.context()
-    if engine == "opencode" and not worker["configured"]:
+    if engine == "opencode" and (not worker["configured"] or kilo_owner):
         # Read from the scrubbed environment: the cap the process will actually get.
         worker["output_token_cap"] = output_cap.recorded(os.environ, environment)
     return command, environment, overrides, worker
@@ -304,6 +314,9 @@ def stage_record(worker):
         return record
     if engine != "opencode":
         return record
+    if (worker.get("native_role_isolation") or {}).get("backend") == "kilocode":
+        return {**record, "isolation": "Kernel-constrained Kilo client and shell with original parent inference relay",
+                "tool_containment": worker.get("tool_containment"), "output_token_cap": worker.get("output_token_cap")}
     if worker.get("configured"):
         return {**record, "isolation": "Config-tool sandbox flag and workspace snapshot checks"}
     record.update(
@@ -353,7 +366,10 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     if not separator:
         raise ValueError("Contained tool launch requires a structured handoff")
     data = json.loads(after)
-    data["tool_containment"] = policy
+    # The model needs the boundary and original manifest locator, not a second
+    # copy of thousands of SDK member hashes. Full CODE-owned launch records
+    # and verification keep the original inventory; no task input is omitted.
+    data["tool_containment"] = native_locators.boundary_value(policy)
     instruction = prompts.get("fragments/provider-launch/containment-prompt.md")
     if stage == "sol":
         # Bind the entire presented projection, including JSON types, not only its source revision.
@@ -404,9 +420,12 @@ def verify_containment(worker, *, state=None, native_role_isolation=None, comman
         except ImportError:
             import autocode_tool_containment
         try:
-            autocode_tool_containment.verify(policy)
+            if type(native_role_isolation) is native_isolation.KiloRoleIsolation:
+                native_role_isolation.verify_boundary(policy)
+            else:
+                autocode_tool_containment.verify(policy)
             if isolated:
-                if type(native_role_isolation) is not native_isolation.NativeRoleIsolation or state is None:
+                if type(native_role_isolation) not in (native_isolation.NativeRoleIsolation, native_isolation.KiloRoleIsolation) or state is None:
                     raise ValueError("Missing exact finalized native role isolation owner")
                 actual_command = worker.get("command") if command is None else command
                 actual_environment = worker.get("environment") if environment is None else environment

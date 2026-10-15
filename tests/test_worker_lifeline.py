@@ -147,8 +147,9 @@ class VirtualClock:
 
 
 class AwaitSettledTests(LifelineFixture):
-    def wait(self, seconds=None, *, at=None, then=None):
+    def wait(self, seconds=None, *, at=None, then=None, events=()):
         clock = VirtualClock()
+        clock.events.extend(events)
         if at is not None:
             clock.events.append((at, then))
         with patch.object(lifeline, "time", clock):
@@ -161,16 +162,25 @@ class AwaitSettledTests(LifelineFixture):
     def test_a_live_keeper_is_waited_for_as_long_as_the_window_it_was_declared(self):
         self.assertGreater(lifeline.SETTLE_SECONDS, lifeline.KILL_AFTER_SECONDS)
         self.write(keeper=self.me, phase="stopping", cause="owner_lost")
-        # It publishes 12 s in: past the 3 s the Orchestrator once allowed, inside the window the worker declared.
-        waited = self.wait(at=12, then=lambda: self.write(keeper=self.me, phase="stopped", cause="owner_lost"))
-        self.assertGreaterEqual(waited, 12)
+        # Publication is not exit: the keeper remains alive for another second.
+        alive = [self.me]
+        with patch.object(processes, "live_processes", side_effect=lambda rows: rows if alive else []):
+            waited = self.wait(
+                at=12,
+                then=lambda: self.write(keeper=self.me, phase="stopped", cause="owner_lost"),
+                events=[(13, alive.clear)],
+            )
+        self.assertGreaterEqual(waited, 13)
         self.assertLess(waited, lifeline.SETTLE_SECONDS)
         self.assertEqual("stopped", lifeline.settled(self.record))
 
-    def test_a_keeper_that_never_publishes_is_waited_for_only_the_bound(self):
-        self.write(keeper=self.me, phase="stopping", cause="owner_lost")
-        self.assertGreaterEqual(self.wait(), lifeline.SETTLE_SECONDS)
-        self.assertEqual("running", lifeline.settled(self.record))
+    def test_a_live_keeper_that_never_exits_is_waited_for_only_the_bound(self):
+        for phase, cause in (("stopping", "owner_lost"), ("stopped", "owner_lost"), ("discharged", "controller_finished")):
+            with self.subTest(phase=phase):
+                self.write(keeper=self.me, phase=phase, cause=cause)
+                waited = self.wait()
+                self.assertGreaterEqual(waited, lifeline.SETTLE_SECONDS)
+                self.assertLess(waited, lifeline.SETTLE_SECONDS + 0.05)
 
     def test_a_keeper_that_died_unpublished_is_not_waited_for(self):
         for changes in ({}, {"keeper": {"pid": "x"}}, {"keeper": None}):
@@ -180,13 +190,52 @@ class AwaitSettledTests(LifelineFixture):
                 self.assertFalse(lifeline.pending(self.record))
                 self.assertEqual(0, self.wait(10))
 
-    def test_only_an_armed_or_stopping_receipt_with_a_live_keeper_is_pending(self):
+    def test_authenticated_terminal_receipts_with_a_live_keeper_remain_pending(self):
         self.assertFalse(lifeline.pending(self.record))  # no receipt: the keeper never armed
         self.assertFalse(lifeline.pending(None))
-        for phase, expected in (("armed", True), ("stopping", True), ("stopped", False), ("discharged", False)):
+        for phase, cause in (("armed", None), ("stopping", "owner_lost"), ("stopped", "owner_lost"), ("discharged", "controller_finished")):
             with self.subTest(phase=phase):
-                self.write(keeper=self.me, phase=phase, cause="owner_lost")
-                self.assertEqual(expected, lifeline.pending(self.record))
+                self.write(keeper=self.me, phase=phase, cause=cause)
+                self.assertTrue(lifeline.pending(self.record))
+        for changes in (
+            {"nonce": "b" * 32},
+            {"owner": {**self.me, "birth_identity": 1.5}},
+            {"phase": "discharged", "cause": "owner_lost"},
+            {"cleanup_error": "ProcessError"},
+            {"phase": "uncertain", "cause": "keeper_failure"},
+            {"keeper": None},
+        ):
+            with self.subTest(changes=changes):
+                self.write(**{"keeper": self.me, "phase": "stopped", "cause": "owner_lost", **changes})
+                self.assertFalse(lifeline.pending(self.record))
+
+    def test_a_reused_keeper_pid_after_terminal_publication_is_not_waited_for(self):
+        reused = {**self.me, "birth_identity": self.me["birth_identity"] + 1, "state": "sleeping"}
+        for phase, cause in (("stopped", "owner_lost"), ("discharged", "controller_finished")):
+            with self.subTest(phase=phase):
+                self.write(keeper=self.me, phase=phase, cause=cause)
+                with patch.object(processes, "process_table", return_value={self.me["pid"]: reused}):
+                    self.assertFalse(lifeline.pending(self.record))
+                    self.assertEqual(0, self.wait(10))
+
+    def test_a_zombie_keeper_after_terminal_publication_is_not_waited_for(self):
+        zombie = {**self.me, "state": "Z"}
+        for phase, cause in (("stopped", "owner_lost"), ("discharged", "controller_finished")):
+            with self.subTest(phase=phase):
+                self.write(keeper=self.me, phase=phase, cause=cause)
+                with patch.object(processes, "process_table", return_value={self.me["pid"]: zombie}):
+                    self.assertFalse(lifeline.pending(self.record))
+                    self.assertEqual(0, self.wait(10))
+
+    def test_keeper_inspection_failure_after_terminal_publication_remains_an_error(self):
+        for phase, cause in (("stopped", "owner_lost"), ("discharged", "controller_finished")):
+            with self.subTest(phase=phase):
+                self.write(keeper=self.me, phase=phase, cause=cause)
+                with (
+                    patch.object(processes, "process_table", side_effect=processes.ProcessError("inspection denied")),
+                    self.assertRaisesRegex(processes.ProcessError, "inspection denied"),
+                ):
+                    self.wait(10)
 
 
 # The worker's main() with a stage that fails on its own, and the keeper's SIGTERM arriving as the pause is written.

@@ -134,7 +134,7 @@ try:
     from . import autocode_recovery_context as recovery_context  # noqa: F401 - compatibility API
     from . import autocode_progressive_state as progressive_state  # noqa: F401 - compatibility API
     from . import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
-    from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
+    from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_role_transport as role_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
     from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
@@ -176,6 +176,7 @@ except ImportError:
     import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
     import autocode_configure
     import autocode_joint_transport as joint_transport
+    import autocode_role_transport as role_transport
     import autocode_args as cli_args  # noqa: F401 - compatibility API supplied to invocation helpers
     import autocode_run_actions as run_actions
     import autocode_build_loop as build_loop  # noqa: F401 - compatibility API
@@ -305,7 +306,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     rework_policy.verify_existing(record)
     value = completed_provider_report(
         record,
-        opencode_report=opencode.final_report,
+        opencode_report=role_transport.report_reader(state, record, opencode, workspace),
         read_object=util.read_object,
         persist=write_json,
     )
@@ -524,8 +525,8 @@ def run_role(
     fallback_route = reviewer_fallback.pending_route(state, original_stage) if joint_stage and not report_only else None
     if fallback_route:
         route_role = fallback_route["role"]
-    supports_sessions = getattr(opencode, "SUPPORTS_SESSIONS", True)
-    configured_tool = getattr(opencode, "CONFIGURED", False)
+    adapter, supports_sessions = role_transport.session_adapter(state, route_role, opencode, workspace)
+    configured_tool = getattr(adapter, "CONFIGURED", False)
     session = resume_session or (
         None
         if joint_stage or report_only or not supports_sessions
@@ -564,7 +565,7 @@ def run_role(
             prompt=prompt,
             schema=schema,
             events=events,
-            adapter=opencode,
+            adapter=adapter,
             render_prompt=provider_launch.render_native_image_prompt,
             regression_proof_current=native_proof,
             regression_handoff=regression.handoff(state) if native_proof else None,
@@ -577,7 +578,7 @@ def run_role(
     if native is not None:
         native_environment = agent_env.scrubbed(os.environ)
         native_environment.update(output_policy.environment(state["settings"], workspace, events))
-        if getattr(opencode, "OUTPUT", "opencode_events") == "report_file":
+        if getattr(adapter, "OUTPUT", "opencode_events") == "report_file":
             native_capture = {
                 "attempt": str(output),
                 "nonce": uuid.uuid4().hex,
@@ -586,7 +587,7 @@ def run_role(
             native_environment["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(native_capture)
     command, child_environment, overrides, worker_context = provider_launch.prepare(
         engine=engine,
-        adapter=opencode,
+        adapter=adapter,
         role=role,
         route_role=route_role,
         workspace=workspace,
@@ -638,7 +639,7 @@ def run_role(
         prompt = image_preparation.prompt
         save(base.with_suffix(".opencode.json"), overrides)
     elif engine == "opencode":
-        prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
+        prompt = adapter.prompt_for_schema(prompt, read_json(schema), events)
         current_proof = False
         if original_stage == "sol" and worker_context.get("tool_containment") and regression.required(state):
             current_proof = regression.complete(state, source_scope.snapshot(workspace, state)["revision"])
@@ -666,7 +667,7 @@ def run_role(
             .get("transport_identities", {})
             .get("opencode", state["settings"].get("transport_identity"))
         )
-        if saved_transport is None or opencode.transport_drift(opencode.local_settings(workspace), saved_transport):
+        if saved_transport is None or adapter.transport_drift(adapter.local_settings(workspace), saved_transport):
             raise support.Paused("PAUSED_VISUAL_EVIDENCE", "Visual transport changed since its approved profile")
         visual_context, command, child_environment, prompt = visual_runtime.prepare(
             state,
@@ -723,7 +724,7 @@ def run_role(
     record["engine"] = engine
     record["reasoning_effort"] = effort
     record["launch_route"] = {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
-    record["output_mode"] = getattr(opencode, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
+    record["output_mode"] = getattr(adapter, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
@@ -759,15 +760,9 @@ def run_role(
             if engine == "opencode" and not configured_tool:
                 readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
             before = native_before or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-            if record["output_mode"] == "report_file":
-                record["capture_context"] = native_capture or {
-                    "attempt": str(output),
-                    "nonce": uuid.uuid4().hex,
-                    "source_revision": before["revision"],
-                }
-                if native is None:
-                    child_options["env"] = dict(child_options.get("env", os.environ))
-                    child_options["env"]["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(record["capture_context"])
+            job_source.prepare_capture_context(
+                record, before, output, child_options, native_context=native_capture, protected=native is not None
+            )
             save(base.with_suffix(".before.json"), before)
             record["before_ref"] = str(base.with_suffix(".before.json"))
             network_retry.bind_attempt(state, record, before, workspace)
@@ -847,7 +842,7 @@ def run_role(
                 save(run_dir / "state.json", state)
                 child_stdin = (
                     subprocess.DEVNULL
-                    if engine == "opencode" and configured_tool and getattr(opencode, "PROMPT_MODE", "stdin") == "file"
+                    if engine == "opencode" and configured_tool and getattr(adapter, "PROMPT_MODE", "stdin") == "file"
                     else stdin
                 )
 
@@ -1038,7 +1033,7 @@ def run_role(
     if exit_code != 0:
         refused = refusal_reason(state, record)
         hint = (
-            provider_env.authentication_hint(opencode.raw_events(events), record["withheld_env"])
+            provider_env.authentication_hint(adapter.raw_events(events), record["withheld_env"])
             if engine == "opencode" and configured_tool
             else ""
         )

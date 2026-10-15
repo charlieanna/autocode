@@ -14,6 +14,8 @@ try:
     from . import autocode_native_completion as completion
     from . import autocode_native_parent as parent
     from . import autocode_native_role_isolation as isolation
+    from . import autocode_native_stage_recovery as stage_recovery
+    from . import autocode_run_status as run_status
     from . import autocode_util as util
     from . import autocode_visual_evidence as evidence
     from . import autocode_visual_profile as profiles
@@ -23,6 +25,8 @@ except ImportError:
     import autocode_native_completion as completion
     import autocode_native_parent as parent
     import autocode_native_role_isolation as isolation
+    import autocode_native_stage_recovery as stage_recovery
+    import autocode_run_status as run_status
     import autocode_util as util
     import autocode_visual_evidence as evidence  # noqa: F401 - preserve existing import behavior
     import autocode_visual_profile as profiles
@@ -146,6 +150,9 @@ class PlanningCalls:
 
     def role_isolation(self, state, route_role):
         self.guard(state)
+        if profiles.kilo.selected(self.intent, state["settings"], route_role) is not None:
+            return isolation.KiloRoleIsolation(state, self.workspace, self.run_dir, route_role,
+                                               profile=self.intent, native=self)
         return isolation.NativeRoleIsolation(
             state,
             self.workspace,
@@ -184,6 +191,13 @@ class PlanningCalls:
         """Hold later authority controls before setup, artifacts or model charges."""
         self.sink.require_ready()
         self.require_initial_input(state)
+        if getattr(args, "abandon_stage", None) is not None:
+            stage_recovery.only_abandon(getattr(args, "_native_action_argv", None))
+            record = stage_recovery.request(state, args.abandon_stage, self.stages)
+            self.context.factory.protection.planning_abandonment(
+                state, record, snapshot=self.snapshot(state), commit=False
+            )
+            return
         unsupported = (
             "revise_figma_manifest",
             "retry_builder",
@@ -228,6 +242,21 @@ class PlanningCalls:
                     self.context.factory.require_resolver_request(state, snapshot=current)
             else:
                 self.context.factory.protection.readonly_task_authority(state, snapshot=current)
+
+    def abandon_stage(self, state, run_dir, workspace, selected, *, launch=None):
+        """Use the original journal/sink; ordinary archive and escalation stay untouched."""
+        self.sink.require_ready()
+        self.require_initial_input(state)
+        stage_recovery.require(Path(run_dir) == self.run_dir and Path(workspace) == self.workspace,
+                               "foreign recovery workspace/run")
+        record = stage_recovery.request(state, selected, self.stages)
+        retained = self.context.factory.protection.planning_abandonment(
+            state, record, snapshot=self.snapshot(state), commit=True
+        )
+        candidate = stage_recovery.abandoned(state, retained, selected, at=util.now())
+        self.sink.write(self.run_dir / "state.json", candidate)
+        state.clear()
+        state.update(candidate)
 
     def image_capture_authority(self, *, state, snapshot, captures):
         self.sink.require_ready()
@@ -292,6 +321,6 @@ class PlanningCalls:
         if not any(row.get("output") == record.get("output") for row in state.get("stages", [])):
             state.setdefault("stages", []).append(deepcopy(record))
         state.pop("active_stage", None)
-        state.update(status="PAUSED_INVALID_OUTPUT", phase="PAUSED_OR_BLOCKED", stop_reason=str(error))
+        run_status.pause(state, "PAUSED_INVALID_OUTPUT", str(error))
         self.sink.write(self.run_dir / "state.json", state)
         raise util.Paused("PAUSED_INVALID_OUTPUT", "Original native output retained: " + str(error))

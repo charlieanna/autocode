@@ -9,11 +9,13 @@ import sys
 try:
     from . import autocode_controller_owner as controller_owner
     from . import autocode_native_calls as native_calls
+    from . import autocode_native_stage_recovery as stage_recovery
     from . import autocode_native_launch as native_launch
     from . import autocode_visual_profile as native_profile
 except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
+    import autocode_native_stage_recovery as stage_recovery
     import autocode_native_launch as native_launch
     import autocode_visual_profile as native_profile
 
@@ -50,6 +52,7 @@ def main_body(base, unit=None, *, launched_at=None):
     if sys.argv[1:2] == ["intervention"]:
         return base.interventions.cli(sys.argv[2:])
     args, parser = base.cli_args.parse(unit, sys.argv[1:], base.opencode.DEFAULT_MODELS)
+    args._native_action_argv = tuple(sys.argv[1:])
     base.json_output.begin(args)
     args._interaction_launched_at = launched_at or base.now()
     if any(text is not None and not text.strip() for text in (args.feedback, args.follow_up)):
@@ -117,6 +120,9 @@ def run(base, args, parser, resolved, *, failure_routing=True):
         # The existing loop receives the same checkout, not a second lock/tree.
         with base.checkout_lock.exclusive(workspace, run_dir) as checkout_handle:
             current = base.source_scope.snapshot(workspace, state, base_snapshot=base.support.snapshot)
+            recovery_intent = stage_recovery.constructor_intent(
+                args, state, {*base.planning.V2_STAGES, base.workflows.STAGE}
+            )
             context = native_launch.NativeRunContext(
                 workspace,
                 run_dir,
@@ -125,6 +131,7 @@ def run(base, args, parser, resolved, *, failure_routing=True):
                 start_state=state,
                 snapshot=current,
                 activation_intent={"task": state["task"], "profile": intent},
+                **({"planning_abandonment_intent": recovery_intent} if recovery_intent is not None else {}),
             )
             calls = native_calls.PlanningCalls(
                 context,
@@ -210,6 +217,7 @@ def runner_view(base, calls):
     runner.chat_checkpoint = lambda *a, **kw: base.chat_checkpoint(*a, **kw, persist=calls.sink.write, native=calls)
     runner.rotate_if_needed = lambda *a, **kw: base.rotate_if_needed(*a, **kw, persist=calls.sink.write)
     runner.approve_goal = lambda state, selected: calls.approve(base.lifecycle.approve, state, selected)
+    runner.abandon_stage = lambda *a, **kw: calls.abandon_stage(*a, **kw)
     runner.recover_default_budget = lambda *a, **kw: False
     runner.reject_completed_stage = lambda state, run_dir, record, error: calls.reject(state, record, error)
     return runner

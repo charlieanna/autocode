@@ -60,6 +60,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                 args.expected_design_hash,
                 args.design_change_reason,
                 workspace,
+                **scope_arguments,
             )
         except (ValueError, OSError) as error:
             print(f"Input rejected: {error}", file=sys.stderr)

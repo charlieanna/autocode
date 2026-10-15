@@ -28,6 +28,7 @@ try:
     from . import autocode_design_args as design_args
     from . import autocode_project_config as project_config
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
     from . import autocode_task_input as task_input
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_design_args as design_args
     import autocode_project_config as project_config
     import autocode_resolver_human as resolver_human
+    import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
     import autocode_task_input as task_input
@@ -62,6 +64,7 @@ NEW_RUN_INPUTS = (
     "figma_review",
     "in_place",
     "builder_strong_model",
+    "role_transport",
     "conversation_handoff",
     "conversation_session",
     "test_root",
@@ -209,12 +212,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         choices=["codex", "opencode"],
         help="Select Codex or OpenCode; resumes keep the saved engine",
     )
-    parser.add_argument(
-        "--provider",
-        default=None,
-        help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
-        "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml",
-    )
+    role_transport.add_arguments(parser)
     parser.add_argument(
         "--allow-uncontained-tools",
         action="store_true",

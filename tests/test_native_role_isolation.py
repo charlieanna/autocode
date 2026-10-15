@@ -260,6 +260,35 @@ class IsolationTests(unittest.TestCase):
         self.assertEqual(self.actual["tools"], observed["effective_tools"])
         self.assertEqual(observed, native.verify(observed, self.command, self.env))
 
+    def test_inherited_native_defaults_are_shadowed_and_output_allowance_is_suppressed(self):
+        output = str(Path(self.env["HOME"]) / ".local/share/opencode/tool-output") + "/*"
+        inherited = [
+            {"permission": "*", "pattern": "*", "action": "allow"},
+            {"permission": "doom_loop", "pattern": "*", "action": "ask"},
+            {"permission": "read", "pattern": "*", "action": "allow"},
+            {"permission": "read", "pattern": "*.env", "action": "ask"},
+            {"permission": "external_directory", "pattern": output, "action": "deny"},
+        ]
+        self.actual["permission"] = inherited + self.actual["permission"]
+        original = deepcopy(self.actual["permission"])
+        owner = self.owner()
+        command, env, boundary, _ = self.finalize_fixture(owner)
+        self.assertEqual(
+            {"external_directory": {output: "deny"}},
+            json.loads(env["OPENCODE_CONFIG_CONTENT"])["permission"],
+        )
+        receipt = json.loads(Path(boundary["conformance"]).read_text())
+        self.assertEqual(original, receipt["launch_identity"]["effective_permission"])
+        with patch.object(containment.sys, "platform", "darwin"):
+            owner.verify_launch(state=self.state, command=command, environment=env, boundary=boundary)
+
+    def test_unshadowed_native_output_allowance_refuses_before_launch(self):
+        self.actual["permission"].append(
+            {"permission": "external_directory", "pattern": "/native/tool-output/*", "action": "allow"}
+        )
+        with self.assertRaisesRegex(ValueError, "actual native ordered permission"):
+            self.finalize_fixture(self.owner())
+
     def test_finalized_descriptor_pins_members_and_refuses_later_image_extension(self):
         owner = self.owner()
         command, env, boundary, descriptor = self.finalize_fixture(owner)

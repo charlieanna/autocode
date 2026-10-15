@@ -5758,6 +5758,24 @@ class RefundClockFaultTests(unittest.TestCase):
         self.assertIn("UTC-8", self.provider["diagnose"](legacy, failures)[0])
 
 
+    def test_vague_override_only_changes_diagnosis_of_a_planted_clock(self):
+        planted = (self.scenario.seed / "shop" / "clock.py").read_text()
+        fixed = (self.scenario.reference / "shop" / "clock.py").read_text()
+        failures = ["Test case C2: window counts store days not utc days has no test named x"]
+        with patch.dict(os.environ, {"SCENARIO_FAKE_REFUND_DIAGNOSIS": "specific"}):
+            specific = self.provider["diagnose"](planted, failures)
+            not_planted = self.provider["diagnose"](fixed, failures)
+        for mode in ("vague", "specific", "unknown"):
+            with self.subTest(mode=mode), patch.dict(os.environ, {"SCENARIO_FAKE_REFUND_DIAGNOSIS": mode}):
+                diagnosis, paths = self.provider["diagnose"](planted, failures)
+                self.assertEqual(specific[1], paths)
+                self.assertEqual(
+                    "The implementation has a bug; fix it and rerun the tests." if mode == "vague" else specific[0],
+                    diagnosis,
+                )
+                self.assertEqual(not_planted, self.provider["diagnose"](fixed, failures))
+
+
 class RefundWindowDiagnosisTests(unittest.TestCase):
     """feature-refund-window's diagnosis() on synthetic run records (issue #59): a Resolver call is on the
     planted failure when the source it saw fails the hidden WindowTests or CapTests, rebuilt from the runner's

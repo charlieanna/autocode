@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 try:
+    from . import autocode_code_citations as code_citations
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_code_citations as code_citations
     import autocode_source_scope as source_scope
 
 
@@ -20,6 +22,7 @@ try:
     from . import autocode_check_refs as check_refs
     from . import autocode_check_replay as check_replay
     from . import autocode_completion as completion_gate
+    from . import autocode_completion_result as completion_result
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency as efficiency
     from . import autocode_escalation as escalation
@@ -64,6 +67,7 @@ except ImportError:
     import autocode_check_refs as check_refs
     import autocode_check_replay as check_replay
     import autocode_completion as completion_gate
+    import autocode_completion_result as completion_result
     import autocode_design_coverage as design_coverage
     import autocode_efficiency as efficiency
     import autocode_escalation as escalation
@@ -326,28 +330,7 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
 
 
 def _check_code_refs(state, refs, field="code_refs"):
-    if not state.get("workspace"):
-        return
-    root = Path(state.get("workspace") or "")
-    if not root.is_dir():
-        return
-    files = planning_unit.workspace_inventory(root, state.get("task", ""))["files"]
-    if not files:
-        return
-    if not refs:
-        raise ValueError(f"Report must cite existing source in {field}")
-    for ref in refs:
-        raw, line_text = planning_unit.split_code_ref(root, str(ref))
-        target = planning_unit.cited_file(root, raw, field, ref)
-        if line_text:
-            citation = re.fullmatch(r"(\d+)(?:-(\d+))?(?:\s+.*)?", line_text)
-            if not citation:
-                raise ValueError(f"{field} entry {ref} has no line number")
-            line = int(citation[1])
-            end = int(citation[2] or citation[1])
-            count = len(target.read_text(errors="replace").splitlines())
-            if line < 1 or end < line or end > max(count, 1):
-                raise ValueError(f"{field} entry {ref} points past the end of the file")
+    code_citations.require(state, refs, field, planning_unit=planning_unit)
 
 
 def _bind_plan(state, value, origin, record):
@@ -425,7 +408,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
     if "conflict_resolutions" in planning_unit.SCHEMAS[stage]["properties"]:
         value = {"conflict_resolutions": [], **value}
     if stage in planning_unit.V2_STAGES:
-        support.validate_schema(value, planning_unit.SCHEMAS[stage])
+        support.validate_schema(value, planning_unit.schema_for(state, stage))
         answers = {"plan_revise": "responses", "plan_finalize": "decisions"}.get(stage)
         if answers:  # the report and its handoff keep only the rows that answer a review concern
             concerns = state["planning"]["reports"]["plan_review"]["report"]["concerns"]
@@ -436,7 +419,8 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             lifecycle.apply_requirements(
                 state, value["requirements"], artifact_sha256=prepared["artifact"]["sha256"], record=record
             )
-            planning = state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
+            planning_unit.begin_v2_cycle(state)
+            planning = state["planning"]
         else:
             planning = state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
             reports = planning["reports"]
@@ -1326,58 +1310,34 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             save_record(state, record)
             return
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
-            try:
-                from . import autocode_replay_checks as recorded_checks
-            except ImportError:
-                import autocode_replay_checks as recorded_checks
-            if recorded_checks.simulated(state.get("settings")):
-                recorded_checks.finish_decision(
-                    state,
-                    current,
-                    record,
-                    value,
-                    workspace,
-                    native=getattr(runtime, "native_calls", None),
-                    completion_ready=completion_gate.logical_completion_ready,
-                    regression_required=lambda value: regression.required(value, all_due=True),
-                )
-                state.update(final_decision=value, completed_at=now())
-                if modern:
-                    state["phase"] = "COMPLETE"
-                goals.record_decision(state, value)
-                save_record(state, record)
-                return
-            native = getattr(runtime, "native_calls", None)
-            prepared_completion = native.completion(state, current, record, value) if native is not None else None
-            visual_runtime.require_completion(
+            if completion_result.apply(
                 state,
-                current_snapshot=current,
-                **({"scope_authority": prepared_completion.scope_authority} if prepared_completion is not None else {}),
-            )
-            progressive_state.prepare_completion(
-                state, current, record, product_findings=findings_ledger.blocking_entries(state)
-            )
-            if modern and findings_ledger.blocking_entries(state):
-                raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.ledger_rejection(state))
-            if modern and goals.missing_human_reviews(state):
-                raise support.Paused(
-                    "PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first"
-                )
-            if not completion_gate.completion_ready(state, value, current):
-                if not regression.complete(state, current["revision"], all_due=True):
-                    raise support.Paused("PAUSED_COMPLETION_GATE", regression.rejection(state))
-                raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.rejection(state))
-            state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)
-            if milestones.enabled(state):
-                milestones.accept(
-                    state,
-                    current,
-                    **({"visual_proof": prepared_completion.proof} if prepared_completion is not None else {}),
-                )
-            if modern:
-                state["phase"] = "COMPLETE"
-            if prepared_completion is not None:
-                prepared_completion.publication(state)
+                current,
+                record,
+                value,
+                workspace,
+                modern=modern,
+                native_calls=lambda: getattr(runtime, "native_calls", None),
+                logical_completion_ready=completion_gate.logical_completion_ready,
+                regression_required=regression.required,
+                require_visual_completion=visual_runtime.require_completion,
+                prepare_progressive_completion=progressive_state.prepare_completion,
+                blocking_entries=findings_ledger.blocking_entries,
+                ledger_rejection=completion_gate.ledger_rejection,
+                missing_human_reviews=goals.missing_human_reviews,
+                completion_ready=completion_gate.completion_ready,
+                regression_complete=regression.complete,
+                regression_rejection=regression.rejection,
+                completion_rejection=completion_gate.rejection,
+                milestones_enabled=milestones.enabled,
+                accept_milestone=milestones.accept,
+                commit_fields=lambda fields: state.update(fields),
+                now=now,
+                record_decision=goals.record_decision,
+                save_record=save_record,
+                paused=support.Paused,
+            ):
+                return
         elif value["status"] == "BLOCKED":
             if modern:
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "BLOCKED requires a structured user_request")

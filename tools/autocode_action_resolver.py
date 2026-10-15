@@ -26,6 +26,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_role_transport as role_transport
     from . import autocode_support as support
     from . import autocode_worker_quota as worker_quota
 except ImportError:
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as resolver_human
+    import autocode_role_transport as role_transport
     import autocode_support as support
     import autocode_worker_quota as worker_quota
 
@@ -187,7 +189,8 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         )
         if quota_route.engine(candidate["settings"], role) == "opencode":
             try:
-                runner.opencode.check_models({role: {"model": model}}, workspace)
+                facade = role_transport.adapter(candidate["settings"], role, runner.opencode, workspace)
+                facade.check_models({role: {"model": model}}, workspace)
             except RuntimeError as error:
                 raise ValueError(str(error)) from None
         if interventions.pending(run_dir):

@@ -21,6 +21,13 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_native_locators as native_locators
+    from .autocode_kilo_isolation import KiloRoleIsolation
+except ImportError:
+    import autocode_native_locators as native_locators
+    from autocode_kilo_isolation import KiloRoleIsolation
+
+try:
     from . import autocode_contract_identity as contract
     from . import autocode_native_conformance as conformance
     from . import autocode_native_writer_execution as writers
@@ -380,6 +387,12 @@ class NativeRoleIsolation:
             enabled_providers=[self._route["model"].split("/")[0]],
             plugin=[activity.as_uri()],
         )
+        # OpenCode 1.18.33 otherwise appends a tool-output directory allowance
+        # after the named agent's deny-default rules. Its exact-pattern deny
+        # suppresses that allowance; no native tool or filesystem grant is added.
+        final["permission"] = {
+            "external_directory": {str(Path(data) / "opencode" / "tool-output") + "/*": "deny"}
+        }
         final["agent"][agent]["model"] = self._route["model"]
         final["agent"].update({name: {"disable": True} for name in ("title", "summary", "compaction")})
         child.update(FLAGS)
@@ -466,7 +479,8 @@ class NativeRoleIsolation:
         except ImportError:
             import autocode_tool_containment as containment
         _require(
-            containment.shell_permissions(observed["effective_permission"]) == final["agent"][agent]["permission"],
+            containment.shell_permissions(observed["effective_permission"]) == final["agent"][agent]["permission"]
+            and conformance.non_shell_denied(observed["effective_permission"]),
             "actual native ordered permission differs from final primary role",
         )
         containment.verify(boundary)
@@ -595,7 +609,7 @@ class NativeRoleIsolation:
                 state=self._state,
                 command=command,
                 environment=environment,
-                boundary=sdk_rules._json(environment["AUTOCODE_TOOL_CONTAINMENT"]),
+                boundary=native_locators.expand_boundary(environment["AUTOCODE_TOOL_CONTAINMENT"], descriptor),
                 require_locators=True,
             )
             return self._image_preparation.freeze(command, environment, descriptor)
@@ -605,6 +619,15 @@ class NativeRoleIsolation:
             _require(context is None, "image context has no original same-owner packet")
             return {}
         return self._image_preparation.pins(context)
+
+    def environment_descriptor(self, environment):
+        """Recover no authority: compare the locator to this original owner."""
+        _require(self._descriptor is not None, "owner has no finalized native descriptor")
+        _require(
+            native_locators.descriptor_matches(environment.get("AUTOCODE_NATIVE_ROLE_ISOLATION", "null"), self._descriptor),
+            "foreign isolation environment locator",
+        )
+        return deepcopy(self._descriptor)
 
     def verify_launch(self, *, state, command, environment, boundary, writer_execution=None):
         """Require real launch locators; missing causal writer integration holds."""
@@ -646,12 +669,12 @@ class NativeRoleIsolation:
             _require(boundary["native_role_isolation"] == descriptor, "foreign isolation boundary locator")
         if "AUTOCODE_NATIVE_ROLE_ISOLATION" in environment:
             _require(
-                sdk_rules._json(environment["AUTOCODE_NATIVE_ROLE_ISOLATION"]) == descriptor,
+                native_locators.descriptor_matches(environment["AUTOCODE_NATIVE_ROLE_ISOLATION"], descriptor),
                 "foreign isolation environment locator",
             )
         if "AUTOCODE_TOOL_CONTAINMENT" in environment:
             _require(
-                sdk_rules._json(environment["AUTOCODE_TOOL_CONTAINMENT"]) == boundary,
+                native_locators.boundary_matches(environment["AUTOCODE_TOOL_CONTAINMENT"], boundary),
                 "foreign containment environment locator",
             )
         manifest = sdk_rules._json(path.read_bytes())

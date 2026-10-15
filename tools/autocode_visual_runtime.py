@@ -50,6 +50,20 @@ def _require(condition, reason):
         raise ValueError(reason)
 
 
+def _delivery_backend(state):
+    if state.get("settings", {}).get("roles", {}).get("sol", {}).get("provider") != "kilocode":
+        return delivery, "OPENCODE_CONFIG_CONTENT"
+    try:
+        from . import autocode_visual_profile as launch_profile
+        from . import autocode_kilo_image_delivery as kilo_delivery
+    except ImportError:
+        import autocode_visual_profile as launch_profile
+        import autocode_kilo_image_delivery as kilo_delivery
+    if launch_profile._profile(state).get("mode") == launch_profile.kilo.MODE:
+        return kilo_delivery, "KILO_CONFIG_CONTENT"
+    return delivery, "OPENCODE_CONFIG_CONTENT"
+
+
 def _unknown(reason):
     return {
         "status": "NOT_READY",
@@ -535,8 +549,9 @@ def _prepare(
         directory.mkdir(mode=0o700)
         pins = dict([_write(directory / "manifest.json", raw)])
         pins.update(capture_pins)
+        transport, config_key = _delivery_backend(state)
         plugin = directory / "image-delivery.mjs"
-        pins.update([_write(plugin, Path(delivery.__file__).with_suffix(".mjs").read_bytes())])
+        pins.update([_write(plugin, Path(transport.__file__).with_suffix(".mjs").read_bytes())])
         images, captures = [], {row["case"]["id"]: row for row in selected["current"]}
         if "visual_scope" in current:
             _seal_all_references(state, pins)
@@ -579,9 +594,13 @@ def _prepare(
         attempt = uuid.uuid4().hex
         audit = directory / "delivery.jsonl"
         child = dict(env)
-        config = json.loads(child.get("OPENCODE_CONFIG_CONTENT", "{}"))
-        config.setdefault("plugin", []).append(plugin.as_uri())
-        child["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+        config = json.loads(child.get(config_key, "{}"))
+        if config_key == "KILO_CONFIG_CONTENT":
+            _require(staging_directory is not None, "Kilo source audit needs its original native owner")
+            config["plugin"] = [plugin.as_uri()]
+        else:
+            config.setdefault("plugin", []).append(plugin.as_uri())
+        child[config_key] = json.dumps(config)
         _require("--agent" in command, "Visual delivery requires the actual named reviewer agent")
         child["AUTOCODE_IMAGE_AUDIT"] = json.dumps(
             {
@@ -589,6 +608,7 @@ def _prepare(
                 "attempt_id": attempt,
                 "binding_sha256": util.digest(bound),
                 "reviewer": {**current["reviewer"], "agent": command[command.index("--agent") + 1]},
+                **({"plugin_sha256": pins[str(plugin)]} if config_key == "KILO_CONFIG_CONTENT" else {}),
             }
         )
         argv = [*command, *(value for row in images for value in ("--file", row["path"]))]
@@ -608,7 +628,7 @@ def _prepare(
             and all(isinstance(key, str) and isinstance(value, str) for key, value in child.items()),
             "Invalid visual child environment",
         )
-        config = json.loads(child["OPENCODE_CONFIG_CONTENT"])
+        config = json.loads(child[config_key])
         audit_options = json.loads(child["AUTOCODE_IMAGE_AUDIT"])
         _require(
             type(audit_options.get("max_requests")) is int
@@ -721,7 +741,7 @@ def verify_prelaunch(context, state, *, run_dir, current_snapshot, command, env,
         _require(
             command == context["command"]
             and util.digest(env) == context["environment_sha256"]
-            and util.digest(json.loads(env["OPENCODE_CONFIG_CONTENT"])) == context["config_sha256"]
+            and util.digest(json.loads(env[_delivery_backend(state)[1]])) == context["config_sha256"]
             and json.loads(env["AUTOCODE_IMAGE_AUDIT"]) == context["audit_options"],
             "Visual launch configuration changed",
         )
@@ -886,6 +906,12 @@ def accept_review(
             **record["rework_evidence"]["hashes"],
             **accepted_validation["evidence_hashes"],
         }
+        if context.get("native_isolation", {}).get("backend") == "kilocode":
+            try:
+                from . import autocode_kilo_source_relay as original_source
+            except ImportError:
+                import autocode_kilo_source_relay as original_source
+            auxiliary.update(original_source.closed_source_evidence(record))
         auxiliary.update(
             {
                 str(_owned(run, record[key])): util.file_hash(_owned(run, record[key]))
@@ -913,7 +939,7 @@ def accept_review(
         )
         # Receipt metadata is parent-pinned, never taken from report fields.
         transport = partial(
-            delivery.verify,
+            _delivery_backend(state)[0].verify,
             audit_path=context["audit_path"],
             attempt_id=context["attempt_id"],
             plugin_sha256=context["plugin_sha256"],

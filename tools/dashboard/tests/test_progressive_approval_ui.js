@@ -76,6 +76,7 @@ function harness(){
     +range('const approveBuildState=', 'function currentConversationDraft(')
     +range('function approveBuildStatusLine(', 'function renderInlineTaskAction(')
     +range('function renderInlineTaskAction(', 'function planEntryText(')
+    +range('function currentConversationDraft(', 'function renderQuietPlanPreview(')
     +range('function planEntryText(', 'function output(')
     +range('function workRequirementRows(', 'function renderTaskNow(')
     +range('function requestKey(', 'function taskSentence(')

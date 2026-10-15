@@ -3,9 +3,11 @@
 import copy
 import json
 import os
+import shlex
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 import zlib
@@ -1193,6 +1195,81 @@ class DesignManifestTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "finite and positive"):
                 manifest.load(path)
 
+    def test_v2_generated_planner_report_loads_and_installs_design_coverage(self):
+        import autocode as runner
+        import autocode_goal_lifecycle as lifecycle
+        import autocode_planning as planning
+        import autopilot
+        from goal_fixtures import body as goal_body
+
+        path, inventory = inventory_bundle(self.root / "planner-inventory")
+        design = manifest.load(path)
+        contract = goal_body()
+        contract["milestones"][0]["affected_paths"] = ["src/"]
+        contract["initial_task"] = {
+            "objective": "Validate the complete supplied UI",
+            "affected_paths": ["src/"],
+            "kind": "validate",
+            "milestone_id": "M1",
+            "requirements": ["Inspect every supplied design case"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["python3 -m unittest discover"],
+        }
+        contract["design_coverage"] = {
+            "manifest_hash": design["manifest_hash"],
+            "cases": [
+                {"id": case["id"], "criterion_ids": ["C1"], "milestone_ids": ["M1"]}
+                for case in inventory["cases"]
+            ],
+            "responsive_derivations": [],
+        }
+
+        def state():
+            return {
+                "task_id": "fixture-task",
+                "task": "Validate the supplied UI",
+                "workspace": str(self.workspace),
+                "settings": {"joint_planning": True, "planning_flow": "v2", "design_manifest": design},
+                "answers": {},
+                "user_events": [],
+                "acceptance_criteria": [],
+            }
+
+        def load(candidate, report, name):
+            output, schema_path = self.root / f"{name}.json", self.root / f"{name}.schema.json"
+            output.write_text(json.dumps({"contract": report, "summary": "All cases planned"}))
+            schema_path.write_text(json.dumps(planning.schema_for(candidate, "plan")))
+            record = {"stage": "plan", "engine": "codex", "output": str(output), "schema": str(schema_path)}
+            return runner.load_stage_report(record, state=candidate), record
+
+        candidate = state()
+        value, record = load(candidate, contract, "complete")
+        autopilot.apply_planning(candidate, "plan", value, record)
+        public = run_view.view(candidate)
+        self.assertEqual("plan_review", public["next_stage"])
+        self.assertEqual(contract["design_coverage"], public["design"]["plan_coverage"])
+        rendered = lifecycle.render(candidate)
+        for case in inventory["cases"]:
+            self.assertIn(case["id"], rendered)
+
+        for change in ("malformed", "missing_case", "unknown_criterion"):
+            with self.subTest(change=change):
+                rejected = state()
+                before = lifecycle.render(rejected)
+                broken = copy.deepcopy(contract)
+                if change == "malformed":
+                    broken["design_coverage"]["cases"] = "not an array"
+                elif change == "missing_case":
+                    broken["design_coverage"]["cases"].pop()
+                else:
+                    broken["design_coverage"]["cases"][0]["criterion_ids"] = ["unknown"]
+                value, record = load(rejected, broken, change)
+                with self.assertRaisesRegex(
+                    ValueError, "expected array|map every approved design case|unknown product criteria"
+                ):
+                    autopilot.apply_planning(rejected, "plan", value, record)
+                self.assertEqual(before, lifecycle.render(rejected))
+
     def test_v2_plan_coverage_binds_every_case_to_existing_criteria_and_ownership(self):
         path, body = inventory_bundle(self.root / "plan-inventory")
         record = manifest.load(path)
@@ -1646,6 +1723,505 @@ class DesignManifestTests(unittest.TestCase):
         self.assertEqual(["greet.filled"], design["not_passing"])
         self.assertIsNone(design["current_visual_acceptance"])
         self.assertNotIn("design", run_view.view({"status": "RUNNING"}))
+
+
+class PlanningPartitionContextTests(unittest.TestCase):
+    """Complete raw input is retained once, without changing native authority."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="planning-partition-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.path, self.body = self.scoped_bundle(self.root / "exports")
+        self.workspace = self.root / "project"
+        self.workspace.mkdir()
+        self.authority = self.root / "approved-scope.json"
+        self.write_authority()
+        self.record = manifest.retain(
+            manifest.load(self.path, **self.arguments()), self.workspace, **self.arguments()
+        )
+        # Preserve coverage of already-saved v1 bundles after fresh retention
+        # moves to v2. This fixture alone creates the historical edition.
+        old_root = self.workspace / ".autocode" / "design-inputs-planning-v1" / self.record["manifest_hash"]
+        shutil.copytree(self.record["root"], old_root)
+        (old_root / "planning-catalog.json").unlink()
+        (old_root / "inventory-manifest.json").chmod(0o644)
+        self.record = {**self.record, "root": str(old_root),
+                       "manifest_path": str(old_root / "inventory-manifest.json")}
+        self.settings = {
+            "design_manifest": self.record,
+            "engine": "opencode",
+            "provider": "opencode",
+            "roles": {
+                role: {"engine": "opencode", "provider": "opencode", "reasoning_effort": "high"}
+                for role in ("requirements", "glm", "astra", "plan_reviewer")
+            },
+        }
+        self.sidecar = Path(self.record["root"]) / "planning-scope-partition.json"
+
+    @staticmethod
+    def scoped_bundle(root):
+        path, body = inventory_bundle(root)
+        # The legacy full-delivery fixture lists every declared resource on
+        # every case. Scoped admission requires the actual source-node use.
+        for case in body["cases"]:
+            refs = {section: [] for section in ("components", "variables", "fonts", "assets", "transitions")}
+            if case["node_id"] == "1:2":
+                refs["transitions"] = ["home-details"]
+            elif case["node_id"] == "3:4":
+                refs["assets"] = ["logo-FILEB"]
+            case["inventory_refs"] = refs
+        path.write_text(json.dumps(body))
+        return path, body
+
+    def write_authority(self):
+        self.authority.write_text(json.dumps({
+            "version": 1,
+            "manifest_hash": util.digest(self.body),
+            "approved_case_ids": [row["id"] for row in self.body["cases"]],
+            "approval_evidence": [{"kind": "approved_scope_decision", "sha256": "a" * 64}],
+        }))
+
+    def arguments(self):
+        return {"approved_scope": self.authority, "approved_scope_sha256": util.file_hash(self.authority)}
+
+    def test_exact_partition_reconstructs_full_context_and_keeps_public_catalog(self):
+        original = manifest.context(self.settings)
+        self.assertEqual("design-inputs-planning-v1", Path(self.record["root"]).parent.name)
+        self.assertEqual(0o400, self.sidecar.stat().st_mode & 0o777)
+        for role in self.settings["roles"]:
+            with self.subTest(role=role):
+                compact = manifest.planning_context(self.settings, role=role)
+                locator = compact["catalog"]["scope_partition"]
+                raw = Path(locator["path"]).read_bytes()
+                self.assertEqual(util.file_hash(self.sidecar), locator["sha256"])
+                self.assertEqual(len(raw), locator["bytes"])
+                self.assertEqual(self.record["manifest_hash"], locator["manifest_hash"])
+                self.assertEqual(self.record["scope_admission"]["sha256"], locator["scope_sha256"])
+                compact["catalog"]["scope_partition"] = json.loads(raw)
+                self.assertEqual(original, compact)
+        self.assertEqual(self.body, original["body"])
+        self.assertEqual(3, len(original["body"]["cases"]))
+        self.assertEqual(original["catalog"], design_inventory.catalog(
+            self.body, self.record["root"], admission=manifest.admitted_scope(self.record)
+        ))
+        self.assertEqual(original, manifest.context(self.settings))
+
+    def test_only_saved_opencode_planning_routes_receive_locator(self):
+        original = manifest.context(self.settings)
+        for change in ("kilo", "unknown-provider", "other-engine", "unsaved-role", "completion"):
+            selected = copy.deepcopy(self.settings)
+            role = "plan_reviewer"
+            if change == "kilo":
+                selected["roles"][role]["provider"] = "kilocode"
+            elif change == "unknown-provider":
+                selected["roles"][role]["provider"] = "unknown"
+            elif change == "other-engine":
+                selected["roles"][role]["engine"] = "codex"
+            elif change == "unsaved-role":
+                del selected["roles"][role]
+            else:
+                role = "completion"
+                selected["roles"][role] = {"engine": "opencode", "provider": "opencode"}
+            with self.subTest(change=change):
+                self.assertEqual(original, manifest.planning_context(selected, role=role))
+
+    def test_old_bundle_falls_back_inline_and_is_never_upgraded(self):
+        old_root = self.workspace / ".autocode" / "design-inputs" / self.record["manifest_hash"]
+        shutil.copytree(self.record["root"], old_root)
+        (old_root / "planning-scope-partition.json").unlink()
+        old = {**copy.deepcopy(self.record), "root": str(old_root),
+               "manifest_path": str(old_root / "inventory-manifest.json")}
+        settings = {**self.settings, "design_manifest": old}
+        before = {p.relative_to(old_root).as_posix(): (p.read_bytes(), p.stat().st_mode)
+                  for p in old_root.rglob("*") if p.is_file()}
+        self.assertEqual(manifest.context(settings), manifest.planning_context(settings, role="plan_reviewer"))
+        newly_retained = manifest.retain(old, self.workspace)
+        self.assertEqual(self.record["body"], newly_retained["body"])
+        self.assertEqual(self.record["scope_admission"], newly_retained["scope_admission"])
+        self.assertEqual("design-inputs-planning-v2", Path(newly_retained["root"]).parent.name)
+        after = {p.relative_to(old_root).as_posix(): (p.read_bytes(), p.stat().st_mode)
+                 for p in old_root.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+        self.assertFalse((old_root / "planning-scope-partition.json").exists())
+
+    def test_sidecar_missing_tampered_extra_or_noncanonical_bytes_refuse(self):
+        original = self.sidecar.read_bytes()
+        changed = json.loads(original)
+        changed["foreign"] = True
+        for raw in (b"{}", json.dumps(changed).encode(), original + b"\n"):
+            self.sidecar.chmod(0o600)
+            self.sidecar.write_bytes(raw)
+            self.sidecar.chmod(0o400)
+            with self.subTest(raw=raw[:40]), self.assertRaisesRegex(util.Paused, "partition.*changed"):
+                manifest.planning_context(self.settings, role="plan_reviewer")
+        self.sidecar.unlink()
+        with self.assertRaises(util.Paused):
+            manifest.planning_context(self.settings, role="plan_reviewer")
+        with self.assertRaises(OSError):
+            manifest.retain(self.record, self.workspace)
+        self.assertFalse(self.sidecar.exists(), "An incomplete new bundle is never repaired silently")
+
+    def test_sidecar_symlink_nonregular_and_writable_mode_refuse(self):
+        original = self.sidecar.read_bytes()
+        outside = self.root / "foreign-partition.json"
+        outside.write_bytes(original)
+        self.sidecar.unlink()
+        self.sidecar.symlink_to(outside)
+        with self.assertRaisesRegex(util.Paused, "symlinks"):
+            manifest.planning_context(self.settings, role="plan_reviewer")
+        self.sidecar.unlink()
+        self.sidecar.mkdir()
+        with self.assertRaisesRegex(util.Paused, "regular file"):
+            manifest.planning_context(self.settings, role="plan_reviewer")
+        self.sidecar.rmdir()
+        self.sidecar.write_bytes(original)
+        with self.assertRaisesRegex(util.Paused, "immutable regular file"):
+            manifest.planning_context(self.settings, role="plan_reviewer")
+
+    def test_open_substitution_and_oversize_refuse_before_payload_read(self):
+        original = self.sidecar.read_bytes()
+        outside = self.root / "foreign-partition.json"
+        outside.write_bytes(original)
+        real_open, real_fdopen = os.open, os.fdopen
+        testcase = self
+
+        class NoPayloadRead:
+            def __init__(self, descriptor, mode):
+                self.stream = real_fdopen(descriptor, mode)
+
+            def __enter__(self):
+                self.stream.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.stream.__exit__(*args)
+
+            def fileno(self):
+                return self.stream.fileno()
+
+            def read(self, *args):
+                testcase.fail("Replaced or oversized input must be refused before payload read")
+
+        for change in ("symlink", "fifo", "oversize"):
+            def substitute(path, flags, mode=0o777):
+                self.assertEqual(self.sidecar, Path(path))
+                self.sidecar.unlink()
+                if change == "symlink":
+                    self.sidecar.symlink_to(outside)
+                elif change == "fifo":
+                    os.mkfifo(self.sidecar, 0o400)
+                else:
+                    self.sidecar.write_bytes(original + b" ")
+                    self.sidecar.chmod(0o400)
+                return real_open(path, flags, mode)
+
+            with self.subTest(change=change), patch.object(manifest.os, "open", side_effect=substitute) as opened:
+                with patch.object(manifest.os, "fdopen", NoPayloadRead), self.assertRaises(util.Paused):
+                    manifest.planning_context(self.settings, role="plan_reviewer")
+                self.assertEqual(1, opened.call_count)
+            self.sidecar.unlink()
+            self.sidecar.write_bytes(original)
+            self.sidecar.chmod(0o400)
+        self.sidecar.chmod(0o600)
+        self.sidecar.write_bytes(original + b" ")
+        self.sidecar.chmod(0o400)
+        with patch.object(manifest.os, "open", side_effect=AssertionError("Oversized input cannot be opened")):
+            with self.assertRaisesRegex(util.Paused, "partition.*changed"):
+                manifest.planning_context(self.settings, role="plan_reviewer")
+
+    def test_source_artifacts_cannot_collide_with_sidecar_or_its_ancestor(self):
+        for name in ("planning-scope-partition.json", "planning-scope-partition.json/context.txt"):
+            source_root = self.root / ("collision-" + str(len(name)))
+            path, body = self.scoped_bundle(source_root)
+            target = source_root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_root / "context.txt", target)
+            for case in body["cases"]:
+                case["artifacts"]["design_context"] = {"path": name, "sha256": util.file_hash(target)}
+            path.write_text(json.dumps(body))
+            self.body = body
+            self.write_authority()
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "reserved"):
+                manifest.retain(manifest.load(path, **self.arguments()), self.workspace, **self.arguments())
+
+    def test_malformed_retained_namespace_and_changed_scope_are_refused(self):
+        for change in ("index-escape", "missing-scope", "wrong-scope"):
+            selected = copy.deepcopy(self.record)
+            if change == "index-escape":
+                selected["manifest_path"] = str(self.root / "foreign-index.json")
+            elif change == "missing-scope":
+                del selected["scope_admission"]
+            else:
+                selected["scope_admission"]["sha256"] = "b" * 64
+            with self.subTest(change=change), self.assertRaises((ValueError, OSError)):
+                manifest.verify(selected)
+
+    def test_planning_prompt_round_trip_preserves_task_conversation_and_other_fields(self):
+        from units import autoplanner
+
+        state = {
+            "task": "Keep the literal `python3 test_app.py` and every approved feature.",
+            "workspace": str(self.workspace),
+            "settings": {**self.settings, "joint_planning": True},
+            "planning": {},
+            "answers": {"Q1": "Already approved"},
+            "brief_feedback": [{"say": "Preserve all history"}],
+            "user_events": [{"kind": "user_message", "say": "Use GLM and MiMo as before"}],
+        }
+        path = self.workspace / ".autocode" / "runs" / "fixture" / "unused-state-path.json"
+        with patch.object(manifest, "planning_context", side_effect=lambda settings, role: manifest.context(settings)):
+            original, _ = autoplanner.context(state, "astra_challenge", path)
+        compact, _ = autoplanner.context(state, "astra_challenge", path)
+        prefix, original_json = original.split('\n{\n  "task":', 1)
+        compact_prefix, compact_json = compact.split('\n{\n  "task":', 1)
+        self.assertEqual(prefix, compact_prefix)
+        original_packet = json.loads('{\n  "task":' + original_json)
+        compact_packet = json.loads('{\n  "task":' + compact_json)
+        locator = compact_packet["design_manifest"]["catalog"]["scope_partition"]
+        compact_packet["design_manifest"]["catalog"]["scope_partition"] = json.loads(Path(locator["path"]).read_bytes())
+        self.assertEqual(original_packet, compact_packet)
+        self.assertEqual(state["task"], compact_packet["task"])
+        self.assertEqual(state["user_events"], compact_packet["user_events"])
+        self.assertEqual(state["brief_feedback"], compact_packet["brief_feedback"])
+        self.assertEqual(state["answers"], compact_packet["saved_answers"])
+
+
+class CompletePlanningInputTests(unittest.TestCase):
+    """Full planning input retrieval preserves every admitted source field."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="complete-planning-inputs-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.path, self.body = PlanningPartitionContextTests.scoped_bundle(self.root / "exports")
+        self.workspace = self.root / "project"
+        self.workspace.mkdir()
+        self.authority = self.root / "approved-scope.json"
+        self.authority.write_text(json.dumps({
+            "version": 1, "manifest_hash": util.digest(self.body),
+            "approved_case_ids": [row["id"] for row in self.body["cases"]],
+            "approval_evidence": [{"kind": "approved_scope_decision", "sha256": "a" * 64}],
+        }))
+        arguments = {"approved_scope": self.authority, "approved_scope_sha256": util.file_hash(self.authority)}
+        self.record = manifest.retain(manifest.load(self.path, **arguments), self.workspace, **arguments)
+        self.settings = {"design_manifest": self.record, "engine": "opencode", "provider": "opencode",
+                         "roles": {role: {"engine": "opencode", "provider": "opencode"}
+                                   for role in ("requirements", "glm", "astra", "plan_reviewer")}}
+
+    def test_fresh_complete_planning_inputs_reconstruct_full_context(self):
+        original = manifest.context(self.settings)
+        self.assertEqual("design-inputs-planning-v2", Path(self.record["root"]).parent.name)
+        for role in self.settings["roles"]:
+            with self.subTest(role=role):
+                projected = manifest.planning_context(self.settings, role=role)
+                for field in ("body", "catalog"):
+                    locator = projected[field]
+                    path = Path(locator["path"])
+                    self.assertEqual(Path(self.record["root"]), path.parent)
+                    self.assertEqual(0o400, path.stat().st_mode & 0o777)
+                    self.assertEqual(util.file_hash(path), locator["sha256"])
+                    self.assertEqual(path.stat().st_size, locator["bytes"])
+                    self.assertEqual(self.record["manifest_hash"], locator["manifest_hash"])
+                    self.assertEqual(self.record["scope_admission"]["sha256"], locator["scope_sha256"])
+                    projected[field] = json.loads(path.read_bytes())
+                self.assertEqual(original, projected)
+        self.assertEqual(original["catalog"], design_inventory.catalog(
+            self.body, self.record["root"], admission=manifest.admitted_scope(self.record)))
+
+    def test_only_original_saved_readers_receive_complete_locators(self):
+        full = manifest.context(self.settings)
+        for change in ("kilocode", "unknown", "other_engine", "missing_role", "completion"):
+            settings = copy.deepcopy(self.settings)
+            role = "plan_reviewer"
+            if change in ("kilocode", "unknown"):
+                settings["roles"][role]["provider"] = change
+            elif change == "other_engine":
+                settings["roles"][role]["engine"] = "codex"
+            elif change == "missing_role":
+                settings["roles"].pop(role)
+            else:
+                role = "completion"
+                settings["roles"][role] = {"engine": "opencode", "provider": "opencode"}
+            with self.subTest(change=change):
+                self.assertEqual(full, manifest.planning_context(settings, role=role))
+                self.assertEqual({}, manifest.planning_input_pins(settings, role=role))
+
+    def test_index_and_catalog_tampering_never_gets_filled_or_adopted(self):
+        for leaf in ("inventory-manifest.json", "planning-catalog.json"):
+            path = Path(self.record["root"]) / leaf
+            original = path.read_bytes()
+            for changed in (original + b" ", b"0" * len(original)):
+                path.chmod(0o600)
+                path.write_bytes(changed)
+                path.chmod(0o400)
+                with self.subTest(leaf=leaf, changed_size=len(changed)), self.assertRaises(util.Paused):
+                    manifest.planning_context(self.settings, role="plan_reviewer")
+                self.assertEqual(changed, path.read_bytes())
+            path.unlink()
+            with self.assertRaises((ValueError, OSError)):
+                manifest.retain(self.record, self.workspace)
+            self.assertFalse(path.exists())
+            path.write_bytes(original)
+            path.chmod(0o400)
+
+    def test_unsafe_file_type_mode_and_alias_fail_before_payload_read(self):
+        for leaf in ("inventory-manifest.json", "planning-catalog.json"):
+            path = Path(self.record["root"]) / leaf
+            original = path.read_bytes()
+            foreign = self.root / (leaf + ".foreign")
+            foreign.write_bytes(original)
+            for change in ("symlink", "fifo", "writable", "hardlink", "oversize"):
+                path.unlink()
+                if change == "symlink":
+                    path.symlink_to(foreign)
+                elif change == "fifo":
+                    os.mkfifo(path, 0o400)
+                elif change == "hardlink":
+                    os.link(foreign, path)
+                    path.chmod(0o400)
+                else:
+                    path.write_bytes(original + (b" " if change == "oversize" else b""))
+                    path.chmod(0o400 if change == "oversize" else 0o600)
+                real_open = os.open
+                def bounded_open(name, flags, mode=0o777):
+                    if Path(name) == path:
+                        self.fail("Invalid type/mode/length/alias must fail before opening payload")
+                    return real_open(name, flags, mode)
+                with self.subTest(leaf=leaf, change=change), patch.object(manifest.os, "open", bounded_open):
+                    with self.assertRaises(util.Paused):
+                        manifest.planning_context(self.settings, role="plan_reviewer")
+                path.unlink()
+                path.write_bytes(original)
+                path.chmod(0o400)
+
+    def test_substitution_between_stat_and_open_is_not_read(self):
+        path = Path(self.record["root"]) / "planning-catalog.json"
+        original = path.read_bytes()
+        real_open, real_fdopen = os.open, os.fdopen
+        target_fds = set()
+        testcase = self
+        class NoPayloadRead:
+            def __init__(self, fd, mode):
+                self.stream = real_fdopen(fd, mode)
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return self.stream.__exit__(*args)
+            def fileno(self):
+                return self.stream.fileno()
+            def read(self, *args):
+                testcase.fail("Replaced input must fail descriptor checks before payload read")
+        for change in ("fifo", "same_bytes_new_inode", "oversize"):
+            def substituted_open(name, flags, mode=0o777):
+                if Path(name) == path:
+                    path.unlink()
+                    if change == "fifo":
+                        os.mkfifo(path, 0o400)
+                    else:
+                        path.write_bytes(original + (b" " if change == "oversize" else b""))
+                        path.chmod(0o400)
+                    fd = real_open(name, flags, mode)
+                    target_fds.add(fd)
+                    return fd
+                return real_open(name, flags, mode)
+            def checked_fdopen(fd, mode):
+                return NoPayloadRead(fd, mode) if fd in target_fds else real_fdopen(fd, mode)
+            with self.subTest(change=change), patch.object(manifest.os, "open", substituted_open), \
+                    patch.object(manifest.os, "fdopen", checked_fdopen), self.assertRaises(util.Paused):
+                manifest.planning_context(self.settings, role="plan_reviewer")
+            target_fds.clear()
+            path.unlink()
+            path.write_bytes(original)
+            path.chmod(0o400)
+
+    def test_failed_staging_and_reserved_artifact_leave_no_bundle(self):
+        workspace = self.root / "second-project"
+        workspace.mkdir()
+        real_check = manifest._immutable_planning_input
+        def failed_check(path, expected):
+            if Path(path).is_relative_to(workspace) and Path(path).name == "planning-catalog.json":
+                raise ValueError("controlled staging verification failure")
+            return real_check(path, expected)
+        with patch.object(manifest, "_immutable_planning_input", failed_check), \
+                self.assertRaisesRegex(ValueError, "controlled staging"):
+            manifest.retain(self.record, workspace)
+        parent = workspace / ".autocode" / "design-inputs-planning-v2"
+        self.assertEqual([], list(parent.iterdir()))
+        body = copy.deepcopy(self.body)
+        screenshot = body["cases"][0]["artifacts"]["screenshot"]
+        shutil.copyfile(self.path.parent / screenshot["path"], self.path.parent / "planning-catalog.json")
+        screenshot["path"] = "planning-catalog.json"
+        self.path.write_text(json.dumps(body))
+        authority = json.loads(self.authority.read_text())
+        authority["manifest_hash"] = util.digest(body)
+        self.authority.write_text(json.dumps(authority))
+        arguments = {"approved_scope": self.authority, "approved_scope_sha256": util.file_hash(self.authority)}
+        source = manifest.load(self.path, **arguments)
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            manifest.retain(source, workspace, **arguments)
+        self.assertEqual([], list(parent.iterdir()))
+
+    def test_atomic_publication_collision_cannot_overwrite_or_adopt_existing_bundle(self):
+        workspace = self.root / "collision-project"
+        workspace.mkdir()
+        destination = workspace / ".autocode" / "design-inputs-planning-v2" / self.record["manifest_hash"]
+        original_rename = Path.rename
+        def collision(path, target):
+            self.assertEqual(destination, Path(target))
+            destination.mkdir()
+            (destination / "foreign-input").write_bytes(b"collision sentinel")
+            return original_rename(path, target)
+        with patch.object(Path, "rename", collision), self.assertRaises(OSError):
+            manifest.retain(self.record, workspace)
+        self.assertEqual(["foreign-input"], [path.name for path in destination.iterdir()])
+        self.assertEqual(b"collision sentinel", (destination / "foreign-input").read_bytes())
+        self.assertEqual([destination], list(destination.parent.iterdir()))
+        with self.assertRaises((ValueError, OSError)):
+            manifest.retain(self.record, workspace)
+        self.assertEqual(b"collision sentinel", (destination / "foreign-input").read_bytes())
+
+    def test_existing_planning_composer_preserves_all_other_literal_inputs(self):
+        from units import autoplanner
+        state = {"task": "Keep every literal `python3 test_app.py` and all input bytes.",
+                 "workspace": str(self.workspace), "settings": {**self.settings, "joint_planning": True},
+                 "planning": {}, "answers": {"Q1": "Preserved"},
+                 "brief_feedback": [{"say": "Preserve the original context"}], "user_events": []}
+        state_path = self.workspace / ".autocode" / "runs" / "fixture" / "unused-state-path.json"
+        with patch.object(manifest, "planning_context", side_effect=lambda settings, role: manifest.context(settings)):
+            full, _ = autoplanner.context(state, "astra_challenge", state_path)
+        compact, _ = autoplanner.context(state, "astra_challenge", state_path)
+        prefix, data = full.split('\n{\n  "task":', 1)
+        actual_prefix, actual_data = compact.split('\n{\n  "task":', 1)
+        self.assertEqual(prefix, actual_prefix)
+        expected = json.loads('{\n  "task":' + data)
+        actual = json.loads('{\n  "task":' + actual_data)
+        for field in ("body", "catalog"):
+            actual["design_manifest"][field] = json.loads(Path(actual["design_manifest"][field]["path"]).read_bytes())
+        self.assertEqual(expected, actual)
+
+    @unittest.skipUnless(sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file(),
+                         "requires real macOS Seatbelt enforcement")
+    def test_existing_contained_bash_reads_complete_inputs_but_cannot_write(self):
+        import autocode_tool_containment as containment
+
+        full = manifest.context(self.settings)
+        projected = manifest.planning_context(self.settings, role="plan_reviewer")
+        paths = [Path(projected[field]["path"]) for field in ("body", "catalog")]
+        before = {str(path): (path.read_bytes(), path.stat().st_mode & 0o777) for path in paths}
+        boundary = containment.prepare(self.workspace, environment={"PATH": "/usr/bin:/bin"})
+        command = shlex.join(["/bin/cat", *(str(path) for path in paths)])
+        result = subprocess.run([boundary["shell"], "-c", command], cwd=self.workspace,
+                                capture_output=True, timeout=20)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(b"".join(before[str(path)][0] for path in paths), result.stdout)
+        for field, path in zip(("body", "catalog"), paths):
+            self.assertEqual(full[field], json.loads(before[str(path)][0]))
+        denied = subprocess.run([boundary["shell"], "-c", "printf changed > " + shlex.quote(str(paths[1]))],
+                                cwd=self.workspace, capture_output=True, timeout=20)
+        self.assertNotEqual(0, denied.returncode)
+        self.assertRegex(denied.stderr.decode(), "Operation not permitted|Permission denied")
+        self.assertEqual(before, {str(path): (path.read_bytes(), path.stat().st_mode & 0o777) for path in paths})
 
 
 class DesignManifestCliTests(unittest.TestCase):

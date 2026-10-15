@@ -949,9 +949,12 @@ class VisualAcceptanceTests(unittest.TestCase):
         for path in paths:
             with self.subTest(path=path.name):
                 original = path.read_bytes()
+                original_mode = path.stat().st_mode & 0o7777
                 self.assertEqual(util.file_hash(path), receipt["evidence_hashes"][str(path)])
                 try:
+                    path.chmod(0o600)
                     path.write_bytes(original + b"\n")
+                    path.chmod(original_mode)
                     result = self.summary()
                     self.assertEqual((0, 0), (result["accepted_cases"], result["accepted_frames"]))
                     self.assertFalse(result["current_all_accepted"])
@@ -963,7 +966,13 @@ class VisualAcceptanceTests(unittest.TestCase):
                         self.assertEqual(self.record["finished_at"], row["historical_accepted_at"])
                     self.assertEqual(ledger, self.state["visual_acceptance_receipts"])
                 finally:
-                    path.write_bytes(original)
+                    path.chmod(0o600)
+                    try:
+                        path.write_bytes(original)
+                    finally:
+                        path.chmod(original_mode)
+                self.assertEqual(original, path.read_bytes())
+                self.assertEqual(original_mode, path.stat().st_mode & 0o7777)
 
     def test_version2_acceptance_keeps_original_noncase_reference_pins(self):
         manifest = self.install_version2_acceptance_inputs()

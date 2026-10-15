@@ -14,10 +14,12 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_native_locators as native_locators
     from . import autocode_util as util
     from . import autocode_visual_profile as profile
     from . import autocode_visual_runtime as visual
 except ImportError:
+    import autocode_native_locators as native_locators
     import autocode_util as util
     import autocode_visual_profile as profile
     import autocode_visual_runtime as visual
@@ -183,20 +185,22 @@ class NativeImagePreparation:
             for key, value in self._staged.items()
             if key not in ("launch_manifest", "launch_sha256")
         }
-        context.update(
-            status="READY",
-            command=deepcopy(command),
-            environment_sha256=util.digest(environment),
-            config_sha256=util.digest(json.loads(environment["OPENCODE_CONFIG_CONTENT"])),
-            native_child_identity=deepcopy(descriptor["child_identity"]),
-            native_isolation=deepcopy(descriptor),
-            child_identity={**descriptor["child_identity"], "environment_sha256": util.digest(environment)},
-            prompt=deepcopy(self.prompt_binding),
-            schema=deepcopy(self.schema_binding),
-        )
+        context = {
+            **context,
+            "status": "READY",
+            "command": deepcopy(command),
+            "environment_sha256": util.digest(environment),
+            "config_sha256": util.digest(json.loads(environment[
+                "KILO_CONFIG_CONTENT" if descriptor.get("backend") == "kilocode" else "OPENCODE_CONFIG_CONTENT"])),
+            "native_child_identity": deepcopy(descriptor["child_identity"]),
+            "native_isolation": deepcopy(descriptor),
+            "child_identity": {**descriptor["child_identity"], "environment_sha256": util.digest(environment)},
+            "prompt": deepcopy(self.prompt_binding),
+            "schema": deepcopy(self.schema_binding),
+        }
         context["pins"].update(descriptor["files"])
         context["pins"][descriptor["manifest"]] = descriptor["manifest_sha256"]
-        boundary = json.loads(environment["AUTOCODE_TOOL_CONTAINMENT"])
+        boundary = native_locators.expand_boundary(environment["AUTOCODE_TOOL_CONTAINMENT"], descriptor)
         context["pins"].update(
             {boundary[key]: boundary[key + "_sha256"] for key in ("profile", "shell", "conformance")}
         )

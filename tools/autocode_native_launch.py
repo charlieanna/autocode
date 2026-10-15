@@ -7,6 +7,7 @@ second ProcessTree, and never reads private run state.
 """
 
 import os
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -34,7 +35,8 @@ def _require(value, reason):
 class NativeRunContext:
     @protection._technical_hold
     def __init__(
-        self, workspace, run_dir, *, run_handle, checkout_handle, start_state, snapshot, activation_intent=None
+        self, workspace, run_dir, *, run_handle, checkout_handle, start_state, snapshot, activation_intent=None,
+        planning_abandonment_intent=None,
     ):
         run = Path(run_dir).absolute()
         # Refuse attaching an origin to earlier execution even if a caller
@@ -59,6 +61,8 @@ class NativeRunContext:
             start_state=start_state,
             snapshot=snapshot,
             activation_intent=activation_intent,
+            **({"planning_abandonment_intent": planning_abandonment_intent}
+               if planning_abandonment_intent is not None else {}),
         )
         self._checkout_handle = checkout_handle
         self._run_handle = run_handle
@@ -87,6 +91,15 @@ class NativeRunContext:
             "missing exact original native preparation",
         )
         body = protection._json(prepared.body)
+        relay = None
+        if not check and body.get("native_isolation", {}).get("source_relay") is not None:
+            try:
+                from . import autocode_kilo_source_relay as source_relay
+            except ImportError:
+                import autocode_kilo_source_relay as source_relay
+            _require(type(timeout) in (int, float) and timeout > 0, "Kilo source launch requires the original finite cap")
+            relay = source_relay.pending_original(body["native_isolation"]["source_relay"])
+            relay_deadline = time.monotonic() + timeout
         _require(
             body["command_sha256"] == util.digest(command) and body["environment_sha256"] == util.digest(environment),
             "target differs from original native preparation",
@@ -124,21 +137,34 @@ class NativeRunContext:
             "close_fds": True,
             "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), self._checkout_handle.fileno()))),
         }
-        with barriers.WriterBarrier(command, environment, payload_directory=owner.run) as barrier:
-            inner, launch_options = barrier.launch(actual)
-            with supervision.launch(
-                inner, receipt_path=receipt_path, timeout=timeout, checkpoint=checkpoint, **launch_options
-            ) as child:
-                barrier.spawned(child)
+        child = None
+        launch_seal = None
+        try:
+            with barriers.WriterBarrier(command, environment, payload_directory=owner.run) as barrier:
+                inner, launch_options = barrier.launch(actual)
+                with supervision.launch(
+                    inner, receipt_path=receipt_path, timeout=timeout, checkpoint=checkpoint, **launch_options
+                ) as child:
+                    barrier.spawned(child)
 
-                def on_root(tree, release_token):
-                    owner._ownership()
-                    require_source(prepared)
-                    if image_review is not None:
-                        images.require_prompt_fd(image_review["prompt"], options.get("stdin"))
-                    if check:
-                        owner.release_check(prepared, barrier, child, tree, release_token)
-                    else:
-                        self.factory.release_launch(prepared, barrier, child, tree, release_token)
+                    def on_root(tree, release_token):
+                        nonlocal launch_seal
+                        owner._ownership()
+                        require_source(prepared)
+                        if image_review is not None:
+                            images.require_prompt_fd(image_review["prompt"], options.get("stdin"))
+                        if relay is not None:
+                            launch_seal = {"prepared_sha256": util.digest(body), "prepared_id": prepared.row_id,
+                                           "root": tree.capture_root(), "command_sha256": body["command_sha256"],
+                                           "environment_sha256": body["environment_sha256"]}
+                            relay._register_original(source_relay._REGISTRATION, prepared=prepared, tree=tree,
+                                                     deadline=relay_deadline, launch_seal=launch_seal)
+                        if check:
+                            owner.release_check(prepared, barrier, child, tree, release_token)
+                        else:
+                            self.factory.release_launch(prepared, barrier, child, tree, release_token)
 
-                yield child, on_root
+                    yield child, on_root
+        finally:
+            if relay is not None:
+                relay.close(original_exit=None if child is None else child.returncode, launch_seal=launch_seal)

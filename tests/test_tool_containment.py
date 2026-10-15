@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_tool_containment as containment
+import autocode_toolchain as toolchain
 from providers import opencode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -506,7 +507,7 @@ class KernelTests(unittest.TestCase):
         self.events.write_text('{"type":"step_start"}\n')
         self.receipt = private / "accepted.json"
         self.receipt.write_text('{"accepted":true}\n')
-        self.roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(), ROOT / "tools"]
+        self.roots = [Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve(), (ROOT / "tools").resolve()]
         self.env = {**os.environ, "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin:/opt/homebrew/bin"}
         self.before = {
             p: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -580,6 +581,14 @@ class KernelTests(unittest.TestCase):
         self.assertFalse((self.workspace / "__pycache__").exists())
 
     def test_public_capture_cli_uses_only_owned_stage_scratch(self):
+        if type(self) is KernelTests:
+            tools_ready = toolchain.discover(self.workspace, ["python -m autocode_cli capture"], self.env)
+            self.boundary = containment.prepare(
+                self.workspace,
+                read_roots=[*self.roots, *tools_ready["read_roots"]],
+                protected_paths=[self.runtime],
+                environment=self.env,
+            )
         output = Path(self.boundary["scratch"]) / "approved-capture.json"
         command = shlex.join(
             [

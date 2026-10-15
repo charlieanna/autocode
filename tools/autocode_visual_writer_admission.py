@@ -30,6 +30,7 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 
 try:
+    from . import autocode_native_locators as native_locators
     from . import autocode_contract_identity as contracts
     from . import autocode_design_inventory as inventory
     from . import autocode_process as processes
@@ -40,6 +41,7 @@ try:
     from . import autocode_visual_scope as visual_scope
     from . import autocode_writer_barrier as barriers
 except ImportError:
+    import autocode_native_locators as native_locators
     import autocode_contract_identity as contracts
     import autocode_design_inventory as inventory
     import autocode_process as processes
@@ -258,7 +260,7 @@ class WriterAdmissions:
             "missing exact final Popen argv/environment",
         )
         _require(
-            json.loads(environment.get("AUTOCODE_TOOL_CONTAINMENT", "null")) == boundary
+            native_locators.boundary_matches(environment.get("AUTOCODE_TOOL_CONTAINMENT", "null"), boundary)
             and environment.get("SHELL") == boundary["shell"],
             "final child lost its native boundary",
         )

@@ -592,12 +592,13 @@ class NativeWriterAuthority:
                 == binding["task"]["milestone_id"],
                 "repair decision lost its exact same-owner task, source or status",
             )
-            identity.update(
-                stage=body["record"]["stage"],
-                status="REWORK",
-                next_task_sha256=util.digest(body["new_task"]),
-                decision_sha256=body["decision_sha256"],
-            )
+            identity = {
+                **identity,
+                "stage": body["record"]["stage"],
+                "status": "REWORK",
+                "next_task_sha256": util.digest(body["new_task"]),
+                "decision_sha256": body["decision_sha256"],
+            }
             pins.update(body["pins"])
             pins.update(self._owner._journal_pins([row for row in rows if row["sequence"] <= selected[0]["sequence"]]))
         else:
