@@ -2072,7 +2072,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/c76a1a9be60861e130ecca380d711133cf58e79a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/36f77948201ae7128cf409b60cd5015a6443d667/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2113,7 +2113,8 @@ mandatory models — each role can select any provider/model from <code>opencode
 </table>
 <p>Model overrides use the role names: <code>--requirements-model</code>, <code>--glm-model</code>,
 <code>--plan-reviewer-model</code>, <code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-model</code>,
-<code>--completion-model</code>, and the matching <code>--&lt;role&gt;-reasoning-effort</code> flags.
+<code>--completion-model</code>, <code>--resolver-model</code>, and the matching
+<code>--&lt;role&gt;-reasoning-effort</code> flags.
 <code>--utility-model</code> is a cheaper route for the stages that only classify or
 reformat (<a href="#the-utility-route">the utility route</a>).
 See <a href="../cli/">CLI</a>. When constructing a new Requirements route from provider
@@ -2184,7 +2185,7 @@ use it in other roles. The <code>--single-model</code> exception is described ab
 <td>Sol Medium → High → Max</td>
 </tr>
 <tr>
-<td>Resolver (<code>--astra-model</code>)</td>
+<td>Resolver (<code>--resolver-model</code>)</td>
 <td><code>openai/gpt-6-astra</code></td>
 <td>high</td>
 <td>Astra High → XHigh → Max</td>
@@ -2210,6 +2211,26 @@ struggling pauses the run instead. The Builder instead gets its
 <a href="#builder-retry-policy">retry policy</a>'s one stronger attempt. If you configure the
 Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
+<p>The Resolver runs on a route of its own, <code>resolver</code>. It starts as a copy of the <code>astra</code>
+route, which the per-task Planner (<code>astra_plan</code>) runs on; <code>autocode models</code> lists that
+route as "Resolver and per-task Planner (<code>--astra-model</code>)". The Resolver's route is
+created the first time a Resolver stage runs, or by <code>--resolver-model</code>. Which flag sets it:</p>
+<ul>
+<li>On an OpenCode-engine run (the default), <code>--resolver-model</code> and
+  <code>--resolver-reasoning-effort</code> set the Resolver's route alone. <code>--astra-model</code> and
+  <code>--astra-reasoning-effort</code> set the per-task Planner's route, and reach the Resolver
+  only while its route has not been created yet.</li>
+<li>A Codex-engine run (<code>--engine codex</code>), and a saved run without joint planning, ignore
+  <code>--resolver-model</code> and <code>--resolver-reasoning-effort</code>: the Resolver starts from the
+  <code>astra</code> route that <code>--astra-model</code> and <code>--astra-reasoning-effort</code> set.</li>
+</ul>
+<p>Only the Resolver's route climbs the Astra ladder. The per-task Planner keeps its
+configured effort however often its reports are rejected, so a Resolver route copied
+from the <code>astra</code> route later starts at the configured effort, not a climbed one. A run
+saved before this was fixed kept the Astra ladder under <code>astra</code> in <code>route_ladders</code>; it
+is read as the Resolver's ladder, and the saved state is not rewritten. A climb is not
+a settings change for the recovery packet the Resolver works from: the climbed attempt
+is held or admitted by that packet's causal-progress check, as the attempt before it was.</p>
 <p>The one-stage jobs use the Plan Reviewer's model on a route of their own: the
 Investigator (bug fixes), the Analyst (discuss) and the Designer (design reviews),
 the last two with effort capped at medium. A run without a Plan Reviewer route falls
@@ -2257,7 +2278,8 @@ climbed route's rate; when that projection would take the spend past the cap, th
 pauses <code>PAUSED_COST_LIMIT</code>, naming the rung and the arithmetic, instead of launching it.</p>
 <blockquote>
 <p><strong>Note on role names.</strong> The CLI flags keep the older tier names — <code>--astra-model</code>
-(Resolver), <code>--terra-model</code> (Builder), <code>--sol-model</code> (Tester) — because those
+(the per-task Planner, and the route the Resolver starts from; see above),
+<code>--terra-model</code> (Builder), <code>--sol-model</code> (Tester) — because those
 names are in saved run state. They are not model choices: <code>--terra-model
 zai-coding-plan/glm-5.3</code> selects the model used for the Builder role.</p>
 </blockquote>
