@@ -389,6 +389,45 @@ class V2FlowTests(unittest.TestCase):
                 self.assertFalse(planning.is_planning(state, stage))
         self.assertEqual("astra", planning.role_for(state, "astra_plan"))
 
+    def test_v2_plan_applies_the_design_coverage_its_own_schema_advertised(self):
+        import autocode_design_manifest as design_manifest
+
+        from tests.test_design_manifest import inventory_bundle
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
+        record = design_manifest.load(inventory_bundle(root / "inventory")[0])
+
+        def apply(contract):
+            state = self.state()
+            state["settings"]["design_manifest"] = record
+            autopilot.apply_planning(
+                state,
+                "plan",
+                {"contract": contract, "summary": "planned"},
+                {"output": str(root / "plan.json"), "stage": "plan"},
+            )
+            return state
+
+        planned = design_coverage_plan(record)
+        state = apply(planned)
+        self.assertEqual(planned["design_coverage"], state["goal_contract"]["body"]["design_coverage"])
+        self.assertEqual(planned, state["planning"]["reports"]["plan"]["report"]["contract"])
+        self.assertEqual("planned", state["discovery_summary"])
+        for change in ("missing_case", "unknown_criterion", "malformed_coverage", "stale_reference"):
+            broken = design_coverage_plan(record)
+            if change == "missing_case":
+                broken["design_coverage"]["cases"].pop()
+            elif change == "unknown_criterion":
+                broken["design_coverage"]["cases"][0]["criterion_ids"] = ["NOT_A_CRITERION"]
+            elif change == "malformed_coverage":
+                broken["design_coverage"]["cases"] = "not a list"
+            else:
+                broken["design_coverage"]["manifest_hash"] = "b" * 64
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                apply(broken)
+
 
 def plan_body():
     value = body()
