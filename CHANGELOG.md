@@ -215,6 +215,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Model-access preflight passes are now bound to the saved provider configuration: accepting a transport change
+  re-probes the same models, while legacy model-only markers re-probe once instead of authorizing a new route
+  (#1333).
+
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).
