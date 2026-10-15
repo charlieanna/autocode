@@ -211,6 +211,58 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
+  windows-fast-suite:
+    # Native Windows progress report (#698), not a gate yet. Every step that can fail is
+    # continue-on-error and the job is too, so this job can never fail the workflow or
+    # turn master red; read the outcome in the job summary. docs/windows.md lists what
+    # is known not to work natively. Make it required (drop continue-on-error) once green.
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package and runtime dependencies
+        id: install
+        continue-on-error: true
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install -e .
+      - name: Run autocode --version and doctor
+        id: doctor
+        continue-on-error: true
+        # The CLI imports the whole runtime, so this fails first on a POSIX-only import
+        # (tests/test_windows_portability.py lists them). No engine is installed here, so
+        # doctor exits 1: accept 0 or 1, as wheel-smoke does.
+        run: |
+          .venv/Scripts/autocode --version
+          code=0
+          .venv/Scripts/autocode doctor --json || code=$?
+          [ "$code" -le 1 ] || { echo "::warning::autocode doctor exited $code on Windows"; exit 1; }
+      - name: Run the fast suite
+        id: suite
+        continue-on-error: true
+        timeout-minutes: 45
+        # Every fast module: --changed against HEAD selects nothing extra, --all-fast adds the rest.
+        run: .venv/Scripts/python tools/run_suite.py --verbosity 2 --changed HEAD --all-fast
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONUTF8: "1"
+      - name: Summarize native Windows results
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Native Windows (#698, allowed to fail)"
+            echo "- install: ${{ steps.install.outcome }}"
+            echo "- doctor: ${{ steps.doctor.outcome }}"
+            echo "- fast suite: ${{ steps.suite.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   wheel-smoke:
     # The installed package, not the checkout (#67): build the wheel, install it into a
     # fresh venv, and run it from a folder outside any Git repository. A separate job,

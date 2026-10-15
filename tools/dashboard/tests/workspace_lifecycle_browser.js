@@ -293,10 +293,45 @@ function drawerTraversal() {
   return {expected, forward: forward.map(entry => entry.name), reverse: reverse.map(entry => entry.name)};
 }
 
+// Chromium keeps a computed outline-width (3px by default) when the outline
+// style is none, so outlineWidth is the painted width: 0px unless the outline
+// actually paints. The raw computed value stays in outlineRawWidth (#879).
 function activeFocus() {
   return data('()=>{const e=document.activeElement;if(!e||e===document.body)return null;' +
-    'const style=e.matches(":focus-visible")?getComputedStyle(e):null;' +
-    'return {name:e.id||e.dataset.focusKey||e.getAttribute("aria-label")||e.textContent.trim().slice(0,32)||e.tagName,tag:e.tagName,focusVisible:e.matches(":focus-visible"),outlineWidth:style?style.outlineWidth:"",outlineColor:style?style.outlineColor:"",boxShadow:style?style.boxShadow:""};}');
+    'const style=e.matches(":focus-visible")?getComputedStyle(e):null,' +
+    'painted=style&&style.outlineStyle!=="none"&&style.outlineStyle!=="hidden";' +
+    'return {name:e.id||e.dataset.focusKey||e.getAttribute("aria-label")||e.textContent.trim().slice(0,32)||e.tagName,tag:e.tagName,focusVisible:e.matches(":focus-visible"),outlineWidth:painted?style.outlineWidth:"0px",outlineStyle:style?style.outlineStyle:"",outlineRawWidth:style?style.outlineWidth:"",outlineColor:style?style.outlineColor:"",boxShadow:style?style.boxShadow:""};}');
+}
+
+// Negative control for the focus-ring oracle: strip the composer textarea's
+// ring and confirm the measurement tabWalk relies on no longer clears 2 px.
+// Without this, an oracle that counts an unpainted outline passes every page.
+function assertRemovedRingIsRejected(label) {
+  browser('focus', '#change-text');
+  const before = activeFocus();
+  assert.ok(before && before.name === 'change-text' && before.focusVisible,
+    label + ' the composer textarea holds keyboard-visible focus: ' + JSON.stringify(before));
+  assert.ok(ringIndicator(before).outline >= 2 || ringIndicator(before).shadow >= 2,
+    label + ' the composer textarea paints a focus ring before removal: ' + JSON.stringify(before));
+  data('()=>{const e=document.querySelector("#change-text");e.dataset.ringProbeStyle=e.getAttribute("style")||"";' +
+    'e.style.setProperty("outline","none","important");e.style.setProperty("box-shadow","none","important");return true;}');
+  const removed = activeFocus();
+  data('()=>{const e=document.querySelector("#change-text"),s=e.dataset.ringProbeStyle;delete e.dataset.ringProbeStyle;' +
+    'if(s)e.setAttribute("style",s);else e.removeAttribute("style");return true;}');
+  const indicator = ringIndicator(removed);
+  assert.ok(indicator.outline < 2 && indicator.shadow < 2,
+    label + ' an outline:none, box-shadow:none textarea measures no 2 px ring: ' + JSON.stringify(removed));
+  const restored = activeFocus();
+  assert.deepEqual(ringIndicator(restored), ringIndicator(before),
+    label + ' the composer textarea ring is restored after the probe: ' + JSON.stringify(restored));
+  return {before, removed, restored};
+}
+
+function ringIndicator(focused) {
+  return {
+    outline: parseFloat(focused.outlineWidth) || 0,
+    shadow: /2px|3px|4px/.test(focused.boxShadow) ? 2 : 0,
+  };
 }
 
 // The open project drawer must expose only its actually rendered, enabled
@@ -381,11 +416,7 @@ function tabWalk(label, maxSteps) {
     if (!focused) continue;
     if (visited.length && visited[0].name === focused.name && visited[0].tag === focused.tag) break;
     visited.push(focused);
-    if (focused.focusVisible) {
-      const width = parseFloat(focused.outlineWidth) || 0;
-      const shadow = /2px|3px|4px/.test(focused.boxShadow) ? 2 : 0;
-      indicators.push({name: focused.name, outline: width, shadow});
-    }
+    if (focused.focusVisible) indicators.push({name: focused.name, ...ringIndicator(focused)});
   }
   return {label, visited, indicators};
 }
@@ -420,7 +451,8 @@ async function ac20(info) {
     assert.deepEqual([], unfocused, viewport.name + ' every control reached by keyboard shows its focus-visible state: ' + JSON.stringify(unfocused));
     const weak = walk.indicators.filter(entry => entry.outline < 2 && entry.shadow < 2).map(entry => entry.name);
     assert.deepEqual([], weak, viewport.name + ' every keyboard-focused control paints a visible focus ring of at least 2 px: ' + JSON.stringify(weak));
-    measurements.push({viewport: viewport.name, focusables: expected, walk: walk.visited, indicators: walk.indicators});
+    measurements.push({viewport: viewport.name, focusables: expected, walk: walk.visited, indicators: walk.indicators,
+      removed_ring_control: assertRemovedRingIsRejected(viewport.name)});
 
     // Contrast on the workspace's own text surfaces at this width. The pane
     // surfaces sit behind the details drawer on mobile, so open it first.

@@ -549,6 +549,16 @@ class LedgerTests(unittest.TestCase):
         findings.record_validation(state, report, {"output": "sol-2.json"})
         self.assertEqual([], findings.open_entries(state))
 
+    def test_a_null_goal_contract_records_and_scopes_findings(self):
+        # RunState declares goal_contract as dict | None; None must read like an absent contract.
+        state = {"goal_contract": None, "current_task": {"id": "t", "milestone_id": ""}}
+        findings.record_validation(state, sol("A"), {"output": "sol-1.json"})
+        findings.record_decision(state, astra("BLOCKED", "B"), {"output": "astra-1.json", "stage": "astra_review"})
+        self.assertEqual(["sol", "astra"], [row["source"] for row in findings.open_entries(state)])
+        self.assertIsNone(findings.report_scope(state))
+        self.assertEqual(2, len(findings.blocking_for_milestone(state, {"id": "M1"})))
+        findings.restore_initial_plan_scopes(state)
+
     def test_unverified_resolution_retains_old_and_new_findings(self):
         state = self.scoped_state("M1")
         findings.record_validation(state, sol("Persistence broken"), {"output": "first"})

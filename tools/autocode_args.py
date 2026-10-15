@@ -31,6 +31,7 @@ try:
     from . import autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
     from . import autocode_task_input as task_input
+    from . import autocode_utility_route as utility_route
     from . import autocode_verification_config as verification_config
     from . import autocode_workflows as workflows
     from . import autopilot
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
     import autocode_task_input as task_input
+    import autocode_utility_route as utility_route
     import autocode_verification_config as verification_config
     import autocode_workflows as workflows
     import autopilot
@@ -280,6 +282,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         choices=["low", "medium", "high", "xhigh", "max"],
         help="Override independent plan-reviewer reasoning effort",
     )
+    utility_route.add_arguments(parser)
 
     verification_config.add_arguments(parser)
     parser.add_argument(

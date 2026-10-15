@@ -96,6 +96,30 @@ STAGE_JOB = {
 VALIDATION_ROUTING_MODES = ("glm_first_v1",)
 
 
+# The utility route (``--utility-model``, autocode_utility_route, #710): a cheaper model for the
+# stages that only classify or reformat. A stage is listed here only if its answer can misroute
+# work but can neither produce it nor accept it: never a stage whose job writes code (planner,
+# builder) or judges evidence (plan_reviewer, tester, completion, resolver, investigator,
+# code/design reviewer). Builder-failure classification runs as investigate_stuck and judges the
+# failure's evidence, so it stays on the Investigator. Report repair is not listed yet: it
+# rewrites the report of the stage it repairs, so it keeps that stage's route.
+# tests/test_utility_route.py enforces the exclusions.
+UTILITY_ROUTE = "utility"
+UTILITY_STAGES = ("recognize_workflow",)
+UTILITY_EXCLUDED_JOBS = (
+    "planner",
+    "plan_reviewer",
+    "builder",
+    "tester",
+    "completion",
+    "resolver",
+    "designer",
+    "design_reviewer",
+    "code_reviewer",
+    "investigator",
+)
+
+
 def base_stage(stage: str) -> str:
     return str(stage or "").removesuffix("_report_repair")
 
