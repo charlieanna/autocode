@@ -1165,6 +1165,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#junit-xml-from-other-test-runners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JUnit XML from other test runners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#mutation-check" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1764,6 +1775,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#junit-xml-from-other-test-runners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JUnit XML from other test runners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#mutation-check" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1839,7 +1861,8 @@ pass-to-pass, by the case id as well as by exact name, so a guard may name sever
 of them failing beside a test it matched breaks the guard.
 An exit code or a printed <code>PASS test_c1_example</code> is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
-Node's built-in <code>node:test</code> runner, and Vitest 4.</p>
+Node's built-in <code>node:test</code> runner, Vitest 4, and an explicitly configured
+JUnit XML report from another test runner.</p>
 <p>The identifier right after <code>test:</code> or <code>guard:</code> is the one the runner proves; an
 explanation may follow after <code>—</code> or in parentheses. Without one, the test is
 named after the criterion ID (<code>test_c1_...</code>; Go's <code>TestC1...</code> matches it).</p>
@@ -1932,8 +1955,8 @@ lives in and does not match a case to a test in a file that spawns a test
 runner; the proof names the file. Running the product's own CLI from a
 <code>node:test</code> case (<code>node cli.js add x</code>) is fine. The check only sees commands
 the file spells out; a wrapper is not named proof in any form.</p>
-<p>A proving test runs three times on the candidate, inside the scratch tree the
-proof already has, and a <code>test:</code> criterion's test also runs three times on the
+<p>Where the runner can select the proving tests, each runs three times on the
+candidate, inside the scratch tree the proof already has, and a <code>test:</code> criterion's test also runs three times on the
 original code. A test that passes on one run and fails on another is <code>unstable</code>:
 it does not count as proof, the evidence names the test and its runs, and
 completion stops until the test is fixed. Retrying the proof leaves the same
@@ -1948,6 +1971,98 @@ assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. If the project
 cannot use a supported runner, settle that compatibility blocker during planning;
 do not downgrade an approved named criterion to prose to make a run finish.</p>
+<h2 id="junit-xml-from-other-test-runners">JUnit XML from other test runners<a class="headerlink" href="#junit-xml-from-other-test-runners" title="Permanent link">&para;</a></h2>
+<p>Use <code>--test-report junit:RELATIVE_PATH</code> with an explicit <code>--test-command</code> to
+attribute Java, Kotlin, .NET, Rust or Ruby tests through their runner's JUnit
+XML output. For example, the catalog's Java case runs one real JUnit class:</p>
+<pre><code class="language-sh">autocode --workspace /path/to/project &quot;Count partial pages&quot; \
+  --test-command 'mvn -o -B -q -Dtest=PageCountTest test' \
+  --test-report junit:target/surefire-reports/TEST-example.PageCountTest.xml
+</code></pre>
+<p>Install the project's locked dependencies before running offline. The ordinary
+suite command is also used for the candidate/original-source regression runs
+when <code>--regression-command</code> is omitted. If provided, the regression command
+must produce the same relative report path. Keep every named <code>guard:</code> case in
+the command's selected tests as well as the new <code>test:</code> cases.</p>
+<p>The selection persists in the run and is also available as project settings:</p>
+<pre><code class="language-toml"># pyproject.toml
+[tool.autocode]
+test-command = &quot;mvn -o -B -q -Dtest=PageCountTest test&quot;
+test-report = &quot;junit:target/surefire-reports/TEST-example.PageCountTest.xml&quot;
+</code></pre>
+<p>A saved command/report correction uses the existing reconciled
+<code>--resume-paused</code> repair boundary before the Tester or combined checkpoint.
+It cannot replace evidence during an active command or late acceptance.
+Generic JUnit commands have no portable selector: stability repeats the unchanged
+command only when its complete report contains exclusively the proving cases.
+Otherwise the stability record reports that they ran once, without widening to
+an unrelated whole suite. Existing reporter selection is unchanged.</p>
+<p>This interface accepts one XML file per command, not a directory or glob. Use a
+single test class/project or a runner that writes one combined report. The path
+must stay inside each proof tree. Each command starts with that report removed,
+so a previous result or a command that does not rewrite it cannot supply proof.
+The runner captures the fresh XML beside its execution receipt and pins its
+hash; changing that captured artifact invalidates the proof. Missing, malformed,
+zero-test, incomplete or inconsistent reports cannot establish a named pass.
+Failure/error/skipped outcomes retain their meanings; a nonzero command exit
+with no genuine failing case cannot demonstrate a regression. This does not
+change the existing Python, Go, node:test or Vitest reporters.</p>
+<p>JUnit suite preservation pins the base test bodies and recognized build-system
+selectors before running them over the candidate product. Standard Maven,
+Gradle, .NET, cargo-nextest and RSpec commands have this boundary; an unknown
+command cannot establish preservation merely by writing valid XML. Changes to
+unclassified suite inputs remain <code>UNVERIFIED</code>. Existing Rust product files can
+also define inline tests, so changing such a file currently leaves preservation
+<code>UNVERIFIED</code>, even when its reported cases pass. The same conservative boundary
+applies when an existing product file may contain nonstandard test definitions.
+Command-selected custom build/test files, unbound project paths and arbitrary
+build properties also leave preservation <code>UNVERIFIED</code> until their base inputs
+can be bound. The trusted command still runs; its XML cannot prove that those
+hidden definitions stayed intact.</p>
+<p>Runner setup examples (configure unique test names matching the named criteria):</p>
+<ul>
+<li><strong>Maven / Java:</strong> pin JUnit Jupiter and Maven Surefire in <code>pom.xml</code>. Run
+  <code>mvn -Dtest=PageCountTest test</code>; use
+  <code>junit:target/surefire-reports/TEST-example.PageCountTest.xml</code>.
+  Surefire emits XML per class; <code>-Dtest</code> selects the class.
+  <a href="https://maven.apache.org/surefire/maven-surefire-plugin/">Surefire reports</a>,
+  <a href="https://maven.apache.org/surefire/maven-surefire-plugin/examples/single-test.html">single-class selection</a>.</li>
+<li><strong>Gradle / Java or Kotlin:</strong> keep JUnit XML enabled and run
+  <code>./gradlew test --tests example.PageCountTest --rerun-tasks</code>; use
+  <code>junit:build/test-results/test/TEST-example.PageCountTest.xml</code> with Gradle's
+  default layout. <code>reports.junitXml.outputLocation</code> changes the directory;
+  align the report flag with it. Re-running tasks avoids treating Gradle's
+  up-to-date result as fresh execution after the report was removed.
+  <a href="https://docs.gradle.org/current/userguide/java_testing.html#sec:test_reporting">Gradle XML reports</a>.</li>
+<li><strong>.NET / VSTest:</strong> add the compatible <code>JunitXml.TestLogger</code> NuGet package to
+  the test project, then run from that project's directory:
+  <code>dotnet test Tests.csproj --framework net8.0 --logger "junit;LogFilePath=junit.xml"</code>;
+  use <code>junit:junit.xml</code>. Select one project and target framework so outputs do
+  not overwrite each other. This is a third-party JUnit logger.
+  <code>dotnet test --logger trx</code> writes <strong>TRX, not JUnit XML</strong>, and is not accepted
+  by this interface.
+  <a href="https://github.com/spekt/testlogger">JUnit logger</a>,
+  <a href="https://learn.microsoft.com/dotnet/core/tools/dotnet-test-vstest">Microsoft's TRX documentation</a>.</li>
+<li><strong>Rust / cargo-nextest:</strong> in <code>.config/nextest.toml</code>, set:</li>
+</ul>
+<p><code>toml
+  [profile.default.junit]
+  path = "junit.xml"</code></p>
+<p>Run <code>cargo nextest run</code> and use
+  <code>junit:target/nextest/default/junit.xml</code>. The path is relative to the profile's
+  store directory; with <code>--profile ci</code> and <code>[profile.ci.junit]</code>, it becomes
+  <code>target/nextest/ci/junit.xml</code>. JUnit output is configured in the profile,
+  not with a <code>--junit</code> command flag.
+  <a href="https://nexte.st/docs/machine-readable/junit/">Nextest JUnit configuration</a>.
+- <strong>Ruby / RSpec:</strong> include <code>rspec_junit_formatter</code> in the project's bundle and
+  run <code>bundle exec rspec --format RspecJunitFormatter --out junit.xml</code>; use
+  <code>junit:junit.xml</code>. Keep the formatter in the same dependency group as RSpec.
+  <a href="https://github.com/sj26/rspec_junit_formatter">Formatter usage</a>.</p>
+<p>The <code>feature-java-page-count</code> catalog case exercises this interface with real
+Maven 3.9.9, JUnit Jupiter 5.11.4 and Surefire 3.5.2. Its independent Java oracle
+rejects wrong behavior and a green regression that also passes on the original
+source. The other setup examples document their runners' interfaces; they are
+not claims of locally executed qualification for those ecosystems.</p>
 <h2 id="mutation-check">Mutation check<a class="headerlink" href="#mutation-check" title="Permanent link">&para;</a></h2>
 <p>A proving test can fail without the fix and pass with it and still not pin the
 behavior: <code>assertEqual(3, page_count(11, 5))</code> holds for a correct ceiling and for

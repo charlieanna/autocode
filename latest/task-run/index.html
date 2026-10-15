@@ -2126,7 +2126,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/12716103045c482f33adbef89f37debc9c114963/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, and the planned
@@ -2388,7 +2388,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/12716103045c482f33adbef89f37debc9c114963/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3012,8 +3012,8 @@ run is waiting for:</p>
 <tr>
 <td><code>dependency</code></td>
 <td>a bound producer run's delivery (see <a href="#dependencies-between-existing-runs">Dependencies between existing runs</a>)</td>
-<td><code>reason</code>, <code>producer_run</code>; <code>action</code> is null</td>
-<td>Nothing to answer: the dependency worker (<code>python tools/autocode_dependencies.py ... --watch</code>) calls <code>--receive-dependency MANIFEST</code> (<code>TaskRun.receive_dependency</code>) when the producer's verified delivery is ready</td>
+<td><code>reason</code>, <code>producer_run</code>, <code>producer_workspace</code></td>
+<td><code>autocode wait --run-dir &lt;producer_run&gt; --workspace &lt;producer_workspace&gt;</code>: returns when the producer needs a person or ends. Nothing to answer on this run: the dependency worker (<code>python tools/autocode_dependencies.py ... --watch</code>) calls <code>--receive-dependency MANIFEST</code> (<code>TaskRun.receive_dependency</code>) when the producer's verified delivery is ready</td>
 </tr>
 <tr>
 <td><code>continue</code></td>

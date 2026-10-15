@@ -2270,7 +2270,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/12716103045c482f33adbef89f37debc9c114963/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2462,7 +2462,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/12716103045c482f33adbef89f37debc9c114963/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2990,6 +2990,10 @@ still require their own actions. Recovery eligibility and token checks are uncha
 <td>The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with <code>--resume-paused</code> at a reconciled pause before the Tester or combined checkpoint; see <a href="../workflow/#bug-fixes">Bug fixes</a>.</td>
 </tr>
 <tr>
+<td><code>--test-report junit:PATH</code></td>
+<td>Use one fresh JUnit XML file at a workspace-relative path as named test evidence. Requires an explicit <code>--test-command</code>; when <code>--regression-command</code> is omitted, that suite also runs in the regression proof trees. Every invocation must write the same relative report path; old output is cleared and captured XML is hash-pinned. Saved corrections use the same reconciled pre-validation pause as <code>--test-command</code>. No directory/glob or TRX input. See <a href="../named-test-proof/#junit-xml-from-other-test-runners">JUnit proof setup</a>.</td>
+</tr>
+<tr>
 <td><code>--test-root components/api/</code></td>
 <td>New runs only: save a plain workspace-relative directory for automatic Python suite detection (pytest or unittest). Fixed at launch, not changeable on resume. Changes outside it remain <code>UNVERIFIED</code>, including with an explicit test command. This selects proof tests, not a general write boundary; identified generated component tasks also bind their declared plan ownership to this caller root. See <a href="../workflow/#scoped-python-proof">Scoped Python proof</a>.</td>
 </tr>
@@ -3008,7 +3012,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/12716103045c482f33adbef89f37debc9c114963/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3133,8 +3137,8 @@ flag takes; a switch takes <code>true</code> or <code>false</code>.</p>
 <td><code>reasoning-effort</code>, <code>astra-reasoning-effort</code>, <code>terra-reasoning-effort</code>, <code>sol-reasoning-effort</code>, <code>completion-reasoning-effort</code>, <code>glm-reasoning-effort</code>, <code>requirements-reasoning-effort</code>, <code>plan-reviewer-reasoning-effort</code>, <code>resolver-reasoning-effort</code>, <code>investigator-reasoning-effort</code></td>
 </tr>
 <tr>
-<td>Test command</td>
-<td><code>test-command</code></td>
+<td>Test command/report</td>
+<td><code>test-command</code>, <code>test-report</code></td>
 </tr>
 <tr>
 <td>Budgets</td>
@@ -3621,7 +3625,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/12716103045c482f33adbef89f37debc9c114963/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/5bbe072b15fede65776644c2e50622426b72deb0/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
