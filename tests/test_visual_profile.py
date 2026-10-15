@@ -205,6 +205,7 @@ class VisualProfileTests(unittest.TestCase):
             {**self.config, "plugin": [self.activity.as_uri()]}
         )
         # Platform selection only: no mocked authority callback or model receipt.
+        self.host_platform = sys.platform
         self.platform = patch.object(containment.sys, "platform", "darwin")
         self.platform.start()
         self.addCleanup(self.platform.stop)
@@ -652,7 +653,8 @@ else:
             env=clean,
         )
         repository = Path(profile.__file__).resolve().parents[1]
-        with patch.dict(os.environ, clean, clear=True):
+        # The public CLI run supervises real host processes, so it sees the real platform.
+        with patch.dict(os.environ, clean, clear=True), patch.object(sys, "platform", self.host_platform):
             run = TaskRun.start(
                 self.root,
                 "Validate operator supplied source",
@@ -670,6 +672,8 @@ else:
                     "high",
                     "--pin-model-role",
                     "sol",
+                    # Configuration/status only: the fixture client refuses every model launch.
+                    "--allow-uncontained-tools",
                 ),
                 env=clean,
                 timeout=30,
