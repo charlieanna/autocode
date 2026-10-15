@@ -266,6 +266,11 @@ PR template asks for an entry here; a change without one is incomplete.
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
   eligibility is unchanged (#1167).
 
+- A scoped native Figma run (`VISUAL_SLICE_GATES=complete-cases-v1`) now takes the CONTINUE readiness shortcut:
+  when the Completion Reviewer says CONTINUE although every completion gate passes, the visual gate is checked
+  with the run's own scope authority, as terminal completion already was, and the reviewer is sent back once
+  instead of the gate always failing closed. Public `--status` still reports such runs' visual acceptance as
+  `NOT_READY` (#1255).
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
