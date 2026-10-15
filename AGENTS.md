@@ -117,6 +117,15 @@ interfaces or direct consumers. Add the architecture check when changing
 imports or module boundaries. A focused CLI regression may also supply the
 fake-provider evidence for that path.
 
+Choose a host that supports the check. macOS can edit source and run static,
+pure or mocked checks that avoid supervised provider launches. CLI and scenario
+tests that launch a supervised fake provider require the same supported Linux
+boundary as real task-stage providers; `--fake` removes model traffic, not host
+admission. Run those focused checks in a supported Linux checkout or use the
+existing Ubuntu CI evidence for the exact revision. A refusal or an unrun Linux
+check stays unverified. See [test host requirements](docs/testing.md#host-requirements-for-tests)
+for setup and the distinction between local and Linux evidence.
+
 Do not make the complete changed-test gate, full unit suite or entire fake
 catalog prerequisites for a localized fix. Broaden only when a failure or a
 demonstrated affected consumer needs it, the change alters a shared contract
@@ -138,8 +147,8 @@ The commands below are available checks, not a checklist to run for every fix.
 PY=.venv/bin/python   # has psutil; the system python3 does not
 $PY -m unittest tests.test_architecture                        # seconds
 $PY tools/run_suite.py --changed                               # the tests for what you changed, in parallel
-$PY scenarios/run.py run --fake                                # full catalog; only when justified
-$PY tools/run_suite.py --scenario-harness                      # scenarios/ tests (harness, catalog, attacks), one per process
+$PY scenarios/run.py run --fake                                # supported Linux; full catalog only when justified
+$PY tools/run_suite.py --scenario-harness                      # provider-backed cases require supported Linux
 $PY tools/run_suite.py                                         # every test, in parallel; what master's CI runs
 ```
 

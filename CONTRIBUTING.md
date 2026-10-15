@@ -76,6 +76,11 @@ these names, and `orchestrator` does not call a model.
 ## Set up a development checkout
 
 Requirements: Python 3.11+, Git, macOS or Linux (Windows needs WSL).
+These are checkout requirements. Supervised task-stage providers, including
+fake CLI and scenario providers, require the supported Linux host described in
+[Host requirements for tests](docs/testing.md#host-requirements-for-tests).
+macOS can still be used for editing, static checks, pure logic and mocked tests
+that do not launch those providers.
 
 ```sh
 git clone https://github.com/charlieanna/autocode.git
@@ -87,9 +92,10 @@ python3 -m venv .venv
 
 Running AutoCode against a real model needs a configured provider (OpenCode,
 Codex or a command-tool adapter); see [Install](docs/install.md) and
-[Providers](docs/providers.md). **Running the tests does not**: the suite uses
-fake providers and temporary Git repositories, makes no model requests and
-reads no credentials.
+[Providers](docs/providers.md). Routine fake-provider tests need no model
+account: they use temporary Git repositories and make no model requests.
+Tests that launch supervised task-stage providers still need Linux; having a
+fake executable on `PATH` does not bypass host admission.
 
 ## Run the tests
 
@@ -137,6 +143,7 @@ in `tests/suite_exclusions.json`, and fails on a failed test or stale exclusion.
 changed slow modules and all fast modules; master runs the full Python suite.
 The scenario harness and dashboard gates run separately. The main suite runs
 on Ubuntu, with a separate native macOS tool-containment job.
+The macOS job does not establish support for supervised task-stage providers.
 
 For dashboard bug fixes, select the affected checks (need localhost sockets;
 browser tests also need their pinned browser tooling). The available Python
@@ -149,7 +156,10 @@ gate is:
 Check the selected test's environment requirements. Native containment and
 opt-in [provider conformance](docs/provider-conformance.md) checks require the
 appropriate platform and pinned tools; ordinary fake-provider tests do not
-need a model account. Keep run output in ignored directories and preserve
+need a model account, but provider-backed CLI paths need supported Linux.
+Use a Linux checkout for the focused regression, or identify what the exact
+revision's CI actually exercised; keep locally unrun checks visible.
+Keep run output in ignored directories and preserve
 failed attempts. Report exact commands, results and any environment limits.
 
 `scripts/install-hooks.sh` is an optional local convenience that runs the full
