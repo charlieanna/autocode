@@ -11,17 +11,22 @@ from __future__ import annotations
 import contextlib
 import copy
 import datetime as dt
-import fcntl
+import errno
 import hashlib
 import importlib
 import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import tomllib
 from pathlib import Path
+
+# Native Windows (#698, docs/windows.md). Read at call time, so a test can take either
+# branch on any host.
+_WINDOWS = sys.platform == "win32"
 
 
 def now():
@@ -204,11 +209,15 @@ def atomic_json(path, value):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(tmp, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        # Make the rename durable where the platform allows it. Windows cannot open a directory
+        # with os.open (PermissionError), so every JSON write failed there (#698); the file's own
+        # data is already synced above.
+        if not _WINDOWS:
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -253,19 +262,81 @@ class MissingModule:
         )
 
 
+# Native Windows has no fcntl (#698): the file locks below go through lock_file/unlock_file,
+# which use msvcrt there.
+# msvcrt locks byte ranges, and a Windows byte-range lock is mandatory: other processes cannot
+# read a locked byte. Lock one byte far past any content instead of byte 0, so a lock file that
+# also records its holder stays readable. Locking past the end of a file is allowed on Windows.
+_WINDOWS_LOCK_OFFSET = 1 << 30
+# Errors msvcrt.locking raises when another handle holds the range.
+_WINDOWS_LOCK_BUSY = frozenset({errno.EACCES, getattr(errno, "EDEADLOCK", errno.EDEADLK)})
+# How often a blocking lock retries on Windows, where msvcrt has no wait-forever mode.
+WINDOWS_LOCK_RETRY_SECONDS = 0.05
+
+
+def _fileno(handle):
+    return handle if isinstance(handle, int) else handle.fileno()
+
+
+def _windows_locking(fd, mode):
+    """Apply one msvcrt.locking call to the lock byte, keeping the caller's file position."""
+    msvcrt = importlib.import_module("msvcrt")
+    position = os.lseek(fd, 0, os.SEEK_CUR)
+    os.lseek(fd, _WINDOWS_LOCK_OFFSET, os.SEEK_SET)
+    try:
+        msvcrt.locking(fd, getattr(msvcrt, mode), 1)
+    finally:
+        os.lseek(fd, position, os.SEEK_SET)
+
+
+def lock_file(handle, *, blocking=False):
+    """Take an exclusive advisory lock on an open file (or file descriptor).
+
+    POSIX uses ``fcntl.flock``; native Windows uses ``msvcrt.locking`` on one byte (#698).
+    Without ``blocking``, a lock another handle holds raises BlockingIOError on both, which
+    callers turn into their own busy pause. With ``blocking`` it waits for the holder.
+    """
+    if not _WINDOWS:
+        import fcntl
+
+        fcntl.flock(handle, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        return
+    fd = _fileno(handle)
+    while True:
+        try:
+            _windows_locking(fd, "LK_NBLCK")
+            return
+        except OSError as error:
+            if error.errno not in _WINDOWS_LOCK_BUSY:
+                raise
+            if not blocking:
+                raise BlockingIOError(errno.EAGAIN, "Another handle holds this file lock") from error
+        sleep(WINDOWS_LOCK_RETRY_SECONDS)
+
+
+def unlock_file(handle):
+    """Release a lock taken with lock_file."""
+    if not _WINDOWS:
+        import fcntl
+
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return
+    _windows_locking(_fileno(handle), "LK_UNLCK")
+
+
 @contextlib.contextmanager
 def workspace_lock(workspace):
     path = Path(workspace) / ".autocode" / "writer.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file(handle)
         except BlockingIOError:
             raise Paused("PAUSED_WORKSPACE_BUSY", "Another autocode runner holds this workspace lock") from None
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            unlock_file(handle)
 
 
 @contextlib.contextmanager
@@ -275,13 +346,13 @@ def run_lock(run_dir):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file(handle)
         except BlockingIOError:
             raise Paused("PAUSED_RUN_BUSY", "Another autocode runner holds this run lock") from None
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            unlock_file(handle)
 
 
 GIT_TIMEOUT = 600  # seconds; a checkout of a large repository can take minutes, a hung hook never ends
