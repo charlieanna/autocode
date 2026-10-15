@@ -828,8 +828,19 @@ def protect_owner(
                     _send(control_w, {"finished": nonce})
                 except BrokenPipeError as error:
                     raise SupervisionError("Harness keeper exited before discharge") from error
+                finished_sent = time.monotonic()
                 close(control_w)
-                keeper.wait(timeout=8)
+                try:
+                    keeper.wait(timeout=8)
+                except subprocess.TimeoutExpired as error:
+                    # The armed keeper keeps the lifeline and still publishes its terminal receipt,
+                    # with its stop_timing phases, after this CLI exits. Name what this side saw
+                    # instead of escaping as an untyped traceback (#1143).
+                    phase = (receipt(metadata) or {}).get("phase") or "unreadable"
+                    raise SupervisionError(
+                        "Harness keeper discharge did not finish within its bound: receipt "
+                        f"{phase} {time.monotonic() - finished_sent:.3f} s after the finished message"
+                    ) from error
                 current = receipt(metadata)
                 if errors or keeper.returncode != 0 or current is None or current.get("phase") != "discharged":
                     raise SupervisionError("; ".join(errors) or "Harness keeper cleanup was uncertain")

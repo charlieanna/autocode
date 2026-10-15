@@ -437,12 +437,15 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         progressive_state.accept_proposal(state, value, origin=stage)
         prepared = planning_artifacts.prepare(state, stage, value, origin=stage, run_dir=run_dir, record=False)
         if stage == "requirements":
-            lifecycle.apply_requirements(
-                state, value["requirements"], artifact_sha256=prepared["artifact"]["sha256"], record=record
+            previous_token = state.get("requirements_artifact_token")
+            lifecycle.apply_requirements_report(
+                state, value, artifact_sha256=prepared["artifact"]["sha256"], record=record
             )
-            planning = state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
+            planning = planning_unit.admit_requirements(state, previous_token)
         else:
-            planning = state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
+            # A job that hands over straight to the Planner (a bug fix, a checked design) begins the first cycle
+            # here; it records its inputs, so later feedback is not mistaken for a record saved before #1252.
+            planning = state.get("planning") or planning_unit.new_cycle(state)
             reports = planning["reports"]
             if stage == "plan":
                 derived = planning_graph.validate(value["contract"])

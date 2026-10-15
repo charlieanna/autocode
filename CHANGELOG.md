@@ -11,6 +11,21 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode plan --export PATH` writes a saved run's current plan as a Markdown file to review in a pull request:
+  a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body, the same in any run)
+  and the revision it came from, then the plan as text generated from it; never the approval token, and
+  credential-shaped text is masked as in `autocode bundle`.
+  `autocode plan --check PATH` prints a plan file's goal hash and exits 2 when its text no longer matches its
+  front matter; `autocode plan --render PATH` regenerates the text after the front matter was edited. Starting a
+  run from such a file is not part of this change (#720).
+
+- Approvals record who gave them (#722, first part): each plan approval (`--approve-goal`, or yes in the
+  terminal conversation) and each artifact acceptance (`--approve-review`, `autocode review`, or y at the review
+  prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
+  (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
+  claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
+  its cost line. Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report
+  and pull request body, and a required approver are still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -24,6 +39,7 @@ PR template asks for an entry here; a change without one is incomplete.
   portable `lock_file` (`msvcrt` on Windows) and `atomic_json` no longer fails there syncing a directory. A
   Windows CI job reports `autocode doctor` and the fast suite without gating, and [Native Windows](docs/windows.md)
   records the audit and what remains. Use WSL until it is green.
+- Completed runs can remember shareable project test defaults and genuine human conventions for future Requirements, with explicit-setting precedence, doctor display and `autocode forget`; every task keeps its own criteria and approvals (#719).
 - Review runs report mutations missed by passing tests in an explicit Python patch, separately from the reviewer's failing finding tests, without changing review verdicts or completion policy (#699).
 - Claude Code is a built-in provider: `--engine claude` (or `--provider claude`, or `engine = "claude"` in the
   project settings) runs every role through `claude -p` with the Claude Code login. Sonnet drafts requirements
@@ -154,6 +170,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - The findings ledger (`autocode_findings`) takes the typed `RunState`, and `tests/test_run_state.py` ratchets the
   remaining unannotated `state` parameters (888) so new code cannot add more. A `goal_contract` saved as `null`
   now reads like an absent contract when findings are recorded or scoped, instead of raising (#695).
+- When the scenario harness's time budget ends a drive, the error (and a scenario's `harness_error`) now says
+  where the budget went: each earlier CLI call's seconds, the status reads together, the harness's own time
+  between calls, and how much time the cut-off call had left when it started. A CLI test that removes its
+  fixture keeps no `steps.jsonl`, so its failure message was the only record left (#967).
 - When a supervised provider or command launch stops with "Keeper did not arm within the launch limit", the error
   now says where the limit went: the limit, when the parent spawned the keeper and the provider and sent the
   ownership frame, whether the keeper is still alive and in what process state, whether it read that frame (Linux),
@@ -177,6 +197,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
+  masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
+  masked (#720).
+
+- `--planning-v2`: feedback, an answer, a follow-up or a program's plan guidance that changes the Requirements
+  handoff now begins a new planning cycle with the configured Plan Reviewer allowance, as on the default flow.
+  The corrected plan's first review was refused at `PAUSED_PLANNING_BUDGET` for the previous cycle's charges.
+  The previous cycle's reports and charges move to `planning_history`; the same handoff admitted again, or a
+  retried Requirements report with nothing new from you, keeps the cycle and its spent reviews. A planning record
+  saved before this change keeps its charges until your next input (#1252).
+
 - Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
   with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
   not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"
@@ -186,6 +217,10 @@ PR template asks for an entry here; a change without one is incomplete.
   the last 4,000 characters of its stdout and stderr appear in the test error, and a retained fixture
   (`BUILD_AUDIT_ARTIFACTS`) keeps both streams whole as `command-timeout.stdout.log` and `.stderr.log`. The
   deadline and the exception are unchanged (Refs #1005).
+- A `TaskRun` call that outlives its timeout no longer drops the output that reached the caller: the error
+  message keeps the end of its stdout and stderr (or says none arrived), and `TaskRunError.partial_output` holds
+  both whole. Output the CLI had not yet flushed is still lost. The limit and process cleanup are unchanged. A
+  timed-out status read in a loaded suite gate now keeps whatever output it had already sent (#992).
 - Automatic billing-route access probes now count toward run money/time limits, retain interrupted usage, and honor Stop between requests after verified cleanup (#1291).
 
 - Provider supervision preserves a watchdog handoff failure when its lifeline has already closed, and
@@ -198,12 +233,24 @@ PR template asks for an entry here; a change without one is incomplete.
   supervised provider launches; fake CLI and scenario stages use supported Linux
   or existing Linux CI. Strict host refusal and optional live verification remain
   unchanged (#1274).
+- `tools/run_suite.py` compiles `tools/` bytecode once before any test module starts. With bytecode writes
+  off for the run (#935), every CLI process a test launched compiled the ~330 runtime modules from source,
+  about three quarters of a `--status` query's CPU, which on a loaded parallel run can push the concurrent
+  task-workspace test past its 10-second status limit. It compiles the interpreter's stdlib and site-packages
+  outside the checkout too: a process started with `-E` or `-I` rewrote a stale stdlib cache during a check replay,
+  which read it as a changed dependency. Nothing writes bytecode during the run (#999).
 - The lazy-validator scenario now requires the Validator attempt and its recorded
   citation refusal; empty run evidence and unrelated pauses cannot pass (#1142).
 
 - Keep valid Node 22.14 ordinary test results usable as named proof when Node's
   event omits the test type; suites and malformed retained evidence keep their
   existing checks (#1266).
+- A harness-guarded CLI whose keeper does not discharge within the unchanged eight-second bound now exits 2 with
+  `Harness keeper discharge did not finish within its bound`, naming the receipt phase it saw and the seconds since
+  its finished message, instead of an uncaught `TimeoutExpired` traceback. Every keeper's terminal supervision
+  receipt gains `stop_timing`: the stop request, sampling-loop exit, the loop's latest and a discharge's final
+  process sample, and the time spent in whole-host session and process-group scans, as seconds before
+  publication. The diagnostics change no wait, ownership check or cleanup decision (part of #1143).
 - Restore strict task-stage provider refusal on unsupported hosts, including macOS, before any
   child or supervision receipt is created. This replaces the
   macOS-only fallback from #1195; ordinary verification commands retain portable supervision (#454).
@@ -211,9 +258,20 @@ PR template asks for an entry here; a change without one is incomplete.
   there are and points at the retained full inventory. Copying every match once made a 7.8 MB Builder prompt
   that overflowed the model's context; the protected binding and the original-test replay still cover every
   file (#1140).
+- Planning stages now check each acceptance criterion against itself before returning the plan: its examples
+  must agree with each other, with its own rule and with an approved design, and a boundary the request and
+  design leave open (a value exactly at a limit) stays untested instead of being stated both ways. A live
+  `discuss-then-design-then-build` build turn otherwise had to ask the user to reword such a criterion. The
+  approved-design rule no longer claims only an approved criterion needs the user to change; approval rules
+  are unchanged (#732).
 - Report repair reads a configured tool's saved report, or the Claude provider's event log, as the original, so
   finding dispositions survive the repair (#717).
 - Supervision qualification docs now match the accepted macOS portable policy and distinguish completed provider/harness fault coverage from unqualified standalone helpers (#454).
+- The dashboard no longer treats a task's Git worktree as a project. The task and its linked conversation
+  stay under the parent project in the sidebar and project filter. Opening the task keeps that project
+  selected, and New conversation (including a stopped task's "Start a new conversation") starts in it.
+  Task status and task actions still target the worktree. A project the dashboard knows only through a
+  task worktree can be removed from Settings (#809).
 - Keep the main CLI within its existing architecture size limit by moving iteration-limit policy to the build loop, preserving the compatibility name and limit behavior (#1256, #881).
 - Keep the newly integrated `autocode wait` checkpoint boundary compatible with the shared `RunState` contract and signature guard (#1253, #1256, #881).
 - Dashboard links between the conversation and the artifact pane now work on phones. At 759 px and below,

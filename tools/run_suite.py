@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import compileall
 import json
 import os
 import re
@@ -78,6 +79,7 @@ import subprocess
 import sys
 import time
 import unittest
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -334,6 +336,39 @@ def unprivileged_prefix() -> tuple[str, ...]:
     return _PREFIX
 
 
+def interpreter_roots() -> list[Path]:
+    """This interpreter's sys.path directories outside the checkout, each nested one left to its parent: the trees
+    verification hashes as dependency bytes (``autocode_verify.execution_identity``)."""
+    repo = REPO_ROOT.resolve()
+    roots = {Path(entry).resolve() for entry in sys.path if os.path.isdir(entry)}
+    roots = {root for root in roots if not root.is_relative_to(repo) and not repo.is_relative_to(root)}
+    return sorted(root for root in roots if not any(parent in roots for parent in root.parents))
+
+
+def compile_runtime() -> None:
+    """Write the bytecode of tools/ and of this interpreter's own trees once, before any test interpreter
+    starts (#999).
+
+    Each module, and every CLI process its tests launch, runs with bytecode writes off (``run_module``),
+    so without a cache each of those processes compiled the ~330 tools/ modules the CLI imports from
+    source: about 0.85 s of the 1.2 s of CPU a ``--status`` query took, which a loaded parallel run can
+    stretch past a test's 10-second limit. Written here, before the run, the cache never changes while
+    a test is measuring a tree. Python checks each cache against its source, so a source that changes
+    later is compiled again, never served stale. A file that does not compile is left to its tests.
+
+    A process started with -E or -I ignores PYTHONDONTWRITEBYTECODE, so a stale cache in the stdlib or
+    site-packages (setup-python copies its stdlib with new timestamps) was rewritten during a check
+    replay, which read it as a changed dependency. Nothing else in the checkout is compiled: tests
+    snapshot it."""
+    compileall.compile_dir(str(REPO_ROOT / "tools"), quiet=2)
+    if os.name != "posix":
+        return  # execution_identity reads os.uname(), so no check replay hashes these trees here
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # the stdlib's own test data compiles with SyntaxWarnings
+        for root in interpreter_roots():
+            compileall.compile_dir(str(root), quiet=2)
+
+
 def run_module(module: str, verbosity: int) -> dict:
     """Run one test module in its own interpreter from the repository root."""
     started = time.monotonic()
@@ -456,6 +491,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.scenario_harness:
+        compile_runtime()
         changed = changed_paths(args.changed) if args.changed and not args.include_slow else None
         modules, skipped = scenario_selection(changed, load_exclusions(DEFAULT_SLOW_PATH))
         if skipped:
@@ -477,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{module}: {reason}")
         return 0
 
+    compile_runtime()  # before discovery imports the runtime too
     suite = discover()
     total_before = count_tests(suite)
     kept, matched, unmatched = filter_excluded(suite, exclusions)

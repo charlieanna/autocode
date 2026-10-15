@@ -1,4 +1,5 @@
 {
+  "tests.test_approval_provenance_cli": "Two real CLI fake-provider runs through plan approval, artifact review and completion (about 34 s locally, Linux cloud container), 2026-10-15",
   "tests.test_agent_step": "Two real CLI runs through the agent step's command line: the offline fixture provider (question, plan approval, completion, evidence) and a scenario-fake review of an uncommitted change (its recorded evidence); 27 s locally in a Linux cloud container, 49-66 s when it was loaded, 2026-10-15",
   "tests.test_mcp_server": "One real CLI run through the MCP server over stdio with the offline fixture provider; 38 s locally in a loaded Linux cloud container, 2026-10-15",
   "tests.test_claude_provider_cli": "Eight real CLI runs through the built-in claude provider and its offline fixture (46.6 s locally, Linux cloud container, one module at a time), 2026-10-14",
@@ -60,5 +61,6 @@
   "scenarios.test_lying_matrix": "One full fake CLI run per catalog broken/ overlay (~165 runs); reliability lying-model matrix, 2026-10-12; runs with --scenario-harness or --include-slow",
   "tests.test_builder_worker_lifeline": "198 s wall (58 s CPU) for 5 tests locally (macOS, one module at a time, load average 370-400), 2026-10-13; real-CLI controller kills and resumes around held parallel Builders, and a stand-in worker whose SIGTERM teardown takes 14 s (#454)",
   "tests.test_cost_cap": "Two fake-Codex TaskRun runs through a cost pause, a held resume and a raised cap (~14 s locally), 2026-10-14",
-  "tests.test_mutation_check_catalog": "19.5 s locally (Linux, 4 CPUs, one module at a time), 2026-10-14; five real regression proofs of bugfix-trivial and bugfix-iso-weeks variants, the four that pass running their mutants (#699)"
+  "tests.test_mutation_check_catalog": "19.5 s locally (Linux, 4 CPUs, one module at a time), 2026-10-14; five real regression proofs of bugfix-trivial and bugfix-iso-weeks variants, the four that pass running their mutants (#699)",
+  "tests.test_planning_cycle_cli": "One fake-provider TaskRun v2 run through two planning cycles with feedback between; 21 s locally (Linux cloud container, one module at a time), 2026-10-15 (#1252)"
 }

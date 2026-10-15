@@ -21,10 +21,12 @@ import copy
 
 try:
     from . import autocode_goals as goals
+    from . import autocode_project_memory_lifecycle as project_memory
     from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
 except ImportError:
     import autocode_goals as goals
+    import autocode_project_memory_lifecycle as project_memory
     import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
 
@@ -50,5 +52,6 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     ]
     check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
+    project_memory.capture(state, value)
     run_status.running(state, "PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"])
     requirements_review.wait(state, record, queue)
