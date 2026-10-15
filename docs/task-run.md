@@ -743,6 +743,18 @@ was approved. A coordinating layer such as
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
+`approvals` lists every plan and review approval the run recorded, oldest first (#722):
+`kind` (`plan` or `review`), `at`, `actor` (`user_cli` for a person, `workflow_policy`
+for a small bug fix approved under the workflow policy), `contract_token` (the plan
+token approved, null for a review), `criterion` (the accepted criterion, null for a plan)
+and `provenance`: `git_user_name`, `git_user_email`, `host`, `command` (`autocode` and
+the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
+null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
+null for an approval saved before AutoCode recorded it and for a workflow-policy approval.
+It is a history: an approval stays listed after a newer plan or a rejection replaces it, so
+read what is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`.
+It is empty until the first approval.
+
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `provider` names the provider those OpenCode-engine routes launch through
 (`opencode`, `claude` for the [built-in Claude Code provider](providers.md#claude-code-provider),

@@ -572,6 +572,25 @@ run rechecks its source and evidence before reporting success. Stale completion 
 for fresh Tester validation; `--status` reports `completion_current` without changing state.
 Source snapshots include executable modes and changes inside initialized submodules.
 
+### Who approved
+
+An approval token says what was approved; the run also records who approved it (#722).
+Each plan approval (`--approve-goal`, or `yes` in the terminal conversation) and each
+artifact acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's
+review prompt) saves, on its approval event, the Git `user.name` and `user.email` the
+workspace resolves, the host name, and the command it came through: `autocode` and the
+option names of that invocation, never their values, so tokens stay out of it. On a shared
+machine add `--as NAME` to `--approve-goal` or `--approve-review`; the name is saved
+beside the Git identity as the person's own claim.
+
+None of this is verified, and none of it grants or refuses anything: Git identity is
+whatever the checkout configures, and `--as` is taken at the person's word. The token checks
+above remain the approval. `--status` lists every approval with its provenance under
+`approvals` ([Status view](task-run.md#status-view)), and the completion summary ends with
+the same list before its cost line. An approval saved before AutoCode recorded approvers
+shows no provenance. Goal edits, resumes that acknowledge a pause, the evidence report and
+a required approver are not covered yet.
+
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
 `EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial
 interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.

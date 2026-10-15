@@ -45,6 +45,7 @@ OPERATOR_FLAGS = (
     "--approve-goal",
     "--edit-goal",
     "--approve-review",
+    "--as",
     "--reject-review",
     "--review-note",
     "--reconcile-review",
