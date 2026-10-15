@@ -16,13 +16,13 @@ try:
     from . import autocode_process_children as process_children
     from . import autocode_process_receipts as process_receipts
     from . import autocode_util as util
-    from .autocode_activity import idle_timeout_reason
+    from .autocode_activity import POLL_SAMPLED_MONOTONIC, idle_timeout_reason
 except ImportError:
     import autocode_command_receipt as command_receipts
     import autocode_process_children as process_children
     import autocode_process_receipts as process_receipts
     import autocode_util as util
-    from autocode_activity import idle_timeout_reason
+    from autocode_activity import POLL_SAMPLED_MONOTONIC, idle_timeout_reason
 
 try:
     import psutil
@@ -31,7 +31,24 @@ except ImportError as missing:  # autocode.py loads this module for --version an
 
 
 class ProcessError(RuntimeError):
-    pass
+    # Set only by the original wait_for_stage supervisor during exceptional
+    # unwind. This preserves accounting, never cleanup/recovery authority.
+    stage_timeout: dict[str, str] | None = None
+
+
+def retain_stage_timeout(error, activity):
+    """Keep only this wait's original decision in existing caller accounting.
+
+    The error still owns its fact when no activity monitor exists. A present
+    monitor receives a copy; its old contents never establish a timeout or
+    replace the original authentication/cleanup error.
+    """
+    decision = error.stage_timeout
+    if decision is None:
+        return False
+    if activity is not None:
+        activity.timeout = dict(decision)
+    return True
 
 
 class SessionScanIncomplete(ProcessError):
@@ -590,14 +607,23 @@ class ProcessTree:
                 util.sleep(0.05)
             raise ProcessError("Provider commands remain alive after cleanup; the workspace remains blocked")
         except (ProcessError, subprocess.TimeoutExpired) as error:
-            # A failed discovery pass, or a direct child not reaped in time, must not strand recorded
-            # workers stopped: force the birth-verified ones down and report a typed error (#553).
-            self.signal(list(self.known.values()), signal.SIGKILL)
-            if isinstance(error, ProcessError):
+            # A failed discovery or reap must not strand recorded workers (#553).
+            # Retain every exact owned identity when cleanup remains uncertain.
+            owned = list(self.known.values())
+            try:
+                self.signal(owned, signal.SIGKILL)
+            except ProcessError as cleanup_error:
+                cleanup_error.processes = owned
                 raise
-            raise ProcessError(
-                f"Provider command {child.pid} was not reaped after cleanup; the workspace remains blocked"
-            ) from error
+            if isinstance(error, subprocess.TimeoutExpired):
+                failure = ProcessError(
+                    f"Cannot verify child exit: provider command {child.pid} was not reaped after cleanup; "
+                    "the workspace remains blocked"
+                )
+                failure.processes = owned
+                raise failure from error
+            error.processes = owned
+            raise
         finally:
             self.signal(list(frozen.values()), signal.SIGCONT)
 
@@ -706,7 +732,9 @@ def _sampling_instant(activity, before, after):
     return sampled
 
 
-def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None, startup_grace=0):
+def wait_for_stage(
+    child, timeout, checkpoint, *, activity=None, activity_checkpoint=None, startup_grace=0, on_root=None
+):
     receipts = process_receipts.ReceiptWorker()
     tree = ProcessTree(child.pid, receipts.record)
     deadline = util.monotonic() + timeout if timeout else None
@@ -733,6 +761,8 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     last_publish = 0
     last_activity_key = None
     escalation_timer = None
+    timeout_decision = None
+    escaping_error = None
 
     def signal_provider(sig):
         if child.poll() is not None:
@@ -750,10 +780,12 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             pass
 
     def stop_at_deadline(reason):
-        nonlocal latest_activity, escalation_timer
+        nonlocal latest_activity, escalation_timer, timeout_decision
         with firing:
             if stopped.is_set() or watchdog_fired.is_set() or child.poll() is not None:
                 return
+            if reason["kind"] in ("stage", "idle", "tool"):
+                timeout_decision = dict(reason)
             if activity is not None:
                 activity.timeout = reason
                 # Never acquire the monitor's lock on the termination path: a
@@ -773,17 +805,32 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     def observe():
         nonlocal latest_activity, latest_observation
         try:
-            # Events are read from the start, while root capture may still be inspecting the tree: a
-            # queued tool start must reach the watchdog before idle policy applies (#621). Until the
-            # root is captured, poll() must not reap a fast exit, and no processes are known yet.
-            while (
-                not stopped.is_set()
-                and not watchdog_fired.is_set()
-                and (not root_captured.is_set() or child.poll() is None)
-            ):
+            # Read queued events while root capture is inspecting the native
+            # tree; ordinary polling cannot reap a fast exit before capture (#621).
+            while not stopped.is_set() and not watchdog_fired.is_set():
+                # Event observation may run during native inspection, but an
+                # ordinary poll must not reap the root before capture.
+                if root_captured.is_set() and child.poll() is not None:
+                    return
                 observed_at = util.monotonic()
-                observed = activity.poll(processes=live, root_pid=child.pid)
-                observed_at = _sampling_instant(activity, observed_at, util.monotonic())
+                observed = dict(activity.poll(processes=live, root_pid=child.pid))
+                returned_at = util.monotonic()
+                if POLL_SAMPLED_MONOTONIC in observed:
+                    sampled_at = observed.pop(POLL_SAMPLED_MONOTONIC)
+                    if (
+                        type(sampled_at) not in (int, float)
+                        or not math.isfinite(sampled_at)
+                        or not observed_at <= sampled_at <= returned_at
+                    ):
+                        raise ProcessError("Invalid activity sampling instant")
+                    # Do not add a lock wait to elapsed values that already
+                    # include it, or forgive I/O time after the sample. Legacy
+                    # monitors retain the conservative invocation-time binding.
+                    observed_at = sampled_at
+                else:
+                    # Older monitors expose only sampled_at. Bind that instant
+                    # conservatively without weakening the exact returned marker.
+                    observed_at = _sampling_instant(activity, observed_at, returned_at)
                 with firing:
                     if stopped.is_set() or watchdog_fired.is_set():
                         return
@@ -832,6 +879,41 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                 return
             if stopped.wait(0.05):
                 return
+
+    def release_writer_token(fd, token):
+        # Native fsync/authentication runs outside this lock. Only this bounded
+        # nonblocking write is synchronized with the original timeout decision.
+        if (
+            type(fd) is not int
+            or fd < 3
+            or not isinstance(token, bytes)
+            or not 0 < len(token) <= 512
+            or os.get_blocking(fd)
+            or len(token) > os.fpathconf(fd, "PC_PIPE_BUF")
+        ):
+            raise ProcessError("Invalid blocked writer release transport")
+        reason = None
+        with firing:
+            current = util.monotonic()
+            if stopped.is_set() or watchdog_fired.is_set():
+                raise ProcessError("Writer admission ended before release")
+            if deadline is not None and current >= deadline:
+                reason = {"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"}
+            elif activity is not None and current >= startup_deadline:
+                observed_at, snapshot = latest_observation
+                lag = max(0, current - observed_at)
+                tool_elapsed = snapshot.get("tool_elapsed_seconds")
+                kind = "tool" if tool_elapsed is not None else "idle"
+                elapsed = tool_elapsed if kind == "tool" else snapshot.get("idle_seconds", 0)
+                limit = snapshot.get(kind + "_limit_seconds", 0)
+                if limit and elapsed + lag >= limit:
+                    reason = {"kind": kind, "reason": "Writer admission exceeded its existing activity deadline"}
+            if reason is None:
+                return os.write(fd, token)
+        # Do not reacquire firing recursively or hold it across signaling and
+        # cleanup. There was no write; use the existing deadline path exactly.
+        stop_at_deadline(reason)
+        raise ProcessError("Writer admission deadline expired before release")
 
     def publish_activity(*, force=False):
         nonlocal last_publish, last_activity_key
@@ -892,9 +974,15 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             watchdog.start()
         if observer:
             observer.start()
-        # Capture before ordinary process polling, after independent deadline enforcement and event
-        # observation start. This publishes in memory, without I/O.
+        # Observe queued provider activity while native inspection runs, with
+        # independent deadline enforcement and ordinary reaping still gated.
+        # Root capture publishes in memory, without I/O.
         tree.capture_root()
+        if on_root is not None:
+            # This callback uses the original ProcessTree and existing
+            # deadline/cleanup scope. It may seal and release a blocked
+            # trusted root; it supplies no independent launch permission.
+            on_root(tree, release_writer_token)
         root_captured.set()
         receipts.start(own_processes)
         while not receipts.done.is_set():
@@ -903,6 +991,9 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             receipts.done.wait(0.05)
         receipts.flush(checkpoint)
         publish_activity(force=True)
+    except BaseException as error:
+        escaping_error = error
+        raise
     finally:
         # Interruption or a failed save must not let the process worker escape
         # this call. Callbacks stay serialized on the controller thread. A signal
@@ -923,6 +1014,11 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             # replay an already failed write or mask uncertain cleanup.
             if not receipts.checkpoint_failed:
                 receipts.flush(checkpoint)
+        except BaseException as error:
+            # Cleanup may supersede the body error, including with another
+            # exception type. Track only the exception this wait propagates.
+            escaping_error = error
+            raise
         finally:
             stopped.set()
             if hard_timer:
@@ -935,6 +1031,11 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                 escalation_timer.cancel()
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
+            # on_root or cleanup can raise after this supervisor has already
+            # stopped the held child. Preserve that original decision on the
+            # SAME error without replacing its authentication/cleanup failure.
+            if isinstance(escaping_error, ProcessError):
+                escaping_error.stage_timeout = dict(timeout_decision) if timeout_decision is not None else None
     if watchdog_errors:
         raise ProcessError("Activity supervision failed; tracked workers have been stopped") from watchdog_errors[0]
     result = child.wait(timeout=1), watchdog_fired.is_set()

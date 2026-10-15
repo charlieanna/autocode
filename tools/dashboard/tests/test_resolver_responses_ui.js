@@ -4,6 +4,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const projectedRun=require('./resolver_fixture');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const range=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end));
+const detailsStateDeclaration=source.match(/\bdetailsState = new Map\(\)/);
+assert.ok(detailsStateDeclaration,'Missing shipped disclosure state declaration');
 class Element {
   constructor(tag='div',text=''){this.tagName=tag.toUpperCase();this.textContent=text;this.children=[];this.dataset={};this.value='';this.disabled=false;this.hidden=false;this.classList={add(){},toggle(){},remove(){}};}
   append(...children){this.children.push(...children);}
@@ -13,6 +15,7 @@ class Element {
   querySelector(selector){return flatten(this).find(row=>selector==='.speaker'?row.className==='speaker':false)||null;}
   get childElementCount(){return this.children.length;}
   scrollIntoView(){}
+  focus(){this.focused=true;}
 }
 const flatten=node=>[node,...node.children.flatMap(flatten)];
 const text=node=>flatten(node).map(row=>row.textContent).join(' ');
@@ -41,7 +44,7 @@ function harness(storage=new Map()) {
     taskReadError:'',seq:0,taskChatPending:new Map(),taskChatErrors:new Map(),taskActionPending:new Set(),
     sendingRequests:new Map(),uncertainRequests:new Map(),changeDrafts:new Map(),
   });
-  vm.runInContext(range('function stored(', 'function rememberSelection(')
+  vm.runInContext('const '+detailsStateDeclaration[0]+';\n'+range('function stored(', 'function rememberSelection(')
     +range('function conversationStatus(', 'function icon(')
     +range('function concise(', 'function badge(')
     +range('function jointPlanning(', 'function setView(')
@@ -53,6 +56,7 @@ function harness(storage=new Map()) {
     +range('function focusChatAction(', 'function inlineSavedChanges(')
     +range('function renderScreenshotEvidence(', 'function requestKey(')
     +range('function renderConversation(', 'async function copyText(')
+    +range('function currentConversationDraft(', 'function renderQuietPlanPreview(')
     +range('function planEntryText(', 'function output(')
     // The reviewed Plan pane leads with the live checklist, so renderBrief
     // now calls the real checklist builder; load it instead of stubbing it.
@@ -102,6 +106,33 @@ async function runTests(){
   assert.equal(unpublished.saved_status,'AWAITING_GOAL_APPROVAL');
   assert.equal(h.c.primaryAction(unpublished).kind,'checks','Use effective status, never the saved approval status');
 
+  // The supplied current default owns question emphasis; the existing focus
+  // pointer stays the fallback when no preferred answer was actually issued.
+  const policy=harness(),policyBefore=JSON.stringify(material);
+  assert.equal(policy.c.hasPrimaryQuestionReply(material,'Q1'),true);
+  assert.equal(policy.c.hasPrimaryQuestionReply(material,'Q2'),false,'No invented default for the second question');
+  assert.equal(policy.c.hasPrimaryQuestionReply(material,'missing'),false);
+  assert.equal(policy.c.hasPrimaryQuestionReply(raw,'Q1'),false,'Raw unissued questions never acquire primary-answer emphasis');
+  const noDefault=projectedRun('clarification',{...base,questions:[{...question,proposed_default:''}]});
+  assert.equal(policy.c.hasPrimaryQuestionReply(noDefault,'Q1'),false,'A current request without a supplied default keeps its focus fallback');
+  assert.equal(policy.c.hasPrimaryQuestionReply({...material,questions:[{...question,proposed_default:'Unissued substitute'}]},'Q1'),false,'Displayed defaults must match the exact issued question');
+  const mismatchedDefault={...material,questions:[{...question,proposed_default:'Unissued substitute'}]},mismatchedPresentation=harness();
+  mismatchedPresentation.show(mismatchedDefault,'');
+  assert.equal(buttons(mismatchedPresentation.$('#conversation')).some(row=>row.dataset.questionSuggestion),false,'No unissued substitute suggestion is rendered');
+  const mismatchedFreeform=flatten(mismatchedPresentation.$('#conversation')).find(row=>row.className==='question-freeform');
+  assert.ok(mismatchedFreeform&&!mismatchedFreeform.hidden,'A mismatched default cannot hide the real editable answer');
+  assert.ok(flatten(mismatchedFreeform).some(row=>row.tagName==='TEXTAREA'&&!row.disabled));
+  assert.equal(mismatchedPresentation.calls.length,0,'Refusing an unissued presentation never submits an answer');
+  policy.c.taskReadError='offline';assert.equal(policy.c.hasPrimaryQuestionReply(material,'Q1'),false);policy.c.taskReadError='';
+  policy.c.taskActionPending.add(material.run);assert.equal(policy.c.hasPrimaryQuestionReply(material,'Q1'),false);policy.c.taskActionPending.clear();
+  policy.c.taskChatPending.set(material.run,true);assert.equal(policy.c.hasPrimaryQuestionReply(material,'Q1'),false);
+  policy.show(material,'');
+  assert.equal(buttons(policy.$('#conversation')).find(row=>row.dataset.questionSuggestion==='Q1').disabled,true,'An in-flight reply disables the real supplied suggestion');
+  policy.c.taskChatPending.clear();
+  assert.equal(policy.c.hasPrimaryQuestionReply(material,'Q1'),true);
+  assert.equal(JSON.stringify(material),policyBefore,'Presentation policy does not mutate the saved request');
+  assert.equal(policy.calls.length,0,'Emphasis and pending presentation never submit an answer');
+
   const m=harness();m.show(material,'Browser');
   const cards=flatten(m.$('#conversation')).filter(row=>row.dataset.questionCard);
   assert.equal(cards.length,2);
@@ -113,11 +144,35 @@ async function runTests(){
   assert.deepEqual(m.calls[0],{url:'/api/chat',payload:{workspace:base.workspace,run:base.run,text:'Browser',request_id:'request-1',question_id:'Q2',...fields(material)}});
   assert.equal(m.calls.length,1,'Saving a material reply does not itself send Continue from the browser');
   m.show(material,'');
-  const delegate=buttons(m.$('#conversation')).find(row=>row.textContent==='Accept suggested answer');
+  const delegate=buttons(m.$('#conversation')).find(row=>row.dataset.questionSuggestion==='Q1');
+  assert.equal(delegate.textContent,'JSON · Suggested','The suggestion uses the actual saved default');
+  const questionCard=flatten(m.$('#conversation')).find(row=>row.dataset.questionCard==='Q1');
+  const freeform=flatten(questionCard).find(row=>row.className==='question-freeform'),answer=flatten(freeform).find(row=>row.tagName==='TEXTAREA');
+  assert.equal(freeform.hidden,true,'A saved default leads with the compact decision controls');
+  const explain=buttons(questionCard).find(row=>row.dataset.questionExplain==='Q1'),beforeExplain=m.calls.length;
+  explain.onclick();
+  assert.equal(freeform.hidden,false);assert.equal(answer.focused,true);
+  assert.equal(m.calls.length,beforeExplain,'Explain only reveals an editable answer; it submits no invented answer or approval');
+  assert.equal(buttons(questionCard).filter(row=>row.dataset.questionSuggestion||row.dataset.questionExplain).length,2);
+  assert.equal(flatten(m.$('#conversation')).some(row=>row.className==='answer-safety'),false,'A question is not duplicated by a second large safety card');
+  assert.equal(m.$('#task-delivery').textContent,'Answer here, or choose a suggestion above. Plan approval is separate.');
+  assert.equal(m.$('#live-mode').textContent,'','No duplicate controller implementation copy is appended to the composer');
   await delegate.onclick();
   assert.equal(m.calls.at(-1).payload.delegate,true);
   assert.equal(m.calls.at(-1).payload.question_id,'Q1');
   assert.equal(m.calls.at(-1).payload.resolver_token,fields(material).resolver_token);
+  assert.equal(m.calls.at(-1).payload.text,'');
+  assert.equal(m.calls.at(-1).payload.explicit_answer,undefined,'Choosing the saved suggestion retains delegation semantics');
+  const savedDraft=harness(new Map([['autocode:question-draft:'+base.run+':Q1',JSON.stringify({text:'A saved explanation',request_token:fields(material).resolver_token})]]));
+  savedDraft.show(material,'');
+  const draftForm=flatten(savedDraft.$('#conversation')).find(row=>row.className==='question-freeform');
+  assert.equal(draftForm.hidden,false,'A durable explanation draft remains visible after re-render');
+  assert.equal(flatten(draftForm).find(row=>row.tagName==='TEXTAREA').value,'A saved explanation');
+  const staleDefault=harness();staleDefault.show(material,'');
+  const oldDefault=buttons(staleDefault.$('#conversation')).find(row=>row.dataset.questionSuggestion==='Q1');
+  staleDefault.c.latestRun=changedRequestForDefault();
+  await oldDefault.onclick();
+  assert.equal(staleDefault.calls.length,0,'An old suggestion callback cannot acquire a new request token');
   for(const scope of ['permission','goal_change']){
     const request=projectedRun(scope,{...base,questions:[]}),decision=harness();decision.show(request,'Only within the existing workspace');
     await decision.c.sendTaskChat(request);
@@ -126,6 +181,28 @@ async function runTests(){
     assert.equal(decision.calls[0].payload.resolver_token,fields(request).resolver_token);
     assert.equal(decision.calls[0].payload.action,undefined,'Material permission/goal replies are not operational responses or approvals');
   }
+
+  // Supplied choices are explicit user answers through the same token-bound
+  // form, never automatic approval, delegation or a separate Continue call.
+  const choiceQuestion={id:'Q-choice',question:'Which scope should this conversation use?',
+    options:['Use project scope',{label:'Choose another scope',value:'Use a different reviewed repository scope'}],proposed_default:''};
+  const choiceRun=projectedRun('clarification',{...base,questions:[choiceQuestion]}),choiceHarness=harness();
+  choiceHarness.show(choiceRun,'');
+  const choiceButton=buttons(choiceHarness.$('#conversation')).find(row=>row.textContent==='Choose another scope');
+  assert.ok(choiceButton,'A supplied option is a usable answer control');
+  await choiceButton.onclick();
+  assert.deepEqual(choiceHarness.calls,[{url:'/api/chat',payload:{workspace:base.workspace,run:base.run,
+    question_id:'Q-choice',text:'Use a different reviewed repository scope',explicit_answer:true,
+    ...fields(choiceRun),request_id:'request-1'}}]);
+  assert.equal(choiceHarness.calls.some(call=>call.payload.action||call.payload.delegate),false);
+  assert.ok(flatten(choiceHarness.$('#conversation')).some(row=>row.tagName==='TEXTAREA'),'An editable free-text answer remains available');
+  const staleChoice=harness();staleChoice.show(choiceRun,'');
+  const oldChoice=buttons(staleChoice.$('#conversation')).find(row=>row.textContent==='Use project scope');
+  staleChoice.c.latestRun=projectedRun('clarification',{...base,questions:[{...choiceQuestion,question:'Which NEW scope?'}]});
+  await oldChoice.onclick();
+  assert.equal(staleChoice.calls.length,0,'A choice from an old DOM refuses the newer request token');
+  const savedChoice=[...staleChoice.storage.values()].map(value=>{try{return JSON.parse(value);}catch{return null;}}).find(value=>value?.text==='Use project scope');
+  assert.ok(savedChoice,'A stale refusal preserves the exact user-selected answer draft');
 
   // Reloading or retrying cannot fill a saved reply with a newer receipt.
   const stale=harness(),oldReply={text:'JSON',question_id:'Q1',request_id:'old-reply',...fields(material)};
@@ -192,6 +269,12 @@ async function runTests(){
   const plan=projectedRun('goal_approval',{...base,goal:{revision:4,origin:'astra_finalize'},model_settings:{joint_planning:true}}),p=harness();p.show(plan);
   assert.equal(buttons(p.$('#brief-current')).some(row=>/Approve/.test(row.textContent)),false,'the Plan pane carries no approval control');
   const approve=buttons(p.$('#inline-task-action')).find(row=>/Approve plan revision/.test(row.textContent));
+  const approvalOnly=flatten(p.$('#inline-task-action')).find(row=>row.tagName==='DETAILS'&&row.dataset.approvalOptions==='true');
+  assert.ok(approvalOnly,'Approval-only remains an explicit chat capability with its own disclosure');
+  assert.equal(approvalOnly.textContent,'Approve without building');
+  assert.ok(flatten(approvalOnly).includes(approve));
+  assert.match(approve['aria-label'],/without building/);
+  assert.equal(buttons(p.$('#inline-task-action')).filter(row=>/Approve/.test(row.textContent)).length,2,'The separate approval-only and receipt-checked approve-and-build capabilities are both retained');
   assert.ok(approve);assert.equal(approve.disabled,false);await approve.onclick();
   assert.deepEqual(p.calls[0].payload,{workspace:base.workspace,run:base.run,action:'approve_goal',...fields(plan),token:plan.goal_token,confirmation:plan.goal_token});
   p.c.latestRun={...plan,goal_token:'changed'};await approve.onclick();assert.equal(p.calls.length,1);
@@ -220,4 +303,5 @@ async function runTests(){
   assert.equal(live.calls[0].url,'/api/chat');assert.equal(live.calls[0].payload.question_id,undefined);
   console.log('Resolver cards, exact-token mutations, operational replies, stale/reloaded retries, duplicate protection and ordinary feedback passed.');
 }
+function changedRequestForDefault(){return projectedRun('clarification',{...base,questions:[{...question,question:'Which revised format?'}]});}
 runTests().catch(error=>{console.error(error);process.exitCode=1;});

@@ -207,3 +207,39 @@ def stop_reason(state, count, maximum, *, allow_grant=True):
             f"stop, not a request for approval. {advice(allow_grant=allow_grant)}"
         )
     return None
+
+
+def repeated_failure_resume_guard(state, *, authorization=None, repeated_failure, current_revision, paused):
+    """A restart or plain resume cannot erase an unchanged repeated failure.
+
+    A recognized recovery path that reroutes the run changes the saved status
+    before this guard runs. An operator who has inspected the failure can
+    authorize one fresh attempt with --retry-failed-stage.
+    """
+    if state.get("status") != "PAUSED_REPEATED_FAILURE":
+        return
+    pending = state.get("pending_report_repair") or {}
+    record = pending.get("original") or next(
+        (row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None
+    )
+    if not record:
+        return
+    repeated = repeated_failure(state, record)
+    if repeated and current_revision() == record.get("source_revision"):
+        if (
+            authorization
+            and not authorization.get("consumed")
+            and authorization.get("failure_key") == record.get("failure_key")
+            and authorization.get("identity") == repeated["identity"]
+            and authorization.get("count") == repeated["count"]
+            and authorization.get("source_revision") == record.get("source_revision")
+        ):
+            authorization["consumed"] = True
+            return
+        raise paused(
+            "PAUSED_REPEATED_FAILURE",
+            f"Unchanged {record.get('original_stage') or record['stage']} artifact failed "
+            f"{repeated.get('streak', repeated['count'])} consecutive times with the same {repeated['identity']['error_class']}; "
+            "inspect failure_history and fix the cause before resuming, or authorize "
+            "one inspected retry with --retry-failed-stage.",
+        )

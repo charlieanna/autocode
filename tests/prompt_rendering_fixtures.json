@@ -164,12 +164,12 @@
     "sha256": "0f46d4aed4d0aadda4c15f3adaf3e87b9acdf35f946f61c4579e52e13b2b46a0"
   },
   "job/autocode_design_intake/codex": {
-    "bytes": 22268,
-    "sha256": "0556b8265050513ba8ae4e7a9e64b21f91016e860e4477a8e18dd53482e78bef"
+    "bytes": 22926,
+    "sha256": "651308bdf6534e09c1c24dc9e4a0c28a27bd90bbcd66d878f301c1f39f11816e"
   },
   "job/autocode_design_intake/opencode": {
-    "bytes": 22268,
-    "sha256": "0556b8265050513ba8ae4e7a9e64b21f91016e860e4477a8e18dd53482e78bef"
+    "bytes": 22926,
+    "sha256": "651308bdf6534e09c1c24dc9e4a0c28a27bd90bbcd66d878f301c1f39f11816e"
   },
   "job/autocode_design_job/codex": {
     "bytes": 4622,

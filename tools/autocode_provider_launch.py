@@ -11,6 +11,8 @@ from pathlib import Path
 try:
     from . import autocode_agent_env as agent_env
     from . import autocode_containment_policy as containment_policy
+    from . import autocode_native_locators as native_locators
+    from . import autocode_native_role_isolation as native_isolation
     from . import autocode_output_cap as output_cap
     from . import autocode_prompts as prompts
     from . import autocode_storage_errors as storage_errors
@@ -19,6 +21,8 @@ try:
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
+    import autocode_native_locators as native_locators
+    import autocode_native_role_isolation as native_isolation
     import autocode_output_cap as output_cap
     import autocode_prompts as prompts
     import autocode_storage_errors as storage_errors
@@ -50,6 +54,9 @@ def prepare(
     tool_commands=(),
     source_paths=(),
     settings=None,
+    native_role_isolation=None,
+    native_environment=None,
+    native_image_preparation=None,
     replay_context=None,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
@@ -58,10 +65,16 @@ def prepare(
     never an environment variable or model choice, launches without the kernel tool boundary:
     ``tool_commands`` (a list, or a callable returning one) is then not computed, and a
     non-planning OpenCode worker carries ``uncontained_tools`` for its stage record (stage_record).
+    Explicit native role isolation always requires its kernel tool boundary; the
+    saved uncontained-tools opt-out cannot weaken that owner.
     """
     # The incoming flag distinguishes native launch from admission/dry-run.
     # #413's OpenCode kernel opt-out must not disable Codex capture isolation.
     if (settings or {}).get("replay_recording"):
+        if any(owner is not None for owner in (native_role_isolation, native_environment, native_image_preparation)):
+            raise util.Paused(
+                "PAUSED_TOOL_CONTAINMENT", "Recorded replay cannot replace the original fresh native owner"
+            )
         try:
             from . import autocode_replay_transport as replay_transport
         except ImportError:
@@ -85,12 +98,55 @@ def prepare(
             provider=provider,
         )
     native_launch = enforce_tool_boundary
+    try:
+        from .providers.kilocode import KiloProvider
+    except ImportError:
+        from providers.kilocode import KiloProvider
+    kilo_owner = type(native_role_isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
     uncontained = containment_policy.accepted(settings)
+    if native_image_preparation is not None:
+        try:
+            from . import autocode_native_calls as calls
+            from . import autocode_native_image as images
+        except ImportError:
+            import autocode_native_calls as calls
+            import autocode_native_image as images
+        if (
+            type(native_image_preparation) is not images.NativeImagePreparation
+            or native_image_preparation.isolation is not native_role_isolation
+            or engine != "opencode"
+            or getattr(adapter, "CONFIGURED", False)
+            and not kilo_owner
+            or route_role != "sol"
+            or planning
+            or allow_write
+            or session
+            or uncontained
+        ):
+            raise util.Paused(
+                "PAUSED_VISUAL_EVIDENCE", "Native image preparation needs the original fresh readonly Sol owner"
+            )
+        native_image_preparation.require_caller(calls.PlanningCalls)
     if uncontained:
         enforce_tool_boundary, tool_commands = False, ()
-    elif callable(tool_commands):
+    if native_role_isolation is not None and planning and allow_write:
+        raise util.Paused("PAUSED_TOOL_CONTAINMENT", "Native isolated planning must remain readonly")
+    if native_role_isolation is not None and (
+        engine != "opencode"
+        or getattr(adapter, "CONFIGURED", False)
+        and not kilo_owner
+        or type(native_role_isolation) is not native_isolation.NativeRoleIsolation
+        and not kilo_owner
+        or not enforce_tool_boundary
+    ):
+        raise util.Paused(
+            "PAUSED_TOOL_CONTAINMENT", "Native role isolation requires the exact builtin CODE owner and tool boundary"
+        )
+    if not uncontained and callable(tool_commands):
         tool_commands = tool_commands()
-    environment = agent_env.scrubbed(os.environ)
+    if native_environment is not None and native_role_isolation is None:
+        raise TypeError("Explicit native environment requires the original isolation owner")
+    environment = agent_env.scrubbed(os.environ if native_environment is None else native_environment)
     for name in ("AUTOCODE_VERIFICATION_COPY", "AUTOCODE_VERIFICATION_COPY_SHA256"):
         environment.pop(name, None)  # Never inherit another stage's authority.
     copy = None
@@ -103,7 +159,11 @@ def prepare(
             session = None
             fresh_reason = "This provider starts every stage in a fresh session; only a same-stage correction resumes"
         containment = None
-        if enforce_tool_boundary and not planning and not getattr(adapter, "CONFIGURED", False):
+        if (
+            enforce_tool_boundary
+            and (not planning or native_role_isolation is not None)
+            and (not getattr(adapter, "CONFIGURED", False) or kilo_owner)
+        ):
             session = None
             runtime = Path(__file__).resolve().parent
             roots = {runtime, Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()}
@@ -117,11 +177,16 @@ def prepare(
                 "protected_paths": [str(Path(run_dir).resolve()), str(runtime)],
             }
         launch_kwargs = {"containment": containment} if containment else {}
+        launch_kwargs["env"] = environment
+        if native_image_preparation is not None:
+            launch_kwargs["image_preparation"] = native_image_preparation
         if engine == "opencode" and not getattr(adapter, "CONFIGURED", False):
             version = getattr(adapter, "transport_version", lambda _settings: None)(settings)
             if version:
                 launch_kwargs["opencode_version"] = version
         try:
+            if native_role_isolation is not None:
+                containment.update(native_role_isolation.containment_request(allow_write=allow_write))
             command, child, overrides = adapter.launch(
                 route_role,
                 workspace,
@@ -135,18 +200,20 @@ def prepare(
                 schema=schema,
                 prompt_file=prompt_file,
                 sandbox=sandbox,
-                env=environment,
                 **launch_kwargs,
+                **({"isolation": native_role_isolation} if native_role_isolation is not None else {}),
             )
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
                 raise
+            recovery = (
+                ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
+                if native_role_isolation is not None
+                else ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
+                "this run's non-planning stages with OpenCode's own permission checks only"
+            )
             raise util.Paused(
-                "PAUSED_TOOL_CONTAINMENT",
-                "Native tool boundary was not established: "
-                + str(error)
-                + ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
-                "this run's non-planning stages with OpenCode's own permission checks only",
+                "PAUSED_TOOL_CONTAINMENT", "Native tool boundary was not established: " + str(error) + recovery
             ) from error
         if child:
             environment = agent_env.scrubbed(child)
@@ -179,6 +246,7 @@ def prepare(
         and not planning
         and not allow_write
         and sandbox == "workspace-write"
+        and not kilo_owner
         and (engine == "codex" or getattr(adapter, "CONFIGURED", False))
     ):
         try:
@@ -219,7 +287,15 @@ def prepare(
         worker["tool_containment"] = json.loads(environment["AUTOCODE_TOOL_CONTAINMENT"])
     if copy:
         worker["verification_copy"] = copy
-    if engine == "opencode" and not worker["configured"]:
+    if native_role_isolation is not None:
+        descriptor = native_role_isolation.environment_descriptor(environment)
+        worker["native_role_isolation"] = descriptor
+        worker["tool_containment"] = native_locators.expand_boundary(
+            environment["AUTOCODE_TOOL_CONTAINMENT"], descriptor
+        )
+    if native_image_preparation is not None:
+        worker["visual_runtime"] = native_image_preparation.context()
+    if engine == "opencode" and (not worker["configured"] or kilo_owner):
         # Read from the scrubbed environment: the cap the process will actually get.
         worker["output_token_cap"] = output_cap.recorded(os.environ, environment)
     return command, environment, overrides, worker
@@ -250,6 +326,13 @@ def stage_record(worker):
         return record
     if engine != "opencode":
         return record
+    if (worker.get("native_role_isolation") or {}).get("backend") == "kilocode":
+        return {
+            **record,
+            "isolation": "Kernel-constrained Kilo client and shell with original parent inference relay",
+            "tool_containment": worker.get("tool_containment"),
+            "output_token_cap": worker.get("output_token_cap"),
+        }
     if worker.get("configured"):
         return {**record, "isolation": "Config-tool sandbox flag and workspace snapshot checks"}
     record.update(
@@ -269,6 +352,19 @@ def stage_record(worker):
     return record
 
 
+def render_native_image_prompt(
+    prompt, *, schema, events, adapter, boundary, regression_proof_current, regression_handoff
+):
+    prompt = adapter.prompt_for_schema(prompt, schema, events)
+    return containment_prompt(
+        prompt,
+        {"tool_containment": boundary},
+        stage="sol",
+        regression_proof_current=regression_proof_current,
+        regression_handoff=regression_handoff,
+    )
+
+
 def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=False, regression_handoff=None):
     """Advertise only the current stage's permitted scratch area, not broader write access."""
     policy = worker.get("tool_containment")
@@ -286,7 +382,10 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     if not separator:
         raise ValueError("Contained tool launch requires a structured handoff")
     data = json.loads(after)
-    data["tool_containment"] = policy
+    # The model needs the boundary and original manifest locator, not a second
+    # copy of thousands of SDK member hashes. Full CODE-owned launch records
+    # and verification keep the original inventory; no task input is omitted.
+    data["tool_containment"] = native_locators.boundary_value(policy)
     instruction = prompts.get("fragments/provider-launch/containment-prompt.md")
     if stage == "sol":
         # Bind the entire presented projection, including JSON types, not only its source revision.
@@ -306,14 +405,14 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     return before + instruction + marker + json.dumps(data, indent=2)
 
 
-def verify_containment(worker):
+def verify_containment(worker, *, state=None, native_role_isolation=None, command=None, environment=None):
     copy = worker.get("verification_copy")
     if copy:
         try:
-            environment = worker["environment"]
+            copy_environment = worker["environment"]
             if (
-                environment.get("AUTOCODE_VERIFICATION_COPY") != copy["manifest"]
-                or environment.get("AUTOCODE_VERIFICATION_COPY_SHA256") != copy["sha256"]
+                copy_environment.get("AUTOCODE_VERIFICATION_COPY") != copy["manifest"]
+                or copy_environment.get("AUTOCODE_VERIFICATION_COPY_SHA256") != copy["sha256"]
             ):
                 raise ValueError("Verification copy launch authority changed")
             verification_copy.execution(copy["manifest"], copy["sha256"], copy["workspace"])
@@ -322,13 +421,53 @@ def verify_containment(worker):
                 "PAUSED_STALE_VALIDATION", "Verification copy changed before launch: " + str(error)
             ) from error
     policy = worker.get("tool_containment")
+    child = worker.get("environment") or {}
+    isolated = (
+        native_role_isolation is not None
+        or worker.get("native_role_isolation") is not None
+        or (isinstance(policy, dict) and policy.get("native_role_isolation") is not None)
+        or (isinstance(child, dict) and child.get("AUTOCODE_NATIVE_ROLE_ISOLATION") is not None)
+    )
+    if isolated and not policy:
+        raise util.Paused("PAUSED_TOOL_CONTAINMENT", "Native isolated launch is missing its mandatory tool boundary")
     if policy:
         try:
             from . import autocode_tool_containment
         except ImportError:
             import autocode_tool_containment
         try:
-            autocode_tool_containment.verify(policy)
+            if type(native_role_isolation) is native_isolation.KiloRoleIsolation:
+                native_role_isolation.verify_boundary(policy)
+            else:
+                autocode_tool_containment.verify(policy)
+            if isolated:
+                if (
+                    type(native_role_isolation)
+                    not in (native_isolation.NativeRoleIsolation, native_isolation.KiloRoleIsolation)
+                    or state is None
+                ):
+                    raise ValueError("Missing exact finalized native role isolation owner")
+                actual_command = worker.get("command") if command is None else command
+                actual_environment = worker.get("environment") if environment is None else environment
+                if (
+                    not isinstance(actual_command, list)
+                    or not actual_command
+                    or any(not isinstance(arg, str) or not arg for arg in actual_command)
+                    or not isinstance(actual_environment, dict)
+                    or any(
+                        not isinstance(key, str) or not isinstance(value, str)
+                        for key, value in actual_environment.items()
+                    )
+                ):
+                    raise ValueError("Missing or malformed final native command/environment")
+                descriptor = native_role_isolation.verify_launch(
+                    state=state, command=actual_command, environment=actual_environment, boundary=policy
+                )
+                if (
+                    descriptor != worker.get("native_role_isolation")
+                    or policy.get("native_role_isolation") != descriptor
+                ):
+                    raise ValueError("Native role isolation locator differs from its CODE owner")
         except (OSError, ValueError, RuntimeError) as error:
             raise util.Paused(
                 "PAUSED_TOOL_CONTAINMENT", "Native tool boundary changed before launch: " + str(error)

@@ -48,14 +48,16 @@ def diagnose(clock_source: str, failures: list[str]) -> tuple[str, list[str]]:
     """(diagnosis, affected paths) from the clock module the Resolver can read and the proof's failures."""
     named = "; ".join(failures)[:600]
     if UTC_DATE.search(clock_source) and "STORE_UTC_OFFSET_HOURS = -8" in clock_source:
-        return (
+        diagnosis = (
             "shop/clock.py store_date() reads the calendar date in UTC (tz=UTC) and ignores "
             "STORE_UTC_OFFSET_HOURS = -8, so refunds.py counts UTC days instead of store days: an order "
             "delivered late in a store day lands on the next UTC date and the 30-day window ends a store "
             "day late. The regression proof also lacks the store-day window tests the plan names: "
-            f"{named}. Make store_date() use the store's UTC-8 offset and add the named tests.",
-            ["shop/clock.py", "shop/refunds.py", "tests/test_refunds.py"],
+            f"{named}. Make store_date() use the store's UTC-8 offset and add the named tests."
         )
+        if os.environ.get("SCENARIO_FAKE_REFUND_DIAGNOSIS") == "vague":
+            diagnosis = "The implementation has a bug; fix it and rerun the tests."
+        return diagnosis, ["shop/clock.py", "shop/refunds.py", "tests/test_refunds.py"]
     return (
         "The regression proof is not PASS: " + named + ". Add the tests the plan names.",
         ["tests/test_refunds.py"],

@@ -109,6 +109,19 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual([], self.calls)
         self.assertFalse((self.run_dir / "model-preflight.json").exists())
 
+    def test_native_owner_makes_no_standalone_access_calls(self):
+        runner = types.SimpleNamespace(opencode=self.adapter, native_calls=object())
+        with (
+            patch.object(self.adapter, "check_subscription_routes") as listing,
+            patch.object(preflight, "probe", return_value={"status": "ok", "seconds": 0.0}) as probe,
+            patch.object(preflight.transport, "execute") as execute,
+        ):
+            self.assertFalse(preflight.check(runner, self.state, self.run_dir, self.root))
+        listing.assert_not_called()
+        probe.assert_not_called()
+        execute.assert_not_called()
+        self.assertEqual([], list(self.run_dir.iterdir()))
+
     def test_paywalled_model_refuses_the_build_and_is_recorded(self):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": PAYWALL_EVENTS}
         with self.assertRaises(support.Paused) as caught:

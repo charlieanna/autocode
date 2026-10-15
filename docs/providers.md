@@ -521,6 +521,46 @@ Use `{{` and `}}` for literal braces in a command argument, such as
 `${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
 Changing the config file or the tool version pauses a saved run.
 
+### A different tool for one role
+
+For a **new** run on `--engine opencode --provider opencode`, repeat
+`--role-transport ROLE=PROVIDER` to select an external configured tool for only
+those roles. `ROLE` is the existing CLI code name, such as `sol` or `completion`;
+`PROVIDER` names its registered TOML config, such as `kilocode`. Each selection
+requires an explicit corresponding model flag. Select its exact model ID from
+that tool's catalogue, including a bare ID when the tool publishes one:
+
+```sh
+autocode models --provider opencode
+autocode models --provider kilocode
+# Replace the placeholder with an ID actually offered by the second catalogue.
+autocode "Your task" --engine opencode --provider opencode \
+  --role-transport sol=kilocode --sol-model '<MODEL_FROM_KILO_CATALOGUE>' \
+  --sol-reasoning-effort high
+```
+
+The other roles retain their routes selected by the ordinary model flags and
+OpenCode defaults. Keep the GLM and MiMo role flags when using a profile that
+assigns them requirements, planning, building, plan review or resolution; a
+role selection does not assign every role to the new tool. Each tool checks
+only its own selected models and auth routes. Independent verification and all
+ordinary approval, evidence and completion gates still apply.
+
+The binding is immutable once the run starts. Do not repeat `--role-transport`
+when advancing or reattaching with `TaskRun`; pass it in `start_options` only.
+A missing or mismatched saved identity cannot fall back to the default tool.
+Changes to a bound config fingerprint, executable path or version pause rather than move its
+session to another tool; `--accept-transport-change` does not replace these
+bindings. This selection cannot combine with `--single-model` or recorded
+replay.
+
+Ordinary transport compatibility does **not** qualify a tool for native role
+isolation or image acceptance. Those flows still require their exact supported
+native owner and independently verified containment/image transport. Registered
+Kilo roles remain refused by those guards until such qualification exists; a
+model appearing in its catalogue is insufficient. Check the concrete tool/model
+pair with [provider conformance](provider-conformance.md) before relying on it.
+
 ### Builder retry on a tool
 
 A Builder that keeps failing a milestone gets one ordinary retry and then one stronger

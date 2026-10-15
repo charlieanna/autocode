@@ -1,5 +1,8 @@
 """Public verification-command execution under normal and interrupted ownership."""
 
+import builtins
+import hashlib
+import importlib
 import json
 import os
 import shlex
@@ -9,6 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from unittest.mock import patch
 
 import autocode_command_receipt as receipts
@@ -177,6 +181,142 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertTrue(marker.is_file())
         self.assertTrue(receipts.completed(result))
         self.assertNotEqual(metadata[0]["nonce"], result["supervision"]["nonce"])
+
+
+@patch.dict(os.environ, {"AUTOCODE_RUN_PROCESS": "run_process_handler"})
+class InProcessCommandSeamTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="command-seam-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.provider = self.bin / "fixture-provider"
+        self.provider.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            "print(json.dumps({'cwd': os.getcwd(), 'argument': sys.argv[1], 'probe': os.environ['PROBE']}))\n"
+            "sys.stderr.write('stderr marker \\u03bb\\n')\n"
+            "raise SystemExit(7)\n"
+        )
+        self.provider.chmod(0o755)
+        self.env = {"PATH": str(self.bin), "PROBE": "child"}
+
+    def test_relative_path_lookup_cwd_and_unicode_capture_have_a_text_tail(self):
+        env = {**self.env, "PATH": "bin"}
+        with patch.object(commands.time, "monotonic", return_value=100):
+            result = commands.run("fixture-provider argument", self.root, self.root / "seam.log", timeout=30, env=env)
+        expected = json.dumps({"cwd": str(self.root.resolve()), "argument": "argument", "probe": "child"})
+        expected += "\nstderr marker \u03bb\n"
+        data = expected.encode("utf-8")
+        self.assertEqual(7, result["exit_code"])
+        self.assertFalse(result["timed_out"])
+        self.assertTrue(result["in_process"])
+        self.assertEqual(data, Path(result["output"]).read_bytes())
+        self.assertEqual(hashlib.sha256(data).hexdigest(), result["output_sha256"])
+        self.assertIsInstance(result["tail"], str)
+        self.assertEqual(expected, result["tail"])
+        self.assertNotIn("supervision", result)
+
+    def test_package_relative_command_path_does_not_import_bare_autocode_util(self):
+        # Source package mode exercises the same relative imports as an installed
+        # autocode_cli package, without constructing or claiming an installed wheel.
+        package_commands = importlib.import_module("tools.autocode_command_supervision")
+        original_import = builtins.__import__
+
+        def package_only(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "autocode_util" and level == 0:
+                raise AssertionError("package path requested a bare autocode_util import")
+            return original_import(name, globals, locals, fromlist, level)
+
+        with (
+            patch.object(builtins, "__import__", side_effect=package_only),
+            patch.object(package_commands.time, "monotonic", return_value=100),
+        ):
+            result = package_commands.run(
+                shlex.join([str(self.provider), "argument"]),
+                self.root,
+                self.root / "package.log",
+                timeout=30,
+                env=self.env,
+            )
+        self.assertEqual(7, result["exit_code"])
+        self.assertTrue(result["in_process"])
+        self.assertIn("stderr marker \u03bb", result["tail"])
+
+    def test_shell_syntax_and_non_python_commands_keep_supervision(self):
+        native = self.bin / "native-fixture"
+        native.write_text("#!/bin/sh\nexit 0\n")
+        native.chmod(0o755)
+        command = shlex.join([str(self.provider), "argument"])
+        requests = [
+            command + "; echo second",
+            command + " | cat",
+            command + " > redirected",
+            command + " $(echo expansion)",
+            shlex.join([str(self.provider), "literal;argument"]),
+            shlex.join([str(self.provider), "literal*argument"]),
+            str(self.provider) + " 'unterminated",
+            str(native),
+        ]
+        for index, request in enumerate(requests):
+            with (
+                self.subTest(command=request),
+                patch.object(commands.util, "run_process", side_effect=AssertionError("unsafe seam bypass")) as seam,
+                patch.object(commands.supervision, "launch", side_effect=RuntimeError("supervisor selected")) as launch,
+                patch.object(commands.time, "monotonic", return_value=100),
+                patch.object(commands, "shell", return_value="/bin/bash"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "supervisor selected"):
+                    commands.run(request, self.root, self.root / f"shell-{index}.log", timeout=30, env=self.env)
+                seam.assert_not_called()
+                self.assertEqual(["/bin/bash", "-o", "pipefail", "-c", request], launch.call_args.args[0])
+                self.assertEqual(self.root, launch.call_args.kwargs["cwd"])
+
+    def test_native_deadline_activity_and_admission_requests_never_use_the_seam(self):
+        callback = lambda *_: None
+        command = shlex.join([str(self.provider), "argument"])
+        requests = [
+            ("checkpoint", {"checkpoint": callback}, None),
+            ("context_checkpoint", {}, callback),
+            ("activity", {"activity": object()}, None),
+            ("activity_checkpoint", {"activity_checkpoint": callback}, None),
+            ("deadline", {"deadline_monotonic": 120}, None),
+        ]
+        for name, extra, context_checkpoint in requests:
+            token = commands.CHECKPOINT.set(context_checkpoint)
+            try:
+                with (
+                    self.subTest(request=name),
+                    patch.object(
+                        commands.util, "run_process", side_effect=AssertionError("native seam bypass")
+                    ) as seam,
+                    patch.object(
+                        commands.supervision, "launch", side_effect=RuntimeError("supervisor selected")
+                    ) as launch,
+                    patch.object(commands.time, "monotonic", return_value=100),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "supervisor selected"):
+                        commands.run(
+                            command, self.root, self.root / f"native-{name}.log", timeout=30, env=self.env, **extra
+                        )
+                    seam.assert_not_called()
+                    launch.assert_called_once()
+            finally:
+                commands.CHECKPOINT.reset(token)
+        with (
+            patch.object(commands.util, "run_process", side_effect=AssertionError("held native seam bypass")) as seam,
+            patch.object(
+                commands.supervision, "launch", side_effect=AssertionError("held request lost its launcher")
+            ) as ordinary,
+            patch.object(commands.time, "monotonic", return_value=100),
+        ):
+            held = mock.Mock(side_effect=RuntimeError("held supervisor selected"))
+            with self.assertRaisesRegex(RuntimeError, "held supervisor selected"):
+                commands.run(command, self.root, self.root / "held.log", timeout=30, env=self.env, held_launch=held)
+            seam.assert_not_called()
+            ordinary.assert_not_called()
+            held.assert_called_once()
 
 
 class InProcessSeamTests(unittest.TestCase):

@@ -33,8 +33,8 @@ class ActionLifetimeTests(unittest.TestCase):
                 "import sys\nfrom pathlib import Path\n"
                 f"sys.path.insert(0,{str(Path(__file__).resolve().parents[1])!r})\n"
                 "from agent_console import Console\n"
-                'Path("parent.ready").write_text("ready")\n'
                 'w=Path.cwd();c=Console([w],w/"worker.py")\n'
+                'Path("parent.ready").write_text("ready")\n'
                 'c._execute(str(w),str(w),{"id":"restart-test",'
                 '"command":[sys.executable,str(w/"worker.py")]})\n'
             )

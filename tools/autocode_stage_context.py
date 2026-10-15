@@ -172,7 +172,11 @@ def context_packet(state, stage, state_path):
     )
     instruction = support.STABLE.get(stage, "") + proof_note
     if manifest_context:
-        instruction += design_manifest.INSTRUCTION
+        instruction += (
+            design_manifest.INSTRUCTION_SCOPED_BASE
+            if state["settings"].get("design_manifest", {}).get("scope_admission")
+            else design_manifest.INSTRUCTION
+        )
     if capture_context:
         instruction += visual.INSTRUCTION
         base["visual_capture_command"] = shlex.join(

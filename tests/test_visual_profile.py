@@ -1,8 +1,10 @@
 """Owned-file structural controls, not model/transport/visual acceptance claims."""
 
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from copy import deepcopy
@@ -10,11 +12,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_contract_identity as contract
+import autocode_provider_launch as provider_launch
 import autocode_tool_containment as containment
 import autocode_util as util
 import autocode_visual_profile as profile
 import autocode_visual_runtime as visual
 import goal_fixtures
+from autocode_taskrun import TaskRun
+from providers import opencode
 
 from tests.visual_capture_fixtures import make_capture, png
 
@@ -68,6 +73,7 @@ class VisualProfileTests(unittest.TestCase):
             path.chmod(0o500 if name == "shell" else 0o400)
             self.boundary[name] = str(path)
             self.boundary[name + "_sha256"] = util.file_hash(path)
+        self.activity = Path(profile.__file__).resolve().parent / "providers" / "opencode_activity.mjs"
         self.plugin = self.directory / "image-delivery.mjs"
         self.plugin.write_bytes(Path(profile.__file__).with_name("autocode_image_delivery.mjs").read_bytes())
         self.images = []
@@ -96,7 +102,7 @@ class VisualProfileTests(unittest.TestCase):
             "share": "disabled",
             "autoupdate": False,
             "shell": self.boundary["shell"],
-            "plugin": [self.plugin.as_uri()],
+            "plugin": [self.activity.as_uri(), self.plugin.as_uri()],
             "agent": {
                 "autocode_sol": {
                     "mode": "primary",
@@ -148,7 +154,10 @@ class VisualProfileTests(unittest.TestCase):
             "version": "1.18.33",
             "identity_version": 2,
             "executable": str(self.executable),
-            "config_hashes": {"/original-config-not-opened/opencode/opencode.json": None},
+            "config_hashes": {
+                "/original-config-not-opened/opencode/opencode.json": None,
+                str(self.activity): util.file_hash(self.activity),
+            },
             "environment_config_hashes": {"OPENCODE_CONFIG_CONTENT": None, "OPENCODE_CONFIG_DIR": None},
         }
         self.declaration = {
@@ -193,7 +202,7 @@ class VisualProfileTests(unittest.TestCase):
             "tool_containment": self.boundary,
         }
         self.worker["environment"]["OPENCODE_CONFIG_CONTENT"] = json.dumps(
-            {key: value for key, value in self.config.items() if key != "plugin"}
+            {**self.config, "plugin": [self.activity.as_uri()]}
         )
         # Platform selection only: no mocked authority callback or model receipt.
         self.platform = patch.object(containment.sys, "platform", "darwin")
@@ -267,7 +276,10 @@ class VisualProfileTests(unittest.TestCase):
         self.assertEqual(self.permissions, config["agent"]["autocode_sol"]["permission"])
         self.assertEqual(list(self.permissions["bash"]), list(config["agent"]["autocode_sol"]["permission"]["bash"]))
         self.assertEqual(self.boundary["shell"], config["shell"])
-        self.assertEqual([self.plugin.as_uri()], config["plugin"])
+        staged_activity = self.directory / "activity.mjs"
+        self.assertEqual([staged_activity.as_uri(), self.plugin.as_uri()], config["plugin"])
+        self.assertEqual(self.activity.read_bytes(), staged_activity.read_bytes())
+        self.assertEqual(0o400, staged_activity.stat().st_mode & 0o777)
         self.assertEqual(["openai"], config["enabled_providers"])
         self.assertEqual(child["OPENCODE_CONFIG_CONTENT"] + "\n", (self.directory / "opencode-final.json").read_text())
         audit = json.loads(child["AUTOCODE_IMAGE_AUDIT"])
@@ -373,6 +385,351 @@ class VisualProfileTests(unittest.TestCase):
                     )
                     self.assertFalse(visual.completion_allowed(self.state, current_snapshot=snapshot))
                     self.assertFalse(Path(context["audit_path"]).exists())
+
+    def test_real_production_worker_preserves_activity_and_image_order_at_dispatch(self):
+        if os.uname().sysname != "Darwin" or not Path("/usr/bin/sandbox-exec").is_file():
+            self.skipTest("Production read-only containment requires real macOS Seatbelt")
+        # The owned executable only implements version/debug and a launch probe.
+        # The actual adapter, worker builder, kernel policy and visual authority
+        # run unchanged. This is not native SDK or model/image acceptance proof.
+        script = r"""
+import hashlib, json, os, pathlib, subprocess, sys
+args = sys.argv[1:]
+if args == ['--version']:
+    print('1.18.33')
+elif args[:2] == ['debug', 'agent']:
+    config = json.loads(os.environ['OPENCODE_CONFIG_CONTENT'])
+    permission = config['agent'][args[2]]['permission']
+    rules = [] if 'bash' in permission else [
+        {'permission': 'bash', 'pattern': '*', 'action': 'allow'}]
+    for name, value in permission.items():
+        for pattern, action in (value.items() if isinstance(value, dict) else [('*', value)]):
+            rules.append({'permission': name, 'pattern': pattern, 'action': action})
+    if '--tool' not in args:
+        print(json.dumps({'permission': rules, 'tools': {'bash': True, 'read': False, 'edit': False}}))
+    else:
+        assert args[args.index('--tool') + 1] == 'bash'
+        params = json.loads(args[args.index('--params') + 1])
+        actual = subprocess.run([os.environ['SHELL'], '-c', params['command']],
+                                cwd=params['workdir'], capture_output=True, text=True, timeout=10)
+        print(json.dumps({'input': params, 'result': {'metadata': {'exit': actual.returncode},
+                                                    'output': actual.stdout + actual.stderr}}))
+elif args and args[0] == 'run':
+    # No SDK imports, endpoint or model call. Observe only the actual child config.
+    config = json.loads(os.environ['OPENCODE_CONFIG_CONTENT'])
+    plugins = config['plugin']
+    assert len(plugins) == 2 and all(uri.startswith('file://') for uri in plugins)
+    from urllib.parse import unquote, urlparse
+    paths = [pathlib.Path(unquote(urlparse(uri).path)) for uri in plugins]
+    assert all(path.stat().st_mode & 0o222 == 0 for path in paths)
+    print(json.dumps({'test_only_launch_probe': True, 'plugins': plugins,
+        'hashes': [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths],
+        'model': args[args.index('--model') + 1], 'effort': args[args.index('--variant') + 1],
+        'audit_cap': json.loads(os.environ['AUTOCODE_IMAGE_AUDIT'])['max_requests']}))
+else:
+    raise SystemExit('The offline fixture refuses unsupported provider operations')
+"""
+        self.executable.write_text("#!" + sys.executable + "\n" + script)
+        self.executable.chmod(0o700)
+        clean = {
+            "PATH": str(self.executable.parent) + ":/usr/bin:/bin",
+            "HOME": str(self.root / ".autocode" / "production-home"),
+            "XDG_CONFIG_HOME": str(self.root / ".autocode" / "production-config"),
+            "XDG_DATA_HOME": str(self.root / ".autocode" / "production-data"),
+        }
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=clean)
+        (self.root / "greet.py").write_text('print("operator supplied source")\n')
+        subprocess.run(
+            ["git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "add", "greet.py"],
+            cwd=self.root,
+            check=True,
+            env=clean,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "Owned fixture",
+            ],
+            cwd=self.root,
+            check=True,
+            env=clean,
+        )
+        identity = opencode.local_settings(self.root, env=clean)
+        self.assertEqual(
+            {str(self.activity): util.file_hash(self.activity)},
+            {key: value for key, value in identity["config_hashes"].items() if value is not None},
+        )
+        self.state["settings"]["transport_identity"] = identity
+        self.declaration.update(
+            transport_identity_sha256=util.digest(identity), executable_sha256=util.file_hash(self.executable)
+        )
+        with patch.dict(os.environ, clean, clear=True):
+            command, environment, _, worker = provider_launch.prepare(
+                engine="opencode",
+                adapter=opencode,
+                role="sol",
+                route_role="sol",
+                workspace=self.root,
+                run_dir=self.run,
+                session=None,
+                model="openai/gpt-6-sol",
+                effort="high",
+                allow_write=False,
+                planning=False,
+                report=self.run / "validator.json",
+                schema=self.run / "schema.json",
+                prompt_file=self.run / "prompt.txt",
+                sandbox="read-only",
+                transport_args=[],
+                chatgpt=False,
+                provider="opencode",
+            )
+        original = deepcopy((command, environment, worker))
+        self.assertEqual([self.activity.as_uri()], json.loads(environment["OPENCODE_CONFIG_CONTENT"])["plugin"])
+        provider_launch.verify_containment(worker)
+        self.assertFalse(worker["tool_containment"]["allow_write"])
+        exports = self.root / ".autocode" / "design-inputs" / "owned-production"
+        exports.mkdir(parents=True)
+        png(exports / "reference.png", 2, 1)
+        (exports / "context.json").write_text('{"owned_fixture":true}')
+        case = {
+            "id": "one",
+            "file_key": "Fixture",
+            "node_id": "1:2",
+            "state": "ready",
+            "route": "/one",
+            "implementation_paths": ["greet.py"],
+            "viewport": {"width": 2, "height": 1, "device_scale_factor": 1},
+            "export_scale": 1,
+            "artifacts": {
+                kind: {"path": name, "sha256": util.file_hash(exports / name)}
+                for kind, name in (("screenshot", "reference.png"), ("design_context", "context.json"))
+            },
+        }
+        manifest = {"version": 1, "files": [{"key": "Fixture", "nodes": ["1:2"]}], "cases": [case]}
+        body = goal_fixtures.body()
+        initial = {
+            "kind": "validate",
+            "objective": "Validate supplied source",
+            "affected_paths": ["greet.py"],
+            "milestone_id": "M1",
+            "requirements": body["required_behaviors"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Inspect supplied rendered state"],
+        }
+        body["initial_task"] = initial
+        self.state["goal_contract"]["body"] = body
+        self.state.update(
+            current_task={**deepcopy(initial), "id": "T1", "criterion_ids": ["C1"]},
+            acceptance_criteria=deepcopy(body["acceptance_criteria"]),
+            stages=[],
+        )
+        self.state["settings"]["design_manifest"] = {
+            "root": str(exports),
+            "body": manifest,
+            "manifest_hash": util.digest(manifest),
+        }
+        self.approve(constraints=[profile.MARKER + json.dumps(self.declaration), 'VISUAL_CASE_CRITERIA={"one":["C1"]}'])
+        make_capture(self.root, util.digest(manifest), case)
+        snapshot = util.snapshot(self.root)
+        context, actual_command, actual_env, _ = visual.prepare(
+            self.state,
+            "sol",
+            self.root,
+            self.run,
+            self.run / "production-validator",
+            command,
+            environment,
+            "Inspect the supplied source",
+            current_snapshot=snapshot,
+            launch_authority=profile.authority(self.state, worker, self.root, self.run),
+        )
+        self.assertEqual("READY", context["status"], context)
+        self.assertEqual(original, (command, environment, worker))
+        visual.verify_prelaunch(
+            context, self.state, run_dir=self.run, current_snapshot=snapshot, command=actual_command, env=actual_env
+        )
+        dispatched = subprocess.run(
+            actual_command, cwd=self.root, env=actual_env, capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(0, dispatched.returncode, dispatched.stderr)
+        probe = json.loads(dispatched.stdout)
+        self.assertTrue(probe["test_only_launch_probe"])
+        staged = Path(context["plugin_path"]).parent / "activity.mjs"
+        self.assertEqual([staged.as_uri(), Path(context["plugin_path"]).as_uri()], probe["plugins"])
+        self.assertEqual([util.file_hash(self.activity), context["plugin_sha256"]], probe["hashes"])
+        self.assertEqual(("openai/gpt-6-sol", "high", 2), (probe["model"], probe["effort"], probe["audit_cap"]))
+        self.assertFalse(visual.completion_allowed(self.state, current_snapshot=snapshot))
+        self.assertFalse(Path(context["audit_path"]).exists())
+        staged.chmod(0o600)
+        staged.write_text("// changed staged activity")
+        with self.assertRaisesRegex(util.Paused, "Sealed visual evidence changed"):
+            visual.verify_prelaunch(
+                context, self.state, run_dir=self.run, current_snapshot=snapshot, command=actual_command, env=actual_env
+            )
+
+    def test_changed_bundled_activity_is_refused_before_staging(self):
+        # Change a test-owned installed runtime copy, never the shared source.
+        runtime = self.root / ".autocode" / "owned-runtime"
+        (runtime / "providers").mkdir(parents=True)
+        copied_profile = runtime / "autocode_visual_profile.py"
+        copied_profile.write_bytes(Path(profile.__file__).read_bytes())
+        (runtime / "autocode_image_delivery.mjs").write_bytes(
+            Path(profile.__file__).with_name("autocode_image_delivery.mjs").read_bytes()
+        )
+        activity = runtime / "providers" / "opencode_activity.mjs"
+        activity.write_bytes(self.activity.read_bytes())
+        identity = self.state["settings"]["transport_identity"]
+        del identity["config_hashes"][str(self.activity)]
+        identity["config_hashes"][str(activity)] = util.file_hash(activity)
+        self.declaration["transport_identity_sha256"] = util.digest(identity)
+        self.approve()
+        self.worker["environment"]["OPENCODE_CONFIG_CONTENT"] = json.dumps(
+            {**self.config, "plugin": [activity.as_uri()]}
+        )
+        self.env["OPENCODE_CONFIG_CONTENT"] = json.dumps(
+            {**self.config, "plugin": [activity.as_uri(), self.plugin.as_uri()]}
+        )
+        activity.write_text("// substituted activity implementation\n")
+        with (
+            patch.object(profile, "__file__", str(copied_profile)),
+            self.assertRaisesRegex(ValueError, "Bundled activity plugin changed"),
+        ):
+            self.launch()
+        self.assertFalse((self.directory / "home").exists())
+
+    def test_public_cli_pinned_sol_route_reaches_visual_profile(self):
+        # Public configuration/status only; this client refuses any model launch.
+        self.executable.write_text(
+            "#!"
+            + sys.executable
+            + "\n"
+            + """import sys
+args = sys.argv[1:]
+if args == ['--version']:
+    print('1.18.33')
+elif args == ['models']:
+    print('openai/gpt-6-sol\\nopenai/gpt-6-astra\\nzai-coding-plan/glm-5.3')
+elif args == ['auth', 'list']:
+    print('● OpenAI oauth')
+else:
+    raise SystemExit('Configuration fixture refuses provider execution')
+"""
+        )
+        clean = {
+            "PATH": str(self.executable.parent) + ":/usr/bin:/bin",
+            "HOME": str(self.root / ".autocode" / "cli-home"),
+            "XDG_CONFIG_HOME": str(self.root / ".autocode" / "cli-config"),
+            "XDG_DATA_HOME": str(self.root / ".autocode" / "cli-data"),
+            "AUTOCODE_HOME": str(self.root / ".autocode" / "cli-registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=clean)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "Owned fixture",
+            ],
+            cwd=self.root,
+            check=True,
+            env=clean,
+        )
+        repository = Path(profile.__file__).resolve().parents[1]
+        with patch.dict(os.environ, clean, clear=True):
+            run = TaskRun.start(
+                self.root,
+                "Validate operator supplied source",
+                command=(sys.executable, str(repository / "tools" / "autocode.py")),
+                options=(
+                    "--engine",
+                    "opencode",
+                    "--provider",
+                    "opencode",
+                    "--workflow",
+                    "build",
+                    "--sol-model",
+                    "openai/gpt-6-sol",
+                    "--sol-reasoning-effort",
+                    "high",
+                    "--pin-model-role",
+                    "sol",
+                ),
+                env=clean,
+                timeout=30,
+            )
+            status = subprocess.run(
+                [*run.command, "--workspace", str(self.root), "--run-dir", str(run.run_dir), "--status"],
+                cwd=self.root,
+                env=clean,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,
+            )
+        route = json.loads(status.stdout)["settings"]["roles"]["sol"]
+        self.assertIs(route["model_pinned"], True)
+        self.assertEqual(("openai/gpt-6-sol", "high"), (route["model"], route["reasoning_effort"]))
+        self.state["settings"]["roles"]["sol"] = route
+        self.declaration["executable_sha256"] = util.file_hash(self.executable)
+        self.approve()
+        result = self.launch()
+        self.assertEqual(route, self.state["settings"]["roles"]["sol"])
+        self.assertEqual("high", result["command"][result["command"].index("--variant") + 1])
+
+    def test_pin_metadata_cannot_change_or_extend_the_approved_route(self):
+        original = deepcopy(self.state["settings"]["roles"]["sol"])
+        for change in (
+            {"model_pinned": "true"},
+            {"model_pinned": 1},
+            {"model_pinned": None},
+            {"model_pinned": True, "reasoning_effort": "max"},
+            {"model_pinned": True, "model": "openai/another"},
+            {"model_pinned": True, "custom_route": True},
+        ):
+            with self.subTest(change=change):
+                self.state["settings"]["roles"]["sol"] = {**original, **change}
+                with self.assertRaises(ValueError):
+                    self.launch()
+                self.assertFalse((self.directory / "home").exists())
+
+    def test_arbitrary_inherited_plugins_and_changed_order_are_refused(self):
+        untrusted = self.root / ".autocode" / "untrusted.mjs"
+        untrusted.write_text("// arbitrary inherited plugin\n")
+        for original, prepared in (
+            (
+                [untrusted.as_uri(), self.activity.as_uri()],
+                [untrusted.as_uri(), self.activity.as_uri(), self.plugin.as_uri()],
+            ),
+            ([self.activity.as_uri()], [self.plugin.as_uri(), self.activity.as_uri()]),
+            (
+                [self.activity.as_uri(), self.activity.as_uri()],
+                [self.activity.as_uri(), self.activity.as_uri(), self.plugin.as_uri()],
+            ),
+            ([], [self.plugin.as_uri()]),
+        ):
+            with self.subTest(original=original, prepared=prepared):
+                self.worker["environment"]["OPENCODE_CONFIG_CONTENT"] = json.dumps({**self.config, "plugin": original})
+                self.env["OPENCODE_CONFIG_CONTENT"] = json.dumps({**self.config, "plugin": prepared})
+                with self.assertRaises(ValueError):
+                    self.launch()
+                self.assertFalse((self.directory / "home").exists())
 
     def test_profile_requires_unique_strict_json_and_operator_approval(self):
         for constraints in (

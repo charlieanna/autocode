@@ -49,6 +49,14 @@ except ImportError:
     import autocode_support as support
 
 
+def prepare_actions(runner, args, state, factory):
+    """Admit the original native action before any saved-run action step."""
+    native = getattr(runner, "native_calls", None)
+    if native is not None:
+        native.require_supported_action(args, state)
+    return factory()
+
+
 def explicit_recovery_requested(args, state, *, checked=False):
     """Whether this invocation carries a scoped operator recovery action for the pause holding ``state``.
 

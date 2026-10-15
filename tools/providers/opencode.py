@@ -10,8 +10,10 @@ Strict tool containment stays qualified only for the pinned 1.x release.
 from __future__ import annotations
 
 try:
+    from .. import autocode_native_locators as native_locators
     from .. import autocode_prompts as prompts
 except ImportError:
+    import autocode_native_locators as native_locators
     import autocode_prompts as prompts
 
 
@@ -27,14 +29,23 @@ import time
 import uuid
 from pathlib import Path
 
+if __package__:
+    from .opencode_events import _command_exit as _command_exit
+    from .opencode_events import _session_parts, normalized_events
+else:  # The dashboard also loads this file directly without a package.
+    from providers.opencode_events import _command_exit as _command_exit
+    from providers.opencode_events import _session_parts, normalized_events
+
 # os and shutil stay imported: the autocode_opencode compatibility shim star-exports
 # them, and existing tests patch oc.os / oc.shutil to fake the process environment.
 
 try:
+    from .. import autocode_native_role_isolation as native_isolation
     from .. import autocode_output_cap as output_cap
     from .. import autocode_tool_containment as tool_containment
     from . import env_prep
 except ImportError:  # Script-style execution from tools/ remains supported.
+    import autocode_native_role_isolation as native_isolation
     import autocode_output_cap as output_cap
     import autocode_tool_containment as tool_containment
     from providers import env_prep
@@ -221,6 +232,13 @@ def _probe_version(workspace, *, env=None):
 def local_settings(workspace, *, env=None):
     effective = env_prep.snapshot_environment(env)
     executable, version = _probe_version(workspace, env=env)
+    configuration = configuration_identity(workspace, env=effective)
+    return {"engine": "opencode", "identity_version": 2, "executable": executable, "version": version, **configuration}
+
+
+def configuration_identity(workspace, *, env=None):
+    """Pure current local fingerprints; no version/native/model call is added."""
+    effective = env_prep.snapshot_environment(env)
     # Fingerprint configuration, never credentials. OAuth token refreshes must not
     # invalidate a run, and the runner never opens OpenCode's auth.json.
     primary, definitions = _configuration_sources(workspace, env=effective)
@@ -238,14 +256,7 @@ def local_settings(workspace, *, env=None):
             "OPENCODE_TEST_MANAGED_CONFIG_DIR",
         )
     }
-    return {
-        "engine": "opencode",
-        "identity_version": 2,
-        "executable": executable,
-        "version": version,
-        "config_hashes": fingerprints,
-        "environment_config_hashes": inline,
-    }
+    return {"config_hashes": fingerprints, "environment_config_hashes": inline}
 
 
 def transport_drift(current, checkpoint):
@@ -395,7 +406,31 @@ def launch(
     env=None,
     containment=None,
     opencode_version=None,
+    isolation=None,
+    image_preparation=None,
 ):
+    if image_preparation is not None and (isolation is None or role != "sol" or planning or allow_write or session):
+        raise ValueError("Native image staging requires the original fresh readonly Sol isolation")
+    if image_preparation is not None:
+        try:
+            from .. import autocode_native_calls as calls
+            from .. import autocode_native_image as images
+        except ImportError:
+            import autocode_native_calls as calls
+            import autocode_native_image as images
+        if type(image_preparation) is not images.NativeImagePreparation or image_preparation.isolation is not isolation:
+            raise ValueError("Native image staging requires its exact original packet")
+        image_preparation.require_caller(calls.PlanningCalls)
+    if isolation is not None:
+        if type(isolation) is not native_isolation.NativeRoleIsolation or containment is None:
+            raise ValueError("Native role isolation requires its exact CODE owner and native tool boundary")
+        if planning and allow_write:
+            raise ValueError("Native isolated planning must remain readonly")
+        restriction = isolation.containment_request(allow_write=allow_write)
+        if allow_write and containment.get("write_paths") != restriction["write_paths"]:
+            raise ValueError("Native isolated writer lacks the exact task footprint before setup")
+        if not allow_write and "write_paths" in containment:
+            raise ValueError("Readonly native isolation cannot receive writer paths")
     if not model or "/" not in model or "#" in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
     if opencode_version is None:
@@ -414,7 +449,7 @@ def launch(
     permissions = {"task": "deny", "question": "deny", "plan_enter": "deny", "plan_exit": "deny"}
     if not allow_write:
         permissions["edit"] = "deny"
-    if planning:
+    if planning and isolation is None:
         # An explicit read-tools-only planning agent: no shell, delegation, MCP,
         # plugins' tools or edit escape hatch. The runner persists its report.
         permissions = {
@@ -440,6 +475,7 @@ def launch(
     child = env_prep.child_environment(env)
     # OpenCode's own default (32000, reasoning included) truncates large planning reports.
     output_cap.apply(child)
+    configuration = configuration_identity(workspace, env=child) if isolation is not None else None
     inherited = json.loads(child.get("OPENCODE_CONFIG_CONTENT", "{}"))
     if not isinstance(inherited, dict):
         raise ValueError("OPENCODE_CONFIG_CONTENT must be a JSON object")
@@ -502,13 +538,32 @@ def launch(
         command += ["--session", session]
     if major == 1 and effort:
         command += ["--variant", effort]
+    if isolation is not None:
+        command, child = isolation.stage(
+            command=command, environment=child, configuration_identity=configuration, allow_write=allow_write
+        )
+        if image_preparation is not None:
+            command, child = isolation.stage_image(image_preparation, command=command, environment=child)
     if containment is not None:
         child, boundary = tool_containment.configure(
-            command, child, workspace, allow_write=allow_write, request=containment
+            command,
+            child,
+            workspace,
+            allow_write=allow_write,
+            request=containment,
+            **({"retain_launch_identity": True} if isolation is not None else {}),
         )
         actual = json.loads(child["OPENCODE_CONFIG_CONTENT"])
         overrides["shell"] = boundary["shell"]
         overrides["agent"][agent] = actual["agent"][agent]
+        if isolation is not None:
+            isolation.render_image_prompt(command=command, environment=child, boundary=boundary)
+            descriptor = isolation.finalize(command=command, environment=child, boundary=boundary)
+            boundary["native_role_isolation"] = descriptor
+            child["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps(native_locators.boundary_value(boundary))
+            child["AUTOCODE_NATIVE_ROLE_ISOLATION"] = json.dumps(native_locators.descriptor_value(descriptor))
+            isolation.freeze_image(command=command, environment=child, descriptor=descriptor)
+            overrides = actual
     return command, child, overrides
 
 
@@ -536,159 +591,6 @@ def raw_events(path):
         if isinstance(row, dict):
             rows.append(row)
     return rows
-
-
-def _session_parts(rows, session):
-    # Repeated updates replace a part's value without moving it past newer parts.
-    parts = {}
-    for row in rows:
-        part = row.get("part", {})
-        if row.get("sessionID") == session and part.get("id"):
-            parts[part["id"]] = row
-    return parts
-
-
-def _command_exit(state):
-    """Integer exit from a 1.x event, or from OpenCode 2's nested tool metadata."""
-    metadata = state.get("metadata")
-    if not isinstance(metadata, dict):
-        return None
-    if "exit" in metadata:
-        code = metadata.get("exit")
-        return code if type(code) is int else None
-    nested = metadata.get("metadata")
-    if isinstance(nested, dict) and type(nested.get("exit")) is int:
-        return nested["exit"]
-    return None
-
-
-def normalized_events(rows):
-    """Adapt real transport events; never interpret a model's prose as tool proof."""
-    sessions = {r["sessionID"] for r in rows if isinstance(r.get("sessionID"), str)}
-    if len(sessions) != 1:
-        return [{"type": "turn.failed", "error": "Missing or mixed OpenCode sessions"}]
-    session = next(iter(sessions))
-    normalized = [{"type": "thread.started", "thread_id": session}]
-    # Some versions repeat completed part updates; a part is still one operation.
-    parts = _session_parts(rows, session)
-    errors = [{"type": "error", "error": row.get("error")} for row in rows if row.get("type") == "error"]
-    steps = []
-    for row in parts.values():
-        part = row["part"]
-        if row.get("type") == "tool_use" and part.get("tool") in ("bash", "shell"):
-            state = part.get("state", {})
-            command = state.get("input", {}).get("command")
-            code = _command_exit(state)
-            if state.get("status") == "completed" and isinstance(command, str) and type(code) is int:
-                normalized.append(
-                    {
-                        "type": "item.completed",
-                        "item": {
-                            "type": "command_execution",
-                            "id": part["id"],
-                            "command": command,
-                            "exit_code": code,
-                            "aggregated_output": state.get("output", ""),
-                        },
-                    }
-                )
-            elif (
-                state.get("status") == "completed" and isinstance(command, str) and isinstance(state.get("output"), str)
-            ):
-                normalized.append(
-                    {
-                        "type": "item.completed",
-                        "item": {
-                            "type": "tool_output",
-                            "id": part["id"],
-                            "command": command,
-                            "aggregated_output": state["output"],
-                        },
-                    }
-                )
-        elif row.get("type") == "step_finish":
-            steps.append(part)
-    normalized += errors
-    if not steps:
-        return normalized
-    # Replayed finishes cannot close newer steps, even when the newer ID is missing.
-    phase_types = ("step_start", "step_finish")
-    phases = [row for row in parts.values() if row.get("type") in phase_types]
-    terminal = (
-        not any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types)
-        and phases[-1].get("type") == "step_finish"
-        and steps[-1].get("reason") in ("stop", "length", "tool-calls", "content-filter")
-    )
-    partial = not terminal or bool(errors and steps[-1].get("reason") == "stop")
-
-    def total(field, subfield=None):
-        containers = [p.get("tokens") for p in steps]
-        values = [tokens.get(field) if isinstance(tokens, dict) else None for tokens in containers]
-        if subfield:
-            values = [v.get(subfield) if isinstance(v, dict) else None for v in values]
-        known = [v for v in values if type(v) is int and v >= 0]
-        return sum(known) if known and (partial or len(known) == len(values)) else None
-
-    # OpenCode input excludes cache reads/writes; output excludes reasoning.
-    input_parts = [total("input"), total("cache", "read"), total("cache", "write")]
-    output_parts = [total("output"), total("reasoning")]
-    usage = {
-        "input_tokens": sum(input_parts) if all(v is not None for v in input_parts) else None,
-        "cached_input_tokens": total("cache", "read"),
-        "output_tokens": sum(output_parts) if all(v is not None for v in output_parts) else None,
-        "reasoning_output_tokens": total("reasoning"),
-    }
-    usage = {k: v for k, v in usage.items() if v is not None}
-    if not terminal:
-        # Completed-step consumption survives interruption, but is not terminal proof.
-        normalized.append({"type": "usage.partial", "usage": usage})
-        return normalized
-    # A stream that ends on a "tool-calls" finish stopped mid-turn: the model asked
-    # for tools and no later step followed (the process exited, for example after
-    # every call was auto-rejected). Like "length", it is a failed turn whose
-    # reported usage is retained for accounting, including cached input.
-    # A final "content-filter" finish is the provider refusing the response, even
-    # when no error event follows it: a failed turn typed content_filter, after any
-    # provider error rows so their own name and words are reported first
-    # (autocode_provider_refusal). Only the final step counts, as for tool-calls.
-    if steps[-1].get("reason") == "length":
-        # A successful process exit can still be an incomplete model turn.
-        normalized.append(
-            {
-                "type": "turn.failed",
-                "usage": usage,
-                "error": {"code": "output_token_limit", "message": output_cap.length_stop(steps[-1].get("tokens"))},
-            }
-        )
-    elif steps[-1].get("reason") == "tool-calls":
-        normalized.append(
-            {
-                "type": "turn.failed",
-                "usage": usage,
-                "error": {
-                    "code": "incomplete_turn",
-                    "message": "OpenCode stopped after a step that requested tool calls, before the model "
-                    "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
-                    "review saved work before recovery.",
-                },
-            }
-        )
-    elif steps[-1].get("reason") == "content-filter":
-        normalized.append(
-            {
-                "type": "turn.failed",
-                "usage": usage,
-                "error": {
-                    "code": "content_filter",
-                    "message": "OpenCode's last step finished with reason content-filter",
-                },
-            }
-        )
-    elif not errors:
-        normalized.append({"type": "turn.completed", "usage": usage})
-    else:
-        normalized.append({"type": "usage.partial", "usage": usage})
-    return normalized
 
 
 def _trailing_report(final, *, copies=1):

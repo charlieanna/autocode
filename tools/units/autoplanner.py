@@ -609,18 +609,56 @@ def engine_for(settings, role):
 PINNED_REVIEWER_MODEL = "openai/gpt-6-sol"
 
 
-def start(state):
-    """Begin (or restart) planning: archive the previous planning record and route to plan review."""
-    try:
-        from .. import autocode_resolver_human as human
-    except ImportError:
-        import autocode_resolver_human as human
+def _start_review_record(state):
+    """Archive the previous cycle without changing saved limits or run usage."""
     if state.get("planning"):
         state.setdefault("planning_history", []).append(copy.deepcopy(state["planning"]))
     state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
     saved_review_limit = state.get("settings", {}).get("planning_review_call_limit")
     if type(saved_review_limit) is int and saved_review_limit == 0:
         state["planning"].update(review_call_limit=0, review_call_limit_origin="user_explicit")
+
+
+def begin_v2_cycle(state):
+    """Bind accepted Requirements to one saved feedback/guidance boundary.
+
+    A new artifact or a retried report alone cannot renew review capacity.
+    Program guidance renews the review cycle without renewing the separate
+    user clarification investigation. The verified Requirements token is kept
+    as provenance; it is not itself authority to start another cycle.
+    """
+    if role_names.planning_flow(state) != "v2":
+        raise ValueError("V2 review cycles require the saved V2 planning flow")
+    token = state.get("requirements_artifact_token")
+    if not isinstance(token, str) or not token.startswith("requirements:"):
+        raise ValueError("V2 review cycle needs its accepted Requirements artifact")
+    guidance = program_guidance.current(state)
+    started_by = (state.get("clarification_episode") or {}).get("started_by")
+    boundary = {
+        # A lazily created initial episode is bookkeeping, not new operator input.
+        "clarification_input": None if started_by == "initial_task" else started_by,
+        "program_guidance": guidance[-1]["id"] if guidance else None,
+    }
+    record = state.get("planning")
+    if record and record.get("v2_cycle") is None:
+        # An older saved cycle has no renewal identity. Bind the current input
+        # conservatively; accepting Requirements must not replenish its usage.
+        record["v2_cycle"] = {"boundary": boundary, "requirements_artifact_token": token}
+        return
+    previous = (record or {}).get("v2_cycle") or {}
+    if previous.get("boundary") == boundary:
+        return
+    _start_review_record(state)
+    state["planning"]["v2_cycle"] = {"boundary": boundary, "requirements_artifact_token": token}
+
+
+def start(state):
+    """Begin (or restart) planning: archive the previous planning record and route to plan review."""
+    try:
+        from .. import autocode_resolver_human as human
+    except ImportError:
+        import autocode_resolver_human as human
+    _start_review_record(state)
     state.pop(human.PRIVATE, None)
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
@@ -1054,7 +1092,7 @@ def context(state, stage, state_path):
         import autocode_design_manifest as design_manifest
         import autocode_figma as figma
     figma_instruction = figma.instructions(state["settings"])
-    manifest_context = design_manifest.context(state["settings"])
+    manifest_context = design_manifest.planning_context(state["settings"], role=route_for(state, stage))
     if manifest_context:
         packet["design_manifest"] = manifest_context
         figma_instruction += design_manifest.INSTRUCTION

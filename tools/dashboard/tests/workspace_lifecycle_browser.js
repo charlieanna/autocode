@@ -295,8 +295,12 @@ function drawerTraversal() {
 
 function activeFocus() {
   return data('()=>{const e=document.activeElement;if(!e||e===document.body)return null;' +
-    'const style=e.matches(":focus-visible")?getComputedStyle(e):null;' +
-    'return {name:e.id||e.dataset.focusKey||e.getAttribute("aria-label")||e.textContent.trim().slice(0,32)||e.tagName,tag:e.tagName,focusVisible:e.matches(":focus-visible"),outlineWidth:style?style.outlineWidth:"",outlineColor:style?style.outlineColor:"",boxShadow:style?style.boxShadow:""};}');
+    'const visible=e.matches(":focus-visible"),elementStyle=visible?getComputedStyle(e):null,composer=visible&&e.tagName==="TEXTAREA"?e.closest(".composer"):null;' +
+    'const painted=s=>!!s&&((s.outlineStyle!=="none"&&parseFloat(s.outlineWidth)>=2)||/2px|3px|4px/.test(s.boxShadow));' +
+    'const composerStyle=composer?getComputedStyle(composer):null,composerRect=composer?composer.getBoundingClientRect():null;' +
+    'const useComposer=!painted(elementStyle)&&painted(composerStyle)&&composerRect.width>0&&composerRect.height>0&&composerStyle.display!=="none"&&composerStyle.visibility!=="hidden";' +
+    'const style=useComposer?composerStyle:elementStyle;' +
+    'return {name:e.id||e.dataset.focusKey||e.getAttribute("aria-label")||e.textContent.trim().slice(0,32)||e.tagName,tag:e.tagName,focusVisible:visible,outlineStyle:style?style.outlineStyle:"",outlineWidth:style&&style.outlineStyle!=="none"?style.outlineWidth:"0px",outlineColor:style?style.outlineColor:"",boxShadow:style?style.boxShadow:"",ringOwner:useComposer?"nearest-visible-composer":"focused-element",elementRing:{outlineStyle:elementStyle?elementStyle.outlineStyle:"",outlineWidth:elementStyle?elementStyle.outlineWidth:"",outlineColor:elementStyle?elementStyle.outlineColor:"",boxShadow:elementStyle?elementStyle.boxShadow:""}};}');
 }
 
 // The open project drawer must expose only its actually rendered, enabled
@@ -421,6 +425,31 @@ async function ac20(info) {
     const weak = walk.indicators.filter(entry => entry.outline < 2 && entry.shadow < 2).map(entry => entry.name);
     assert.deepEqual([], weak, viewport.name + ' every keyboard-focused control paints a visible focus ring of at least 2 px: ' + JSON.stringify(weak));
     measurements.push({viewport: viewport.name, focusables: expected, walk: walk.visited, indicators: walk.indicators});
+
+    // A borderless textarea can carry its keyboard ring on the enclosing
+    // composer. Measure that actual surface, and prove removing both rings
+    // cannot be mistaken for passing focused-element evidence.
+    browser('focus', '#change-text');
+    const composerFocus = activeFocus();
+    assert.equal(composerFocus.name, 'change-text');
+    assert.equal(composerFocus.focusVisible, true);
+    assert.ok((parseFloat(composerFocus.outlineWidth) || 0) >= 2 || /2px|3px|4px/.test(composerFocus.boxShadow),
+      viewport.name + ' focused draft paints a real element or enclosing composer ring');
+    const originalFocusStyles = data('()=>{const e=document.querySelector("#change-text"),p=e.closest(".composer"),saved={element:e.getAttribute("style"),composer:p.getAttribute("style")};for(const node of [e,p]){node.style.setProperty("outline","none","important");node.style.setProperty("box-shadow","none","important");}return saved;}');
+    let noRing;
+    try {
+      noRing = activeFocus();
+      assert.equal(noRing.focusVisible, true, 'the negative control keeps the actual textarea focused');
+      assert.throws(() => assert.ok((parseFloat(noRing.outlineWidth) || 0) >= 2 || /2px|3px|4px/.test(noRing.boxShadow),
+        'focused textarea and composer have no painted focus ring'), /no painted focus ring/,
+      'zero rings on both actual surfaces must fail the unchanged 2px focus expectation');
+    } finally {
+      data('()=>{const saved=' + JSON.stringify(originalFocusStyles) + ',e=document.querySelector("#change-text"),p=e.closest(".composer");for(const [node,value]of [[e,saved.element],[p,saved.composer]]){if(value===null)node.removeAttribute("style");else node.setAttribute("style",value);}return true;}');
+    }
+    const restoredComposerFocus = activeFocus();
+    assert.ok((parseFloat(restoredComposerFocus.outlineWidth) || 0) >= 2 || /2px|3px|4px/.test(restoredComposerFocus.boxShadow),
+      'restoring the exact original styles restores the real focus ring');
+    measurements.push({viewport: viewport.name + ' composer ring ownership', focused: composerFocus, negative: noRing, restored: restoredComposerFocus});
 
     // Contrast on the workspace's own text surfaces at this width. The pane
     // surfaces sit behind the details drawer on mobile, so open it first.

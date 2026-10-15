@@ -546,12 +546,19 @@ function assertM2Scenario(name, viewport) {
       assert.match(facts.step.visibleText, /^Current step · /);
       assert.match(facts.freshness.visibleText, /PID 2418/);
       assert.match(facts.blocker.visibleText, /No blocker/);
-      assert.equal(task.primaryActions[0].label, 'Pause after current step');
+      assert.equal(task.primaryActions[0].label, 'Pause', 'the approved compact composer uses the visible Pause label');
+      const pauseControl=data('()=>{const pause=document.querySelector("#pause-run");return {ariaLabel:pause.getAttribute("aria-label"),title:pause.title,disabled:pause.disabled};}');
+      assert.deepEqual(pauseControl, {ariaLabel:'Pause after current step',title:'Pause after current step',disabled:false}, 'compact Pause preserves its exact accessible meaning and remains actionable');
     }
     if (name === 'waiting') {
       assert.equal(facts.state.visibleText, 'Waiting on you · Answer needed');
       assert.match(facts.step.visibleText, /^Current saved step · /);
-      assert.equal(task.primaryActions[0].label, 'Answer 3 questions');
+      const issuedDefault=data('()=>{const id=document.querySelector("#question-target").value,question=latestRun.human_escalation.questions.find(row=>String(row.id)===id);return {id,default:question.proposed_default,question:question.question};}');
+      assert.equal(typeof issuedDefault.default,'string');assert.ok(issuedDefault.default.trim(),'The writer supplied a real preferred reply');
+      assert.equal(task.primaryActions[0].label, issuedDefault.default+' · Suggested', 'the actual issued reply owns the single question primary');
+      const questionFocus=data('()=>{const e=document.querySelector("#continue-run"),r=e.getBoundingClientRect();return {label:e.textContent.trim(),primary:e.classList.contains("primary"),disabled:e.disabled,width:r.width,height:r.height};}');
+      assert.equal(questionFocus.label,'Answer 3 questions');assert.equal(questionFocus.primary,false);assert.equal(questionFocus.disabled,false,'multi-question navigation remains an actionable secondary focus pointer');
+      assert.ok(questionFocus.width>=44&&questionFocus.height>=44,'the secondary question pointer preserves its full touch target');
       // The fold shows a concise, specific preview; the complete exact question
       // remains rendered in the decision card instead of being hidden inside a
       // clipped operational-fact node.
@@ -616,15 +623,15 @@ function assertM2Scenario(name, viewport) {
     // Plan pane keeps read-only status plus one focus path to the chat action.
     assert.deepEqual(plan.buttons, ['Review in conversation →']);
     assert.equal(plan.buttons.includes('Start building'), false, 'unapproved revision cannot expose the Start building action');
-    assert.deepEqual(plan.chatButtons, ['View plan', 'Request changes', 'Approve plan revision 7', 'Approve & build revision 7']);
+    assert.deepEqual(plan.chatButtons, ['View plan', 'Request changes', 'Approve & build revision 7', 'Approve plan revision 7']);
   }
 
   if (name === 'pending-answer') {
     const answer = data('()=>({conversation:document.querySelector("#conversation")?.textContent||"",delivery:document.querySelector("#task-delivery")?.textContent||"",mode:document.querySelector("#live-mode")?.textContent||"",label:document.querySelector("#change-label")?.textContent||"",questionCount:document.querySelector("#question-target")?.options.length||0,request:document.querySelector("#change-history")?.textContent||""})');
     assert.match(answer.conversation, /The worker state says the planning step was saved/);
     assert.match(answer.conversation, /If recovery succeeds, should the dashboard return to plan review/);
-    assert.equal(answer.delivery, 'Planning continues only if the controller returns to Running with no pending request.');
-    assert.equal(answer.mode, 'This does not approve a plan or start implementation.');
+    assert.equal(answer.delivery, 'Answer here, or choose a suggestion above. Plan approval is separate.');
+    assert.equal(answer.mode, '', 'The composer does not duplicate controller implementation or approval guidance');
     assert.equal(answer.label, 'Your answer');
     assert.equal(answer.questionCount, 3);
     assert.match(answer.request, /req_autocode_20260922_141233_7f4a91/);
@@ -672,8 +679,8 @@ function assertM2Scenario(name, viewport) {
 
     openScenario(info, 'running', {name: 'breakpoint-759', width: 759, height: 844});
     const closed = shellMetrics();
-    assert.deepEqual(closed.topbar, [0, 0, 759, 56], '759 px retains the full-width mobile top bar');
-    assert.deepEqual(closed.main, [0, 56, 759, 788], '759 px reserves no sidebar width and starts content below the top bar');
+    assert.deepEqual(closed.topbar, [0, 0, 759, 72], '759 px matches the approved 72 px existing-conversation toolbar');
+    assert.deepEqual(closed.main, [0, 72, 759, 772], '759 px reserves no sidebar width and starts content below the approved toolbar');
     browser('screenshot', path.join(shellEvidenceRoot, 'drawer-closed-759.png'));
     browser('click', '#nav-toggle');
     metrics = shellMetrics();
@@ -716,13 +723,27 @@ function assertM2Scenario(name, viewport) {
 
     openScenario(info, 'waiting', viewports[2]);
     metrics = shellMetrics();
-    assert.deepEqual(metrics.topbar, [0, 0, 390, 56], '390 px retains the full-width mobile top bar');
-    assert.deepEqual(metrics.main, [0, 56, 390, 788], '390 px content begins below the top bar without reserved drawer width');
+    assert.deepEqual(metrics.topbar, [0, 0, 390, 72], '390 px matches the approved 72 px existing-conversation toolbar');
+    assert.deepEqual(metrics.main, [0, 72, 390, 772], '390 px content begins below the approved toolbar without reserved drawer width');
     assert.equal(metrics.horizontalOverflow, false, '390 px has no page-level horizontal overflow');
     assert.deepEqual(metrics.undersized, [], 'every visible mobile control has a 44 by 44 px hit area');
     assert.equal(metrics.continue[2], 358, 'mobile task primary action fills the 16 px-margin content width');
     browser('click', '#nav-toggle');
     assert.equal(shellMetrics().undersized.length, 0, 'drawer controls retain the 44 px minimum');
+    browser('focus', '.sidebar .project-nav .project-group:last-child .project-group-new');
+    const lastProjectControl = data('()=>{' +
+      'const target=document.querySelector(".sidebar .project-nav .project-group:last-child .project-group-new"),list=document.querySelector(".sidebar .project-nav"),footer=document.querySelector(".sidebar-bottom");' +
+      'return {focused:document.activeElement===target,control:target.getBoundingClientRect().toJSON(),list:list.getBoundingClientRect().toJSON(),footer:footer.getBoundingClientRect().toJSON(),scrollTop:list.scrollTop,mainInert:document.querySelector(".main-area").inert};' +
+    '}');
+    fs.writeFileSync(path.join(shellEvidenceRoot, 'drawer-last-project-control-390.json'), JSON.stringify(lastProjectControl, null, 2) + '\n');
+    // This shell fixture has one project. It checks ordinary focus and target
+    // visibility; the two-project visual fixture proves clipped-row scrolling.
+    assert.equal(lastProjectControl.focused, true, 'keyboard focus reaches the shell fixture project conversation control');
+    assert.equal(lastProjectControl.mainInert, true, 'project-control focus retains modal isolation');
+    assert.ok(lastProjectControl.control.width >= 44 && lastProjectControl.control.height >= 44, 'the shell fixture project control retains its full touch target');
+    assert.ok(lastProjectControl.control.top >= lastProjectControl.list.top && lastProjectControl.control.bottom <= lastProjectControl.list.bottom, 'the focused shell fixture control is completely visible within the list');
+    assert.ok(lastProjectControl.control.bottom <= lastProjectControl.footer.top, 'the fixed drawer footer does not obscure the shell fixture project control');
+    browser('screenshot', path.join(shellEvidenceRoot, 'drawer-last-project-control-390.png'));
     browser('click', '#drawer-close');
 
     for (const theme of ['light', 'dark']) {
@@ -769,7 +790,7 @@ function assertM2Scenario(name, viewport) {
         // and tablet keep the 422-1495 shell with the full-height sidebar
         // owning the viewport origin instead of a toolbar row.
         if (viewport.width <= 759) {
-          assert.deepEqual(measurement.shell.topbar, {x: 0, y: 0, width: viewport.width, height: 56}, name + ' ' + viewport.name + ' keeps the fixed mobile top bar in the unscrolled viewport');
+          assert.deepEqual(measurement.shell.topbar, {x: 0, y: 0, width: viewport.width, height: name === 'workspace' ? 56 : 72}, name + ' ' + viewport.name + ' keeps the native conversation toolbar or workspace toolbar in the unscrolled viewport');
           assert.equal(measurement.shell.topbarOwnsViewportOrigin, true, name + ' ' + viewport.name + ' does not obscure the mobile top bar with page content');
         } else {
           assert.deepEqual(measurement.shell.topbar, {x: 0, y: 0, width: 0, height: 0}, name + ' ' + viewport.name + ' renders no toolbar above the full-height sidebar');
@@ -797,6 +818,42 @@ function assertM2Scenario(name, viewport) {
     }
     assert.equal(matrix.length, 21, 'the browser matrix contains exactly one screenshot for each Figma node');
     assert.equal(new Set(matrix.map(entry => entry.figma_node_id)).size, 21, 'each matrix entry maps to a distinct Figma frame');
+
+    // Native checkpoint clicks must show the saved artifact. Phone variants
+    // open Details for both diff and History paths; desktop opens the actual
+    // diff in its visible pane without introducing a modal drawer.
+    for (const [viewport, mode, hasDiff, tab, pane] of [
+      [viewports[2], 'diff', true, 'changes', '#changes'],
+      [viewports[2], 'no-diff', false, 'overview', '#task-overview'],
+      [viewports[0], 'diff', true, 'changes', '#changes'],
+    ]) {
+      const label = viewport.name + ' checkpoint ' + mode, phone = viewport.width <= 759;
+      freshBrowserSession('checkpoint-' + mode + '-' + viewport.name);
+      openFlowScenario(info, 'flow-checkpoint-' + mode + '-' + viewport.name, viewport, 'Drawer-safe running build');
+      const selector = '#conversation [data-saved-checkpoint="built-i31"]';
+      waitForCondition('!!document.querySelector(' + JSON.stringify(selector) + ')', label + ' rendered in chat');
+      const before = data('()=>({drawerOpen:document.querySelector(".app-shell").classList.contains("details-open"),contextDisplay:getComputedStyle(document.querySelector("#context-pane")).display,checkpoint:sessionCheckpoints(latestRun).find(row=>row.id==="built-i31"),status:latestRun.status,goalToken:latestRun.goal_token})');
+      assert.equal(before.drawerOpen, false, label + ' starts with Details closed');
+      if (phone) assert.equal(before.contextDisplay, 'none', label + ' artifact pane is hidden before the click');
+      assert.equal(before.checkpoint.hasDiff, hasDiff, label + ' comes from the expected saved build record');
+      browser('click', selector);
+      if (phone) waitForCondition('document.querySelector(".app-shell").classList.contains("details-open")', label + ' opens Details');
+      waitForCondition('document.querySelector(".detail-tabs [data-tab=' + tab + ']")?.getAttribute("aria-selected")==="true"&&!document.querySelector(' + JSON.stringify(pane) + ').hidden', label + ' selects its destination');
+      if (hasDiff) waitForCondition('document.querySelector("#changes-content .diff-stage")?.open&&document.querySelector("#changes-content .diff-output")?.textContent.includes("checkpointBrowserNavigation")', label + ' expands and loads its actual saved diff');
+      const opened = data('()=>{const pane=document.querySelector(' + JSON.stringify(pane) + '),rect=pane.getBoundingClientRect(),style=getComputedStyle(pane);return {paneVisible:!pane.hidden&&style.display!=="none"&&style.visibility!=="hidden"&&rect.width>0&&rect.height>0&&rect.bottom>0&&rect.top<innerHeight,contextDisplay:getComputedStyle(document.querySelector("#context-pane")).display,drawerOpen:document.querySelector(".app-shell").classList.contains("details-open"),drawerExpanded:document.querySelector("#details-drawer-toggle").getAttribute("aria-expanded"),chatInert:document.querySelector(".conversation-column").inert,status:latestRun.status,goalToken:latestRun.goal_token};}');
+      assert.equal(opened.paneVisible, true, label + ' selected artifact is actually visible');
+      assert.equal(opened.contextDisplay, 'flex', label + ' artifact pane renders its actual CSS surface');
+      assert.equal(opened.drawerOpen, phone, label + ' uses the drawer only at phone width');
+      assert.equal(opened.drawerExpanded, String(phone), label + ' announces the actual drawer state');
+      assert.equal(opened.chatInert, phone, label + ' modal isolation matches the actual drawer state');
+      assert.equal(opened.status, before.status, label + ' inspection preserves task status');
+      assert.equal(opened.goalToken, before.goalToken, label + ' inspection preserves the approved revision');
+      m2Interactions.push({name: label, before, opened});
+      if (phone) {
+        browser('click', '#details-drawer-close');
+        waitForCondition('!document.querySelector(".app-shell").classList.contains("details-open")', label + ' closes normally');
+      }
+    }
 
     // Completion authority must survive a dashboard refresh and remain stable
     // when only evidence/polling freshness changes. These direct-only fixtures
@@ -912,7 +969,14 @@ function assertM2Scenario(name, viewport) {
       // Plan pane or a composer-side section. The chat column scrolls
       // independently, so dispatch the native activation instead of letting a
       // coordinate click miss the control.
-      data('()=>{const control=[...document.querySelectorAll("#inline-task-action button")].find(button=>button.textContent.trim().startsWith("Approve plan revision"));if(!control)throw Error("chat plan-approval control missing");const transcript=document.querySelector("#interview");if(!transcript||!transcript.contains(control))throw Error("the plan-approval control must be a DOM descendant of the #interview chat transcript, not the composer section");control.scrollIntoView({block:"center"});control.click();return true;}');
+      const disclosure=data('()=>{const host=document.querySelector("#inline-task-action"),current=host.querySelector("[data-approval-options]"),summary=current.querySelector("summary"),rect=summary.getBoundingClientRect(),hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2),thread=document.querySelector("#interview").getBoundingClientRect(),composer=document.querySelector("#live-controls").getBoundingClientRect(),original=latestRun,saved=JSON.stringify(original),defaultCollapsed=!current.open;summary.click();const nativeOpened=current.open;renderInlineTaskAction(original);const sameCurrentOpen=!!host.querySelector("[data-approval-options]")?.open;renderInlineTaskAction({...original,goal_token:original.goal_token+"-different-token"});const newTokenOpen=!!host.querySelector("[data-approval-options]")?.open;renderInlineTaskAction({...original,run:original.run+"-different-run"});const newRunOpen=!!host.querySelector("[data-approval-options]")?.open;renderInlineTaskAction(original);const restoredCurrentOpen=!!host.querySelector("[data-approval-options]")?.open;host.querySelector("[data-approval-options] summary").click();renderInlineTaskAction(original);return {defaultCollapsed,summaryHeight:rect.height,centerHitsSummary:hit===summary||summary.contains(hit),summaryInsideTranscript:rect.top>=thread.top&&rect.bottom<=thread.bottom,summaryAboveComposer:rect.bottom<=composer.top,nativeOpened,sameCurrentOpen,newTokenOpen,newRunOpen,restoredCurrentOpen,userClosedAfterPoll:!host.querySelector("[data-approval-options]")?.open,originalInputUnchanged:JSON.stringify(latestRun)===saved};}');
+      assert.equal(disclosure.defaultCollapsed,true,viewport.name+' a new plan keeps approval-only collapsed');
+      assert.ok(disclosure.summaryHeight>=44,viewport.name+' approval-only summary retains its44px target');
+      for(const key of ['centerHitsSummary','summaryInsideTranscript','summaryAboveComposer','nativeOpened','sameCurrentOpen','restoredCurrentOpen','userClosedAfterPoll','originalInputUnchanged'])assert.equal(disclosure[key],true,viewport.name+' actual approval disclosure '+key);
+      assert.equal(disclosure.newTokenOpen,false,viewport.name+' a different issued revision cannot inherit expansion');
+      assert.equal(disclosure.newRunOpen,false,viewport.name+' a different conversation cannot inherit expansion');
+      browser('click', '#inline-task-action [data-approval-options] summary');
+      data('()=>{const control=[...document.querySelectorAll("#inline-task-action button")].find(button=>button.textContent.trim().startsWith("Approve plan revision"));if(!control)throw Error("chat plan-approval control missing");const transcript=document.querySelector("#interview");if(!transcript||!transcript.contains(control))throw Error("the plan-approval control must be a DOM descendant of the #interview chat transcript, not the composer section");if(!control.closest("details")?.open)throw Error("the explicit approval-only disclosure must be open");control.scrollIntoView({block:"center"});control.click();return true;}');
       // The saved plan can arrive during the action's read-after-write refresh,
       // before submitTaskAction releases its pending guard. Observe the completed
       // transition, not an intermediate approved-but-still-busy render.
@@ -978,10 +1042,10 @@ function assertM2Scenario(name, viewport) {
       // exact UI handler and POST, rather than letting the automation
       // bridge's coordinate target silently miss an enabled control.
       data('()=>{const control=document.querySelector("#task-attention button");if(!control||control.disabled)throw Error("Recover saved work must be enabled after inspection");control.click();return true;}');
-      // The server can publish the recovered status before the UI action's
-      // refresh finishes. Observe its completed receipt and enabled control
-      // before checking the separate Resume task action.
-      waitForCondition('latestRun.status==="PAUSED_INTERVENTION"&&(latestRun.actions||[]).some(action=>action.label==="Recover saved work"&&action.status==="finished")&&document.querySelector("#continue-run")?.disabled===false', viewport.name + ' recovery receipt');
+      // The recovered status can precede the finished action receipt and
+      // submitTaskAction clearing its pending state. Require both before
+      // activating the rendered, enabled separate Resume task action.
+      waitForCondition('latestRun.status==="PAUSED_INTERVENTION"&&(latestRun.actions||[]).some(action=>action.label==="Recover saved work"&&action.status==="finished")&&!taskActionBusy(latestRun)&&document.querySelector("#continue-run")?.disabled===false&&document.querySelector("#continue-run")?.textContent.trim()==="Resume task"', viewport.name + ' recovery receipt');
       const recovered=data('()=>({status:latestRun.status,primary:document.querySelector("#continue-run").textContent,receipt:(latestRun.actions||[]).find(action=>action.label==="Recover saved work")||null})');
       assert.equal(recovered.primary, 'Resume task', viewport.name+' successful recovery leaves a later, separate Resume task action');
       assert.equal(recovered.receipt?.status, 'finished', viewport.name+' recovery records its own receipt');

@@ -159,7 +159,7 @@ def record(state, *, timestamp=None):
     return entry
 
 
-def persist(path, state):
+def persist(path, state, *, before_commit=None, after_commit=None):
     """Publish an update only after its checkpoint is durably saved."""
     import sys
 
@@ -180,7 +180,10 @@ def persist(path, state):
     code_checkpoints.update(state, util.Path(path).parent)
     checkpoints.update(state)
     entry = record(state)
-    util.atomic_json(path, state)
+    if after_commit is None and before_commit is None:
+        util.atomic_json(path, state)
+    else:
+        util.atomic_json(path, state, before_commit=before_commit, after_commit=after_commit)
     activity_log.record(path, state)
     token_usage.record(path, state)
     # Publication uses the durable owned checkpoint, not a model's prose. Its

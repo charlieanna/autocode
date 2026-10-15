@@ -491,6 +491,28 @@ def archival_ready(state, current, *, logical_ready, required_case_ids=None):
         return False
 
 
+def finish_decision(state, current, record, decision, workspace, *, native, completion_ready, regression_required):
+    """Prepare the same archival terminal result without promoting current native proof."""
+    if native is not None:
+        raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native completion requires fresh executed proof")
+    require_supported(state)
+    logical = completion_ready(state, decision, current)
+    finish(
+        state,
+        record,
+        decision,
+        workspace,
+        logical_ready=archival_ready(
+            state,
+            current,
+            logical_ready=logical,
+            required_case_ids=[case["id"] for case in test_cases.proof_cases(state, all_due=True)]
+            if regression_required(state)
+            else None,
+        ),
+    )
+
+
 def finish(state, record, decision, workspace, *, logical_ready):
     """Interception before ordinary completion; no TASK_COMPLETE/delivery promotion."""
     tape = transport.selected(state["settings"])

@@ -14,8 +14,11 @@ import sys
 import tempfile
 import threading
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest import mock
+from unittest.mock import MagicMock, Mock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_suite
@@ -412,6 +415,129 @@ class PromptFailureOutputTests(unittest.TestCase):
         lines = out.getvalue().splitlines()
         self.assertIn("Ran 3 tests in 3 modules, 2 at a time, in 0s: 1 module(s) FAILED: tests.test_c", lines)
         self.assertIn("Ran 2 tests in 2 modules, 2 at a time, in 0s: OK", lines)
+
+
+class ParallelFailureOutputTests(unittest.TestCase):
+    class Output(StringIO):
+        def __init__(self):
+            super().__init__()
+            self.flushed_snapshots = []
+
+        def flush(self):
+            self.flushed_snapshots.append(self.getvalue())
+            super().flush()
+
+    def _run_controlled(self, rows, modules, completion_order, verbosity, unit="modules", before_second=None):
+        output = self.Output()
+        fake_run_module = Mock(side_effect=lambda name, level: rows[name])
+        futures = {name: Mock(name=name) for name in modules}
+        for name, future in futures.items():
+            future.result.side_effect = lambda name=name: fake_run_module(name, verbosity)
+        pool = MagicMock()
+        pool.__enter__.return_value = pool
+        pool.submit.side_effect = lambda function, name, level: futures[name]
+
+        def complete_in_order(submitted):
+            self.assertEqual([futures[name] for name in modules], submitted)
+            yield futures[completion_order[0]]
+            self.assertEqual([call(completion_order[0], verbosity)], fake_run_module.call_args_list)
+            if before_second is not None:
+                before_second(output)
+            for name in completion_order[1:]:
+                yield futures[name]
+
+        with (
+            patch.object(run_suite, "ThreadPoolExecutor", return_value=pool) as executor,
+            patch.object(run_suite, "as_completed", side_effect=complete_in_order),
+            patch.object(run_suite, "run_module", fake_run_module),
+            patch.object(run_suite.time, "monotonic", side_effect=[100.0, 108.0]),
+            redirect_stdout(output),
+        ):
+            result = run_suite.run_parallel(modules, 2, verbosity, unit)
+        executor.assert_called_once_with(2)
+        self.assertEqual([call(fake_run_module, name, verbosity) for name in modules], pool.submit.call_args_list)
+        self.assertEqual([call(name, verbosity) for name in completion_order], fake_run_module.call_args_list)
+        return result, output.getvalue()
+
+    def test_failure_details_are_flushed_before_other_completions(self):
+        rows = {
+            "tests.later": {
+                "module": "tests.later",
+                "ok": True,
+                "seconds": 2.0,
+                "tests": 3,
+                "output": "successful output marker",
+            },
+            "tests.first": {
+                "module": "tests.first",
+                "ok": False,
+                "seconds": 1.0,
+                "tests": 2,
+                "output": "first stdout\nTraceback FIRST",
+            },
+            "tests.second": {
+                "module": "tests.second",
+                "ok": False,
+                "seconds": 3.0,
+                "tests": 5,
+                "output": "second stdout\nTraceback SECOND",
+            },
+        }
+
+        def before_second(output):
+            self.assertIn("FAIL: tests.first", output.getvalue())
+            self.assertIn("first stdout\nTraceback FIRST", output.getvalue())
+            self.assertTrue(any("Traceback FIRST" in snapshot for snapshot in output.flushed_snapshots))
+            self.assertNotIn("Ran 10 tests", output.getvalue())
+
+        for verbosity in (1, 2):
+            with self.subTest(verbosity=verbosity):
+                result, output = self._run_controlled(
+                    rows,
+                    ["tests.later", "tests.first", "tests.second"],
+                    ["tests.first", "tests.later", "tests.second"],
+                    verbosity,
+                    before_second=before_second,
+                )
+                self.assertFalse(result)
+                immediate, summary = output.split("The failures again", 1)
+                for name, marker in (("tests.first", "Traceback FIRST"), ("tests.second", "Traceback SECOND")):
+                    for phase in (immediate, summary):
+                        self.assertEqual(1, phase.count("FAIL: " + name))
+                        self.assertEqual(1, phase.count(marker))
+                self.assertEqual(verbosity > 1, "successful output marker" in output)
+                self.assertIn(
+                    "Ran 10 tests in 3 modules, 2 at a time, in 8s: 2 module(s) FAILED: tests.first, tests.second",
+                    output,
+                )
+
+    def test_all_successful_completions_keep_totals_and_success_verdict(self):
+        rows = {
+            "tests.alpha": {
+                "module": "tests.alpha",
+                "ok": True,
+                "seconds": 2.0,
+                "tests": 2,
+                "output": "alpha success detail",
+            },
+            "tests.beta": {
+                "module": "tests.beta",
+                "ok": True,
+                "seconds": 1.0,
+                "tests": 7,
+                "output": "beta success detail",
+            },
+        }
+        for verbosity in (1, 2):
+            with self.subTest(verbosity=verbosity):
+                result, output = self._run_controlled(
+                    rows, ["tests.alpha", "tests.beta"], ["tests.beta", "tests.alpha"], verbosity, unit="processes"
+                )
+                self.assertTrue(result)
+                self.assertNotIn("FAIL:", output)
+                self.assertEqual(verbosity > 1, "alpha success detail" in output)
+                self.assertEqual(verbosity > 1, "beta success detail" in output)
+                self.assertIn("Ran 9 tests in 2 processes, 2 at a time, in 8s: OK", output)
 
 
 class FailureReportTests(unittest.TestCase):

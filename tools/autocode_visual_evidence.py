@@ -18,6 +18,9 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 import copy
+import hashlib
+import json
+import struct
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -29,7 +32,7 @@ try:
 except ImportError:
     import autocode_contract_identity as contract
     import autocode_design_identity as design_identity
-    import autocode_design_manifest as design
+    import autocode_design_manifest as design  # noqa: F401 - preserve existing import behavior
     import autocode_util as util
 
 
@@ -69,18 +72,63 @@ def verify(state, capture_ref, capture_sha256=None, *, case=None, current=None):
 def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None):
     root = Path(state["workspace"]).resolve()
     path = local_file(root, capture_ref)
+    # Default live verification still opens only symlink-checked actual inputs.
+    return verify_original_bytes(
+        state,
+        str(path),
+        capture_sha256,
+        case=case,
+        current=current or source_scope.snapshot(root, state),
+        read_bytes=lambda name: local_file(root, name).read_bytes(),
+        engine_hashes={
+            name: util.file_hash(Path(__file__).with_name(name))
+            for name in ("autocode_visual_capture.py", "autocode_visual_browser.cjs")
+        },
+    )
+
+
+def _sha(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _png_dimensions(raw, label):
+    header = raw[:24]
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise ValueError(f"Expected a PNG capture: {label}")
+    return struct.unpack(">II", header[16:24])
+
+
+def verify_original_bytes(state, capture_ref, capture_sha256=None, *, case=None, current, read_bytes, engine_hashes):
+    """Validate ORIGINAL provenance through an authenticated retained-byte reader.
+
+    This grants no native protection, image PASS, historical owner acceptance or
+    CURRENT label. Runtime history must first authenticate parent-owned copies
+    and original snapshot/engine pins. The default live API uses the same logic.
+    """
+    if not callable(read_bytes) or not isinstance(engine_hashes, dict):
+        raise ValueError("Original capture verification needs exact byte/engine dependencies")
+    root = Path(state["workspace"]).resolve()
+
+    def owned(name):
+        path = Path(name)
+        path = path if path.is_absolute() else root / path
+        if ".." in path.parts or not path.is_relative_to(root):
+            raise ValueError("Original capture path is outside its exact owner")
+        return path
+
+    path = owned(capture_ref)
     if not path.is_relative_to(root / ".autocode" / "captures") or path.name != "manifest.json":
         raise ValueError("Implementation capture needs its retained capture manifest")
-    if capture_sha256 is not None and util.file_hash(path) != capture_sha256:
+    raw = read_bytes(str(path))
+    if capture_sha256 is not None and _sha(raw) != capture_sha256:
         raise ValueError("Implementation capture manifest changed after review selection")
-    body = util.read_object(path)
+    body = json.loads(raw)
     if body.get("version") != 1 or body.get("kind") != "implementation_capture":
         raise ValueError("Missing implementation capture provenance")
     if body.get("reference_hash") != reference_hash(state.get("settings", {})) and not design_identity.matches(
         state.get("settings", {}), body.get("reference_hash"), (body.get("case") or {}).get("id")
     ):
         raise ValueError("Implementation capture belongs to a different design reference or an affected case")
-    current = current or source_scope.snapshot(root, state)
     if body.get("source_revision") != current["revision"]:
         raise ValueError(
             "Stale implementation capture: source changed since capture; recapture the current implementation"
@@ -92,14 +140,14 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
         raise ValueError("Capture is missing its exact input identities")
     refs = [str(path)]
     for name, expected in inputs.items():
-        input_path = local_file(root, name)
-        if util.file_hash(input_path) != expected:
+        input_path = owned(name)
+        if _sha(read_bytes(str(input_path))) != expected:
             raise ValueError(f"Capture input changed: {name}; recapture before review")
         refs.append(str(input_path))
-    config_path = local_file(root, body["config_ref"])
+    config_path = owned(body["config_ref"])
     if str(config_path.relative_to(root)) not in inputs:
         raise ValueError("Capture configuration has no identity")
-    config = util.read_object(config_path)
+    config = json.loads(read_bytes(str(config_path)))
     if config["case"] != body["case"] or config["reference_hash"] != body["reference_hash"]:
         raise ValueError("Capture configuration disagrees with the captured case")
     if config["fixture"] not in inputs:
@@ -107,17 +155,17 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
     for name, expected in body["engine"].items():
         if name not in ("autocode_visual_capture.py", "autocode_visual_browser.cjs"):
             raise ValueError("Unknown capture engine")
-        if util.file_hash(Path(__file__).with_name(name)) != expected:
+        if engine_hashes.get(name) != expected:
             raise ValueError("Capture engine changed; create a fresh capture")
     if set(body["engine"]) != {"autocode_visual_capture.py", "autocode_visual_browser.cjs"}:
         raise ValueError("Capture engine identity is missing")
     artifacts = body["artifacts"]
     for item in artifacts.values():
-        target = local_file(root, item["path"])
-        if target.parent != path.parent or util.file_hash(target) != item["sha256"]:
+        target = owned(item["path"])
+        if target.parent != path.parent or _sha(read_bytes(str(target))) != item["sha256"]:
             raise ValueError("Implementation capture artifact was changed or substituted")
         refs.append(str(target))
-    browser = util.read_object(root / artifacts["browser"]["path"])
+    browser = json.loads(read_bytes(str(owned(artifacts["browser"]["path"]))))
     binding = body["case"]
     if (
         browser.get("status") != "CAPTURED"
@@ -132,7 +180,10 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
         raise ValueError("Browser capture does not establish the declared rendered state")
     viewport = binding["viewport"]
     expected_size = tuple(round(viewport[key] * viewport["device_scale_factor"]) for key in ("width", "height"))
-    if design.png_dimensions(root / artifacts["candidate"]["path"]) != expected_size:
+    if (
+        _png_dimensions(read_bytes(str(owned(artifacts["candidate"]["path"]))), root / artifacts["candidate"]["path"])
+        != expected_size
+    ):
         raise ValueError("Implementation capture dimensions differ from its viewport")
     declared = {item["url"]: item["path"] for item in config["assets"]}
     seen = set()
@@ -146,7 +197,7 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
     if any(name not in current["files"] for name in declared.values()) and not body.get("build_executed"):
         raise ValueError("Generated assets need a fresh build bound to the captured source")
     if body.get("build_executed"):
-        build = util.read_object(root / artifacts["build"]["path"])
+        build = json.loads(read_bytes(str(owned(artifacts["build"]["path"]))))
         if (
             not config["build_command"]
             or build.get("command") != config["build_command"]
@@ -190,7 +241,7 @@ def bundle_file(settings, workspace, path):
         return False
 
 
-def context(state, current):
+def context(state, current, *, required_case_ids=None):
     """Select current bundles explicitly; historical captures stay on disk."""
     reference = reference_hash(state.get("settings", {}))
     if reference is None:
@@ -199,11 +250,22 @@ def context(state, current):
     root = Path(state["workspace"]).resolve()
     inventory = (state["settings"].get("design_manifest") or {}).get("body", {}).get("cases", [])
     cases = {case["id"]: case for case in inventory}
+    if required_case_ids is not None and (
+        not isinstance(required_case_ids, list)
+        or not required_case_ids
+        or any(not isinstance(cid, str) for cid in required_case_ids)
+        or len(required_case_ids) != len(set(required_case_ids))
+        or not set(required_case_ids) <= set(cases)
+        or required_case_ids != [cid for cid in cases if cid in required_case_ids]
+    ):
+        raise ValueError("Selected capture cases need a nonempty ordered declared partition")
     for path in sorted((root / ".autocode" / "captures").glob("*/manifest.json")):
         try:
             body = util.read_object(path)
             cid = body["case"]["id"]
             if cases and cid not in cases:
+                continue
+            if required_case_ids is not None and cid not in required_case_ids:
                 continue
             body, _ = verify(state, str(path), case=cases.get(cid), current=current)
             item = {

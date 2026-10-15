@@ -112,6 +112,10 @@ def check(runner, state, run_dir, workspace, *, timeout=TIMEOUT_SECONDS) -> bool
     True when at least one probe ran. Raises ``support.Paused`` on an access-class
     failure so the run stops before any stage spend, with the model named.
     """
+    if getattr(runner, "native_calls", None) is not None:
+        # Native calls require their original held, accounted launch authority.
+        # Standalone access probes cannot borrow that authority or its budget.
+        return False
     adapter = getattr(runner, "opencode", None)
     if adapter is None or not billing_aware(adapter):
         return False

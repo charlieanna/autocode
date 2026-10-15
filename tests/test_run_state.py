@@ -144,15 +144,25 @@ class RunStateTests(unittest.TestCase):
             self.assertIn(f"    {key}:", source, f"{key} must be annotated in RunState")
 
     def test_a_new_key_fails_this_test_until_it_is_named(self):
-        with tempfile.TemporaryDirectory() as directory:
+        # Exercise the shared production boundary without duplicating its scanner.
+        with tempfile.TemporaryDirectory(prefix="run-state-boundary-") as directory:
             root = Path(directory)
-            (root / "units").mkdir()
-            (root / "units" / "planner.py").write_text('state["status"] = state.get("undeclared_runtime_key")')
-            (root / "tests").mkdir()
-            (root / "tests" / "test_fixture.py").write_text('state["fixture_only_key"] = 1')
+            files = {
+                "runtime.py": "state['unlisted_production_key'] = 1\n",
+                "units/planner.py": 'state["status"] = state.get("undeclared_runtime_key")\n',
+                "test_support/runtime.py": "state.setdefault('unlisted_support_key', 0)\n",
+                "tests/test_fixture.py": "state['fixture_only_key'] = 1\n",
+                "units/tests/fixture.py": "state.get('nested_fixture_key')\n",
+                "__pycache__/generated.py": "state.get('generated_fixture_key')\n",
+            }
+            for name, source in files.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source)
+            unknown = {"unlisted_production_key", "undeclared_runtime_key", "unlisted_support_key"}
             keys = touched_keys(root)
-            self.assertEqual({"status", "undeclared_runtime_key"}, keys)
-            self.assertEqual({"undeclared_runtime_key"}, keys - run_state.KEYS)
+            self.assertEqual({"status", *unknown}, keys)
+            self.assertEqual(unknown, keys - run_state.KEYS)
 
     def test_test_only_keys_are_excluded_from_runtime_scan(self):
         with tempfile.TemporaryDirectory() as directory:

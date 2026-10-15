@@ -35,10 +35,12 @@ from pathlib import Path
 try:
     from . import autocode_output_cap as output_cap
     from . import autocode_provider_refusal as provider_refusal
+    from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
 except ImportError:
     import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
+    import autocode_role_transport as role_transport
     import autocode_roles as roles
 
 PREFIX = "route-"
@@ -525,7 +527,13 @@ def validate(
     job = job or roles.screen_name(role, state)
     if not isinstance(route, dict):
         raise ValueError(f"This run has no {job} route to assign")
-    problem = model_problem(role, model, role_engine=engine(settings, role), configured_tool=configured_tool, label=job)
+    problem = model_problem(
+        role,
+        model,
+        role_engine=engine(settings, role),
+        configured_tool=role_transport.configured(settings, role, configured_tool),
+        label=job,
+    )
     if not problem and (not isinstance(model, str) or not model.strip() or any(c.isspace() for c in model)):
         problem = f"{job} needs a model name without spaces"
     if problem:
@@ -707,7 +715,12 @@ def record_resume_change(
         return []
     attempt, before, after = changed
     role = attempt["role"]
-    if model_problem(role, after, role_engine=engine(selected, role), configured_tool=configured_tool):
+    if model_problem(
+        role,
+        after,
+        role_engine=engine(selected, role),
+        configured_tool=role_transport.configured(selected, role, configured_tool),
+    ):
         return []
     if cross_check is not None and _clashes(selected, role, after, cross_check):
         return []

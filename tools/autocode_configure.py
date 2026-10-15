@@ -35,6 +35,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_role_transport as role_transport
     from . import autocode_roles as role_names
     from . import autocode_route_ladder as route_ladder
     from . import autocode_support as support
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_requirements_review as requirements_review
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_role_transport as role_transport
     import autocode_roles as role_names
     import autocode_route_ladder as route_ladder
     import autocode_support as support
@@ -134,6 +136,7 @@ def check_subscription(identity):
 
 
 def configure(args, state, *, planning, milestones, autopilot, opencode=None):
+    role_transport.guard(args, state)
     if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
         try:
             from . import autocode_replay_transport as replay_transport
@@ -171,10 +174,23 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     if started and requirements_review.resume_refused(state.get("settings") or {}, getattr(args, "spec_first", None)):
         raise ValueError("--spec-first is a new-run policy; a saved run keeps its planning flow")
     manifest_input = None
+    scope_arguments = {
+        "approved_scope": getattr(args, "figma_approved_scope", None),
+        "approved_scope_sha256": getattr(args, "figma_approved_scope_sha256", None),
+    }
+    if bool(scope_arguments["approved_scope"]) != bool(scope_arguments["approved_scope_sha256"]) or (
+        scope_arguments["approved_scope"]
+        and not (getattr(args, "figma_manifest", None) or getattr(args, "revise_figma_manifest", None))
+    ):
+        raise ValueError(
+            "Approved scope requires external path, trusted pin and --figma-manifest or stopped --revise-figma-manifest"
+        )
     if getattr(args, "figma_manifest", None):
         if started:
             raise ValueError("--figma-manifest is a new-run input; saved references are immutable")
-        manifest_input = getattr(args, "_design_manifest_input", None) or design_manifest.load(args.figma_manifest)
+        manifest_input = getattr(args, "_design_manifest_input", None) or design_manifest.load(
+            args.figma_manifest, **scope_arguments
+        )
     if started and not getattr(args, "status", False):
         design_manifest.context(state.get("settings") or {})
     saved_provider = dict(state.get("settings") or {})
@@ -368,8 +384,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                 "reasoning_effort": getattr(args, "glm_reasoning_effort", None),
             }
             settings.setdefault("transport_identities", {})["opencode"] = settings["transport_identity"]
-            opencode.check_models(settings["roles"], Path(state["workspace"]))
-            opencode.check_subscription_routes(settings["roles"], Path(state["workspace"]))
+            role_transport.check_models(settings, opencode, Path(state["workspace"]))
+            role_transport.check_subscription_routes(settings, opencode, Path(state["workspace"]))
         if joint:
             configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
         if getattr(args, "planning_v2", False):
@@ -555,11 +571,14 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             **({"max_cost_usd": args.max_cost_usd} if getattr(args, "max_cost_usd", None) is not None else {}),
         },
     }
-    if manifest_input:
+    scoped_readonly = bool(
+        scope_arguments["approved_scope"] and (getattr(args, "dry_run", False) or getattr(args, "status", False))
+    )
+    if manifest_input and not scoped_readonly:
         settings["design_manifest"] = (
             manifest_input
             if getattr(args, "dry_run", False) or getattr(args, "status", False)
-            else design_manifest.retain(manifest_input, state["workspace"])
+            else design_manifest.retain(manifest_input, state["workspace"], **scope_arguments)
         )
     if figma_file:
         figma.require_chatgpt(local)
@@ -581,6 +600,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         configure_joint(settings, args, fresh=True, planning=planning, opencode=opencode)
     if getattr(args, "conversation_handoff", None):
         planner_routes.configure_runner_profile(settings, args)
+    role_transport.configure(settings, args, state["workspace"])
     if getattr(args, "planning_v2", False):
         settings["planning_flow"] = "v2"
     if adaptive.new_run_setting(
@@ -692,11 +712,16 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         settings["roles"]["plan_reviewer"]["model"] = args.plan_reviewer_model
     if getattr(args, "plan_reviewer_reasoning_effort", None):
         settings["roles"]["plan_reviewer"]["reasoning_effort"] = args.plan_reviewer_reasoning_effort
+    if fresh:
+        role_transport.configure(settings, args, getattr(args, "workspace", None))
     configured_tool = getattr(opencode, "CONFIGURED", False)
     for role, config in settings["roles"].items():
         # One rule for a launch and for a model named at a quota stop (autocode_quota_route).
         problem = quota_route.model_problem(
-            role, config.get("model"), role_engine=planning.engine_for(settings, role), configured_tool=configured_tool
+            role,
+            config.get("model"),
+            role_engine=planning.engine_for(settings, role),
+            configured_tool=role_transport.configured(settings, role, configured_tool),
         )
         if problem:
             raise ValueError(problem)
@@ -741,7 +766,7 @@ def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None
     if opencode is None:
         opencode = autocode_opencode
     settings = state["settings"]
-    if settings.get("replay_recording"):
+    if settings.get("replay_recording") or role_transport.enabled(settings):
         return False
     if settings.get("engine") != "opencode":
         return False  # Explicit legacy --engine codex runs retain their contract.

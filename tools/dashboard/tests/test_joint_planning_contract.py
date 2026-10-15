@@ -41,6 +41,9 @@ class JointPlanningContractTests(unittest.TestCase):
             raise unittest.SkipTest("Set AUTOCODE_RUNNER_SOURCE to test the real dashboard/runner contract")
         spec = importlib.util.spec_from_file_location("_dashboard_runner_contract", cls.runner_source)
         cls.runner = importlib.util.module_from_spec(spec)
+        registration = patch.dict(sys.modules, {spec.name: cls.runner})
+        registration.start()
+        cls.addClassCleanup(registration.stop)
         with patch.object(sys, "path", [str(cls.runner_source.parent), *sys.path]):
             spec.loader.exec_module(cls.runner)
 

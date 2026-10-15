@@ -5,13 +5,11 @@ try:
     from . import autocode_cost as cost
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_source_scope as source_scope
-    from . import autocode_stop_explanations as explanations
 except ImportError:
     import autocode_answer_output as answer_output
     import autocode_cost as cost
     import autocode_launch_inputs as launch_inputs
     import autocode_source_scope as source_scope
-    import autocode_stop_explanations as explanations
 
 import json
 import sys
@@ -22,6 +20,7 @@ try:
     from . import autocode_conversation as conversation_protocol
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_progress_view as progress_view
+    from . import autocode_stop_explanations as stop_explanations
     from . import autocode_verification_inspection as verification
     from . import autocode_verification_preparation as preparation
 except ImportError:
@@ -29,15 +28,18 @@ except ImportError:
     import autocode_conversation as conversation_protocol
     import autocode_job_report_recovery as job_report_recovery
     import autocode_progress_view as progress_view
+    import autocode_stop_explanations as stop_explanations
     import autocode_verification_inspection as verification
     import autocode_verification_preparation as preparation
 
 
-def render(runner, state, args, workspace, run_dir):
+def render(runner, state, args, workspace, run_dir, *, design_input_preview=None):
     owner = controller_owner.inspect(state, run_dir, workspace) if (Path(run_dir) / "state.json").is_file() else None
     state = controller_owner.project(state, owner)
     if getattr(args, "explain", False):
-        text = explanations.explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
+        text = stop_explanations.explain(
+            state.get("status") or "", stop_reason=state.get("stop_reason") or "", needs=runner.run_view.needs(state)
+        )
         print(text["what_happened"])
         print()
         print(text["what_it_means"])
@@ -133,6 +135,7 @@ def render(runner, state, args, workspace, run_dir):
         runner_check_liveness=check_liveness,
         verification_obligation=preparation.frontier(run_dir / "check-replay" / "obligations", check),
         stale_report_repair=runner.stale_report_repair(state, workspace) is not None,
+        design_input_preview=design_input_preview,
         run_dir=run_dir,
         workspace=workspace,
     )
@@ -284,6 +287,20 @@ def pause_summary(runner, state, workspace, run_dir):
     except ImportError:
         import autocode_pause_command as pause_command
     return pause_command.summary(runner.run_view.view(state, run_dir=run_dir, workspace=workspace))
+
+
+def print_pause(runner, state, args, workspace, run_dir, rendered):
+    """Print a non-complete outcome: with ``--json``, the same payload ``--status``
+    prints; otherwise the prose view. The caller renders the prose BEFORE writing
+    state — present() has a deliberate state effect (it drops a stale
+    displayed_goal), and that effect must land before the state is persisted."""
+    if getattr(args, "json", False):
+        runner.json_output.status(runner, state, args, workspace, run_dir)
+    else:
+        summary = pause_summary(runner, state, workspace, run_dir)
+        if summary:
+            print(summary)
+        print(rendered)
 
 
 def rejection_message(runner, state, workspace, run_dir, error):
