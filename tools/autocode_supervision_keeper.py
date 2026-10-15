@@ -29,6 +29,23 @@ except ImportError:
 class KeeperTree(processes.ProcessTree):
     """A CLI keeper excludes itself and may stop its exact configured parent."""
 
+    # Passive timing for the terminal receipt (#1143): seconds spent in whole-host session and
+    # process-group scans since the keeper last reset it. It measures; it never bounds or decides.
+    enumeration_seconds = 0.0
+
+    def _timed_enumeration(self, scan, *args, **kwargs):
+        started = time.monotonic()
+        try:
+            return scan(*args, **kwargs)
+        finally:
+            self.enumeration_seconds += time.monotonic() - started
+
+    def _group_candidates(self, *args, **kwargs):
+        return self._timed_enumeration(super()._group_candidates, *args, **kwargs)
+
+    def _session_candidates(self, *args, **kwargs):
+        return self._timed_enumeration(super()._session_candidates, *args, **kwargs)
+
     def inventory(self):
         return list(self.known.values())
 
@@ -130,6 +147,35 @@ class Observer:
                 raise processes.ProcessError("Observed provider remains alive")
             time.sleep(0.02)
         return None
+
+
+def stop_timing(published, requested, loop_exit, samples):
+    """The terminal receipt's bounded passive phase timing (#1143).
+
+    Every mark is in seconds relative to ``published``, the monotonic moment the terminal
+    receipt was built, so it is zero or negative; the receipt's ``observed_at``, taken as it
+    is written, gives that moment's wall clock. ``requested`` is the stop trigger (the owner's
+    finished message, owner loss, the deadline), None when no trigger ran. ``samples`` holds
+    the sampling loop's latest KeeperTree sample (``last``: the one in flight when a request
+    arrived during it) and a discharge's final sample (``final``), each a (started, finished,
+    enumeration seconds) triple or None. The record only reports; nothing waits on it.
+    """
+
+    def offset(moment):
+        return None if moment is None else round(moment - published, 6)
+
+    def sample(record):
+        if record is None:
+            return None
+        started, finished, enumeration = record
+        return {"started": offset(started), "finished": offset(finished), "enumeration_seconds": round(enumeration, 6)}
+
+    return {
+        "requested": offset(requested),
+        "loop_exit": offset(loop_exit),
+        "last_sample": sample(samples.get("last")),
+        "final_sample": sample(samples.get("final")),
+    }
 
 
 def _leads_session(identity):
@@ -369,6 +415,17 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
     terminal_error = None
     previous_inventory = tree.inventory()
     pending_sessions = {}
+    samples = {"last": None, "final": None}
+    loop_exit = None
+
+    def timed_sample(slot):
+        # Passive marks for the terminal receipt (#1143); the sample itself is unchanged.
+        tree.enumeration_seconds = 0.0
+        started = time.monotonic()
+        try:
+            return processes.settled_sample(tree, notify=False)
+        finally:
+            samples[slot] = (started, time.monotonic(), tree.enumeration_seconds)
 
     def service_sessions():
         if listener is None:
@@ -444,7 +501,7 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                     )
                     os.write(acknowledgement, (json.dumps(answer) + "\n").encode())
             service_sessions()
-            rows = processes.settled_sample(tree, notify=False)
+            rows = timed_sample("last")
             inventory = tree.inventory()
             if previous_inventory != inventory:
                 save()
@@ -456,9 +513,10 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                 break
             # This wait is interruptible by owner loss/deadline, not a test sleep.
             triggered.wait(0.05)
+        loop_exit = time.monotonic()
         discharged = external is not None and reason[0] == "controller_finished"
         if discharged:
-            remaining = [row for row in processes.settled_sample(tree, notify=False) if row["pid"] != provider["pid"]]
+            remaining = [row for row in timed_sample("final") if row["pid"] != provider["pid"]]
             if remaining:
                 raise processes.ProcessError("CLI discharged with live child processes")
         if not discharged and policy == "interrupt_root":
@@ -504,7 +562,12 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
             terminal_error = "; ".join(filter(None, [terminal_error, *monitor_error]))
             result = 4
         # A late normal discharge cannot overwrite stopped with stopping.
-        value.update(phase=terminal_phase, cause=reason[0] or "keeper_failure", cleanup_error=terminal_error)
+        value.update(
+            phase=terminal_phase,
+            cause=reason[0] or "keeper_failure",
+            cleanup_error=terminal_error,
+            stop_timing=stop_timing(time.monotonic(), cleanup_started[0], loop_exit, samples),
+        )
         if escalation[0]:
             escalation[0].cancel()
         try:

@@ -241,6 +241,12 @@ PR template asks for an entry here; a change without one is incomplete.
 - Keep valid Node 22.14 ordinary test results usable as named proof when Node's
   event omits the test type; suites and malformed retained evidence keep their
   existing checks (#1266).
+- A harness-guarded CLI whose keeper does not discharge within the unchanged eight-second bound now exits 2 with
+  `Harness keeper discharge did not finish within its bound`, naming the receipt phase it saw and the seconds since
+  its finished message, instead of an uncaught `TimeoutExpired` traceback. Every keeper's terminal supervision
+  receipt gains `stop_timing`: the stop request, sampling-loop exit, the loop's latest and a discharge's final
+  process sample, and the time spent in whole-host session and process-group scans, as seconds before
+  publication. The diagnostics change no wait, ownership check or cleanup decision (part of #1143).
 - Restore strict task-stage provider refusal on unsupported hosts, including macOS, before any
   child or supervision receipt is created. This replaces the
   macOS-only fallback from #1195; ordinary verification commands retain portable supervision (#454).
