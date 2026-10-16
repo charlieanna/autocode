@@ -361,6 +361,8 @@ SEATBELT_WORDS = frozenset(
         "require-not",
     ]
 )
+# The write operations _render_policy() grants; an allow naming one must keep its shape.
+SEATBELT_WRITES = ("file-write*", "file-write-data")
 SEATBELT_TOKEN = re.compile(r'\s+|[()]|"(?:[^"\\]|\\["\\])*"|[^\s()"]+')
 
 
@@ -393,27 +395,37 @@ def _seatbelt_forms(text):
     return stack[0] if len(stack) == 1 else None
 
 
-def _write_allow_reaches(form, denied_dirs):
-    """Whether a Seatbelt ``(allow file-write* ...)`` form could write a denied directory (#1250).
+def _write_allow_is_confined(form, denied_dirs):
+    """Whether a Seatbelt ``(allow ...)`` write grant keeps the shape the renderer writes (#1250).
 
     A write grant over a denied directory, inside it, or over an ancestor of it lets the shell
     move or hard-link private run state to a readable path, so it defeats the read denial. The
-    legitimate read-only planning profile grants writes only to scratch, ``/dev/null`` and the
-    recorded check outputs, none of which touch the store. A ``regex`` write pattern this parser
-    does not reason about is refused conservatively; a read-only planning profile has none.
+    read-only planning profile grants writes only to scratch, ``/dev/null`` and the recorded
+    check outputs, as ``file-write*`` or ``file-write-data`` with positive ``(literal "<path>")``
+    and ``(subpath "<path>")`` filters. Only that shape is accepted: write operations alone, at
+    least one filter, and each filter's path absolute, canonical as written (as _path() renders
+    it) and neither inside nor holding a denied directory. Anything else can reach the store
+    without naming a path near it, so it is refused: an unfiltered grant writes everywhere, a
+    ``require-not``, ``require-any`` or ``require-all`` filter can match the store through a
+    path it does not name, a ``regex`` is not reasoned about, and a symlink or ``..`` in a path
+    may not mean what the path's text says.
     """
-    stack = list(form[1:])
-    while stack:
-        item = stack.pop()
-        if isinstance(item, list):
-            stack.extend(item)
-        elif isinstance(item, tuple):  # ("string", raw JSON token)
-            target = Path(os.path.normpath(json.loads(item[1])))
-            if any(target.is_relative_to(d) or d.is_relative_to(target) for d in denied_dirs):
-                return True
-        elif item == "regex":
-            return True
-    return False
+    words = [item for item in form[1:] if isinstance(item, str)]
+    filters = [item for item in form[1:] if not isinstance(item, str)]
+    if not filters or any(word not in SEATBELT_WRITES for word in words):
+        return False
+    for item in filters:
+        if not (isinstance(item, list) and len(item) == 2 and item[0] in ("literal", "subpath")):
+            return False
+        if not isinstance(item[1], tuple):  # ("string", raw JSON token)
+            return False
+        value = json.loads(item[1][1])
+        if not value.startswith("/") or os.path.realpath(value) != value:
+            return False
+        target = Path(value)
+        if any(target.is_relative_to(d) or d.is_relative_to(target) for d in denied_dirs):
+            return False
+    return True
 
 
 def _enforces_private_reads(host, profile, reads):
@@ -422,13 +434,16 @@ def _enforces_private_reads(host, profile, reads):
     Seatbelt: a strict parse in the renderer's own vocabulary. Every top-level form is a
     version, allow or deny rule, those words appear nowhere else, and each denial rule is a
     top-level form after every allow rule, so it is the last match. No ``allow`` may grant
-    ``default`` or a write that reaches a denied directory: a write grant over the store or
-    an ancestor defeats the denial as surely as a read grant, by moving or hard-linking
-    private state to a readable path. bubblewrap: a strict parse of the arguments. Each
-    denied directory is one tmpfs, sealed read-only after it. A bind's source must be exactly
-    as the renderer wrote it -- absolute, canonical, and never a per-process ``/proc`` or
-    ``/dev/fd`` link, which the kernel resolves differently in this verifier than in bwrap --
-    so the source is judged as the kernel opens it: one inside a denied directory must be
+    ``default``, and a write grant must keep the renderer's shape: positive literal or subpath
+    filters over canonical paths that neither lie inside nor hold a denied directory
+    (_write_allow_is_confined()). A write grant over the store or an ancestor defeats the
+    denial as surely as a read grant, by moving or hard-linking private state to a readable
+    path. bubblewrap: a strict parse of the arguments. Each denied directory is one tmpfs,
+    sealed read-only after it. A bind's source must be exactly as the renderer wrote it --
+    absolute, canonical as written (no symlink, ``.``, ``..`` or doubled slash, not even one a
+    lexical normalisation would cancel), and never a per-process ``/proc`` or ``/dev/fd``
+    link, which the kernel resolves differently in this verifier than in bwrap -- so the
+    source is judged as the kernel opens it: one inside a denied directory must be
     inside a readable exception, one holding a denied directory must be mounted read-only
     onto itself before the tmpfs, no writable bind may cover the store or an ancestor, and no
     bind after the tmpfs may cover the denied directory again.
@@ -458,9 +473,7 @@ def _enforces_private_reads(host, profile, reads):
             words = [item for item in form[1:] if isinstance(item, str)]
             if "default" in words:  # (allow default ...) grants writes over the store too.
                 return False
-            if any(word in ("file-write*", "file-write-data") for word in words) and _write_allow_reaches(
-                form, denied_dirs
-            ):
+            if any(word in SEATBELT_WRITES for word in words) and not _write_allow_is_confined(form, denied_dirs):
                 return False
         return True
     values = profile.split(b"\0")
@@ -475,7 +488,10 @@ def _enforces_private_reads(host, profile, reads):
         if flag not in ("--cap-drop", "--symlink"):
             if any(not value.startswith("/") for value in operands):
                 return False
-            operands = [os.path.normpath(value) for value in operands]
+            normal = [os.path.normpath(value) for value in operands]
+            # A bind's source stays as written: normalising it first would cancel a symlink
+            # followed by "..", which the kernel resolves through the link's target (#1250).
+            operands = [operands[0], *normal[1:]] if flag in BWRAP_BINDS else normal
         operations.append((flag, operands))
         index += 1 + width
     readable = [Path(os.path.normpath(value)) for value in reads["readable"]]
@@ -490,11 +506,13 @@ def _enforces_private_reads(host, profile, reads):
         for i, (flag, paths) in enumerate(operations):
             if flag not in BWRAP_BINDS:
                 continue
-            raw = paths[0]  # Already absolute and os.path.normpath()ed above.
+            raw = paths[0]  # Absolute and exactly as written, never normalised (see above).
             # A per-process /proc or /dev/fd link resolves to one path in this verifier and
             # another in bwrap (launched from the workspace), so its source cannot be judged
-            # here. Every source the renderer writes is already canonical (_path refuses
-            # symlinked authority paths), so require exactly that and refuse the magic links.
+            # here. Every source the renderer writes is already canonical as written (_path
+            # refuses symlinked authority paths), so require exactly that -- which refuses a
+            # symlink, and a symlink followed by "..", in the source as written -- and refuse
+            # the magic links.
             if raw == "/proc" or raw == "/dev/fd" or raw.startswith(("/proc/", "/dev/fd/")):
                 return False
             if os.path.realpath(raw) != raw:

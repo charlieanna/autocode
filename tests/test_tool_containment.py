@@ -98,6 +98,19 @@ class PolicyTests(unittest.TestCase):
             # position (where a read allowance would stay harmless) does not make it safe.
             write_store = f'(allow file-write* (subpath "{runs}"))'
             write_ws = f'(allow file-write* (subpath "{root}"))'
+            # Write grants that reach the store without naming a path near it: unfiltered, negated,
+            # or through a symlink and ".." that a lexical normalisation would cancel.
+            (root / "sub").mkdir()
+            (root / "sub/link").symlink_to(runs / "own", target_is_directory=True)
+            unconfined = {
+                "unfiltered write grant": "(allow file-write*)",
+                "unfiltered data write grant": "(allow file-write-data)",
+                "negated write grant": '(allow file-write* (require-not (literal "/dev/null")))',
+                "negated write grant inside require-any": (
+                    f'(allow file-write* (require-any (subpath "{scratch}") (require-not (literal "/dev/null"))))'
+                ),
+                "write grant through a symlink and dot-dot": f'(allow file-write* (subpath "{root}/sub/link/.."))',
+            }
             for name, weakened in {
                 "a later allow": profile + allow + "\n",
                 "a later allow default": profile + "(allow default)\n",
@@ -113,6 +126,14 @@ class PolicyTests(unittest.TestCase):
                 "an earlier write grant over the workspace": profile.replace(
                     "(version 1)\n", "(version 1) " + write_ws + "\n", 1
                 ),
+                **{
+                    f"an earlier {name}": profile.replace("(version 1)\n", "(version 1) " + grant + "\n", 1)
+                    for name, grant in unconfined.items()
+                },
+                **{
+                    f"a later {name} before the denial": profile.replace(rule, grant + "\n" + rule, 1)
+                    for name, grant in unconfined.items()
+                },
                 # Each of the next forms is refused by one check alone. An unknown word, here in an
                 # otherwise well-formed later denial, is refused by the vocabulary (SEATBELT_WORDS).
                 "an unknown word inside a later deny": profile
@@ -133,6 +154,16 @@ class PolicyTests(unittest.TestCase):
             scratch_write = f'(allow file-write* (subpath "{scratch / "nested"}"))'
             benign = profile.replace("(version 1)\n", "(version 1) " + scratch_write + "\n", 1)
             self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, benign.encode(), reads))
+            # So is every write grant shape the renderer writes: scratch roots and check outputs.
+            outputs = containment._render_policy(
+                root,
+                scratch,
+                write_roots=[scratch / "out"],
+                write_files=[scratch.parent / "check.log"],
+                private_reads=reads,
+            )
+            self.assertIn("(allow file-write-data (literal ", outputs)
+            self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, outputs.encode(), reads))
             with self.assertRaisesRegex(ValueError, "read-only shell"):
                 containment._render_policy(root, scratch, allow_write=True, private_reads=reads)
 
@@ -422,6 +453,8 @@ class BubblewrapArgumentTests(unittest.TestCase):
         self.assertNotIn("--tmpfs", ordinary)
         self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(ordinary), reads))
         (self.root / "alias").symlink_to(own, target_is_directory=True)
+        (self.root / "sub").mkdir()
+        (self.root / "sub/link").symlink_to(own, target_is_directory=True)
         for shown_again in (
             ["--ro-bind", str(self.root), str(self.root)],
             ["--ro-bind", str(runs / "sibling"), str(self.scratch / "sibling")],
@@ -430,6 +463,9 @@ class BubblewrapArgumentTests(unittest.TestCase):
             ["--ro-bind", str(self.root), str(self.scratch / "mirror")],
             ["--ro-bind", str(own / "planning/../state.json"), str(self.scratch / "state.json")],
             ["--ro-bind", str(self.root / "alias"), str(self.scratch / "alias")],
+            # A symlink followed by "..": lexically <root>/sub, but the kernel opens the link
+            # target's parent, the store, so the source is judged exactly as written.
+            ["--ro-bind", str(self.root / "sub/link/.."), str(self.scratch / "peek")],
             ["--ro-bind", ".autocode/runs/own", str(self.scratch / "relative")],
             # A per-process /proc or /dev/fd source resolves to a different path in bwrap than
             # in this verifier (#1250), so it cannot be judged here and is refused outright.
@@ -1416,6 +1452,9 @@ class KernelTests(unittest.TestCase):
             def bound(source, target):
                 return arguments([*values[:-2], b"--ro-bind", os.fsencode(source), os.fsencode(target), *values[-2:]])
 
+            # Outside the workspace, so the verification copy's source is unchanged.
+            (self.home / "elsewhere").mkdir()
+            (self.home / "elsewhere/link").symlink_to(self.run_dir, target_is_directory=True)
             weakened = {
                 "without the tmpfs": (arguments(values[:hidden] + values[hidden + 2 : -4] + values[-2:]), state),
                 "the workspace bound elsewhere": (
@@ -1425,6 +1464,11 @@ class KernelTests(unittest.TestCase):
                 "a dot-dot source": (
                     bound(self.run_dir / "planning/../state.json", scratch / "dotdot"),
                     scratch / "dotdot",
+                ),
+                # Lexically <home>/elsewhere; the kernel opens the link target's parent, the store.
+                "a symlink and dot-dot source": (
+                    bound(self.home / "elsewhere/link/..", scratch / "peek"),
+                    scratch / "peek" / self.run_dir.name / "state.json",
                 ),
             }
         profile.chmod(0o600)
@@ -1459,11 +1503,20 @@ class KernelTests(unittest.TestCase):
                 self.workspace / ".moved" / self.run_dir.relative_to(self.workspace / ".autocode") / "state.json"
             )
             self.assertIn('"private"', self.run_shell(shlex.join(["cat", str(moved_state)]), repinned).stdout)
-            # Restore the store from the test process, then the parse alone must refuse the re-pin.
+            # Restore the store from the test process. The fresh sandbox's --tmpfs made bwrap
+            # create an empty runs/ mount point through the writable bind, so each child is
+            # renamed onto its name, replacing that empty directory (moving it there would nest
+            # the store inside it, and verify() would then refuse for the missing run instead).
             restored = self.workspace / ".moved"
             for child in restored.iterdir():
-                shutil.move(str(child), str(self.workspace / ".autocode" / child.name))
+                child.replace(self.workspace / ".autocode" / child.name)
             restored.rmdir()
+            self.assertEqual('{"private":"own run state"}\n', state.read_text())
+            # The restored store passes verify() with the original profile, so only the parse
+            # of the writable re-pin can refuse it.
+            profile.write_bytes(original)
+            containment.verify(boundary)
+            profile.write_bytes(writable)
             with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
                 containment.verify(repinned)
             profile.write_bytes(original)
