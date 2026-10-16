@@ -855,6 +855,82 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertNotIn("limits", self.packet()["settings"])
         self.assertEqual({"iteration_ceiling": None, "max_seconds": 0}, self.state["settings"]["limits"])
 
+    def milestone_budget_failure(self, origins):
+        """The failure under milestone checkpoints with a 100-second budget, captured into its recovery packet."""
+        state = copy.deepcopy(self.state)
+        state["settings"].update(
+            milestone_checkpoints={"enabled": True, "max_seconds": 100, "stalled_reviews": 3, "max_replans": 1},
+            budget_origins=copy.deepcopy(origins),
+        )
+        state["resolution_request"] = {key: value for key, value in self.request.items() if key != "recovery_packet"}
+        record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
+        recovery.prepare_resolution(state, {"summary": "Wrong answer"}, record)
+        return state
+
+    def test_a_milestone_budget_change_keeps_the_assigned_repair_admissible(self):
+        # #611: a milestone-budget stop can come before a repair's Builder launches (its stronger attempt projected
+        # past the budget you set, or the milestone's time at the budget), and it advises resuming with
+        # --max-milestone-seconds N. That budget decides whether the Builder may launch, not what it acts on, but
+        # the packet bound it: the advised resume stopped at PAUSED_STALE_HANDOFF instead of launching the repair.
+        def resume_with(seconds):
+            # What autocode_configure saves for --max-milestone-seconds on a resumed run.
+            def change(settings):
+                settings["milestone_checkpoints"]["max_seconds"] = seconds
+                settings.setdefault("budget_origins", {})["milestone_max_seconds"] = "user_explicit"
+
+            return change
+
+        def turn_off(settings):
+            settings["milestone_checkpoints"]["enabled"] = False
+
+        set_budget = {"milestone_max_seconds": "user_explicit"}
+        cases = {
+            "the budget you set, raised": (set_budget, resume_with(600), None),
+            "the budget you set, removed": (set_budget, resume_with(0), None),
+            "a default budget, then one you set": ({}, resume_with(600), None),
+            # The other checkpoint settings stay bound.
+            "checkpoints turned off": (set_budget, turn_off, "settings, contract or scope changed before admission"),
+        }
+        for name, (origins, change, refused) in cases.items():
+            with self.subTest(name):
+                state = self.milestone_budget_failure(origins)
+                pointer = copy.deepcopy(state["resolution_request"]["recovery_packet"])
+                plan = {"tasks": [copy.deepcopy(state["current_task"])]}
+                recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
+                state.update(repair_plan=plan, next_stage="terra")
+                change(state["settings"])
+                attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+                if refused:
+                    with self.assertRaisesRegex(util.Paused, refused) as caught:
+                        recovery.admit_dispatch(state, attempt, self.root, self.run)
+                    self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
+                    continue
+                recovery.admit_dispatch(state, attempt, self.root, self.run)
+                self.assertEqual("repair", attempt["recovery_novelty"]["action"])
+                self.assertEqual(pointer, attempt["recovery_novelty"]["packet"])
+
+    def test_a_packet_saved_before_the_milestone_budget_left_its_binding_still_binds(self):
+        # Saved-run compatibility (#611): an earlier version hashed the milestone budget with the other settings.
+        # Its packet still admits a dispatch while those settings are unchanged; for it, a changed milestone budget
+        # is still a changed setting, as it was.
+        state = self.milestone_budget_failure({"milestone_max_seconds": "user_explicit"})
+        pointer = state["resolution_request"]["recovery_packet"]
+        path = Path(pointer["path"])
+        packet = json.loads(path.read_text())
+        # The earlier normalization left nothing in these settings out.
+        packet["binding"]["settings_hash"] = util.digest(state["settings"])
+        path.write_text(json.dumps(packet))
+        pointer["sha256"] = util.file_hash(path)
+        diagnosis = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json")}
+        recovery.admit_dispatch(copy.deepcopy(state), diagnosis, self.root, self.run)
+        self.assertEqual("diagnosis", diagnosis["recovery_novelty"]["action"])
+        state["settings"]["milestone_checkpoints"]["max_seconds"] = 600
+        with self.assertRaisesRegex(util.Paused, "settings") as caught:
+            recovery.admit_dispatch(
+                state, {"stage": "astra_resolve", "output": str(self.run / "later.json")}, self.root, self.run
+            )
+        self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
+
     def two_criteria_failure(self):
         """T1 owns C1 and C2 of the approved C1-C3 and fails; its recovery packet is captured."""
         state = copy.deepcopy(self.state)

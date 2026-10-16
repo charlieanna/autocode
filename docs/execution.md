@@ -255,14 +255,12 @@ the projection, the milestone's time so far, the total and the budget to resume 
 active time, the last Builder attempt's duration, it would take this milestone's active time from
 650 s to 1,250 s, past the 1,000 s milestone budget you set ... resume with --max-milestone-seconds
 1250 or more`. The climb stays saved, so `--resume-paused --max-milestone-seconds M` with `M` at
-least that total launches that same attempt. Known limitation (#611): when the stronger attempt is
-the one a known-correction repair chose (an attested `recovery_change`, see
-[Evidence-bound repair](#evidence-bound-repair)), that resume changes the settings the repair's
-recovery packet is bound to, so the attempt stops at `PAUSED_STALE_HANDOFF` instead. That resume
-also restarts the milestone's count, as it always does. Reasserting the saved budget alone does
-not acknowledge this pause; any other `M`, or `0` for no limit, does, and the attempt is then checked against `M` from the restarted
-count. Only the Builder is checked against this budget, since it gates writer launches; a Tester or
-Completion Reviewer climb is not. The new-run default and a budget delegated with
+least that total launches that same attempt, including one a repair's recovery packet holds (see
+[Evidence-bound repair](#evidence-bound-repair)); that resume also restarts the milestone's
+count, as it always does. Reasserting the saved budget alone does not acknowledge this pause; any
+other `M`, or `0` for no limit, does, and the attempt is then checked against `M` from the
+restarted count. Only the Builder is checked against this budget, since it gates writer launches;
+a Tester or Completion Reviewer climb is not. The new-run default and a budget delegated with
 `--autoresolver-managed-limits` are not projected and keep only the check at the writer launch, as
 do a progressive run's slice budget and a last attempt without a recorded duration. So does a
 budget given while turning checkpoints on for a saved run, in the same command
@@ -1207,10 +1205,18 @@ escalation decision, assignment checks, fresh independent validation and the
 Completion gate. Unsupported changes remain unknown rather than being treated as
 proven progress.
 
+A recovery packet is bound to the run's settings, but not to its launch ceilings: the iteration
+limit, the active-time budget, the cost cap and the milestone budget. They decide whether an
+attempt may launch, not what it acts on, so resuming with a new one, as a budget stop advises,
+or AutoResolver's one-time extension of a default one, keeps the packet and the repair it holds,
+and buys no novelty. Other settings changes, such as another model or stage time limit, still
+make the repair a stale handoff (`PAUSED_STALE_HANDOFF`). A packet saved before #611 stays bound
+to the milestone budget it was captured with.
+
 The `rework-same-failure` scenario (scenarios/README.md) shows the hold on a correct repair: the
 required suite keeps failing on a file the task may not change, so after the second identical
 failure the run stops at `RESOLVER_PENDING` naming that check, with no paid diagnosis or third
-Builder attempt and most of its cost cap left (#611).
+Builder attempt, and the status view's `cost` shows the spend under the cost cap (#611).
 
 An attempt that automatic recovery archived because it ended without a completed
 turn (a provider timeout, capacity or startup failure, or a denied path) returned

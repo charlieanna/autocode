@@ -133,15 +133,29 @@ def _wrappers(state: RunState, record, run):
     return [list(row) for row in rows]
 
 
-def _binding(state: RunState, revision):
-    contract = state.get("goal_contract") or {}
+# These ceilings decide whether work may launch, not what source/evidence it
+# acts on. The controller still enforces them; changing one grants no novelty.
+_EARLIER_CEILINGS = {
+    "limits": ("iteration_ceiling", "max_seconds", "max_cost_usd"),
+    "budget_origins": ("iteration_ceiling", "max_seconds", "max_cost_usd"),
+}
+# The milestone budget (--max-milestone-seconds) is one too (#611): it gates a writer launch
+# (autocode_milestones.dispatch_guard, autocode_climb_cap). Its stops advise resuming with a new one,
+# and AutoResolver may extend a default one; bound, either made the held repair a stale handoff.
+# The other milestone checkpoint settings stay bound.
+_CEILINGS = {
+    **_EARLIER_CEILINGS,
+    "budget_origins": (*_EARLIER_CEILINGS["budget_origins"], "milestone_max_seconds"),
+    "milestone_checkpoints": ("max_seconds",),
+}
+
+
+def _bound_settings(state: RunState, ceilings):
     # A model a person named at a quota stop (#184) is bound as the route it replaced,
     # and the Resolver's own climb (#1345) as the rung it left.
     settings = escalation.unclimbed(state, quota_route.unassigned(state, state.get("settings", {})), "resolver")
-    # These ceilings decide whether work may launch, not what source/evidence it
-    # acts on. The controller still enforces them; changing one grants no novelty.
-    for section in ("limits", "budget_origins"):
-        for key in ("iteration_ceiling", "max_seconds", "max_cost_usd"):
+    for section, keys in ceilings.items():
+        for key in keys:
             if section in settings:
                 settings[section].pop(key, None)
         if not settings.get(section):
@@ -153,12 +167,31 @@ def _binding(state: RunState, revision):
     # identity has changed; any actual entry remains strictly bound below.
     if settings.get("transport_identities") == {}:
         settings.pop("transport_identities")
+    return settings
+
+
+def _binding(state: RunState, revision):
+    contract = state.get("goal_contract") or {}
     return {
         "contract_hash": contract.get("hash"),
         "contract_revision": contract.get("revision"),
         "task_id": (state.get("current_task") or {}).get("id"),
         "source_revision": revision,
-        "settings_hash": util.digest(settings),
+        "settings_hash": util.digest(_bound_settings(state, _CEILINGS)),
+    }
+
+
+def _holds(saved, state: RunState, revision):
+    """Whether ``saved``, a binding recorded earlier, still holds for ``state`` at ``revision``.
+
+    One saved before #611 bound the milestone budget with the other settings. It still holds while
+    they are unchanged when hashed that way, so a run upgraded with a recovery packet keeps it; for
+    that packet a changed milestone budget remains a changed setting, as it was.
+    """
+    current = _binding(state, revision)
+    return saved == current or saved == {
+        **current,
+        "settings_hash": util.digest(_bound_settings(state, _EARLIER_CEILINGS)),
     }
 
 
@@ -206,7 +239,7 @@ def diagnosis_current(state: RunState, request, revision):
         or any(type(value) is not type(current[key]) or value in ("", None) for key, value in bound.items())
     ):
         return True
-    return bound == current
+    return _holds(bound, state, request["source_revision"])
 
 
 def _source_revision(state: RunState, stage, pointer, packet, workspace):
@@ -409,7 +442,7 @@ def prepare_resolution(state: RunState, decision, record):
         _stale("source changed during incident capture")
     if "recovery_packet" in record:
         prior = load_packet(record["recovery_packet"], run)
-        if prior["binding"] != _binding(state, current["revision"]) or prior["current_error"] != decision:
+        if not _holds(prior["binding"], state, current["revision"]) or prior["current_error"] != decision:
             _stale("saved incident draft cannot be repinned to changed inputs")
         request["recovery_packet"] = copy.deepcopy(record["recovery_packet"])
         if decision.get("recovery_change"):
@@ -667,15 +700,16 @@ def _live_grant(state: RunState, packet, record, authorization):
         or state.get("pending_report_repair")
     ):
         return None
-    binding = _binding(state, packet["binding"]["source_revision"])
+    revision = packet["binding"]["source_revision"]
+    binding = _binding(state, revision)
     if authorization.get("novelty_packet"):
         held = _request(state, record["stage"]).get("novelty_hold") or {}
         valid = (
             authorization.get("actor") == "user_cli"
             and authorization["novelty_packet"] == util.digest(packet)
             and authorization.get("binding") == packet["binding"]
-            and authorization.get("dispatch_binding") == binding
-            and held.get("binding") == binding
+            and _holds(authorization.get("dispatch_binding"), state, revision)
+            and _holds(held.get("binding"), state, revision)
             and held.get("scope") == _scope(state)
         )
     else:
@@ -1135,7 +1169,7 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
     ):
         return False
     current = source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)
-    if _binding(state, current["revision"]) != packet["binding"]:
+    if not _holds(packet["binding"], state, current["revision"]):
         _stale("known correction changed scope or source before assignment")
     failed = [
         check for check in validation.get("checks", []) if type(check.get("exit_code")) is int and check["exit_code"]
@@ -1153,11 +1187,10 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
     if classification.classify({"record": accepted, "checks": facts, "checks_verified": True}) != "execution":
         return False  # Retain the existing queued diagnosis; do not charge an operational check failure.
     _verify_reports(state, decision, record, accepted, run_dir)
-    if (
-        _binding(
-            state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]
-        )
-        != packet["binding"]
+    if not _holds(
+        packet["binding"],
+        state,
+        source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"],
     ):
         _stale("source or binding changed while checking the failed evidence")
     candidate = copy.deepcopy(state)
@@ -1170,11 +1203,10 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
         if not error.status.startswith("PAUSED_MILESTONE_"):
             raise
     _verify_reports(state, decision, record, accepted, run_dir)
-    if (
-        _binding(
-            state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]
-        )
-        != packet["binding"]
+    if not _holds(
+        packet["binding"],
+        state,
+        source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"],
     ):
         _stale("source or binding changed while checking the proposed correction")
     action = retry_policy.failure(
@@ -1228,11 +1260,10 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
         }
     )
     _verify_reports(state, decision, record, accepted, run_dir)
-    if (
-        _binding(
-            state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]
-        )
-        != packet["binding"]
+    if not _holds(
+        packet["binding"],
+        state,
+        source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"],
     ):
         _stale("source or binding changed before committing the proposed correction")
     cast(dict, state).clear()
@@ -1250,7 +1281,7 @@ def authorize_retry(runner, state: RunState, run_dir, workspace):
         raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
     packet = load_packet(request["recovery_packet"], run_dir)
     revision = _source_revision(state, held.get("stage"), request["recovery_packet"], packet, workspace)
-    if held.get("binding") != _binding(state, revision) or held.get("scope") != _scope(state):
+    if not _holds(held.get("binding"), state, revision) or held.get("scope") != _scope(state):
         raise ValueError("Scoped recovery retry is stale; source, settings or approved scope changed")
     if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
         raise ValueError("Scoped recovery retry requires its no-progress hold")
@@ -1481,7 +1512,8 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
             _stale(str(error))
         if current_inputs != packet["inputs"] or current_pins != packet["input_pins"]:
             _stale("external input changed after incident capture")
-    bound = _binding(state, _source_revision(state, stage, pointer, packet, workspace))
+    revision = _source_revision(state, stage, pointer, packet, workspace)
+    bound = _binding(state, revision)
     # A repair has a newly assigned task, but the approved stable scope must match;
     # a pinned repair task may only narrow the failed task's criteria (#423).
     expected = {**packet["binding"], "task_id": bound["task_id"]} if stage == "terra" else packet["binding"]
@@ -1497,7 +1529,7 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
             _stale("repair admission changed packet or scope")
         expected = admission["binding"]
         within = _narrows(packet["scope"], scope, _decided(packet))
-    if bound != expected or not within:
+    if not _holds(expected, state, revision) or not within:
         _stale("current source, task, settings, contract or scope changed before admission")
     active = state.get("active_stage")
     if active and active is not record and active.get("output") != record.get("output"):

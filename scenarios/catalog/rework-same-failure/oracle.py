@@ -9,7 +9,8 @@ With a run it also checks, from the scripted run's trace and the public status v
   attempt or a paid diagnosis;
 - the stop names that check and says there was no progress on it, and is not a budget stop;
 - the run stopped with budget left: the view's cost shows the scenario's cap and less spent, and the run's active
-  time is under its time budget.
+  time is under its time budget. A scripted run never comes near either bound, so this reads only that the stop
+  reports what is left. A loop that keeps spending fails the first item's checks: a third attempt or a diagnosis.
 """
 
 import hashlib

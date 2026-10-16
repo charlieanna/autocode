@@ -300,10 +300,7 @@ PR template asks for an entry here; a change without one is incomplete.
 - A scenario catalog case for #611's rework loop, with an oracle, a reference and broken variants.
   `rework-same-failure` has a correct greeting repair whose required suite also fails a release test the task may
   not change: the run must stop after the second identical failure, naming the check, with no paid diagnosis or
-  third Builder attempt and most of its $5 cap left; it passes today. `docs/execution.md` now notes a known
-  limitation of the `PAUSED_MILESTONE_BUDGET` stop before a Builder climb: when a known-correction repair chose
-  the stronger attempt, the advised `--resume-paused --max-milestone-seconds M` stops at `PAUSED_STALE_HANDOFF`,
-  because that repair's recovery packet is bound to the milestone budget.
+  third Builder attempt, and its status view's `cost` must show the spend under the $5 cap; it passes today.
 
 ### Changed
 
@@ -1037,6 +1034,15 @@ PR template asks for an entry here; a change without one is incomplete.
   leaving the next climbed attempt, its failed check and its cost out while the cost said complete. The correction
   task the review assigns (`REWORK`) now sends that work back as the retry policy's charge does, so the row reads
   `failed_again` with every climbed attempt and its cost (#612).
+- A milestone-budget stop before a repair's Builder launched could not be resumed as it advised. The repair's
+  recovery packet bound the milestone budget with the run's other settings, so
+  `--resume-paused --max-milestone-seconds M` stopped at `PAUSED_STALE_HANDOFF` ("Recovery packet: current source,
+  task, settings, contract or scope changed before admission") instead of launching the attempt, such as the
+  stronger attempt a known correction chose. The packet now leaves the milestone budget out, as it already left out
+  the iteration limit, the active-time budget and the cost cap: those decide whether an attempt may launch, not
+  what it acts on. AutoResolver's one-time extension of a default milestone budget changes the same setting and no
+  longer counts as a settings change either. A packet saved before this change still binds while the run's
+  settings are unchanged, and stays bound to its milestone budget (#611).
 
 ## [0.7.1] — 2026-10-09
 
