@@ -1454,13 +1454,15 @@ read the run store, `.autocode/runs`: not this run's `state.json`, events or
 receipts, and no other run's files. Only this run's `planning/` artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
 its run context from its handoff (#1250). Nor can it read these `.autocode`
-stores, which hold other runs or what they keep: `archive` (runs archived from
+stores, which hold other runs, conversation records or what they keep: `archive` (runs archived from
 task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
 (parallel Builder workspaces and their runs), `bundles` (`autocode bundle`
-archives), `issues` (`autocode issue` worktrees and their runs), `programs`,
-`pull-reviews` (`autocode review-pr` checkouts and their runs), `registry` (the
-run registry), `replay` (replay recordings), `task-flows`, `verification`
-(`autocode verify` checkouts and reports) and `worktrees` (task and
+archives), `conversation-handoffs` (requirements conversation handoffs),
+`conversation-starts` (conversation start markers), `investigation` (bug
+investigation workspaces), `issues` (`autocode issue` worktrees and their runs),
+`programs`, `pull-reviews` (`autocode review-pr` checkouts and their runs),
+`registry` (the run registry), `replay` (replay recordings), `task-flows`,
+`verification` (`autocode verify` checkouts and reports) and `worktrees` (task and
 program worktrees). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an `--out` or `--arena` directory outside these
 stores, or another `.autocode` directory) is not denied. Each store that exists
@@ -1484,8 +1486,8 @@ with a real directory, or remove it, then `--resume-paused`.
 Everything else in `.autocode` stays as readable as the rest of the workspace:
 the launch's own control directory and scratch, project settings,
 retained design inputs, capture bundles, the shared `evidence` and `output`
-areas, other launches' `tool-containment-*` control directories, conversation
-records and AutoCode's other internal files.
+areas, other launches' `tool-containment-*` control directories, and AutoCode's
+other internal files.
 Before the provider starts, each such launch shows through the actual native
 shell that a file in its run directory and in each denied store cannot be
 read, and records the denial as `private_reads` in its `tool_containment` record
