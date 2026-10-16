@@ -1069,6 +1069,17 @@ class PolicyBlackbox(unittest.TestCase):
             f"resume with --max-seconds {needed} or more",
         ):
             self.assertIn(part, view["stop_reason"])
+        # A budget one second below the total the stop names is accepted and saved, but the run pauses again before
+        # the same attempt: the new stop projects it against that budget, under a new request. A resume refused
+        # when its arguments are read also exits 2, but leaves the stop and its request as they were.
+        request = view["needs"].get("resolver_request_id")
+        self.build(2, extra=["--resume-paused", "--max-seconds", str(needed - 1)])
+        self.assertEqual(before, self.events(), "the stronger attempt must not launch past the smaller budget")
+        view = self.view()
+        self.assertEqual("PAUSED_TIME_LIMIT", view["needs"].get("pause_origin"), view["needs"])
+        for part in (f"past the {needed - 1:,} s active-time budget you set", f"resume with --max-seconds {needed} or"):
+            self.assertIn(part, view["stop_reason"])
+        self.assertNotEqual(request, view["needs"].get("resolver_request_id"), "the resume must reach the new stop")
         self.build(extra=["--resume-paused", "--max-seconds", str(needed)])
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
 

@@ -660,7 +660,7 @@ tool execution and total stage runtime:
 | `--max-idle-seconds` | `300` | Stop a provider with no new recognized activity while no tool is running. |
 | `--max-tool-seconds` | `1800` | Stop a tool that exceeds its fixed deadline, including a quiet test command. Output and repeated starts do not extend this deadline. |
 | `--max-stage-seconds` | `3600` | Hard cap for the entire stage, enforced even while activity continues. |
-| `--max-seconds` | `43200` | Total active provider time for the run, checked at stage boundaries. |
+| `--max-seconds` | `43200` | Total active provider time for the run (its model attempts' durations added together), checked at stage boundaries and, when you set it, before an attempt on a stronger route (below). |
 
 Each flag accepts `0` to disable that limit. The iteration ceiling has no new-run
 default; the two time limits above bound a run's spend instead, and Resolver may
@@ -676,7 +676,8 @@ Tester's climb to GPT-6 Sol XHigh (gpt-6-sol at xhigh effort) did not launch: pr
 active time, the last Tester attempt's duration, it would take the run's active time from 650 s to
 1,250 s, past the 1,000 s active-time budget you set ... resume with --max-seconds 1250 or more`.
 Resuming with `--max-seconds M` of at least that total launches that same attempt, since the climb
-stays saved; a smaller `M` acknowledges the pause and the run pauses again before the attempt. Like
+stays saved. A smaller `M` above the active time so far is accepted and saved as your answer to the pause,
+but the run pauses again before the same attempt, and the new stop names `M` as the budget. Like
 the cost projection it is an estimate, not a bound: a higher effort can run longer than the attempt
 it follows. The new-run default and a budget delegated with `--autoresolver-managed-limits` are not
 projected, because Resolver may extend them once at the stage boundary; for them, and when the last

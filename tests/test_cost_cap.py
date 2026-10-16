@@ -221,12 +221,21 @@ class ClimbCapBlackbox(unittest.TestCase):
             f"resume with --max-seconds {needed} or more (0 for no limit) to make this attempt",
         ):
             self.assertIn(part, view["stop_reason"])
-        # Restating a budget below what the stop names acknowledges the pause, and the run pauses again before
-        # the same attempt; the budget the stop names launches exactly that attempt, on the climbed rung.
+        # A budget one second below the total the stop names is accepted and saved, but the run pauses again before
+        # the same attempt: the new stop projects it against that budget, under a new request. A resume refused
+        # when its arguments are read also exits 2, but leaves the stop and its request as they were.
+        request = view["needs"].get("resolver_request_id")
         held = ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", str(needed - 1)]
         self.invoke("autoreview", held, 2)
-        self.assertEqual(before, self.events(stage="sol"))
-        self.assertEqual("PAUSED_TIME_LIMIT", self.status()["view"]["needs"].get("pause_origin"))
+        self.assertEqual(
+            before, self.events(stage="sol"), "the climbed attempt must not launch past the smaller budget"
+        )
+        view = self.status()["view"]
+        self.assertEqual("PAUSED_TIME_LIMIT", view["needs"].get("pause_origin"), view["needs"])
+        for part in (f"past the {needed - 1:,} s active-time budget you set", f"resume with --max-seconds {needed} or"):
+            self.assertIn(part, view["stop_reason"])
+        self.assertNotEqual(request, view["needs"].get("resolver_request_id"), "the resume must reach the new stop")
+        # The budget the stop names launches exactly that attempt, on the climbed rung.
         self.invoke(
             "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", str(needed)]
         )
