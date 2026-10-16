@@ -263,6 +263,11 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
                 ["components", "components-local"],
                 [row["call"] for row in result["approvals"] if row["gate"] == "auto_approve"],
             )
+            # #720: the architecture run's plan was exported and read back before the harness approved it, and the
+            # verdict judged that round trip.
+            (trip,) = [check for check in result["checks"] if check["name"] == "plan round trip"]
+            self.assertTrue(trip["ok"], trip["detail"])
+            self.assertTrue(trip["detail"].endswith(", approved"), trip["detail"])
             (row,) = stats.summarize([result])
             self.assertEqual(3, row["approvals"])
             self.assertEqual("3", stats.format_table([row]).splitlines()[-1].split()[-1])

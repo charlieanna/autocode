@@ -491,7 +491,8 @@ def evidence(state: RunState) -> dict:
                       this revision to the workspace before treating the status as current.
     findings          the findings ledger: id, status, severity, finding, source, blocking, evidence,
                       scope (sol: Tester, astra: Completion Reviewer, runner: a failed runner lifecycle
-                      observation, #451)
+                      observation, #451, or, in a --package run, the files changed outside the package,
+                      one blocking row naming each path, autocode_package_writes, #711)
     finding_scope_moves  present once an approved revision moved criteria that open findings cite:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
                       to (every resulting row's id, milestone_id, criteria), contract_token, at

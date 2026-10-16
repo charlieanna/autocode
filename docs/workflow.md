@@ -684,6 +684,10 @@ The `feature-monorepo-package` scenario
 one package of a two-package repository with `--package` and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open `runner` finding.
+`bugfix-monorepo-package` does the same for a bug fix: the Investigator runs
+first, the proof runs in the package, and the runner's diagnosis note under
+`docs/bugs/` is not counted as a change outside it. Its broken variant also
+fixes the other package's copy of the bug and stops with that file named.
 
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
@@ -714,6 +718,12 @@ Not covered yet (#711):
 - Nothing limits what the Builder writes while it works: a change outside the
   package is found when the candidate is checked before review, not refused when
   it is written.
+- The bug-fix Investigator is not told the package. Its handoff names neither
+  the package nor the suite detected there, so it learns the package only from
+  the request's words, and nothing checks its diagnosis against the package: a
+  report whose affected or test paths are in another package is accepted and
+  planned from. The Builder's handoff still names the package, and the check
+  before review reports any change outside it.
 - Detection in the package does not read pytest configuration in parent
   directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
   `conftest.py`), so a package that relies on it is detected as unittest. Give
@@ -931,10 +941,13 @@ approved. The front matter is JSON, which YAML front-matter readers also accept.
 it is generated from the front matter so reviewers can read the plan.
 
 The goal hash is the SHA-256 of the contract body: what the plan says, whatever run or revision
-holds it. A plan read back from the file has the same goal hash as the run's. The approval token is
-not in the file, so committing it approves nothing. Text that looks like a credential is masked
-before the file is written, with the same policy as `autocode bundle`; the export then says that
-the file's goal hash differs from the run's.
+holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
+(`scenarios/run.py`) checks this at every plan approval its catalog runs reach: it exports the plan
+and reads the file back with `--check` before it approves the plan
+([scenarios/README.md](../scenarios/README.md)). The approval token is not in the file, so
+committing it approves nothing. Text that looks like a credential is masked before the file is
+written, with the same policy as `autocode bundle`; the export then says that the file's goal hash
+differs from the run's.
 
 A reviewer edits the front matter, then runs `autocode plan --render FILE` to regenerate the text.
 `--check` then prints the new goal hash and the one it was exported as. It exits 2 when the text no

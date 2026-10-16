@@ -369,6 +369,15 @@ PR template asks for an entry here; a change without one is incomplete.
   `approval provenance: RUN` check now also matches each budget pause a scenario's person acknowledged (`[fake]
   acknowledge`) to the `resume` row naming that pause, as it matches plan approvals by token and review approvals
   by criterion.
+- The scenario catalog has a bug fix in one package of a two-package repository, `bugfix-monorepo-package` (#711).
+  Both `packages/invoices/` and `packages/search/` keep a copy of the same off-by-one pager; the report and the fix
+  belong to the invoice package. The scripted run is started with `--package packages/invoices/`, goes through the
+  Investigator first, runs its proof in the package and completes; the runner's diagnosis note under `docs/bugs/` is
+  not counted as a change outside the package. `broken/fixes-search-copy-too`, which also fixes the other team's copy,
+  must stop with that file named in an open blocking `runner` finding. Against AutoCode from before #1415 the
+  reference did not complete, because the proof counted the diagnosis note as a change outside the package. The
+  status view's `findings` documentation (`autocode_run_view`, `docs/task-run.md`) now names the package check as a
+  source of `runner` findings, and `docs/workflow.md` records that the Investigator is not told the package.
 
 ### Changed
 

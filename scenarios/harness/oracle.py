@@ -214,8 +214,9 @@ def run_checks(
     ``run`` is None in ``check`` mode (no AutoCode ran), and then there is nothing to
     judge. Otherwise it holds ``status``, the final status ``view`` (docs/task-run.md),
     ``stages`` (saved stage names in order), ``answers`` (questions the driver answered),
-    ``approvals`` (the gates the driver passed for the person, as in result.json)
-    and ``cli_calls`` (the kinds of CLI call the driver made).
+    ``approvals`` (the gates the driver passed for the person, as in result.json; a plan
+    approval's row also holds ``plan_file``, harness.plan_round_trip) and ``cli_calls``
+    (the kinds of CLI call the driver made; the round trip's `autocode plan` calls are not among them).
 
     ``workflow`` is the kind of job the run should have recognized; the harness
     reads it from the status view's ``workflow`` field (README, "Workflows").

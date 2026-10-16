@@ -310,6 +310,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
         explicit_answers=scenario.fake_answers if args.fake and not split else (),
         acknowledge=scenario.fake_acknowledge if args.fake and not split else (),
+        round_trip_plans=True,
         **options,
     )
     drive_error, not_reached = "", None
@@ -432,6 +433,9 @@ def run_components(scenario, args, out, result, project, flags, env):
         provider_evidence=verdict.evidence_reports.declared(flags),
         architecture_view=driver.view(),
         architecture_run_dir=str(driver.run_dir),
+        # The architecture run's plan approval row holds its plan file round trip, which plan_round_trip
+        # judges; approval_provenance matches no gate to a components scenario's rows.
+        approvals=approvals_of(driver),
     )
     oracle = verdict.evaluate(scenario, target, record)
     status = "TASK_COMPLETE" if summary.get("exit_code") == 0 else "PAUSED_LOCAL_SMOKE"
@@ -467,6 +471,7 @@ def run_program(scenario, args, out: Path, result: dict, project: Path, flags: l
         max_steps=args.max_steps or scenario.max_steps,
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
         explicit_answers=scenario.fake_answers if args.fake else (),
+        round_trip_plans=True,
     )
     drive_error = ""
     started = time.monotonic()
@@ -582,7 +587,7 @@ def run_record(driver: Driver, state: dict) -> dict:
         "answers": driver.answers,
         # The gates the harness passed for the person (result.json "approvals"); approval_provenance
         # requires each plan and review approval and each acknowledged pause among them to be listed
-        # in the view's approvals.
+        # in the view's approvals, and plan_round_trip judges the plan file each plan approval's row records.
         "approvals": approvals_of(driver),
         "cli_calls": [step["kind"] for step in driver.steps],
         "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in driver.steps],
