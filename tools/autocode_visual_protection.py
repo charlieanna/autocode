@@ -3241,8 +3241,7 @@ class NativeProtection:
             and stage_valid
             and record["exit_code"] == 0
             and not any(
-                record.get(key)
-                for key in ("report_repaired", "timed_out", "interrupted", "dry_run", "rejected")
+                record.get(key) for key in ("report_repaired", "timed_out", "interrupted", "dry_run", "rejected")
             ),
             "initial planning authority needs the original successful v2 final native stage",
         )

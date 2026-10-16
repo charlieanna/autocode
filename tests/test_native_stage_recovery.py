@@ -142,9 +142,7 @@ class NativeAbandonPublicTests(NativeAbandonFixture, unittest.TestCase):
 
     def test_public_abandon_unparsed_launch_retains_evidence_without_dispatch(self):
         self.state.update(status="PAUSED_INVALID_OUTPUT")
-        self.state["active_stage"].update(
-            engine="opencode", timed_out=False, exit_code=0, rejected=True
-        )
+        self.state["active_stage"].update(engine="opencode", timed_out=False, exit_code=0, rejected=True)
         original = self.events.read_bytes()
         settings = deepcopy(self.state["settings"])
         with (

@@ -16,20 +16,18 @@ from contextlib import ExitStack
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import autocode as runner
 import autocode_action_recovery as recovery_actions
 import autocode_checkout_lock as locks
 import autocode_native_invocation as invocation
 import autocode_native_launch as launch
-import autocode_native_stage_recovery as recovery
 import autocode_supervision as supervision
 import autocode_taskrun as taskrun
 import autocode_util as util
 import autocode_visual_profile as profiles
 import autocode_visual_protection as protection
-from units import autoplanner as planning
 
 PROFILE = {
     "version": 1,
@@ -119,7 +117,6 @@ class CliMacOsNativeTests(unittest.TestCase):
                 ),
             },
             "current_task": None,
-            "next_stage": "plan_finalize",
             "total_seconds": 15.0,
         }
         util.atomic_json(self.state_path, self.state)
@@ -420,8 +417,7 @@ class CliMacOsNativeTests(unittest.TestCase):
         self.assertEqual("accepted", disk["report_repair_history"][-1]["result"])
         self.assertEqual("plan_finalize", disk["report_repair_history"][-1]["repair"]["original_stage"])
         journal = [
-            json.loads(path.read_text())
-            for path in sorted((self.run / "visual-native-protection").glob("*.json"))
+            json.loads(path.read_text()) for path in sorted((self.run / "visual-native-protection").glob("*.json"))
         ]
         kinds = [row["kind"] for row in journal]
         self.assertIn("planning-committed", kinds)

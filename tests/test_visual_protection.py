@@ -291,7 +291,9 @@ class OwnedGuardFixture(unittest.TestCase):
         }
         with self.assertRaises(util.Paused) as caught:
             self.owner._planning_matches(repair_record, candidate, self.current)
-        self.assertIn("initial planning authority needs the original successful v2 final native stage", str(caught.exception))
+        self.assertIn(
+            "initial planning authority needs the original successful v2 final native stage", str(caught.exception)
+        )
 
     def test_planning_matches_repaired_finalize_requires_failed_launch_in_journal(self):
         repair_record = {
@@ -312,9 +314,9 @@ class OwnedGuardFixture(unittest.TestCase):
         with patch.object(self.owner, "_finished_for", return_value=([], original, stopped)):
             with self.assertRaises(util.Paused) as caught:
                 self.owner._planning_matches(repair_record, candidate, self.current)
-            self.assertIn("repaired final native planning stage has no original failed launch in journal", str(caught.exception))
-
-
+            self.assertIn(
+                "repaired final native planning stage has no original failed launch in journal", str(caught.exception)
+            )
 
 
 class DecoratorAndActualSinkTests(unittest.TestCase):

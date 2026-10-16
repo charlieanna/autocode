@@ -415,8 +415,8 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
             state["planning"]["final_token"] = "token-1"
 
         with (
-            patch.object(runner, "run_role", return_value=({"decision": "repaired"}, record)) as launch,
-            patch.object(runner, "apply_result", side_effect=apply) as applied,
+            patch.object(runner, "run_role", return_value=({"decision": "repaired"}, record)),
+            patch.object(runner, "apply_result", side_effect=apply),
         ):
             self.view.execute_report_repair(self.state, self.run, self.root)
         self.assertNotIn("pending_report_repair", self.state)

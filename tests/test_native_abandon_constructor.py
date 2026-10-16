@@ -416,7 +416,6 @@ class NativeAbandonConstructorTests(unittest.TestCase):
         with patch.object(taskrun, "run_process", side_effect=self.public_cli):
             self.driver.resume_paused()
 
-
     def test_public_authentication_rejection_retains_history_and_same_stage_resume(self):
         self.authentication_rejection()
         before = deepcopy(self.state)
