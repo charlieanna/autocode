@@ -180,9 +180,10 @@ def _climb_within_cap(state: RunState) -> None:
 
     The projections are the last Builder attempt's tokens at the stronger route's price and its duration, the
     latter added to the run's and to the milestone's active time (autocode_climb_cap.within_budgets, as a writer).
-    Once an attempt has launched on that route the stage-boundary checks govern it. No cap or budget, no earlier attempt, or a model or attempt without a price or duration never
-    pauses here, as an unpriced stage never trips the cap. A parallel Builder sees only its own spend and time,
-    not its siblings', so it leaves the check to the serial run.
+    Once an attempt has launched on that route the stage-boundary checks govern it. No cap or budget, no earlier
+    attempt, or a model or attempt without a price or duration never pauses here, as an unpriced stage never trips
+    the cap. A parallel Builder sees only its own spend and time, not its siblings', so it leaves the check to the
+    serial run.
     """
     if state.get("parent_run"):
         return

@@ -423,7 +423,8 @@ class ClimbMilestoneTests(unittest.TestCase):
         progressive["progressive"] = {"version": 1, "budget": {"run_limit": 3600}}
         revised = built(1000)
         revised["current_task"]["contract_hash"] = "superseded"
-        unassigned = built(1000)
+        # The 600 s projection alone passes 500 s, so projecting M2 from 0 s without its row would pause.
+        unassigned = built(500)
         unassigned["current_task"]["milestone_id"] = "M2"
         launched = built(1000)
         launched["stages"].append(attempt(route("high"), stage="terra", role="terra", duration_seconds=600))

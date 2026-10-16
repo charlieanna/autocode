@@ -274,7 +274,8 @@ class PolicyTests(unittest.TestCase):
         progressive["progressive"] = {"version": 1, "budget": {"run_limit": 3600}}
         revised = self.milestone_budgeted(1000)
         revised["current_task"]["contract_hash"] = "superseded"
-        unassigned = self.milestone_budgeted(1000)
+        # The 600 s projection alone passes 500 s, so projecting from 0 s without a row would pause.
+        unassigned = self.milestone_budgeted(500)
         del unassigned["milestone_progress"]
         disabled = self.milestone_budgeted(1000)
         disabled["settings"]["milestone_checkpoints"]["enabled"] = False

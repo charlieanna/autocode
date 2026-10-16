@@ -398,9 +398,15 @@ PR template asks for an entry here; a change without one is incomplete.
   the milestone's time so far, the total and the budget to resume with; `--resume-paused --max-milestone-seconds M`
   with `M` at least that total launches exactly that attempt. Before, the milestone budget was checked only once
   its time was already spent, so the climbed attempt launched. The cost cap and the run's active-time budget are
-  checked first. The new-run default, a delegated budget and a progressive run's slice budget are not projected,
-  and Tester and Completion Reviewer climbs are not checked against it. A `PAUSED_MILESTONE_BUDGET` stop's advice
-  now names `--max-milestone-seconds` instead of offering corrective information, which cannot release it (#611).
+  checked first. The new-run default, a delegated budget, a progressive run's slice budget and a budget given with
+  `--max-milestone-seconds` while turning checkpoints on for a saved run (`--milestone-checkpoints` on a resume, or
+  `--request-milestone-checkpoints`) are not projected, and Tester and Completion Reviewer climbs are not checked
+  against it. On every `PAUSED_MILESTONE_BUDGET` stop, the advice AutoResolver's request appends to its decision
+  and the stop reason now names `--max-milestone-seconds` instead of `--resolver-response provide_information`
+  followed by a resume. For a progressive run's slice-budget stop, which shares the status, it asks for a slice
+  budget above the slice's counted time, which a resume does not restart, and `--max-seconds` when the stop names
+  `run_seconds`. The request's options, the status view's `needs.action` and the progress line still offer that
+  response, which AutoResolver holds at this stop as before; what releases the pause is unchanged (#611).
 
 ### Removed
 

@@ -261,10 +261,20 @@ it always does. Reasserting the saved budget alone does not acknowledge this pau
 count. Only the Builder is checked against this budget, since it gates writer launches; a Tester or
 Completion Reviewer climb is not. The new-run default and a budget delegated with
 `--autoresolver-managed-limits` are not projected and keep only the check at the writer launch, as
-do a progressive run's slice budget and a last attempt without a recorded duration. When a climb
-would also cross the cost cap or the run's active-time budget, that stop comes first. Once the
-climbed attempt has launched, the writer-launch check governs it, and a parallel Builder leaves this
-check to the serial run.
+do a progressive run's slice budget and a last attempt without a recorded duration. So does a
+budget given while turning checkpoints on for a saved run, in the same command
+(`--milestone-checkpoints --max-milestone-seconds N` on a resume) or queued with
+`--request-milestone-checkpoints`: it is saved without being recorded as yours, until a later resume
+sets `--max-milestone-seconds` again. When a climb would also cross the cost cap or the run's
+active-time budget, that stop comes first. Once the climbed attempt has launched, the writer-launch
+check governs it, and a parallel Builder leaves this check to the serial run.
+
+A progressive run's slice budget pauses with the same `PAUSED_MILESTONE_BUDGET` status, naming the
+ceiling it spent: `local_seconds`, the slice's, which `--max-milestone-seconds` sets, or
+`run_seconds`, the run's, which `--max-seconds` sets. A resume does not restart the slice's count,
+so that stop's advice asks for `--resume-paused --max-milestone-seconds N` with `N` above the
+slice's counted time (or `0`), adding `--max-seconds M` above the run's counted time when it names
+`run_seconds`.
 
 The saved milestone replan limit defaults to one changed-approach replan. Set
 `--max-milestone-replans 0` on a saved-run resume to allow further evidence-backed
