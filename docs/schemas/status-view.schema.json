@@ -75,7 +75,7 @@
         "workflow_reason": {"type": ["string", "null"]},
         "turn": {"type": "integer", "description": "Which request of the conversation the run is on: 1, then one more per --follow-up."},
         "evidence": {"type": "object", "description": "What the run agreed to deliver and what supports it."},
-        "approvals": {"type": "array", "description": "Who approved each plan and review (#722)."},
+        "approvals": {"type": "array", "description": "Who approved each plan and review, edited the plan, resumed the run from a pause or accepted its completion, oldest first (#722). Recorded as given and never verified."},
         "evidence_report": {"type": ["object", "null"]},
         "acceptance_tests": {"type": ["object", "null"]},
         "usage": {"type": "object", "description": "Tokens and cost so far; unknown cost is not zero."},

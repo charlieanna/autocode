@@ -1,11 +1,13 @@
 """Who approved, accepted completion, edited the plan or resumed a pause: capture, stamping, the status view rows
 and the completion lines, and the pause a resume is found in (#722).
 
-The public CLI runs that launch a fake provider are in test_approval_provenance_cli; --accept-completion, which
-launches nothing, runs here through the real CLI entry in-process (CompletionAcceptanceTests).
+The public CLI runs that launch a fake provider are in test_approval_provenance_cli; --accept-completion and
+--goal-file with --as, which launch nothing, run here through the real CLI entry in-process
+(CompletionAcceptanceTests, GoalFileTests).
 """
 
 import contextlib
+import copy
 import io
 import json
 import socket
@@ -17,8 +19,10 @@ from types import SimpleNamespace
 import autocode_approval_provenance as provenance
 import autocode_args
 import autocode_configure as configure
+import autocode_contract_identity as contract_identity
 import autocode_goal_lifecycle as lifecycle
 import autocode_jobs as jobs
+import autocode_plan_file as plan_file
 import autocode_run_setup as run_setup
 import autocode_run_view as run_view
 import autocode_support as support
@@ -475,3 +479,50 @@ class CompletionAcceptanceTests(unittest.TestCase):
             "--as`, who gave the name 'Bo' (a claim, not verified).\n",
             self.stdout,
         )
+
+
+class GoalFileTests(unittest.TestCase):
+    """--goal-file PATH --as NAME records who loaded the plan file, through the real CLI entry in-process: the
+    loaded revision is a goal edit, and ``--status`` lists it with the name given (test_goals.GoalTests.invoke)."""
+
+    setUp, draft, invoke = (getattr(test_goals.GoalTests, name) for name in ("setUp", "draft", "invoke"))
+
+    def test_a_plan_file_loaded_with_as_lists_the_claim_on_its_edit_row(self):
+        self.draft()
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        for key, value in (("user.name", "Ana Example"), ("user.email", "ana@example.test")):
+            subprocess.run(["git", "-C", str(self.root), "config", key, value], check=True)
+        exported = self.state["goal_contract"]
+        edited = copy.deepcopy(exported["body"])
+        edited["constraints"].append("Keep the greeting on one line")
+        path = self.run / "plan.md"  # as `autocode plan --export` writes it, then edited and rendered
+        path.write_text(
+            plan_file.document(
+                {
+                    "autocode_plan": plan_file.FORMAT,
+                    "goal_hash": plan_file.goal_hash(exported["body"]),
+                    "revision": exported["revision"],
+                    "approval_status": "not approved",
+                    "contract": edited,
+                }
+            )
+        )
+        self.assertEqual(0, self.invoke("--goal-file", str(path), "--as", "Bo"), self.stderr)
+        self.assertEqual(edited, self.state["goal_contract"]["body"])
+        self.assertEqual(0, self.invoke("--status"), self.stderr)
+        rows = [row for row in json.loads(self.stdout)["view"]["approvals"] if row["kind"] == "edit"]
+        self.assertEqual(
+            [
+                {
+                    "git_user_name": "Ana Example",
+                    "git_user_email": "ana@example.test",
+                    "host": socket.gethostname() or None,
+                    "command": "autocode --workspace --run-dir --goal-file --as",
+                    "claimed_as": "Bo",
+                }
+            ],
+            [row["provenance"] for row in rows],
+        )
+        self.assertEqual(contract_identity.token(self.state["goal_contract"]), rows[0]["contract_token"])

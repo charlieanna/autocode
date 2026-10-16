@@ -6,6 +6,7 @@ The public CLI runs that launch a fake provider are in test_required_approver_cl
 
 import contextlib
 import io
+import json
 import subprocess
 import tempfile
 import unittest
@@ -325,22 +326,31 @@ class CompletionAcceptanceTests(unittest.TestCase):
     )
     paused_at_completion = test_approval_provenance.CompletionAcceptanceTests.paused_at_completion
 
+    def status(self):
+        """The saved run as ``--status`` shows it."""
+        self.assertEqual(0, self.invoke("--status"), self.stderr)
+        return json.loads(self.stdout)["view"]
+
     def test_an_unlisted_identity_cannot_accept_completion_and_the_run_stays_paused(self):
         self.paused_at_completion()
         self.state["settings"][required_approver.SETTING] = ["lead@example.test"]
         self.assertEqual(2, self.invoke("--accept-completion"))
         self.assertIn("Approval refused", self.stderr)
         self.assertIn("this checkout's Git identity is Ana Example <ana@example.test>", self.stderr)
-        self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
-        self.assertNotIn("completion_accept", [event.get("kind") for event in self.state.get("user_events") or []])
+        view = self.status()
+        self.assertEqual("PAUSED_INVALID_OUTPUT", view["status"])
+        self.assertNotIn("completion", [row["kind"] for row in view["approvals"]])
         self.assertEqual(2, self.invoke("--accept-completion", "--as", "Lead"))
         self.assertIn("The --as name 'Lead' is a claim and does not count.", self.stderr)
-        self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
+        view = self.status()
+        self.assertEqual("PAUSED_INVALID_OUTPUT", view["status"])
+        self.assertNotIn("completion", [row["kind"] for row in view["approvals"]])
         subprocess.run(["git", "-C", str(self.root), "config", "user.email", "LEAD@example.test"], check=True)
         self.assertEqual(0, self.invoke("--accept-completion"), self.stderr)
-        self.assertEqual("TASK_COMPLETE", self.state["status"])
-        accepted = [event for event in self.state["user_events"] if event.get("kind") == "completion_accept"]
-        self.assertEqual(["LEAD@example.test"], [event["provenance"]["git_user_email"] for event in accepted])
+        view = self.status()
+        self.assertEqual("TASK_COMPLETE", view["status"])
+        accepted = [row for row in view["approvals"] if row["kind"] == "completion"]
+        self.assertEqual(["LEAD@example.test"], [row["provenance"]["git_user_email"] for row in accepted])
 
 
 if __name__ == "__main__":

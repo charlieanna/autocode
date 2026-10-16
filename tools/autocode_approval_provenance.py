@@ -1,4 +1,4 @@
-"""Who approved: the provenance each approval, goal edit and resume records (#722).
+"""Who approved: the provenance each approval, completion acceptance, goal edit and resume records (#722).
 
 An approval token says what was approved, never who agreed to it. When a person
 approves a plan (``--approve-goal`` or "yes" in the terminal conversation),
