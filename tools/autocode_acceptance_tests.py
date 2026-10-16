@@ -458,4 +458,3 @@ def refuse(state: RunState, workspace, run_dir=None, scratch_run=None) -> None:
     row = check_candidate(state, workspace, run_dir=run_dir, scratch_run=scratch_run)
     if row is not None:
         raise ValueError("Completion acceptance requires blind acceptance tests to pass. " + row["finding"])
-

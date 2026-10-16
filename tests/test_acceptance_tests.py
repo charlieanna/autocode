@@ -131,8 +131,16 @@ class BlindTestsWorkspaceTests(unittest.TestCase):
             value = {
                 "tests": [
                     {"case_id": "C1", "file": "tests/test_stock.py", "test_name": "test_c1_move_transfers_units"},
-                    {"case_id": "C2", "file": "tests/test_stock.py", "test_name": "test_c2_remove_takes_units_and_drops_empty_holdings"},
-                    {"case_id": "C3", "file": "tests/test_stock.py", "test_name": "test_c3_move_more_than_on_hand_is_refused"},
+                    {
+                        "case_id": "C2",
+                        "file": "tests/test_stock.py",
+                        "test_name": "test_c2_remove_takes_units_and_drops_empty_holdings",
+                    },
+                    {
+                        "case_id": "C3",
+                        "file": "tests/test_stock.py",
+                        "test_name": "test_c3_move_more_than_on_hand_is_refused",
+                    },
                 ],
                 "cannot_write": [],
                 "already_passing": [],
@@ -283,6 +291,7 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
 
     def test_before_review_runs_blind_candidate_check(self):
         import subprocess
+
         import autocode_regression as regression
 
         with tempfile.TemporaryDirectory() as root:
@@ -324,8 +333,9 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
                 acceptance.check_candidate = original_check
 
     def test_accept_completion_refuses_when_blind_tests_fail(self):
-        import autocode_action_decisions as action_decisions
         from types import SimpleNamespace
+
+        import autocode_action_decisions as action_decisions
 
         with tempfile.TemporaryDirectory() as root:
             workspace, run_dir = Path(root) / "w", Path(root) / "run"
