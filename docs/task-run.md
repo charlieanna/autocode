@@ -459,7 +459,8 @@ current, and something the options do not cover goes in `--feedback` (`/feedback
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. The terminal CLI also shows the remaining question IDs and
 current Resolver token on stderr after each successful answer and on `--status`, and `--status`
-also prints the run's cost line there (`Cost: ...`, from the view's `cost`);
+also prints the run's cost line there (`Cost: ...`, from the view's `cost`), then, when the run has
+escalated, one `Escalations: ...` line and a line per escalation (from the view's `escalations`);
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
@@ -687,6 +688,70 @@ once. A null amount is unknown, never zero: `estimated_usd` and `reported_usd` a
 has that basis, and `spent_usd` is null when no stage is known at all; while `complete` is false,
 `spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`.
+
+`escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
+stamped on them (`passed`, `paused`, `open`). `escalations` lists each escalation the run made, oldest
+first (`tools/autocode_escalation_view.py`, #612): a role's climb on its effort ladder (`kind`
+`effort_climb`) and the Builder's stronger attempt (`stronger_attempt`; see
+[Models](models.md#builder-retry-policy)). Each row has the route `role` that moved, the `stage` that
+struggled and its `job` as the screen names it (from the role when the stage is not known; null, never
+a code name, when neither names a job), `at`, `trigger` (`validation_rework`, `rejected_output`,
+`no_progress` or `abandoned_attempt` for a climb, `execution_failure` for the stronger attempt),
+`detail`, `struggle_id`, `task_id` (for the stronger attempt, the task of the failed attempt its
+decision names), the route it climbed `from` and `to` (`model`, `reasoning_effort`, `profile`),
+`deferred_by_parallel_builder` (a parallel Builder left the stronger attempt to this run, which made it
+serially), `inherited`, `attempts`, `cost` and `outcome`:
+
+- `attempts` are the role's stage records launched on the route it climbed to, from the escalation
+  until the first of: a validation of its work that passed (that attempt included), unless the
+  Builder's retry policy then charged one of its attempts as a failure (see `outcome`), or the role's
+  next escalation of either kind (its next climb, the Builder's stronger attempt). The running one is
+  included (`active`); dry runs and the runner's own stages are not attempts. A climb lasts for the
+  rest of the run, so a later milestone's attempts on the climbed rung count until one of those ends
+  it. A stronger attempt's attempts are this run's own Builder records: a parallel Builder's records
+  the parent holds (`worker_milestone`) are its worker's, whose own stronger attempt is recorded only
+  in its worker run. A validation judged an escalation's work when one of its attempts produced it,
+  or, for the Builder, whose work another role validates, when the Builder's last attempt before it
+  is one of its attempts. No other role is judged by another role's validation: a Tester PASS of the
+  Builder's work is not the work of a Completion Reviewer's or Resolver's climb. Nor is a validation
+  of another milestone's work, or of work on a route the role was moved to. The runner assigns every
+  task, a rework included, a new id, so an attempt's milestone is its task's contract hash and
+  milestone ids (`current_task`, `task_archive`): an attempt whose task is of another milestone than
+  the attempt the escalation was made from (a later milestone, or a replanned contract's) is not its
+  work. When either task is not recorded, they are not told apart.
+- `cost` prices those attempts as `cost` prices a stage: `usd` (reported plus estimated),
+  `reported_usd`, `estimated_usd`, `unpriced_attempts`, `unrouted_attempts` and `complete`. An attempt
+  with no usage record is unpriced, never zero: `usd` is then a floor (`complete` false), or null when
+  no attempt is priced. A stage record saved without a launch route (before 2026-10-01) cannot be
+  shown to have run on the route it climbed to: the role's such records in that span are counted in
+  `unrouted_attempts`, not listed in `attempts`, and no validation of them decides the outcome; while
+  there are any, the cost is unknown the same way (`complete` false, `usd` null when no listed attempt
+  is priced). An escalation whose attempt never launched (a cost-cap or time-budget stop before it)
+  cost `0`.
+- `inherited` is true for an escalation made before this run was created: in a checkpoint
+  continuation (`autocode checkpoint --restore`), one the restored run made. Its attempts there are not
+  in this run's stage records, so its `cost` is unknown, never zero: `usd` is null (a floor of its
+  attempts since the restore, when it has any) and `complete` false. What that run spent is in `cost`'s
+  `inherited_usd`.
+- `outcome` is `passed`, `failed_again`, `paused` or `running`, and `outcome_basis` says what decided
+  it, the first that applies: the first decisive record after it (`validation`: a validation of its
+  work passed, unless the Builder's retry policy then charged one of its attempts of its milestone as
+  a failure, as it charges a review that sends passed work back; `later_escalation`: the role climbed
+  again, the milestone made another stronger attempt, or the Builder made its stronger attempt after
+  climbing, or climbed after it, from this escalation's attempt), the runner's `paused` stamp
+  (`recorded`: the Builder's retry-limit pause), a validation of its work failing or blocked
+  (`validation`), else such a charge (`recorded`: a retry, the stronger attempt or the retry-limit
+  pause charged to one of its attempts of its milestone), the runner's `passed` stamp
+  (`recorded`) only when every attempt of its role since it, until the role's next escalation, ran on
+  the route it climbed to and there was at least one, else the run's status now (`run_status`:
+  complete is `passed`, running is `running`, any pause, wait or stop is `paused`). The runner stamps
+  every open escalation `passed` at any validation PASS, whoever's work passed, so that stamp is not
+  taken over a failure of its own work, once a person or the Builder's retry policy moved the role to
+  another route, or when the role ran nothing since. It is a projection of saved records, so it can
+  change as the run continues.
+
+A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
+does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.
 
 `progress` is how far the run has got, counted only from saved records
 (`tools/autocode_progress_view.py`; added by `autocode --status`, which supplies

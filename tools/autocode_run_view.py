@@ -38,6 +38,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency, autocode_usage
+    from . import autocode_escalation_view as escalation_view
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_design_coverage as design_coverage
     import autocode_efficiency
+    import autocode_escalation_view as escalation_view
     import autocode_finding_rescope as finding_rescope
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
@@ -213,6 +215,10 @@ def view(
         # validation PASS passed the retried work, a retry-limit pause ended it,
         # and an open one is still unresolved.
         "escalation_outcomes": route_ladder.outcome_summary(state),
+        # Each escalation (a role's effort climb, the Builder's stronger attempt) with the role and stage it was
+        # for, the route it climbed from and to, what its escalated attempts cost and how it ended
+        # (autocode_escalation_view, #612): passed, failed_again, paused or running.
+        "escalations": escalation_view.rows(state),
         "request_context": request_usage.view(state),
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
