@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Stamp open reasoning escalations and Builder retries as `passed` when completion is accepted via `--accept-completion` (#612).
 - Filter each role's escalation ladder only against its own tool's model list under `--role-transport`, preserving effort ladders for roles running on other tools (#1426).
 
 ### Added

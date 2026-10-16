@@ -709,23 +709,23 @@ so its `estimated` can differ from `cost.estimated_usd`.
 
 `escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
 stamped on them (`passed`, `paused`, `open`; `tools/autocode_route_ladder.py`). The runner stamps
-every one still open `passed` when the run completes on work a validation passed, or when the
-Completion Reviewer or Resolver assigns the next task while the last validation passed, and `paused`
-at the Builder's retry-limit pause. At that assignment it leaves the Builder's own (its climbs, its
-retries and its stronger attempt) open when the work was sent back after that validation's attempt
-started (a retry-policy charge or a correction task anywhere in the run; `escalations` takes the same
-two as a failure after a PASS of the escalation's own milestone), or when that attempt's start is not
-in the run's records, so a send-back cannot be ruled out. A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a
-climb a later climb replaced reads `passed` there and `failed_again` as a row, and before the struggle
-ends a stamp is `open` while its row may read `passed`. `--accept-completion` stamps nothing. Read a
-row's `outcome` for how one escalation ended. `escalations` lists each escalation the run made, oldest
-first (`tools/autocode_escalation_view.py`, #612): a role's climb on its effort ladder (`kind`
-`effort_climb`) and the Builder's stronger attempt (`stronger_attempt`; see
-[Models](models.md#builder-retry-policy)). Each row has the route `role` that moved, the `stage` that
-struggled and its `job` as the screen names it (from the role when the stage is not known; null, never
-a code name, when neither names a job), `at`, `trigger` (`validation_rework`, `rejected_output`,
-`no_progress` or `abandoned_attempt` for a climb, `execution_failure` for the stronger attempt),
-`detail`, `struggle_id`, `task_id` (for the stronger attempt, the task of the failed attempt its
+every one still open `passed` when the run completes on work a validation passed (including when
+completion is accepted via `--accept-completion`), or when the Completion Reviewer or Resolver assigns
+the next task while the last validation passed, and `paused` at the Builder's retry-limit pause. At that
+assignment it leaves the Builder's own (its climbs, its retries and its stronger attempt) open when the
+work was sent back after that validation's attempt started (a retry-policy charge or a correction task
+anywhere in the run; `escalations` takes the same two as a failure after a PASS of the escalation's own
+milestone), or when that attempt's start is not in the run's records, so a send-back cannot be ruled out.
+A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a climb a
+later climb replaced reads `passed` there and `failed_again` as a row, and before the struggle ends a
+stamp is `open` while its row may read `passed`. Read a row's `outcome` for how one escalation ended.
+`escalations` lists each escalation the run made, oldest first (`tools/autocode_escalation_view.py`, #612):
+a role's climb on its effort ladder (`kind` `effort_climb`) and the Builder's stronger attempt
+(`stronger_attempt`; see [Models](models.md#builder-retry-policy)). Each row has the route `role` that moved,
+the `stage` that struggled and its `job` as the screen names it (from the role when the stage is not
+known; null, never a code name, when neither names a job), `at`, `trigger` (`validation_rework`,
+`rejected_output`, `no_progress` or `abandoned_attempt` for a climb, `execution_failure` for the stronger
+attempt), `detail`, `struggle_id`, `task_id` (for the stronger attempt, the task of the failed attempt its
 decision names), the route it climbed `from` and `to` (`model`, `reasoning_effort`, `profile`),
 `deferred_by_parallel_builder` (a parallel Builder left the stronger attempt to this run, which made it
 serially), `inherited`, `attempts`, `cost` and `outcome`:
