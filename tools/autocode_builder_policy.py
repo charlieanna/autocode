@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_climb_cap as climb_cap
+    from . import autocode_evidence_ledger as evidence_ledger
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_status as run_status
     from . import autocode_util as s
@@ -17,6 +18,7 @@ try:
     from .autocode_failure_classification import CLASSES
 except ImportError:
     import autocode_climb_cap as climb_cap
+    import autocode_evidence_ledger as evidence_ledger
     import autocode_route_ladder as route_ladder
     import autocode_run_status as run_status
     import autocode_util as s
@@ -59,6 +61,17 @@ NOT_OFFERED = (
     "Implementation remains blocked after the ordinary retries; this run has no stronger Builder attempt "
     "because its provider does not offer {model}, which that attempt needs (start a run with "
     "--builder-strong-model naming a model it lists); human decision or replanning required"
+)
+# What the evidence ledger (autocode_evidence_ledger) adds to a charge's decision, and to its pause (#611).
+NOVELTY_NOTES = {
+    "repeat": "no new evidence: the same failing checks, criteria, open findings and changed files as an earlier "
+    "failure of this milestone, so the plain retry is skipped",
+    "progress": "new evidence: every earlier failure of this milestone is resolved and this one fails only on new "
+    "items, so it does not count toward the retry limit",
+}
+REPEATED = (
+    " The last failure repeats an earlier one of this milestone with no new evidence: the same failing checks, "
+    "criteria, open findings and changed files."
 )
 
 # The stronger attempt is the one route climb this policy spends; before it launches it is checked against the
@@ -133,9 +146,13 @@ def key(state: RunState, task=None):
 def classification_limit(state: RunState):
     """Builder failures one milestone may have classified (#686): as many as its lane takes, the
     one it pauses on included. That is the ordinary retries, the stronger attempt (or one more
-    ordinary retry in its place), then the pause, so classifying never stops a milestone sooner."""
+    ordinary retry in its place), then the pause, plus each failure that did not count toward them
+    (progress, #611), so classifying never stops a milestone sooner."""
     count = ((state.get("settings") or {}).get("builder_retry") or {}).get("ordinary_retries")
-    return (count if type(count) is int and 0 <= count <= 3 else cast(int, DEFAULTS["ordinary_retries"])) + 2
+    count = count if type(count) is int and 0 <= count <= 3 else cast(int, DEFAULTS["ordinary_retries"])
+    current = (state.get("builder_retries") or {}).get(key(state)) or {}
+    uncounted = sum(1 for row in current.get("ledger") or () if row.get("novelty") == "progress")
+    return count + 2 + uncounted
 
 
 def lane(state: RunState):
@@ -367,7 +384,7 @@ def _escalate(state: RunState, current, config, route):
     return "escalate", swap_checkers(state, current, config, model), None
 
 
-def _decide(state: RunState, current, action, evidence, reason, checkers, stop_reason):
+def _decide(state: RunState, current, action, evidence, reason, checkers, stop_reason, novelty=None):
     route = state["settings"]["roles"]["terra"]
     current["action"] = action
     state.setdefault("sessions", {}).pop("terra", None)
@@ -384,6 +401,7 @@ def _decide(state: RunState, current, action, evidence, reason, checkers, stop_r
             "selected_model": route["model"],
             "selected_effort": route.get("reasoning_effort"),
             **({"checker_models": checkers} if checkers else {}),
+            **({"novelty": novelty} if novelty else {}),
         }
     )
     if action == "pause":
@@ -395,6 +413,10 @@ def _decide(state: RunState, current, action, evidence, reason, checkers, stop_r
 
 def failure(state: RunState, evidence, reason, *, classification="execution"):
     """One charge per execution failure; replay observes the lane's current gate.
+
+    The evidence ledger (autocode_evidence_ledger) judges each execution failure against the milestone's
+    earlier ones (#611): a repeat goes straight to the stronger attempt, or pauses once it is spent, and
+    progress retries without counting toward the limit. Every failure stays in the lane's `failures`.
 
     Nonexecution actions are routing observations, not authority to replay a stage;
     the controller validates their bound continuation before dispatch.
@@ -444,16 +466,43 @@ def failure(state: RunState, evidence, reason, *, classification="execution"):
     if type(count) is not int or not 0 <= count <= 3:
         raise ValueError("builder_retry.ordinary_retries must be between 0 and 3")
     current = lane(state)
-    if evidence in current["failures"]:
+    recorded = {row.get("evidence"): row for row in current.get("ledger") or ()}
+    rows = [recorded.get(earlier, {"evidence": earlier}) for earlier in current["failures"]]
+    seen = evidence_ledger.observe(state.get("validation"), state.get("findings_ledger"), state.get("changed_files"))
+    novelty = evidence_ledger.assess(rows, evidence, seen)
+    if novelty == "replay":
         return current["action"]
+    # A lane saved before the ledger counted every failure it holds.
+    position = current.get("position", len(current["failures"]))
     current["failures"].append(evidence)
-    n = len(current["failures"])
+    current.setdefault("ledger", []).append(
+        {
+            "evidence": evidence,
+            "signature": evidence_ledger.signature(seen),
+            "failing": seen["failing"],
+            "changed": seen["changed"],
+            "novelty": novelty,
+        }
+    )
     # With no stronger model the escalation slot is spent as one more ordinary retry: a live Claude run
     # paused on its second failure with correct code and two tests left to strengthen (2026-09-30).
     count += 0 if config["strong_model"] else 1
-    action = "retry" if n <= count else "escalate" if n == count + 1 else "pause"
+    # A repeat skips the plain retries for the stronger attempt; progress does not move the lane (#611).
+    if novelty == "repeat":
+        position = max(position + 1, count + 1)
+    elif novelty == "new":
+        position += 1
+    current["position"] = position
+    action = "retry" if position <= count else "escalate" if position == count + 1 else "pause"
+    if novelty == "progress":
+        # Another attempt on the route the lane has now; a pause or a deferred attempt stays as it is.
+        action = current["action"] if current["action"] in ("pause", "defer") else "retry"
     checkers, stop_reason = {}, EXHAUSTED
     if action == "escalate":
         action, checkers, stop_reason = _escalate(state, current, config, state["settings"]["roles"]["terra"])
-    _decide(state, current, action, evidence, reason, checkers, stop_reason)
+    if novelty == "repeat" and action == "pause":
+        stop_reason += REPEATED
+    if novelty in NOVELTY_NOTES:
+        reason = f"{reason}; {NOVELTY_NOTES[novelty]}"
+    _decide(state, current, action, evidence, reason, checkers, stop_reason, novelty)
     return action

@@ -138,6 +138,112 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(policy.s.Paused):
             policy.guard(state)
 
+    def saw(self, state, *, open=(), resolved=(), failing=(), passing=(), changed=("app.py",)):
+        """The evidence a charge sees: open blocking and resolved findings, checks that failed or passed, changed files."""
+        state["findings_ledger"] = [{"id": ident, "status": "open", "blocking": True} for ident in open] + [
+            {"id": ident, "status": "resolved", "blocking": True} for ident in resolved
+        ]
+        checks = [{"command": command, "exit_code": 1} for command in failing]
+        state["validation"] = {"checks": checks + [{"command": command, "exit_code": 0} for command in passing]}
+        state["changed_files"] = list(changed)
+        return state
+
+    def test_a_failure_repeating_an_earlier_one_skips_the_ordinary_retries_then_pauses(self):
+        state = self.state()
+        state["settings"]["builder_retry"]["ordinary_retries"] = 3
+        self.saw(state, failing=["pytest -q"])
+        self.assertEqual("retry", policy.failure(state, "e1", "code failure"))
+        self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("pause", policy.failure(state, "e3", "code failure"))
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
+        self.assertIn("remains blocked after configured retry/escalation", state["stop_reason"])
+        self.assertIn("repeats an earlier one of this milestone with no new evidence", state["stop_reason"])
+        decisions = state["builder_retry_decisions"]
+        self.assertEqual(["new", "repeat", "repeat"], [row["novelty"] for row in decisions])
+        self.assertIn("no new evidence", decisions[1]["reason"])
+        self.assertEqual([1, 2, 3], [row["attempt"] for row in decisions])
+
+    def test_new_failures_that_are_not_progress_spend_the_ordinary_retries_as_before(self):
+        state = self.state()
+        state["settings"]["builder_retry"]["ordinary_retries"] = 2
+        actions = []
+        for attempt in range(4):
+            self.saw(state, failing=["pytest -q"], changed=[f"app{attempt}.py"])
+            actions.append(policy.failure(state, f"e{attempt}", "code failure"))
+        self.assertEqual(["retry", "retry", "escalate", "pause"], actions)
+        self.assertEqual(["new"] * 4, [row["novelty"] for row in state["builder_retry_decisions"]])
+
+    def test_failures_that_resolve_every_earlier_one_do_not_count_toward_the_limit(self):
+        # Live run 9pvu43lu (2026-10-07): each review resolved the last round's findings and found a new one,
+        # and the Builder stopped on the count alone.
+        state = self.state()
+        self.saw(state, open=["F-a"])
+        self.assertEqual("retry", policy.failure(state, "e1", "review rework"))
+        self.saw(state, resolved=["F-a"], open=["F-b"])
+        self.assertEqual("retry", policy.failure(state, "e2", "review rework"))
+        self.saw(state, resolved=["F-a", "F-b"], open=["F-c"])
+        self.assertEqual("retry", policy.failure(state, "e3", "review rework"))
+        policy.guard(state)
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        decisions = state["builder_retry_decisions"]
+        self.assertEqual(["new", "progress", "progress"], [row["novelty"] for row in decisions])
+        self.assertIn("does not count toward the retry limit", decisions[1]["reason"])
+        self.assertEqual("escalate", policy.failure(state, "e4", "review rework"))
+        self.saw(state, resolved=["F-a", "F-b"], open=["F-c"], changed=["other.py"])
+        self.assertEqual("pause", policy.failure(state, "e5", "review rework"))
+        self.assertEqual(["e1", "e2", "e3", "e4", "e5"], policy.lane(state)["failures"])
+
+    def test_progress_after_the_stronger_attempt_retries_on_the_stronger_route(self):
+        state = self.state()
+        self.saw(state, failing=["pytest -q"])
+        policy.failure(state, "e1", "code failure")
+        self.saw(state, failing=["pytest -q"], changed=["lib.py"])
+        self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
+        self.saw(state, open=["F-b"], passing=["pytest -q"])
+        self.assertEqual("retry", policy.failure(state, "e3", "code failure"))
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        policy.guard(state)
+        self.saw(state, open=["F-b"], passing=["pytest -q"], changed=["lib.py"])
+        self.assertEqual("pause", policy.failure(state, "e4", "code failure"))
+
+    def test_progress_cannot_lift_a_pause(self):
+        state = self.state()
+        for attempt in range(3):
+            self.saw(state, failing=["pytest -q"], changed=[f"app{attempt}.py"])
+            policy.failure(state, f"e{attempt}", "code failure")
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
+        self.saw(state, open=["F-b"], passing=["pytest -q"])
+        self.assertEqual("pause", policy.failure(state, "e3", "code failure"))
+        with self.assertRaises(policy.s.Paused):
+            policy.guard(state)
+
+    def test_a_repeat_with_no_stronger_model_pauses_instead_of_retrying_the_same_route(self):
+        state = self.state()
+        state["settings"]["builder_retry"]["strong_model"] = None
+        self.saw(state, failing=["pytest -q"])
+        self.assertEqual("retry", policy.failure(state, "e1", "code failure"))
+        self.assertEqual("pause", policy.failure(state, "e2", "code failure"))
+        self.assertIn("offers no stronger Builder model", state["stop_reason"])
+        self.assertIn("no new evidence", state["stop_reason"])
+
+    def test_the_classification_budget_grows_with_failures_that_did_not_count(self):
+        state = self.state()
+        self.assertEqual(3, policy.classification_limit(state))
+        self.saw(state, open=["F-a"])
+        policy.failure(state, "e1", "review rework")
+        self.saw(state, resolved=["F-a"], open=["F-b"])
+        policy.failure(state, "e2", "review rework")
+        self.assertEqual(4, policy.classification_limit(state))
+
+    def test_a_lane_saved_before_the_ledger_keeps_its_count(self):
+        state = self.state()
+        policy.lane(state)["failures"].append("e0")
+        policy.lane(state)["action"] = "retry"
+        self.saw(state, open=["F-b"])
+        self.assertEqual("escalate", policy.failure(state, "e1", "code failure"))
+        self.assertEqual("escalate", policy.failure(state, "e0", "code failure"))
+
     def climbed(self, cap, tokens=None):
         """A run whose Builder failed twice on GPT-6 Luna and escalated, under a cost cap of `cap`."""
         state = self.state()
@@ -1063,6 +1169,9 @@ class PolicyBlackbox(unittest.TestCase):
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
         self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state()["status"])
         self.assertEqual(["retry", "escalate", "pause"], [r["action"] for r in self.state()["builder_retry_decisions"]])
+        # The fake Tester fails the same check every round: the ledger sees the second and third as repeats.
+        self.assertEqual(["new", "repeat", "repeat"], [r["novelty"] for r in self.state()["builder_retry_decisions"]])
+        self.assertIn("no new evidence", self.state()["stop_reason"])
         self.assertEqual(2, len(self.events(stage="astra_resolve")))
 
     def test_a_stronger_builder_attempt_past_the_cost_cap_pauses_before_it_launches(self):
