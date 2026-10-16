@@ -192,7 +192,7 @@ def replay(
                 raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
         test_quality.require_behavioral_tests(workspace, [check["command"] for check in selected_checks])
         return recorded_checks.replay(selected_checks, approved_state, workspace, record)
-    selected = source_scope.paths(approved_state or {})
+    selected = source_scope.paths(cast("RunState", approved_state or {}))
     if selected:
         scratch_run = partial(scratch_run, source_paths=selected)
         if execution_identity:

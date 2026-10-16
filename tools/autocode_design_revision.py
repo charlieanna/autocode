@@ -4,6 +4,13 @@ Owns design_input_changes and settings.design_manifest_history. Historical
 references, approvals and independently recorded results stay retrievable.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 from urllib.parse import parse_qs, urlparse
 
@@ -42,7 +49,7 @@ def _references(candidate, previous):
     return current
 
 
-def apply(state, candidate, expected, reason, workspace, *, approved_scope=None, approved_scope_sha256=None):
+def apply(state: RunState, candidate, expected, reason, workspace, *, approved_scope=None, approved_scope_sha256=None):
     old = (state.get("settings") or {}).get("design_manifest")
     if not old or expected != old["manifest_hash"] or not reason.strip():
         raise ValueError("Reference correction requires the exact inspected design hash and a concrete reason")
@@ -60,7 +67,7 @@ def apply(state, candidate, expected, reason, workspace, *, approved_scope=None,
         )
     ):
         raise ValueError("Pause and reconcile controller, provider and runner-owned checks before changing references")
-    if state.get("user_request", {}).get("kind") == "human_review":
+    if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
         raise ValueError("Resolve the pending artifact review before changing the reference")
     manifest.verify(old)
     if old.get("scope_admission") and not (approved_scope and approved_scope_sha256):

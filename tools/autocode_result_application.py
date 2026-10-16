@@ -5,6 +5,13 @@ persisted from the original state; speculative candidate changes are committed
 only after the application and independent command cleanup both succeed.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from copy import deepcopy
 
 try:
@@ -23,7 +30,7 @@ def raise_if_uncertain(error):
         raise error
 
 
-def prepare(state, run_dir, stage, apply_candidate, *, persist):
+def prepare(state: RunState, run_dir, stage, apply_candidate, *, persist):
     """Prepare a candidate under the outermost caller's ownership checkpoint."""
     if run_dir is None or commands.CHECKPOINT.get() is not None:
         candidate = deepcopy(state)
@@ -36,7 +43,7 @@ def prepare(state, run_dir, stage, apply_candidate, *, persist):
     return candidate
 
 
-def commit(state, run_dir, stage, apply_candidate, commit_candidate, *, persist):
+def commit(state: RunState, run_dir, stage, apply_candidate, commit_candidate, *, persist):
     """Keep the caller's existing commit boundary after verified application."""
     candidate = prepare(state, run_dir, stage, apply_candidate, persist=persist)
     return commit_candidate(candidate)
