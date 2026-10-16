@@ -382,6 +382,24 @@ PR template asks for an entry here; a change without one is incomplete.
   `prune-run` (`autocode_prune_run`), dependency waits (`autocode_dependency`) and milestone carry-forward
   (`autocode_carryforward`) take the typed `RunState`, so the untyped-`state` ratchet drops from 374 to 287 and mypy
   checks those 87 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- In a `--package` run, a change outside the package is a blocking finding (#711): before each Tester and Completion
+  Reviewer dispatch (not the Code Reviewer, Designer or Design Reviewer), the runner compares the candidate with the
+  run's base, and any file added, modified (content or mode) or deleted outside the package (a rename counts on both
+  sides) opens one finding with source `runner` naming each path. What the regression proof does not count (AutoCode's
+  `.autocode/` files, bytecode, the runner's dependency links, an ignored file the approved plan does not name) does
+  not count here either. The completion gate refuses while the finding is open, and only a later check that finds no
+  such change closes it. `--accept-completion` runs the same check once its own checks pass, so closing the finding
+  with `--close-finding` does not accept the change. Before, a run that owed no regression proof (a build whose
+  criteria name no test) completed with the change. Neither this check nor the regression proof counts an untracked
+  Git repository or a submodule's uncommitted work the checkout held at launch, which every new package run now
+  records (`package_outside_at_launch`), while it is still a Git repository; once deleted or no longer one, the
+  finding names it and tells the Builder to leave it to the person. A package run saved without that record leaves
+  every nested repository and submodule's work out of the check. Nor do they count the files the runner wrote for the
+  run while unchanged: the bug fix's diagnosis note and a review's or design review's report are compared with what
+  the runner wrote, and a changed one is reported; a design check's blockers and what an earlier turn left are
+  recognized by path only, so an edit to them is not seen. Before, the proof left a package bug fix with its own
+  diagnosis note, or an in-place run beside a nested repository, `UNVERIFIED`. Only the Builder's handoff states the
+  write scope (`write_scope`); nothing limits its writes while it works.
 - The money cap (`autocode_cost`), token usage (`autocode_usage`), efficiency measurements (`autocode_efficiency`),
   evidence report publication (`autocode_evidence_export`, except `record`), `--status` rendering
   (`autocode_status_command`), progress updates (`autocode_status`, except `persist`), runner checks

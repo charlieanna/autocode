@@ -911,6 +911,11 @@ report that no longer lists it; a finding reported again after a fix keeps its I
 and counts the repeat. The runner raises findings of its own (source `runner`)
 when its lifecycle observation fails, and only the runner closes them, when that
 observation passes (see [Process-recovery proof](#process-recovery-proof-for-declared-lifecycle-apis)).
+In a `--package` run it also raises one when the candidate changes a file outside
+the package, checked before each Tester and Completion Reviewer dispatch (not
+before the Code Reviewer, Designer or Design Reviewer) and by
+`--accept-completion`, and closes it when a later check finds no such change
+([Monorepo packages](workflow.md#monorepo-packages)).
 With milestone checkpoints, each finding also records the
 milestone criteria it was raised under, and a report closes it only if that report
 reviewed all of those criteria. A validation of different work, or a report-only
