@@ -46,8 +46,16 @@ def requirements(component_id: str, spec: dict) -> list[dict]:
 
 def brief_of(data: dict) -> str:
     """The component brief this stage was given: the task, or, in a requirements
-    report repair, the first source text (the task again)."""
-    return data.get("task") or next(iter(data.get("source_texts") or []), "") or ""
+    report repair, the first source text (the task again). Resolve the runner's
+    compact task reference from its supplied source inventory."""
+    task = data.get("task") or next(iter(data.get("source_texts") or []), "") or ""
+    reference = re.fullmatch(r"see source_inventory id (\S+)", task)
+    if reference:
+        return next(
+            (row["text"] for row in data.get("source_inventory") or [] if row.get("id") == reference[1]),
+            "",
+        )
+    return task
 
 
 def ignored_statements(component_id: str, data: dict) -> list[str]:

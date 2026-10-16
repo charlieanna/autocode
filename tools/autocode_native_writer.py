@@ -275,6 +275,8 @@ class _WriterHistoryBatch:
 
 
 class NativeWriterAuthority:
+    _historical: bool
+
     @protection._technical_hold
     def __init__(self, owner, state: RunState, *, snapshot):
         protection._require(

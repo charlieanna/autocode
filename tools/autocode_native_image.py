@@ -26,7 +26,7 @@ except ImportError:
 
 
 if TYPE_CHECKING:
-    from autocode_run_state import RunState
+    from .autocode_run_state import RunState
 
 
 def _require(value, reason):

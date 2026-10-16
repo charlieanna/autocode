@@ -301,6 +301,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ineligible plan approvals are rejected before stage reconciliation, preserving the stopped checkpoint and retained report. Verified conversation-action replays remain idempotent.
 - `--package` follow-ups (#711): a feature that adds the first Go module in the package, on a base with no Go
   project, is no longer left UNVERIFIED, as at the root (#685). A `--test-command` written for the run's
   package as `cd PACKAGE && RUNNER` (unittest, pytest, node:test or `go test`) is read with that runner inside

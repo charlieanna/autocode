@@ -7,7 +7,7 @@ typed proof. Only that exact accepted candidate may prepare a pending publicatio
 """
 
 from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 try:
     from . import autocode_native_launch as launch
@@ -22,7 +22,7 @@ except ImportError:
 
 
 if TYPE_CHECKING:
-    from autocode_run_state import RunState
+    from .autocode_run_state import RunState
 
 
 def _require(value, reason):
@@ -61,7 +61,7 @@ class NativeCompletionPreparation:
         _require(
             type(self.prepared) is history.PreparedCheckpoint
             and self.prepared.owner is owner
-            and owner._prepared.get(self.prepared.nonce) is self.prepared,
+            and cast(history.NativeReviewHistory, owner)._prepared.get(self.prepared.nonce) is self.prepared,
             "missing original unreplayed Completion handle",
         )
         self.proof = self.factory.checkpoint_proof(

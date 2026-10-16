@@ -130,7 +130,7 @@ class NativeRoleIsolation:
         self._role = route_role
         roles = self._settings.get("roles")
         _require(isinstance(roles, dict) and isinstance(roles.get(route_role), dict), "missing saved role")
-        self._route = deepcopy(roles[route_role])
+        self._route = deepcopy(cast(dict, roles)[route_role])
         _require(
             set(self._route) <= {"engine", "provider", "model", "reasoning_effort", "model_pinned"}
             and (self._route.get("engine") or self._settings.get("engine")) == "opencode"
@@ -640,7 +640,7 @@ class NativeRoleIsolation:
         descriptor = self._verify_finalized(
             state=state, command=command, environment=environment, boundary=boundary, require_locators=True
         )
-        if self._prepared["allow_write"]:
+        if cast(dict, self._prepared)["allow_write"]:
             writer_execution = self._writer_execution if writer_execution is None else writer_execution
             _require(
                 type(writer_execution) is writers.NativeWriterExecution,
@@ -656,7 +656,7 @@ class NativeRoleIsolation:
     def _verify_finalized(self, *, state: RunState, command, environment, boundary, require_locators):
         _require(self._descriptor is not None, "owner has no finalized actual conformance")
         self._check(state)
-        descriptor = self._descriptor
+        descriptor = cast(dict, self._descriptor)
         path = _path(self._run, descriptor["manifest"])
         _require(
             path.is_file()
@@ -703,13 +703,16 @@ class NativeRoleIsolation:
                 "owned staged SDK/plugin/config bytes changed",
             )
         _require(
-            boundary.get("allow_write") is self._prepared["allow_write"]
+            boundary.get("allow_write") is cast(dict, self._prepared)["allow_write"]
             and boundary.get("workspace") == str(self._root)
             and descriptor["conformance"]
             == {"path": boundary["conformance"], "sha256": boundary["conformance_sha256"]},
             "foreign final boundary",
         )
-        _require(not self._prepared["allow_write"] or contract.approved(state), "task writer contract approval changed")
+        _require(
+            not cast(dict, self._prepared)["allow_write"] or contract.approved(state),
+            "task writer contract approval changed",
+        )
         proof = sdk_rules._json(Path(boundary["conformance"]).read_bytes())
         _require(
             util.file_hash(boundary["conformance"]) == boundary["conformance_sha256"],

@@ -170,7 +170,9 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
         manifest = Path(temp.name) / "manifest.json"
         manifest.write_text("{}")
         with patch.dict(os.environ, {"FAKE_MANIFEST": str(manifest)}):
-            self.complete = runpy.run_path(str(FAKE_PROVIDER))["complete"]
+            fixture = runpy.run_path(str(FAKE_PROVIDER))
+            self.complete = fixture["complete"]
+            self.brief_of = fixture["brief_of"]
         self.schema = {
             "type": "object",
             "required": ["recovery_change"],
@@ -187,6 +189,13 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
                 },
             },
         }
+
+    def test_compact_task_reference_preserves_the_original_contract_literal(self):
+        brief = "This component publishes the `greeting` contract."
+        sources = [{"id": "feedback:0", "text": "Unrelated feedback"}, {"id": "task:0", "text": brief}]
+        self.assertEqual(brief, self.brief_of({"task": "see source_inventory id task:0", "source_inventory": sources}))
+        self.assertEqual(brief, self.brief_of({"task": brief, "source_inventory": sources}))
+        self.assertEqual("", self.brief_of({"task": "see source_inventory id task:1", "source_inventory": sources}))
 
     def test_absent_nullable_field_defaults_to_null_and_preserves_explicit_null(self):
         for value in ({}, {"recovery_change": None}):
@@ -473,6 +482,18 @@ class BuildAndIntegrateTests(unittest.TestCase):
     def test_taskrun_bad_component_approvals_leave_events_and_checkpoint_unchanged(self):
         observations = self.root / "observations"
         outside = self.root / "outside-marker"
+        reconciled = self.root / "rejected-approval-reconciled"
+        approval_cli = self.root / "approval-cli.py"
+        approval_cli.write_text(
+            "import sys\nfrom pathlib import Path\n"
+            f"sys.path.insert(0, {str(HERE)!r})\nimport autocode\n"
+            "original = autocode.reconcile_active\n"
+            "def observed(*args, **kwargs):\n"
+            f"    Path({str(reconciled)!r}).write_text('reconciliation ran')\n"
+            "    return original(*args, **kwargs)\n"
+            "autocode.reconcile_active = observed\n"
+            "raise SystemExit(autocode.cli())\n"
+        )
         for index, flow in enumerate(
             (
                 None,
@@ -513,8 +534,16 @@ class BuildAndIntegrateTests(unittest.TestCase):
                     run.show_goal()
                 checkpoint = run.run_dir / "state.json"
                 before = checkpoint.read_bytes()
+                approval = TaskRun(
+                    run.workspace,
+                    run.run_dir,
+                    command=(sys.executable, str(approval_cli)),
+                    env=run.env,
+                    timeout=run.timeout,
+                )
                 with self.assertRaises(TaskRunError):
-                    run.approve_plan(token)
+                    approval.approve_plan(token)
+                self.assertFalse(reconciled.exists(), "Rejected approval must precede stage reconciliation")
                 self.assertEqual(before, checkpoint.read_bytes())
                 self.assertIsNone(run.status().get("approved_contract"))
                 self.assertIn("Component plan", view.get("stop_reason", ""))

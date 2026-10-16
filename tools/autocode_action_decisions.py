@@ -131,6 +131,22 @@ def revalidate_on_resume(state, workspace, *, review_stage):
     return True
 
 
+def preflight(runner, args, parser, state, state_path, run_dir, workspace, decided):
+    """Reject an ineligible approval before recovery can consume a retained report."""
+    if getattr(args, "approve_goal", None) and (reason := lifecycle.approval_boundary_refusal(state)):
+        try:
+            action = conversation_policy.load_action(state, run_dir, args)
+        except (ValueError, OSError) as error:
+            return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+        if action and action.get("acknowledged"):
+            print("Conversation request was already saved; nothing changed and no provider launched.")
+            return 0
+        return runner.status_command.reject_input(
+            runner, state, workspace, run_dir, ValueError("Goal approval refused: " + reason)
+        )
+    return None
+
+
 def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
     """Apply the user's decisions together and save them; go on to the build only when --resume-paused asked."""
     # Recheck after settings/checkpoint activation and before an old draft can be approved or displayed.

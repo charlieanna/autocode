@@ -18,7 +18,7 @@ import time
 import uuid
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -1339,13 +1339,15 @@ class KiloRoleIsolation:
         _require(self._descriptor is not None and writer_execution is None, "missing readonly original Kilo owner")
         self._check(state)
         verify_boundary(boundary)
+        prepared = cast(dict, self._prepared)
+        source = cast(relay.KiloSourceRelay, self._source)
         _require(
-            self._source.require_client_conformance() == boundary["client_conformance"],
+            source.require_client_conformance() == boundary["client_conformance"],
             "original compiled-client conformance changed",
         )
-        descriptor = self._descriptor
+        descriptor = cast(dict, self._descriptor)
         _require(
-            command == self._prepared["command"]
+            command == prepared["command"]
             and boundary.get("native_role_isolation") == descriptor
             and native_locators.descriptor_matches(
                 environment.get("AUTOCODE_NATIVE_ROLE_ISOLATION", "null"), descriptor
@@ -1353,7 +1355,7 @@ class KiloRoleIsolation:
             "final Kilo owner locators or command changed",
         )
         _require(
-            json.loads(environment.get("AUTOCODE_KILO_SOURCE_RELAY", "null")) == self._source.child_channel(),
+            json.loads(environment.get("AUTOCODE_KILO_SOURCE_RELAY", "null")) == source.child_channel(),
             "original parent Unix source channel changed",
         )
         _require(

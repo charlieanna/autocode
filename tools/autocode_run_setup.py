@@ -13,7 +13,7 @@ runner.opencode is the provider _main_body selected between the two. Neither imp
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -787,7 +787,7 @@ def run_locked(
             # Preserve the actual replaced candidate and artifacts; never overwrite
             # them with a fabricated rollback/pause state after uncertain commit.
             if error.replaced:
-                state.clear()
+                cast(dict, state).clear()
                 state.update(error.candidate)
             print(f"PAUSED_VISUAL_EVIDENCE: Parent replacement outcome held: {error}", file=sys.stderr)
             return owned_result(2)

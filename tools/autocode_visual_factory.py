@@ -366,7 +366,8 @@ class NativeVisualFactory:
             _require(
                 type(prepared_checkpoint) is history.PreparedCheckpoint
                 and prepared_checkpoint.owner is self.history
-                and self.history._prepared.get(prepared_checkpoint.nonce) is prepared_checkpoint,
+                and cast(history.NativeReviewHistory, self.history)._prepared.get(prepared_checkpoint.nonce)
+                is prepared_checkpoint,
                 "missing exact original native Completion preparation",
             )
             _require(
