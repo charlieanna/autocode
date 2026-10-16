@@ -336,8 +336,9 @@ class ClimbTimeTests(unittest.TestCase):
     def test_a_climb_without_a_time_projection_never_pauses(self):
         undated = timed(1000)
         del undated["stages"][-1]["duration_seconds"]
+        # The launched XHigh attempt took 600 s: were it still taken for pending, 650 s + 600 s would pass the budget.
         launched = timed(1000)
-        launched["stages"].append(tested("xhigh"))
+        launched["stages"].append(tested("xhigh", duration_seconds=600))
         for name, state in (
             ("no duration", undated),
             ("climbed attempt launched", launched),
