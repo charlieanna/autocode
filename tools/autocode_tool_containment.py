@@ -24,8 +24,10 @@ from pathlib import Path
 
 try:
     from . import autocode_native_conformance as native_conformance
+    from . import autocode_util as util
 except ImportError:
     import autocode_native_conformance as native_conformance
+    import autocode_util as util
 
 
 SUPPORTED_VERSION = "1.18.33"
@@ -63,7 +65,7 @@ CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
 # flows, or the workspaces, archives and indexes that hold them (#1250): archived task-worktree
 # runs, `autocode arena` attempts, parallel Builder workspaces, run bundles, `autocode issue`
 # worktrees, program state, `autocode review-pr` checkouts, the run registry, replay recordings,
-# task-flow state, `autocode verify-task` checkouts and task or program worktrees. A native
+# task-flow state, `autocode verify` checkouts and reports, and task or program worktrees. A native
 # planning shell reads none of those that exist when its launch is prepared (private_run_reads()).
 # Not every .autocode directory is listed: other launches' control directories and the rest stay
 # readable.
@@ -1686,7 +1688,13 @@ def verify(boundary):
             ):
                 raise ValueError("Missing native private run-state read conformance")
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
-            raise RuntimeError("Private run-state read denial changed; no provider launched") from error
+            # A pause, not a plain RuntimeError: another AutoCode command can make a store at any
+            # time, and verify() also runs after the stage's first check (in native preparation and
+            # in the held launch's seal), where a plain RuntimeError would end the command with exit
+            # code 2 instead of pausing the run.
+            raise util.Paused(
+                "PAUSED_TOOL_CONTAINMENT", "Private run-state read denial changed; no provider launched"
+            ) from error
     if boundary.get("verification_copy"):
         try:
             from . import autocode_verification_copy as copies

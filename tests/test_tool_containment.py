@@ -232,7 +232,7 @@ class PolicyTests(unittest.TestCase):
     def test_planning_profile_denies_each_existing_private_store_and_its_recheck_requires_each(self):
         # #1250: besides the run store, a planning shell reads no private store that exists (archived
         # runs, arena attempts, parallel Builder workspaces, bundles, issue worktrees, programs, pull
-        # request reviews, the registry, replay recordings, task flows, verify-task checkouts, task
+        # request reviews, the registry, replay recordings, task flows, verification checkouts, task
         # worktrees). Each is its own denial rule, and the re-check refuses a profile without any one.
         self.assertEqual(
             (
@@ -1527,7 +1527,7 @@ class KernelTests(unittest.TestCase):
 
         The private ones: an archived task-worktree run, an arena attempt's run, a parallel Builder
         workspace's run, a run bundle, an issue worktree's run, a program's state, a pull request
-        review's run, the run registry, a replay recording, a task flow's state, a verify-task
+        review's run, the run registry, a replay recording, a task flow's state, an `autocode verify`
         checkout's run and a task worktree's run. The needed ones stay readable: a retained planning
         design input, a capture bundle and project settings.
         """
@@ -1548,7 +1548,7 @@ class KernelTests(unittest.TestCase):
             private / "replay/recording/recording.json": '{"private":"replay recording"}\n',
             private / "task-flows/key/state.json": '{"private":"task flow state"}\n',
             private / "verification/0123/independent-review/.autocode/runs/20261007-check/state.json": (
-                '{"private":"verify-task run"}\n'
+                '{"private":"verification run"}\n'
             ),
             private / "worktrees/task-1/.autocode/runs/20261003-other/state.json": '{"private":"worktree run"}\n',
         }
@@ -1676,7 +1676,7 @@ class KernelTests(unittest.TestCase):
         # #1250: own, sibling and custom-named runs' state is unreadable through every route tried,
         # and so is every private .autocode store (archived runs, arena attempts, parallel Builder
         # workspaces, bundles, issue worktrees, programs, pull request reviews, the registry, replay
-        # recordings, task flows, verify-task checkouts and task worktrees); source, the
+        # recordings, task flows, verification checkouts and task worktrees); source, the
         # verification copy, this run's planning/ artifacts, this launch's own control directory and
         # the .autocode files a planner is handed stay readable.
         runs, private, artifact = self.planning_run_store()
@@ -1934,6 +1934,84 @@ class KernelTests(unittest.TestCase):
             containment.verify(boundary)
         with self.assertRaises(util.Paused) as caught:
             provider_launch.verify_containment({"tool_containment": boundary})
+        self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
+
+    def test_store_made_after_the_first_launch_check_still_pauses_the_launch(self):
+        # #1250: verify() runs again after provider_launch.verify_containment, in the native factory's
+        # prepare_launch and in the held launch's seal. Both pass only a pause through, so a store
+        # another command makes in between must still stop the launch as PAUSED_TOOL_CONTAINMENT
+        # rather than end the command with a plain RuntimeError (exit code 2).
+        from contextlib import ExitStack
+
+        import autocode_checkout_lock as checkout_lock
+        import autocode_native_launch as native_launch
+        import autocode_provider_launch as provider_launch
+        import autocode_util as util
+
+        self.planning_run_store()
+        (self.workspace / ".gitignore").write_text(".autocode/\n")
+        git = ["/usr/bin/git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.invalid"]
+        subprocess.run([*git, "add", ".gitignore"], check=True)
+        subprocess.run([*git, "commit", "-qm", "ignore"], check=True)
+        boundary = self.native_planning_boundary()
+        provider_launch.verify_containment({"tool_containment": boundary})
+        # `autocode issue` makes its store after the stage's first check.
+        store = self.workspace / ".autocode" / "issues"
+        self.assertNotIn(str(store), boundary["private_reads"]["denied"])
+        (store / "owner-repo-7").mkdir(parents=True)
+        with self.assertRaisesRegex(util.Paused, "Private run-state read denial changed") as caught:
+            containment.verify(boundary)
+        self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        state = {
+            "workspace": str(self.workspace),
+            "goal_contract": None,
+            "stages": [],
+            "settings": {
+                "roles": {
+                    "glm": {
+                        "engine": "opencode",
+                        "provider": "opencode",
+                        "model": "controlled/model",
+                        "reasoning_effort": "high",
+                    }
+                }
+            },
+        }
+        raw = util.snapshot(self.workspace)
+        context = native_launch.NativeRunContext(
+            self.workspace,
+            self.run_dir,
+            run_handle=stack.enter_context(util.run_lock(self.run_dir)),
+            checkout_handle=stack.enter_context(checkout_lock.exclusive(self.workspace, self.run_dir)),
+            start_state=state,
+            snapshot=raw,
+        )
+        before = self.run_dir / "plan.before.json"
+        util.atomic_json(before, raw)
+        record = {
+            "stage": "plan",
+            "role": "glm",
+            "engine": "opencode",
+            "command": ["opencode"],
+            "launch_route": dict(state["settings"]["roles"]["glm"]),
+            "events": str(self.run_dir / "plan.jsonl"),
+            "output": str(self.run_dir / "plan.json"),
+            "before_ref": str(before),
+        }
+        # The native factory checks containment before its own owner checks, so the store, not the
+        # missing native owner, decides this outcome.
+        with self.assertRaisesRegex(util.Paused, "Private run-state read denial changed") as caught:
+            context.factory.prepare_launch(
+                state,
+                raw,
+                record,
+                boundary=boundary,
+                command=["opencode"],
+                environment={"PATH": "/usr/bin:/bin"},
+                native_role_isolation=None,
+            )
         self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
 
 

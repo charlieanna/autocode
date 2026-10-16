@@ -366,12 +366,14 @@ PR template asks for an entry here; a change without one is incomplete.
 - That planning shell also can no longer read these `.autocode` stores, which hold other runs or what they keep:
   archived and bundled runs (`archive`, `bundles`), `autocode arena` attempts (`arena`), parallel Builder workspaces
   (`builders`), `autocode issue` worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`),
-  the run `registry`, `replay` recordings, `task-flows`, `autocode verify-task` checkouts (`verification`) and task
-  worktrees (`worktrees`). A store is denied when it exists as the launch is prepared; none is created. Other
-  `.autocode` directories, including other launches' `tool-containment-*` control directories, stay readable, as do
-  its own scratch, project settings, retained design inputs and capture bundles. Each denial is in `private_reads`,
-  the native-shell proof covers each store, and a profile missing any one of them, or a store first made after the
-  profile was written, pauses as `PAUSED_TOOL_CONTAINMENT` before the provider starts (#1250).
+  the run `registry`, `replay` recordings, `task-flows`, `autocode verify` checkouts and reports (`verification`)
+  and task worktrees (`worktrees`). A store is denied when it exists as the launch is prepared; none is created.
+  Other `.autocode` directories, including other launches' `tool-containment-*` control directories, stay readable,
+  as do its own scratch, project settings, retained design inputs and capture bundles. Each denial is in
+  `private_reads`, the native-shell proof covers each store, and a profile missing any one of them pauses as
+  `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store first made after the profile was written,
+  up to the launch's last check just before the provider is released: every check before then computes the denial
+  again, including native preparation and the held launch's seal (#1250).
 
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion

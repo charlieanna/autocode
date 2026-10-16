@@ -1341,17 +1341,19 @@ task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
 archives), `issues` (`autocode issue` worktrees and their runs), `programs`,
 `pull-reviews` (`autocode review-pr` checkouts and their runs), `registry` (the
 run registry), `replay` (replay recordings), `task-flows`, `verification`
-(`autocode verify-task` checkouts and their runs) and `worktrees` (task and
+(`autocode verify` checkouts and reports) and `worktrees` (task and
 program worktrees). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an `--out` or `--arena` directory outside these
 stores, or another `.autocode` directory) is not denied. Each store that exists
 when the launch is prepared is denied; the launch creates none, so it leaves
 nothing new in the workspace. New contents of a denied store stay unreadable, but
-a store first made after the launch's profile was written is not covered: before
-the provider starts, the launch pauses as `PAUSED_TOOL_CONTAINMENT`; once it has
-started, the stage can read that store until it ends, and a later planning launch
-denies it. Everything else in `.autocode` stays as readable as the rest of the
-workspace: the launch's own control directory and scratch, project settings,
+a store first made after the launch's profile was written is not covered. Every
+check before the provider starts computes the denial again, up to the held
+launch's seal just before the provider is released, so a store made before that
+last check pauses the launch as `PAUSED_TOOL_CONTAINMENT`. One made later can be
+read by the stage until it ends, and a later planning launch denies it.
+Everything else in `.autocode` stays as readable as the rest of the workspace:
+the launch's own control directory and scratch, project settings,
 retained design inputs, capture bundles, the shared `evidence` and `output`
 areas, other launches' `tool-containment-*` control directories, conversation
 records and AutoCode's other internal files.
