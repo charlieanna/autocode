@@ -373,7 +373,12 @@ PR template asks for an entry here; a change without one is incomplete.
   `private_reads`, the native-shell proof covers each store, and a profile missing any one of them pauses as
   `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store first made after the profile was written,
   up to the launch's last check just before the provider is released: every check before then computes the denial
-  again, including native preparation and the held launch's seal (#1250).
+  again, including native preparation and the held launch's seal. That pause names the new store, and a plain
+  `--resume-paused` prepares the boundary again with it denied. A store made after that last check, such as one made
+  once the provider has started, causes no pause and stays readable to that stage until it ends; a later planning
+  launch denies it. A store path that is a symlink, even a dangling one, or not a directory cannot be denied, so
+  each native planning launch in that workspace pauses as `PAUSED_TOOL_CONTAINMENT`, naming the path: replace it
+  with a real directory, or remove it, then `--resume-paused` (#1250).
 
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion

@@ -167,7 +167,7 @@ TABLE: dict[str, tuple[str, str]] = {
     "PAUSED_TOOL_CONTAINMENT": (
         "The tool sandbox is not available on this host; a setup limit, not a product defect.",
         "Use a supported host or provider, then --resume-paused.",
-    ),
+    ),  # Except a private .autocode store's stop: STORE_CAUSES.
     "PAUSED_OPENCODE_SNAPSHOT": (
         "An OpenCode snapshot is missing or unreadable.",
         "--resume-paused re-checks; if it persists, the provider setup needs attention.",
@@ -444,6 +444,30 @@ TABLE: dict[str, tuple[str, str]] = {
     ),
 }
 
+# PAUSED_TOOL_CONTAINMENT stops about a private .autocode store, which a missing sandbox does not
+# cause (#1250): a phrase of the stop reason autocode_tool_containment writes -> (means, does).
+STORE_CAUSES: tuple[tuple[str, tuple[str, str]], ...] = (
+    (
+        "made after this launch's boundary was prepared",
+        (
+            "A private .autocode store appeared after this planning launch's tool boundary was prepared (for "
+            "example, another AutoCode command in the same checkout made it), so that boundary did not deny "
+            "reading it and no provider started. The sandbox and the setup are not the cause.",
+            "--resume-paused prepares the boundary again, and the new boundary denies that store; nothing needs "
+            "to change first.",
+        ),
+    ),
+    (
+        "replace it with a real directory",
+        (
+            "A private .autocode store that a planning launch must keep unreadable is a symlink or not a "
+            "directory, which its tool boundary cannot deny, so no planning provider starts in this workspace. "
+            "The sandbox is not the cause.",
+            "Replace the path the stop reason names with a real directory, or remove it, then --resume-paused.",
+        ),
+    ),
+)
+
 
 def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
     """Three short paragraphs for a person who did not watch the run (#715).
@@ -468,6 +492,12 @@ def explain(status: str, *, stop_reason: str = "", needs=None) -> dict:
         # resume guidance; this text grants no original-owner authority.
         means = "Native planning cleanup requires original-owner verification before another stage can run."
         does = needs["recovery_hint"]
+    if status == "PAUSED_TOOL_CONTAINMENT":
+        # Every other cause keeps the table's text.
+        for phrase, (store_means, store_does) in STORE_CAUSES:
+            if phrase in (stop_reason or ""):
+                means, does = store_means, store_does
+                break
     owner = (
         "a person"
         if status

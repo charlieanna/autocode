@@ -320,6 +320,10 @@ jobs:
               "tests.test_tool_containment.BubblewrapKernelTests",
               "tests.test_toolchain.SelectedToolchainTests",
               "tests.test_elf_dependencies.LoaderFixtureTests",
+              # The dashboard suite job has no bubblewrap and skips this one (#1250). Last: its module
+              # puts tools/dashboard first on sys.path.
+              "dashboard.tests.test_permanent_delete_endpoints.PermanentDeleteTests"
+              ".test_managed_worktree_can_be_deleted_after_a_native_planning_boundary",
           )
           suite = unittest.TestSuite()
           for name in names:

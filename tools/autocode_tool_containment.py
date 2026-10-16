@@ -83,6 +83,31 @@ PRIVATE_STORES = (
     "verification",
     "worktrees",
 )
+
+
+class UnusableStore(ValueError):
+    """A PRIVATE_STORES path that a planning boundary cannot deny as it stands (#1250).
+
+    A symlink, even a dangling one, or anything else that is not a directory: bubblewrap hides a
+    store under a tmpfs, which needs a directory to mount on, and denying a symlink's own path does
+    not cover what it points to. The message names the path and what clears the refusal.
+    """
+
+
+class StorePause(util.Paused):
+    """PAUSED_TOOL_CONTAINMENT about a private store, whose reason names it and what clears the stop (#1250).
+
+    A store made after the launch's boundary was prepared, or one that became unusable since: the
+    sandbox and the native setup are not the cause, so a caller adds no advice about them.
+    """
+
+    def __init__(self, reason):
+        super().__init__("PAUSED_TOOL_CONTAINMENT", reason)
+
+
+# Errors that name a private store and their own remedy; provider_launch.prepare adds none of its own.
+STORE_ERRORS = (UnusableStore, StorePause)
+DENIAL_CHANGED = "Private run-state read denial changed; no provider launched"
 # The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
 SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
@@ -304,20 +329,27 @@ def private_run_reads(workspace, run_dir):
     design inputs, capture bundles, the shared evidence and output areas, launches' control
     directories) and the workspace keep their ordinary read-only authority.
 
-    A missing store is not created, so the boundary leaves nothing new in the workspace. verify()
-    computes this again before launch, so a store made after the profile was rendered refuses the
-    launch. Each entry is one mount and one rule, so the list stays this short however many runs
-    and launches the workspace has held.
+    A missing store is not created: prepare() adds only the launch's own control directory to the
+    workspace. A store path that is a symlink, even a dangling one, or not a directory raises
+    UnusableStore. verify() computes this again before launch, so a store made after the profile
+    was rendered pauses the launch (StorePause). Each entry is one mount and one rule, so the list
+    stays this short however many runs and launches the workspace has held.
     """
     root = _path(workspace)
     private = root / ".autocode"
     store, run = private / "runs", _path(run_dir)  # _path refuses symlinked authority paths.
     if run.parent != store or not run.is_dir():
         raise ValueError("A private-read denial needs an existing run directly inside workspace/.autocode/runs")
-    stores = [path for path in (_path(private / name) for name in PRIVATE_STORES) if path.exists()]
-    if any(not path.is_dir() for path in stores):
-        # bubblewrap hides each one under a tmpfs, which needs a directory to mount on.
-        raise ValueError("A private-read denial needs each private .autocode store to be a directory")
+    stores = []
+    for path in (private / name for name in PRIVATE_STORES):
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise UnusableStore(
+                f"Planning tool containment cannot deny reading the private .autocode store {path}, which is "
+                + ("a symlink" if path.is_symlink() else "not a directory")
+                + "; replace it with a real directory, or remove it, then --resume-paused"
+            )
+        if path.exists():
+            stores.append(_path(path))
     return {
         "run_dir": str(run),
         "denied": [str(path) for path in (store, *stores)],
@@ -1574,6 +1606,21 @@ def _check_kernel_receipt(response, probe, control, scratch, sentinel):
     )
 
 
+def _stores_made_since(paths):
+    """The pause for private stores made after a planning launch's profile was rendered (#1250).
+
+    Ordinary activity, such as another AutoCode command in the same checkout making its store for the
+    first time: a fresh boundary denies the store, so a plain resume clears it.
+    """
+    one = len(paths) == 1
+    return StorePause(
+        f"{DENIAL_CHANGED}: the private .autocode store{'' if one else 's'} {', '.join(paths)} "
+        f"{'was' if one else 'were'} made after this launch's boundary was prepared, so that boundary does "
+        f"not deny reading {'it' if one else 'them'}. A plain --resume-paused prepares the boundary again "
+        f"with {'it' if one else 'them'} denied"
+    )
+
+
 def verify(boundary):
     """Recheck runner-owned containment bytes immediately before provider launch."""
     if not isinstance(boundary, dict) or boundary.get("version") != 1:
@@ -1667,11 +1714,16 @@ def verify(boundary):
     if "private_reads" in boundary:
         try:
             reads = boundary["private_reads"]
-            # Computed again now: a private store missing from the recorded denial (one made since
-            # the profile was rendered) refuses the launch.
+            if not isinstance(reads, dict):
+                raise ValueError("Missing private run-store read denial")
+            # Computed again now. A store made since the profile was rendered is only in the current
+            # denial; when that is the whole difference, the pause names it and its remedy.
+            current = private_run_reads(workspace, reads["run_dir"])
+            appeared = [path for path in current["denied"] if path not in reads.get("denied", ())]
+            if appeared and reads == {**current, "denied": [p for p in current["denied"] if p not in appeared]}:
+                raise _stores_made_since(appeared)
             if (
-                not isinstance(reads, dict)
-                or reads != private_run_reads(workspace, reads["run_dir"])
+                reads != current
                 or boundary.get("allow_write") is not False
                 or not _enforces_private_reads(host, profile.read_bytes(), reads)
             ):
@@ -1687,14 +1739,14 @@ def verify(boundary):
                 or not proof["command"]
             ):
                 raise ValueError("Missing native private run-state read conformance")
+        except UnusableStore as error:
+            raise StorePause(DENIAL_CHANGED + ": " + str(error)) from error
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
             # A pause, not a plain RuntimeError: another AutoCode command can make a store at any
             # time, and verify() also runs after the stage's first check (in native preparation and
             # in the held launch's seal), where a plain RuntimeError would end the command with exit
             # code 2 instead of pausing the run.
-            raise util.Paused(
-                "PAUSED_TOOL_CONTAINMENT", "Private run-state read denial changed; no provider launched"
-            ) from error
+            raise util.Paused("PAUSED_TOOL_CONTAINMENT", DENIAL_CHANGED) from error
     if boundary.get("verification_copy"):
         try:
             from . import autocode_verification_copy as copies

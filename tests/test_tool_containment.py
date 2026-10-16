@@ -315,18 +315,179 @@ class PolicyTests(unittest.TestCase):
             missing.mkdir()
             every = [str(path) for path in (runs, *(private / name for name in containment.PRIVATE_STORES))]
             self.assertEqual(every, containment.private_run_reads(root, runs / "own")["denied"])
-        # A private store that is a symlink or a file is refused: bubblewrap could not hide it under a tmpfs.
-        for name in ("a store that is a symlink", "a store that is a file"):
+        # A private store that is a symlink, even a dangling one, or a file is refused: bubblewrap could
+        # not hide it under a tmpfs. The refusal names the path and says how to clear it.
+        for name, store, kind in (
+            ("a store that is a symlink", "pull-reviews", "a symlink"),
+            ("a dangling symlink", "issues", "a symlink"),
+            ("a store that is a file", "worktrees", "not a directory"),
+        ):
             with self.subTest(refused=name), tempfile.TemporaryDirectory() as directory:
                 private = Path(directory).resolve() / ".autocode"
                 (private / "runs/own").mkdir(parents=True)
                 (private / "elsewhere").mkdir()
+                path = private / store
                 if name == "a store that is a symlink":
-                    (private / "pull-reviews").symlink_to(private / "elsewhere", target_is_directory=True)
+                    path.symlink_to(private / "elsewhere", target_is_directory=True)
+                elif name == "a dangling symlink":
+                    path.symlink_to(private / "gone", target_is_directory=True)
                 else:
-                    (private / "worktrees").write_text("")
-                with self.assertRaises(ValueError):
+                    path.write_text("")
+                with self.assertRaises(ValueError) as caught:
                     containment.private_run_reads(private.parent, private / "runs/own")
+                self.assertEqual(
+                    f"Planning tool containment cannot deny reading the private .autocode store {path}, which is "
+                    f"{kind}; replace it with a real directory, or remove it, then --resume-paused",
+                    str(caught.exception),
+                )
+
+    @staticmethod
+    def pinned_planning_boundary(root):
+        """A planning boundary as verify() reads it up to its private-read check, with no sandbox run.
+
+        prepare()'s layout and pinned bytes, but an unrendered profile, so verify() refuses it even
+        when no store has changed.
+        """
+        host = containment.backend()
+        run = root / ".autocode/runs/own"
+        run.mkdir(parents=True)
+        control = root / ".autocode" / ("tool-containment-" + "b" * 32)
+        (control / "scratch").mkdir(parents=True)
+        boundary = {
+            "version": 1,
+            "backend": host,
+            "native_version": containment.SUPPORTED_VERSION,
+            "workspace": str(root),
+            "scratch": str(control / "scratch"),
+            "allow_write": False,
+            "private_reads": containment.private_run_reads(root, run),
+        }
+        for name, file in (
+            ("profile", containment.POLICY_FILES[host]),
+            ("shell", "shell"),
+            ("conformance", "conformance.json"),
+        ):
+            (control / file).write_text("{}")
+            boundary[name], boundary[name + "_sha256"] = str(control / file), hashlib.sha256(b"{}").hexdigest()
+        return boundary
+
+    @staticmethod
+    def native_planning_launch_pause(root, launch):
+        """The pause provider_launch.prepare raises when a native planning launch's adapter calls ``launch``."""
+        import autocode_native_role_isolation as isolation
+        import autocode_provider_launch as provider_launch
+        import autocode_util as util
+
+        owner = object.__new__(isolation.NativeRoleIsolation)
+        owner.containment_request = lambda **kwargs: {}
+        adapter = SimpleNamespace(CONFIGURED=False, NAME="opencode", launch=launch, transport_version=lambda _: None)
+        run = root / ".autocode/runs/own"
+        try:
+            provider_launch.prepare(
+                engine="opencode",
+                adapter=adapter,
+                role="glm",
+                route_role="glm",
+                workspace=root,
+                run_dir=run,
+                session=None,
+                model="controlled/model",
+                effort="high",
+                allow_write=False,
+                planning=True,
+                report=run / "report.json",
+                schema=run / "schema.json",
+                prompt_file=run / "prompt.md",
+                sandbox="read-only",
+                transport_args=[],
+                chatgpt=False,
+                provider="opencode",
+                settings={},
+                native_role_isolation=owner,
+                native_environment={"PATH": "/usr/bin:/bin"},
+            )
+        except util.Paused as pause:
+            return pause
+        raise AssertionError("The native planning launch did not pause")
+
+    @unittest.skipIf(containment.backend() is None, f"no tool containment backend on {sys.platform}")
+    def test_a_store_made_after_the_boundary_pauses_naming_it_and_the_plain_resume(self):
+        # #1250: another AutoCode command in the checkout can make a private store between a planning
+        # launch's prepare() and a later verify(). The pause names the store and the plain resume that
+        # prepares a boundary denying it; it does not blame the host's sandbox or the native setup.
+        import autocode_stop_explanations as stop_explanations
+        import autocode_util as util
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            boundary = self.pinned_planning_boundary(root)
+            # Any other refusal keeps its reason and its explanation.
+            with self.assertRaises(util.Paused) as caught:
+                containment.verify(boundary)
+            self.assertEqual("Private run-state read denial changed; no provider launched", str(caught.exception))
+            other = stop_explanations.explain("PAUSED_TOOL_CONTAINMENT", stop_reason=str(caught.exception))
+            self.assertEqual(stop_explanations.TABLE["PAUSED_TOOL_CONTAINMENT"][0], other["what_it_means"])
+            issues = root / ".autocode/issues"
+            (issues / "owner-repo-7").mkdir(parents=True)
+            with self.assertRaises(util.Paused) as caught:
+                containment.verify(boundary)
+            self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
+            self.assertEqual(
+                f"Private run-state read denial changed; no provider launched: the private .autocode store {issues} "
+                "was made after this launch's boundary was prepared, so that boundary does not deny reading it. "
+                "A plain --resume-paused prepares the boundary again with it denied",
+                str(caught.exception),
+            )
+            arena = root / ".autocode/arena"
+            arena.mkdir()
+            with self.assertRaises(util.Paused) as caught:
+                containment.verify(boundary)
+            self.assertIn(f"stores {arena}, {issues} were made after", str(caught.exception))
+            self.assertIn("--resume-paused prepares the boundary again with them denied", str(caught.exception))
+            # configure() verifies the boundary it has just made: the launch's pause keeps that reason and
+            # adds no advice to restore the native setup.
+            pause = self.native_planning_launch_pause(root, lambda *args, **kwargs: containment.verify(boundary))
+            self.assertEqual("PAUSED_TOOL_CONTAINMENT", pause.status)
+            reason = str(pause)
+            self.assertEqual("Native tool boundary was not established: " + str(caught.exception), reason)
+            text = stop_explanations.explain("PAUSED_TOOL_CONTAINMENT", stop_reason=reason)
+            self.assertNotIn("not available on this host", text["explanation"])
+            self.assertIn("appeared after this planning launch's tool boundary was prepared", text["what_it_means"])
+            self.assertTrue(text["what_the_command_does"].startswith("--resume-paused prepares the boundary again"))
+
+    @unittest.skipIf(containment.backend() is None, f"no tool containment backend on {sys.platform}")
+    def test_a_symlinked_store_refuses_native_planning_naming_it_and_its_fix(self):
+        # #1250: a store path that is a symlink, even a dangling one, cannot be denied, so each native
+        # planning launch in the workspace is refused. The stop names the path and says to replace it
+        # with a real directory or remove it; it does not blame the host's sandbox or the native setup.
+        import autocode_stop_explanations as stop_explanations
+        import autocode_util as util
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            boundary = self.pinned_planning_boundary(root)
+            store = root / ".autocode/pull-reviews"
+            store.symlink_to(root / "gone", target_is_directory=True)
+            fix = "replace it with a real directory, or remove it, then --resume-paused"
+            # prepare() refuses it before any sandbox runs.
+            pause = self.native_planning_launch_pause(
+                root, lambda *args, **kwargs: containment.private_run_reads(root, root / ".autocode/runs/own")
+            )
+            self.assertEqual("PAUSED_TOOL_CONTAINMENT", pause.status)
+            self.assertEqual(
+                "Native tool boundary was not established: Planning tool containment cannot deny reading the "
+                f"private .autocode store {store}, which is a symlink; {fix}",
+                str(pause),
+            )
+            text = stop_explanations.explain("PAUSED_TOOL_CONTAINMENT", stop_reason=str(pause))
+            self.assertNotIn("not available on this host", text["explanation"])
+            self.assertIn("is a symlink or not a directory", text["what_it_means"])
+            self.assertIn("with a real directory, or remove it, then --resume-paused", text["what_the_command_does"])
+            # One that became a symlink after the boundary was prepared stops verify() the same way.
+            with self.assertRaises(util.Paused) as caught:
+                containment.verify(boundary)
+            self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
+            self.assertIn(f"store {store}, which is a symlink; {fix}", str(caught.exception))
 
     def test_unsupported_platform_is_explicit_prelaunch_failure(self):
         for name in ("linux", "freebsd"):
@@ -1962,6 +2123,15 @@ class KernelTests(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "Private run-state read denial changed") as caught:
             containment.verify(boundary)
         self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
+        # The reason names the new store and the plain resume that denies it, at every check.
+        reason = (
+            f"the private .autocode store {store} was made after this launch's boundary was prepared, so that "
+            "boundary does not deny reading it. A plain --resume-paused prepares the boundary again with it denied"
+        )
+        self.assertIn(reason, str(caught.exception))
+        with self.assertRaises(util.Paused) as checked:
+            provider_launch.verify_containment({"tool_containment": boundary})
+        self.assertIn(reason, str(checked.exception))
         stack = ExitStack()
         self.addCleanup(stack.close)
         state = {
@@ -2013,6 +2183,7 @@ class KernelTests(unittest.TestCase):
                 native_role_isolation=None,
             )
         self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
+        self.assertIn(reason, str(caught.exception))
 
 
 @unittest.skipUnless(

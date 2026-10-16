@@ -1345,13 +1345,23 @@ run registry), `replay` (replay recordings), `task-flows`, `verification`
 program worktrees). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an `--out` or `--arena` directory outside these
 stores, or another `.autocode` directory) is not denied. Each store that exists
-when the launch is prepared is denied; the launch creates none, so it leaves
-nothing new in the workspace. New contents of a denied store stay unreadable, but
-a store first made after the launch's profile was written is not covered. Every
-check before the provider starts computes the denial again, up to the held
-launch's seal just before the provider is released, so a store made before that
-last check pauses the launch as `PAUSED_TOOL_CONTAINMENT`. One made later can be
-read by the stage until it ends, and a later planning launch denies it.
+when the launch is prepared is denied. The launch creates none of them: the only
+thing it adds to the workspace is its own `.autocode/tool-containment-<hex>/`
+control directory, as every contained launch does. New contents of a denied store
+stay unreadable, but a store first made after the launch's profile was written is
+not covered. Every check before the provider starts computes the denial again, up
+to the held launch's seal just before the provider is released, so a store made
+before that last check pauses the launch as `PAUSED_TOOL_CONTAINMENT`. Such a
+store usually comes from ordinary activity, for example another AutoCode command
+in the same checkout making `.autocode/issues` for the first time, so this pause
+is not a sandbox or setup problem: the stop reason names the new store, and a
+plain `--resume-paused` prepares the boundary again with it denied. One made
+after that last check, such as once the provider has started, causes no pause and
+can be read by the stage until it ends; a later planning launch denies it. A
+store path that is a symlink, even a dangling one, or that is not a directory
+cannot be denied, so every native planning launch in that workspace pauses as
+`PAUSED_TOOL_CONTAINMENT` before its provider starts, naming the path: replace it
+with a real directory, or remove it, then `--resume-paused`.
 Everything else in `.autocode` stays as readable as the rest of the workspace:
 the launch's own control directory and scratch, project settings,
 retained design inputs, capture bundles, the shared `evidence` and `output`
