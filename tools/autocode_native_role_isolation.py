@@ -709,6 +709,13 @@ class NativeRoleIsolation:
             == {"path": boundary["conformance"], "sha256": boundary["conformance_sha256"]},
             "foreign final boundary",
         )
+        if self._prepared["agent"] != "autocode_" + self._role:
+            # A planning agent's shell reads no run's private state, only this run's planning/ (#1250).
+            reads = boundary.get("private_reads")
+            _require(
+                isinstance(reads, dict) and reads.get("run_dir") == str(self._run),
+                "planning shell lacks this run's private run-state read denial",
+            )
         _require(not self._prepared["allow_write"] or contract.approved(state), "task writer contract approval changed")
         proof = sdk_rules._json(Path(boundary["conformance"]).read_bytes())
         _require(

@@ -439,7 +439,8 @@ def prompt_for_schema(prompt, schema, events) -> str:
         prompts.get("fragments/provider-claude/prompt-for-schema.md")
         + str(events)
         + prompts.get("fragments/provider-claude/prompt-for-schema-02.md")
-        + json.dumps(schema, indent=2)
+        # Compact, as OpenCode's: an indented schema doubled to 19 KB and tipped a repair over its cap (#1337).
+        + json.dumps(schema, separators=(",", ":"))
         + "\n"
     )
     return prompt.replace("\nCURRENT HANDOFF DATA\n", contract + "\nCURRENT HANDOFF DATA\n", 1)
