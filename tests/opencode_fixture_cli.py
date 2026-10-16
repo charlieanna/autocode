@@ -1,7 +1,13 @@
-"""Explicit offline CLI bootstrap, never a native/kernel conformance test.
+"""Explicit offline CLI bootstrap for the checked-in fake OpenCode/Codex bundle.
 
-Only the checked-in fake OpenCode/Codex bundle may run through this transport.
-Nothing in production imports this module or selects it from fixture env vars.
+Only that bundle may run through this transport. Nothing in production imports
+this module or selects it from fixture env vars. It is no proof of OpenCode's own
+tool dispatch. By default no launch is contained. With native_boundary and
+AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1 (#709) the runner's side is real: run setup,
+each launch's conformance checks and the kernel shell are the production ones, and
+only the conformance commands and a planted AUTOCODE_FIXTURE_SHELL_ESCAPE write run
+in that shell; the fake's own work (the scripted Codex delegate's edits and checks)
+still runs outside it.
 """
 
 import importlib
@@ -43,10 +49,14 @@ def entrypoint(entry, *, native_boundary=False, qualified_at_setup=False):
     """Retain the selected CLI script, including an installed console entrypoint.
 
     native_boundary keeps the runner's own tool-boundary checks (#413): only the
-    client process is the checked fake, so its --version (not 1.18.33) is what the
-    run setup and every launch see. qualified_at_setup also keeps every launch's
-    checks but has the run-setup check report a qualified host, as when OpenCode
-    changes after a run starts: the first contained launch then fails its boundary.
+    client process is the checked fake, so its --version is what the run setup and
+    every launch see. That is 1.18.31, which both refuse, unless the test sets
+    AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1: then it is 1.18.33, the fake answers the
+    model-free conformance checks, and each launch is contained by the real kernel
+    boundary (tests/test_contained_fake_cli.py). qualified_at_setup also keeps every
+    launch's checks but has the run-setup check report a qualified host, as when
+    OpenCode changes after a run starts: the first contained launch then fails its
+    boundary.
     """
     target = entry[1:] if entry[0] == sys.executable else entry
     if len(target) != 1:
