@@ -2204,7 +2204,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/32dc74ef16d005e7440341a077ee78007558c161/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1724a42c603cd2e8cb272c53996ccdd03fbb19ae/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2474,16 +2474,16 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/32dc74ef16d005e7440341a077ee78007558c161/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/1724a42c603cd2e8cb272c53996ccdd03fbb19ae/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
 attempt durations, reported usage, regression proof and remaining gaps. The report of a build,
 bug-fix or design run (the run's <code>workflow</code>, or none for a run saved before workflow
 recognition) also has <code>approvals</code>: the status view's <code>approvals</code> rows when the report was
-written (who approved each plan and review, edited the plan or resumed a pause, with its
-recorded provenance, never verified), shown in the Markdown as an Approvals table after the
-intended outcome, or as <code>None recorded</code> for a run with none
+written (who approved each plan and review, accepted completion, edited the plan or resumed a
+pause, with its recorded provenance, never verified), shown in the Markdown as an Approvals
+table after the intended outcome, or as <code>None recorded</code> for a run with none
 (<a href="../execution/#who-approved">Who approved</a>). Review and discuss reports, which have no approval
 step, have no <code>approvals</code> field and no such section, even when the status view lists a resume.
 Neither do verification, program and component reports, nor reports written before AutoCode
@@ -2717,7 +2717,8 @@ current, and something the options do not cover goes in <code>--feedback</code> 
 <code>--chat</code>, which asks again after a rejected answer). A question without options takes any
 nonempty text. The terminal CLI also shows the remaining question IDs and
 current Resolver token on stderr after each successful answer and on <code>--status</code>, and <code>--status</code>
-also prints the run's cost line there (<code>Cost: ...</code>, from the view's <code>cost</code>);
+also prints the run's cost line there (<code>Cost: ...</code>, from the view's <code>cost</code>), then, when the run has
+escalated, one <code>Escalations: ...</code> line and a line per escalation (from the view's <code>escalations</code>);
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
 <code>TaskRun.accept_transport_change()</code> uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
@@ -2923,6 +2924,69 @@ once. A null amount is unknown, never zero: <code>estimated_usd</code> and <code
 has that basis, and <code>spent_usd</code> is null when no stage is known at all; while <code>complete</code> is false,
 <code>spent_usd</code> is a floor. <code>usage.cost_usd</code> keeps the frozen comparison rates its reports are bound to,
 so its <code>estimated</code> can differ from <code>cost.estimated_usd</code>.</p>
+<p><code>escalation_outcomes</code> counts the run's escalations and Builder retries by the outcome the runner
+stamped on them (<code>passed</code>, <code>paused</code>, <code>open</code>). <code>escalations</code> lists each escalation the run made, oldest
+first (<code>tools/autocode_escalation_view.py</code>, #612): a role's climb on its effort ladder (<code>kind</code>
+<code>effort_climb</code>) and the Builder's stronger attempt (<code>stronger_attempt</code>; see
+<a href="../models/#builder-retry-policy">Models</a>). Each row has the route <code>role</code> that moved, the <code>stage</code> that
+struggled and its <code>job</code> as the screen names it (from the role when the stage is not known; null, never
+a code name, when neither names a job), <code>at</code>, <code>trigger</code> (<code>validation_rework</code>, <code>rejected_output</code>,
+<code>no_progress</code> or <code>abandoned_attempt</code> for a climb, <code>execution_failure</code> for the stronger attempt),
+<code>detail</code>, <code>struggle_id</code>, <code>task_id</code> (for the stronger attempt, the task of the failed attempt its
+decision names), the route it climbed <code>from</code> and <code>to</code> (<code>model</code>, <code>reasoning_effort</code>, <code>profile</code>),
+<code>deferred_by_parallel_builder</code> (a parallel Builder left the stronger attempt to this run, which made it
+serially), <code>inherited</code>, <code>attempts</code>, <code>cost</code> and <code>outcome</code>:</p>
+<ul>
+<li><code>attempts</code> are the role's stage records launched on the route it climbed to, from the escalation
+  until the first of: a validation of its work that passed (that attempt included), unless the
+  Builder's retry policy then charged one of its attempts as a failure (see <code>outcome</code>), or the role's
+  next escalation of either kind (its next climb, the Builder's stronger attempt). The running one is
+  included (<code>active</code>); dry runs and the runner's own stages are not attempts. A climb lasts for the
+  rest of the run, so a later milestone's attempts on the climbed rung count until one of those ends
+  it. A stronger attempt's attempts are this run's own Builder records: a parallel Builder's records
+  the parent holds (<code>worker_milestone</code>) are its worker's, whose own stronger attempt is recorded only
+  in its worker run. A validation judged an escalation's work when one of its attempts produced it,
+  or, for the Builder, whose work another role validates, when the Builder's last attempt before it
+  is one of its attempts. No other role is judged by another role's validation: a Tester PASS of the
+  Builder's work is not the work of a Completion Reviewer's or Resolver's climb. Nor is a validation
+  of another milestone's work, or of work on a route the role was moved to. The runner assigns every
+  task, a rework included, a new id, so an attempt's milestone is its task's contract hash and
+  milestone ids (<code>current_task</code>, <code>task_archive</code>): an attempt whose task is of another milestone than
+  the attempt the escalation was made from (a later milestone, or a replanned contract's) is not its
+  work. When either task is not recorded, they are not told apart.</li>
+<li><code>cost</code> prices those attempts as <code>cost</code> prices a stage: <code>usd</code> (reported plus estimated),
+  <code>reported_usd</code>, <code>estimated_usd</code>, <code>unpriced_attempts</code>, <code>unrouted_attempts</code> and <code>complete</code>. An attempt
+  with no usage record is unpriced, never zero: <code>usd</code> is then a floor (<code>complete</code> false), or null when
+  no attempt is priced. A stage record saved without a launch route (before 2026-10-01) cannot be
+  shown to have run on the route it climbed to: the role's such records in that span are counted in
+  <code>unrouted_attempts</code>, not listed in <code>attempts</code>, and no validation of them decides the outcome; while
+  there are any, the cost is unknown the same way (<code>complete</code> false, <code>usd</code> null when no listed attempt
+  is priced). An escalation whose attempt never launched (a cost-cap or time-budget stop before it)
+  cost <code>0</code>.</li>
+<li><code>inherited</code> is true for an escalation made before this run was created: in a checkpoint
+  continuation (<code>autocode checkpoint --restore</code>), one the restored run made. Its attempts there are not
+  in this run's stage records, so its <code>cost</code> is unknown, never zero: <code>usd</code> is null (a floor of its
+  attempts since the restore, when it has any) and <code>complete</code> false. What that run spent is in <code>cost</code>'s
+  <code>inherited_usd</code>.</li>
+<li><code>outcome</code> is <code>passed</code>, <code>failed_again</code>, <code>paused</code> or <code>running</code>, and <code>outcome_basis</code> says what decided
+  it, the first that applies: the first decisive record after it (<code>validation</code>: a validation of its
+  work passed, unless the Builder's retry policy then charged one of its attempts of its milestone as
+  a failure, as it charges a review that sends passed work back; <code>later_escalation</code>: the role climbed
+  again, the milestone made another stronger attempt, or the Builder made its stronger attempt after
+  climbing, or climbed after it, from this escalation's attempt), the runner's <code>paused</code> stamp
+  (<code>recorded</code>: the Builder's retry-limit pause), a validation of its work failing or blocked
+  (<code>validation</code>), else such a charge (<code>recorded</code>: a retry, the stronger attempt or the retry-limit
+  pause charged to one of its attempts of its milestone), the runner's <code>passed</code> stamp
+  (<code>recorded</code>) only when every attempt of its role since it, until the role's next escalation, ran on
+  the route it climbed to and there was at least one, else the run's status now (<code>run_status</code>:
+  complete is <code>passed</code>, running is <code>running</code>, any pause, wait or stop is <code>paused</code>). The runner stamps
+  every open escalation <code>passed</code> at any validation PASS, whoever's work passed, so that stamp is not
+  taken over a failure of its own work, once a person or the Builder's retry policy moved the role to
+  another route, or when the role ran nothing since. It is a projection of saved records, so it can
+  change as the run continues.</li>
+</ul>
+<p>A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
+does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.</p>
 <p><code>progress</code> is how far the run has got, counted only from saved records
 (<code>tools/autocode_progress_view.py</code>; added by <code>autocode --status</code>, which supplies
 the accepted milestones, the valid review receipts and the state of the recorded
@@ -3006,11 +3070,12 @@ was approved. A coordinating layer such as
 <code>autocode program</code> reads a child run's approved criteria here (<code>program derive</code> and
 the inherited-requirement check), never from <code>state.json</code>. Like <code>displayed_plan</code>, it
 is neither execution permission nor completion proof.</p>
-<p><code>approvals</code> lists every plan and review approval, goal edit and pause-releasing resume the
-run recorded, oldest first (#722): <code>kind</code> (<code>plan</code>, <code>review</code>, <code>edit</code> or <code>resume</code>), <code>at</code>,
-<code>actor</code> (<code>user_cli</code> for a person, <code>workflow_policy</code> for a small bug fix approved under the
-workflow policy), <code>contract_token</code> (the plan token approved, or the draft an edit installed;
-null for a review or a resume), <code>criterion</code> (the accepted criterion, null otherwise),
+<p><code>approvals</code> lists every plan and review approval, completion acceptance, goal edit and
+pause-releasing resume the run recorded, oldest first (#722): <code>kind</code> (<code>plan</code>, <code>review</code>,
+<code>completion</code> for <code>--accept-completion</code>, <code>edit</code> or <code>resume</code>), <code>at</code>, <code>actor</code> (<code>user_cli</code> for a
+person, <code>workflow_policy</code> for a small bug fix approved under the workflow policy),
+<code>contract_token</code> (the plan token approved, or the draft an edit installed; null for a review,
+a completion acceptance or a resume), <code>criterion</code> (the accepted criterion, null otherwise),
 <code>pause_status</code> (the pause a resume took the run out of, such as <code>PAUSED_TIME_LIMIT</code>, or the
 one a pause intervention interrupted; null otherwise) and <code>provenance</code>: <code>git_user_name</code>,
 <code>git_user_email</code>, <code>host</code>, <code>command</code> (<code>autocode</code>, the <code>resume</code> command word when typed, and

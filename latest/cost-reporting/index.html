@@ -1969,7 +1969,9 @@ switched on and no model is called.</p>
 <li><strong>Status view.</strong> <code>usage</code> in the view (<code>autocode --run-dir RUN --status</code>, <a href="../task-run/">Task run</a>)
   holds the run's totals so far: stages, tokens, <code>cost_usd</code> (<code>reported</code>, <code>estimated</code>, <code>complete</code>),
   <code>unknown_stages</code> and the same by role. <code>cost</code> holds the spend at current list prices against the
-  run's money cap, and <code>--status</code> prints it as one <code>Cost: ...</code> line on stderr (below).</li>
+  run's money cap, and <code>--status</code> prints it as one <code>Cost: ...</code> line on stderr (below).
+  <code>escalations</code> prices each escalation's attempts the same way and says how it ended, so a run shows
+  what each climb cost and whether it helped (<a href="../task-run/#status-view">status view</a>).</li>
 <li><strong>Project ledger.</strong> <code>PROJECT/.autocode/usage.jsonl</code> has one row per run, rewritten at every
   checkpoint save, so it is right during a task and after it pauses, completes or is killed. It
   is under <code>.autocode/</code>, which Git ignores.</li>

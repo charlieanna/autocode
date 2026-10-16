@@ -2072,7 +2072,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/32dc74ef16d005e7440341a077ee78007558c161/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1724a42c603cd2e8cb272c53996ccdd03fbb19ae/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2204,7 +2204,11 @@ first model call (<a href="#builder-retry-policy">Builder retry policy</a> cover
 attempt). Each
 escalation later records how it ended — a validation PASS <code>passed</code>, a
 retry-limit pause <code>paused</code> — and <code>autocode --status</code> summarizes that as
-<code>escalation_outcomes</code>.
+<code>escalation_outcomes</code>. It also lists each escalation as a row of <code>escalations</code>
+(a climb, or the Builder's stronger attempt): the job and stage it was for, the
+route it climbed from and to, what its escalated attempts cost, and whether the
+work then passed, failed again, paused or is still running, with one line each on
+stderr (<a href="../task-run/#status-view">status view</a>).
 The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
 are on no ladder: they keep their configured route, and a verifier that keeps
 struggling pauses the run instead. The Builder instead gets its
