@@ -400,10 +400,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#acceptance" class="md-nav__link">
+  <a href="#acceptance-if-native-support-is-taken-up-again" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Acceptance
+        Acceptance (if native support is taken up again)
       
     </span>
   </a>
@@ -1903,10 +1903,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#acceptance" class="md-nav__link">
+  <a href="#acceptance-if-native-support-is-taken-up-again" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Acceptance
+        Acceptance (if native support is taken up again)
       
     </span>
   </a>
@@ -2028,13 +2028,13 @@
 
 
 <h1 id="native-windows">Native Windows<a class="headerlink" href="#native-windows" title="Permanent link">&para;</a></h1>
-<p>AutoCode supports Windows through WSL today (<a href="../install/#windows-through-wsl">install</a>).
-This page tracks native Windows support (<a href="https://github.com/charlieanna/autocode/issues/698">#698</a>):
-what has been audited, what is fixed, and what is still open. Until the acceptance
-below is met, use WSL.</p>
+<p>AutoCode supports Windows through WSL (<a href="../install/#windows-through-wsl">install</a>).
+Native Windows support is not planned: <a href="https://github.com/charlieanna/autocode/issues/698">#698</a>
+was closed on 2026-10-16 and WSL stays the supported path. This page records what was
+audited, what is fixed and what is still open, for whoever takes native support up again.</p>
 <p>OpenCode and Codex run natively on Windows, so the gaps are in AutoCode's own
 locking, file and process handling, not in the engines.</p>
-<h2 id="acceptance">Acceptance<a class="headerlink" href="#acceptance" title="Permanent link">&para;</a></h2>
+<h2 id="acceptance-if-native-support-is-taken-up-again">Acceptance (if native support is taken up again)<a class="headerlink" href="#acceptance-if-native-support-is-taken-up-again" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>autocode doctor</code> and one fake scenario pass on the Windows CI runner.</li>
 <li><a href="../install/">Install</a> then drops the WSL-only line and names the supported shells

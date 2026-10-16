@@ -1981,8 +1981,12 @@ Builder task). In the fixed sequence only the final review writes one.</p>
 functions. <code>units/autoplanner.py</code> (<code>schema_for</code>, <code>after_challenge</code>,
 <code>after_revise</code>, <code>rerun_requirements</code>), <code>autocode_workflows.apply</code> and
 <code>autocode_goals.feedback</code> apply them. State: <code>workflow.clarity</code>,
-<code>planning.adaptive</code> (<code>size</code>, <code>signals</code>, <code>review_limit</code>, <code>challenges</code>,
-<code>approved_at</code>, <code>final_stage</code>), and <code>revises_plan</code> on a feedback event.</p>
+<code>workflow.requirements_skipped</code>, <code>planning.adaptive</code> (<code>size</code>, <code>signals</code>,
+<code>review_limit</code>, <code>challenges</code>, <code>approved_at</code>, <code>final_stage</code>), and <code>revises_plan</code>
+on a feedback event. <code>autocode --status --json</code> shows the decisions under
+<code>planning_depth</code> (<a href="../task-run/">task-run interface</a>): the clarity, whether
+Requirements was skipped, the plan's size, the review allowance and whether the
+Plan Reviewer approved the draft early.</p>
 <h2 id="feedback-on-a-plan-you-were-shown">Feedback on a plan you were shown<a class="headerlink" href="#feedback-on-a-plan-you-were-shown" title="Permanent link">&para;</a></h2>
 <p>Without adaptive planning, feedback on a plan (<code>--feedback</code>, or typing a change
 in chat) restarts planning from the top, however small the change:</p>
