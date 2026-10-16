@@ -199,9 +199,17 @@ class RejectionQueuesTheBoundedRepair(NativeRepairFixture):
         with self.assertRaises(TypeError):
             self.calls.reject(self.state, self.record(), MALFORMED)
 
-    def test_final_review_and_non_report_errors_keep_the_original_pause(self):
+    def test_final_review_malformed_report_queues_the_bounded_repair(self):
+        self.state["next_stage"] = "plan_finalize"
+        record = self.record("plan_finalize")
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.calls.reject(self.state, record, MALFORMED, closed=True)
+        pending = self.state["pending_report_repair"]
+        self.assertEqual("plan_finalize", pending["original"]["stage"])
+        self.assertEqual("REPORT_REPAIR", self.state["phase"])
+
+    def test_non_report_errors_keep_the_original_pause(self):
         cases = (
-            ("final review", "plan_finalize", MALFORMED, {}),
             ("guard pause", "plan_review", util.Paused("PAUSED_STALE_VALIDATION", "changed"), {}),
             ("nonzero exit", "plan_review", MALFORMED, {"exit_code": 1}),
             ("timed out", "plan_review", MALFORMED, {"timed_out": True}),
@@ -276,15 +284,16 @@ class AdmissionOfExactlyThatRepair(NativeRepairFixture):
             changed(label, original)
             changed(label + " (launch)", original, **repair)
 
-        def final_review(state):
-            # The same queued repair of the final review: refused only because that stage is not repairable.
-            state["next_stage"] = "plan_finalize"
-            state["pending_report_repair"]["original"]["stage"] = "plan_finalize"
-
-        changed("final review", final_review)
-        changed("final review (launch)", final_review, **repair)
         changed("no pending repair", lambda s: s.pop("pending_report_repair"), **repair)
         self.factory.require_planning_origin.assert_not_called()
+
+    def test_guard_admits_final_review_queued_repair_and_its_resume(self):
+        pending = self.queue("plan_finalize")
+        self.calls.guard(self.state)
+        pending["attempts"] = 1
+        self.calls.guard(self.state, "plan_finalize", report_only=True, allow_write=False)
+        self.assertEqual(2, self.factory.require_planning_origin.call_count)
+        self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
 
     def test_repair_launch_must_use_the_original_route(self):
         self.queue()
@@ -299,8 +308,8 @@ class AdmissionOfExactlyThatRepair(NativeRepairFixture):
         self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
         with self.assertRaisesRegex(util.Paused, "native scope beyond first approval"):
             self.calls.require_supported_action(SimpleNamespace(run_dir=self.run, retry_report="001/x"), self.state)
-        self.state["pending_report_repair"]["original"]["stage"] = "plan_finalize"
-        self.state["next_stage"] = "plan_finalize"
+        self.state["pending_report_repair"]["original"]["stage"] = "terra"
+        self.state["next_stage"] = "terra"
         with self.assertRaisesRegex(util.Paused, "only its own bounded report-only repair"):
             self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
 
@@ -387,6 +396,35 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
         self.assertEqual({"astra_calls": 2, "review_call_limit": 2}, self.state["planning"])
         self.assertEqual(self.state, self.disk())
         self.factory.prepare_parent_commit.assert_not_called()  # no planning publication claimed
+        self.assertFalse(self.calls.sink.blocked)
+
+    def test_accepted_plan_finalize_repair_commits_native_planning_publication(self):
+        self.queue("plan_finalize")
+        record = self.record("plan_finalize", repair=True, name="final-repair-accepted")
+        Path(record["output"]).write_text('{"decision": "repaired"}')
+
+        def apply(state, stage, value, record, workspace, run_dir, *, native):
+            runner.save_record(state, record)
+            state["status"] = "AWAITING_GOAL_APPROVAL"
+            state["planning_final"] = {
+                "artifact": {"path": "planning/artifact.json", "sha256": "0" * 64},
+                "delta": {"path": "planning/delta.json", "sha256": "0" * 64},
+                "graph": {"path": "planning/graph.json", "sha256": "0" * 64},
+                "final_token": "token-1",
+            }
+            state["planning"]["final_token"] = "token-1"
+
+        with (
+            patch.object(runner, "run_role", return_value=({"decision": "repaired"}, record)) as launch,
+            patch.object(runner, "apply_result", side_effect=apply) as applied,
+        ):
+            self.view.execute_report_repair(self.state, self.run, self.root)
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual("accepted", self.state["report_repair_history"][-1]["result"])
+        self.factory.prepare_parent_commit.assert_called_once()
+        self.factory.commit_planning_publication.assert_called_once_with(
+            "controlled ACK", self.state, snapshot={"controlled": "snapshot"}
+        )
         self.assertFalse(self.calls.sink.blocked)
 
     def test_repair_whose_report_still_fails_queues_the_next_attempt_then_stops(self):

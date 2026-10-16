@@ -114,7 +114,9 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record):
             state["phase"] = "PLANNING" if runtime.planning.is_planning(state, state["next_stage"]) else "EXECUTING"
             state.pop("stop_reason", None)
 
+    original_stage = owner["pending_report_repair"]["original"]["stage"]
     candidate = result_application.prepare(
-        owner, run_dir, owner["pending_report_repair"]["original"]["stage"], apply, persist=runtime.write_json
+        owner, run_dir, original_stage, apply, persist=runtime.write_json
     )
-    runtime.commit_boundary_candidate(owner, candidate, run_dir, workspace)
+    planning_record = repair_record if original_stage == "plan_finalize" else None
+    runtime.commit_boundary_candidate(owner, candidate, run_dir, workspace, planning_record=planning_record)

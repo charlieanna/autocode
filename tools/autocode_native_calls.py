@@ -56,9 +56,7 @@ class PlanningCalls:
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.snapshot = snapshot
         self.stages = frozenset(planning_stages) | {recognizer}
-        # A repaired final review would also need its own native planning publication
-        # before approval, which this scope does not grant: it keeps its original pause.
-        self.repairable = frozenset(planning_stages) - {"plan_finalize"}
+        self.repairable = frozenset(planning_stages)
         self.sink = parent.ParentSink(run_dir, factory=context.factory, ordinary_write=write, snapshot=snapshot)
         context.factory.bind_parent_sink(self.sink, parent.ParentSink)
         self.approval = None

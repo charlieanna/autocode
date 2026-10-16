@@ -255,6 +255,67 @@ class OwnedGuardFixture(unittest.TestCase):
             self.owner.commit_planning_publication(ack, candidate, snapshot=self.current)
         native_replay.assert_not_called()
 
+    def test_planning_matches_admits_repaired_plan_finalize_record(self):
+        repair_record = {
+            "stage": "plan_finalize_report_repair",
+            "original_stage": "plan_finalize",
+            "report_only": True,
+            "exit_code": 0,
+        }
+        contract = {"task_id": "t1", "revision": 1, "body": {}, "approval_status": "draft"}
+        contract["hash"] = util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+        candidate = {
+            "settings": {"planning_flow": "v2"},
+            "goal_contract": contract,
+            "current_task": None,
+        }
+        with patch.object(self.owner, "_finished_for") as finished_for:
+            finished_for.side_effect = util.Paused("PAUSED_TEST", "reached finished_for")
+            with self.assertRaises(util.Paused) as caught:
+                self.owner._planning_matches(repair_record, candidate, self.current)
+            self.assertEqual("reached finished_for", str(caught.exception))
+
+    def test_planning_matches_rejects_repaired_non_finalize_record(self):
+        repair_record = {
+            "stage": "plan_review_report_repair",
+            "original_stage": "plan_review",
+            "report_only": True,
+            "exit_code": 0,
+        }
+        contract = {"task_id": "t1", "revision": 1, "body": {}, "approval_status": "draft"}
+        contract["hash"] = util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+        candidate = {
+            "settings": {"planning_flow": "v2"},
+            "goal_contract": contract,
+            "current_task": None,
+        }
+        with self.assertRaises(util.Paused) as caught:
+            self.owner._planning_matches(repair_record, candidate, self.current)
+        self.assertIn("initial planning authority needs the original successful v2 final native stage", str(caught.exception))
+
+    def test_planning_matches_repaired_finalize_requires_failed_launch_in_journal(self):
+        repair_record = {
+            "stage": "plan_finalize_report_repair",
+            "original_stage": "plan_finalize",
+            "report_only": True,
+            "exit_code": 0,
+        }
+        contract = {"task_id": "t1", "revision": 1, "body": {}, "approval_status": "draft"}
+        contract["hash"] = util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+        candidate = {
+            "settings": {"planning_flow": "v2"},
+            "goal_contract": contract,
+            "current_task": None,
+        }
+        original = {"body": {"grants": [], "binding": {"source": self.current, "settings": candidate["settings"]}}}
+        stopped = {"id": "stop1", "body": {"after": self.current, "pins": {}}}
+        with patch.object(self.owner, "_finished_for", return_value=([], original, stopped)):
+            with self.assertRaises(util.Paused) as caught:
+                self.owner._planning_matches(repair_record, candidate, self.current)
+            self.assertIn("repaired final native planning stage has no original failed launch in journal", str(caught.exception))
+
+
+
 
 class DecoratorAndActualSinkTests(unittest.TestCase):
     def test_technical_hold_constructs_once_and_preserves_wrapped_function(self):

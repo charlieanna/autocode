@@ -3205,15 +3205,23 @@ class NativeProtection:
             self._source_continuity(snapshot)
 
     def _planning_matches(self, record, candidate, snapshot):
+        is_repair = bool(
+            record.get("report_only") and record.get("original_stage", record.get("stage")) == "plan_finalize"
+        )
+        stage_valid = (
+            (record.get("original_stage") == "plan_finalize" or record["stage"] == "plan_finalize")
+            if is_repair
+            else record["stage"] == "plan_finalize" and not record.get("report_only")
+        )
         _require(
             candidate["settings"]["planning_flow"] == "v2"
             and not _contract_approved(candidate)
             and candidate.get("current_task") is None
-            and record["stage"] == "plan_finalize"
+            and stage_valid
             and record["exit_code"] == 0
             and not any(
                 record.get(key)
-                for key in ("report_only", "report_repaired", "timed_out", "interrupted", "dry_run", "rejected")
+                for key in ("report_repaired", "timed_out", "interrupted", "dry_run", "rejected")
             ),
             "initial planning authority needs the original successful v2 final native stage",
         )
@@ -3224,6 +3232,20 @@ class NativeProtection:
             and original["body"]["binding"]["settings"] == candidate["settings"],
             "final native planning stage lost original readonly source/settings",
         )
+        if is_repair:
+            failed = [
+                row
+                for row in _rows
+                if row["kind"] == "finished"
+                and row["body"]["record"]["stage"] == "plan_finalize"
+                and row["body"]["record"].get("rejected") is True
+            ]
+            _require(len(failed) >= 1, "repaired final native planning stage has no original failed launch in journal")
+            original_failed = failed[-1]
+            _require(
+                original_failed["body"]["after"] == snapshot,
+                "original failed final planning stage had different source",
+            )
         self._pins(stopped["body"]["pins"])
         report = _json(self._safe(record["output"], file=True).read_bytes())
         events = self._safe(record["events"], file=True).read_bytes()
