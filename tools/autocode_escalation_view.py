@@ -51,7 +51,8 @@ How it ended (`outcome`), from the first of these that applies (`outcome_basis` 
 - the first decisive record after it: a validation of its work that passed (`passed`, basis
   `validation`), unless one of its attempts of its milestone was then charged as a failure (by the
   Builder's retry policy: a retry, the stronger attempt or the retry-limit pause, as it charges a
-  review that sent the passed work back; or by that review's correction task), or a later escalation
+  review that sent the passed work back; or by any correction task of its milestone assigned after
+  that PASS, also one that sends back a later attempt that failed its own check), or a later escalation
   of the same lane (the role's next climb, another stronger attempt for the same milestone) or of the
   other kind made from one of its attempts (the Builder's stronger attempt after its climb, or its
   climb after the stronger attempt) (`failed_again`, basis `later_escalation`);
@@ -62,9 +63,10 @@ How it ended (`outcome`), from the first of these that applies (`outcome_basis` 
   attempts of its milestone was charged as a failure (`failed_again`, `recorded`);
 - the runner's `passed` stamp, only for a role other than the Builder and only when every attempt of
   its role since it (until the role's next escalation) ran on the route it climbed to, and there was
-  at least one (basis `recorded`). The runner stamps every open escalation `passed` at any validation
-  PASS, whoever's work passed, so the stamp is not taken once the role ran on another route (a person
-  or the Builder's retry policy moved it) or ran nothing since. Validations judge the Builder's work,
+  at least one (basis `recorded`). The runner stamps every open escalation `passed` where the
+  Completion Reviewer or Resolver assigns the next task while the last validation passed (autopilot),
+  whoever's work passed, so the stamp is not taken once the role ran on another route (a person or
+  the Builder's retry policy moved it) or ran nothing since. Validations judge the Builder's work,
   and the runner stamps its stronger attempt `passed` in the handler that made it, at the PASS the
   review just sent back (autopilot's astra_resolve), before that attempt runs, so its stamp is never
   taken;
@@ -435,10 +437,11 @@ def _outcome(state: RunState, escalation, later, judged, charged) -> tuple[str, 
         return "failed_again", "validation", None, False
     if charged:
         return "failed_again", "recorded", None, False
-    # record_outcome stamps every open escalation `passed` at any validation PASS, whoever's work passed: it is the
-    # escalation's only while its role ran nothing but its attempts since it. Validations judge the Builder's work, and
-    # the runner stamps its stronger attempt `passed` in the handler that made it (autopilot's astra_resolve, at the
-    # PASS the review just sent back), before that attempt runs: the Builder's stamp is never its outcome.
+    # The runner stamps every open escalation `passed` (record_outcome) where the Completion Reviewer or Resolver assigns
+    # the next task while the last validation passed, whoever's work passed: it is the escalation's only while its role
+    # ran nothing but its attempts since it. Validations judge the Builder's work, and the runner stamps its stronger
+    # attempt `passed` in the handler that made it (autopilot's astra_resolve, at the PASS the review just sent back),
+    # before that attempt runs: the Builder's stamp is never its outcome.
     if escalation["stamp"] == "passed" and escalation["only_mine"] and escalation["role"] != "terra":
         return "passed", "recorded", None, False
     status = state.get("status") or ""

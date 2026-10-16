@@ -746,20 +746,22 @@ serially), `inherited`, `attempts`, `cost` and `outcome`:
 - `outcome` is `passed`, `failed_again`, `paused` or `running`, and `outcome_basis` says what decided
   it, the first that applies: the first decisive record after it (`validation`: a validation of its
   work passed, unless one of its attempts of its milestone was then charged as a failure: by the
-  Builder's retry policy, as it charges a review that sends passed work back, or by that review's
-  correction task; `later_escalation`: the role climbed again, the milestone made another stronger
-  attempt, or the Builder made its stronger attempt after climbing, or climbed after it, from this
-  escalation's attempt), the Builder's retry-limit pause (`recorded`: the runner's `paused` stamp, or
-  the `pause` decision that charged one of its attempts of its milestone, since the runner does not
-  stamp an escalation it already stamped `passed`), a validation of its work failing or blocked
+  Builder's retry policy, as it charges a review that sends passed work back, or by any correction
+  task of its milestone assigned after that PASS, also one that sends back a later attempt that
+  failed its own check; `later_escalation`: the role climbed again, the milestone made another
+  stronger attempt, or the Builder made its stronger attempt after climbing, or climbed after it,
+  from this escalation's attempt), the Builder's retry-limit pause (`recorded`: the runner's `paused`
+  stamp, or the `pause` decision that charged one of its attempts of its milestone, since the runner
+  does not stamp an escalation it already stamped `passed`), a validation of its work failing or blocked
   (`validation`), else such a charge (`recorded`: a retry, the stronger attempt, the retry-limit pause
   or a correction task charged to one of its attempts of its milestone), the runner's `passed` stamp
   (`recorded`), for a role other than the Builder, only when every attempt of its role since it, until
   the role's next escalation, ran on the route it climbed to and there was at least one, else the
   run's status now (`run_status`: complete is `passed`, running is `running`, any pause, wait or stop
-  is `paused`). The runner stamps every open escalation `passed` at any validation PASS, whoever's
-  work passed, so that stamp is not taken over a failure of its own work, once a person or the
-  Builder's retry policy moved the role to another route, or when the role ran nothing since.
+  is `paused`). The runner stamps every open escalation `passed` where the Completion Reviewer or
+  Resolver assigns the next task while the last validation passed, whoever's work passed, so that
+  stamp is not taken over a failure of its own work, once a person or the Builder's retry policy
+  moved the role to another route, or when the role ran nothing since.
   Validations judge the Builder's work, and the runner stamps its stronger attempt `passed` in the
   handler that made it, at the PASS the review just sent back, before that attempt runs, so the
   Builder's stamp is never taken. It is a projection of saved records, so it can change as the run
