@@ -2,7 +2,7 @@ import sys
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 2 or sys.argv[1].isspace():
         print("usage: greet.py NAME", file=sys.stderr)
         return 2
     print("Hello, " + sys.argv[1])

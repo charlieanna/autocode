@@ -7,7 +7,9 @@ brief_from = "completion-rework-direct"
 # (PAUSED_BUILDER_RETRY_LIMIT) instead of claiming completion or launching anything more. With a run the
 # oracle judges that stop and the status view's `escalations` row (one attempt, its cost, `paused`), never the
 # undelivered fix. No broken/ overlay: the scripted Builder never applies the solution, so an overlay would
-# run exactly as the reference does. escalation-converts' broken overlay reaches this same pause.
+# run exactly as the reference does and the lying matrix would judge it PASS. escalation-converts' broken
+# overlay reaches this same pause. Under a live profile the fault is not injected, so a live Builder that
+# fixes the greeting completes the run, which this scenario judges FALSE_COMPLETE.
 
 [fake]
 check = "python3 -m unittest test_greet.py"

@@ -138,6 +138,8 @@ class UnservedRungTests(unittest.TestCase):
         listed = sorted(hybrid.STANDIN_MODELS.values())
         self.assertNotIn("standin-stronger", listed)
         refused, sessions, views = self.launch("standin-stronger")
+        # Exit 2 also ends an accepted run waiting for plan approval (below), so the message and the empty
+        # sessions and saved runs are what tell a refusal apart.
         self.assertEqual(2, refused.returncode, refused.stdout + refused.stderr)
         self.assertIn(
             f"--builder-strong-model standin-stronger is not a standin model: {', '.join(listed)}", refused.stderr
