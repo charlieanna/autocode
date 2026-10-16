@@ -61,6 +61,7 @@ try:
     from . import autocode_registry as registry
     from . import autocode_regression as regression
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_resolver_recovery as resolver_recovery
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_route_advisory as route_advisory
     from . import autocode_run_destination as run_destination
@@ -104,6 +105,7 @@ except ImportError:
     import autocode_registry as registry
     import autocode_regression as regression
     import autocode_resolver_human as resolver_human
+    import autocode_resolver_recovery as resolver_recovery
     import autocode_retired_token_budget as retired_token_budget
     import autocode_route_advisory as route_advisory
     import autocode_run_destination as run_destination
@@ -714,6 +716,8 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             configured_tool=getattr(runner.opencode, "CONFIGURED", False),
         )
         state["settings"] = settings
+        # A recovery novelty hold's stop states the cost cap; the settings saved here may change it (#611).
+        resolver_recovery.restate_hold(state)
         if enabling_joint and settings.get("engine") == "codex":
             if contract:
                 contract.update(approval_status="draft", approval_event=None)

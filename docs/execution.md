@@ -1208,13 +1208,16 @@ An unchanged incident can pause as `PAUSED_NO_PROGRESS` before another provider
 launch. A source hash, session rotation or comment-only edit alone cannot clear
 that hold. Existing healthy or uncertain workers are not restarted to create a
 new attempt. The hold's stop names the incident's check and its packet. With a
-cost cap, it also ends with the [`Cost:` line `--status` prints](#money-cap):
+cost cap, its reason is followed by the [`Cost:` line `--status` prints](#money-cap):
 "... authorizes one attempt under existing limits. Cost: $0.53 so far; cap $5.00."
 You can see what is left of the cap before the one scoped retry the hold admits.
-Without a cap it says nothing about cost (#611). A supported known correction
-still receives the ordinary retry or escalation decision, assignment checks, fresh
-independent validation and the Completion gate. Unsupported changes remain unknown
-rather than being treated as proven progress.
+The spend and cap are read when the stop is written, never saved with the hold's
+reason, so a cap you change at the hold, with or without `--resume-paused`, is
+the cap the stop then states. Without a cap it says nothing about cost (#611).
+A supported known correction still receives the ordinary retry or escalation
+decision, assignment checks, fresh independent validation and the Completion
+gate. Unsupported changes remain unknown rather than being treated as proven
+progress.
 
 A recovery packet is bound to the run's settings, but not to its launch ceilings: the iteration
 limit, the active-time budget, the cost cap and the milestone budget. They decide whether an

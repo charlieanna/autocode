@@ -684,6 +684,32 @@ class RecoveryPacketTests(unittest.TestCase):
                 self.assertTrue(str(caught.exception).endswith(ending), str(caught.exception))
                 self.assertEqual(str(caught.exception), state["stop_reason"])
 
+    def test_a_cap_changed_at_the_hold_is_the_cap_its_stop_states(self):
+        # #611: the hold's reason never carries the spend, and a settings change at the hold restates the stop
+        # with the cap the run has then, keeping the advice after it; without a cap it says nothing about cost.
+        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        recovery.admit_dispatch(self.state, first, self.root, self.run)
+        self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
+        self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
+        self.state.update(next_stage="astra_resolve")  # The hold waits on the Resolver it held.
+        self.state["settings"]["limits"] = {"max_cost_usd": 5}
+        again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+        with self.assertRaisesRegex(util.Paused, "cap \\$5.00"):
+            recovery.admit_dispatch(self.state, again, self.root, self.run)
+        reason = self.state["resolution_request"]["novelty_hold"]["reason"]
+        self.assertNotIn("Cost:", reason)
+        advice = "AutoResolver could not resolve no_progress; no automatic operational recovery ran."
+        self.state["stop_reason"] += " " + advice
+        for limits, stated in (
+            ({"max_cost_usd": 20}, ". Cost: $1.75 so far; cap $20.00. "),
+            ({}, ". "),
+            ({"max_cost_usd": 7}, ". Cost: $1.75 so far; cap $7.00. "),
+        ):
+            with self.subTest(limits=limits):
+                self.state["settings"]["limits"] = limits
+                recovery.restate_hold(self.state)
+                self.assertEqual(reason + stated + advice, self.state["stop_reason"])
+
     def test_only_an_attempt_archived_without_a_report_leaves_its_incident_untried(self):
         # #422: automatic recovery accounts and archives a stopped attempt that ended without a
         # completed turn (timeout, capacity, startup). It returned no report, so its relaunch is
