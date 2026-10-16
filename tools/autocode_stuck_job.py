@@ -141,10 +141,10 @@ SCHEMA = {
 }
 
 
-def schema(state):
+def schema(state: RunState):
     if (state.get("stuck_investigation") or {}).get("mode") != "builder_failure":
         return SCHEMA
-    result = copy.deepcopy(SCHEMA)
+    result: dict[str, Any] = copy.deepcopy(SCHEMA)
     result["required"] += ["failure_class", "failure_id"]
     result["properties"].update(
         failure_class={"type": "string", "enum": ["plan", "execution", "operational", "unknown"]}, failure_id=TEXT
@@ -702,7 +702,7 @@ def retire(state: RunState) -> None:
 
 
 def drive(
-    state,
+    state: RunState,
     dispatch,
     *,
     apply=None,
@@ -782,7 +782,7 @@ def drive(
         if not investigate:
             return state
         retire(state)
-        if queue and fresh() and intercept(state, state.get("status"), state.get("stop_reason") or ""):
+        if queue and fresh() and intercept(state, cast(str, state.get("status")), state.get("stop_reason") or ""):
             if persist:
                 persist(state)
             continue

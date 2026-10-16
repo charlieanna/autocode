@@ -166,7 +166,7 @@ def record(state: RunState, *, timestamp=None):
     return entry
 
 
-def persist(path, state, *, before_commit=None, after_commit=None):
+def persist(path, state: RunState, *, before_commit=None, after_commit=None):
     """Publish an update only after its checkpoint is durably saved."""
     import sys
 

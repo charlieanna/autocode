@@ -1,6 +1,7 @@
 """One route ladder per role: the rungs a struggling stage may climb.
 
-Pure domain logic over route tuples; imports only autocode_verifier_independence.
+Pure domain logic over route tuples; imports only autocode_verifier_independence
+(and RunState, for type checking only).
 Both escalation paths consume it, so a run has one answer to "what can this role
 climb to, and does its provider serve it":
 
@@ -19,6 +20,11 @@ is JSON), which index the same way.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_verifier_independence as independence
@@ -313,7 +319,7 @@ def _unoffered_climb(settings, retry, available):
     return checker if moved else None
 
 
-def record_outcome(state, outcome):
+def record_outcome(state: RunState, outcome):
     """Stamp every escalation decision that has no outcome yet.
 
     Written where the struggle's result is known: a validation PASS passed
@@ -332,7 +338,7 @@ def record_outcome(state, outcome):
     return stamped
 
 
-def outcome_summary(state):
+def outcome_summary(state: RunState):
     """How the run's escalations resolved, for the status view."""
     counts = {"passed": 0, "paused": 0, "open": 0}
     for event in state.get("reasoning_escalations", []):

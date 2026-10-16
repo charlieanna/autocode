@@ -224,7 +224,7 @@ def check_subscription_routes(settings, fallback, workspace):
         facade.check_subscription_routes(routes, workspace)
 
 
-def report_reader(state: "RunState", record, fallback, workspace):
+def report_reader(state: "RunState | None", record, fallback, workspace):
     """Use the completed stage's saved role, including during public reconciliation."""
     settings = (state or {}).get("settings")
     role = record.get("route_role", record.get("role"))

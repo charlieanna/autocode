@@ -15,7 +15,10 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_goal_lifecycle as lifecycle
@@ -87,15 +90,17 @@ def write_json(path: Path, value: Any, *, before_commit=None, after_commit=None)
             current = None  # advisory stamp: a hostile (mocked) environment keeps the prior value
         if current is not None and value.get("runner") != current:
             value["runner"] = current
-        normalize_human_boundary(value, Path(path).parent)
+        normalize_human_boundary(cast("RunState", value), Path(path).parent)
         try:
             from . import autocode_status
         except ImportError:
             import autocode_status
         if after_commit is None and before_commit is None:
-            autocode_status.persist(path, value)
+            autocode_status.persist(path, cast("RunState", value))
         else:
-            autocode_status.persist(path, value, before_commit=before_commit, after_commit=after_commit)
+            autocode_status.persist(
+                path, cast("RunState", value), before_commit=before_commit, after_commit=after_commit
+            )
     else:
         if after_commit is None and before_commit is None:
             support.atomic_json(path, value)
@@ -103,7 +108,7 @@ def write_json(path: Path, value: Any, *, before_commit=None, after_commit=None)
             support.atomic_json(path, value, before_commit=before_commit, after_commit=after_commit)
 
 
-def normalize_human_boundary(state, run_dir):
+def normalize_human_boundary(state: RunState, run_dir):
     """Adjudicate private proposals before persisted state can ask a human."""
     if not all(key in state for key in ("task", "workspace", "status")):
         return
@@ -116,7 +121,7 @@ def normalize_human_boundary(state, run_dir):
         state["pending_questions"] = []
         return
     if (state.get("active_stage") or state.get("uncertain_artifacts")) and (
-        state.get(resolver_human.PRIVATE, {}).get("scope") != "operational_exhaustion"
+        cast(dict, state.get(resolver_human.PRIVATE, {})).get("scope") != "operational_exhaustion"
     ):
         return
     public = resolver_human.current(state)
@@ -238,7 +243,7 @@ def normalize_human_boundary(state, run_dir):
                 )
                 return
             restarts[identity] = restarts.get(identity, 0) + 1
-        state.update(status="RUNNING", phase="PLANNING")
+        state.update({"status": "RUNNING", "phase": "PLANNING"})
         state.pop(resolver_human.PRIVATE, None)
         return
     if disposition == "defer" and proposal["scope"] == "clarification":
@@ -265,7 +270,7 @@ def normalize_human_boundary(state, run_dir):
                     if "requirements" in state.get("settings", {}).get("roles", {})
                     else "astra_discovery"
                 )
-                state.update(status="RUNNING", phase="DISCOVERING", next_stage=first)
+                state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": first})
                 return
     if disposition == "defer" and proposal["scope"] == "blocker" and goals.approved(state):
         output = proposal["origin"].get("output")
@@ -283,17 +288,17 @@ def normalize_human_boundary(state, run_dir):
             autopilot.queue_resolution(
                 state, value, source, source_stage=semantic, source_report=not semantic.startswith("astra")
             )
-            state.update(status="RUNNING", phase="RESOLVING")
+            state.update({"status": "RUNNING", "phase": "RESOLVING"})
             return
     # Deferred or rejected proposals stay private for resolver diagnosis.
-    state.update(status="RESOLVER_PENDING", phase="RESOLVING")
+    state.update({"status": "RESOLVER_PENDING", "phase": "RESOLVING"})
 
 
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
-def account_stage(state, record):
+def account_stage(state: RunState, record):
     """Charge a finished attempt once, including rejected/recovered responses."""
     if not record.get("accounted"):
         output_policy.account(state, record)
@@ -425,7 +430,7 @@ def default_missing_provenance(value, record):
     return {**value, **defaults}
 
 
-def stage_supports_sessions(state, record):
+def stage_supports_sessions(state: RunState, record):
     """Read the launch-time capability, conservatively recognizing old config records."""
     if isinstance(record.get("supports_sessions"), bool):
         return record["supports_sessions"]
@@ -434,7 +439,7 @@ def stage_supports_sessions(state, record):
     return state.get("settings", {}).get("provider", "opencode") == "opencode"
 
 
-def stage_completed(state, record):
+def stage_completed(state: RunState, record):
     if stage_supports_sessions(state, record):
         if not record.get("events"):
             return False
@@ -442,7 +447,7 @@ def stage_completed(state, record):
     return record.get("exit_code") == 0 and bool(record.get("output")) and Path(record["output"]).is_file()
 
 
-def archive_rejected_stage(state, run_dir, record, reason):
+def archive_rejected_stage(state: RunState, run_dir, record, reason):
     """Set aside a completed request whose output was rejected, so an explicit
     resume starts a fresh numbered attempt instead of re-applying the same output."""
     base = Path(record["output"]).with_suffix("")
@@ -538,7 +543,7 @@ recovery_count = accounting.spent
 count_automatic_recovery = accounting.count
 
 
-def timeout_recovery_route(state, record):
+def timeout_recovery_route(state: RunState, record):
     """Return the (next_stage, phase) that continues after an archived timeout.
 
     Planning and discovery stages run read-only against an unapproved draft, so
