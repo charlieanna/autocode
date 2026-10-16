@@ -36,9 +36,9 @@ MUTATIONS = [
     (
         "M01",
         "tools/autocode_goal_lifecycle.py",
-        # Anchor spans the wrapped condition; keep it in sync with ruff format's line breaks.
-        'or selected != token(contract)\n        or state.get("displayed_goal") != selected\n    ):',
-        "):",
+        # The token check after approval_boundary_refusal; keep it in sync with ruff format's line breaks.
+        'if not sealed(contract) or selected != token(contract) or state.get("displayed_goal") != selected:',
+        "if not sealed(contract):",
         ["tests.test_catalogue_t01"],
     ),
     (
