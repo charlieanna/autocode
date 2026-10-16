@@ -123,13 +123,38 @@ class PackageRunCLI(unittest.TestCase):
                 "README.md": "# Two packages, edited from the greeting package's task\n",
             }
         )
-        _, final, result = self.run_to_end(2)
+        run, final, result = self.run_to_end(2)
         self.assertIsNone(final.get("regression_proof"))
         row = self.outside_finding(final, result)
         expected = {"README.md": "modified", f"{OTHER}/notes.md": "added", f"{OTHER}/other.py": "modified"}
         self.assertEqual(expected, row["paths"])
         for path in expected:
             self.assertIn(path, row["finding"])
+        # Closing the finding accepts nothing: --accept-completion checks again and refuses.
+        self.launch(["--run-dir", str(run), "--close-finding", row["id"], "--close-reason", "the edits are fine"], 0)
+        refused = self.launch(["--run-dir", str(run), "--accept-completion"], 2)
+        self.assertIn("Completion acceptance requires no change outside the package", refused.stderr)
+        self.assertIn("README.md (modified)", refused.stderr)
+        self.assertNotEqual("TASK_COMPLETE", self.saved()[1]["status"])
+
+    def test_a_nested_repository_the_checkout_held_at_launch_is_not_the_builders_change(self):
+        # An in-place run's base cannot hold an untracked Git repository, so it is recorded at launch.
+        nested = self.project / "vendored"
+        nested.mkdir()
+        subprocess.run(["git", "-C", str(nested), "init", "-q"], check=True)
+        (nested / "x.txt").write_text("vendored\n")
+        subprocess.run(["git", "-C", str(nested), "add", "x.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(nested), "-c", "user.name=t", "-c", "user.email=t@example.test"]
+            + ["commit", "-qm", "the person's own repository"],
+            check=True,
+        )
+        self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"
+        self.builder_writes(FIX)
+        _, final, result = self.run_to_end(0)
+        self.assertEqual("TASK_COMPLETE", final["status"], result.stdout + result.stderr)
+        self.assertEqual([], [row for row in final.get("findings_ledger") or [] if row.get("source") == "runner"])
+        self.assertEqual("vendored\n", (nested / "x.txt").read_text())
 
     def test_a_run_that_owes_no_proof_completes_when_every_change_is_in_the_package(self):
         self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"

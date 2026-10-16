@@ -627,15 +627,24 @@ What the package changes:
   candidate with the run's base. A file added, modified or deleted outside the
   package (another package, a file at the repository root, a shared lockfile or
   workspace file; a rename counts on both sides) opens one blocking finding with
-  source `runner` that names each path and what happened to it. AutoCode's own
-  `.autocode/` files, bytecode and the runner's dependency links are not
-  changes, as for the regression proof. The completion gate and a milestone's
-  acceptance refuse while the finding is open; every stage sees it in
-  `open_findings`, and a correction task is assigned it. Only the runner closes
-  it, when a later check finds no change outside the package; no reviewer report
-  can, and closing it with `--close-finding` accepts nothing: the next check
-  opens a new one while the change is there. A task that must change files
-  outside the package, such as a root lockfile, needs a run without `--package`.
+  source `runner` that names each path and what happened to it. The completion
+  gate and a milestone's acceptance refuse while the finding is open; every
+  stage sees it in `open_findings`, and a correction task is assigned it. Only
+  the runner closes it, when a later check finds no change outside the package;
+  no reviewer report can. Closing it with `--close-finding` accepts nothing:
+  `--accept-completion` runs the same check first and refuses while the change
+  is there, and the next check before review opens a new finding. A task that
+  must change files outside the package, such as a root lockfile, needs a run
+  without `--package`.
+- Neither the check nor the regression proof counts these outside the package:
+  AutoCode's own `.autocode/` files, bytecode and the runner's dependency
+  links; the files the runner wrote for a job of this run (a bug fix's
+  diagnosis note under `docs/bugs/`, a design check's blockers) and what an
+  earlier, finished turn of the run left (a review's report, a design's
+  documents); and an untracked Git repository or a submodule's uncommitted work
+  that the checkout already held when the run started, which the run's base
+  cannot hold. A later change inside such a repository or submodule is not seen
+  either.
 - A runner regression proof (a bug fix, or a plan whose criteria name tests)
   also leaves a change outside the package `UNVERIFIED`, because the package
   suite never ran it.

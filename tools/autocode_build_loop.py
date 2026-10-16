@@ -374,7 +374,7 @@ def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=F
                 and not any(not row.get("runner_owned") for row in state.get("stages") or [])
             ):
                 # Found the checkout busy at launch (autocode_run_setup.launch_base): it starts from here.
-                state["base_commit"] = regression.launch_base(workspace, run_dir)
+                regression.start(state, workspace, run_dir)
                 runner.write_json(state_path, state)
             runner.orchestrator.drive(
                 state,

@@ -368,7 +368,8 @@ def resolve(runner, args, parser):
         elif created or fresh or args.dry_run or args.status or args.explain:
             state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
         else:
-            state["base_commit"] = launch_base(workspace, run_dir, parser)
+            state["base_commit"] = None  # until launch_base saves it
+            launch_base(state, workspace, run_dir, parser, getattr(args, "package", None))
         if args.ui_run:
             state["ui_run"] = str(args.ui_run.resolve())
         if args.legacy_iteration_ceiling is None and args.max_iterations is not None:
@@ -405,16 +406,17 @@ def resolve(runner, args, parser):
     return workspace, run_dir, state_path, state
 
 
-def launch_base(workspace, run_dir, parser):
-    """A new in-place run's base_commit (regression.launch_base), taken while this run holds the
-    checkout. None while another run's agents hold it: its unfinished edits are not this run's
-    start, so the build loop records the base once this run holds the checkout."""
+def launch_base(state: RunState, workspace, run_dir, parser, package=None):
+    """Save a new in-place run's base_commit (regression.start), taken while this run holds the
+    checkout, with what a package run's checkout holds outside the package that the base cannot.
+    Left unset while another run's agents hold it: its unfinished edits are not this run's start,
+    so the build loop records the base once this run holds the checkout."""
     task_workspaces.keep_out_of_git(workspace)
     try:
         with checkout_lock.exclusive(workspace, run_dir):
-            return regression.launch_base(workspace, run_dir)
+            regression.start(state, workspace, run_dir, package)
     except checkout_lock.CheckoutBusy:
-        return None
+        return
     except RuntimeError as error:
         parser.error(f"cannot record the checkout's uncommitted and untracked files as the run's start: {error}")
 

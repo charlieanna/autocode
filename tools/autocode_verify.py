@@ -2264,6 +2264,7 @@ def verify(
     cases=(),
     candidate_tree=None,
     package=None,
+    package_exempt=(),
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2313,6 +2314,7 @@ def verify(
     ``test_root`` is caller-selected at launch. Changes outside it remain unverified.
     Only its independently canonical detected suite may establish a first suite.
     So do changes outside a run's ``package`` (autocode_package_scope): its suite does not run them.
+    ``package_exempt`` names paths outside it that are not the change (autocode_package_writes.exempt).
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     test_root = test_roots.normalize(test_root) if test_root is not None else None
@@ -2366,11 +2368,8 @@ def verify(
         unverified.append(
             f"Files outside the test root {test_root}/ changed, and no test there covers them: " + ", ".join(stray[:10])
         )
-    if package is not None and (elsewhere := package_scope.outside(package, changes)):
-        unverified.append(
-            f"Files outside the package {package}/ changed, and its suite does not cover them: "
-            + ", ".join(elsewhere[:10])
-        )
+    if package is not None and (uncovered := package_scope.uncovered(package, changes, package_exempt)):
+        unverified.append(uncovered)
     for kind in ("regression", "suite"):
         if commands[f"{kind}_source"] == "builder":
             unverified.append(

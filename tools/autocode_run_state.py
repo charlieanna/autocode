@@ -168,6 +168,7 @@ KEYS: frozenset[str] = frozenset(
         "orchestration_history",
         "output",
         "outputs",
+        "package_outside_at_launch",
         "parent_batch",
         "parent_run",
         "pause",
@@ -329,6 +330,10 @@ class RunState(TypedDict, total=False):
     # (written by autocode_checkpoint_continuation.create; read by autocode_cost, so the money cap counts it).
     inherited_spend: dict
     base_commit: str  # the revision a bug fix is proven against
+    # What a package run's checkout held outside the package at launch that base_commit cannot hold (an
+    # untracked Git repository, a submodule's uncommitted work): {path: added or modified}. Written once by
+    # autocode_package_writes.at_launch (via autocode_regression.start); read by package_writes.exempt.
+    package_outside_at_launch: dict[str, str]
 
     # --- recovery / diagnosis ---
     recovery_context: dict | None  # what the last pause knew (autocode_recovery)

@@ -33,6 +33,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_program_guidance as program_guidance
+    from . import autocode_regression as regression
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_rejection as review_rejection
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_program_guidance as program_guidance
+    import autocode_regression as regression
     import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
     import autocode_review_rejection as review_rejection
@@ -340,6 +342,9 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                     source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),
                 )
             if args.accept_completion:
+                # No judging dispatch precedes it, so the package check runs here: closing its finding
+                # with --close-finding accepts nothing (#711).
+                regression.refuse_outside_package(candidate, workspace)
                 runner.accept_completion(candidate, workspace, run_dir=run_dir)
             if args.close_finding:
                 finding_close.close(

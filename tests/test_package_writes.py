@@ -7,6 +7,7 @@ autocode_regression.before_review, in a run that owes no regression proof.
 from __future__ import annotations
 
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -108,7 +109,8 @@ class Reconcile(unittest.TestCase):
         self.assertIn(f"no file outside the package {GREET}/ changed", row["resolution_evidence"])
         self.assertEqual([], findings_ledger.blocking_entries(state))
 
-    def test_a_user_closure_accepts_nothing(self):
+    def test_the_next_check_opens_a_new_finding_after_a_user_closes_one(self):
+        # --accept-completion runs the same check (tests.test_package_scope_cli shows the refusal).
         state = package_state()
         row = package_writes.reconcile(state, {"pnpm-lock.yaml": "modified"}, "r1", BASE)
         findings_ledger.settle(row, "resolved", resolved_by="user", resolution_evidence="lockfile is fine")
@@ -167,6 +169,68 @@ class BeforeReview(unittest.TestCase):
         shutil.rmtree(root / ".autocode")
         regression.before_review(state, "astra_review", root, self.run_dir)
         self.assertEqual("resolved", row["status"])
+
+    def test_files_the_runner_wrote_for_the_run_or_an_earlier_turn_left_are_not_the_builders_change(self):
+        root = self.project.root
+        self.project.write(
+            {
+                f"{GREET}/greet.py": "print('changed')\n",
+                "docs/bugs/blank-name.json": "{}\n",  # a bug fix's diagnosis note (autocode_bug_job)
+                "docs/design/blockers.json": "{}\n",  # a design check's blockers (autocode_design_check_job)
+                "review/findings.json": "{}\n",  # an earlier review turn's report (autocode_follow_up)
+                "docs/design/plan.md": "# Plan\n",  # an earlier design turn's document
+            }
+        )
+        state = {
+            **self.state(),
+            "investigation": {"outcome": "reproduced", "note_path": "docs/bugs/blank-name.json"},
+            "design_check": {"blockers": "docs/design/blockers.json"},
+            "turns": [
+                {"previous": {"wrote": ["review/findings.json"]}},
+                {"previous": {"wrote": ["docs/design/plan.md"]}},
+            ],
+        }
+        regression.before_review(state, "sol", root, self.run_dir)
+        self.assertEqual([], runner_rows(state))
+        # The Builder's own change outside the package still counts, and only it is named.
+        self.project.write({"README.md": "# edited\n"})
+        regression.before_review(state, "sol", root, self.run_dir)
+        (row,) = runner_rows(state)
+        self.assertEqual({"README.md": "modified"}, row["paths"])
+
+    def test_a_nested_repository_or_submodule_work_held_at_launch_is_not_the_builders_change(self):
+        # An in-place run's base (verify.commit_worktree) cannot hold either one, so changed_files reports
+        # them against any base: an untracked Git repository as added, a submodule's uncommitted work as modified.
+        root = Path(self.project.root)
+        library = Project({"lib.c": "int lib;\n"})
+        self.addCleanup(library.close)
+        author = ["-c", "user.name=t", "-c", "user.email=t@example.test"]
+        subprocess.run(
+            ["git", "-C", str(root), "-c", "protocol.file.allow=always", "submodule", "add", "-q"]
+            + [str(library.root), "libs/lib"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["git", "-C", str(root), *author, "commit", "-qm", "add a submodule"], check=True)
+        (root / "libs/lib/lib.c").write_text("int lib = 1;\n")  # the person's uncommitted submodule work
+        nested = root / "vendored"
+        nested.mkdir()
+        subprocess.run(["git", "-C", str(nested), "init", "-q"], check=True)
+        (nested / "x.txt").write_text("vendored\n")
+        subprocess.run(["git", "-C", str(nested), "add", "x.txt"], check=True)
+        subprocess.run(["git", "-C", str(nested), *author, "commit", "-qm", "vendored"], check=True)
+        launched = self.state()
+        regression.start(launched, root, self.run_dir, GREET)
+        unrecorded = {**self.state(), "base_commit": launched["base_commit"]}
+        self.project.write({f"{GREET}/greet.py": "print('changed')\n", "README.md": "# edited\n"})
+        for state, expected in (
+            (launched, {"README.md": "modified"}),
+            # Without the launch record, both would be reported as the Builder's.
+            (unrecorded, {"README.md": "modified", "libs/lib": "modified", "vendored/": "added"}),
+        ):
+            regression.before_review(state, "sol", root, self.run_dir)
+            (row,) = runner_rows(state)
+            self.assertEqual(expected, row["paths"])
 
     def test_a_run_without_a_package_is_not_checked(self):
         self.project.write({f"{OTHER}/other.py": "def answer():\n    return 0\n"})

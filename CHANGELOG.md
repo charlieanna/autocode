@@ -259,9 +259,14 @@ PR template asks for an entry here; a change without one is incomplete.
   Completion Reviewer, the runner compares the candidate with the run's base, and any file added, modified or
   deleted outside the package (a rename counts on both sides; AutoCode's `.autocode/` files, bytecode and the
   runner's dependency links do not) opens one finding with source `runner` naming each path. The completion gate
-  refuses while it is open, and only a later check that finds no such change closes it. Before, a run that owed no
-  regression proof (a build whose criteria name no test) completed with the change. The Builder's handoff now
-  states the write scope (`write_scope`). Nothing limits the Builder's writes while it works.
+  refuses while it is open, and only a later check that finds no such change closes it. `--accept-completion` runs
+  the same check first, so closing the finding with `--close-finding` does not accept the change. Before, a run
+  that owed no regression proof (a build whose criteria name no test) completed with the change. Neither this check
+  nor the regression proof counts the files the runner wrote for a job of the run (a bug fix's diagnosis note under
+  `docs/bugs/`, a design check's blockers), what an earlier turn of the run left, or an untracked Git repository or
+  a submodule's uncommitted work the checkout held at launch; before, the proof left a package bug fix with its own
+  diagnosis note, or an in-place run beside such a repository, `UNVERIFIED`. The Builder's handoff now states the
+  write scope (`write_scope`). Nothing limits the Builder's writes while it works.
 - Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the
   last Builder attempt's tokens at the stronger model's rate. When the spend so far plus that projection would pass
   the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt starts, naming the model and effort, the tokens,

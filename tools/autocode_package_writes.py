@@ -11,16 +11,24 @@ completion gate and a milestone's acceptance refuse while it is open, every stag
 ``open_findings``, and a correction task is assigned it. Only this module closes it, when a later
 check finds no change outside the package; no model report can (autocode_findings applies a
 reviewer's dispositions to its own source only). A user who closes it with --close-finding accepts
-nothing: the next check opens a new finding while the change is there.
+nothing: --accept-completion runs the same check first (autocode_regression.refuse_outside_package)
+and refuses while the change is there, and the next check before review opens a new finding.
 
-Nothing outside the package is exempt beyond what changed_files leaves out (AutoCode's run state,
-bytecode and the runner's dependency links). A lockfile or workspace file at the repository root is
-shared by every package, so a change to it is reported too.
+Outside the package, what changed_files leaves out (AutoCode's run state, bytecode and the runner's
+dependency links) is not a change, and neither is anything ``exempt`` names: what the checkout held at
+launch that the run's base cannot hold (``at_launch``), the files the runner wrote for a job of this
+run, and what an earlier, finished turn of the run left. The regression proof's list of changes outside
+the package leaves out the same paths (autocode_regression passes ``exempt`` to autocode_verify.verify).
+Anything else counts: a lockfile or workspace file at the repository root is shared by every package,
+so a change to it is reported too.
 
 Imports nothing above the findings ledger; the caller passes the changes it just read. State:
-findings_ledger rows with source ``runner`` and ``package`` (the run's package), ``paths`` ({path:
-added, modified or deleted}) and ``source_revision`` (the source the check last found them on);
-these fields are read only here.
+``package_outside_at_launch`` ({path: added or modified}, written once by ``at_launch``, read by
+``exempt``); and findings_ledger rows with source ``runner`` and ``package`` (the run's package),
+``paths`` ({path: added, modified or deleted}) and ``source_revision`` (the source the check last
+found them on), fields read only here. ``exempt`` also reads ``investigation.note_path``
+(autocode_bug_job), ``design_check.blockers`` (autocode_design_check_job) and
+``turns[].previous.wrote`` (autocode_follow_up).
 """
 
 from __future__ import annotations
@@ -58,6 +66,38 @@ def context(settings) -> dict | None:
     }
 
 
+def at_launch(state: RunState, package, changes) -> None:
+    """Record what a new run's checkout already holds outside ``package`` that its base cannot hold.
+
+    ``changes`` is autocode_verify.changed_files against the base just taken. An in-place run's base
+    (autocode_verify.commit_worktree) holds the checkout's uncommitted and untracked files, but not an
+    untracked Git repository or a submodule's uncommitted work, which changed_files reports against
+    any base: they are the person's, not a change the Builder made, and are never reported.
+    """
+    held = package_scope.changes_outside(package, changes) if package else {}
+    if held:
+        state["package_outside_at_launch"] = held
+
+
+def exempt(state: RunState) -> list[str]:
+    """Paths outside the package that are not this turn's change, each with everything under it.
+
+    What the checkout held at launch that the base cannot hold (``at_launch``); the files the runner
+    wrote for a job of this run: a bug fix's diagnosis note (autocode_bug_job) and a design check's
+    blockers (autocode_design_check_job); and what an earlier, finished turn of the run left
+    (autocode_follow_up), such as a review's report or a design's documents.
+    """
+    paths = [
+        *(state.get("package_outside_at_launch") or {}),
+        (state.get("investigation") or {}).get("note_path"),
+        (state.get("design_check") or {}).get("blockers"),
+    ]
+    for turn in state.get("turns") or []:
+        wrote = ((turn.get("previous") or {}) if isinstance(turn, dict) else {}).get("wrote")
+        paths += wrote if isinstance(wrote, list) else []
+    return sorted({path for path in paths if isinstance(path, str) and path.strip()})
+
+
 def open_row(state: RunState):
     """The open finding about changes outside the package, or None."""
     return next((row for row in findings_ledger.open_entries(state, SOURCE) if row.get("package")), None)
@@ -76,12 +116,12 @@ def reconcile(state: RunState, changes, revision, base):
     """Open, refresh or close the run's finding about changes outside its package; return the open row or None.
 
     ``changes`` is autocode_verify.changed_files for the current source (``revision``) against the
-    run's ``base``. A run without a package is left unchanged.
+    run's ``base``; what ``exempt`` names is left out. A run without a package is left unchanged.
     """
     package = package_scope.of(state.get("settings"))
     if package is None:
         return None
-    paths = package_scope.changes_outside(package, changes)
+    paths = package_scope.changes_outside(package, changes, exempt(state))
     row, at = open_row(state), util.now()
     checked = f"Runner check of source {str(revision)[:12]} against the run's base {str(base)[:12]}"
     if not paths:

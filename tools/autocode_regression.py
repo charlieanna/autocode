@@ -253,6 +253,39 @@ def launch_base(workspace, run_dir):
     return commit
 
 
+def start(state: RunState, workspace, run_dir, package=None):
+    """Save a new in-place run's base_commit (launch_base). In a package run (``package``, else the
+    saved one), also record what the checkout holds outside the package that the base cannot hold,
+    so the check before review never reports it (autocode_package_writes.at_launch)."""
+    state["base_commit"] = base = launch_base(workspace, run_dir)
+    package = package or package_scope.of(state.get("settings"))
+    if package and base:
+        package_writes.at_launch(state, package, verify.changed_files(workspace, base))
+
+
+def check_package(state: RunState, workspace):
+    """A package run's check for changes outside its package against the run's base
+    (autocode_package_writes.reconcile): the open finding, or None."""
+    if not package_scope.of(state.get("settings")) or not (base := base_commit(state, workspace)):
+        return None
+    return package_writes.reconcile(
+        state,
+        verify.changed_files(workspace, base, source_paths=source_scope.paths(state)),
+        source_scope.snapshot(workspace, state)["revision"],
+        base,
+    )
+
+
+def refuse_outside_package(state: RunState, workspace):
+    """Raise ValueError while a package run's candidate changes a file outside its package (check_package).
+
+    --accept-completion follows no judging dispatch, so it checks here: a person who closed the finding
+    with --close-finding has not accepted the change (#711)."""
+    outside = check_package(state, workspace)
+    if outside:
+        raise ValueError("Completion acceptance requires no change outside the package. " + outside["finding"])
+
+
 def _drop_finished_launch_refs(workspace):
     """Delete the launch refs of runs that no worktree of the repository holds any more (a deleted
     or archived run), so Git can collect their launch-time files. A ref younger than a day is kept:
@@ -650,6 +683,7 @@ def _proving(
             cases=due,
             candidate_tree=kept[-1],
             package=package_scope.of(state.get("settings")),
+            package_exempt=package_writes.exempt(state),
             **rooted(options),
         )
         path = out / "verification.json"
@@ -1019,14 +1053,8 @@ def before_review(state: RunState, stage, workspace, run_dir):
     is owed: they are a runner finding (autocode_package_writes)."""
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     runner_check.clear(state, run_dir, status.persist)
-    in_package = stage in package_writes.STAGES and package_scope.of(state.get("settings"))
-    if in_package and (base := base_commit(state, workspace)):
-        package_writes.reconcile(
-            state,
-            verify.changed_files(workspace, base, source_paths=source_scope.paths(state)),
-            source_scope.snapshot(workspace, state)["revision"],
-            base,
-        )
+    if stage in package_writes.STAGES:
+        check_package(state, workspace)
     # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).
