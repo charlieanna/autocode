@@ -100,6 +100,19 @@ class DynamicDependenciesTests(unittest.TestCase):
         self.assertIn("tests.test_milestone_policy", selected)
         self.assertTrue(set(dependencies.PROMPT_CONSUMERS) <= selected.keys())
 
+    def test_native_javascript_resources_select_their_real_consumers_even_when_slow(self):
+        for path, expected in (
+            ("tools/autocode_capture_bootstrap.cjs", {"tests.test_native_capture_ipc", "tests.test_native_capture"}),
+            ("tools/autocode_native_capture_linux.cjs", {"tests.test_native_capture_ipc", "tests.test_native_capture"}),
+            ("tools/autocode_kilo_image_delivery.mjs", {"tests.test_kilo_image_delivery", "tests.test_native_image"}),
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {name: "" for name in (*expected, "tests.test_unrelated")})
+                self.assertTrue(expected <= selected.keys())
+                kept, _ = run_suite.drop_slow(selected, {name: "30s" for name in expected})
+                self.assertTrue(expected <= set(kept))
+                self.assertNotIn("tests.test_unrelated", kept)
+
     def test_explicit_registry_never_silently_refers_to_missing_test_modules(self):
         declared = {
             *dependencies.PROMPT_CONSUMERS,

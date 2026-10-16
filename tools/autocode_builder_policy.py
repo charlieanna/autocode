@@ -9,14 +9,14 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
-    from . import autocode_cost as cost
+    from . import autocode_climb_cap as climb_cap
     from . import autocode_route_ladder as route_ladder
     from . import autocode_run_status as run_status
     from . import autocode_util as s
     from . import autocode_verifier_independence as independence
     from .autocode_failure_classification import CLASSES
 except ImportError:
-    import autocode_cost as cost
+    import autocode_climb_cap as climb_cap
     import autocode_route_ladder as route_ladder
     import autocode_run_status as run_status
     import autocode_util as s
@@ -61,9 +61,9 @@ NOT_OFFERED = (
     "--builder-strong-model naming a model it lists); human decision or replanning required"
 )
 
-# The stronger attempt is the one route climb this policy spends; before it launches it is priced against the
-# person's cost cap (#611), so a run that cannot afford it stops with the arithmetic instead of climbing and
-# stopping at the cap afterwards.
+# The stronger attempt is the one route climb this policy spends; before it launches it is checked against the
+# person's cost cap and active-time budget (#611), so a run that cannot afford it stops with the arithmetic
+# instead of climbing and stopping at the budget afterwards.
 CLIMB_OVER_CAP = {"attempt": "The Builder's stronger attempt", "basis": "the last Builder attempt"}
 
 
@@ -175,12 +175,14 @@ def guard(state: RunState):
 
 
 def _climb_within_cap(state: RunState) -> None:
-    """Pause before the stronger attempt launches when its projected cost would cross the cost cap (#611).
+    """Pause before the stronger attempt launches when it is projected past the cost cap or the active-time
+    budget you set (#611).
 
-    The projection is the last Builder attempt's tokens at the stronger route's price (autocode_cost.crossing).
-    Once an attempt has launched on that route the stage-boundary cap check governs it. No cap, no earlier
-    attempt, or a model or attempt without a price never pauses here, as an unpriced stage never trips the
-    cap. A parallel Builder sees only its own spend, not its siblings', so it leaves the check to the serial run.
+    The projections are the last Builder attempt's tokens at the stronger route's price and its duration
+    (autocode_climb_cap.within_budgets). Once an attempt has launched on that route the stage-boundary checks
+    govern it. No cap or budget, no earlier attempt, or a model or attempt without a price or duration never
+    pauses here, as an unpriced stage never trips the cap. A parallel Builder sees only its own spend and time,
+    not its siblings', so it leaves the check to the serial run.
     """
     if state.get("parent_run"):
         return
@@ -196,12 +198,9 @@ def _climb_within_cap(state: RunState) -> None:
     launched = (attempts[-1].get("launch_route") or {}) if attempts else {}
     if not attempts or all(launched.get(key) == route.get(key) for key in ("model", "reasoning_effort")):
         return
-    over = cost.crossing(state, route.get("model"), attempts[-1])
-    if over:
-        raise s.Paused(
-            "PAUSED_COST_LIMIT",
-            cost.climb_stop(over, **CLIMB_OVER_CAP, model=route["model"], effort=route.get("reasoning_effort")),
-        )
+    climb_cap.within_budgets(
+        state, attempts[-1], **CLIMB_OVER_CAP, model=route.get("model"), effort=route.get("reasoning_effort")
+    )
 
 
 def failed_before(state: RunState, milestone_id):

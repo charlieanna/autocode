@@ -504,6 +504,18 @@ class BuildAndIntegrateTests(unittest.TestCase):
     def test_taskrun_bad_component_approvals_leave_events_and_checkpoint_unchanged(self):
         observations = self.root / "observations"
         outside = self.root / "outside-marker"
+        reconciled = self.root / "rejected-approval-reconciled"
+        approval_cli = self.root / "approval-cli.py"
+        approval_cli.write_text(
+            "import sys\nfrom pathlib import Path\n"
+            f"sys.path.insert(0, {str(HERE)!r})\nimport autocode\n"
+            "original = autocode.reconcile_active\n"
+            "def observed(*args, **kwargs):\n"
+            f"    Path({str(reconciled)!r}).write_text('reconciliation ran')\n"
+            "    return original(*args, **kwargs)\n"
+            "autocode.reconcile_active = observed\n"
+            "raise SystemExit(autocode.cli())\n"
+        )
         for index, flow in enumerate(
             (
                 None,
@@ -544,8 +556,16 @@ class BuildAndIntegrateTests(unittest.TestCase):
                     run.show_goal()
                 checkpoint = run.run_dir / "state.json"
                 before = checkpoint.read_bytes()
+                approval = TaskRun(
+                    run.workspace,
+                    run.run_dir,
+                    command=(sys.executable, str(approval_cli)),
+                    env=run.env,
+                    timeout=run.timeout,
+                )
                 with self.assertRaises(TaskRunError):
-                    run.approve_plan(token)
+                    approval.approve_plan(token)
+                self.assertFalse(reconciled.exists(), "Rejected approval must precede stage reconciliation")
                 self.assertEqual(before, checkpoint.read_bytes())
                 self.assertIsNone(run.status().get("approved_contract"))
                 self.assertIn("Component plan", view.get("stop_reason", ""))

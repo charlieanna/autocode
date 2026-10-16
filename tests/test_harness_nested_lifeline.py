@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_elapsed_timing as elapsed_timing
 import autocode_process as native
 import autocode_supervision_keeper as keeper
 
@@ -244,6 +245,103 @@ class NestedHarnessLifelineTests(unittest.TestCase):
 
 
 class KeeperSettlementClockTests(unittest.TestCase):
+    def test_owner_loss_cannot_hide_behind_provider_exit_with_an_unscheduled_watcher(self):
+        import threading
+
+        for owner_state in ("live", "missing", "reused", "zombie"):
+            with self.subTest(owner_state=owner_state), tempfile.TemporaryDirectory() as temporary:
+                owner = {"pid": 901, "birth_identity": 1.0, "state": "running"}
+                provider = {"pid": 902, "birth_identity": 2.0, "state": "running"}
+                guardian = {"pid": os.getpid(), "birth_identity": 3.0, "state": "running"}
+                current = {guardian["pid"]: guardian, provider["pid"]: provider}
+                if owner_state != "missing":
+                    current[owner["pid"]] = {
+                        **owner,
+                        "birth_identity": 4.0 if owner_state == "reused" else owner["birth_identity"],
+                        "state": "Z" if owner_state == "zombie" else owner["state"],
+                    }
+                signals, timers = [], []
+
+                class Tree:
+                    def __init__(self, *args, **kwargs):
+                        self.known = {}
+
+                    def inventory(self):
+                        return [provider]
+
+                    def admitted_sessions(self):
+                        return []
+
+                    def sample(self, **kwargs):
+                        current.pop(provider["pid"], None)
+                        return []
+
+                    def signal(self, rows, sig):
+                        signals.append((rows, sig))
+
+                    def stop(self, observer):
+                        pass
+
+                class DeferredWatcher:
+                    def __init__(self, *, target, daemon):
+                        self.target = target
+
+                    def start(self):
+                        pass  # The watcher cannot run before the provider is found gone.
+
+                    def join(self, timeout):
+                        self.target()  # Publication has set done; closes its owned wake FD.
+
+                class Timer:
+                    def __init__(self, interval, callback, args):
+                        timers.append(interval)
+
+                    def start(self):
+                        pass
+
+                    def cancel(self):
+                        pass
+
+                receipt = Path(temporary) / "supervision.json"
+                control_r, control_w = os.pipe()
+                ack_r, ack_w = os.pipe()
+                packet = {
+                    "metadata": {
+                        "schema": 1,
+                        "nonce": "e" * 32,
+                        "owner": owner,
+                        "provider": provider,
+                        "keeper": guardian,
+                        "receipt": str(receipt),
+                    },
+                    "deadline": None,
+                    "timing": elapsed_timing.admission(time.time(), time.monotonic(), None),
+                }
+                os.write(control_w, (json.dumps(packet) + "\n").encode())
+                try:
+                    with (
+                        patch.object(keeper, "KeeperTree", Tree),
+                        patch.object(keeper.processes, "process_table", side_effect=lambda _pids: dict(current)),
+                        patch.object(
+                            keeper,
+                            "threading",
+                            SimpleNamespace(
+                                Event=threading.Event, Lock=threading.Lock, Thread=DeferredWatcher, Timer=Timer
+                            ),
+                        ),
+                    ):
+                        self.assertEqual(0, keeper.main(control_r, ack_w))
+                    result = json.loads(receipt.read_text())
+                    self.assertEqual("provider_stopped" if owner_state == "live" else "owner_lost", result["cause"])
+                    self.assertEqual("stopped", result["phase"])
+                    self.assertIsNone(result["cleanup_error"])
+                    self.assertEqual(0 if owner_state == "live" else 1, len(signals))
+                    self.assertEqual(0 if owner_state == "live" else 1, len(timers))
+                finally:
+                    for fd in (control_r, control_w, ack_r, ack_w):
+                        with contextlib.suppress(OSError):
+                            os.close(fd)
+
     def test_a_dead_root_does_not_shorten_its_nested_cleanup_window(self):
         clock = [0.0]
         alive = [True]
@@ -260,6 +358,8 @@ class KeeperSettlementClockTests(unittest.TestCase):
             return clock[0]
 
         def live(rows):
+            if rows == [guardian]:
+                return [guardian]  # The enclosing harness remains alive after its CLI root exits.
             if admission[0]:
                 admission[0] = False
                 return [provider]

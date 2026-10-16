@@ -17,10 +17,12 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
+    from . import autocode_kilo_linux_peer as namespace_peer
     from . import autocode_process as processes
     from . import autocode_supervision as supervision
     from . import autocode_util as util
 except ImportError:
+    import autocode_kilo_linux_peer as namespace_peer
     import autocode_process as processes
     import autocode_supervision as supervision
     import autocode_util as util
@@ -56,11 +58,16 @@ def validate_retained_receipt(body, *, executable_sha256, client_profile_sha256)
         "protected original client closure is missing",
     )
     root, foreign = body.get("original_root"), body.get("original_foreign")
+    anchor = body.get("supervision", {}).get("provider")
+    namespace = body.get("client_namespace")
+    if namespace is not None:
+        _require(binding.get("kernel_backend") == "linux-bwrap-pid1-v1", "namespace client lacks its original backend")
+        namespace_peer.validate_retained(namespace, peer=root, anchor=anchor)
     _require(
         isinstance(root, dict)
         and isinstance(foreign, dict)
         and root.get("pid") != foreign.get("pid")
-        and processes.matches(root, body.get("supervision", {}).get("provider")),
+        and (namespace is not None or processes.matches(root, anchor)),
         "protected original client identities changed",
     )
     observations = body.get("observations")
@@ -116,6 +123,7 @@ class ClientConformance:
         self._nonce = secrets.token_hex(32)
         self._tree = self._metadata = self._deadline = self._root = None
         self._hello = self._foreign = self._result = None
+        self._namespace = None
         self._closed = False
         self._error = self._error_detail = None
         self._thread = None
@@ -209,7 +217,17 @@ class ClientConformance:
             self._binding_reader() == self._binding and time.monotonic() < self._deadline,
             "original probe inputs/deadline changed",
         )
-        root = processes.matches(self._root, peer)
+        root = processes.matches(self._hello or self._root, peer)
+        if (
+            not root
+            and self._binding.get("kernel_backend") == "linux-bwrap-pid1-v1"
+            and self._hello is None
+            and frame.get("op") == "CLIENT_CONFORMANCE_HELLO"
+            and frame.get("mode") == "root"
+        ):
+            self._namespace = namespace_peer.observe(peer, self._root, self._tree)
+            root = True
+        reply_pid = namespace_peer.reported_pid(peer) if self._namespace is not None else peer["pid"]
         if frame.get("op") == "CLIENT_CONFORMANCE_HELLO":
             _require(set(frame) == {"op", "token", "nonce", "mode"}, "unexpected hello fields")
             if frame["mode"] == "root":
@@ -219,7 +237,7 @@ class ClientConformance:
                     "ok": True,
                     "kind": "CLIENT_CONFORMANCE_PARENT_PONG",
                     "nonce": self._nonce,
-                    "peer_pid": peer["pid"],
+                    "peer_pid": reply_pid,
                     "peer_birth": peer["birth_identity"],
                 }
             _require(
@@ -231,7 +249,7 @@ class ClientConformance:
                 "ok": False,
                 "kind": "CLIENT_CONFORMANCE_FOREIGN_PEER_DENIED",
                 "nonce": self._nonce,
-                "peer_pid": peer["pid"],
+                "peer_pid": reply_pid,
                 "peer_birth": peer["birth_identity"],
             }
         _require(
@@ -347,7 +365,8 @@ class ClientConformance:
             "kind": KIND,
             "nonce": self._nonce,
             "bindings": self._binding,
-            "original_root": self._root,
+            "original_root": self._hello if self._namespace is not None else self._root,
+            **({"client_namespace": self._namespace} if self._namespace is not None else {}),
             "original_foreign": self._foreign,
             "original_processes": originals,
             "matching_live": live,

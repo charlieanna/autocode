@@ -38,8 +38,8 @@ PR template asks for an entry here; a change without one is incomplete.
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
   (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
   claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
-  its cost line. Nothing is verified and approval authority is unchanged. The evidence report and pull request body
-  (#692) and a required approver (#707) are still to come.
+  its cost line. Nothing is verified and recording grants no approval authority. The evidence report and pull
+  request body (#692) and a required approver followed as the third and fourth parts below.
 - Goal edits and resumes record who made them (#722, second part): `--edit-goal` saves the workspace's Git
   `user.name` and `user.email`, the host name and the command's option names on the draft revision it
   installs, and an explicit resume (`--resume-paused` or `autocode resume`) that takes the run out of its
@@ -48,8 +48,8 @@ PR template asks for an entry here; a change without one is incomplete.
   `pause-requested` file is still in place. `--as NAME` now also goes with `--edit-goal` and a resume (with a
   resume it is saved only when the resume releases a pause). `--status` lists them in `approvals` (kinds `edit`
   and `resume`; each row gains `pause_status`) and the completion summary names them. Nothing is verified and
-  no authority changes. The evidence report and pull request body (#692) and a required approver (#707) are
-  still to come.
+  no authority changes. The evidence report and pull request body (#692) and a required approver followed as the
+  third and fourth parts below.
 - The evidence report and the pull request body list who approved (#722, third part): a completed build,
   bug-fix or design run's `evidence.json` gains an additive `approvals` list (the status view's rows: kind,
   time, actor, plan token, criterion or released pause, and the recorded Git identity, host, command and `--as`
@@ -62,7 +62,25 @@ PR template asks for an entry here; a change without one is incomplete.
   line; a review posted with `autocode review-pr --post` therefore carries no approval record or resumer's Git
   identity. Reports written before this change keep no field and render unchanged, so they still authenticate;
   such a report gains the section only when AutoCode saves the completed run again. The evidence report schema
-  stays version 1. A required approver (#707) is still to come.
+  stays version 1. The required approver is the fourth part below.
+- A project can name who may approve (#722, fourth part): `require-approver` in `.autocode/config.toml` (or
+  `[tool.autocode]`) lists one or more plain Git email addresses (one `@`, no spaces, angle brackets, quotes,
+  parentheses, brackets, commas, semicolons, colons or backslashes; anything else stops a new run). A run started
+  with it refuses a plan approval (`--approve-goal`, or yes in the terminal conversation) or an artifact acceptance
+  (`--approve-review`, `autocode review`, TaskRun, or y at the review prompt) when `git -C WORKSPACE config --get
+  user.email`, for the run's saved workspace in AutoCode's own environment, is not listed, compared without regard
+  to case, before anything is approved: exit 2 (the conversation stops at the same question) with a message naming
+  the required and the actual identity, and the run stays at the same stop. An `--as` name never counts. Goal
+  edits, resumes, workflow-policy approvals and `--accept-completion` are not checked. The run saves the list when
+  it starts (`settings.require_approver`), so a changed file never alters a run in progress; the key has no flag,
+  and `autocode doctor` shows it with its source. Without the setting nothing changes. It guards against an
+  approval under the wrong configured Git identity, not against someone who deliberately sets a listed address
+  (Git's environment variables or a repository-local `user.email` change what is checked): it is not
+  authentication. A replay (`autocode replay`, `--replay-recording`) never takes it, `autocode program` and
+  `autocode components` child runs read it from their own worktree (so only a committed file reaches them), and
+  `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task now reads the project
+  settings, all of them, as every other new run does (it read none before), so a project `engine` other than
+  `codex` refuses it, as it already did with a typed task.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -260,6 +278,15 @@ PR template asks for an entry here; a change without one is incomplete.
   past the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt, naming the job and the rung ("The Tester's
   climb to GPT-6 Sol XHigh"), the projection, the spend, the total and the cap to resume with, instead of launching
   it and stopping at the cap afterwards. Without a cap, a price or token counts nothing changes (#611).
+- Under an active-time budget you set (`--max-seconds N`), the same climbs (the Builder's stronger attempt and a
+  role's climb on its effort ladder) are timed before the climbed attempt launches: the role's last attempt's
+  recorded duration, never more than the stage time limit. When the active time so far plus that projection would
+  pass the budget, the run pauses `PAUSED_TIME_LIMIT` before the attempt, naming the climb, the projection, the
+  active time so far, the total and the budget to resume with; `--resume-paused --max-seconds M` with `M` at least
+  that total launches exactly that attempt. When both the cost cap and the budget would be crossed, the cost stop
+  comes first. The new-run default budget and one delegated with `--autoresolver-managed-limits` are not
+  projected, since AutoResolver may extend them once at the stage boundary; without a budget you set, or a
+  recorded duration, nothing changes (#611).
 - The name `claude` always selects the built-in provider; a user `~/.config/autocode/providers/claude.toml` is
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).
@@ -319,6 +346,16 @@ PR template asks for an entry here; a change without one is incomplete.
   AutoReview unit (`units/autoreview`), the completion gate (`autocode_completion`) and checkpoint restore
   (`autocode_checkpoint_cli`) take the typed `RunState`, so the untyped-`state` ratchet drops from 451 to 374 and mypy
   checks those 77 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- Visual capture verification (`autocode_visual_evidence`), the human source log (`autocode_source_log`), the replay
+  view (`autocode_replay_view`), recovery-note retirement (`autocode_recovery_context`), progressive completion
+  (`autocode_progressive_completion`), planning clarification (`autocode_planning_clarification`), launch inputs
+  (`autocode_launch_inputs`), job model routing (`autocode_job_route`), design intake (`autocode_design_intake`), code
+  checkpoints (`autocode_code_checkpoints`), the pause authority steps (`autocode_action_authority`), the verification
+  plan (`autocode_verification_plan`), source tracing (`autocode_source_trace`), risk evidence
+  (`autocode_risk_evidence`), retained work (`autocode_retained_work`), requirement cues (`autocode_requirement_cues`),
+  `prune-run` (`autocode_prune_run`), dependency waits (`autocode_dependency`) and milestone carry-forward
+  (`autocode_carryforward`) take the typed `RunState`, so the untyped-`state` ratchet drops from 374 to 287 and mypy
+  checks those 87 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
@@ -336,6 +373,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ineligible plan approvals are rejected before stage reconciliation, preserving the stopped checkpoint and retained report. Verified conversation-action replays remain idempotent.
 - `--package` follow-ups (#711): a feature that adds the first Go module in the package, on a base with no Go
   project, is no longer left UNVERIFIED, as at the root (#685). A `--test-command` written for the run's
   package as `cd PACKAGE && RUNNER` (unittest, pytest, node:test or `go test`) is read with that runner inside
@@ -357,6 +395,14 @@ PR template asks for an entry here; a change without one is incomplete.
   with its Restore banner instead of returning to All work. Merging #809 into the Figma integration (#1325)
   had broken both and failed the dashboard suite on master.
 - Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
+- Native Figma verification now confines read-only checks, captures and scoped writes on Linux with
+  bubblewrap and seccomp, preserving original-owner admission and fresh proof requirements. The
+  installed wheel includes the required capture/image resources; platform fixtures no longer
+  change unrelated process discovery while simulating macOS.
+- Native launch authentication retains kernel process identity when the wall clock shifts, and
+  original owner loss stays explicit even when provider exit beats the lifeline watcher.
+- Mobile artifact tabs reveal the whole focused tab and keep its focus indicator clear of
+  the selected border in both light and dark themes. Native modules remain importable on Windows.
 
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.

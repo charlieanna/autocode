@@ -10,6 +10,11 @@ on the contract module and shared utilities.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 from pathlib import Path
 
@@ -30,7 +35,7 @@ def stage_questions(stage, value):
     return value["open_questions"] if stage == "requirements_gather" else value["contract"]["open_blocking_questions"]
 
 
-def check_resolution_refs(state, refs, check_code_refs):
+def check_resolution_refs(state: RunState, refs, check_code_refs):
     """Strict: unlike the code-ref checker, an absent or empty workspace is not a pass."""
     root = Path(state.get("workspace") or "")
     if not state.get("workspace") or not root.is_dir():
@@ -44,7 +49,7 @@ def check_resolution_refs(state, refs, check_code_refs):
     check_code_refs(state, refs, "machine_resolutions.source_refs")
 
 
-def clarify_discoverable(state, stage, value, record, *, investigation_stages, check_code_refs):
+def clarify_discoverable(state: RunState, stage, value, record, *, investigation_stages, check_code_refs):
     """Keep discoverable questions away from the user (issue #62, rules E1-E3).
 
     The first report in a clarification episode that asks a discoverable
@@ -66,7 +71,7 @@ def clarify_discoverable(state, stage, value, record, *, investigation_stages, c
         return value, False
     if stage not in investigation_stages:
         return value, False
-    request = state.get("investigation_request")
+    request: Any = state.get("investigation_request")
     if request and request.get("stage") != stage:
         request = None
     raised_hash = util.digest(value)
@@ -143,13 +148,13 @@ def clarify_discoverable(state, stage, value, record, *, investigation_stages, c
                 "prior_report": copy.deepcopy(value),
                 "created_at": util.now(),
             }
-            state.update(status="RUNNING", phase="PLANNING", next_stage=stage)
+            state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": stage})
             return value, True
     label_unresolved(state, questions)
     return value, False
 
 
-def check_handoff_questions(state, value):
+def check_handoff_questions(state: RunState, value):
     """A Planner draft keeps every question the requirements handoff left open until it is answered or settled.
     A fact settled from the workspace stays settled while the handoff that asked it is unchanged; answering
     another question renews the episode but not the handoff. A refreshed handoff must settle it again."""
@@ -167,7 +172,7 @@ def check_handoff_questions(state, value):
         raise ValueError("Planner dropped unresolved requirements questions: " + ", ".join(sorted(missing)))
 
 
-def label_unresolved(state, questions):
+def label_unresolved(state: RunState, questions):
     """Runner-authored, visible relabelling; never a fabricated answer."""
     for index, question in enumerate(questions):
         if question.get("kind") == "discoverable":
@@ -198,7 +203,7 @@ def surface_obligations(obligations, questions, where):
         )
 
 
-def apply_obligations(state, stage, value, *, check_code_refs):
+def apply_obligations(state: RunState, stage, value, *, check_code_refs):
     """Rule E8 (issue #62): rejected assumptions become runner-owned obligations.
 
     A remediation obligation is discharged only by a Plan Reviewer decision on

@@ -28,18 +28,20 @@ from pathlib import Path
 
 try:
     from . import autocode_kilo_client_conformance as client_conformance
+    from . import autocode_kilo_linux_peer as namespace_peer
     from . import autocode_process as processes
     from . import autocode_util as util
 except ImportError:
     import autocode_kilo_client_conformance as client_conformance
+    import autocode_kilo_linux_peer as namespace_peer
     import autocode_process as processes
     import autocode_util as util
 
 
 ENDPOINT = "https://api.anthropic.com/v1/messages"
 _REGISTRATION = object()
-_PENDING: dict = {}
-_CLOSED: dict = {}
+_PENDING: dict[str, KiloSourceRelay] = {}
+_CLOSED: dict[str, KiloSourceRelay | _RetainedSource] = {}
 UNDEFINED = object()
 PUBLIC_API_KEY = "autocode-source-derivation-public-placeholder"
 RUNTIME_USER_AGENT = "ai-sdk/provider-utils/4.0.46 runtime/bun/1.3.14"
@@ -344,7 +346,9 @@ class KiloSourceRelay:
         self.id, self._token = secrets.token_hex(32), secrets.token_hex(32)
         # sockaddr_un is only 104 bytes on macOS. The listener has its own
         # short, parent-owned namespace; evidence remains in the original run.
-        self._socket_directory = Path(tempfile.mkdtemp(prefix="ac-kilo-", dir="/private/tmp"))
+        self._socket_directory = Path(
+            tempfile.mkdtemp(prefix="ac-kilo-", dir="/private/tmp" if os.uname().sysname == "Darwin" else "/tmp")
+        )
         self.socket_path = self._socket_directory / "source.sock"
         self.journal_path = self.directory / "source.jsonl"
         self._fd = os.open(self.journal_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -366,6 +370,8 @@ class KiloSourceRelay:
         self._stop = threading.Event()
         self._thread = None
         self._tree = self._prepared = self._deadline = self._peer = self._seal = None
+        self._peer_namespace = None
+        self._linux_namespace = False
         self._arms = {}
         self._sources = {}
         self._used_requests = set()
@@ -414,6 +420,7 @@ class KiloSourceRelay:
             foreign_environment=foreign_environment,
         )
         self._client_conformance = control
+        self._linux_namespace = current_binding().get("kernel_backend") == "linux-bwrap-pid1-v1"
         return control
 
     def _reset_unregistered_listener(self):
@@ -515,10 +522,18 @@ class KiloSourceRelay:
         _require(self._tree is not None and not self._closed, "Original source owner is not registered")
         peer = _peer_identity(connection)
         self._tree.sample()
-        _require(
-            peer["pid"] == self._tree.pid and processes.matches(self._tree.known.get(peer["pid"]), peer),
-            "Source peer is not the original supervised Kilo root",
-        )
+        if peer["pid"] != self._tree.pid and getattr(self, "_linux_namespace", False):
+            observed = namespace_peer.observe(peer, self._tree.capture_root(), self._tree)
+            _require(
+                self._peer_namespace is None or self._peer_namespace == observed,
+                "Original Kilo namespace binding changed",
+            )
+            self._peer_namespace = observed
+        else:
+            _require(
+                peer["pid"] == self._tree.pid and processes.matches(self._tree.known.get(peer["pid"]), peer),
+                "Source peer is not the original supervised Kilo root",
+            )
         _require(self._peer is None or processes.matches(self._peer, peer), "Original source peer changed")
         # A shell or an arbitrary descendant must not arm the source hooks.
         # Inspect only this already authenticated original descendant.
@@ -577,6 +592,11 @@ class KiloSourceRelay:
                 canonical_original_input=raw,
                 peer=self._peer,
                 launch_seal=self._seal,
+                **(
+                    {"client_namespace": self._peer_namespace}
+                    if getattr(self, "_peer_namespace", None) is not None
+                    else {}
+                ),
             )
             return {"kind": "ARM", "canonical_original_input": raw}
         if op == "SOURCE_COMMIT":
@@ -927,9 +947,24 @@ def register_retained_original(key, *, locator, parent_bytes, audit_bytes, launc
         "Original source arm/commit/request coverage changed",
     )
     peer = launch_seal["root"]
+    namespace_mode = None
     for commit, request in zip(commits, requests, strict=True):
         nonce = request.get("request_id")
         arm = arms.get(nonce, {})
+        namespace = arm.get("client_namespace")
+        current_mode = namespace is not None
+        _require(namespace_mode is None or namespace_mode == current_mode, "source namespace mode changed between arms")
+        namespace_mode = current_mode
+        if namespace is not None:
+            actual_peer = arm.get("peer")
+            namespace_peer.validate_retained(namespace, peer=actual_peer, anchor=launch_seal["root"])
+            _require(
+                peer == launch_seal["root"] or processes.matches(peer, actual_peer),
+                "original namespace client changed across requests",
+            )
+            peer = actual_peer
+        else:
+            _require(processes.matches(peer, launch_seal["root"]), "namespace binding missing from later source arm")
         original = decode_source(arm.get("canonical_original_input", ""), allow_bytes=True)
         source = decode_source(commit["canonical_record"])
         _require(

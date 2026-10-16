@@ -26,6 +26,7 @@ try:
     from . import autocode_go_tests as go_tests
     from . import autocode_native_check_runtime as check_runtime
     from . import autocode_native_launch as native_launch
+    from . import autocode_native_linux_check as linux_check
     from . import autocode_native_parent as parent
     from . import autocode_node_tests as node_tests
     from . import autocode_python_tests as python_tests
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_go_tests as go_tests
     import autocode_native_check_runtime as check_runtime
     import autocode_native_launch as native_launch
+    import autocode_native_linux_check as linux_check
     import autocode_native_parent as parent
     import autocode_node_tests as node_tests
     import autocode_python_tests as python_tests
@@ -145,8 +147,9 @@ class NativeCheckExecution:
         selected = facts["binding"]["source"].get("source_paths", [])
         _require(not source_paths or list(source_paths) == selected, "foreign selected source inventory")
         _require(
-            sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file(),
-            "native readonly checks need the existing macOS kernel sandbox",
+            (sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file())
+            or (sys.platform == "linux" and linux_check.kernel.executable().is_file()),
+            "native readonly checks need a supported kernel sandbox",
         )
         _require(
             not any(
@@ -313,34 +316,41 @@ class NativeCheckExecution:
             all(not Path(name).is_relative_to(self.workspace) for name in roots),
             "original workspace interpreter dependency is unsupported",
         )
-        profile = scope["control"] / ("check-" + uuid.uuid4().hex + ".sb")
-        policy = containment._render_policy(
-            self.workspace,
-            scope["scratch"],
-            read_workspace=False,
-            read_roots=roots,
-            denied_read_paths=(self.workspace,),
-            read_exceptions=(scope["scratch"],),
-            write_roots=(scope["tree"] / ".git" if setup else scope["scratch"] / "writable",),
-            denied_write_paths=(() if setup else (scope["tree"],)),
-            write_files=(log_path,),
-        )
-        policy += check_runtime.policy(runtime)
-        profile.write_text(policy)
-        profile.chmod(0o400)
+        linux = sys.platform == "linux"
+        profile = scope["control"] / ("check-" + uuid.uuid4().hex + (".json" if linux else ".sb"))
+        if linux and setup:
+            (scope["tree"] / ".git").mkdir(exist_ok=True)
+        if not linux:
+            policy = containment._render_policy(
+                self.workspace,
+                scope["scratch"],
+                read_workspace=False,
+                read_roots=roots,
+                denied_read_paths=(self.workspace,),
+                read_exceptions=(scope["scratch"],),
+                write_roots=(scope["tree"] / ".git" if setup else scope["scratch"] / "writable",),
+                denied_write_paths=(() if setup else (scope["tree"],)),
+                write_files=(log_path,),
+            )
+            policy += check_runtime.policy(runtime)
+            profile.write_text(policy)
+            profile.chmod(0o400)
         binaries = [
-            Path("/usr/bin/sandbox-exec"),
+            linux_check.kernel.executable() if linux else Path("/usr/bin/sandbox-exec"),
             Path("/bin/bash"),
-            Path("/usr/bin/git"),
             Path(sys.executable).resolve(),
         ]
+        if not linux:
+            binaries.append(Path("/usr/bin/git"))
         if native is not None:
             binaries.append(Path(native["executable"]))
+        if linux:
+            binaries.append(Path("/bin/sh"))
         boundary = {
             "scratch": str(scope["scratch"]),
             "tree": str(scope["tree"]),
             "profile": str(profile),
-            "profile_sha256": util.file_hash(profile),
+            "profile_sha256": None if linux else util.file_hash(profile),
             "setup": setup,
             "runtime_roots": roots,
             "executables": {str(path): util.file_hash(path) for path in binaries},
@@ -349,7 +359,12 @@ class NativeCheckExecution:
             "result_slots": [str(pair[0]) for pair in scope["slots"].values()],
             **({"node_runtime": runtime} if runtime is not None else {}),
         }
-        target = ["/usr/bin/sandbox-exec", "-f", str(profile), "/bin/bash", "--noprofile", "--norc", "-c", command]
+        if linux:
+            value = linux_check.write(boundary, runtime=runtime)
+            boundary["profile_sha256"] = util.file_hash(profile)
+            target = linux_check.command(value, command)
+        else:
+            target = ["/usr/bin/sandbox-exec", "-f", str(profile), "/bin/bash", "--noprofile", "--norc", "-c", command]
         handle = self.owner.prepare_check(
             self.state,
             facts["binding"]["source"],

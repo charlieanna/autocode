@@ -342,6 +342,7 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
 # invocation, or None to go on; one that sets decided.dispatch sends the run straight to the build.
 STEPS = (
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
+    action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
     action_recovery.gate_failures,  # a classification or job failure, and its exact retry
     action_authority.settle,  # the held pause's own authority, before queued input applies

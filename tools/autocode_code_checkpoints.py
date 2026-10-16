@@ -8,6 +8,11 @@ from older runs cannot be upgraded into missing source snapshots.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_source_scope as source_scope
     from . import autocode_source_snapshot as source_snapshot
@@ -34,7 +39,7 @@ except ImportError:
     import autocode_util as util
 
 
-def approved(state):
+def approved(state: RunState):
     try:
         return contract.approved(state)
     except (KeyError, TypeError, ValueError):
@@ -195,7 +200,7 @@ def _saved_original_report(original):
     )
 
 
-def builder_execution(state, accepted, implementation):
+def builder_execution(state: RunState, accepted, implementation):
     """Resolve a repaired handoff to its runner-observed implementation step.
 
     A report-only turn has no source changes of its own. Its accepted, hash-pinned
@@ -270,7 +275,7 @@ def builder_execution(state, accepted, implementation):
     return original
 
 
-def update(state, run_dir):
+def update(state: RunState, run_dir):
     """Called only from the runner's durable writer after an applied Builder step."""
     implementation = state.get("implementation") or {}
     task = state.get("current_task") or {}
@@ -290,7 +295,7 @@ def update(state, run_dir):
     )
     existing = next((row for row in rows if row["id"] == ident), None)
     if existing is None:
-        stage = next(
+        stage: dict = next(
             (
                 row
                 for row in reversed(state.get("stages") or [])
@@ -377,7 +382,7 @@ def update(state, run_dir):
         }
 
 
-def blocked_reason(state):
+def blocked_reason(state: RunState):
     if state.get("status") not in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION"):
         return "Pause after the current step before restoring a checkpoint."
     if not approved(state):
@@ -408,7 +413,7 @@ def blocked_reason(state):
     return None
 
 
-def project(state):
+def project(state: RunState):
     reason = blocked_reason(state)
     return {
         "version": 1,

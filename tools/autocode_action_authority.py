@@ -17,7 +17,7 @@ Only autocode_run_actions imports it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -62,7 +62,7 @@ def prepare_actions(runner, args, state: RunState, factory):
     return factory()
 
 
-def explicit_recovery_requested(args, state, *, checked=False):
+def explicit_recovery_requested(args, state: RunState, *, checked=False):
     """Whether this invocation carries a scoped operator recovery action for the pause holding ``state``.
 
     An explicit change to the bound that pause exhausted is one (#301): it must not be held behind an
@@ -89,7 +89,7 @@ def explicit_recovery_requested(args, state, *, checked=False):
     )
 
 
-def apply_queued_input(runner, state, run_dir, workspace):
+def apply_queued_input(runner, state: RunState, run_dir, workspace):
     """Apply queued interventions under the pause holding the run; 2 when that stopped this invocation, else None."""
     pause = state["status"]
     try:
@@ -102,7 +102,7 @@ def apply_queued_input(runner, state, run_dir, workspace):
     return None
 
 
-def hold_for_input(runner, state, state_path, run_dir, workspace):
+def hold_for_input(runner, state: RunState, state_path, run_dir, workspace):
     """Apply input accepted while an operational pause held the run, under that pause; return 2.
 
     A request asked while input is pending could never be published (its binding names that input),
@@ -136,7 +136,7 @@ def hold_for_input(runner, state, state_path, run_dir, workspace):
     return 2
 
 
-def settle(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Weigh the authority this invocation gives the pause holding the run, before queued input applies."""
     explicit_run_seconds = getattr(args, "max_seconds", None)
     explicit_slice_seconds = getattr(args, "max_milestone_seconds", None)
@@ -180,7 +180,7 @@ def settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
         prior = resolver_human.current(state)
         if runner.reconcile_rate_limited_stage(state, run_dir, workspace):
             if prior:
-                old = state.get("resolver", {}).get("human_escalations", {}).get(prior["request_id"])
+                old = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(prior["request_id"])
                 if old and old.get("status") == "pending":
                     old.update(
                         status="superseded",
@@ -222,12 +222,12 @@ def settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
         and bool(state.get("user_events"))
         and state["user_events"][-1].get("kind") == "planning_budget_change"
         and state["user_events"][-1].get("limit") == planning.review_call_limit(state)
-        and state["user_events"][-1].get("calls_used") == state.get("planning", {}).get("astra_calls")
+        and state["user_events"][-1].get("calls_used") == cast(dict, state.get("planning", {})).get("astra_calls")
     )
-    marker = state.get("_authorized_bound_change", {})
+    marker: dict = state.get("_authorized_bound_change", {})
     current_request = resolver_human.current(state)
     current_pause = (
-        state.get("resolver", {})
+        cast(dict, state.get("resolver", {}))
         .get("human_escalations", {})
         .get(current_request["request_id"], {})
         .get("identity", {})
@@ -308,7 +308,7 @@ def settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
         "PAUSED_ITERATION_LIMIT": "iteration_ceiling",
         "PAUSED_TIME_LIMIT": "max_seconds",
         "PAUSED_MILESTONE_TIME_LIMIT": "milestone_max_seconds",
-    }.get(state.get("status"))
+    }.get(cast(str, state.get("status")))
     if (
         not decision_action
         and not resolver_human.current(state)
@@ -316,7 +316,7 @@ def settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
         and default_budget_kind
         and runner.recover_default_budget(state, run_dir, workspace, default_budget_kind)
     ):
-        state.update(status="RUNNING", phase="EXECUTING")
+        state.update({"status": "RUNNING", "phase": "EXECUTING"})
         state.pop("stop_reason", None)
         runner.write_json(state_path, state)
     # The pause holding the run's own authority, given by this invocation (reconsideration adds one below):
@@ -373,7 +373,7 @@ def settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
     decided.issued = issued
 
 
-def reconsider(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def reconsider(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Let AutoResolver reconsider its published operational request, and record whether the pause is released."""
     decision_action, information_admitted = decided.decision_action, decided.information_admitted
     checked_authority = decided.checked_authority

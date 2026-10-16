@@ -6,6 +6,7 @@ import signal
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import autocode_process as processes
@@ -185,6 +186,12 @@ class StartupDeadlineTests(unittest.TestCase):
             self.assertEqual(child.pid, pid)
             child.returncode = -sig
 
+        # This virtual scheduler exercises POSIX supervision without native
+        # processes. Supply its primitives locally on Windows too.
+        operating_system = SimpleNamespace(
+            **{**vars(processes.os), "getpgid": lambda pid: child.pid, "killpg": terminate}
+        )
+        signals = SimpleNamespace(**{**vars(processes.signal), "SIGKILL": getattr(signal, "SIGKILL", 9)})
         with (
             patch.object(processes.time, "monotonic", lambda: clock()),
             patch.object(processes.threading, "Timer", Timer),
@@ -193,8 +200,8 @@ class StartupDeadlineTests(unittest.TestCase):
             patch.object(processes, "process_table", table),
             patch.object(processes, "process_ids", return_value=[child.pid]),
             patch.object(processes.psutil, "Process", return_value=proc),
-            patch.object(processes.os, "getpgid", return_value=child.pid),
-            patch.object(processes.os, "killpg", terminate),
+            patch.object(processes, "os", operating_system),
+            patch.object(processes, "signal", signals),
             patch.object(processes.ProcessTree, "stop", lambda tree, child: None),
         ):
             code, expired = processes.wait_for_stage(

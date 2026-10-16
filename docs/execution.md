@@ -621,9 +621,10 @@ On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`, `--
 the resume; the name is saved beside the Git identity as the person's own claim. With a resume
 it is saved only when the resume releases a pause, as above.
 
-None of this is verified, and none of it grants or refuses anything: Git identity is
-whatever the checkout configures, and `--as` is taken at the person's word. The token checks
-and each pause's own rules remain the authority. `--status` lists every approval, goal edit and
+None of this is verified, and none of it grants anything: Git identity is whatever the
+checkout configures, and `--as` is taken at the person's word. The token checks and each
+pause's own rules remain the authority; the one refusal is a project's required approver,
+below. `--status` lists every approval, goal edit and
 resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
 the completion summary lists the same records just before its cost line. A record saved before
 AutoCode kept it shows no provenance. A build, bug-fix or design run that recorded none, such as
@@ -646,8 +647,63 @@ recorded, a workflow-policy approval says no person made it, and a run with none
 `None recorded`. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
 approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
-([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A required
-approver (#707) is not covered yet.
+([Issues](issues.md#what-it-does)), the pull request body lists the approvals too.
+
+#### Required approver
+
+A team that wants only named people to approve can list their Git email addresses as
+`require-approver` in its [project settings](cli.md#project-settings):
+
+```toml
+require-approver = ["lead@example.com", "deputy@example.com"]
+```
+
+Each entry is one plain address: a single `@` between a non-empty local part and domain, with
+no spaces, angle brackets, quotes, parentheses, square brackets, commas, semicolons, colons or
+backslashes. An entry such as `Lee`, `Lee <lee@example.com>`, `<lee@example.com>` or
+`mailto:lee@example.com` stops a new run before it starts, naming the file and the key.
+
+A run started with that setting refuses a plan approval (`--approve-goal`, or `yes` in the
+terminal conversation) or an artifact acceptance (`--approve-review`, `autocode review`, a
+`TaskRun` approval, or `y` at the conversation's review prompt) whose recorded Git
+`user.email` is not on the list, compared without regard to case. The refusal comes before
+anything is approved: the command exits 2 (the conversation stops at the same question,
+without asking about any further criterion) with a message naming the required addresses and
+the actual Git identity, nothing it carried is saved, and the run stays at the same stop for a
+listed approver. An `--as` name is a claim and never counts. A goal edit installs a draft that
+still needs a listed approver's approval, a resume releases a pause rather than approving
+anything, and a small bug fix approved under the workflow policy has no person to check, so
+none of those is refused. `--accept-completion` is not checked.
+
+The identity checked is the output of `git -C WORKSPACE config --get user.email`, where
+`WORKSPACE` is the run's saved workspace (its task worktree, or the checkout an `--in-place`
+run works in), run in AutoCode's own environment: that of the `autocode` command recording
+the approval (a `TaskRun` runs that command with its caller's environment, or the `env` it
+was given). Anything that changes what Git resolves there changes the identity: Git's
+environment variables (`GIT_CONFIG_COUNT` with `GIT_CONFIG_KEY_n` and `GIT_CONFIG_VALUE_n`,
+`GIT_CONFIG_GLOBAL`, `HOME`) or a repository-local `user.email` in the workspace. The setting
+guards against an approval made under the wrong configured identity, such as someone not on
+the list approving from a machine set up with their own address; it does not stop someone who
+deliberately sets a listed address. It is not authentication.
+
+The run saves the list when it starts (`settings.require_approver` in `state.json`), as it
+saves every project setting: a changed or deleted file never alters a run in progress, a run
+started before the setting existed lets anyone approve, and no flag sets or overrides it. A
+new run started from a design handoff (`autocode --ui-run HANDOFF`, with or without a typed
+task) takes it like any other. Without the setting anyone may approve, as before.
+
+Not covered:
+
+- A replay (`autocode replay`, [Replay](replay.md)) never takes the setting, and a new run
+  started with `--replay-recording` does not list it among the project settings it took. A
+  replay re-applies the recorded run's own plan and review decisions through `TaskRun`, with
+  no person approving, and keeps the recording's settings; checking those decisions against
+  whoever runs the replay would refuse every replay a listed approver did not run.
+- `autocode program` and `autocode components`. Each child run reads `require-approver` from
+  its own Git worktree, checked out at a commit, so only a committed `.autocode/config.toml`
+  (or `pyproject.toml`) reaches it: an uncommitted change to the file in the project checkout
+  does not. `autocode program approve`, which approves the program's agreement, is never
+  checked.
 
 ## Timeouts and watchdog
 
@@ -660,11 +716,30 @@ tool execution and total stage runtime:
 | `--max-idle-seconds` | `300` | Stop a provider with no new recognized activity while no tool is running. |
 | `--max-tool-seconds` | `1800` | Stop a tool that exceeds its fixed deadline, including a quiet test command. Output and repeated starts do not extend this deadline. |
 | `--max-stage-seconds` | `3600` | Hard cap for the entire stage, enforced even while activity continues. |
-| `--max-seconds` | `43200` | Total active provider time for the run, checked at stage boundaries. |
+| `--max-seconds` | `43200` | Total active provider time for the run (its model attempts' durations added together), checked at stage boundaries and, when you set it, before an attempt on a stronger route (below). |
 
 Each flag accepts `0` to disable that limit. The iteration ceiling has no new-run
 default; the two time limits above bound a run's spend instead, and Resolver may
 double each once (see [Budget ownership](#budget-ownership-and-human-escalation)).
+An active-time budget you set with `--max-seconds N` is also checked before an attempt on a stronger
+route, the same climbs the [money cap](#money-cap) prices: a milestone's Builder escalating to its
+stronger model, and a role climbing a rung of its effort ladder. The first attempt on the climbed
+route is timed from the role's last attempt's recorded duration, never more than the stage time
+limit that would stop it. If the active time so far plus that projection would pass the budget, the
+run stops with `PAUSED_TIME_LIMIT` before the attempt starts, and the stop names the climb, the
+projection, the active time so far, the total and the budget to resume with, for example `The
+Tester's climb to GPT-6 Sol XHigh (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of
+active time, the last Tester attempt's duration, it would take the run's active time from 650 s to
+1,250 s, past the 1,000 s active-time budget you set ... resume with --max-seconds 1250 or more`.
+Resuming with `--max-seconds M` of at least that total launches that same attempt, since the climb
+stays saved. A smaller `M` above the active time so far is accepted and saved as your answer to the pause,
+but the run pauses again before the same attempt, and the new stop names `M` as the budget. Like
+the cost projection it is an estimate, not a bound: a higher effort can run longer than the attempt
+it follows. The new-run default and a budget delegated with `--autoresolver-managed-limits` are not
+projected, because Resolver may extend them once at the stage boundary; for them, and when the last
+attempt has no recorded duration, only the stage-boundary check applies, as before. When a climb would cross both
+the cost cap and this budget, the cost stop comes first. Once the climbed attempt has launched, the
+stage-boundary check governs it, and a parallel Builder leaves this check to the serial run.
 Runs created before these defaults keep the limits they saved. Saved stage limits are preserved,
 including an existing five-minute cap or an explicit zero; use
 `--max-stage-seconds 0` to deliberately remove a saved hard cap. Saved runs gain
@@ -762,7 +837,8 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
   the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
   stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
   serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
-  before it launches, and the stage-boundary check governs it.
+  before it launches, and the stage-boundary check governs it. The same attempt is also checked against an
+  active-time budget you set, after this check ([Timeouts and watchdog](#timeouts-and-watchdog)).
 - **How it continues.** Only you decide: `autocode resume --max-cost-usd M` (or `--resume-paused
   --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stop before an attempt on a
   stronger route, `M` must be at least the cap that stop names, or the run pauses again before the attempt.

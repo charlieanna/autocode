@@ -296,6 +296,25 @@ async function directTcpDenial(target) {
   const started = performance.now();
   let library = null, fd = null, denied = null, failure = null;
   try {
+    if (process.platform === 'linux' && ['arm64', 'x64'].includes(process.arch)) {
+      // The Linux source-relay filter denies every socket family except
+      // AF_UNIX. Observe that exact kernel permission failure through libc;
+      // ECONNREFUSED/ENETUNREACH and a successful socket are not proof.
+      const { dlopen, read } = await import('bun:ffi');
+      library = dlopen('libc.so.6', {
+        socket: { args: ['i32','i32','i32'], returns: 'i32' },
+        close: { args: ['i32'], returns: 'i32' },
+        __errno_location: { args: [], returns: 'ptr' },
+      });
+      const errnoPointer = library.symbols.__errno_location();
+      need(Number.isSafeInteger(errnoPointer) && errnoPointer > 0 && errnoPointer % 4 === 0,
+        'raw_tcp_errno_pointer_invalid');
+      fd = library.symbols.socket(2, 1, 0); // AF_INET / SOCK_STREAM, no wrapper interpretation.
+      const errno = read.i32(errnoPointer); // Immediately after the original syscall.
+      if (fd === -1 && (errno === 1 || errno === 13))
+        denied = { ...target, status: 'denied', code: errno === 1 ? 'EPERM' : 'EACCES' };
+      else failure = conformanceFailure('check');
+    } else {
     need(process.platform === 'darwin' && process.arch === 'arm64', 'unsupported_raw_tcp_platform');
     const { dlopen, ptr, read } = await import('bun:ffi');
     library = dlopen('/usr/lib/libSystem.B.dylib', {
@@ -329,6 +348,7 @@ async function directTcpDenial(target) {
       code: errno === 61 ? 'ECONNREFUSED' : undefined,
       errno: Number.isSafeInteger(errno) && errno > 0 && errno <= 4095 ? -errno : undefined,
     });
+    }
   } catch (error) { failure = conformanceFailure('throw', error); }
   finally {
     if (Number.isInteger(fd) && fd >= 0) {
