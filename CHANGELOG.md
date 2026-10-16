@@ -16,6 +16,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A novelty hold's stop also states the run's active time against its time limit and, with milestone checkpoints
+  on, the current milestone's time against its budget, after the spend against the cost cap; a limit or budget
+  changed at the hold is the one the stop then states (#611).
+
 - Opt-in blind tests via `--blind-tests` execute acceptance tests written by the Tester in a separate candidate
   scratch tree without exposing test implementations or file paths to the Builder's workspace or prompt (#702).
 

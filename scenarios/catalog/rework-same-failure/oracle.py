@@ -11,8 +11,9 @@ With a run it also checks, from the scripted run's trace and the public status v
 - the run stopped with budget left: the view's cost shows the scenario's cap and less spent, and the run's active
   time is under its time budget. A scripted run never comes near either bound, so this reads only that the stop
   reports what is left. A loop that keeps spending fails the first item's checks: a third attempt or a diagnosis;
-- the stop's own text states that spend and that cap, as the view's cost has them, so a person deciding whether to
-  retry sees what is left without asking for the status.
+- the stop's own text states that spend and that cap, as the view's cost has them, and the run's active time and
+  its time limit, as the run saved them, so a person deciding whether to retry sees what is left without asking for
+  the status.
 """
 
 import hashlib
@@ -122,6 +123,19 @@ def check(project, scenario, run=None):
             and abs(float(stated[1].replace(",", "")) - spent) <= 0.005 + 1e-9
             and float(stated[2].replace(",", "")) == cap,
             f"stop {stated[0] if stated else reason[-300:]!r}; view spent {spent}, cap {cost.get('cap_usd')}",
+        )
+    )
+    # The stop shows seconds to one decimal place; no stage runs after the hold, so the saved time is the stated one.
+    timed = re.search(r"Active time: ([\d,.]+) s of the ([\d,.]+) s limit\.", reason)
+    checks.append(
+        Check(
+            "stop_states_active_time_and_limit",
+            timed is not None
+            and isinstance(active, (int, float))
+            and isinstance(allowed, (int, float))
+            and abs(float(timed[1].replace(",", "")) - active) <= 0.05 + 1e-9
+            and float(timed[2].replace(",", "")) == allowed,
+            f"stop {timed[0] if timed else reason[-300:]!r}; saved active {active} s of {allowed} s",
         )
     )
     return checks

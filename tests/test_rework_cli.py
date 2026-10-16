@@ -432,7 +432,8 @@ class CompletionReworkCLI(unittest.TestCase):
 
 
 class ReworkHoldCostCLI(unittest.TestCase):
-    """#611: the rework loop's no-progress hold (rework-same-failure) states the run's spend against its cost cap."""
+    """#611: the rework loop's no-progress hold (rework-same-failure) states the run's spend against its cost cap
+    and its active time against its time limit."""
 
     def test_a_cap_changed_at_the_hold_is_the_cap_its_stop_states(self):
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
@@ -457,6 +458,7 @@ class ReworkHoldCostCLI(unittest.TestCase):
         self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
         self.assertIn("No causal progress", view["stop_reason"])
         self.assertIn("; cap $5.00.", view["stop_reason"])
+        self.assertRegex(view["stop_reason"], r"; cap \$5\.00\. Active time: [\d,.]+ s of the [\d,]+ s limit\.")
         # The person reads the cap, changes it at the hold without --resume-paused and checks --status before
         # the one scoped retry: the stop the command prints and the status view state the cap the run has now.
         for given, cap, stated in (("20", 20.0, "; cap $20.00."), ("0", None, None)):
@@ -476,6 +478,15 @@ class ReworkHoldCostCLI(unittest.TestCase):
                     else:
                         self.assertNotIn("Cost:", text)
                 self.assertNotIn("cap $5.00", json.dumps(view))
+        # A time limit changed at the hold is the limit its stop states, as the cap is. The scenario sets none, so the
+        # person passes it from now on.
+        driver.flags = [*driver.flags, "--max-seconds", "7200"]
+        printed = driver.call("change-time-limit").stdout
+        view = driver.view()
+        self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
+        for text in (view["stop_reason"], printed):
+            self.assertEqual(1, text.count("Active time: "), text)
+            self.assertRegex(text, r"Active time: [\d,.]+ s of the 7,200 s limit\.")
 
 
 if __name__ == "__main__":

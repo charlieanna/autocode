@@ -44,6 +44,7 @@ try:
     from . import autocode_retained_work as retained
     from . import autocode_rework_policy as rework
     from . import autocode_support as support
+    from . import autocode_time_left as time_left
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
 except ImportError:
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_retained_work as retained
     import autocode_rework_policy as rework
     import autocode_support as support
+    import autocode_time_left as time_left
     import autocode_tool_containment as containment
     import autocode_util as util
 
@@ -1502,31 +1504,39 @@ def held_reason(state: RunState, text):
 
 
 def hold_stop(state: RunState, reason):
-    """A novelty hold's stop text: ``reason``, then the run's spend against its cost cap as `--status`
-    prints it, so a person deciding on the one scoped retry sees what is left of the cap (#611). Without
-    a cap it adds nothing, as the cost stops do. The spend and cap are read from ``state`` each time the
-    stop is composed and are never saved with the reason: the hold's record and AutoResolver's request
-    keep the bare reason. A request asked again composes its stop anew
-    (autocode_resolver_runtime.record_operational_exhaustion), and restate_hold updates a saved stop
-    when the run's settings change."""
+    """A novelty hold's stop text: ``reason``, then what is left of each budget the one scoped retry runs
+    under, so a person deciding on it sees what remains (#611): the run's spend against its cost cap as
+    `--status` prints it, then its active time against the time limit and the current milestone's time
+    against its budget (autocode_time_left). A budget the run does not have adds nothing, as the cost
+    stops do without a cap. The figures are read from ``state`` each time the stop is composed and are
+    never saved with the reason: the hold's record and AutoResolver's request keep the bare reason. A
+    request asked again composes its stop anew (autocode_resolver_runtime.record_operational_exhaustion),
+    and restate_hold updates a saved stop when the run's settings change."""
     view = cost.view(state)
-    return reason + (f". {cost.line(view)}" if view["cap_usd"] is not None else "")
+    stated = ([cost.line(view)] if view["cap_usd"] is not None else []) + time_left.lines(state)
+    return reason + (f". {' '.join(stated)}" if stated else "")
 
 
-# The spend hold_stop states after a hold's reason: with a cap, `cost.line` ends "; cap $N." (#611).
-_STATED_SPEND = re.compile(r"\. Cost: .*?; cap (?:under )?\$[\d,]+\.\d+\.")
+# The budgets hold_stop states after a hold's reason (#611): with a cap, `cost.line` ends "; cap $N.", then
+# autocode_time_left's active-time and milestone sentences.
+_STATED_BUDGETS = re.compile(
+    r"\.(?: (?:Cost: .*?; cap (?:under )?\$[\d,]+\.\d+\."
+    r"|Active time: [\d,.]+ s of the [\d,.]+ s limit\."
+    r"|Milestones? [^\n]*?: [\d,.]+ s of (?:its|their) [\d,.]+ s budget\.))+"
+)
 
 
 def restate_hold(state: RunState):
-    """Restate the spend and cap in a novelty hold's saved stop reason, as hold_stop composes them now,
-    keeping the advice after them. autocode_run_setup calls it when it saves changed settings at a stop, so
-    a cap changed at the hold is the cap the stop states, whether or not the request is asked again."""
+    """Restate the budgets in a novelty hold's saved stop reason, as hold_stop composes them now, keeping
+    the advice after them. autocode_run_setup calls it when it saves changed settings at a stop, so a cap,
+    time limit or milestone budget changed at the hold is the one the stop states, whether or not the
+    request is asked again."""
     text = state.get("stop_reason")
     reason = held_reason(state, text) if isinstance(text, str) else None
     if not reason:
         return
     rest = cast(str, text)[len(reason) :]
-    stated = _STATED_SPEND.match(rest)
+    stated = _STATED_BUDGETS.match(rest)
     rest = rest[stated.end() :] if stated else rest.removeprefix(".")
     head = hold_stop(state, reason)
     state["stop_reason"] = head + ("" if not rest or head.endswith(".") else ".") + rest

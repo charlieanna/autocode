@@ -712,6 +712,51 @@ class RecoveryPacketTests(unittest.TestCase):
                 recovery.restate_hold(self.state)
                 self.assertEqual(reason + stated + advice, self.state["stop_reason"])
 
+    def test_a_hold_states_what_is_left_of_the_time_limit_and_the_milestone_budget(self):
+        # #611: after the spend, the stop states the run's active time against its time limit and the current
+        # milestone's time against its budget. Neither is saved with the hold's reason, and a limit or budget
+        # changed at the hold is restated, with or without a cost cap, keeping the advice after them.
+        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        recovery.admit_dispatch(self.state, first, self.root, self.run)
+        self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
+        self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
+        self.state.update(next_stage="astra_resolve", active_seconds=1250)
+        self.state["settings"]["limits"] = {"max_cost_usd": 5, "max_seconds": 43200}
+        again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+        with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
+            recovery.admit_dispatch(self.state, again, self.root, self.run)
+        held = "authorizes one attempt under existing limits"
+        stated = ". Cost: $1.75 so far; cap $5.00. Active time: 1,250 s of the 43,200 s limit."
+        self.assertTrue(str(caught.exception).endswith(held + stated), str(caught.exception))
+        reason = self.state["resolution_request"]["novelty_hold"]["reason"]
+        self.assertNotIn("Active time", reason)
+        advice = "AutoResolver could not resolve no_progress; no automatic operational recovery ran."
+        self.state["stop_reason"] += " " + advice
+        self.state["current_task"]["contract_hash"] = "h"
+        self.state["milestone_progress"] = {"h:M1": {"id": "M1", "seconds": 300}}
+        milestone = " Milestone M1: 300 s of its 5,400 s budget."
+        for limits, checkpoints, stated in (
+            ({"max_seconds": 43200}, True, ". Active time: 1,250 s of the 43,200 s limit." + milestone + " "),
+            (
+                {"max_cost_usd": 7, "max_seconds": 86400},
+                True,
+                ". Cost: $1.75 so far; cap $7.00. Active time: 1,250 s of the 86,400 s limit." + milestone + " ",
+            ),
+            ({"max_seconds": 0}, True, "." + milestone + " "),
+            ({}, False, ". "),
+            ({"max_seconds": 600}, False, ". Active time: 1,250 s of the 600 s limit. "),
+            (
+                {"max_cost_usd": 5, "max_seconds": 600},
+                True,
+                ". Cost: $1.75 so far; cap $5.00. Active time: 1,250 s of the 600 s limit." + milestone + " ",
+            ),
+        ):
+            with self.subTest(limits=limits, checkpoints=checkpoints):
+                self.state["settings"]["limits"] = limits
+                self.state["settings"]["milestone_checkpoints"] = {"enabled": checkpoints, "max_seconds": 5400}
+                recovery.restate_hold(self.state)
+                self.assertEqual(reason + stated + advice, self.state["stop_reason"])
+
     def test_only_an_attempt_archived_without_a_report_leaves_its_incident_untried(self):
         # #422: automatic recovery accounts and archives a stopped attempt that ended without a
         # completed turn (timeout, capacity, startup). It returned no report, so its relaunch is
