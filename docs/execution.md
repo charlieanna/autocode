@@ -602,6 +602,14 @@ than attributed to a criterion without a recorded association. The command submi
 the displayed artifact token automatically and never starts a model. Source or
 validation changes during inspection cause the decision to be refused.
 
+Each criterion also lists the saved Builder steps of the plan milestones that
+cover it (`criterion_diffs` in `--json`). Each step's diff runs from the saved
+step before it (or the run's base) to its own saved checkpoint, limited to the
+files it changed and read from Git objects, not the working tree. It is labeled
+as attribution, not proof: it shows where to look. A file another milestone's
+step also changed is flagged, since its diff may hold that work. A step after an
+unavailable checkpoint is shown as unavailable rather than mixed with it.
+
 The direct approval interface remains available:
 
 ```sh

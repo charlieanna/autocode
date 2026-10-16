@@ -199,7 +199,11 @@ class ProgressiveRunViewTests(unittest.TestCase):
         # Blanking the body above breaks the plan's seal, so only the progressive run still shows
         # the plan in force; that field is not part of the progressive projection.
         self.assertEqual(state["goal_contract"]["body"], result.pop("approved_contract")["body"])
-        self.assertEqual(result, run_view.view(ordinary))
+        # Attribution to criteria also needs the plan in force (#730).
+        self.assertIsNotNone(result.pop("changes_by_criterion"))
+        shown = run_view.view(ordinary)
+        self.assertIsNone(shown.pop("changes_by_criterion"))
+        self.assertEqual(result, shown)
         projection["tentative_next_work"][0]["depends_on"].append("tamper")
         projection["outstanding_product_criteria"][0]["criterion"] = "tamper"
         self.assertEqual(state, before)

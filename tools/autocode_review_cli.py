@@ -58,6 +58,9 @@ def review(run, *, show=False, as_json=False):
     view = run.status(inspect_evidence=True)
     data = presentation.review_data(view)
     data["diff"] = review_diff.collect(run.workspace, view)
+    data["criterion_diffs"] = review_diff.criterion_diffs(
+        run.workspace, view, only=[row["id"] for row in data["criteria"]]
+    )
     if as_json:
         print(json.dumps(data, indent=2))
         return 0
@@ -75,7 +78,12 @@ def review(run, *, show=False, as_json=False):
     if data.get("reasons"):
         print("Evidence: " + presentation.display_text("; ".join(map(str, data["reasons"]))))
     for row in pending:
-        print("\n" + presentation.render_review({**row, "diff_hunks": data["diff"]}))
+        print(
+            "\n"
+            + presentation.render_review(
+                {**row, "diff_hunks": data["diff"], "criterion_diffs": data["criterion_diffs"]}
+            )
+        )
         if show:
             continue
         token = data.get("token")

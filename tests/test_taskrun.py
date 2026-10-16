@@ -121,6 +121,7 @@ class RunViewTests(unittest.TestCase):
                 "conversation",
                 "controller",
                 "planning_depth",
+                "changes_by_criterion",
             },
             set(run_view.view({"status": "RUNNING"})),
         )
