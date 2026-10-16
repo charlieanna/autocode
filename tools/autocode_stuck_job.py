@@ -141,10 +141,10 @@ SCHEMA = {
 }
 
 
-def schema(state):
+def schema(state: RunState):
     if (state.get("stuck_investigation") or {}).get("mode") != "builder_failure":
         return SCHEMA
-    result = copy.deepcopy(SCHEMA)
+    result: dict[str, Any] = copy.deepcopy(SCHEMA)
     result["required"] += ["failure_class", "failure_id"]
     result["properties"].update(
         failure_class={"type": "string", "enum": ["plan", "execution", "operational", "unknown"]}, failure_id=TEXT
@@ -702,12 +702,28 @@ def retire(state: RunState) -> None:
 
 
 def drive(
-    state, dispatch, *, apply=None, before=None, after=None, persist=None, active, skip, paused, investigate=False
+    state: RunState,
+    dispatch,
+    *,
+    apply=None,
+    before=None,
+    after=None,
+    persist=None,
+    active,
+    skip,
+    paused,
+    investigate=False,
+    queue=True,
 ):
     """The runner's stage loop (autopilot.drive), with investigation before a non-convergence pause.
 
     ``paused`` is the runner's pause exception type (with ``status``); ``skip`` its restart sentinel.
     Without ``investigate`` this is exactly the plain loop.
+
+    ``queue=False`` is for a run whose authority cannot launch the Investigator (native visual
+    runs): a stage pause is never sent to it, so the pause keeps its own reason and spends no
+    investigation. A request queued elsewhere (Builder failure classification) is still restored
+    to its own pause when that authority refuses it.
 
     Only a pause this invocation produced by attempting a stage (a new stage record) is
     investigated: a guard re-asserting a known pause on resume launches nothing, since that
@@ -755,7 +771,7 @@ def drive(
             retire(state)
             if not fresh():
                 raise
-            if not intercept(state, status, reason):
+            if not queue or not intercept(state, status, reason):
                 reraised = paused(status, annotate(state, status, reason))
                 if getattr(error, "quota_worker", None):
                     reraised.quota_worker = error.quota_worker
@@ -766,7 +782,7 @@ def drive(
         if not investigate:
             return state
         retire(state)
-        if fresh() and intercept(state, state.get("status"), state.get("stop_reason") or ""):
+        if queue and fresh() and intercept(state, cast(str, state.get("status")), state.get("stop_reason") or ""):
             if persist:
                 persist(state)
             continue

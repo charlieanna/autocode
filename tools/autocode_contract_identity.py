@@ -1,5 +1,12 @@
 """Cycle-free contract identity and authenticated approval predicates."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_util as util
     from . import autocode_workflows as workflows
@@ -16,8 +23,8 @@ def sealed(contract):
     return contract.get("hash") == util.digest({k: contract[k] for k in ("task_id", "revision", "body")})
 
 
-def approved(state):
-    contract = state.get("goal_contract", {})
+def approved(state: RunState):
+    contract = cast(dict, state.get("goal_contract", {}))
     approval = contract.get("approval_event") or {}
     return bool(
         contract

@@ -10,10 +10,15 @@ approval and never change the contract. A new behavior legitimately differs from
 State: ``state["goal_base_check"]`` = {"examples": digest of the examples checked, "notes": [...]}.
 Written only by ``check`` (called from the plan display); read only by ``notes`` (the plan
 rendering, which runs no command). Imports nothing from AutoCode except the draft-example
-spelling helper, which imports nothing from AutoCode.
+spelling helper, which imports nothing from AutoCode; RunState is imported for type checking only.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 import difflib
 import hashlib
@@ -96,7 +101,7 @@ def differences(expected: str, base: str) -> list[str]:
     ]
 
 
-def check(state) -> dict:
+def check(state: RunState) -> dict:
     """Run the planned commands on the base revision and record the advisory notes (plan display only)."""
     rows = planned((state.get("goal_contract") or {}).get("body"))
     digest = _digest(rows)
@@ -129,7 +134,7 @@ def check(state) -> dict:
     return result
 
 
-def notes(state) -> list[str]:
+def notes(state: RunState) -> list[str]:
     """The notes recorded for the contract currently in state; empty when none were recorded for it."""
     recorded = state.get("goal_base_check") or {}
     if recorded.get("examples") != _digest(planned((state.get("goal_contract") or {}).get("body"))):

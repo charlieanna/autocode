@@ -4,6 +4,13 @@ Only record() writes state['evidence_export']. Status and TaskRun readers use
 its digests and binding; nothing in this module reads another run's state.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 import os
@@ -20,11 +27,11 @@ except ImportError:
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 
 
-def _role_context(state):
+def _role_context(state: RunState):
     return {"settings": {"workflow": (state.get("settings") or {}).get("workflow") or {}}}
 
 
-def binding(state, accounting):
+def binding(state: RunState, accounting):
     """Bind stable state and supplied document facts, never inspected liveness.
 
     Accounting may refresh explicit native logs. Bind the facts it supplies now,
@@ -90,7 +97,7 @@ def unavailable(reason="No completed-run report is recorded"):
     }
 
 
-def metadata(state):
+def metadata(state: RunState):
     anchor = state.get("evidence_export")
     if not isinstance(anchor, dict):
         return unavailable()
@@ -158,7 +165,7 @@ def write(root, value):
     }
 
 
-def publish(root, state, view, provenance):
+def publish(root, state: RunState, view, provenance):
     if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
         return False
     if state.get("status") not in COMPLETE:

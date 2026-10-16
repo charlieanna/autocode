@@ -1,16 +1,23 @@
 """Durable named execution checkpoints; tool activity is never acceptance."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 
 
-def update(state):
+def update(state: RunState):
     task = state.get("current_task") or {}
     if not task.get("id"):
         return
     active = state.get("active_stage") or {}
     stage = active.get("stage") or state.get("next_stage")
     implementation = state.get("implementation") or {}
-    contract = state.get("goal_contract", {}).get("hash")
+    contract = cast(dict, state.get("goal_contract", {})).get("hash")
     implementation = (
         implementation
         if (implementation.get("task_id") == task["id"] and implementation.get("contract_hash") == contract)
@@ -37,7 +44,7 @@ def update(state):
         )
         and not implementation
     )
-    last_builder = next(
+    last_builder: dict = next(
         (r for r in reversed(state.get("stages", [])) if r.get("stage") == "terra" and r.get("task_id") == task["id"]),
         {},
     )
@@ -96,7 +103,7 @@ def update(state):
     value = {
         "task_id": task["id"],
         "milestone_id": task.get("milestone_id"),
-        "contract_hash": state.get("goal_contract", {}).get("hash"),
+        "contract_hash": cast(dict, state.get("goal_contract", {})).get("hash"),
         "source_revision": implementation.get("source_revision"),
         "paused": paused,
         "rows": rows,

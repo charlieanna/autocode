@@ -7,6 +7,11 @@ This does not infer arithmetic or authorize changes to a user's behavior.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -114,7 +119,7 @@ def layout_padding(before, after):
     )
 
 
-def user_protected(state, row, user_basis):
+def user_protected(state: RunState, row, user_basis):
     approvals = {e.get("token") for e in state.get("user_events", []) if e.get("kind") == "goal_approval"}
     for revision in [*(state.get("contract_history") or []), state.get("goal_contract") or {}]:
         if not any(
@@ -136,7 +141,7 @@ def user_protected(state, row, user_basis):
     return False
 
 
-def corrections(state, before, after, changes, user_basis):
+def corrections(state: RunState, before, after, changes, user_basis):
     contract = state.get("goal_contract") or {}
     if (
         contract.get("approval_status") != "draft"
@@ -192,7 +197,7 @@ def corrections(state, before, after, changes, user_basis):
             if (
                 concern.get("id") == receipt.get("concern_id")
                 and concern.get("blocking") is True
-                and re.search(r"(?<![A-Za-z0-9_])" + re.escape(cid) + r"(?![A-Za-z0-9_])", evidence)
+                and re.search(r"(?<![A-Za-z0-9_])" + re.escape(cast(str, cid)) + r"(?![A-Za-z0-9_])", evidence)
                 and spelling(previous) in spelling(evidence)
                 and spelling(replacement) in spelling(evidence)
             ):
@@ -201,7 +206,7 @@ def corrections(state, before, after, changes, user_basis):
     return found
 
 
-def review_notes(state):
+def review_notes(state: RunState):
     current = {
         r["id"]: r["criterion"]
         for r in (state.get("goal_contract") or {}).get("body", {}).get("acceptance_criteria", [])

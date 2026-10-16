@@ -6,6 +6,13 @@ look like either an idle Validator or an interrupted model call. The caller
 owns the run lock and supplies its normal state persistence function.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import os
 from contextlib import contextmanager
 from copy import deepcopy
@@ -28,7 +35,7 @@ def _reconcile(record):
         command_supervision.reconcile(record["supervision"])
 
 
-def clear(state, run_dir, persist):
+def clear(state: RunState, run_dir, persist):
     """Retire a check after verified cleanup, or after a dead terminal inventory.
 
     A readable stopped or uncertain receipt whose owner, keeper, provider and
@@ -62,7 +69,7 @@ def clear(state, run_dir, persist):
     persist(Path(run_dir) / "state.json", state)
 
 
-def recover_interrupted(state, run_dir, persist):
+def recover_interrupted(state: RunState, run_dir, persist):
     """Explicit resume after abandoning a model may retire its stopped check.
 
     Existing active_runner_check is the sole state-derived input. All admission
@@ -95,7 +102,7 @@ def recover_interrupted(state, run_dir, persist):
 
 
 @contextmanager
-def track(state, run_dir, stage, summary, persist, *, deferred=False):
+def track(state: RunState, run_dir, stage, summary, persist, *, deferred=False):
     clear(state, run_dir, persist)
     record = {"stage": stage, "summary": summary, "started_at": util.now()}
     published = False

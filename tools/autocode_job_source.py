@@ -8,6 +8,11 @@ creates a witness from a later checkout. Capture blobs stay in the run-owned
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import json
 import os
 import shutil
@@ -235,7 +240,7 @@ def discard_prepared(record):
         path.unlink(missing_ok=True)
 
 
-def discard_unadmitted(state, record):
+def discard_unadmitted(state: RunState, record):
     """Remove an attempt's prepared files when it never became the active stage (#1114).
 
     Admission failed or the launch was interrupted before ``active_stage`` was saved, so no state names

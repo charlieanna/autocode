@@ -61,7 +61,7 @@ def unclimbed(state: RunState, settings: dict, role: str) -> dict:
     return settings
 
 
-def advance(state, role, *, trigger, detail="", struggle_id=None):
+def advance(state: RunState, role, *, trigger, detail="", struggle_id=None):
     """Advance one rung for the next request and rotate the prior role session.
 
     Custom providers/models are deliberately left alone. Reaching the final rung is

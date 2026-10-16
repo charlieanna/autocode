@@ -13,11 +13,17 @@ Cost has three bases and the output says which: "reported" (the provider's own n
 built-in claude provider writes it), "estimated" (tokens at the flat comparison rates below, only
 for models listed there) and unknown. An estimate is never added to a reported cost without being
 shown separately, and unknown is never zero: `complete` is false while any stage lacks a cost.
-A stage that only the runner executed costs nothing. Imports only the standard library.
+A stage that only the runner executed costs nothing. Imports only the standard library and
+autocode_request_usage; RunState is imported for type checking only.
 `metrics.provider_tokens_partial` marks known consumption from an interrupted stream as a lower bound.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 import datetime as dt
 import fcntl
@@ -101,7 +107,7 @@ def _model(record):
     return ""
 
 
-def pending_workers(state):
+def pending_workers(state: RunState):
     """The parallel Builder rows still running: their spend reaches the parent only when the batch is accounted."""
     workers = _dict(state.get("orchestration_batch")).get("workers") or []
     return [
@@ -111,7 +117,7 @@ def pending_workers(state):
     ]
 
 
-def stage_rows(state, estimator=None):
+def stage_rows(state: RunState, estimator=None):
     """One row per finished stage: role, model, tokens, cost and where the cost came from.
 
     `estimator(model, tokens)` prices a stage without a reported cost; the default is `estimate`, the
@@ -150,10 +156,10 @@ def _sum(values):
     return sum(value for value in values if value is not None)
 
 
-def summary(state):
+def summary(state: RunState):
     """Totals for one run. Sums cover the stages that reported; `unknown_stages` counts those that did not."""
     rows = stage_rows(state)
-    roles = {}
+    roles: dict = {}
     for row in rows:
         entry = roles.setdefault(
             row["role"] or "other",
@@ -226,7 +232,7 @@ def _quantity(values, *, uncertain=False):
     }
 
 
-def accounting(state):
+def accounting(state: RunState):
     """Read supplied attempt logs, never another run's private state.
 
     Saved request receipts are used when present. An explicit event path is
@@ -490,7 +496,7 @@ def _upsert(ledger, row):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def record(path, state):
+def record(path, state: RunState):
     """Keep this run's ledger row current. Best effort: a failure never fails the checkpoint or the run."""
     try:
         run_dir = Path(path).resolve().parent

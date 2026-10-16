@@ -20,6 +20,11 @@ re-dispatch is immediate (the validated native timing); a renewal backs off
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 import math
@@ -214,7 +219,7 @@ def _read(path, root, limit):
         os.close(fd)
 
 
-def _binding(state, record, before, workspace):
+def _binding(state: RunState, record, before, workspace):
     return util.digest(
         {
             "workspace": str(Path(workspace).resolve(strict=True)),
@@ -247,7 +252,7 @@ def _index(workspace):
     return hashlib.sha256(_read(path, path.parent, 8 * 1024 * 1024)).hexdigest()
 
 
-def bind_attempt(state, record, before, workspace):
+def bind_attempt(state: RunState, record, before, workspace):
     """Capture immutable retry authority before the existing owned launch."""
     # Inherit before retry-authority checks: unsupported routes and missing
     # launch authority cannot reset a consumed failed chain. Scan the rejected
@@ -300,7 +305,7 @@ def _output(record, root):
     return path
 
 
-def recover(runtime, state, run_dir, workspace, error):
+def recover(runtime, state: RunState, run_dir, workspace, error):
     """Archive once, only after exact launch/source and normal cleanup admission."""
     record = state.get("active_stage") or {}
     run_dir = Path(run_dir)

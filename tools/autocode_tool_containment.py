@@ -24,8 +24,10 @@ from pathlib import Path
 
 try:
     from . import autocode_native_conformance as native_conformance
+    from . import autocode_util as util
 except ImportError:
     import autocode_native_conformance as native_conformance
+    import autocode_util as util
 
 
 SUPPORTED_VERSION = "1.18.33"
@@ -59,6 +61,54 @@ LINUX_SYSTEM_FILES = (
 )
 # prepare() names each launch's control directory uuid4().hex; nothing else matches.
 CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
+# .autocode directories, besides the run store, where AutoCode keeps other runs, programs and task
+# flows, or the workspaces, archives and indexes that hold them (#1250): archived task-worktree
+# runs, `autocode arena` attempts, parallel Builder workspaces, run bundles, `autocode issue`
+# worktrees, program state, `autocode review-pr` checkouts, the run registry, replay recordings,
+# task-flow state, `autocode verify` checkouts and reports, and task or program worktrees. A native
+# planning shell reads none of those that exist when its launch is prepared (private_run_reads()).
+# Not every .autocode directory is listed: other launches' control directories and the rest stay
+# readable. The modules that make these directories own their names; tests/test_tool_containment.py
+# binds each entry to them.
+PRIVATE_STORES = (
+    "archive",
+    "arena",
+    "builders",
+    "bundles",
+    "issues",
+    "programs",
+    "pull-reviews",
+    "registry",
+    "replay",
+    "task-flows",
+    "verification",
+    "worktrees",
+)
+
+
+class UnusableStore(ValueError):
+    """A PRIVATE_STORES path that a planning boundary cannot deny as it stands (#1250).
+
+    A symlink, even a dangling one, or anything else that is not a directory: bubblewrap hides a
+    store under a tmpfs, which needs a directory to mount on, and denying a symlink's own path does
+    not cover what it points to. The message names the path and what clears the refusal.
+    """
+
+
+class StorePause(util.Paused):
+    """PAUSED_TOOL_CONTAINMENT about a private store, whose reason names it and what clears the stop (#1250).
+
+    A store made after the launch's boundary was prepared, or one that became unusable since: the
+    sandbox and the native setup are not the cause, so a caller adds no advice about them.
+    """
+
+    def __init__(self, reason):
+        super().__init__("PAUSED_TOOL_CONTAINMENT", reason)
+
+
+# Errors that name a private store and their own remedy; provider_launch.prepare adds none of its own.
+STORE_ERRORS = (UnusableStore, StorePause)
+DENIAL_CHANGED = "Private run-state read denial changed; no provider launched"
 # The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
 SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
@@ -291,19 +341,42 @@ def _policy_inputs(read_roots, protected_paths):
 
 
 def private_run_reads(workspace, run_dir):
-    """The run-store read denial for a readonly planning shell of the run at ``run_dir`` (#1250).
+    """The private-read denial for a readonly planning shell of the run at ``run_dir`` (#1250).
 
-    The workspace's whole run store (``.autocode/runs``: this run's state, events and receipts,
-    and every sibling run, whatever its name) becomes unreadable. Only this run's ``planning/``
-    directory, the immutable predecessor artifacts and deltas the planner is handed, is read
-    back in. A readable path is only an exception to this denial, never a grant: the rest of
-    ``.autocode`` and the workspace keep their ordinary read-only authority.
+    Unreadable, in this order: the workspace's whole run store (``.autocode/runs``: this run's
+    state, events and receipts, and every sibling run, whatever its name), then each PRIVATE_STORES
+    directory that exists now. Only this run's ``planning/`` directory, the immutable predecessor
+    artifacts and deltas the planner is handed, is read back in. A readable path is only an
+    exception to this denial, never a grant: the rest of ``.autocode`` (project settings, retained
+    design inputs, capture bundles, the shared evidence and output areas, launches' control
+    directories) and the workspace keep their ordinary read-only authority.
+
+    A missing store is not created: prepare() adds only the launch's own control directory to the
+    workspace. A store path that is a symlink, even a dangling one, or not a directory raises
+    UnusableStore. verify() computes this again before launch, so a store made after the profile
+    was rendered pauses the launch (StorePause). Each entry is one mount and one rule, so the list
+    stays this short however many runs and launches the workspace has held.
     """
     root = _path(workspace)
-    store, run = root / ".autocode" / "runs", _path(run_dir)  # _path refuses symlinked authority paths.
+    private = root / ".autocode"
+    store, run = private / "runs", _path(run_dir)  # _path refuses symlinked authority paths.
     if run.parent != store or not run.is_dir():
         raise ValueError("A private-read denial needs an existing run directly inside workspace/.autocode/runs")
-    return {"run_dir": str(run), "denied": [str(store)], "readable": [str(_path(run / "planning"))]}
+    stores = []
+    for path in (private / name for name in PRIVATE_STORES):
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise UnusableStore(
+                f"Planning tool containment cannot deny reading the private .autocode store {path}, which is "
+                + ("a symlink" if path.is_symlink() else "not a directory")
+                + "; replace it with a real directory, or remove it, then --resume-paused"
+            )
+        if path.exists():
+            stores.append(_path(path))
+    return {
+        "run_dir": str(run),
+        "denied": [str(path) for path in (store, *stores)],
+        "readable": [str(_path(run / "planning"))],
+    }
 
 
 def _reparsed_string(path):
@@ -876,8 +949,8 @@ def prepare(
     ``links`` are toolchain symlinks to show inside a bubblewrap boundary; Seatbelt
     already lets the shell read symlink metadata, so it ignores them. ``private_run``,
     a readonly planning stage's run directory, makes the run store unreadable except
-    that run's planning/ artifacts (private_run_reads(), #1250); the manifest records
-    the denial as ``private_reads``.
+    that run's planning/ artifacts, and each existing private store unreadable
+    (private_run_reads(), #1250); the manifest records the denial as ``private_reads``.
     """
     _reject_loopback_request(loopback_checks, loopback_authority)
     host = backend()
@@ -1220,18 +1293,28 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     control, probe, result, native_receipt = shell_probe(boundary)
 
     def private_read_probe(target):
-        # A parent-created sentinel in the planning run's own directory stands for its state:
-        # the actual native bash must fail to read it, and must list the run's planning/
-        # artifacts when they exist. Its random content never appears in the retained output.
+        # A parent-created sentinel in the planning run's own directory stands for its state, and
+        # one in each private store the denial names for what that store holds: the actual native
+        # bash must fail to read every one, and must list the run's planning/ artifacts when they
+        # exist. Their random content never appears in the retained output.
         reads = target["private_reads"]
-        sentinel = Path(reads["run_dir"]) / (Path(target["profile"]).parent.name + "-private-read-sentinel")
-        if sentinel.exists() or sentinel.is_symlink():
+        name = Path(target["profile"]).parent.name + "-private-read-sentinel"
+        places = [
+            Path(reads["run_dir"]),
+            *(Path(path) for path in reads["denied"] if Path(path).name in PRIVATE_STORES),
+        ]
+        if any(not place.is_dir() or place.is_symlink() for place in places):
+            raise RuntimeError("A private store for the read-denial sentinel is missing; no provider launched")
+        sentinels = [place / name for place in places]
+        if any(sentinel.exists() or sentinel.is_symlink() for sentinel in sentinels):
             raise RuntimeError("Private run-state read sentinel already exists")
-        token = uuid.uuid4().hex
-        with sentinel.open("x") as stream:
-            stream.write(token + "\n")
+        token, made = uuid.uuid4().hex, []
         try:
-            denied = "! /bin/cat " + shlex.quote(str(sentinel))
+            for sentinel in sentinels:
+                with sentinel.open("x") as stream:
+                    made.append(sentinel)
+                    stream.write(token + "\n")
+            denied = " && ".join("! /bin/cat " + shlex.quote(str(sentinel)) for sentinel in sentinels)
             readable = [path for path in reads["readable"] if Path(path).is_dir()]
             command = denied + "".join(" && /bin/ls " + shlex.quote(path) + " > /dev/null" for path in readable)
             observed = debug(
@@ -1258,11 +1341,12 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
                 or not isinstance(output, str)
                 or token in output
                 or not re.search(r"Operation not permitted|Permission denied|No such file or directory", output)
-                or sentinel.read_text() != token + "\n"
+                or any(sentinel.read_text() != token + "\n" for sentinel in sentinels)
             ):
                 raise RuntimeError("Actual native bash did not deny reading private run state; no provider launched")
         finally:
-            sentinel.unlink()
+            for sentinel in made:
+                sentinel.unlink()
         return {**reads, "listed": readable, "command": command, "tool": "bash", "exit": 0, "output": output}
 
     private_proof = private_read_probe(boundary) if "private_reads" in boundary else None
@@ -1570,6 +1654,21 @@ def _check_kernel_receipt(response, probe, control, scratch, sentinel):
     )
 
 
+def _stores_made_since(paths):
+    """The pause for private stores made after a planning launch's profile was rendered (#1250).
+
+    Ordinary activity, such as another AutoCode command in the same checkout making its store for the
+    first time: a fresh boundary denies the store, so a plain resume clears it.
+    """
+    one = len(paths) == 1
+    return StorePause(
+        f"{DENIAL_CHANGED}: the private .autocode store{'' if one else 's'} {', '.join(paths)} "
+        f"{'was' if one else 'were'} made after this launch's boundary was prepared, so that boundary does "
+        f"not deny reading {'it' if one else 'them'}. A plain --resume-paused prepares the boundary again "
+        f"with {'it' if one else 'them'} denied"
+    )
+
+
 def verify(boundary):
     """Recheck runner-owned containment bytes immediately before provider launch."""
     if not isinstance(boundary, dict) or boundary.get("version") != 1:
@@ -1682,12 +1781,12 @@ def verify(boundary):
     if "private_reads" in boundary:
         try:
             reads = boundary["private_reads"]
-            if (
-                not isinstance(reads, dict)
-                or reads != private_run_reads(workspace, reads["run_dir"])
-                or boundary.get("allow_write") is not False
-                or not _enforces_private_reads(host, profile.read_bytes(), reads)
-            ):
+            if not isinstance(reads, dict):
+                raise ValueError("Missing private run-store read denial")
+            # Computed again now: a store made since the profile was rendered is only in the current denial.
+            current = private_run_reads(workspace, reads["run_dir"])
+            pinned = profile.read_bytes()
+            if boundary.get("allow_write") is not False or not _enforces_private_reads(host, pinned, reads):
                 raise ValueError("Profile does not enforce the exact recorded private run-store denial")
             proof = json.loads(Path(boundary["conformance"]).read_text()).get("private_reads")
             if (
@@ -1700,8 +1799,32 @@ def verify(boundary):
                 or not proof["command"]
             ):
                 raise ValueError("Missing native private run-state read conformance")
+            if reads != current:
+                # The pause names the stores only in the current denial, with their remedy, when they are
+                # the whole difference and this boundary really leaves each one readable: the pinned
+                # profile denies none of them, and none is the run store, which holds this run and so
+                # existed when the boundary was prepared. A proof that matches the record does not show
+                # the record is prepare()'s, since both can be pinned again together. For a boundary as
+                # prepare() pinned it, whose record named every store that existed then, such a store was
+                # made since. Any other difference, such as a record without a store the profile still
+                # denies, is the plain refusal below.
+                appeared = [path for path in current["denied"] if path not in reads["denied"]]
+                if (
+                    appeared
+                    and str(Path(current["run_dir"]).parent) not in appeared
+                    and reads == {**current, "denied": [p for p in current["denied"] if p not in appeared]}
+                    and not any(_enforces_private_reads(host, pinned, {**reads, "denied": [p]}) for p in appeared)
+                ):
+                    raise _stores_made_since(appeared)
+                raise ValueError("The recorded private run-store denial is not the current one")
+        except UnusableStore as error:
+            raise StorePause(DENIAL_CHANGED + ": " + str(error)) from error
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
-            raise RuntimeError("Private run-state read denial changed; no provider launched") from error
+            # A pause, not a plain RuntimeError: another AutoCode command can make a store at any
+            # time, and verify() also runs after the stage's first check (in native preparation and
+            # in the held launch's seal), where a plain RuntimeError would end the command with exit
+            # code 2 instead of pausing the run.
+            raise util.Paused("PAUSED_TOOL_CONTAINMENT", DENIAL_CHANGED) from error
     if boundary.get("verification_copy"):
         try:
             from . import autocode_verification_copy as copies

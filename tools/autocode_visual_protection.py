@@ -726,6 +726,32 @@ class NativeProtection:
         )
         _require(not processes.live_processes(originals), "original native root/keeper/descendants remain live")
         length_hash = None
+        authentication = state.get("status") == "PAUSED_PROVIDER_UNCERTAIN"
+        absent_auth_reports = []
+        if authentication:
+            _require(
+                receipt.get("cause") in ("provider_stopped", "controller_finished")
+                and record.get("engine") == "opencode"
+                and record.get("timed_out") is False
+                and type(record.get("exit_code")) is int
+                and record["exit_code"] > 0
+                and not record.get("supervision_errors"),
+                "authentication rejection contradicts its original collected supervisor",
+            )
+            raw_auth = self._safe(record["events"], file=True).read_bytes()
+            length_hash = hashlib.sha256(raw_auth).hexdigest()
+            _require(
+                stage_recovery.authentication_rejection(raw_auth, expected_session=record.get("expected_session")),
+                "authentication rejection has unknown, mixed or non-authentication transport",
+            )
+            output = self._safe(record["output"])
+            absent_auth_reports = [output, output.with_suffix(".reported.json"), output.with_suffix(".response.txt")]
+            if record.get("reported_output"):
+                absent_auth_reports.append(self._safe(record["reported_output"]))
+            _require(
+                not any(path.exists() or path.is_symlink() for path in absent_auth_reports),
+                "authentication rejection has a response or report; explicit uncertain reconciliation is still required",
+            )
         if state.get("status") == output_cap.STATUS:
             _require(
                 receipt.get("cause") in ("provider_stopped", "controller_finished"),
@@ -736,9 +762,10 @@ class NativeProtection:
                 and record.get("accounted") is True
                 and record.get("timed_out") is False
                 and record.get("exit_code") == 0
+                # A report-only launch qualifies only as the counted launch of the pending repair.
+                and (not record.get("report_only") or stage_recovery.repair_launch(state, record))
                 and not any(
-                    record.get(key)
-                    for key in ("report_only", "dry_run", "rejected", "abandoned", "interrupted", "supervision_errors")
+                    record.get(key) for key in ("dry_run", "rejected", "abandoned", "interrupted", "supervision_errors")
                 ),
                 "output limit is not an original collected planning stop",
             )
@@ -778,6 +805,10 @@ class NativeProtection:
         pins[str(after_path)] = util.file_hash(after_path)
         self._ownership()
         self._pins(pins)
+        _require(
+            not any(path.exists() or path.is_symlink() for path in absent_auth_reports),
+            "authentication response appeared while reconciling the error-only stop",
+        )
         _require(snapshot == self._fresh_snapshot(rows), "source changed while reconciling the timeout")
         retained.update(rejected=True, abandoned=True)
         self._append(
@@ -1216,7 +1247,9 @@ class NativeProtection:
         )
 
     def _planning_input_pins(self, binding, record):
-        if binding["task"] is not None or record.get("stage") not in roles.ALL_PLANNING_STAGES:
+        # A report-only repair binds the same planning inputs as the stage it repairs.
+        stage = str(record.get("stage") or "").removesuffix("_report_repair")
+        if binding["task"] is not None or stage not in roles.ALL_PLANNING_STAGES:
             return {}
         pins = design_manifest.planning_input_pins(binding["settings"], role=record_route(record))
         for name in pins:

@@ -1,5 +1,12 @@
 """Durable, bounded task updates for the terminal and dashboard conversation."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import datetime as dt
 import hashlib
 import json
@@ -15,7 +22,7 @@ except ImportError:
 ROLES = {stage: roles.screen_name(stage) for stage in roles.STAGE_JOB}
 
 
-def role_name(stage, state=None):
+def role_name(stage, state: RunState | None = None):
     """Screen name for a stage code name: 'terra' -> 'Builder'.
 
     Report repair stays the same job. Pass ``state`` so a stage that does more than
@@ -38,7 +45,7 @@ def _model(active):
     return None
 
 
-def record(state, *, timestamp=None):
+def record(state: RunState, *, timestamp=None):
     if not all(key in state for key in ("task", "workspace", "status")):
         return None
     timestamp = timestamp if timestamp is not None else dt.datetime.now(dt.UTC).timestamp()
@@ -159,7 +166,7 @@ def record(state, *, timestamp=None):
     return entry
 
 
-def persist(path, state, *, before_commit=None, after_commit=None):
+def persist(path, state: RunState, *, before_commit=None, after_commit=None):
     """Publish an update only after its checkpoint is durably saved."""
     import sys
 

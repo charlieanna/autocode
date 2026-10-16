@@ -8,6 +8,11 @@ the already locked state when recording an ordinary saved-action acknowledgement
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import json
 import os
@@ -217,7 +222,7 @@ def queue(run_dir, text, request_id, expected_revision, *, supersedes_request_id
     return protocol.update_journal(run_dir, apply)
 
 
-def acknowledgements(state, conversation_id):
+def acknowledgements(state: RunState, conversation_id):
     return [
         copy.deepcopy(row)
         for row in state.get("user_events", [])
@@ -319,7 +324,7 @@ def prepare_refresh(run_dir, request_id, expected_revision, *, question_id=None,
     return result
 
 
-def load_action(state, run_dir, args):
+def load_action(state: RunState, run_dir, args):
     source = getattr(args, "conversation_request", None)
     if source is None:
         return None
@@ -389,7 +394,7 @@ def load_action(state, run_dir, args):
 
 
 @contextmanager
-def saved_action(state, run_dir, args, action):
+def saved_action(state: RunState, run_dir, args, action):
     """Hold source revision through the existing run-locked saved-action commit."""
     if action is None:
         yield

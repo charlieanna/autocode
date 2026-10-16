@@ -8,6 +8,11 @@ full pinned runner output and the summary, never a provider report or log tail.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import base64
 import binascii
 import hashlib
@@ -57,7 +62,7 @@ _CHECK_KEYS = frozenset(
 )
 
 
-def _identity(state):
+def _identity(state: RunState):
     contract = state.get("goal_contract") or {}
     wrapper = (contract.get("body") or {}).get("brief_acceptance") or {}
     return contract.get("hash"), (wrapper.get("manifest") or {}).get("hash")
@@ -167,7 +172,15 @@ def evidence_pins(result):
 
 
 def replay(
-    state, workspace, out, scratch_run, *, timeout, source_revision, progressive_context=None, all_observations=False
+    state: RunState,
+    workspace,
+    out,
+    scratch_run,
+    *,
+    timeout,
+    source_revision,
+    progressive_context=None,
+    all_observations=False,
 ):
     """Run every selected mandatory case fresh, retaining failure evidence before refusal.
 
@@ -246,7 +259,7 @@ def replay(
     return result
 
 
-def ready(state, current_revision):
+def ready(state: RunState, current_revision):
     """Require every current original-brief observation, irrespective of task slice."""
     try:
         cases = obligations.observations(state, all_observations=True)
