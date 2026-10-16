@@ -388,6 +388,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- When the OpenCode planning roles receive the complete Figma manifest and catalog as SHA-256 and
+  byte-bound file references, their handoff now also carries the complete case roster inline (ID, route
+  and state of every case, in manifest order), as Builder and Tester handoffs already did. Before, the
+  case IDs were only in the referenced files (#1263).
 - Ineligible plan approvals are rejected before stage reconciliation, preserving the stopped checkpoint and retained report. Verified conversation-action replays remain idempotent.
 - `--package` follow-ups (#711): a feature that adds the first Go module in the package, on a base with no Go
   project, is no longer left UNVERIFIED, as at the root (#685). A `--test-command` written for the run's

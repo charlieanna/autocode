@@ -1146,6 +1146,9 @@ class DesignManifestTests(unittest.TestCase):
         builder = manifest.context(settings, stage="terra", current_task={"affected_paths": ["src/filea.js"]})
         self.assertEqual(["FILEA.1.2.default", "FILEA.1.6.default"], builder["builder_scope"]["case_ids"])
         self.assertNotIn("body", builder)
+        self.assertEqual(
+            [case["id"] for case in record["body"]["cases"]], [row["id"] for row in builder["case_roster"]]
+        )
         self.assertEqual({"FILEA", "FILEB"}, {row["key"] for row in builder["catalog"]["files"]})
         # Shared design-system identities keep their distinct variants from other approved files.
         self.assertEqual(3, len(builder["catalog"]["components"][0]["variants"]))
@@ -2162,11 +2165,32 @@ class CompletePlanningInputTests(unittest.TestCase):
                     self.assertEqual(self.record["manifest_hash"], locator["manifest_hash"])
                     self.assertEqual(self.record["scope_admission"]["sha256"], locator["scope_sha256"])
                     projected[field] = json.loads(path.read_bytes())
+                # The inline roster is derived from the referenced body; every
+                # other field must reconstruct exactly.
+                roster = [{key: case[key] for key in ("id", "route", "state")} for case in projected["body"]["cases"]]
+                self.assertEqual(roster, projected.pop("case_roster"))
                 self.assertEqual(original, projected)
         self.assertEqual(
             original["catalog"],
             design_inventory.catalog(self.body, self.record["root"], admission=manifest.admitted_scope(self.record)),
         )
+
+    def test_referenced_planning_inputs_keep_complete_inline_case_roster(self):
+        locator_fields = {"path", "sha256", "bytes", "manifest_hash", "scope_sha256", "retrieval"}
+        expected = [{key: case[key] for key in ("id", "route", "state")} for case in self.body["cases"]]
+        case_ids = [case["id"] for case in self.body["cases"]]
+        self.assertEqual(3, len(set(case_ids)))
+        for role in self.settings["roles"]:
+            with self.subTest(role=role):
+                projected = manifest.planning_context(self.settings, role=role)
+                self.assertEqual(locator_fields, set(projected["body"]))
+                self.assertEqual(locator_fields, set(projected["catalog"]))
+                self.assertEqual(expected, projected.get("case_roster"))
+                referenced = json.loads(Path(projected["body"]["path"]).read_bytes())
+                self.assertEqual(case_ids, [row["id"] for row in referenced["cases"]])
+                handoff = json.dumps(projected)
+                for case_id in case_ids:
+                    self.assertEqual(1, handoff.count(json.dumps(case_id)), case_id)
 
     def test_only_original_saved_readers_receive_complete_locators(self):
         full = manifest.context(self.settings)
@@ -2364,6 +2388,9 @@ class CompletePlanningInputTests(unittest.TestCase):
         actual = json.loads('{\n  "task":' + actual_data)
         for field in ("body", "catalog"):
             actual["design_manifest"][field] = json.loads(Path(actual["design_manifest"][field]["path"]).read_bytes())
+        cases = actual["design_manifest"]["body"]["cases"]
+        roster = [{key: case[key] for key in ("id", "route", "state")} for case in cases]
+        self.assertEqual(roster, actual["design_manifest"].pop("case_roster"))
         self.assertEqual(expected, actual)
 
     @unittest.skipUnless(
