@@ -586,8 +586,8 @@ def run_record(driver: Driver, state: dict) -> dict:
         "model_stages": metrics(state)["model_stage_names"],
         "answers": driver.answers,
         # The gates the harness passed for the person (result.json "approvals"); approval_provenance
-        # requires each plan and review approval among them to be listed in the view's approvals, and
-        # plan_round_trip judges the plan file each plan approval's row records.
+        # requires each plan and review approval and each acknowledged pause among them to be listed
+        # in the view's approvals, and plan_round_trip judges the plan file each plan approval's row records.
         "approvals": approvals_of(driver),
         "cli_calls": [step["kind"] for step in driver.steps],
         "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in driver.steps],
