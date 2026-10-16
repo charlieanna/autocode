@@ -377,6 +377,22 @@ class ScenarioModulesTests(unittest.TestCase):
                 ([modules[0]], modules[1:]), run_suite.scenario_selection(["tools/autocode_session_boundary.py"], {})
             )
 
+    def test_a_tools_fixture_a_scenario_copies_selects_only_that_scenario(self):
+        # scenarios/test_contained_opencode.py copies tools/fake_opencode.py and runs it; no import names it (#709).
+        modules = ["scenarios.test_contained_opencode", "scenarios.test_adversarial_lifecycle"]
+        with mock.patch.object(run_suite, "scenario_modules", return_value=modules):
+            self.assertEqual(([modules[0]], modules[1:]), run_suite.scenario_selection(["tools/fake_opencode.py"], {}))
+
+    def test_each_scenario_fixture_is_a_tools_script_its_scenario_module_names(self):
+        # A renamed fixture or scenario module fails here instead of quietly dropping the selection.
+        modules = run_suite.scenario_modules()
+        for fixture, module in run_suite.SCENARIO_FIXTURES.items():
+            with self.subTest(fixture=fixture):
+                self.assertTrue((run_suite.REPO_ROOT / fixture).is_file())
+                self.assertIn(module, modules)
+                source = (run_suite.REPO_ROOT / (module.replace(".", "/") + ".py")).read_text()
+                self.assertIn(f'"{fixture}"', source)
+
     def test_suite_controls_focus_harness_but_master_keeps_all_cases(self):
         cases = [
             "scenarios.test_harness.DriverFlagTests.test_flags",
