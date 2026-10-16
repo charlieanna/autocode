@@ -119,6 +119,35 @@ stems from, such as `PAUSED_COST_LIMIT` behind `WAITING_FOR_USER`, so the stop
 class names it)), `steps.jsonl`, the final `state.json`, and the delivered
 `project/`, kept for inspection.
 
+Besides the scenario's own oracle, two checks read AutoCode's public status, and
+both appear in `checks`. `canonical evidence: RUN` authenticates the `evidence.json`
+and `evidence.md` pair of each task run that completed, and of a program or
+components run that completed as a whole. `approval provenance: RUN` (#722) reads
+`approvals` in the final `--status --json` view of each task run that completed:
+the scenario's one run, a program's plan run and each completed workstream run, or
+a components run's architecture run and each completed component. A program or
+components run as a whole has no `approvals` of its own and gets no such check. It
+requires:
+
+- each row a person made to name the scenario's person, `Scenario Person
+  <person@scenario.example.test>`. Every scenario project sets that identity in
+  its own Git configuration; the seed commit's author is `Scenario`, so a record
+  of the commit author instead does not pass;
+- each such row to name this machine's host and a command of `autocode` with
+  option names only, never their values;
+- a row approved under the workflow policy to name no one;
+- in a scenario of one run, each plan and review approval the harness gave
+  (`approvals` above, recorded by the ordinary driver and the
+  [conformance](#conformance) client alike) to be listed. The runs of a program
+  or components scenario share one `approvals` list, so they are checked for
+  provenance only.
+
+Like any oracle check, a failed one makes the verdict `FALSE_COMPLETE` when
+AutoCode reported the scenario complete (for a program or components scenario,
+the whole program or components run). When it stopped instead, as a program can
+after a workstream run completed, the failure keeps the verdict from `PASS`: it
+is `HONEST_BLOCKER`.
+
 Each completed scenario and plain-agent baseline also starts with a
 `failure_attribution` record: empty `evidence_refs`, and `null` for
 `suspected_cause`, `confirmed_diagnosis`, `regression` and `confirmed_by`.
@@ -844,7 +873,10 @@ held (`ProviderBarrier`) until the client has looked at the view; with live mode
 polls the view while the stage runs. A scripted Plan Reviewer's first review is blocking, so
 `run --profile NAME --hybrid` scripts that review and the first Builder attempt and runs
 everything else live. The client's journal, one row per decision with what the view named,
-is in `conformance.jsonl` and in the oracle's `run["conformance"]`.
+is in `conformance.jsonl` and in the oracle's `run["conformance"]`. Each plan and review
+approval it takes is recorded in `result.json`'s `approvals`, as the ordinary driver
+records the ones it gives (a conformance result saved before #722 lists none, so its
+approvals count in `stats` is a lower bound).
 
 ## Comparing with a plain agent
 

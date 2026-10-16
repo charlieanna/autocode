@@ -297,6 +297,15 @@ PR template asks for an entry here; a change without one is incomplete.
   after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
   work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
   judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- The scenario harness now checks who approved each task run a scenario completes (#722, sixth part). It reads
+  `approvals` from that run's final `--status --json`. Each row a person made must name the scenario's person
+  (`Scenario Person <person@scenario.example.test>`, which every scenario project now sets in its own Git
+  configuration), this host, and a command of `autocode` and option names only. A workflow-policy row must name no
+  one. In a scenario of one run, each plan and review approval the harness gave must also be listed; the
+  conformance client now records the approvals it takes in `result.json`'s `approvals`, as the ordinary driver
+  does. A program's plan and workstream runs and a components run's architecture and component runs are checked for
+  provenance only. The `approval provenance: RUN` check sits beside `canonical evidence: RUN` in `result.json`. A
+  failure makes the verdict `FALSE_COMPLETE` when the scenario completed, and `HONEST_BLOCKER` when it stopped.
 - The scenario catalog has a two-package scenario, `feature-monorepo-package` (#711). Its seed is a repository with
   `packages/greet/` and `packages/farewell/`, and the task adds an option to the greeting package only. The scripted
   run is started with `--package packages/greet/`: the reference completes, and `broken/edits-farewell-package`,
