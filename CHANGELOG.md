@@ -22,6 +22,8 @@ PR template asks for an entry here; a change without one is incomplete.
   (a saved hash), so an edit to it is reported as the runner's file instead of being left out by path (#711).
 - Stamp open reasoning escalations and Builder retries as `passed` when completion is accepted via `--accept-completion` (#612).
 - Filter each role's escalation ladder only against its own tool's model list under `--role-transport`, preserving effort ladders for roles running on other tools (#1426).
+- Treat a model reached through a gateway (`kilo/openai/gpt-6-sol`, `kilo/anthropic/claude-opus-5.5`) as the model
+  it is, so the cross-model rule no longer lets one route check the same weights reached another way (#1426).
 - A resume is listed among the run's approvals only once a role's climb on its effort ladder is admitted against
   the cost cap, time limit and milestone budget; a resume that the climb's projection pauses again is no longer
   recorded as releasing the pause, matching the Builder's stronger attempt (#611).
@@ -65,6 +67,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - A novelty hold's stop also states the run's active time against its time limit and, with milestone checkpoints
   on, the current milestone's time against its budget, after the spend against the cost cap; a limit or budget
   changed at the hold is the one the stop then states (#611).
+- The status view's `routes` names, for every role, the tool that launches it, the account its model bills, the
+  reasoning level a launch passes and the `origin` of the route: `user_explicit`, `single_model`, `runner_default`,
+  `catalogue_replacement`, `quota_assigned`, `stronger_attempt`, `escalated`, `derived`, or `unrecorded` for a run
+  saved before the record existed (#1426).
 
 - Opt-in blind tests via `--blind-tests` execute acceptance tests written by the Tester in a separate candidate
   scratch tree without exposing test implementations or file paths to the Builder's workspace or prompt (#702).
