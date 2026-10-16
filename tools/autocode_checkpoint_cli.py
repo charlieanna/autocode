@@ -26,6 +26,10 @@ import re
 import sys
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_checkout_lock as checkout_lock
@@ -68,7 +72,7 @@ def target(workspace, run_dir):
     return workspace, run_dir, state
 
 
-def receipt(state, run_dir, ident):
+def receipt(state: RunState, run_dir, ident):
     row = next((row for row in state.get("code_checkpoints", []) if row.get("id") == ident), None)
     if not row or not row.get("available"):
         raise ValueError("This step has no restorable source checkpoint; historical metadata cannot reconstruct files")
@@ -88,13 +92,13 @@ def receipt(state, run_dir, ident):
     return saved
 
 
-def source_token(state, saved, source):
+def source_token(state: RunState, saved, source):
     # Restores are receipts, not changes to the paused execution frontier.
     bound = {key: value for key, value in state.items() if key != "checkpoint_restores"}
     return "checkpoint-v1:" + util.digest({"state": bound, "checkpoint": saved, "source": source})
 
 
-def compare(state, run_dir, ident):
+def compare(state: RunState, run_dir, ident):
     saved = receipt(state, run_dir, ident)
     source = source_scope.snapshot(state["workspace"], state)
     changed = util.changed_paths(saved["source"], source)
@@ -146,7 +150,7 @@ def compare(state, run_dir, ident):
 
 
 @contextmanager
-def inbox_boundary(run_dir, state):
+def inbox_boundary(run_dir, state: RunState):
     path = run_dir / "interventions.lock"
     if path.is_symlink():
         raise ValueError("Intervention lock must not be a symlink")
@@ -170,7 +174,7 @@ def _same_files(workspace, saved):
     ) == checkpoints.content_files(saved["source"])
 
 
-def record_restore(state, run_dir, result):
+def record_restore(state: RunState, run_dir, result):
     """Repair a receipt-before-status crash without repeating the Git operation."""
     if not any(row.get("operation") == result["operation"] for row in state.get("checkpoint_restores", [])):
         state.setdefault("checkpoint_restores", []).append(result)
@@ -190,7 +194,7 @@ def candidate_storage(workspace, child_dir):
         raise ValueError("Partial candidate operational storage changed; preserved it")
 
 
-def restore(state, run_dir, ident, expected, operation):
+def restore(state: RunState, run_dir, ident, expected, operation):
     if not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", operation or ""):
         raise ValueError("Restore requires a stable request id (8–100 letters, digits, underscores or hyphens)")
     root = run_dir / "checkpoint-restores"

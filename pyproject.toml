@@ -54,7 +54,7 @@ packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", 
 package-dir = {autocode_cli = "tools"}
 
 [tool.setuptools.package-data]
-autocode_cli = ["prompts/*.md", "prompts/fragments/*/*.md", "autocode-schemas/*.json", "autocode-schemas/v2/*.json", "autocode_preflight_browser.cjs", "autocode_visual_browser.cjs", "autocode_native_capture_browser.cjs", "autocode_capture_bootstrap.cjs", "autocode_image_delivery.mjs", "autocode_node_reporter.cjs", "autocode_vitest_reporter.cjs", "figma_inventory_page.js", "provider-matrix.json", "autocode_prices.json"]
+autocode_cli = ["prompts/*.md", "prompts/fragments/*/*.md", "autocode-schemas/*.json", "autocode-schemas/v2/*.json", "autocode_preflight_browser.cjs", "autocode_visual_browser.cjs", "autocode_native_capture_browser.cjs", "autocode_capture_bootstrap.cjs", "autocode_image_delivery.mjs", "autocode_kilo_image_delivery.mjs", "autocode_kilo_request_derivation.mjs", "autocode_kilo_request_derivation_cli.mjs", "autocode_native_capture_linux.cjs", "vendor/fflate-gzip-sync/gzip.js", "vendor/fflate-gzip-sync/LICENSE", "vendor/fflate-gzip-sync/README.md", "autocode_node_reporter.cjs", "autocode_vitest_reporter.cjs", "figma_inventory_page.js", "provider-matrix.json", "autocode_prices.json"]
 "autocode_cli.dashboard" = ["*.html", "*.css", "*.js", "assets/fonts/*.woff2", "assets/fonts/*.txt", "assets/*.svg"]
 "autocode_cli.providers" = ["configs/*.toml", "*.mjs"]
 

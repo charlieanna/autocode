@@ -9,10 +9,16 @@ builder_failure_hold retains non-execution/operator pauses; dispatch_guard reads
 it before a writer or diagnosis call, and retires it only on changed bound work.
 """
 
+from __future__ import annotations
+
 import copy
 import shlex
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_builder_policy as policy
@@ -28,7 +34,7 @@ except ImportError:
     import autocode_util as util
 
 
-def evidence(state, record, *, checks=(), checkpoint=None, error_class=None, diagnosis=None):
+def evidence(state: RunState, record, *, checks=(), checkpoint=None, error_class=None, diagnosis=None):
     record = copy.deepcopy(record)
     for key in ("output", "events", "diff_ref", "before_ref", "after_ref", "schema"):
         if record.get(key):
@@ -71,7 +77,7 @@ def evidence(state, record, *, checks=(), checkpoint=None, error_class=None, dia
     }
 
 
-def guard(state, request, workspace):
+def guard(state: RunState, request, workspace):
     bound = request["failure_evidence"]["binding"]
     task, contract = state.get("current_task") or {}, state.get("goal_contract") or {}
     current = source_scope.snapshot(workspace, state)["revision"]
@@ -93,7 +99,7 @@ def guard(state, request, workspace):
         raise util.Paused("PAUSED_STALE_HANDOFF", "Builder failure diagnosis identity or evidence changed")
 
 
-def hold(state, evidence, status, reason):
+def hold(state: RunState, evidence, status, reason):
     state["builder_failure_hold"] = {
         "binding": copy.deepcopy(evidence["binding"]),
         "failure_id": evidence["failure_id"],
@@ -103,7 +109,7 @@ def hold(state, evidence, status, reason):
     run_status.pause(state, status, reason, next_stage="terra")
 
 
-def dispatch_guard(state, stage, workspace):
+def dispatch_guard(state: RunState, stage, workspace):
     held = state.get("builder_failure_hold")
     if not held or stage not in ("terra", "orchestrator", "astra_resolve", "investigate_stuck"):
         return
@@ -120,7 +126,7 @@ def dispatch_guard(state, stage, workspace):
     raise util.Paused(held["status"], held["reason"])
 
 
-def classified(state):
+def classified(state: RunState):
     """This milestone's classification history rows; rows saved before #686 name no milestone."""
     milestone = policy.key(state)
     return [
@@ -130,7 +136,7 @@ def classified(state):
     ]
 
 
-def queue(state, value, reason, *, enabled, completed_record=None):
+def queue(state: RunState, value, reason, *, enabled, completed_record=None):
     key = "builder-failure:" + value["failure_id"]
     history = state.get("stuck_investigations") or []
     active = state.get("active_stage")
@@ -195,11 +201,11 @@ def queue(state, value, reason, *, enabled, completed_record=None):
             "milestone_key": policy.key(state),
         }
     )
-    state.update(status="RUNNING", phase="INVESTIGATING", next_stage="investigate_stuck")
+    state.update({"status": "RUNNING", "phase": "INVESTIGATING", "next_stage": "investigate_stuck"})
     return True
 
 
-def finalize(state, record, *, enabled):
+def finalize(state: RunState, record, *, enabled):
     pending = state.get("pending_builder_failure")
     if not pending:
         return
@@ -281,7 +287,7 @@ def check_facts(checks, record, workspace, *, read_events):
     return facts
 
 
-def route(state, evidence, reason, *, enabled, reassess, completed_record=None):
+def route(state: RunState, evidence, reason, *, enabled, reassess, completed_record=None):
     """Consume cause-specific policy actions before assignment or stronger routing."""
     action = policy.failure(
         state, evidence["record"].get("output"), reason, classification=classification.classify(evidence)

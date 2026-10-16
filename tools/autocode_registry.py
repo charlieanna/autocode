@@ -40,7 +40,7 @@ class RegistryError(RuntimeError):
         self.code = code
 
 
-def configure_workspace_storage(workspace: Path) -> None:
+def configure_workspace_storage(workspace: str | Path) -> None:
     """Use workspace-local registry storage unless a shared home was chosen."""
     os.environ.setdefault("AUTOCODE_HOME", str(Path(workspace).resolve() / ".autocode" / "registry"))
 

@@ -4,6 +4,13 @@ Owns design_intake: queue writes the return stage; apply writes the retained
 receipt/status. The public view reads it. No extra controller or source edits.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -41,7 +48,7 @@ SCHEMA = manifest.obj(
 PROMPT = prompts.get("design-inventory.md")
 
 
-def queue(state):
+def queue(state: RunState):
     settings = state.get("settings") or {}
     if not settings.get("figma_inventory_required"):
         return
@@ -77,7 +84,7 @@ def require_references(record, references, *, exact=True):
             raise ValueError("Native inventory omits a requested starting node")
 
 
-def prompt(state, inventory=None, soft_budget_tokens=10000, engine=None):
+def prompt(state: RunState, inventory=None, soft_budget_tokens=10000, engine=None):
     packet = {
         "stage": STAGE,
         "task": state["task"],
@@ -90,7 +97,7 @@ def prompt(state, inventory=None, soft_budget_tokens=10000, engine=None):
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
-def apply(state, value, record, workspace, **unused):
+def apply(state: RunState, value, record, workspace, **unused):
     stray = stage_access.stray(STAGE, record.get("changed_files"))
     if stray:
         raise stray_writes.StrayWrites(
@@ -120,12 +127,12 @@ def apply(state, value, record, workspace, **unused):
         output=record.get("output"),
         blockers=manifest.blockers(selected),
     )
-    state.update(status="RUNNING", phase="PLANNING", next_stage=intake["return_stage"])
+    state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": intake["return_stage"]})
 
 
-def owns(state):
+def owns(state: RunState):
     return False
 
 
-def render(state):
+def render(state: RunState):
     return ""

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import json
 from pathlib import Path
 
@@ -15,7 +20,7 @@ except ImportError:
     import autocode_util as util
 
 
-def _earlier_assignment(state, record):
+def _earlier_assignment(state: RunState, record):
     """An unchanged repair may inherit work from the same approved milestone/scope.
 
     Resolver handoffs create a new task ID. That must not erase the snapshots
@@ -52,7 +57,7 @@ def _earlier_assignment(state, record):
     return None
 
 
-def fresh_candidate(state, record, current_revision):
+def fresh_candidate(state: RunState, record, current_revision):
     """Return in-scope retained paths for fresh review, without claiming they pass.
 
     A no-diff retry may follow an interrupted or rejected Builder that left useful
@@ -97,7 +102,7 @@ def fresh_candidate(state, record, current_revision):
     }
 
 
-def validated_candidate(state, value, record, workspace, current_revision):
+def validated_candidate(state: RunState, value, record, workspace, current_revision):
     """Recognize a previously validated retained source for fresh review."""
     if record.get("rolled_back") or record.get("changed_files") or not isinstance(value.get("changed_files"), list):
         return None
@@ -144,14 +149,14 @@ def _snapshot(ref):
     return value if isinstance(value, dict) and isinstance(value.get("files"), dict) else None
 
 
-def unchanged_recheck(state, record, current_revision):
+def unchanged_recheck(state: RunState, record, current_revision):
     """Exact previously accepted source is a candidate for fresh review, never completion credit."""
     try:
         if not contracts.approved(state):
             return None
-        task = state["current_task"]
+        task = cast(dict, state["current_task"])
         if (
-            task.get("contract_hash") != state["goal_contract"]["hash"]
+            task.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
             or record.get("task_id") != task["id"]
             or record.get("changed_files")
             or task.get("kind") != "implement"

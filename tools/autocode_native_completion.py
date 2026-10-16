@@ -7,6 +7,7 @@ typed proof. Only that exact accepted candidate may prepare a pending publicatio
 """
 
 from copy import deepcopy
+from typing import TYPE_CHECKING, cast
 
 try:
     from . import autocode_native_launch as launch
@@ -20,6 +21,10 @@ except ImportError:
     import autocode_visual_history as history
 
 
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+
 def _require(value, reason):
     if not value:
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native completion: " + reason)
@@ -27,7 +32,7 @@ def _require(value, reason):
 
 class NativeCompletionPreparation:
     @history._technical_hold
-    def __init__(self, context, state, *, snapshot, record, decision):
+    def __init__(self, context, state: "RunState", *, snapshot, record, decision):
         _require(
             type(context) is launch.NativeRunContext and type(context.factory) is factory.NativeVisualFactory,
             "missing the original concrete run/factory context",
@@ -56,7 +61,7 @@ class NativeCompletionPreparation:
         _require(
             type(self.prepared) is history.PreparedCheckpoint
             and self.prepared.owner is owner
-            and owner._prepared.get(self.prepared.nonce) is self.prepared,
+            and cast(history.NativeReviewHistory, owner)._prepared.get(self.prepared.nonce) is self.prepared,
             "missing original unreplayed Completion handle",
         )
         self.proof = self.factory.checkpoint_proof(

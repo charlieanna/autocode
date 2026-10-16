@@ -30,10 +30,15 @@ module is the runner's mechanical check for the rest of the brief:
 Contracts sealed before this change carry no source_trace key, and contracts
 whose criteria cite nothing, and both validate as before. Imports nothing
 from AutoCode beyond the shared helpers and the literal and sentence
-machinery it builds on.
+machinery it builds on; RunState is imported for type checking only.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 import re
 from pathlib import Path
@@ -265,7 +270,7 @@ def _coverage_errors(body, records, out_of_scope):
     return errors
 
 
-def _turn_scoped(state, records):
+def _turn_scoped(state: RunState, records):
     """A receipted follow-up that changed jobs scopes obligations to its own turn
     (requirement_cues.new_workflow_turn); same-kind revisions keep every source."""
     turn = cues.new_workflow_turn(state)
@@ -315,7 +320,7 @@ def _verify_review(wrapper):
     return raw if isinstance(raw, dict) else DEFAULT_TRACE
 
 
-def verify(state, body, records, *, ready=False):
+def verify(state: RunState, body, records, *, ready=False):
     """Check a body's source-trace seal against the review that pinned it."""
     wrapper = body.get(KEY)
     if wrapper is None:
@@ -343,7 +348,7 @@ def verify(state, body, records, *, ready=False):
 DEFAULT_TRACE: dict[str, list] = {"out_of_scope": [], "negation_waivers": []}
 
 
-def reviewed(state, body, trace, record, records):
+def reviewed(state: RunState, body, trace, record, records):
     """Seal the Plan Reviewer's source judgment into the contract body."""
     if record.get("stage") not in REVIEW_STAGES:
         raise ValueError("Only the independent Plan Reviewer can originate a source trace")
@@ -377,7 +382,7 @@ def reviewed(state, body, trace, record, records):
     return result
 
 
-def prepare(state, body, origin, record=None):
+def prepare(state: RunState, body, origin, record=None):
     """Carry or refuse a source-trace seal the same way brief_acceptance travels."""
     result = dict(body)
     previous = ((state.get("goal_contract") or {}).get("body") or {}).get(KEY)

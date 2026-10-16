@@ -24,6 +24,11 @@ way autocode_run_actions does; it never imports autocode, autopilot or a cycle m
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import sys
 from pathlib import Path
@@ -54,7 +59,7 @@ def _routes(args) -> bool:
     return any(item.partition("=")[0].startswith(quota_route.PREFIX) for item in [*args.answer, *args.delegate])
 
 
-def _answering(args, state) -> bool:
+def _answering(args, state: RunState) -> bool:
     """Whether answer() handles this invocation: any route answer or delegation at a stopped job.
 
     Every such form counts, with or without a token, so no form answer() refuses or applies can
@@ -64,7 +69,7 @@ def _answering(args, state) -> bool:
     return bool(failure) and quota_route.job_pause_current(state) and _routes(args)
 
 
-def settings_refusal(args, state, selected) -> str | None:
+def settings_refusal(args, state: RunState, selected) -> str | None:
     """Why this invocation's settings cannot be saved with a stopped job's model answer, or None.
 
     The answer changes only the job's model and rebinds its exact retry. Any other configuration
@@ -98,7 +103,7 @@ def settings_refusal(args, state, selected) -> str | None:
     )
 
 
-def _cause(failure, state, classify) -> str | None:
+def _cause(failure, state: RunState, classify) -> str | None:
     """The model stop that paused the job (quota_route.STATUSES), '' for another stop, None when unknown.
 
     A failure saved since #463 carries ``pause_status``. One saved before it has only its kind: a
@@ -133,7 +138,7 @@ def _cause(failure, state, classify) -> str | None:
     return status if status in quota_route.STATUSES else ""
 
 
-def _no_route(failure, state, classify=None) -> str:
+def _no_route(failure, state: RunState, classify=None) -> str:
     """Why the stopped job takes no other model, naming its real cause (#463 review)."""
     job = roles.screen_name(failure.get("stage"), state)
     cause = _cause(failure, state, classify)
@@ -171,7 +176,7 @@ def _no_route(failure, state, classify=None) -> str:
     return f"The stopped {job} {stopped}, but {why}, so it takes no other model; {retry}{_RETRY}"
 
 
-def answer(runner, args, state, run_dir, workspace):
+def answer(runner, args, state: RunState, run_dir, workspace):
     """Exit code when this invocation names a stopped job's model, None when it asks something else.
 
     A rejection prints ``Input rejected: ...`` and leaves the saved run unchanged.
