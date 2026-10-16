@@ -22,9 +22,10 @@ isn't ready. Read the [README](README.md) first for what the project is and the
 
 Read [AGENTS.md](AGENTS.md) for the architecture rules. The target dependency
 direction is utilities → domain → runtime → controller → interfaces; lower
-layers must not import higher ones. The code has remaining cycles, recorded in
-[the architecture checks](tests/test_architecture.py), so this table is a guide
-to placement rather than a claim that the migration is complete.
+layers must not import higher ones. No module is in an import cycle any more,
+and [the architecture checks](tests/test_architecture.py) keep it so, but the
+layer direction itself is not checked yet, so this table is a guide to
+placement rather than a claim that the migration is complete.
 
 | Layer | Responsibility | Existing examples |
 | --- | --- | --- |
@@ -35,7 +36,7 @@ to placement rather than a claim that the migration is complete.
 | Interfaces | CLI actions and the public task-run/status contract | [autocode_run_actions.py](tools/autocode_run_actions.py), [autocode_taskrun.py](tools/autocode_taskrun.py), [autocode_run_view.py](tools/autocode_run_view.py) |
 
 Keep a new policy helper focused and pass its inputs explicitly. Do not grow
-`autocode.py`, `autopilot.py` or their import cycles to implement a local rule.
+`autocode.py` or `autopilot.py`, or add an import cycle, to implement a local rule.
 Cross-task coordination uses [TaskRun](docs/task-run.md), not private runner
 calls or another run's `state.json`. Run state remains a dict:
 [autocode_run_state.py](tools/autocode_run_state.py) names its keys and readers;
