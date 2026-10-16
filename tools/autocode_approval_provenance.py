@@ -57,7 +57,7 @@ CLAIM_LIMIT = 200
 NONE_RECORDED = "Approvals: none recorded (no plan or review approval, plan edit or resume from a pause was saved)."
 # The workflows (state["workflow"]["kind"], the status view's ``workflow``) that never ask for an approval: each
 # has one stage that completes the run without a plan (autocode_review_job, autocode_discuss_job). Their evidence
-# reports leave approvals out, as verification, program and component reports do, and their completion summary
+# reports leave approvals out, as verification reports do, and their completion summary
 # has no "none recorded" line. A review report can be posted verbatim on someone else's pull request
 # (autocode review-pr --post), where a line about approvals means nothing and a resumer's identity does not belong.
 NO_APPROVAL_STEP = ("review", "discuss")

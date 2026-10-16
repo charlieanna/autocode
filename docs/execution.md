@@ -683,13 +683,17 @@ says it was not recorded, a workflow-policy approval says no person made it, and
 `None recorded`. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
 approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
-([Issues](issues.md#what-it-does)), the pull request body lists the approvals too.
+([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A completed
+program's or components run's report lists its child runs' approvals, each with the child it
+came from, in the same way; the program agreement (`autocode program approve`) records no
+approver and is not among them ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
 
 The scenario harness checks this record from outside on each task run a scenario completes,
 including a program's or a components run's own task runs. It reads `approvals` from that
 run's final `--status --json`, and each row a person made must name the scenario's person, the
 host and a command of option names only. In a scenario of one run, each plan and review
-approval the harness gave must also be listed; a program's or a components run's task runs are
+approval the harness gave must also be listed, and so must each budget pause the scenario's
+person acknowledged, as the resume that names it; a program's or a components run's task runs are
 checked for provenance only ([scenarios/README.md](../scenarios/README.md)).
 
 #### Required approver

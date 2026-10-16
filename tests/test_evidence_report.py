@@ -478,7 +478,7 @@ class ApprovalReportTests(unittest.TestCase):
 
     def test_a_run_without_approvals_says_so_and_an_older_report_renders_unchanged(self):
         # A report built without the status view's approvals (one written before AutoCode listed them, or a
-        # verification, program or component report) has no field and no section, so its pair still authenticates.
+        # verification report) has no field and no section, so its pair still authenticates.
         view = public_view()
         older = value(view)
         self.assertNotIn("approvals", older)
@@ -599,6 +599,117 @@ class ApprovalReportTests(unittest.TestCase):
                 self.assertIn(row, report["markdown"])
                 record = {"owner": "acme", "repo": "widgets", "number": 7, "run_dir": "run", "base_commit": "a" * 40}
                 self.assertIn(row, issue.pr_body(record, {}, " app.py | 1 +", evidence_markdown=report["markdown"]))
+
+    def child(self, name, view):
+        """A completed child run's authenticated report built from ``view``, and the public handle a coordinator
+        reads it through (TaskRun.evidence_report)."""
+        anchor = export.write(self.root / name, value(view))
+        report = export.read(self.root / name, anchor, include=True)
+
+        class PublicChild:
+            def evidence_report(self, *, require_current):
+                return report
+
+        return report, PublicChild()
+
+    def coordinated(self, kind, children, where=None):
+        """The ``kind`` report aggregate.publish writes for ``children`` in ``where`` (default ``kind``)."""
+        root = self.root / (where or kind)
+        result = aggregate.publish(
+            root,
+            kind=kind,
+            identity=kind,
+            status="COMPLETE",
+            child_runs=children,
+            source_revision="a" * 64,
+        )
+        self.assertEqual("recorded", result["availability"], result["reasons"])
+        self.assertEqual(result["markdown"].encode(), (root / "evidence.md").read_bytes())
+        return result
+
+    def test_a_program_or_components_report_lists_each_child_run_s_approvals(self):
+        approvals = run_view.view(approved_state())["approvals"]
+        first, m1 = self.child("m1", {**public_view(), "approvals": approvals})
+        second, m2 = self.child("m2", {**public_view(), "approvals": approvals[2:3]})
+        for kind, left_out in (
+            ("program", "The program agreement (`autocode program approve`) records no approver, so it is not listed."),
+            ("components", "Approvals of the architecture this run was built from are not listed."),
+        ):
+            with self.subTest(kind=kind):
+                result = self.coordinated(kind, [("M1", m1), ("M2", m2)])
+                self.assertEqual(
+                    [
+                        *[{**row, "child": "M1"} for row in first["document"]["approvals"]],
+                        {**second["document"]["approvals"][0], "child": "M2"},
+                    ],
+                    result["document"]["approvals"],
+                )
+                self.assertEqual(
+                    ["plan", "edit", "plan", "resume", "review", "plan"],
+                    [row["kind"] for row in result["document"]["approvals"]],
+                )
+                self.assertIn("M1: " + UNVERIFIED_APPROVER, result["document"]["unverified"])
+                markdown = result["markdown"]
+                section = markdown[markdown.index("## Approvals") : markdown.index("## Acceptance criteria")]
+                self.assertIn(
+                    "\nWho approved in each child run, as that run's own evidence report lists it: child by child, "
+                    "oldest first.\nNone of it is verified: the Git identity is what the checkout's Git configuration "
+                    "held, and a name given with `--as` is the person's own claim.\n" + left_out + "\n",
+                    section,
+                )
+                self.assertIn(
+                    "| Child | When | Decision | Git identity | Host | Command | Name given with --as |\n"
+                    "| --- | --- | --- | --- | --- | --- | --- |\n"
+                    "| M1 | 2026-10-15T07:10:00+00:00 | Plan r1:a approved | not recorded: saved before AutoCode "
+                    "recorded who approved | not recorded | not recorded | not recorded |\n",
+                    section,
+                )
+                self.assertIn(
+                    "| M1 | 2026-10-15T09:00:00+00:00 | Review of C1 approved | Ana Example &lt;ana@example.test&gt; "
+                    "| desk-7 | autocode --run-dir --approve-review --review-token | none given |\n"
+                    "| M2 | 2026-10-15T08:00:00+00:00 | Plan r2:b approved | Ana Example &lt;ana@example.test&gt; "
+                    "| desk-7 | autocode --run-dir --approve-goal | none given |\n",
+                    section,
+                )
+                self.assertNotIn("review-secret", markdown + json.dumps(result["document"]))
+
+    def test_a_child_report_without_approvals_is_named_not_taken_for_none(self):
+        approvals = run_view.view(approved_state())["approvals"]
+        _, listed = self.child("listed", {**public_view(), "approvals": approvals[2:3]})
+        _, older = self.child("older", public_view())  # written before AutoCode listed approvals
+        _, empty = self.child("empty", {**public_view(), "approvals": []})
+        mixed = self.coordinated("program", [("M1", listed), ("M2", older)])
+        self.assertEqual(["M1"], [row["child"] for row in mixed["document"]["approvals"]])
+        self.assertIn("M2: its evidence report lists no approvals", mixed["document"]["unverified"])
+        self.assertIn("M2: its evidence report lists no approvals", mixed["markdown"])
+        # A report built only from children written before AutoCode listed approvals is unchanged: no field and no
+        # section, and nothing said about them.
+        unchanged = self.coordinated("program", [("M1", older)], where="older-only")
+        self.assertNotIn("approvals", unchanged["document"])
+        self.assertNotIn("## Approvals", unchanged["markdown"])
+        self.assertNotIn("its evidence report lists no approvals", unchanged["markdown"])
+        none = self.coordinated("components", [("api", empty)])
+        self.assertEqual([], none["document"]["approvals"])
+        self.assertIn(
+            "\nNone recorded: no child run's report lists an approval, plan edit or resume.\n", none["markdown"]
+        )
+
+    def test_only_a_program_or_components_approval_names_a_child_it_lists(self):
+        _, child = self.child("m1", {**public_view(), "approvals": run_view.view(approved_state())["approvals"]})
+        program = self.coordinated("program", [("M1", child)])["document"]
+        task = value({**public_view(), "approvals": run_view.view(approved_state())["approvals"]})
+        for name, report, row in (
+            ("a program row without its child", program, lambda row: row.pop("child")),
+            ("a program row naming another child", program, lambda row: row.update(child="M9")),
+            ("a task row naming a child", task, lambda row: row.update(child="M1")),
+        ):
+            with self.subTest(name):
+                changed = copy.deepcopy(report)
+                row(changed["approvals"][0])
+                with self.assertRaisesRegex(ValueError, "names an approval's child run"):
+                    document.validate(changed)
+        document.validate(program)
+        document.validate(task)
 
 
 PLAN_PATH = "/repo/plans/refunds.md"

@@ -735,7 +735,7 @@
       }
     },
     "approvals": {
-      "description": "Who approved each plan and review, edited the plan, resumed the run from a pause or accepted its completion, oldest first, as the status view's approvals list them (#722). Recorded as given and never verified. Absent from reports written before AutoCode listed approvals, from the reports of workflows with no approval step (review, discuss), and from verification, program and component reports.",
+      "description": "Who approved each plan and review, edited the plan, resumed the run from a pause or accepted its completion, oldest first, as the status view's approvals list them (#722). Recorded as given and never verified. Absent from reports written before AutoCode listed approvals, from the reports of workflows with no approval step (review, discuss), and from verification reports. A program or components report lists the approvals its child runs' own reports list, child by child, each naming its child; it is absent when none of those reports lists approvals.",
       "type": "array",
       "items": {
         "type": "object",
@@ -782,6 +782,10 @@
               "string",
               "null"
             ]
+          },
+          "child": {
+            "description": "Only in a program or components report: the id of the child run (as children lists it) whose own report lists this approval.",
+            "type": "string"
           },
           "provenance": {
             "type": [
