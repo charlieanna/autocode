@@ -734,9 +734,10 @@ class NativeProtection:
                 and record.get("accounted") is True
                 and record.get("timed_out") is False
                 and record.get("exit_code") == 0
+                # A report-only launch qualifies only as the counted launch of the pending repair.
+                and (not record.get("report_only") or stage_recovery.repair_launch(state, record))
                 and not any(
-                    record.get(key)
-                    for key in ("report_only", "dry_run", "rejected", "abandoned", "interrupted", "supervision_errors")
+                    record.get(key) for key in ("dry_run", "rejected", "abandoned", "interrupted", "supervision_errors")
                 ),
                 "output limit is not an original collected planning stop",
             )

@@ -389,7 +389,20 @@ class PlanningCalls:
                 "PAUSED_VISUAL_EVIDENCE", "Complete initial operator input changed after original activation"
             )
 
-    def reject(self, state: RunState, record, error, *, closed=True):
+    def reject_launch(self, state: RunState, record, error, prepared, after):
+        """Reject the report of a launch that just exited (run_role); close it only on its report file.
+
+        The protected journal closes a launch only when it left its report file, so a launch
+        without one (an OpenCode final message that never parsed) stays unclosed and keeps
+        the original pause instead of queuing a repair.
+        """
+        record["rejected"] = True
+        closed = Path(record["output"]).is_file()
+        if closed:
+            self.context.factory.finish_launch(prepared, record, after)
+        self.reject(state, record, error, closed=closed)
+
+    def reject(self, state: RunState, record, error, *, closed):
         """Retain original failed bytes; never archive/delete protected inputs.
 
         ``closed``: the protected launch recorded its finish. Only then can a completed

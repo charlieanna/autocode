@@ -2,15 +2,17 @@
 
 A completed native planning report that fails validation gets master's bounded
 report-only repair of the same stage on the same route, through the same native
-writer and launch owner, and native runs never queue an Investigator they cannot
-run. The native factory is controlled here: these tests prove admission, bounds
-and wiring, not native isolation (that needs the macOS boundary).
+writer and launch owner. A stopped repair launch is closed like a stopped original
+planning stage, and native runs send no stage pause to an Investigator they cannot
+run. The native factory is controlled here, except where a test borrows the real
+journal owner: these tests prove admission, bounds and wiring, not native
+isolation (that needs the macOS boundary).
 """
 
 import json
 import tempfile
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,12 +20,17 @@ from unittest.mock import Mock, patch
 
 import autocode as runner
 import autocode_action_recovery as recovery_actions
+import autocode_builder_failure as builder_failure
 import autocode_native_calls as callers
 import autocode_native_invocation as invocation
+import autocode_taskrun as taskrun
 import autocode_util as util
 import autocode_visual_factory as factories
 import autocode_visual_profile as profiles
+import autocode_visual_protection as protection
 
+from tests import test_native_abandon_constructor as abandon_constructor_tests
+from tests import test_native_cleanup_cancellation as cleanup_cancellation_tests
 from tests import test_native_planning_calls as planning_call_tests
 
 PROFILE = {
@@ -42,6 +49,7 @@ PROFILE = {
 TASK = "Controlled original planning task"
 ROUTE = {"engine": "opencode", "provider": "opencode", "model": "controlled/reviewer", "reasoning_effort": "high"}
 MALFORMED = ValueError("Agent did not produce valid JSON: Extra data: line 1 column 1830")
+FORMAT_ERROR = RuntimeError(runner.format_correction.FORMAT_ERROR)
 
 
 class NativeRepairFixture(unittest.TestCase):
@@ -142,7 +150,7 @@ class NativeRepairFixture(unittest.TestCase):
     def queue(self, stage="plan_review"):
         self.state["next_stage"] = stage
         with self.assertRaises(runner.ReportRepairQueued):
-            self.calls.reject(self.state, self.record(stage), MALFORMED)  # a closed launch, as run_role reports it
+            self.calls.reject(self.state, self.record(stage), MALFORMED, closed=True)  # run_role closed the launch
         return self.state["pending_report_repair"]
 
     def disk(self):
@@ -153,7 +161,7 @@ class RejectionQueuesTheBoundedRepair(NativeRepairFixture):
     def test_malformed_completed_planning_report_queues_report_only_repair(self):
         record = self.record()
         with self.assertRaises(runner.ReportRepairQueued):
-            self.calls.reject(self.state, record, MALFORMED)
+            self.calls.reject(self.state, record, MALFORMED, closed=True)
         pending = self.state["pending_report_repair"]
         self.assertEqual(0, pending["attempts"])
         self.assertEqual(record["output"], pending["original"]["output"])
@@ -171,11 +179,25 @@ class RejectionQueuesTheBoundedRepair(NativeRepairFixture):
         self.assertEqual(self.state, self.disk())  # saved through the native parent sink
 
     def test_launch_without_its_closing_report_file_keeps_the_original_pause(self):
+        record = self.record()
+        Path(record["output"]).unlink()  # the response never became a report file
         with self.assertRaisesRegex(util.Paused, "Original native output retained") as caught:
-            self.calls.reject(self.state, self.record(), MALFORMED, closed=False)
+            self.calls.reject_launch(self.state, record, FORMAT_ERROR, "controlled prepared", self.snapshot)
         self.assertEqual("PAUSED_INVALID_OUTPUT", caught.exception.status)
+        self.factory.finish_launch.assert_not_called()
         self.assertNotIn("pending_report_repair", self.state)
         self.assertEqual("PAUSED_INVALID_OUTPUT", self.disk()["status"])
+
+    def test_launch_with_its_report_file_is_closed_before_its_repair_is_queued(self):
+        record = self.record()
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.calls.reject_launch(self.state, record, MALFORMED, "controlled prepared", self.snapshot)
+        self.factory.finish_launch.assert_called_once_with("controlled prepared", record, self.snapshot)
+        self.assertEqual(record["output"], self.state["pending_report_repair"]["original"]["output"])
+
+    def test_rejection_must_say_whether_the_launch_closed(self):
+        with self.assertRaises(TypeError):
+            self.calls.reject(self.state, self.record(), MALFORMED)
 
     def test_final_review_and_non_report_errors_keep_the_original_pause(self):
         cases = (
@@ -224,9 +246,10 @@ class AdmissionOfExactlyThatRepair(NativeRepairFixture):
         def changed(label, mutate, **launch):
             state = deepcopy(self.state)
             mutate(state)
-            with self.subTest(label), self.assertRaises(util.Paused) as caught:
-                self.calls.guard(state, state["next_stage"], **launch)
-            self.assertEqual("PAUSED_VISUAL_EVIDENCE", caught.exception.status)
+            with self.subTest(label):
+                with self.assertRaises(util.Paused) as caught:
+                    self.calls.guard(state, state["next_stage"], **launch)
+                self.assertEqual("PAUSED_VISUAL_EVIDENCE", caught.exception.status)
 
         self.queue()
         self.state["pending_report_repair"]["attempts"] = 1
@@ -240,8 +263,26 @@ class AdmissionOfExactlyThatRepair(NativeRepairFixture):
         changed("model changed", lambda s: s["settings"]["roles"]["plan_reviewer"].update(model="other"), **repair)
         changed("effort changed", lambda s: s["settings"]["roles"]["plan_reviewer"].update(reasoning_effort="low"))
         changed("not rejected", lambda s: s["pending_report_repair"]["original"].update(rejected=False))
-        changed("repair of a repair", lambda s: s["pending_report_repair"]["original"].update(report_only=True))
-        changed("final review", lambda s: s.update(next_stage="plan_finalize"))
+        for label, key, value in (
+            ("repair of a repair", "report_only", True),
+            ("nonzero exit", "exit_code", 1),
+            ("no source pin", "source_revision", None),
+            ("timed out", "timed_out", True),
+            ("interrupted", "interrupted", True),
+            ("dry run", "dry_run", True),
+            ("fallback grant", "reviewer_fallback_grant", "grant-1"),
+        ):
+            original = lambda s, key=key, value=value: s["pending_report_repair"]["original"].update({key: value})
+            changed(label, original)
+            changed(label + " (launch)", original, **repair)
+
+        def final_review(state):
+            # The same queued repair of the final review: refused only because that stage is not repairable.
+            state["next_stage"] = "plan_finalize"
+            state["pending_report_repair"]["original"]["stage"] = "plan_finalize"
+
+        changed("final review", final_review)
+        changed("final review (launch)", final_review, **repair)
         changed("no pending repair", lambda s: s.pop("pending_report_repair"), **repair)
         self.factory.require_planning_origin.assert_not_called()
 
@@ -260,7 +301,8 @@ class AdmissionOfExactlyThatRepair(NativeRepairFixture):
             with self.subTest(flag), self.assertRaisesRegex(util.Paused, "native scope beyond first approval"):
                 self.calls.require_supported_action(SimpleNamespace(run_dir=self.run, **{flag: "001/x"}), self.state)
         self.state["pending_report_repair"]["original"]["stage"] = "plan_finalize"
-        with self.assertRaises(util.Paused):
+        self.state["next_stage"] = "plan_finalize"
+        with self.assertRaisesRegex(util.Paused, "only its own bounded report-only repair"):
             self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
 
 
@@ -281,7 +323,6 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
         )
         self.assertIs(self.calls, options["native"])
         self.assertEqual(self.calls.sink.write, options["persist"])
-        self.assertNotIn("resume_session", options)  # never the same-session format shortcut
         self.assertIn(str(MALFORMED), options["prompt"])
         self.assertEqual(1, self.state["pending_report_repair"]["attempts"])
         self.assertEqual(1, self.disk()["pending_report_repair"]["attempts"])  # counted before the launch
@@ -354,10 +395,9 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
         launch.assert_not_called()
         self.assertEqual({"astra_calls": 2, "review_call_limit": 2}, self.state["planning"])
 
-    def test_resume_never_renews_the_native_repair_bound(self):
-        pending = self.queue()
-        pending["attempts"] = 1
-        self.state.update(status="PAUSED_REQUESTED", phase="PAUSED_OR_BLOCKED", stop_reason="Pause requested")
+    def plain_resume(self):
+        """A plain `autocode resume`: admitted before setup, then the ordinary resume step."""
+        self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
         args = SimpleNamespace(
             resume_paused=True,
             abandon_stage=None,
@@ -369,35 +409,303 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
             diagnose_failed_stage=False,
         )
         decided = SimpleNamespace(gate=None, retained_report=None, information_admitted=False)
-        self.assertIsNone(
-            recovery_actions.resume(self.view, args, None, self.state, self.path, self.run, self.root, decided)
-        )
+        return recovery_actions.resume(self.view, args, None, self.state, self.path, self.run, self.root, decided)
+
+    def test_resume_never_renews_the_native_repair_bound(self):
+        pending = self.queue()
+        pending["attempts"] = 1
+        self.state.update(status="PAUSED_REQUESTED", phase="PAUSED_OR_BLOCKED", stop_reason="Pause requested")
+        self.assertIsNone(self.plain_resume())
         self.assertEqual(1, self.state["pending_report_repair"]["attempts"])
         self.assertNotIn("report_repair_lifetime_attempts", self.state)
 
+    def test_resume_after_the_spent_bound_keeps_the_count_and_runs_the_stage_again(self):
+        pending = self.queue("plan")
+        pending["attempts"] = 2
+        last = self.record("plan", repair=True, name="plan-repair-2")
+        with self.assertRaises(util.Paused) as caught:
+            self.calls.reject(self.state, last, ValueError("second repair invalid"), closed=True)
+        self.assertEqual("PAUSED_INVALID_OUTPUT", caught.exception.status)
+        self.assertIsNone(self.plain_resume())
+        # The spent repair is archived with its count, every rejected attempt stays, and no file moves.
+        self.assertNotIn("pending_report_repair", self.state)
+        archived = self.state["report_repair_archive"][-1]["repair"]
+        self.assertEqual((2, last["output"]), (archived["attempts"], archived["latest_rejected"]["output"]))
+        self.assertEqual(2, len(self.state["stages"]))
+        self.assertTrue(all(Path(row["output"]).is_file() for row in self.state["stages"]))
+        # The stage itself runs again as a fresh attempt, not as another repair of the spent one.
+        with self.assertRaises(util.Paused):
+            self.calls.guard(self.state, "plan", report_only=True, allow_write=False)
+        self.calls.guard(self.state, "plan", allow_write=False)
+
+
+class AutomaticRecoveriesStayOrdinaryOnly(NativeRepairFixture):
+    """The ordinary shortcuts around a repair never run under native authority."""
+
+    def setUp(self):
+        super().setUp()
+        self.view = invocation.runner_view(runner, self.calls)
+
+    def test_command_only_report_from_a_session_still_gets_the_full_bounded_repair(self):
+        # The input an ordinary run corrects in the same session: a command-only final message
+        # of an attempt that ran in a session thread.
+        record = self.record()
+        Path(record["events"]).write_text(
+            json.dumps({"type": "thread.started", "thread_id": "th-1"})
+            + "\n"
+            + json.dumps({"type": "turn.completed"})
+            + "\n"
+        )
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.calls.reject(self.state, record, ValueError(runner.cmd_only.ERROR), closed=True)
+        pending = self.state["pending_report_repair"]
+        self.assertEqual("th-1", runner.format_correction.session_for(self.state, pending, "plan_reviewer"))
+        with patch.object(runner, "run_role", side_effect=RuntimeError("controlled launch stop")) as launch:
+            with self.assertRaisesRegex(RuntimeError, "controlled launch stop"):
+                self.view.execute_report_repair(self.state, self.run, self.root)
+        launch.assert_called_once()
+        self.assertIsNone(launch.call_args.kwargs.get("resume_session"))
+        self.assertTrue(launch.call_args.kwargs["report_only"])
+        self.assertNotIn("correction_attempted", pending)
+        self.assertEqual(1, pending["attempts"])  # the counted, full report-only repair
+
+    def timed_out_repair(self):
+        """A repair launch that run_role stopped at its deadline, as it leaves the run."""
+        self.queue()
+        repair = self.record(repair=True, name="repair-timeout")
+        repair.update(
+            timed_out=True,
+            exit_code=-15,
+            accounted=True,
+            pid=4242,
+            supervision={"controlled": True},
+            processes=[{"pid": 4242, "birth_identity": 1.0}],
+            finished_at="2026-10-15T00:00:00Z",
+            timeout_kind="stage",
+            timeout_reason="Stage exceeded its 900-second hard runtime limit",
+        )
+
+        def timed_out(**_options):
+            self.state["active_stage"] = repair
+            raise util.Paused("PAUSED_PROVIDER_TIMEOUT", "plan_reviewer: " + repair["timeout_reason"])
+
+        with patch.object(runner, "run_role", side_effect=timed_out), self.assertRaises(util.Paused) as caught:
+            self.view.execute_report_repair(self.state, self.run, self.root)
+        runner.run_status.pause(self.state, caught.exception.status, str(caught.exception))
+        self.calls.sink.write(self.path, self.state)  # as run_setup.run_locked saves the pause
+        return repair, caught.exception
+
+    def test_timed_out_repair_keeps_its_pause_without_the_ordinary_automatic_retry(self):
+        repair, paused = self.timed_out_repair()
+        self.assertEqual("PAUSED_PROVIDER_TIMEOUT", paused.status)
+        self.assertIs(repair, self.state["active_stage"])
+        self.assertEqual(1, self.state["pending_report_repair"]["attempts"])
+        self.assertNotIn("abandoned", repair)
+        self.assertTrue(Path(repair["events"]).is_file())
+
+    def abandon(self, selected):
+        args = SimpleNamespace(
+            run_dir=self.run,
+            abandon_stage=selected,
+            _native_action_argv=("--abandon-stage", selected, "--run-dir", str(self.run)),
+        )
+        self.calls.require_supported_action(args, self.state)  # before setup, as the CLI checks it
+        self.calls.abandon_stage(self.state, self.run, self.root, selected)
+
+    def test_stopped_repair_launch_is_abandoned_like_an_original_planning_stop(self):
+        repair, _ = self.timed_out_repair()
+        events = Path(repair["events"]).read_bytes()
+        with self.assertRaisesRegex(util.Paused, "Original native worker reconciliation"):
+            self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
+        # The controlled journal owner returns the retained record; real authentication is tested below.
+        self.factory.protection = Mock()
+        self.factory.protection.planning_abandonment.side_effect = lambda state, record, **_: deepcopy(record)
+        selected = "001/" + Path(repair["output"]).stem
+        self.abandon(selected)
+        self.assertEqual(2, self.factory.protection.planning_abandonment.call_count)  # checked, then committed
+        self.assertEqual(("PAUSED_STAGE_ABANDONED", "plan_review"), (self.state["status"], self.state["next_stage"]))
+        self.assertIn("report repair timeout retained", self.state["stop_reason"])
+        self.assertNotIn("active_stage", self.state)
+        self.assertEqual(1, self.state["pending_report_repair"]["attempts"])  # the stopped attempt stays spent
+        abandoned = self.state["stages"][-1]
+        self.assertEqual(
+            (repair["output"], True, True), (abandoned["output"], abandoned["abandoned"], abandoned["rejected"])
+        )
+        self.assertEqual(selected, self.state["recovery_context"]["attempt_id"])
+        self.assertEqual(events, Path(repair["events"]).read_bytes())
+        self.assertEqual(self.state, self.disk())
+        # A plain resume is admitted, and its locked load reconciles the abandoned repair the ordinary
+        # way: the pending repair (with its counted attempt) is archived and the stage itself runs again.
+        self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
+        self.view.configure = Mock(side_effect=StopIteration("controlled stop after reconciliation"))
+        args = SimpleNamespace(run_dir=self.run, resume_paused=True, expected_recovery_token=None)
+        with self.assertRaisesRegex(StopIteration, "controlled stop"):
+            runner.run_setup.load_locked(self.view, args, None, self.state, self.path, self.run, self.root)
+        resumed = self.disk()
+        self.assertNotIn("pending_report_repair", resumed)
+        self.assertEqual(1, resumed["report_repair_archive"][-1]["repair"]["attempts"])
+        self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), resumed)
+        self.calls.guard(resumed, "plan_review", allow_write=False)  # the original stage, not another repair
+
+    def test_only_the_counted_launch_of_the_pending_repair_can_be_abandoned(self):
+        repair, _ = self.timed_out_repair()
+        self.factory.protection = Mock()
+        selected = "001/" + Path(repair["output"]).stem
+        changes = (
+            ("uncounted", lambda s: s["pending_report_repair"].update(attempts=0)),
+            ("no pending repair", lambda s: s.pop("pending_report_repair")),
+            ("another stage", lambda s: s["active_stage"].update(original_stage="plan_revise")),
+            ("another route", lambda s: s["active_stage"].update(route_role="glm")),
+            ("not report-only", lambda s: s["active_stage"].pop("report_only")),
+        )
+        for label, change in changes:
+            saved = deepcopy(self.state)
+            change(self.state)
+            with self.subTest(label), self.assertRaises(util.Paused) as caught:
+                self.abandon(selected)
+            self.assertEqual("PAUSED_VISUAL_EVIDENCE", caught.exception.status)
+            self.state = saved
+        self.factory.protection.planning_abandonment.assert_not_called()
+
+
+class RejectedLaunchThroughRunRole(NativeRepairFixture):
+    """run_role closes a rejected native launch only on its report file, and queues the repair only then."""
+
+    def setUp(self):
+        super().setUp()
+        self.charge = Mock()  # the planning review allowance charge run_role makes before the provider starts
+
+    def launch(self, *, report, error, report_only=False):
+        self.state["sessions"] = {}
+        self.state["settings"]["joint_planning"] = True  # as every native planning run saves it
+        schema = self.run / "controlled.schema.json"
+        schema.write_text("{}")
+        self.factory.prepare_launch = Mock(return_value="controlled prepared")
+        adapter = SimpleNamespace(
+            CONFIGURED=False, OUTPUT="opencode_events", prompt_for_schema=lambda prompt, *_args: prompt
+        )
+
+        @contextmanager
+        def held_launch(prepared, *, options, checkpoint, **_launch):
+            # The provider's own stream: one completed turn in a session; a report file only if asked.
+            self.assertEqual("controlled prepared", prepared)
+            checkpoint({"provider": {"pid": 4242}, "owner": {"pid": 4243}})
+            options["stdout"].write(
+                json.dumps({"type": "thread.started", "thread_id": "th-1"})
+                + "\n"
+                + json.dumps({"type": "turn.completed"})
+                + "\n"
+            )
+            options["stdout"].flush()
+            if report:
+                Path(self.state["active_stage"]["output"]).write_text('{"decision": "controlled"')
+            yield SimpleNamespace(pid=4242, poll=lambda: 0), None
+
+        self.calls.context.held_launch = held_launch
+        seams = (
+            # Setup and accounting around the launch; none of them decides native authority.
+            (runner, "timeout_recovery_guard", Mock()),
+            (runner.dispatch, "enforce_cross_model_verification", Mock()),
+            (runner.planning_artifacts, "verify_predecessor", Mock()),
+            (callers.isolation, "NativeRoleIsolation", Mock()),
+            (runner.processes, "preflight", Mock()),
+            (runner.processes, "interruption_handler", lambda: nullcontext()),
+            (runner.role_transport, "session_adapter", Mock(return_value=(adapter, True))),
+            (
+                runner.provider_launch,
+                "prepare",
+                Mock(return_value=(["controlled"], {"PATH": "/usr/bin:/bin"}, {}, {"tool_containment": {}})),
+            ),
+            (runner.provider_launch, "containment_prompt", lambda prompt, *_args, **_kw: prompt),
+            (runner.provider_launch, "stage_record", Mock(return_value={})),
+            (runner.provider_launch, "verify_containment", Mock()),
+            (runner.task_preflight, "guard", Mock()),
+            (runner.readonly_events, "prepare_opencode_snapshots", Mock()),
+            (runner.job_source, "prepare_capture_context", Mock()),
+            (runner.job_source, "capture", Mock()),
+            (runner.job_source, "stopped", Mock()),
+            (runner.network_retry, "bind_attempt", Mock()),
+            (runner.interventions, "admission", lambda _run: nullcontext()),
+            (runner.resolver_recovery, "admit_dispatch", Mock()),
+            (runner.planning, "charge", self.charge),
+            (runner.resolver_runtime, "charge_diagnostic_dispatch", Mock()),
+            (runner.progressive_state, "admit_attempt", Mock()),
+            (runner.job_failure, "admit", Mock()),
+            (runner.classification_recovery, "admit", Mock()),
+            (runner.processes, "wait_for_stage", Mock(return_value=(0, False))),
+            (runner.supervision, "receipt", Mock(return_value=None)),
+            (runner.source_diff, "write", Mock()),
+            # The report itself does not validate.
+            (runner, "load_stage_report", Mock(side_effect=error)),
+        )
+        with ExitStack() as stack:
+            for module, name, value in seams:
+                stack.enter_context(patch.object(module, name, value))
+            runner.run_role(
+                role="plan_reviewer",
+                prompt="Controlled plan review",
+                sandbox="read-only",
+                workspace=self.root,
+                run_dir=self.run,
+                state=self.state,
+                schema=schema,
+                model=ROUTE["model"],
+                allow_write=False,
+                dry_run=False,
+                report_only=report_only,
+                persist=self.calls.sink.write,
+                native=self.calls,
+            )
+
+    def test_unparsed_final_message_without_a_report_file_keeps_the_original_pause(self):
+        with self.assertRaisesRegex(util.Paused, "Original native output retained") as caught:
+            self.launch(report=False, error=FORMAT_ERROR)
+        self.assertEqual("PAUSED_INVALID_OUTPUT", caught.exception.status)
+        self.factory.finish_launch.assert_not_called()  # the journal keeps the launch unclosed
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertTrue(self.state["stages"][-1]["rejected"])
+        self.assertEqual("PAUSED_INVALID_OUTPUT", self.disk()["status"])
+
+    def test_invalid_report_file_closes_the_launch_and_queues_its_repair(self):
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.launch(report=True, error=MALFORMED)
+        self.factory.finish_launch.assert_called_once()
+        self.assertEqual("controlled prepared", self.factory.finish_launch.call_args.args[0])
+        pending = self.state["pending_report_repair"]
+        self.assertEqual((0, "plan_review"), (pending["attempts"], pending["original"]["stage"]))
+        self.assertEqual(("RUNNING", "REPORT_REPAIR"), (self.disk()["status"], self.disk()["phase"]))
+
+    def test_repair_launch_is_not_charged_to_the_review_allowance(self):
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.launch(report=True, error=MALFORMED)
+        self.assertEqual(["plan_review"], [call.args[1] for call in self.charge.call_args_list])  # the original
+        self.state["pending_report_repair"]["attempts"] = 1  # execute_report_repair counts it before run_role
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.launch(report=True, error=ValueError("repaired report still invalid"), report_only=True)
+        self.assertEqual(1, self.charge.call_count)  # the report-only repair launch is not charged
+        repair = self.state["stages"][-1]
+        self.assertEqual(("plan_review_report_repair", True), (repair["stage"], repair["report_only"]))
+        self.assertEqual(repair["output"], self.state["pending_report_repair"]["latest_rejected"]["output"])
+
 
 class NoInvestigatorUnderNativeAuthority(NativeRepairFixture):
-    def test_native_build_loop_restores_the_original_pause_without_spending_an_investigation(self):
+    """The native build loop sends no stage pause to the Investigator and restores one it refuses."""
+
+    def run_native_loop(self, attempt):
         proxy = invocation.runner_view(runner, self.calls)
         proxy.consume_interventions = Mock(return_value=False)
-        self.state["next_stage"] = "plan_finalize"
         util.atomic_json(self.path, self.state)
-        options = {}
         real_drive = runner.orchestrator.drive
 
-        def attempt(current, stage):
-            # A fresh rejected final review, as native reject leaves it.
-            current["stages"].append({"stage": stage, "rejected": True})
-            raise util.Paused("PAUSED_INVALID_OUTPUT", "Original native output retained: controlled malformed report")
-
         def drive(current, dispatch, **callbacks):
-            options.update(callbacks)
+            # The build loop's own flags and persistence, with a controlled stage attempt.
             return real_drive(
                 current,
                 attempt,
                 before=lambda value: self.calls.guard(value),
                 persist=callbacks["persist"],
                 investigate=callbacks["investigate"],
+                queue=callbacks["queue"],
             )
 
         args = SimpleNamespace(unit=None, chat=False, pause_after_stage=False, run_dir=self.run)
@@ -410,13 +718,159 @@ class NoInvestigatorUnderNativeAuthority(NativeRepairFixture):
                 proxy, args, None, self.state, self.path, self.run, self.root, native=self.calls, checkout_owned=True
             )
         self.assertEqual(2, code)
-        saved = self.disk()
+        return self.disk()
+
+    def test_native_planning_pause_keeps_its_reason_without_spending_an_investigation(self):
+        self.state["next_stage"] = "plan_finalize"
+
+        def attempt(current, stage):
+            # A fresh rejected final review, as native reject leaves it.
+            current["stages"].append({"stage": stage, "rejected": True})
+            raise util.Paused("PAUSED_INVALID_OUTPUT", "Original native output retained: controlled malformed report")
+
+        saved = self.run_native_loop(attempt)
         self.assertEqual("PAUSED_INVALID_OUTPUT", saved["status"])
         self.assertEqual("plan_finalize", saved["next_stage"])
         self.assertNotIn("Investigator", saved["stop_reason"])
         self.assertNotIn("stuck_investigations", saved)
         self.assertNotIn("stuck_investigation", saved)
-        self.assertFalse(options["investigate"])
+
+    def test_native_builder_failure_classification_is_restored_to_its_own_pause(self):
+        # After approval a native run owns the Builder. A Builder that changed nothing is routed by
+        # autopilot.route_builder_failure, which queues the Investigator to classify the failure.
+        self.factory.first_writer_proof = Mock()
+        self.state["settings"]["roles"]["terra"] = dict(ROUTE, model="controlled/builder")
+        self.state.update(
+            current_task={"id": "t1", "kind": "implement", "title": "Controlled task"},
+            next_stage="terra",
+            phase="IMPLEMENTATION",
+        )
+        reason = "Builder changed no files"
+
+        def attempt(current, stage):
+            self.assertEqual("terra", stage)
+            output = self.run / "builder-01.json"
+            output.write_text('{"status": "CONTINUE"}')
+            record = {
+                "stage": "terra",
+                "role": "terra",
+                "iteration": 1,
+                "exit_code": 0,
+                "output": str(output),
+                "source_revision": self.snapshot["revision"],
+                "started_at": "2026-10-15T00:00:00Z",
+            }
+            current["stages"].append(record)
+            evidence = builder_failure.evidence(current, record)
+            self.assertEqual("investigate", runner.autopilot.route_builder_failure(current, evidence, reason))
+            self.assertEqual("investigate_stuck", current["next_stage"])
+            return record
+
+        saved = self.run_native_loop(attempt)
+        # Native authority refused the Investigator: the run holds the Builder's own classification pause.
+        self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", saved["status"])
+        self.assertEqual("terra", saved["next_stage"])
+        self.assertTrue(saved["stop_reason"].startswith(reason))
+        self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", saved["builder_failure_hold"]["status"])
+        self.assertNotIn("stuck_investigation", saved)
+        self.assertEqual(["investigation_failed"], [row["outcome"] for row in saved["stuck_investigations"]])
+        self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), saved)  # a resume is admitted
+
+
+REPAIR_LAUNCH = {"stage": "plan_revise_report_repair", "original_stage": "plan_revise", "report_only": True}
+
+
+def pend_repair(case):
+    """Make the fixture's stopped launch the counted launch of the run's pending repair."""
+    original = {key: deepcopy(case.record[key]) for key in ("iteration", "role", "route_role", "engine")}
+    original.update(stage="plan_revise", rejected=True, exit_code=0, source_revision=case.raw["revision"])
+    case.state["pending_report_repair"] = {"original": original, "attempts": 1, "pins": {}, "contract_hash": None}
+    util.atomic_json(case.state_path, case.state)
+
+
+class StoppedRepairLaunchClosesThroughTheOriginalOwner(unittest.TestCase):
+    """The real native journal owner closes a stopped repair launch as it closes an original stop."""
+
+    fixture = abandon_constructor_tests.NativeAbandonConstructorTests
+    public_cli = fixture.public_cli
+    observe = fixture.observe
+    journal_bytes = fixture.journal_bytes
+    construct = fixture.construct
+    collected_length = fixture.collected_length
+    record_overrides = REPAIR_LAUNCH
+
+    def setUp(self):
+        self.fixture.setUp(self)  # a released, stopped report-only launch in the real journal
+        pend_repair(self)
+
+    def abandon(self):
+        before = self.journal_bytes()
+        events = Path(self.record["events"]).read_bytes()
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            view = self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual(("PAUSED_STAGE_ABANDONED", "plan_revise"), (view["status"], view["next_stage"]))
+        self.assertNotEqual(before, self.journal_bytes())  # the owner recorded the close
+        self.assertEqual(events, Path(self.record["events"]).read_bytes())
+        self.assertNotIn("active_stage", self.state)
+        self.assertEqual(1, self.state["pending_report_repair"]["attempts"])
+        abandoned = self.state["stages"][-1]
+        self.assertEqual(
+            ("plan_revise_report_repair", True, True),
+            (abandoned["stage"], abandoned["abandoned"], abandoned["rejected"]),
+        )
+        return abandoned
+
+    def test_timed_out_repair_launch_is_closed_by_its_original_owner(self):
+        self.assertIn("stopped native report repair timeout", self.abandon()["rejection_reason"])
+        with patch.object(protection.processes, "live_processes", side_effect=self.observe):
+            self.construct()  # the original journal still replays with the closed repair launch
+
+    def test_collected_output_limit_of_a_repair_launch_is_closed_by_its_original_owner(self):
+        self.collected_length()
+        self.assertIn("collected native report repair output limit", self.abandon()["rejection_reason"])
+        with patch.object(protection.processes, "live_processes", side_effect=self.observe):
+            self.construct()
+
+    def test_uncounted_repair_launch_is_refused_before_the_journal(self):
+        self.state["pending_report_repair"]["attempts"] = 0
+        util.atomic_json(self.state_path, self.state)
+        before = self.journal_bytes()
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            with self.assertRaises(taskrun.TaskRunError):
+                self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual(before, self.journal_bytes())
+        self.assertIn("active_stage", self.state)
+
+
+class HeldRepairLaunchCancelsThroughTheOriginalOwner(unittest.TestCase):
+    """A repair launch held at a failed cleanup is cancelled as an original held launch is."""
+
+    fixture = cleanup_cancellation_tests.NativeHeldCancellationTests
+    public_cli = fixture.public_cli
+    observe = fixture.observe
+    journal_bytes = fixture.journal_bytes
+    construct = fixture.construct
+    intent = fixture.intent
+    append_original = fixture.append_original
+    cancel = fixture.abandon
+    record_overrides = REPAIR_LAUNCH
+
+    def setUp(self):
+        self.fixture.setUp(self)  # PAUSED_PROCESS_CLEANUP with an unreleased, held report-only launch
+        pend_repair(self)
+
+    def test_held_repair_launch_is_cancelled_by_its_original_owner(self):
+        before = self.journal_bytes()
+        view = self.cancel()
+        self.assertEqual(("PAUSED_STAGE_ABANDONED", "plan_revise"), (view["status"], view["next_stage"]))
+        self.assertNotEqual(before, self.journal_bytes())
+        self.assertNotIn("active_stage", self.state)
+        self.assertEqual(1, self.state["pending_report_repair"]["attempts"])
+        abandoned = self.state["stages"][-1]
+        self.assertEqual("plan_revise_report_repair", abandoned["stage"])
+        self.assertIn("cancelled native report repair launch", abandoned["rejection_reason"])
+        with patch.object(protection.processes, "live_processes", side_effect=self.observe):
+            self.construct()  # the original journal still replays with the cancelled repair launch
 
 
 class RepairLaunchPinsTheStageInputs(unittest.TestCase):

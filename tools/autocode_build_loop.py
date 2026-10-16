@@ -355,9 +355,11 @@ def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=F
                     runner.write_json(state_path, current),
                 ),
                 after=after_code_stage,
-                # Native authority never admits the Investigator: queuing one would only spend
-                # its identity and bury the original pause under a refusal.
-                investigate=not args.unit and getattr(runner, "native_calls", None) is None,
+                investigate=not args.unit,
+                # Native authority never admits the Investigator: sending a stage pause to it would
+                # only spend its identity and bury the original reason under a refusal. A Builder
+                # failure request it refuses is still restored to its own pause.
+                queue=getattr(runner, "native_calls", None) is None,
             )
     except runner.orchestrator.LoopExit as stopped:
         return stopped.code

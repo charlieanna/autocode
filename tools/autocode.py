@@ -1066,11 +1066,7 @@ def run_role(
         raise
     except (ValueError, RuntimeError) as error:
         if native is not None:
-            record["rejected"] = True
-            closed = Path(record["output"]).is_file()  # the protected launch closes only on its report file
-            if closed:
-                native.context.factory.finish_launch(native_prepared, record, after)
-            native.reject(state, record, error, closed=closed)
+            native.reject_launch(state, record, error, native_prepared, after)
         reject_completed_stage(state, run_dir, record, error)
     if native is not None:
         native.context.factory.finish_launch(native_prepared, record, after)
