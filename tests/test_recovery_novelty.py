@@ -911,8 +911,9 @@ class RecoveryPacketTests(unittest.TestCase):
 
     def test_a_packet_saved_before_the_milestone_budget_left_its_binding_still_binds(self):
         # Saved-run compatibility (#611): an earlier version hashed the milestone budget with the other settings.
-        # Its packet still admits a dispatch while those settings are unchanged; for it, a changed milestone budget
-        # is still a changed setting, as it was.
+        # Its packet still admits a dispatch while those settings are unchanged; for the packet's own binding, a
+        # changed milestone budget is still a changed setting. A repair admission recorded after the upgrade leaves
+        # the budget out, as every new binding does.
         state = self.milestone_budget_failure({"milestone_max_seconds": "user_explicit"})
         pointer = state["resolution_request"]["recovery_packet"]
         path = Path(pointer["path"])

@@ -1041,8 +1041,11 @@ PR template asks for an entry here; a change without one is incomplete.
   stronger attempt a known correction chose. The packet now leaves the milestone budget out, as it already left out
   the iteration limit, the active-time budget and the cost cap: those decide whether an attempt may launch, not
   what it acts on. AutoResolver's one-time extension of a default milestone budget changes the same setting and no
-  longer counts as a settings change either. A packet saved before this change still binds while the run's
-  settings are unchanged, and stays bound to its milestone budget (#611).
+  longer counts as a settings change either. A binding saved before this change, on a packet, a repair admission,
+  a novelty hold, a retry grant or a retained diagnosis, still holds while the run's settings are unchanged, and
+  stops holding when the milestone budget changes. One recorded after the upgrade leaves the budget out, even for a
+  packet saved before it: the repair admission written when the Resolver's plan finishes lets that repair launch
+  after a milestone budget change (#611).
 
 ## [0.7.1] — 2026-10-09
 

@@ -186,7 +186,9 @@ def _holds(saved, state: RunState, revision):
 
     One saved before #611 bound the milestone budget with the other settings. It still holds while
     they are unchanged when hashed that way, so a run upgraded with a recovery packet keeps it; for
-    that packet a changed milestone budget remains a changed setting, as it was.
+    that binding a changed milestone budget remains a changed setting. A binding recorded after the
+    upgrade, such as the repair admission ``finish_resolution_packet`` writes for that packet, leaves
+    the budget out.
     """
     current = _binding(state, revision)
     return saved == current or saved == {

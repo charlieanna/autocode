@@ -1210,8 +1210,12 @@ limit, the active-time budget, the cost cap and the milestone budget. They decid
 attempt may launch, not what it acts on, so resuming with a new one, as a budget stop advises,
 or AutoResolver's one-time extension of a default one, keeps the packet and the repair it holds,
 and buys no novelty. Other settings changes, such as another model or stage time limit, still
-make the repair a stale handoff (`PAUSED_STALE_HANDOFF`). A packet saved before #611 stays bound
-to the milestone budget it was captured with.
+make the repair a stale handoff (`PAUSED_STALE_HANDOFF`). Bindings recorded before #611, on a
+packet, a repair admission, a novelty hold, a retry grant or a retained diagnosis, hashed the
+milestone budget too. Each still holds while the run's settings are unchanged, and stops holding
+when the milestone budget changes. A binding recorded after the upgrade leaves the budget out, even
+for a packet saved before it: once the Resolver's plan for that packet finishes, the repair
+admission written then lets its repair launch after a milestone budget change.
 
 The `rework-same-failure` scenario (scenarios/README.md) shows the hold on a correct repair: the
 required suite keeps failing on a file the task may not change, so after the second identical
