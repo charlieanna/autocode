@@ -8,6 +8,11 @@ This module does not read or write run state; runner_check binds CHECKPOINT.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 import hashlib
 import os
 import subprocess
@@ -29,7 +34,7 @@ except ImportError:
     import autocode_supervision as supervision
     import autocode_util as util
 
-CHECKPOINT = ContextVar("verification_command_checkpoint", default=None)
+CHECKPOINT: ContextVar[Callable[..., object] | None] = ContextVar("verification_command_checkpoint", default=None)
 TAIL_CHARS = 4000
 BASH = "/bin/bash"
 # For a host with no bash: set pipefail where /bin/sh has it. The subshell keeps a shell that rejects

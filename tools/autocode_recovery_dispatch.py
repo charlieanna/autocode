@@ -13,6 +13,11 @@ can patch the module they live in.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_job_failure as job_failure
     from . import autocode_network_retry as network_retry
@@ -24,7 +29,7 @@ except ImportError:
 
 
 def _runtime_first(module, name):
-    def invoke(runtime, state, run_dir, workspace, error):
+    def invoke(runtime, state: RunState, run_dir, workspace, error):
         return getattr(module, name)(runtime, state, run_dir, workspace, error)
 
     return invoke
@@ -33,7 +38,7 @@ def _runtime_first(module, name):
 def _on_runtime(name):
     # The stage recoverers live in autocode_stage_recovery, which imports the planning
     # cycle; reaching them through the runner keeps this module below it.
-    def invoke(runtime, state, run_dir, workspace, error):
+    def invoke(runtime, state: RunState, run_dir, workspace, error):
         return getattr(runtime, name)(state, run_dir, workspace, error)
 
     return invoke
@@ -52,7 +57,7 @@ RECOVERY_CHAIN = (
 )
 
 
-def recover(runtime, state, run_dir, workspace, error) -> str | None:
+def recover(runtime, state: RunState, run_dir, workspace, error) -> str | None:
     """Run the chain in order; the first recoverer that fires wins.
 
     Returns its row name, or None when nothing recovered and the pause stands.

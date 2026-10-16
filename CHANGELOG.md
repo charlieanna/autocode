@@ -356,6 +356,21 @@ PR template asks for an entry here; a change without one is incomplete.
   `prune-run` (`autocode_prune_run`), dependency waits (`autocode_dependency`) and milestone carry-forward
   (`autocode_carryforward`) take the typed `RunState`, so the untyped-`state` ratchet drops from 374 to 287 and mypy
   checks those 87 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The money cap (`autocode_cost`), token usage (`autocode_usage`), efficiency measurements (`autocode_efficiency`),
+  evidence report publication (`autocode_evidence_export`, except `record`), `--status` rendering
+  (`autocode_status_command`), progress updates (`autocode_status`, except `persist`), runner checks
+  (`autocode_runner_check`), review report schemas (`autocode_report_schema`), the recovery chain
+  (`autocode_recovery_dispatch`), protected test gates (`autocode_protected_oracles`), planning metadata recovery
+  (`autocode_planning_metadata`), the output display policy (`autocode_output_policy`), timeout changes
+  (`autocode_operational_change`), network retries (`autocode_network_retry`), Investigator report recovery
+  (`autocode_job_report_recovery`), the report format correction (`autocode_format_correction`), the repeated-failure
+  ledger (`autocode_failures`), draft example corrections (`autocode_draft_examples`), the conversation projection,
+  policy and ingress (`autocode_conversation_projection`, `autocode_conversation_policy`,
+  `autocode_conversation_ingress`), original-brief evidence (`autocode_brief_evidence`), the CLI's resolver-answer and
+  decision steps (`autocode_action_resolver`, `autocode_action_decisions`), accepted source edits
+  (`autocode_accepted_source`) and the test contract fixtures (`goal_fixtures`) take the typed `RunState`, so the
+  untyped-`state` ratchet drops from 287 to 201 and mypy checks those 86 function bodies. Type-only: no behaviour,
+  output or `state.json` change (#695).
 
 ### Removed
 

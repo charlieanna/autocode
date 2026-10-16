@@ -8,6 +8,11 @@ A run scoped to one package (settings.package) retains that package's tests only
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -85,7 +90,7 @@ def inventory(workspace, is_test_path, *, package=None):
     return paths.collect(workspace, names, snapshot)
 
 
-def reconcile(state, settings, args, workspace, run_dir, *, is_test_path, discover_command):
+def reconcile(state: RunState, settings, args, workspace, run_dir, *, is_test_path, discover_command):
     """New runs bind all eligible existing tests; saved runs never silently rebind.
 
     A CLI revision declares the exact old binding, new inventory, command and
@@ -189,7 +194,7 @@ def context(settings, affected_paths=()):
     return result | {"instruction": instruction}
 
 
-def replay(state, workspace, out, scratch_run, *, timeout):
+def replay(state: RunState, workspace, out, scratch_run, *, timeout):
     record = state.get("settings", {}).get("protected_tests")
     if not record:
         return None  # compatibility: do not invent an original binding for old runs
@@ -262,7 +267,7 @@ def replay(state, workspace, out, scratch_run, *, timeout):
     return result
 
 
-def ready(state, current_revision):
+def ready(state: RunState, current_revision):
     record = state.get("settings", {}).get("protected_tests")
     if not record:
         return True

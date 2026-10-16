@@ -7,6 +7,11 @@ This module imports no runner or controller code.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 
 try:
@@ -18,7 +23,7 @@ PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
 
 
-def _trace_identity(report, state):
+def _trace_identity(report, state: RunState):
     rows = report.get("requirement_trace")
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         return
@@ -51,7 +56,7 @@ def _trace_identity(report, state):
     )
 
 
-def _addition_declarations(report, state):
+def _addition_declarations(report, state: RunState):
     previous = (state.get("goal_contract") or {}).get("body")
     current, changes = report.get("contract"), report.get("contract_changes")
     if not isinstance(previous, dict) or not isinstance(current, dict) or not isinstance(changes, list):
@@ -110,7 +115,7 @@ def _addition_declarations(report, state):
     report["contract_changes"] = [row for row in changes if not redundant(row)]
 
 
-def normalize_planning_metadata(value, state, record):
+def normalize_planning_metadata(value, state: RunState | None, record):
     stage = record.get("original_stage") or str(record.get("stage", "")).removesuffix("_report_repair")
     if stage not in PLANNING_STAGES or not isinstance(value, dict) or not state:
         return value

@@ -1,7 +1,12 @@
 """Offline contract fixtures used by regression and subprocess smoke tests."""
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 
 def write_greeting_source(workspace, *, revision=None):
@@ -54,7 +59,7 @@ class GreetingTests(unittest.TestCase):
 """)
 
 
-def assert_operational_wait(test, state, pause_status):
+def assert_operational_wait(test, state: RunState, pause_status):
     from tools import autocode_resolver_human as human
 
     test.assertEqual("WAITING_FOR_USER", state["status"])
@@ -116,12 +121,12 @@ def body(*, questions=False, human=False, task_kind="build") -> dict[str, Any]:
     }
 
 
-def envelope(state):
-    contract = state["goal_contract"]
+def envelope(state: RunState):
+    contract = cast(dict, state["goal_contract"])
     return {
         "contract_revision": contract["revision"],
         "contract_hash": contract["hash"],
-        "task_id": state.get("current_task", {}).get("id", ""),
+        "task_id": cast(dict, state.get("current_task", {})).get("id", ""),
         "deferred_backlog": [],
         "user_request": {
             "kind": "none",
@@ -134,7 +139,7 @@ def envelope(state):
     }
 
 
-def approve_fixture(state, goals):
+def approve_fixture(state: RunState, goals):
     # The lifecycle and Resolver modules are imported the way `goals` was (plain, tools. or
     # autocode_cli.), so the fixture acts on the same module instances as the caller.
     import importlib
@@ -148,4 +153,4 @@ def approve_fixture(state, goals):
     human.evaluate(state)
     lifecycle.present(state)
     lifecycle.approve(state, goals.token(state["goal_contract"]))
-    state.update(next_stage="terra", phase="EXECUTING")
+    state.update({"next_stage": "terra", "phase": "EXECUTING"})

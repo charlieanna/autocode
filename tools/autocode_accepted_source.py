@@ -8,6 +8,11 @@ request: that packet cannot be repinned, so admission must not compare it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from pathlib import Path
 
 try:
@@ -35,7 +40,7 @@ RESOLVER_WROTE = frozenset(
 COMMAND = "--resume-paused --accept-source-edit"
 
 
-def resume_action(state) -> str | None:
+def resume_action(state: RunState) -> str | None:
     """The status-view command for a source-only stale repair, or None."""
     request = state.get("resolution_request") or {}
     if (
@@ -47,7 +52,7 @@ def resume_action(state) -> str | None:
     return None
 
 
-def accept_reviewed_source(state, workspace) -> dict:
+def accept_reviewed_source(state: RunState, workspace) -> dict:
     """Rebind the pending repair to the current source. Raise ValueError otherwise.
 
     Nothing is written until every check passes. The returned event is also
@@ -94,7 +99,7 @@ def accept_reviewed_source(state, workspace) -> dict:
     return event
 
 
-def _packet_still_binds(state, pointer, previous):
+def _packet_still_binds(state: RunState, pointer, previous):
     """The packet may differ from the workspace only in the source revision it names."""
     try:
         from . import autocode_resolver_recovery as recovery
@@ -103,7 +108,7 @@ def _packet_still_binds(state, pointer, previous):
     run = (
         Path(state["run_dir"])
         if state.get("run_dir")
-        else recovery._run_root(state, {"output": state["resolution_request"].get("source_output", "")})
+        else recovery._run_root(state, {"output": cast(dict, state["resolution_request"]).get("source_output", "")})
     )
     try:
         packet = recovery.load_packet(pointer, run)

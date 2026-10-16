@@ -6,6 +6,13 @@ environment binds AUTOCODE_OUTPUT_WORKSPACE to this run; output_store reads it
 so nested investigation commands retain bytes and measurements in the same store.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -30,7 +37,7 @@ def mode(settings):
     return selected if selected in ("raw", "conservative") else "raw"
 
 
-def configure(state, settings, args):
+def configure(state: RunState, settings, args):
     requested = getattr(args, "tool_output_mode", None)
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
     if started and not requested and "output_transport" not in settings:
@@ -70,7 +77,7 @@ def context(settings):
     }
 
 
-def account(state, record):
+def account(state: RunState, record):
     if not record.get("events") or not state.get("workspace") or not state.get("settings", {}).get("output_transport"):
         return
     try:
@@ -80,7 +87,7 @@ def account(state, record):
         record.setdefault("metrics", {})["output_transport"] = {"measurement": "unavailable"}
 
 
-def view(state):
+def view(state: RunState):
     rows = saved_metrics(state, "output_transport")
     fields = ("operations", "raw_bytes", "displayed_bytes", "retrieval_calls")
     known = [row for row in rows if row and all(type(row.get(key)) is int and row[key] >= 0 for key in fields)]
