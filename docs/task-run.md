@@ -186,7 +186,7 @@ start a second task. Read the current plan and use the separate `approve_plan()`
 action only when the operator authorizes implementation. The original handoff
 source digest stays immutable; later human feedback retains its own provenance.
 Assistant text and unapproved drafts never become mandatory requirements merely
-because they appear in the journal. The browser dashboard and macOS app remain on their existing frozen path.
+because they appear in the journal. The browser dashboard and macOS app still use their existing path.
 
 The additive `view.conversation` is `None` for ordinary and legacy dashboard
 runs. A core conversation exposes actionable `status`/`needs` (including current questions and resolver tokens),

@@ -4,7 +4,7 @@ Python on Windows has no fcntl, termios, pwd, grp, resource or pty, so one such 
 module level stops `autocode` itself from starting there, before any platform check can
 run. The last such imports, thirteen file locks, were removed on 2026-10-16, so any
 module-level import now fails this test: take the lock through `autocode_util.lock_file` /
-`unlock_file`, or import the POSIX module inside the POSIX-only branch. The frozen dashboard
+`unlock_file`, or import the POSIX module inside the POSIX-only branch. The dashboard
 is out of scope.
 """
 

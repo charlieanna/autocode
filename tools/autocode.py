@@ -222,7 +222,7 @@ orchestrator = autopilot
 SCHEMA_DIR = Path(__file__).resolve().parent / "autocode-schemas"
 # Run configuration lives in autocode_configure (which imports neither this
 # module nor autopilot); the shared names stay resolvable here for argparse,
-# the status command and the frozen dashboard.
+# the status command and the dashboard.
 DEFAULT_ROLE_MODELS = autocode_configure.DEFAULT_ROLE_MODELS
 DEFAULT_ENGINE = autocode_configure.DEFAULT_ENGINE
 BUDGET_ARGUMENTS = autocode_configure.BUDGET_ARGUMENTS

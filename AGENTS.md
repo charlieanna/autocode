@@ -14,14 +14,17 @@ not to add surface area. See `RELIABILITY.md` for product priorities.
 | `tests/test_*.py` | Unit and integration tests (`unittest`). `tests/__init__.py` puts `tools/` on `sys.path`, so tests import runtime modules by their top-level names (`import autopilot`, `from units import autoreview`). |
 | `scenarios/` | End-to-end scenario harness and catalog. Black box: it drives the CLI and never imports `tools/`. |
 | `test-scenarios/` | Older fault-injection suite (crash/resume, budgets, dirty workspaces) against a fake Codex. |
-| `tools/dashboard/`, `macos-app/` | Browser dashboard and native macOS host. Frozen: bug fixes only. |
+| `tools/dashboard/`, `macos-app/` | Browser dashboard and native macOS host: clients of the core. |
 | `docs/` | User documentation. |
 
-**Frozen since 2026-09-26: the browser dashboard (`tools/dashboard/`) and the
-macOS app (`macos-app/`).** Bug fixes only, no new features, until the core is
-consolidated. Their tests stay in the suite gate. The installed macOS app runs
-the dashboard straight from this checkout, so a change that breaks the dashboard
-breaks the app. The core must not import the dashboard.
+**The browser dashboard (`tools/dashboard/`) and the macOS app (`macos-app/`)
+are open for features again** (owner decision, 2026-10-16; they were frozen from
+2026-09-26). New client work follows #730: the core exposes what a client needs
+through the task-run interface (`docs/task-run.md`) first, and the client renders
+it and runs the actions the status view names. Their tests stay in the suite
+gate. The installed macOS app runs the dashboard straight from this checkout, so
+a change that breaks the dashboard breaks the app. The core must not import the
+dashboard.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports
 were archived at tag `archive/pre-restructure-2026-09-26`

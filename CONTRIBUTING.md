@@ -41,7 +41,8 @@ Cross-task coordination uses [TaskRun](docs/task-run.md), not private runner
 calls or another run's `state.json`. Run state remains a dict:
 [autocode_run_state.py](tools/autocode_run_state.py) names its keys and readers;
 add any necessary new key there with its writer and consumers. Status-view
-fields are additive. The dashboard and macOS app remain frozen for bug fixes.
+fields are additive. The dashboard and macOS app are clients of that interface:
+add what they need to the core first, and never import the dashboard from it.
 
 ### Stages and jobs
 

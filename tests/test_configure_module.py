@@ -2,7 +2,7 @@
 
 Covers the autocode_configure extraction contract: the module imports nothing
 from the CLI or the controller, keeps the shared names resolvable on the runner
-module for the frozen dashboard and status command, and the runner wrappers
+module for the dashboard and status command, and the runner wrappers
 pass the same collaborators a direct call receives.
 
 The module-level imports of autocode_configure and tests.test_planning are
@@ -111,7 +111,7 @@ class ConfigureModuleSurfaceTests(unittest.TestCase):
             autocode_configure.DEFAULT_ROLE_MODELS,
         )
         self.assertEqual("opencode", autocode_configure.DEFAULT_ENGINE)
-        # The runner module keeps resolving the shared names (frozen dashboard,
+        # The runner module keeps resolving the shared names (dashboard,
         # status command and argparse all read them through autocode).
         self.assertTrue(callable(runner.configure))
         self.assertTrue(callable(runner.check_subscription))
