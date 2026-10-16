@@ -9,7 +9,7 @@ import time
 
 from . import catalog
 from .component_services import running
-from .driver import REPO, DriveError, Driver, InterruptedDrive, default_autocode, fake_setup, metrics
+from .driver import REPO, DriveError, Driver, InterruptedDrive, attribute, default_autocode, fake_setup, metrics
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 from .project import git, overlay_paths
 
@@ -24,7 +24,8 @@ def drive(scenario, args, out, project, flags, env, decisions=None):
     ``decisions``, a dict the caller owns, receives the harness's ``answers`` and ``approvals`` as soon as the
     architecture driver exists, and the lists keep filling as the run goes on, so a drive that raises (an
     interruption, a harness error) still leaves the decisions it made. The architecture driver's own approvals
-    are there, and one ``auto_approve`` row for every components CLI call launched with ``--auto-approve``.
+    are there, each naming the architecture run's ``run_dir``, and one ``auto_approve`` row for every components
+    CLI call launched with ``--auto-approve``, which names no run.
     """
     architecture_scenario = catalog.load(scenario.components_architecture)
     architecture_out = out / "architecture-run"
@@ -47,7 +48,10 @@ def drive(scenario, args, out, project, flags, env, decisions=None):
     )
     if decisions is not None:
         decisions.update(answers=driver.answers, approvals=driver.approvals)
-    driver.drive(architecture_scenario.brief)
+    try:
+        driver.drive(architecture_scenario.brief)
+    finally:
+        attribute(driver.approvals, driver.run_dir)
     view = driver.view()
     if not view.get("complete") and view.get("status") != "TASK_COMPLETE":
         raise DriveError(f"architecture did not complete: {view.get('status')}")
