@@ -902,6 +902,10 @@ PR template asks for an entry here; a change without one is incomplete.
   retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
   receipts distinguish active execution from deliberate ready handoffs; status
   stays read-only and recovery persists under the existing run lock (#1021).
+- A native planning launch whose recorded private-read denial was weakened, such as one that no longer lists the
+  run store, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after the boundary
+  was prepared; the store-specific pause now needs a boundary that otherwise verifies against its proof. A test
+  also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
 
 ## [0.7.1] — 2026-10-09
 
