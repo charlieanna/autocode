@@ -259,6 +259,10 @@
     "bytes": 16076,
     "sha256": "707c67144828b4a51e9fdd585ff7077593bfa87208caadc214b455507ade9c7b"
   },
+  "package/investigate_bug": {
+    "bytes": 8738,
+    "sha256": "289381b3a7c04a8525450ac8ca8a54ea4bac4afd1cc7b7d51e1e75747f00926f"
+  },
   "package/terra": {
     "bytes": 12868,
     "sha256": "cbde47b98859cada541401ebdc88c6a954ed55d357526f079bdd57646f0add78"

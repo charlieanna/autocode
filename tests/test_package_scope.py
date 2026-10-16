@@ -629,7 +629,12 @@ class PackageSuite(unittest.TestCase):
 
         note = "docs/bugs/blank-name.json"
         case = {"id": "blank", "given": "a blank name", "when": "greet runs", "then": "it is rejected"}
-        report = diagnosis(note_path=note, test_cases=[case])
+        report = diagnosis(
+            note_path=note,
+            test_cases=[case],
+            affected_paths=[f"{GREET}/greet.py"],
+            test_paths=[f"{GREET}/test_greet.py"],
+        )
         output = self.run_dir / "bug-investigation-01.json"
         output.write_text(json.dumps(report))
         state = bugfix_state(self.project)

@@ -29,6 +29,7 @@ import autocode_goals as goals
 import autocode_milestone_replan as replan
 import autocode_milestones as milestones
 import autocode_output_policy as output_policy
+import autocode_package_writes as package_writes
 import autocode_progressive_state as progressive
 import autocode_protected_oracles as protected_oracles
 import autocode_provider_launch as provider_launch
@@ -167,10 +168,22 @@ def rendered_cases():
                 "context/protected-tests",
                 json.dumps(protected_oracles.context({"protected_tests": record}, ["tests/"]), sort_keys=True),
             )
-        # A package run's Builder is told its write scope (#711).
+        # A package run's Builder is told its write scope, and its Investigator the package and its suite (#711).
         state = fixed_state()
         state["settings"]["package"] = "packages/greeting"
         add("package/terra", stage_context.context_packet(state, "terra", STATE_PATH))
+        state["settings"]["protected_tests"] = {"command": "cd packages/greeting && python3 -m unittest discover -v"}
+        add(
+            "package/investigate_bug",
+            bug.prompt(
+                state,
+                {"files": ["packages/greeting/greeting.py"]},
+                engine="codex",
+                scratch_workspace=WORKSPACE + "/.autocode/investigation/fixed",
+                python_executable="/prompt-fixture/python",
+                package_context=package_writes.context(state["settings"], bug.STAGE),
+            ),
+        )
         previous = {
             "revision": 1,
             "design_under_review": "docs/design.md",

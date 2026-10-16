@@ -6,6 +6,8 @@ cause, and returns a diagnosis. The runner then:
 
 - rejects the report if the stage changed anything in the workspace outside
   ``docs/bugs/`` (investigating is read-only; the before/after snapshot is the evidence),
+- in a run of one package (--package), whose handoff names it (``package_scope``), rejects a
+  reproduced bug whose affected or test paths are outside the package (#711),
 - writes the diagnosis note (``note_path``, under ``docs/bugs/``) from the
   validated report, before any fix exists,
 - waits for the reporter when an unreproduced report has unanswered questions,
@@ -53,11 +55,12 @@ import datetime as dt
 import hashlib
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
     from . import autocode_bug_questions as bug_questions
+    from . import autocode_package_scope as package_scope
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from . import autocode_util as util
@@ -71,6 +74,7 @@ try:
     )
 except ImportError:
     import autocode_bug_questions as bug_questions
+    import autocode_package_scope as package_scope
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_util as util
@@ -170,9 +174,14 @@ def prompt(
     *,
     scratch_workspace: str | None = None,
     python_executable: str | None = None,
+    package_context: dict | None = None,
 ) -> tuple[str, dict]:
+    """``package_context`` is what a package run tells the Investigator about its package
+    (autocode_package_writes.context), handed over as ``package_scope``."""
     instruction = PROMPT
     data = packet(state, inventory, engine)
+    if package_context:
+        data["package_scope"] = package_context
     if scratch_workspace is not None:
         start = instruction.index("2. Try to reproduce")
         end = instruction.index("3. If it reproduces")
@@ -184,8 +193,9 @@ def prompt(
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
-def check(value: dict, changed_files) -> None:
-    """Reject an investigation that wrote into the repository or does not say what it found."""
+def check(value: dict, changed_files, package: str | None = None) -> None:
+    """Reject an investigation that wrote into the repository or does not say what it found, or, in a
+    run of one ``package`` (--package), a reproduced bug whose affected or test paths are outside it."""
     stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
@@ -210,6 +220,13 @@ def check(value: dict, changed_files) -> None:
         unsafe = [path for path in value["affected_paths"] + value["test_paths"] if not safe_path(path)]
         if unsafe:
             raise ValueError(f"Paths must be relative paths inside the repository: {unsafe}")
+        elsewhere = outside_package(package, value["affected_paths"] + value["test_paths"]) if package else []
+        if elsewhere:
+            raise ValueError(
+                f"This run works in the package {package}/ (--package): affected_paths and test_paths must "
+                f"name files inside it, not {', '.join(elsewhere)}. A fix outside the package needs a run "
+                "without --package."
+            )
         check_cases(value.get("test_cases") or [])
         probe, untestable = value.get("probe", "").strip(), value.get("untestable", "").strip()
         if bool(probe) == bool(untestable):
@@ -249,6 +266,17 @@ def check_cases(cases: list) -> None:
     bad_kinds = sorted({case.get("kind", "restore") for case in cases} - {"restore", "preserve"})
     if bad_kinds:
         raise ValueError(f"A test case kind is restore or preserve: {bad_kinds}")
+
+
+def outside_package(package: str, paths) -> list[str]:
+    """The ``paths`` not inside ``package``, sorted; the package directory itself is inside it."""
+    return sorted(
+        {
+            path
+            for path in paths
+            if (name := PurePosixPath(path).as_posix()) != package and not package_scope.contains(package, name)
+        }
+    )
 
 
 def safe_path(path: str) -> bool:
@@ -323,7 +351,8 @@ def diagnosis_artifact(state: RunState, workspace) -> dict | None:
 def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None) -> None:
     """``run_probe(command)`` runs the probe in a scratch copy (the unit passes autocode_verify.scratch_run);
     without it a probed reproduction is rejected rather than trusted."""
-    check(value, record.get("changed_files"))
+    # The diagnosis note itself stays under docs/bugs/ at the repository root, inside or outside a package.
+    check(value, record.get("changed_files"), package_scope.of(state.get("settings")))
     if (
         value["outcome"] == "not_reproduced"
         and value["questions"]

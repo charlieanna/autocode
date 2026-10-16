@@ -558,6 +558,14 @@ PR template asks for an entry here; a change without one is incomplete.
   budget above the slice's counted time, which a resume does not restart, and `--max-seconds` when the stop names
   `run_seconds`. The request's options, the status view's `needs.action` and the progress line still offer that
   response, which AutoResolver holds at this stop as before; what releases the pause is unchanged (#611).
+- In a `--package` bug fix, the Investigator is told the package (#711). Its handoff gains `package_scope`: the
+  package, `suite` (the command the run tests the package with, the suite detected there or `--test-command`) when
+  the run has one, and an instruction to name only files inside the package. A reproduced diagnosis whose
+  `affected_paths` or `test_paths` name anything outside the package is refused as invalid output, so it goes
+  through report repair with the reason and the run pauses rather than plan from it; before, it was accepted and the
+  fix was planned from it. The diagnosis note stays under `docs/bugs/` at the repository root and is still left out
+  of the check for changes outside the package. The scripted Investigator in `scenarios/` names only the package's
+  files when its handoff names a package, so `bugfix-monorepo-package`'s broken variant still reaches the Builder.
 
 ### Removed
 

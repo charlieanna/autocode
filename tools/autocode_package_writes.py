@@ -1,19 +1,21 @@
 """A change outside a package run's package is a runner finding (#711).
 
-``--package PATH`` (autocode_package_scope) is the Builder's write scope, and only the Builder's
-handoff says so (``context``); no other stage is given the package. Before each Tester and Completion
-Reviewer dispatch (``sol``, ``astra_checkpoint``, ``astra_review``; autocode_regression.before_review
-calls ``check``), whether or not the run owes a regression proof, the runner compares the candidate
-with the run's base as the regression proof reads it (autocode_verify.changed_files, with the approved
-plan's declared source paths). The Code Reviewer, Designer and Design Reviewer dispatches are not
-checked. A change outside the package opens one blocking finding with source ``runner`` in the
-findings ledger, naming each path and what happened to it. The ordinary route carries it: the
-completion gate and a milestone's acceptance refuse while it is open, every stage sees it in
-``open_findings``, and a correction task is assigned it. Only this module closes it, when a later
-check finds no change outside the package; no model report can (autocode_findings applies a
-reviewer's dispositions to its own source only). A user who closes it with --close-finding accepts
-nothing: --accept-completion runs the same check (``refuse``) after its own guards and refuses while
-the change is there, and the next check before review opens a new finding.
+``--package PATH`` (autocode_package_scope) is the Builder's write scope, and its handoff says so
+(``context``). The bug-fix Investigator's handoff names the package and its suite (``context`` too),
+and autocode_bug_job.check refuses a reproduced diagnosis that names a file outside it; no other
+stage is given the package. Before each Tester and Completion Reviewer dispatch (``sol``,
+``astra_checkpoint``, ``astra_review``; autocode_regression.before_review calls ``check``), whether
+or not the run owes a regression proof, the runner compares the candidate with the run's base as the
+regression proof reads it (autocode_verify.changed_files, with the approved plan's declared source
+paths). The Code Reviewer, Designer and Design Reviewer dispatches are not checked. A change outside
+the package opens one blocking finding with source ``runner`` in the findings ledger, naming each
+path and what happened to it. The ordinary route carries it: the completion gate and a milestone's
+acceptance refuse while it is open, every stage sees it in ``open_findings``, and a correction task
+is assigned it. Only this module closes it, when a later check finds no change outside the package;
+no model report can (autocode_findings applies a reviewer's dispositions to its own source only). A
+user who closes it with --close-finding accepts nothing: --accept-completion runs the same check
+(``refuse``) after its own guards and refuses while the change is there, and the next check before
+review opens a new finding.
 
 What counts is what changed_files reports: a file added, modified (its content or its mode) or
 deleted, a rename being both. It leaves out AutoCode's run state, bytecode, the runner's dependency
@@ -42,15 +44,16 @@ longer as it was. Anything else counts: a lockfile or workspace file at the repo
 by every package, so a change to it is reported too.
 
 It imports nothing above it: autocode_regression (the check before review, the launch record of an
-in-place run, the proof's ``exempt``), autocode_run_setup (the launch record of a new task worktree),
-autocode_stage_context (``context``) and the --accept-completion step (autocode_action_decisions,
-``refuse``) call it. State: ``package_outside_at_launch`` ({path: added or modified}, written once by
-``at_launch`` in every new package run whose base is known, {} when nothing is there; read here);
-and findings_ledger rows with source ``runner`` and ``package`` (the run's package), ``paths``
-({path: added, modified or deleted}), ``runner_files`` ({path: change}), ``held`` ({path: deleted or
-no longer a Git repository}) and ``source_revision`` (the source the check last found them on),
-fields read only here. It also reads ``investigation``, ``review``, ``design_review``,
-``design_check.blockers`` and ``turns[].previous.wrote``.
+in-place run, the proof's ``exempt``), autocode_run_setup (the launch record of a new task
+worktree), autocode_stage_context and units.autoresolver (``context``) and the --accept-completion
+step (autocode_action_decisions, ``refuse``) call it. State: ``package_outside_at_launch`` ({path:
+added or modified}, written once by ``at_launch`` in every new package run whose base is known, {}
+when nothing is there; read here); and findings_ledger rows with source ``runner`` and ``package``
+(the run's package), ``paths`` ({path: added, modified or deleted}), ``runner_files`` ({path:
+change}), ``held`` ({path: deleted or no longer a Git repository}) and ``source_revision`` (the
+source the check last found them on), fields read only here. It also reads ``investigation``,
+``review``, ``design_review``, ``design_check.blockers``, ``turns[].previous.wrote`` and, for the
+Investigator's handoff, ``settings.protected_tests``.
 """
 
 from __future__ import annotations
@@ -90,11 +93,22 @@ STAGES = ("sol", "astra_checkpoint", "astra_review")
 REPORTS = (("review", "report_path", "report_sha256"), ("design_review", "report_path", "report_sha256"))
 
 
-def context(settings) -> dict | None:
-    """The Builder's write scope in a package run, for its handoff; None for a run of the whole repository."""
+def context(settings, stage="terra") -> dict | None:
+    """What a package run's handoff tells ``stage`` about its package; None for a run of the whole repository.
+
+    The Builder's is its write scope (``write_scope``, autocode_stage_context). The bug-fix Investigator's
+    (``package_scope``, units.autoresolver) also names the command the run's protected tests run with
+    (``suite``: the suite detected in the package, or --test-command), when the run has one."""
     package = package_scope.of(settings)
     if package is None:
         return None
+    if stage == bug_job.STAGE:
+        suite = (settings.get("protected_tests") or {}).get("command")
+        return {
+            "package": package + "/",
+            **({"suite": suite} if isinstance(suite, str) and suite.strip() else {}),
+            "instruction": prompts.get("fragments/package-scope/investigator.md").format(package=package),
+        }
     return {
         "package": package + "/",
         "instruction": prompts.get("fragments/package-scope/builder.md").format(package=package),

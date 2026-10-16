@@ -33,6 +33,7 @@ try:
     from .. import autocode_investigation_workspace as investigation_workspace
     from .. import autocode_job_report_recovery as job_report_recovery
     from .. import autocode_launch_inputs as launch_inputs
+    from .. import autocode_package_writes as package_writes
     from .. import autocode_providers
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_resolver_human as human
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_investigation_workspace as investigation_workspace
     import autocode_job_report_recovery as job_report_recovery
     import autocode_launch_inputs as launch_inputs
+    import autocode_package_writes as package_writes
     import autocode_providers
     import autocode_recovery_novelty as novelty
     import autocode_resolver_human as human
@@ -114,6 +116,8 @@ def prepare_investigation(state: RunState):
             state["workspace"], (state["settings"].get("regression") or {}).get("test_command")
         )
         or verify.python_for(state["workspace"]),
+        # A package run names its package and suite; the diagnosis must stay inside it (#711).
+        package_context=package_writes.context(state["settings"], bug_job.STAGE),
     )
     return ModelRequest("astra", "investigator", prompt, metrics, bug_job.SCHEMA, True)
 
