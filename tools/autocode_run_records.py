@@ -27,6 +27,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_accounting as accounting
+    from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_resolver_human as resolver_human
     from . import autocode_roles as roles
     from . import autocode_run_status as run_status
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_progressive_state as progressive
     import autocode_recovery_accounting as accounting
+    import autocode_report_repair_queue as report_repair_queue
     import autocode_resolver_human as resolver_human
     import autocode_roles as roles
     import autocode_run_status as run_status
@@ -53,6 +55,8 @@ except ImportError:
     import autocode_worker_quota as worker_quota
     import autocode_workflow as workflow
     import autopilot
+
+repair_limit = report_repair_queue.repair_limit  # the bound lives with the repair queue
 
 
 def check_evidence_options(record):
@@ -436,13 +440,6 @@ def stage_completed(state, record):
             return False
         return any(event.get("type") == "turn.completed" for event in support.events(record["events"]))
     return record.get("exit_code") == 0 and bool(record.get("output")) and Path(record["output"]).is_file()
-
-
-def repair_limit(state):
-    limit = state.get("settings", {}).get("report_repair", {}).get("max_attempts", 0)
-    if type(limit) is not int or not 0 <= limit <= 2:
-        raise ValueError("report_repair.max_attempts must be an integer from 0 to 2")
-    return limit
 
 
 def archive_rejected_stage(state, run_dir, record, reason):

@@ -130,13 +130,15 @@ def drive(
     persist=None,
     active=lambda value: value.get("status") == "RUNNING",
     investigate=False,
+    queue=True,
 ):
     """Run the saved state's next stage until its workflow reaches a boundary.
 
     Units own prompts and schemas; Autopilot owns code-workflow transitions. The loop itself
     (guard -> select saved stage -> dispatch -> apply -> persist) is autocode_stuck_job.drive;
     SKIP from a hook restarts from the newly saved state without pretending a stage completed.
-    With ``investigate``, a stage that stops converging goes to the Investigator before a pause.
+    With ``investigate``, a stage that stops converging goes to the Investigator before a pause,
+    unless ``queue`` is False (an authority that cannot launch it; see autocode_stuck_job.drive).
     """
     return stuck.drive(
         state,
@@ -149,6 +151,7 @@ def drive(
         skip=SKIP,
         paused=support.Paused,
         investigate=investigate,
+        queue=queue,
     )
 
 
