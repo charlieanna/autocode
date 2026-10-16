@@ -4,13 +4,25 @@ import hashlib
 import json
 import os
 import runpy
+import time
 from pathlib import Path
+
+# Fault "recovery_novelty_slow_build" (scenarios/catalog/milestone-budget-climb) is the "fix" route with a second
+# Builder attempt that holds its provider slot this long. AutoCode times each attempt on its own clock, so only a real
+# wait gives that attempt the duration its stronger attempt is projected from. The milestone counts this attempt too,
+# so the milestone's time plus the projection is at least twice this, past the scenario's 100 s milestone budget,
+# while the milestone's five other stages before the climb have 40 s before its own count reaches that budget.
+SLOW_BUILD_SECONDS = 60
 
 
 def report_for(stage, data, common, config, run_check, requirements):
     helper = runpy.run_path(str(Path(__file__).with_name("completion_rework_provider.py")))
     nonpython = config["fault"] == "recovery_novelty_nonpython"
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "rework-trace.jsonl"
+    if config["fault"] == "recovery_novelty_slow_build" and stage == "terra":
+        previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
+        if sum(row["stage"] == "terra" for row in previous) == 1:
+            time.sleep(SLOW_BUILD_SECONDS)
     if nonpython and stage == "terra":
         previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
         count = sum(row["stage"] == "terra" for row in previous) + 1

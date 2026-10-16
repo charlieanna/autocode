@@ -297,6 +297,15 @@ PR template asks for an entry here; a change without one is incomplete.
   after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
   work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
   judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- Two scenario catalog cases for #611, each with an oracle, a reference and broken variants.
+  `milestone-budget-climb` builds under `--max-milestone-seconds 100` with a scripted 60-second second Builder
+  attempt, so the Builder's stronger attempt projected from it would cross the budget: the run must pause
+  `PAUSED_MILESTONE_BUDGET` before that attempt launches, with arithmetic that holds, and the acknowledged resume
+  must launch exactly that attempt. It is a known failure for now: that resume stops at `PAUSED_STALE_HANDOFF`,
+  because the known-correction repair's recovery packet is bound to the milestone budget. `rework-same-failure`
+  has a correct greeting repair whose required suite also fails a release test the task may not change: the run
+  must stop after the second identical failure, naming the check, with no paid diagnosis or third Builder attempt
+  and most of its $5 cap left; it passes today.
 
 ### Changed
 

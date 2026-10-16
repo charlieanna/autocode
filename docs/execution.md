@@ -255,7 +255,11 @@ the projection, the milestone's time so far, the total and the budget to resume 
 active time, the last Builder attempt's duration, it would take this milestone's active time from
 650 s to 1,250 s, past the 1,000 s milestone budget you set ... resume with --max-milestone-seconds
 1250 or more`. The climb stays saved, so `--resume-paused --max-milestone-seconds M` with `M` at
-least that total launches that same attempt; that resume also restarts the milestone's count, as
+least that total launches that same attempt. Known limitation (#611): when the stronger attempt is
+the one a known-correction repair chose (an attested `recovery_change`, see
+[Evidence-bound repair](#evidence-bound-repair)), that resume changes the settings the repair's
+recovery packet is bound to, so the attempt stops at `PAUSED_STALE_HANDOFF` instead; the
+`milestone-budget-climb` scenario records it as a known failure. That resume also restarts the milestone's count, as
 it always does. Reasserting the saved budget alone does not acknowledge this pause; any other
 `M`, or `0` for no limit, does, and the attempt is then checked against `M` from the restarted
 count. Only the Builder is checked against this budget, since it gates writer launches; a Tester or
@@ -1203,6 +1207,11 @@ new attempt. A supported known correction still receives the ordinary retry or
 escalation decision, assignment checks, fresh independent validation and the
 Completion gate. Unsupported changes remain unknown rather than being treated as
 proven progress.
+
+The `rework-same-failure` scenario (scenarios/README.md) shows the hold on a correct repair: the
+required suite keeps failing on a file the task may not change, so after the second identical
+failure the run stops at `RESOLVER_PENDING` naming that check, with no paid diagnosis or third
+Builder attempt and most of its cost cap left (#611).
 
 An attempt that automatic recovery archived because it ended without a completed
 turn (a provider timeout, capacity or startup failure, or a denied path) returned
