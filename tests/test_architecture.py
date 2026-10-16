@@ -391,6 +391,64 @@ def direct_state_json_writers() -> set[str]:
     return writers
 
 
+def private_core_uses(source: str, core: set[str]) -> list[str]:
+    """`line:name` for each underscore-private name the source takes from a core module.
+
+    A core module is a top-level module of tools/; it is reached by `import`, `from .. import`
+    (aliases included) or `from core import _name`."""
+    tree = ast.parse(source)
+    aliases, found = set(), []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            aliases.update(a.asname or a.name for a in node.names if a.name in core)
+        elif isinstance(node, ast.ImportFrom):
+            module = (node.module or "").removeprefix("autocode_cli.")
+            if module in core:
+                found += [f"{node.lineno}:{module}.{a.name}" for a in node.names if a.name.startswith("_")]
+            elif not module:
+                aliases.update(a.asname or a.name for a in node.names if a.name in core)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in aliases
+            and node.attr.startswith("_")
+            and not node.attr.startswith("__")
+        ):
+            found.append(f"{node.lineno}:{node.value.id}.{node.attr}")
+    return sorted(found)
+
+
+def dashboard_private_core_uses() -> dict[str, list[str]]:
+    modules = source_modules()
+    core = {name for name in modules if "." not in name}
+    return {
+        name: uses
+        for name, path in sorted(modules.items())
+        if name.startswith("dashboard.") and (uses := private_core_uses(path.read_text(encoding="utf-8"), core))
+    }
+
+
+def state_json_names(source: str) -> list[int]:
+    """Line numbers of each string literal naming exactly state.json."""
+    return sorted(
+        node.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and node.value == "state.json"
+    )
+
+
+def dashboard_state_json_readers() -> set[str]:
+    """Dashboard modules other than its one run-state reader that name state.json."""
+    return {
+        name
+        for name, path in source_modules().items()
+        if name.startswith("dashboard.")
+        and name != "dashboard.dashboard_run_state"
+        and state_json_names(path.read_text(encoding="utf-8"))
+    }
+
+
 class ArchitectureTests(unittest.TestCase):
     def test_source_inventory_includes_nested_runtime_and_excludes_fixtures(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -463,6 +521,39 @@ class ArchitectureTests(unittest.TestCase):
             'util.atomic_json(directory / "state.json.bak", state)\n'
         )
         self.assertEqual([1], _atomic_state_json_lines(source))
+
+    def test_the_dashboard_uses_only_public_names_of_the_core(self):
+        # The dashboard is a client of the core (#730): a private helper can change without notice.
+        self.assertEqual(
+            {}, dashboard_private_core_uses(), "give the helper a public name in its core module, then use that"
+        )
+
+    def test_the_private_name_scan_sees_every_import_form(self):
+        source = (
+            "from .. import autocode_conversation as protocol\n"
+            "import autocode_util\n"
+            "from autocode_cli.autocode_status import _persist, persist\n"
+            "protocol._atomic_json(path, value)\n"
+            "autocode_util.__name__\n"
+            "local._helper()\n"
+            "autocode_util._lock()\n"
+        )
+        core = {"autocode_conversation", "autocode_util", "autocode_status"}
+        self.assertEqual(
+            ["3:autocode_status._persist", "4:protocol._atomic_json", "7:autocode_util._lock"],
+            private_core_uses(source, core),
+        )
+
+    def test_the_dashboard_reads_saved_run_state_in_one_module(self):
+        # New dashboard reads go through the status view (status_view); the run list's raw reads
+        # stay in dashboard_run_state until the view carries what it shows (#730).
+        self.assertEqual(
+            set(), dashboard_state_json_readers(), "read state.json through dashboard_run_state, or use status_view"
+        )
+
+    def test_the_state_json_name_scan_sees_the_literal(self):
+        source = 'run / "state.json"\nrun / "state.json.bak"\nopen("state.json")\n'
+        self.assertEqual([1, 3], state_json_names(source))
 
     def test_largest_modules_do_not_grow(self):
         for name, limit in MAX_LINES.items():

@@ -799,7 +799,7 @@ class ContinuousConversationStore(
         if isinstance(raw_events, str):
             path = self._raw_result_path(doc["id"], logical_turn)
             payload = {"sha256": hashlib.sha256(raw_events.encode("utf-8")).hexdigest(), "events": raw_events}
-            conversation_protocol._atomic_json(path, payload)
+            conversation_protocol.write_private_json(path, payload)
             raw_record = {"path": str(path), "sha256": payload["sha256"]}
         fields = {"result": result, "raw_result": raw_record}
         if session_id:
@@ -1148,7 +1148,7 @@ class ContinuousConversationStore(
                         return
                     path = self._raw_result_path(conversation_id, "planner-" + logical_turn)
                     payload = {"sha256": hashlib.sha256(raw_events.encode("utf-8")).hexdigest(), "events": raw_events}
-                    conversation_protocol._atomic_json(path, payload)
+                    conversation_protocol.write_private_json(path, payload)
                     dispatch = conversation_protocol.transition(
                         dispatch, current, raw_result={"path": str(path), "sha256": payload["sha256"]}
                     )
@@ -1322,7 +1322,7 @@ class ContinuousConversationStore(
         )
         # The authoritative protocol normalize validates the committed records.
         normalized = conversation_protocol.normalize_document(doc)
-        normalized["plan_drafts"] = conversation_protocol._plan_drafts(normalized.get("plan_drafts", []))
+        normalized["plan_drafts"] = conversation_protocol.normalize_plan_drafts(normalized.get("plan_drafts", []))
         doc.clear()
         doc.update(normalized)
         dispatch = (doc.get("_planner_dispatches") or {}).get(logical_turn)

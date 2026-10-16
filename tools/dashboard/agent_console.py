@@ -42,8 +42,10 @@ GLM_MODELS = {"astra": "glm-5.3", "terra": "glm-5.3-flash", "sol": "glm-5.3", "c
 DEFAULT_REASONING_EFFORTS = {"astra": "high", "terra": "medium", "sol": "high", "completion": "medium"}
 REASONING_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 try:
+    from . import dashboard_run_state as run_state
     from .dashboard_setup import BARE_OPENAI_ALIASES, MODEL_ID, OPENAI_ALIAS_ROLES, conversation_model_fields
 except ImportError:
+    import dashboard_run_state as run_state
     from dashboard_setup import BARE_OPENAI_ALIASES, MODEL_ID, OPENAI_ALIAS_ROLES, conversation_model_fields
 
 
@@ -676,13 +678,13 @@ class LegacyConsole:
             root = (ws / ".autocode/runs").resolve(strict=True)
             root.relative_to(ws)
             r.relative_to(root)
-            (r / "state.json").resolve(strict=True).relative_to(root)
+            run_state.path(r).resolve(strict=True).relative_to(root)
         except (OSError, ValueError):
             return None
-        return r if r.is_dir() and (r / "state.json").is_file() else None
+        return r if r.is_dir() and run_state.path(r).is_file() else None
 
     def view(self, ws, run, s=None):
-        s = obj(s) if s is not None else json_file(run / "state.json")
+        s = obj(s) if s is not None else json_file(run_state.path(run))
         contract = obj(s.get("goal_contract"))
         body = obj(contract.get("body"))
         criteria = items(body.get("acceptance_criteria")) or items(s.get("acceptance_criteria"))
@@ -762,7 +764,7 @@ class LegacyConsole:
                         }
                     )
                     continue
-                s = json_file(run / "state.json")
+                s = json_file(run_state.path(run))
                 rows.append(
                     {"workspace": str(ws), "run": str(run), "error": "state unavailable: " + s["_console_error"]}
                     if "_console_error" in s

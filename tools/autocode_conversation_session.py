@@ -158,7 +158,7 @@ def start(
             "source": str(source),
             "prior_runs": [str(path) for path in driver_class.runs_in(workspace)],
         }
-        protocol._atomic_json(marker, saved)
+        protocol.write_private_json(marker, saved)
         run = driver_class.start(
             workspace,
             protocol.task_text(handoff),
@@ -177,7 +177,7 @@ def start(
             timeout=timeout,
             cwd=cwd,
         )
-        protocol._atomic_json(marker, {**saved, "run_dir": str(run.run_dir)})
+        protocol.write_private_json(marker, {**saved, "run_dir": str(run.run_dir)})
         return run
 
 

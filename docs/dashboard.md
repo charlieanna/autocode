@@ -108,6 +108,14 @@ stale, disables mutations, and offers **Retry status**. Refreshing the project l
 does not make a failed task read look current. HTTP read failures never resume,
 restart, or retry an agent stage.
 
+An open task also carries the run's public status view (`status_view`, from the
+same cached `autocode --status` call that fills the intervention panel), so
+detail panes read fields such as `changes_by_criterion`, `dev_server` and `needs`
+from the contract in [docs/task-run.md](task-run.md). It is `null` when that call
+fails. The project list still reads saved run state for fields the view does not
+carry; that read is confined to `dashboard_run_state.py`, and the dashboard uses
+only public names of core modules (both checked in `tests/test_architecture.py`).
+
 ## Project-specific counters
 
 Project-specific counters are optional. Declare a read-only projection in the

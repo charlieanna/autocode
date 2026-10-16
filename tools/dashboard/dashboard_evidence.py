@@ -1,16 +1,20 @@
 """Bounded reads of saved diffs and explicitly recorded changed project files."""
 
-import json
 import os
 import stat
 from pathlib import Path
+
+try:
+    from . import dashboard_run_state as run_state
+except ImportError:  # Direct source launch.
+    import dashboard_run_state as run_state
 
 MAX_DIFF_BYTES = 192 * 1024
 
 
 def stage_evidence(run, index=None, workspace=None, file_index=None):
     run = Path(run).resolve(strict=True)
-    state = json.loads((run / "state.json").read_text())
+    state = run_state.read(run)
     stages = state.get("stages", [])
     if not isinstance(stages, list):
         stages = []

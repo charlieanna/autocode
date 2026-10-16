@@ -10,6 +10,11 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+try:
+    from . import dashboard_run_state as run_state
+except ImportError:  # Direct source launch.
+    import dashboard_run_state as run_state
+
 
 def mapping(value):
     return value if isinstance(value, dict) else {}
@@ -279,7 +284,7 @@ def snapshot(state, run, detailed=False, process_snapshot=_PROCESS_TABLE_UNSET):
     result = {
         "checked_at": stamp(time.time()),
         "live": live,
-        "checkpoint_updated": modified(run / "state.json"),
+        "checkpoint_updated": modified(run_state.path(run)),
         "log_updated": modified(path),
         "workflow_mode": mapping(settings.get("workflow")).get("mode"),
         "roles": roles,
@@ -306,7 +311,7 @@ def snapshot(state, run, detailed=False, process_snapshot=_PROCESS_TABLE_UNSET):
                 ).resolve()
                 allowed.relative_to(Path(state["workspace"]).resolve())
                 child_run.relative_to(allowed)
-                child = json.loads((child_run / "state.json").read_text())
+                child = run_state.read(child_run)
                 if (
                     child.get("parent_run") == str(run)
                     and child.get("parent_batch") == result["orchestration_batch"]["id"]
