@@ -551,13 +551,22 @@ server answers (any connection, or a status below 400 at `ready-path`) it prints
 the `autocode serve start` process dies, its supervisor ends the server. A run
 has at most one server; a second `start` is refused while one runs.
 
+`start` follows the run's code. After each code-changing step the run applies
+(each new code checkpoint), it stops the server and starts it again, on the same
+port when that port can be bound again, so the address stays the same, and
+prints `Serving http://127.0.0.1:PORT/ again after a code change`. It reads the
+run's `state.json` for this and never writes it. A pause or the run's completion
+leaves the server running, so you can try the app while you answer a question,
+approve a plan or review the result; it stops only when you stop it.
+
 The server never starts, pauses or decides a stage. Its record is
 `dev-server.json` in the run directory, and each start keeps its output and
 supervision receipt under `dev-server/`. `autocode serve status` and
 `autocode --status` (`view.dev_server`) show `configured`, `status` (`off`,
 `starting`, `running`, `stopped`, `exited`, `failed`, or `lost` when the process
 that served it is gone), the `url` while it runs, the `command`, its `port`,
-times, `exit_code`, `reason` and `log`. A server that exits, or does not answer
+times, `exit_code`, `reason`, `log`, `restarts` (how many code changes restarted
+it) and `code_checkpoint` (the code checkpoint it serves). A server that exits, or does not answer
 within `ready-seconds`, ends `start` with exit status 1 and its last output.
 A run started before its project named `serve` has none: name it in
 `.autocode/config.toml` and start a new run.

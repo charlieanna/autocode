@@ -51,16 +51,18 @@ class Workspace(unittest.TestCase):
                     self.workspace,
                     saved,
                     should_stop=stop.is_set,
-                    on_ready=lambda record: result.setdefault("ready", record),
+                    on_ready=lambda record: (
+                        result.setdefault("readies", []).append(record) or result.setdefault("ready", record)
+                    ),
                 )
             except BaseException as error:  # noqa: BLE001 - surfaced by the test
                 result["error"] = error
             finally:
                 ready.set()
 
-        def ready_or_ended():
+        def ready_or_ended(count=1):
             deadline = time.monotonic() + 30
-            while time.monotonic() < deadline and "ready" not in result and not ready.is_set():
+            while time.monotonic() < deadline and len(result.get("readies", ())) < count and not ready.is_set():
                 time.sleep(0.05)
             return result
 
@@ -136,6 +138,44 @@ class ServeTests(Workspace):
         with self.assertRaises(dev_server.Busy) as refused:
             dev_server.serve(self.run_dir, self.workspace, self.saved())
         self.assertIn(running["url"], str(refused.exception))
+
+
+class RestartTests(Workspace):
+    def write_run(self, status, *checkpoints):
+        util.atomic_json(
+            self.run_dir / "state.json",
+            {"status": status, "code_checkpoints": [{"id": ident, "recorded_check": None} for ident in checkpoints]},
+        )
+
+    def test_the_code_version_is_the_latest_code_checkpoint(self):
+        self.assertIsNone(dev_server.code_version({}))
+        self.assertIsNone(dev_server.code_version({"code_checkpoints": []}))
+        rows = [{"id": "code-a"}, {"id": "code-b", "recorded_check": None}]
+        self.assertEqual("code-b", dev_server.code_version({"code_checkpoints": rows}))
+        rows[1]["recorded_check"] = {"verdict": "PASS"}
+        self.assertEqual("code-b", dev_server.code_version({"code_checkpoints": rows}))
+
+    def test_each_code_change_restarts_the_server_on_the_same_port_even_while_the_run_pauses(self):
+        self.write_run("RUNNING", "code-a")
+        _, thread, ready = self.start(self.saved(ready_path="/index.html"))
+        first = ready()["ready"]
+        self.assertEqual(("code-a", 0), (first["code_checkpoint"], first["restarts"]))
+        self.write_run("PAUSED_FOR_REVIEW", "code-a", "code-b")
+        second = ready(2)["readies"][-1]
+        self.assertEqual(
+            ("code-b", 1, first["url"], first["session"]),
+            (second["code_checkpoint"], second["restarts"], second["url"], second["session"]),
+        )
+        self.assertNotEqual(first["id"], second["id"])
+        with urllib.request.urlopen(second["url"] + "index.html", timeout=5) as page:
+            self.assertEqual(b"hello from the app", page.read())
+        shown = dev_server.inspect(self.run_dir, {})
+        self.assertEqual(("running", 1, "code-b"), (shown["status"], shown["restarts"], shown["code_checkpoint"]))
+        ended = dev_server.request_stop(self.run_dir, timeout=20)
+        thread.join(30)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(("stopped", second["id"]), (ended["status"], ended["id"]))
+        self.assertTrue((self.run_dir / dev_server.ATTEMPTS / first["id"] / "output.log").is_file())
 
 
 class InspectTests(Workspace):
@@ -235,6 +275,19 @@ class ServeCliTests(Workspace):
         self.assertIn("stopped", out)
         self.assertEqual(0, process.wait(30))
         self.assertEqual("stopped", dev_server.read(self.run_dir)["status"])
+
+    def test_start_says_when_a_code_change_restarted_the_server(self):
+        self.save_state({"serve": self.saved()})
+        start = ["serve", "start", "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)]
+        process = self.autocode(*start, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        url = process.stdout.readline().split()[1]
+        process.stdout.readline()
+        state = util.read(self.run_dir / "state.json")
+        util.atomic_json(self.run_dir / "state.json", {**state, "code_checkpoints": [{"id": "code-b"}]})
+        self.assertEqual(f"Serving {url} again after a code change (code-b).\n", process.stdout.readline())
+        process.send_signal(signal.SIGINT)
+        self.assertEqual(0, process.wait(30))
 
     def test_ctrl_c_stops_a_foreground_server(self):
         self.save_state({"serve": self.saved()})

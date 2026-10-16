@@ -1234,7 +1234,11 @@ criterion. It is `null` until a plan is approved.
 `status()["dev_server"]` is the run's development server
 ([Development server](cli.md#development-server)): `configured` says whether the
 run saved a `serve` command, `status` is `off`, `starting`, `running`, `stopped`,
-`exited`, `failed` or `lost`, and `url` is set only while it is `running`. The
+`exited`, `failed` or `lost`, and `url` is set only while it is `running`.
+`code_checkpoint` names the code checkpoint the server was started on and
+`restarts` counts the code changes that restarted it; a client can compare
+`code_checkpoint` with the latest `code_checkpoints` row to tell whether the
+preview shows the newest code. The
 status command inspects it on every call; a direct `run_view.view()` without that
 inspection leaves it `null`. Starting and stopping the server is
 `autocode serve`, not a TaskRun method, and it never changes the run.

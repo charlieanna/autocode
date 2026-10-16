@@ -1,7 +1,8 @@
 """`autocode serve`: run a saved run's development server in the foreground, stop it, or show it (#730).
 
 The command is the project's ``serve`` setting, saved with the run when it started (autocode_dev_server_config);
-autocode_dev_server runs it. Nothing here starts, resumes or changes the run itself.
+autocode_dev_server runs it and restarts it after each code change the run applies. Nothing here starts, resumes
+or changes the run itself.
 """
 
 from __future__ import annotations
@@ -106,6 +107,9 @@ def _start(_args, workspace, run_dir, state: RunState) -> int:
 
 
 def _announce(record) -> None:
+    if record.get("restarts"):
+        print(f"Serving {record['url']} again after a code change ({record['code_checkpoint']}).", flush=True)
+        return
     print(f"Serving {record['url']} ({record['command']}).", flush=True)
     print("Stop it with Ctrl-C or: autocode serve stop", flush=True)
 
