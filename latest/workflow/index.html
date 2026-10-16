@@ -2328,7 +2328,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0b0a0d87793ef589cca43ed10825625941a5e837/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2939,7 +2939,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/0b0a0d87793ef589cca43ed10825625941a5e837/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3127,7 +3127,8 @@ out, because the proof accepts it with only a note. When no criterion is marked 
 (or in a design job) it says that nothing shows a check would fail without the change. Approval saves
 <code>READY_TO_EXECUTE</code>; the next ordinary invocation begins execution. The approval records who gave it:
 the Git identity, host and command, plus an optional <code>--as NAME</code> on a shared machine
-(<a href="../execution/#who-approved">Who approved</a>). User-input commands
+(<a href="../execution/#who-approved">Who approved</a>). A project can name the Git identities allowed to
+approve; any other approver is refused at the same stop (<a href="../execution/#required-approver">Required approver</a>). User-input commands
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.</p>
 <p>Execution roles must consult saved answers before asking for permission. An exact

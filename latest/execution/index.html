@@ -1323,6 +1323,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Who approved">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-approver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required approver
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -2299,6 +2316,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Who approved">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-approver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required approver
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -2504,7 +2538,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0b0a0d87793ef589cca43ed10825625941a5e837/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2828,17 +2862,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/0b0a0d87793ef589cca43ed10825625941a5e837/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/0b0a0d87793ef589cca43ed10825625941a5e837/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/0b0a0d87793ef589cca43ed10825625941a5e837/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3050,9 +3084,10 @@ typed, and the option names of that invocation, never their values, so tokens st
 <p>On a shared machine add <code>--as NAME</code> to <code>--approve-goal</code>, <code>--approve-review</code>, <code>--edit-goal</code> or
 the resume; the name is saved beside the Git identity as the person's own claim. With a resume
 it is saved only when the resume releases a pause, as above.</p>
-<p>None of this is verified, and none of it grants or refuses anything: Git identity is
-whatever the checkout configures, and <code>--as</code> is taken at the person's word. The token checks
-and each pause's own rules remain the authority. <code>--status</code> lists every approval, goal edit and
+<p>None of this is verified, and none of it grants anything: Git identity is whatever the
+checkout configures, and <code>--as</code> is taken at the person's word. The token checks and each
+pause's own rules remain the authority; the one refusal is a project's required approver,
+below. <code>--status</code> lists every approval, goal edit and
 resume with its provenance under <code>approvals</code> (<a href="../task-run/#status-view">Status view</a>), and
 the completion summary lists the same records just before its cost line. A record saved before
 AutoCode kept it shows no provenance. A build, bug-fix or design run that recorded none, such as
@@ -3074,8 +3109,55 @@ recorded, a workflow-policy approval says no person made it, and a run with none
 <code>None recorded</code>. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
 approver. Because <code>autocode-issue pr</code> wraps that <code>evidence.md</code> exactly
-(<a href="../issues/#what-it-does">Issues</a>), the pull request body lists the approvals too. A required
-approver (#707) is not covered yet.</p>
+(<a href="../issues/#what-it-does">Issues</a>), the pull request body lists the approvals too.</p>
+<h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
+<p>A team that wants only named people to approve can list their Git email addresses as
+<code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
+<pre><code class="language-toml">require-approver = [&quot;lead@example.com&quot;, &quot;deputy@example.com&quot;]
+</code></pre>
+<p>Each entry is one plain address: a single <code>@</code> between a non-empty local part and domain, with
+no spaces, angle brackets, quotes, parentheses, square brackets, commas, semicolons, colons or
+backslashes. An entry such as <code>Lee</code>, <code>Lee &lt;lee@example.com&gt;</code>, <code>&lt;lee@example.com&gt;</code> or
+<code>mailto:lee@example.com</code> stops a new run before it starts, naming the file and the key.</p>
+<p>A run started with that setting refuses a plan approval (<code>--approve-goal</code>, or <code>yes</code> in the
+terminal conversation) or an artifact acceptance (<code>--approve-review</code>, <code>autocode review</code>, a
+<code>TaskRun</code> approval, or <code>y</code> at the conversation's review prompt) whose recorded Git
+<code>user.email</code> is not on the list, compared without regard to case. The refusal comes before
+anything is approved: the command exits 2 (the conversation stops at the same question,
+without asking about any further criterion) with a message naming the required addresses and
+the actual Git identity, nothing it carried is saved, and the run stays at the same stop for a
+listed approver. An <code>--as</code> name is a claim and never counts. A goal edit installs a draft that
+still needs a listed approver's approval, a resume releases a pause rather than approving
+anything, and a small bug fix approved under the workflow policy has no person to check, so
+none of those is refused. <code>--accept-completion</code> is not checked.</p>
+<p>The identity checked is the output of <code>git -C WORKSPACE config --get user.email</code>, where
+<code>WORKSPACE</code> is the run's saved workspace (its task worktree, or the checkout an <code>--in-place</code>
+run works in), run in AutoCode's own environment: that of the <code>autocode</code> command recording
+the approval (a <code>TaskRun</code> runs that command with its caller's environment, or the <code>env</code> it
+was given). Anything that changes what Git resolves there changes the identity: Git's
+environment variables (<code>GIT_CONFIG_COUNT</code> with <code>GIT_CONFIG_KEY_n</code> and <code>GIT_CONFIG_VALUE_n</code>,
+<code>GIT_CONFIG_GLOBAL</code>, <code>HOME</code>) or a repository-local <code>user.email</code> in the workspace. The setting
+guards against an approval made under the wrong configured identity, such as someone not on
+the list approving from a machine set up with their own address; it does not stop someone who
+deliberately sets a listed address. It is not authentication.</p>
+<p>The run saves the list when it starts (<code>settings.require_approver</code> in <code>state.json</code>), as it
+saves every project setting: a changed or deleted file never alters a run in progress, a run
+started before the setting existed lets anyone approve, and no flag sets or overrides it. A
+new run started from a design handoff (<code>autocode --ui-run HANDOFF</code>, with or without a typed
+task) takes it like any other. Without the setting anyone may approve, as before.</p>
+<p>Not covered:</p>
+<ul>
+<li>A replay (<code>autocode replay</code>, <a href="../replay/">Replay</a>) never takes the setting, and a new run
+  started with <code>--replay-recording</code> does not list it among the project settings it took. A
+  replay re-applies the recorded run's own plan and review decisions through <code>TaskRun</code>, with
+  no person approving, and keeps the recording's settings; checking those decisions against
+  whoever runs the replay would refuse every replay a listed approver did not run.</li>
+<li><code>autocode program</code> and <code>autocode components</code>. Each child run reads <code>require-approver</code> from
+  its own Git worktree, checked out at a commit, so only a committed <code>.autocode/config.toml</code>
+  (or <code>pyproject.toml</code>) reaches it: an uncommitted change to the file in the project checkout
+  does not. <code>autocode program approve</code>, which approves the program's agreement, is never
+  checked.</li>
+</ul>
 <h2 id="timeouts-and-watchdog">Timeouts and watchdog<a class="headerlink" href="#timeouts-and-watchdog" title="Permanent link">&para;</a></h2>
 <p>Iteration, active-time, per-stage, cost (<a href="#money-cap">Money cap</a>) and no-progress limits still pause
 with a checkpoint. They never cause completion. New runs distinguish inactivity,

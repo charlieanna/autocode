@@ -1862,7 +1862,7 @@
 
 
 <h1 id="replay-a-saved-run">Replay a saved run<a class="headerlink" href="#replay-a-saved-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0b0a0d87793ef589cca43ed10825625941a5e837/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/README.md">← Back to README</a></p>
 <p>Replay drives a fresh AutoCode task run with a saved brief, model routes and
 provider events. It makes no model calls. Normal replay runs the current
 verification checks again; a previous PASS cannot establish a current PASS.
@@ -1896,7 +1896,8 @@ private project data.</p>
 model route, session continuation and source. Plan approvals and answers also
 must match the current public request. Replay displays the new plan and uses
 fresh tokens from that run. It never invents an answer or adopts an old token
-after a mismatch.</p>
+after a mismatch. A project's <code>require-approver</code> does not apply: no person approves
+in a replay (<a href="../execution/#required-approver">Required approver</a>).</p>
 <p>Replay stops with <code>REPLAY_REFUSED</code> when a payload is missing, changed or outside
 the supported format, or when the current controller asks for an unrecorded
 stage or different operator decision. It cannot reconstruct already overwritten
