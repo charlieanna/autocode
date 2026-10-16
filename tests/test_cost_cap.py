@@ -1,6 +1,8 @@
-"""The money cap end to end (#721): it pauses at the cap for you and continues only when you raise it."""
+"""The money cap end to end (#721): it pauses at the cap for you and continues only when you raise it. A climbed
+attempt is also checked against the active-time budget you set before it launches (#611)."""
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -123,8 +125,9 @@ class CostCapCliTests(unittest.TestCase):
 
 
 class ClimbCapBlackbox(unittest.TestCase):
-    """A role's climb on its effort ladder is priced against the cap before it launches (#611), through the
-    public unit CLIs with the deterministic build fixture, which reports 10 input and 10 output tokens per stage."""
+    """A role's climb on its effort ladder is checked against the cost cap and the active-time budget before it
+    launches (#611), through the public unit CLIs with the deterministic build fixture, which reports 10 input and
+    10 output tokens per stage."""
 
     setUp = bb.BuildBlackbox.setUp
     command = bb.BuildBlackbox.command
@@ -137,9 +140,9 @@ class ClimbCapBlackbox(unittest.TestCase):
     def status(self):
         return json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)
 
-    def test_a_testers_climb_past_the_cost_cap_pauses_before_it_launches(self):
-        # The product's own check passes but the Tester's fails: the Completion Reviewer sends the work back, the
-        # Resolver asks for it to be checked again, and the Tester climbs its ladder, GPT-6 Sol High to XHigh.
+    def climb(self, *resolver_options, code=0):
+        """The product's own check passes but the Tester's fails: the Completion Reviewer sends the work back, the
+        Resolver asks for it to be checked again, and the Tester climbs its ladder, GPT-6 Sol High to XHigh."""
         spec = bb.plan(
             [([], "Version prints 1", ["version.py"])],
             {"M1": {"version.py": "print(1)\n"}},
@@ -150,10 +153,14 @@ class ClimbCapBlackbox(unittest.TestCase):
         self.seed(spec, checker="gpt-6-sol")
         self.build()
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
-        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"])
+        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat", *resolver_options], code)
         status = self.status()
         self.assertEqual("sol", status["next_stage"])
         self.assertEqual("GPT-6 Sol XHigh", status["reasoning_escalations"][-1]["selected"]["profile"])
+        return status
+
+    def test_a_testers_climb_past_the_cost_cap_pauses_before_it_launches(self):
+        status = self.climb()
         # The climbed attempt is projected from the last Tester attempt's 10 input and 10 output tokens at
         # GPT-6 Sol's price, (10 x $2 + 10 x $10) / 1M = $0.00012. A cap halfway there admits only the spend so far.
         spent = status["view"]["cost"]["spent_usd"]
@@ -173,6 +180,55 @@ class ClimbCapBlackbox(unittest.TestCase):
         # Raising the cap to what the stop names is the person's decision; the climbed attempt then launches.
         self.invoke(
             "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-cost-usd", "0.01"]
+        )
+        self.assertEqual(len(before) + 1, len(self.events(stage="sol")))
+        launched = [row["launch_route"] for row in self.state()["stages"] if row["stage"] == "sol"]
+        self.assertEqual(
+            [("gpt-6-sol", "high"), ("gpt-6-sol", "xhigh")],
+            [(row["model"], row["reasoning_effort"]) for row in launched],
+        )
+
+    def advance_clock(self, stage, seconds):
+        """The fake clock. The fixture's stages take a fraction of a real second and --max-seconds counts whole
+        seconds, so record that the last `stage` attempt ran `seconds` longer: in its duration and in the run's
+        active time, the two numbers the runner's own clock writes when an attempt finishes. Only at a pause: a
+        running checkpoint that changed after its controller's receipt reads as a controller that ended."""
+        path = self.run / "state.json"
+        saved = json.loads(path.read_text())
+        last = [row for row in saved["stages"] if row["stage"] == stage][-1]
+        last["duration_seconds"] += seconds
+        saved["active_seconds"] += seconds
+        path.write_text(json.dumps(saved, indent=2))
+        return last["duration_seconds"], saved["active_seconds"]
+
+    def test_a_testers_climb_past_the_time_budget_pauses_before_it_launches(self):
+        self.climb("--pause-after-stage", code=2)
+        # The fake clock: the High attempt took 600 s, so the climbed attempt is projected at that long. A
+        # 1,000-second budget admits the active time so far (600 s and the other stages' fractions) but not both.
+        took, used = self.advance_clock("sol", 600)
+        before = self.events(stage="sol")
+        self.invoke(
+            "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", "1000"], 2
+        )
+        self.assertEqual(before, self.events(stage="sol"), "the climbed attempt must not launch past the budget")
+        view = self.status()["view"]
+        self.assertEqual("PAUSED_TIME_LIMIT", view["needs"].get("pause_origin"), view["needs"])
+        needed = math.ceil(used + took)
+        for part in (
+            "The Tester's climb to GPT-6 Sol XHigh (gpt-6-sol at xhigh effort) did not launch: projected at",
+            "of active time, the last Tester attempt's duration, it would take the run's active time from",
+            "past the 1,000 s active-time budget you set",
+            f"resume with --max-seconds {needed} or more (0 for no limit) to make this attempt",
+        ):
+            self.assertIn(part, view["stop_reason"])
+        # Restating a budget below what the stop names acknowledges the pause, and the run pauses again before
+        # the same attempt; the budget the stop names launches exactly that attempt, on the climbed rung.
+        held = ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", str(needed - 1)]
+        self.invoke("autoreview", held, 2)
+        self.assertEqual(before, self.events(stage="sol"))
+        self.assertEqual("PAUSED_TIME_LIMIT", self.status()["view"]["needs"].get("pause_origin"))
+        self.invoke(
+            "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", str(needed)]
         )
         self.assertEqual(len(before) + 1, len(self.events(stage="sol")))
         launched = [row["launch_route"] for row in self.state()["stages"] if row["stage"] == "sol"]

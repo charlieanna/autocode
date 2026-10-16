@@ -1,9 +1,11 @@
 import copy
 import json
+import math
 import unittest
 from pathlib import Path
 
 import autocode_builder_policy as policy
+import autocode_cost as cost
 import autocode_dispatch as dispatch
 import autocode_route_ladder as route_ladder
 from providers import claude, command, opencode
@@ -190,6 +192,37 @@ class PolicyTests(unittest.TestCase):
         unpriced = self.climbed(0.001)
         unpriced["settings"]["roles"]["terra"]["model"] = "mystery-model"
         policy.guard(unpriced)
+
+    def test_a_stronger_attempt_projected_past_the_time_budget_pauses_before_it_launches(self):
+        # Used: 650 s of active time. Projected: the last GPT-6 Luna attempt's 600 s. 1,250 s passes the 1,000 s
+        # budget set with --max-seconds.
+        state = self.climbed(None)
+        state["settings"]["limits"] = {"max_seconds": 1000, "stage_timeout_seconds": 3600}
+        state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+        state["stages"][0]["duration_seconds"] = 600
+        state["active_seconds"] = 650
+        with self.assertRaises(policy.s.Paused) as stop:
+            policy.guard(state)
+        self.assertEqual("PAUSED_TIME_LIMIT", stop.exception.status)
+        self.assertEqual(
+            "The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of active "
+            "time, the last Builder attempt's duration, it would take the run's active time from 650 s to 1,250 s, "
+            "past the 1,000 s active-time budget you set. AutoCode never raises a budget you set; resume with "
+            "--max-seconds 1250 or more (0 for no limit) to make this attempt",
+            str(stop.exception),
+        )
+        # The escalation decision stands: a budget of at least the total the stop names lets that attempt launch.
+        state["settings"]["limits"]["max_seconds"] = 1250
+        policy.guard(state)
+        # A budget AutoResolver may extend at the stage boundary is left to that boundary, as before.
+        state["settings"]["limits"]["max_seconds"] = 1000
+        state["settings"]["budget_origins"]["max_seconds"] = "runner_default"
+        policy.guard(state)
+        # Once the stronger attempt has launched, the stage-boundary check governs it.
+        state["settings"]["budget_origins"]["max_seconds"] = "user_explicit"
+        strong = {"engine": "codex", "model": "gpt-6-sol", "reasoning_effort": "xhigh"}
+        state["stages"].append({**state["stages"][0], "launch_route": strong})
+        policy.guard(state)
 
     def test_unknown_class_name_cannot_mutate_authority(self):
         state = self.state()
@@ -987,11 +1020,56 @@ class PolicyBlackbox(unittest.TestCase):
         self.assertEqual("PAUSED_COST_LIMIT", view["needs"].get("pause_origin"), view["needs"])
         for part in (
             "The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at $0.00012",
-            f"from {policy.cost.usd(spent)} to {policy.cost.usd(spent + 0.00012)}, past the {policy.cost.usd(cap)} cost cap",
+            f"from {cost.usd(spent)} to {cost.usd(spent + 0.00012)}, past the {cost.usd(cap)} cost cap",
             "resume with --max-cost-usd 0.01 or more",
         ):
             self.assertIn(part, view["stop_reason"])
         self.build(extra=["--resume-paused", "--max-cost-usd", "0.01"])
+        self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
+
+    def test_a_stronger_builder_attempt_past_the_time_budget_pauses_before_it_launches(self):
+        # Issue #611: the climb consults the active-time budget you set before it spends, and names the arithmetic.
+        self.seed(
+            bb.plan(
+                [([], "Version prints 1", ["version.py"])],
+                {"M1": {"version.py": "print(1)\n"}},
+                {"M1": "import version"},
+                "Print version",
+            )
+        )
+        self.env["BUILD_AUDIT_FAULT"] = "retry_exhausted"
+        self.build()
+        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"])
+        self.build()
+        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat", "--pause-after-stage"], 2)
+        self.assertEqual(
+            ["investigate", "retry", "investigate", "escalate"],
+            [r["action"] for r in self.state()["builder_retry_decisions"]],
+        )
+        # The fake clock, at that pause (a running checkpoint changed after its controller's receipt reads as a
+        # controller that ended): the last GPT-6 Luna attempt took 600 s, in its duration and the run's active
+        # time, so the stronger attempt is projected at that long. A 1,000-second budget admits the active time
+        # so far but not both.
+        path = self.run / "state.json"
+        saved = json.loads(path.read_text())
+        last = [row for row in saved["stages"] if row["stage"] == "terra"][-1]
+        last["duration_seconds"] += 600
+        saved["active_seconds"] += 600
+        path.write_text(json.dumps(saved, indent=2))
+        needed = math.ceil(saved["active_seconds"] + last["duration_seconds"])
+        before = self.events()
+        self.build(2, extra=["--resume-paused", "--max-seconds", "1000"])
+        self.assertEqual(before, self.events(), "the stronger attempt must not launch past the budget")
+        view = self.view()
+        self.assertEqual("PAUSED_TIME_LIMIT", view["needs"].get("pause_origin"), view["needs"])
+        for part in (
+            "The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at",
+            "of active time, the last Builder attempt's duration",
+            "past the 1,000 s active-time budget you set",
+            f"resume with --max-seconds {needed} or more",
+        ):
+            self.assertIn(part, view["stop_reason"])
+        self.build(extra=["--resume-paused", "--max-seconds", str(needed)])
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
 
     def view(self):

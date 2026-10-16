@@ -1,4 +1,5 @@
-"""A role's climb on its effort ladder is priced against the cost cap before its attempt launches (#611)."""
+"""A role's climb on its effort ladder is checked against the cost cap and the active-time budget before its
+attempt launches (#611)."""
 
 import unittest
 
@@ -51,14 +52,25 @@ def climbed(cap, tokens=TOKENS):
     return state
 
 
-def stop(state, stage, role):
+def stop(state, stage, role, status="PAUSED_COST_LIMIT"):
     """The stop reason guard() raises before `stage` launches on `role`'s route."""
     try:
         climb_cap.guard(state, stage, role)
     except climb_cap.util.Paused as error:
-        assert error.status == "PAUSED_COST_LIMIT", error.status
+        assert error.status == status, error.status
         return str(error)
-    raise AssertionError(f"{stage} launched on {role}'s route without a cost pause")
+    raise AssertionError(f"{stage} launched on {role}'s route without a {status} pause")
+
+
+def timed(budget, *, took=600, used=650, origin="user_explicit", stage_limit=3600):
+    """A run whose Tester checked once on GPT-6 Sol High for `took` seconds, failed, and climbed to XHigh, with
+    `used` seconds of active time so far under an active-time budget of `budget` seconds that `origin` set."""
+    state = climbed(None)
+    state["settings"]["limits"] = {"max_seconds": budget, "stage_timeout_seconds": stage_limit}
+    state["settings"]["budget_origins"] = {"max_seconds": origin}
+    state["stages"][-1]["duration_seconds"] = took
+    state["active_seconds"] = used
+    return state
 
 
 class ClimbCapTests(unittest.TestCase):
@@ -246,6 +258,100 @@ class ClimbCapTests(unittest.TestCase):
         ):
             with self.subTest(name):
                 climb_cap.guard(state, "sol", "sol")
+
+
+class ClimbTimeTests(unittest.TestCase):
+    """The same climbs, projected against the active-time budget you set with --max-seconds."""
+
+    def test_a_climb_projected_past_the_time_budget_pauses_before_its_attempt_launches(self):
+        # Used: 650 s. Projected: the High attempt's 600 s. 1,250 s > the 1,000 s budget.
+        state = timed(1000)
+        self.assertEqual(
+            "The Tester's climb to GPT-6 Sol XHigh (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of "
+            "active time, the last Tester attempt's duration, it would take the run's active time from 650 s to "
+            "1,250 s, past the 1,000 s active-time budget you set. AutoCode never raises a budget you set; resume "
+            "with --max-seconds 1250 or more (0 for no limit) to make this attempt",
+            stop(state, "sol", "sol", "PAUSED_TIME_LIMIT"),
+        )
+        # The climb stands: a budget of at least the total, or none, lets that attempt launch.
+        self.assertEqual(route("xhigh"), state["settings"]["roles"]["sol"])
+        for budget in (1250, 5000, 0):
+            with self.subTest(budget=budget):
+                state["settings"]["limits"]["max_seconds"] = budget
+                climb_cap.guard(state, "sol", "sol")
+
+    def test_the_projection_is_the_last_attempts_duration_held_to_the_stage_time_limit(self):
+        settings = {"limits": {"stage_timeout_seconds": 3600}}
+        self.assertEqual(
+            {"seconds": 42.5, "held": None}, climb_cap.projected_seconds(settings, {"duration_seconds": 42.5})
+        )
+        # The stage time limit stops an attempt, so one that ran past it (a timeout's teardown) is held to it.
+        self.assertEqual(
+            {"seconds": 3600, "held": 3600}, climb_cap.projected_seconds(settings, {"duration_seconds": 3700})
+        )
+        self.assertEqual(
+            {"seconds": 3700, "held": None},
+            climb_cap.projected_seconds({"limits": {"stage_timeout_seconds": 0}}, {"duration_seconds": 3700}),
+        )
+        for record in ({}, {"duration_seconds": None}, {"duration_seconds": -1}, {"duration_seconds": True}, None):
+            with self.subTest(record=record):
+                self.assertIsNone(climb_cap.projected_seconds(settings, record))
+        self.assertIn(
+            "projected at 3,600 s of active time, the last Tester attempt's duration, held to the 3,600 s stage time "
+            "limit, it would take the run's active time from 650 s to 4,250 s, past the 1,000 s active-time budget",
+            stop(timed(1000, took=3700), "sol", "sol", "PAUSED_TIME_LIMIT"),
+        )
+
+    def test_the_arithmetic_and_when_the_attempt_fits(self):
+        self.assertEqual(
+            {"projected": 600, "held": None, "used": 650, "total": 1250, "budget": 1000},
+            climb_cap.time_crossing(timed(1000), timed(1000)["stages"][-1]),
+        )
+        # A total at the budget fits; the stage-boundary check then pauses after the attempt, as before.
+        self.assertIsNone(climb_cap.time_crossing(timed(1250), timed(1250)["stages"][-1]))
+        climb_cap.guard(timed(1250), "sol", "sol")
+        # Fractions are shown to one place and the budget to resume with is rounded up to a whole second.
+        short = timed(1, took=0.37, used=0.81)
+        self.assertIn(
+            "projected at 0.4 s of active time, the last Tester attempt's duration, it would take the run's active "
+            "time from 0.8 s to 1.2 s, past the 1 s active-time budget you set. AutoCode never raises a budget you "
+            "set; resume with --max-seconds 2 or more",
+            stop(short, "sol", "sol", "PAUSED_TIME_LIMIT"),
+        )
+
+    def test_only_a_budget_you_set_is_projected(self):
+        # No budget, a disabled one, or one AutoResolver may extend at the stage boundary (the runner's default,
+        # or one delegated with --autoresolver-managed-limits), and a run saved without its budget's origin.
+        for name, state in (
+            ("runner default", timed(1000, origin="runner_default")),
+            ("delegated", timed(1000, origin="resolver_delegated")),
+            ("disabled", timed(0)),
+            ("no origin", {**timed(1000), "settings": {**timed(1000)["settings"], "budget_origins": {}}}),
+        ):
+            with self.subTest(name):
+                self.assertIsNone(climb_cap.budget_seconds(state["settings"]))
+                climb_cap.guard(state, "sol", "sol")
+        self.assertEqual(1000, climb_cap.budget_seconds(timed(1000)["settings"]))
+
+    def test_a_climb_without_a_time_projection_never_pauses(self):
+        undated = timed(1000)
+        del undated["stages"][-1]["duration_seconds"]
+        launched = timed(1000)
+        launched["stages"].append(tested("xhigh"))
+        for name, state in (
+            ("no duration", undated),
+            ("climbed attempt launched", launched),
+            ("parallel Builder", {**timed(1000), "parent_run": "/runs/parent"}),
+        ):
+            with self.subTest(name):
+                climb_cap.guard(state, "sol", "sol")
+
+    def test_the_cost_stop_comes_first_when_both_budgets_would_be_crossed(self):
+        state = timed(1000)
+        state["settings"]["limits"]["max_cost_usd"] = 0.006
+        self.assertIn("past the $0.006 cost cap", stop(state, "sol", "sol"))
+        state["settings"]["limits"]["max_cost_usd"] = 0.01
+        self.assertIn("past the 1,000 s active-time budget", stop(state, "sol", "sol", "PAUSED_TIME_LIMIT"))
 
 
 if __name__ == "__main__":

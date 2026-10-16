@@ -46,7 +46,8 @@ CONTRACT_DECISION_ADVICE = (
 BOUND_ADVICE = {
     "PAUSED_TIME_LIMIT": (
         "To acknowledge this active-time pause, use autocode resume --max-seconds N "
-        "with a total above elapsed active time, or 0 for no time cap. "
+        "with a total above elapsed active time (and at least the total the stop names for an attempt on a "
+        "stronger route), or 0 for no time cap. "
         "You may reassert an already saved total; unrelated settings do not acknowledge this pause."
     ),
     "PAUSED_COST_LIMIT": (

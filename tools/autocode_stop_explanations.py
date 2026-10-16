@@ -107,7 +107,7 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused --max-cost-usd N with a higher cap (or 0 for none) continues; AutoCode never raises it.",
     ),
     "PAUSED_TIME_LIMIT": (
-        "The run hit its wall-clock limit.",
+        "The run hit its wall-clock limit, or an attempt on a stronger route is projected past the limit you set.",
         "--resume-paused with a higher --max-seconds continues.",
     ),
     "PAUSED_STAGE_TIMEOUT": (
