@@ -685,6 +685,11 @@ approver identity is recorded as given; it also counts any records saved without
 approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
 ([Issues](issues.md#what-it-does)), the pull request body lists the approvals too.
 
+Every scenario run that completes checks the record from outside. The scenario harness reads
+`approvals` from the final `--status --json`, and each row a person made must name the
+scenario's person, the host and a command of option names only. Each plan and review approval
+the harness gave must be listed ([scenarios/README.md](../scenarios/README.md)).
+
 #### Required approver
 
 A team that wants only named people to approve can list their Git email addresses as

@@ -119,6 +119,25 @@ stems from, such as `PAUSED_COST_LIMIT` behind `WAITING_FOR_USER`, so the stop
 class names it)), `steps.jsonl`, the final `state.json`, and the delivered
 `project/`, kept for inspection.
 
+Besides the scenario's own oracle, every run AutoCode completed is checked twice
+from its public status, and both appear in `checks`. `canonical evidence: RUN`
+authenticates its `evidence.json` and `evidence.md` pair. `approval provenance:
+RUN` reads `approvals` in the final `--status --json` view (#722) and requires:
+
+- each row a person made to name the scenario's person, `Scenario Person
+  <person@scenario.example.test>`. Every scenario project sets that identity in
+  its own Git configuration; the seed commit's author is `Scenario`, so a record
+  of the commit author instead does not pass;
+- each such row to name this machine's host and a command of `autocode` with
+  option names only, never their values;
+- a row approved under the workflow policy to name no one;
+- each plan and review approval the harness gave a task run (`approvals` above)
+  to be listed.
+
+A program is checked on its plan run and each completed workstream run, a
+components run on its architecture run and each completed component. Like any
+oracle check, a failure makes the completed run `FALSE_COMPLETE`.
+
 Each completed scenario and plain-agent baseline also starts with a
 `failure_attribution` record: empty `evidence_refs`, and `null` for
 `suspected_cause`, `confirmed_diagnosis`, `regression` and `confirmed_by`.

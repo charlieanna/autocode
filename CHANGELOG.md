@@ -290,6 +290,13 @@ PR template asks for an entry here; a change without one is incomplete.
   after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
   work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
   judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- Every scenario run that completes now checks who approved it (#722, sixth part). The harness reads `approvals`
+  from the final `--status --json`. Each row a person made must name the scenario's person (`Scenario Person
+  <person@scenario.example.test>`, which every scenario project now sets in its own Git configuration), this
+  host, and a command of `autocode` and option names only. A workflow-policy row must name no one, and each plan
+  and review approval the harness gave must be listed. The `approval provenance: RUN` check sits beside
+  `canonical evidence: RUN` in `result.json`; it covers a program's plan and workstream runs and a components
+  run's architecture and component runs. A failure makes a completed run `FALSE_COMPLETE`.
 
 ### Changed
 
