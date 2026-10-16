@@ -173,7 +173,7 @@ def record_send_back(state: RunState, case_ids: list[str], output) -> None:
     )
 
 
-def protected(state: RunState) -> dict[str, dict]:
+def all_files(state: RunState) -> dict[str, dict]:
     """The Tester's files under the current contract: {path: {"sha256", "archive"}}."""
     current = (state.get("goal_contract") or {}).get("hash")
     files: dict[str, dict] = {}
@@ -181,6 +181,20 @@ def protected(state: RunState) -> dict[str, dict]:
         if receipt.get("contract_hash") == current:
             files.update(receipt.get("files") or {})
     return files
+
+
+def protected(state: RunState) -> dict[str, dict]:
+    """The Tester's files under the current contract that stay fixed in the workspace; {} when blind."""
+    if is_blind(state):
+        return {}
+    return all_files(state)
+
+
+def blind_files(state: RunState) -> dict[str, dict]:
+    """Archived blind test files under the current contract; {} when not blind."""
+    if not is_blind(state):
+        return {}
+    return all_files(state)
 
 
 def sha256(path: Path) -> str | None:
@@ -294,9 +308,12 @@ def view(state: RunState) -> dict | None:
     if not rows:
         return None
     last = rows[-1]
-    return {
-        "files": sorted(protected(state)),
+    payload = {
+        "files": sorted(all_files(state)),
         "case_ids": list(last.get("case_ids") or []),
         "results": dict(last.get("results") or {}),
         "output": last.get("output"),
     }
+    if is_blind(state):
+        payload["blind"] = True
+    return payload

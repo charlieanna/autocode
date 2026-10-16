@@ -85,6 +85,88 @@ class BlindTestsConfigTests(unittest.TestCase):
         self.assertFalse(acceptance.enabled({"settings": {}}))
 
 
+class BlindTestsWorkspaceTests(unittest.TestCase):
+    def test_blind_tests_leave_protected_files_and_builder_note_empty(self):
+        with tempfile.TemporaryDirectory() as root:
+            workspace, archive = Path(root) / "w", Path(root) / "archive"
+            workspace.mkdir()
+            archive.mkdir()
+            dummy_test = archive / "test_dummy.py"
+            dummy_test.write_bytes(b"def test_dummy(): pass\n")
+            entry = {"sha256": acceptance.sha256(dummy_test), "archive": str(dummy_test)}
+
+            state = approved()
+            state["settings"] = {"blind_tests": True}
+            acceptance.record_receipt(
+                state, acceptance.due(state), {"contract_hash": "h1", "files": {"tests/test_stock.py": entry}}
+            )
+
+            self.assertEqual({}, acceptance.protected(state))
+            self.assertEqual({"tests/test_stock.py": entry}, acceptance.blind_files(state))
+            self.assertEqual("", acceptance.builder_note(state))
+            self.assertFalse(acceptance.check_untouched(state, workspace))
+
+            view = acceptance.view(state)
+            self.assertIsNotNone(view)
+            self.assertTrue(view["blind"])
+            self.assertEqual(["tests/test_stock.py"], view["files"])
+
+    def test_apply_archives_and_removes_tests_from_workspace_when_blind(self):
+        import autocode_acceptance_tests_job as job
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root) / "workspace"
+            evidence_dir = Path(root) / "evidence"
+            test_dir = workspace / "tests"
+            test_dir.mkdir(parents=True)
+            evidence_dir.mkdir(parents=True)
+
+            test_file = test_dir / "test_stock.py"
+            test_code = b"import unittest\nclass T(unittest.TestCase):\n    def test_c1_move_transfers_units(self): self.fail()\n"
+            test_file.write_bytes(test_code)
+
+            state = approved()
+            state["settings"] = {"blind_tests": True}
+            acceptance.route(state)
+            value = {
+                "tests": [
+                    {"case_id": "C1", "file": "tests/test_stock.py", "test_name": "test_c1_move_transfers_units"},
+                    {"case_id": "C2", "file": "tests/test_stock.py", "test_name": "test_c2_remove_takes_units_and_drops_empty_holdings"},
+                    {"case_id": "C3", "file": "tests/test_stock.py", "test_name": "test_c3_move_more_than_on_hand_is_refused"},
+                ],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(evidence_dir / "tester.json"), "source_revision": "rev1"}
+
+            # Fake runner reporting test failed on base (as required for test: case)
+            def run_tests(files):
+                return {
+                    "command": "python -m unittest tests/test_stock.py",
+                    "results": {
+                        "passed": [],
+                        "failed": [
+                            "test_c1_move_transfers_units",
+                            "test_c2_remove_takes_units_and_drops_empty_holdings",
+                            "test_c3_move_more_than_on_hand_is_refused",
+                        ],
+                        "complete": True,
+                    },
+                }
+
+            job.apply(state, value, record, workspace, run_tests=run_tests, evidence_dir=evidence_dir)
+
+            # Test file was archived
+            receipt = list(acceptance.receipts(state).values())[0]
+            archive_entry = receipt["files"]["tests/test_stock.py"]
+            self.assertTrue(Path(archive_entry["archive"]).is_file())
+            self.assertEqual(test_code, Path(archive_entry["archive"]).read_bytes())
+
+            # Test file was REMOVED from workspace so Builder never sees it
+            self.assertFalse(test_file.exists())
+            self.assertEqual("terra", state["next_stage"])
+
+
 class RouteTests(unittest.TestCase):
     def test_a_build_with_unwritten_cases_goes_to_the_tester_once(self):
         state = approved()
