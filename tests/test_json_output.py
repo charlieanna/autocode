@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode as runner
+import autocode_containment_policy as containment_policy
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_json_output as json_output
@@ -235,21 +236,82 @@ class JsonActionCliTests(unittest.TestCase):
         self.assertEqual(f"Branch: autocode/{worktree.name}", branch)
         self.assertEqual("Starting from committed HEAD; the original checkout is unchanged.", starting)
 
-    def test_any_other_error_after_the_run_loads_still_prints_nothing_on_stdout(self):
-        """main reports only a setting configure refuses (run_setup.SettingRefused). Any other error cli() prints as
-        ``autocode: ...``, such as containment_policy's refusal (a plain ValueError) or a RuntimeError, still
-        leaves stdout empty under --json, though the run has loaded."""
-        for error in (ValueError("refused by the containment policy"), RuntimeError("failed after loading")):
+    def test_a_tool_containment_refusal_prints_its_payload_with_the_refusal(self):
+        """containment_policy refuses as the run loads: --allow-uncontained-tools on a run with no built-in OpenCode
+        stage, or a built-in OpenCode run without it where the kernel tool boundary is unavailable. Under --json
+        that prints like any refused setting; the refusal's text, cli()'s ``autocode: ...`` and the saved run
+        are unchanged."""
+        on_run = ("--run-dir", str(self.run_dir))
+        opencode = copy.deepcopy(self.state)  # the same run on built-in OpenCode
+        opencode["settings"].update(engine="opencode", provider="opencode")
+        for route in opencode["settings"]["roles"].values():
+            route["model"] = "openai/" + route["model"]
+        problem = "fixture host has no kernel sandbox"
+        for name, state, flags, expected in (
+            (
+                "flag on a run it does not apply to",
+                self.state,
+                (containment_policy.FLAG,),
+                f"{containment_policy.FLAG} applies only to built-in OpenCode runs; "
+                "this run launches no kernel-contained OpenCode stage",
+            ),
+            ("OpenCode run without the flag", opencode, (), containment_policy.refusal(problem)),
+        ):
             with (
-                self.subTest(type(error).__name__),
-                patch.object(runner.run_setup.containment_policy, "configure", side_effect=error),
-                self.cli("--run-dir", str(self.run_dir), "--json") as (stdout, stderr),
-                self.assertRaises(type(error)) as caught,
+                self.subTest(name),
+                patch.object(containment_policy.tool_containment, "unavailable", return_value=problem),
             ):
-                runner.main()
-            self.assertIs(error, caught.exception)
-            self.assertEqual("", stdout.getvalue())
-            self.assertNotIn('{"error"', stderr.getvalue())
+                support.atomic_json(self.run_dir / "state.json", state)
+                saved = (self.run_dir / "state.json").read_bytes()
+                refusal, stdout, stderr = self.raised(*on_run, *flags, "--json")
+                self.assertEqual(expected, refusal)
+                payload = json.loads(stdout)  # exactly one object; master printed nothing
+                util.validate_schema(payload, SCHEMA)
+                self.assertEqual(str(self.run_dir), payload["run_dir"])
+                error = {"code": "input_rejected", "message": refusal}
+                self.assertEqual({"exit_code": 2, "saved": False, "message": "", "error": error}, payload["result"])
+                self.assertEqual({"error": error}, json.loads(stderr.strip().splitlines()[-1]))
+                self.assertEqual(saved, (self.run_dir / "state.json").read_bytes())
+                # Without --json nothing changes: the same error, and nothing on stdout.
+                self.assertEqual((refusal, ""), self.raised(*on_run, *flags)[:2])
+        # A new run refused before its first checkpoint prints the result alone.
+        refusal, stdout, _ = self.raised(
+            "Make another tool", "--in-place", "--engine", "codex", containment_policy.FLAG, "--json"
+        )
+        self.assertTrue(refusal.startswith(f"{containment_policy.FLAG} applies only"), refusal)
+        error = {"code": "input_rejected", "message": refusal}
+        self.assertEqual(
+            {"result": {"exit_code": 2, "saved": False, "message": "", "error": error}}, json.loads(stdout)
+        )
+
+    def test_any_other_error_after_the_run_loads_still_prints_nothing_on_stdout(self):
+        """main reports only a refused setting (run_setup.SettingRefused). Any other error cli() prints as
+        ``autocode: ...`` still leaves stdout empty under --json, though the run has loaded: protected_oracles'
+        refusal of --revise-protected-tests outside a saved validation pause (a ValueError), or a failed registry
+        update, which saves PAUSED_REGISTRY and raises (a RuntimeError)."""
+        registry = runner.run_setup.registry
+        for flags, failure, expected in (
+            (
+                ("--revise-protected-tests", str(self.root / "revision.json")),
+                contextlib.nullcontext(),
+                (ValueError, "--revise-protected-tests requires a saved pause and --resume-paused"),
+            ),
+            (
+                (),
+                patch.object(registry, "register_run", side_effect=registry.RegistryError("fixture", "unreachable")),
+                (support.Paused, f"Registry registration failed for {self.run_dir}: unreachable"),
+            ),
+        ):
+            with self.subTest(expected[0].__name__):
+                with (
+                    failure,
+                    self.cli("--run-dir", str(self.run_dir), *flags, "--json") as (stdout, stderr),
+                    self.assertRaises((ValueError, RuntimeError)) as caught,
+                ):
+                    runner.main()
+                self.assertEqual(expected, (type(caught.exception), str(caught.exception)))
+                self.assertEqual("", stdout.getvalue())
+                self.assertNotIn('{"error"', stderr.getvalue())
 
     def test_a_run_stopped_inside_the_build_loop_prints_its_saved_payload_with_the_result(self):
         self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])

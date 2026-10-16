@@ -976,13 +976,19 @@ PR template asks for an entry here; a change without one is incomplete.
   on stderr and exits 2, and the refused setting is not saved (a new run without `--in-place` may already
   have created its task worktree and branch, which `result.message` names). A native visual run
   (`VISUAL_REVIEW_PROFILE=`) still saves such a refusal as a `PAUSED_INVALID_OUTPUT` pause, printed like any
-  other pause with `error` null. Tool-containment refusals (`--allow-uncontained-tools`) still print nothing
-  on stdout (#714).
+  other pause with `error` null (#714).
 - A native planning launch whose recorded private-read denial leaves out the run store, or a store its pinned
   profile still denies, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after
   the boundary was prepared, even when its conformance proof was pinned again to match. The store-specific pause
   now needs a boundary that otherwise verifies against its proof and names only stores its profile does not deny.
   A test also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
+- Under `--json`, a tool-containment refusal as the run loads (`--allow-uncontained-tools` on a run with no
+  built-in OpenCode stage, or a built-in OpenCode run without it where the kernel tool boundary is unavailable)
+  printed nothing on stdout. It now prints like any other refused setting: the saved run's status payload with
+  `result`, whose `error.code` is `input_rejected` with the refusal's text (`{"result": …}` alone before a new
+  run's first checkpoint). The text, the closing `autocode: …` on stderr, exit code 2 and the saved run are
+  unchanged. A native visual run already saved such a refusal as a `PAUSED_INVALID_OUTPUT` pause and still
+  does (#714).
 
 ## [0.7.1] — 2026-10-09
 

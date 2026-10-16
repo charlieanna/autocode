@@ -444,7 +444,8 @@ def resumed_pause(state: RunState) -> str | None:
 
 
 class SettingRefused(ValueError):
-    """configure refused a setting this invocation gave; cli() prints it as ``autocode: ...`` (#714)."""
+    """configure refused a setting this invocation gave, or containment_policy refused the run's tool
+    containment (``--allow-uncontained-tools``, given or missing); cli() prints it as ``autocode: ...`` (#714)."""
 
 
 def load_locked(runner, args, parser, state: RunState, state_path, run_dir, workspace):
@@ -493,15 +494,19 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
             parser.error("Provider configuration or limits changed; report recovery requires unchanged saved settings")
         return state  # Standalone adoption must not save configuration, migrations or other actions first.
     # Before any stage: refuse a run whose built-in OpenCode stages cannot be kernel-contained, or save
-    # the explicit --allow-uncontained-tools opt-out (#413).
-    containment_policy.configure(
-        state,
-        settings,
-        allow=bool(getattr(args, "allow_uncontained_tools", False)),
-        configured_tool=getattr(runner.opencode, "CONFIGURED", False),
-        workspace=workspace,
-        now=runner.now,
-    )
+    # the explicit --allow-uncontained-tools opt-out (#413). That refusal is a refused setting too, with
+    # its own text (#714).
+    try:
+        containment_policy.configure(
+            state,
+            settings,
+            allow=bool(getattr(args, "allow_uncontained_tools", False)),
+            configured_tool=getattr(runner.opencode, "CONFIGURED", False),
+            workspace=workspace,
+            now=runner.now,
+        )
+    except ValueError as error:
+        raise SettingRefused(str(error)) from None
     if not args.run_dir and not state.get("project_workspace"):
         launch_inputs.record(state, workspace, run_dir)
     settings = _protected_test_settings(state, settings, args, workspace, run_dir)
