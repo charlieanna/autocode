@@ -16,7 +16,6 @@ validate unchanged.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -27,6 +26,11 @@ from contextlib import contextmanager
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
+
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
 
 HANDOFF_VERSION = 1
 HANDOFF_KIND = "autocode.requirements-conversation-handoff"
@@ -667,10 +671,14 @@ def _file_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
+        util.lock_file(fd, blocking=True)
+        # Unlock only a lock this handle took: msvcrt refuses the rest, and its refusal would
+        # replace whatever interrupted the wait (#698).
+        try:
+            yield
+        finally:
+            util.unlock_file(fd)
     finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
 
 

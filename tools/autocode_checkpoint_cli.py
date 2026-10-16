@@ -19,7 +19,6 @@ except ImportError:
 
 import argparse
 import difflib
-import fcntl
 import json
 import os
 import re
@@ -156,7 +155,7 @@ def inbox_boundary(run_dir, state: RunState):
         raise ValueError("Intervention lock must not be a symlink")
     with path.open("a+") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            util.lock_file(handle)
         except BlockingIOError:
             raise ValueError("An intervention is being submitted; retry after it is reconciled") from None
         inbox = run_dir / "interventions.json"

@@ -8,7 +8,6 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -106,7 +105,7 @@ def creating(project):
     """
     # Beside .autocode/worktrees, not in it: everything in there is read as a worktree.
     with (keep_out_of_git(project) / "worktree-create.lock").open("a+") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        util.lock_file(handle, blocking=True)
         yield
 
 

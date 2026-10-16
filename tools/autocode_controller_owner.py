@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
-import fcntl
 import json
 import math
 import os
@@ -144,14 +143,14 @@ def _free_lock(path):
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
             raise ValueError("Controller exclusion lock is not a regular file")
         try:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            util.lock_file(stream.fileno())
         except BlockingIOError:
             yield False
             return
         try:
             yield True
         finally:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            util.unlock_file(stream.fileno())
 
 
 def _worker_ownership(state: RunState, run_dir):

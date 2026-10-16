@@ -14,6 +14,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_registry as registry
 
+from tests.test_util_windows import FakeMsvcrt
+
 
 def register_in_process(home, workspace, run_dir):
     os.environ["AUTOCODE_HOME"] = home
@@ -236,17 +238,34 @@ class RegistryTests(unittest.TestCase):
                 registry.register_run(second_workspace, second_run, second_state)
         self.assertEqual(before, registry.registry_path().read_bytes())
 
-        def blocked_lock(_handle, operation):
-            if operation & registry.fcntl.LOCK_NB:
+        def blocked_lock(_handle, *, blocking=False):
+            if not blocking:
                 raise BlockingIOError()
 
         with (
             patch.object(registry, "LOCK_TIMEOUT_SECONDS", 0),
-            patch.object(registry.fcntl, "flock", side_effect=blocked_lock),
+            patch.object(registry.util, "lock_file", side_effect=blocked_lock),
         ):
             with self.assertRaisesRegex(registry.RegistryError, "busy"):
                 registry.register_run(second_workspace, second_run, second_state)
         self.assertEqual(before, registry.registry_path().read_bytes())
+
+    def test_a_busy_registry_reports_busy_with_the_windows_lock(self):
+        # msvcrt refuses to unlock a byte range its handle never locked, so a wait that times out
+        # must not try to: that refusal would replace "busy" (#698).
+        workspace, run, state = self.fixture("workspace")
+        self.home.mkdir(parents=True)
+        with (
+            patch.object(registry.util, "_WINDOWS", True),
+            patch.dict(sys.modules, {"msvcrt": FakeMsvcrt()}),
+            patch.object(registry, "LOCK_TIMEOUT_SECONDS", 0),
+            (self.home / "registry.lock").open("a+") as holder,
+        ):
+            registry.util.lock_file(holder)
+            with self.assertRaisesRegex(registry.RegistryError, "busy"):
+                registry.register_run(workspace, run, state)
+            registry.util.unlock_file(holder)
+        self.assertFalse(registry.registry_path().exists())
 
     def test_interruption_after_atomic_replace_preserves_acknowledged_entries_on_restart(self):
         workspace, run, state = self.fixture("workspace")

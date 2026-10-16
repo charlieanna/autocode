@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 import argparse
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -87,7 +86,7 @@ def _locked_registry() -> Any:
         deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
         while True:
             try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                util.lock_file(handle)
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
@@ -95,12 +94,13 @@ def _locked_registry() -> Any:
                         "lock_timeout", "Registry is busy; retry the same run after a short wait"
                     ) from None
                 time.sleep(0.05)
-        yield registry_path()
-    finally:
+        # Unlock only a lock this handle took: Windows refuses to unlock one it never held.
         try:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            yield registry_path()
         finally:
-            handle.close()
+            util.unlock_file(handle)
+    finally:
+        handle.close()
 
 
 def _validate_registration(workspace: Path, run_dir: Path, state: RunState) -> tuple[Path, Path]:

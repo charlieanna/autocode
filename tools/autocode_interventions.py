@@ -9,7 +9,6 @@ if TYPE_CHECKING:
 
 import argparse
 import contextlib
-import fcntl
 import json
 import time
 from pathlib import Path
@@ -121,7 +120,7 @@ def _locked_inbox(lock: Path) -> Any:
         deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
         while True:
             try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                util.lock_file(handle)
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
@@ -129,12 +128,13 @@ def _locked_inbox(lock: Path) -> Any:
                         "lock_timeout", "Intervention inbox is busy; retry after a short wait"
                     ) from None
                 time.sleep(0.05)
-        yield
-    finally:
+        # Unlock only a lock this handle took: Windows refuses to unlock one it never held.
         try:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            yield
         finally:
-            handle.close()
+            util.unlock_file(handle)
+    finally:
+        handle.close()
 
 
 def _payload(request_id: str, kind: str, text: str) -> dict[str, str]:

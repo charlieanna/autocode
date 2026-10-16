@@ -20,7 +20,6 @@ except ImportError:
 
 import copy
 import datetime as dt
-import fcntl
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -771,13 +770,13 @@ def activate(state: RunState):
 def request_lock(run_dir):
     with (run_dir / "milestone-request.lock").open("a+") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            s.lock_file(handle)
         except BlockingIOError:
             raise ValueError("Another milestone request is being saved; retry") from None
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            s.unlock_file(handle)
 
 
 def queue_activation(run_dir, max_seconds=None):
