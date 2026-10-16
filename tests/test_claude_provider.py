@@ -439,7 +439,7 @@ class PromptTests(unittest.TestCase):
         self.assertIn(f"Your stage events log is {events}. It is read-only evidence", contract)
         for words in ("StructuredOutput", "event:item_N", "capture_command"):
             self.assertIn(words, contract)
-        self.assertTrue(contract.endswith(json.dumps(schema, indent=2) + "\n"))
+        self.assertTrue(contract.endswith(json.dumps(schema, separators=(",", ":")) + "\n"))
         self.assertIn("capture_command", json.loads(handoff))
         for absent in (
             "Do not cite event: IDs",
