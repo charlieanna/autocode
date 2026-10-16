@@ -1016,6 +1016,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reviewing-the-plan-in-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewing the plan in a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#credentials" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1925,6 +1936,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#reviewing-the-plan-in-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewing the plan in a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#credentials" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2028,15 +2050,17 @@
 
 
 <h1 id="github-issues-to-pull-requests">GitHub issues to pull requests<a class="headerlink" href="#github-issues-to-pull-requests" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/README.md">← Back to README</a></p>
 <p><code>autocode-issue</code> takes a GitHub issue, runs AutoCode on it in a branch of its
 own, and turns the finished run into a pull request whose body carries the
 run's evidence. It sits on top of the <a href="../task-run/">task-run interface</a> and
 changes nothing about how a run plans, builds or completes.</p>
 <p>It never makes a decision that belongs to you. Approving the plan, answering
 questions, accepting reviews and resuming pauses stay with you; the tool prints
-the exact command for each. It refuses to prepare a pull request from a run that
-has not completed. Nothing is pushed unless you pass <code>--open</code>.</p>
+the exact command for each. It refuses to prepare the change's pull request from
+a run that has not completed. Nothing is pushed unless you pass <code>--open</code>. On a
+team, it can also put the plan in a pull request for review before anything is
+built (<a href="#reviewing-the-plan-in-a-pull-request">below</a>).</p>
 <h2 id="walkthrough">Walkthrough<a class="headerlink" href="#walkthrough" title="Permanent link">&para;</a></h2>
 <p>Run these from inside a clone of the repository whose issue you want resolved.
 Its dependencies must be installed there, and the <code>origin</code> remote must point
@@ -2090,6 +2114,14 @@ filled in.</p>
 <td><code>pr --open</code></td>
 <td>Pushes the branch to <code>--remote</code> and opens a draft pull request against the branch that was current at <code>start</code> (override with <code>--base</code>). If <code>--remote</code> is a fork, the head is <code>FORK-OWNER:branch</code>. <code>--ready</code> opens it ready for review instead of as a draft.</td>
 </tr>
+<tr>
+<td><code>plan</code></td>
+<td>Refuses unless the run is waiting for its plan to be approved. Exports that plan as a plan file and commits it, as the only change, on branch <code>autocode/issue-N-&lt;title&gt;-plan</code> made from the run's base commit (after a merged plan pull request, on <code>-plan-2</code> from the base branch). Writes that pull request's body to <code>.autocode/issues/OWNER-REPO-N-plan-pr.md</code>. See <a href="#reviewing-the-plan-in-a-pull-request">Reviewing the plan in a pull request</a>.</td>
+</tr>
+<tr>
+<td><code>plan --open</code></td>
+<td>Pushes that branch and opens a draft pull request with the same base, fork and <code>--ready</code> rules as <code>pr --open</code>.</td>
+</tr>
 </tbody>
 </table>
 <p>The PR body says <code>Resolves OWNER/REPO#N</code> and includes the run's exact canonical
@@ -2115,6 +2147,60 @@ authenticates the saved pair against the current run and source before delivery.
 A missing, changed or stale pair must be repaired/revalidated in the owned run;
 preparing the PR does not silently regenerate evidence. A passed completion
 gate is evidence for review, not proof of correctness.</p>
+<h2 id="reviewing-the-plan-in-a-pull-request">Reviewing the plan in a pull request<a class="headerlink" href="#reviewing-the-plan-in-a-pull-request" title="Permanent link">&para;</a></h2>
+<p>On a team, what will be built is worth reviewing before AutoCode builds it. When
+<code>start</code> or <code>continue</code> stops with the plan waiting for approval, put it in a pull
+request instead of approving it at once:</p>
+<pre><code class="language-sh">autocode-issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
+autocode-issue plan #812 --open                # push that branch and open a draft pull request
+</code></pre>
+<ul>
+<li><strong>What it commits.</strong> The plan is exported as <code>autocode plan --export</code> writes
+  it, through the task-run interface. It is committed as one file on branch
+  <code>autocode/issue-N-&lt;title&gt;-plan</code>, made from the commit the run started from.
+  The commit is built without a checkout: your checkout, the issue's worktree
+  and the run do not change, and nothing is approved. <code>--path PATH</code> puts the file
+  elsewhere in the repository, as a path from its top level, never under
+  <code>.autocode/</code>.</li>
+<li><strong>The pull request.</strong> Its title is <code>Plan: TITLE (#N)</code>, and its body gives the
+  plan revision and the file's goal hash, says how to edit the file, and says
+  that merging approves nothing. The run's directory is named, not its path on
+  your machine. If the export masked credential-shaped text, the body says so:
+  the run refuses the file until those values are restored.</li>
+<li><strong>A changed plan.</strong> While the pull request is open, run <code>plan</code> again after the
+  run's plan changes, for example after <code>--feedback</code>. The new plan is committed on
+  top of the branch, so the same pull request shows the change. An unchanged plan
+  reuses the commit. It never replaces commits it did not make: if the branch
+  moved, it refuses, and if reviewers pushed edits to the pull request, the push
+  is refused. A branch deleted here holds nothing to replace, so <code>plan</code> makes it
+  again at its last plan commit. A merged plan pull request is never reused (see
+  below).</li>
+</ul>
+<p>Reviewers edit the file in the pull request as
+<a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>
+describes. Merging it approves nothing. Once <code>plan --open</code> has opened it,
+<code>status</code> prints its URL and the command that loads the merged file into the
+issue's run, to run once it is merged and pulled into your checkout; loading and
+approving stay with you:</p>
+<pre><code class="language-sh">autocode --goal-file /path/to/project/plans/issue-812.md --workspace WT --run-dir RUN
+autocode-issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
+autocode --approve-goal TOKEN --workspace WT --run-dir RUN
+</code></pre>
+<p>The approval stop names the file and its goal hash. The merged file goes back
+into the run that drafted the plan; starting a new run from it is not available
+yet (<a href="../workflow/#a-teams-plan-review">A team's plan review</a>).</p>
+<p><code>autocode-issue</code> counts the pull request as merged once the base branch, here or
+as last fetched from the remote (<code>plan</code> fetches it first once it has committed a
+plan, with or without <code>--open</code>), holds a different file at its path than the plan
+branch started from, whatever the merge method, and whether or not the plan
+branch was deleted with it (<code>gh pr merge --delete-branch</code> deletes it here too).
+Until the run's plan moves past the one the merged pull request carried, <code>plan</code>
+refuses and pushes nothing, and <code>status</code> prints the <code>--goal-file</code> command. After
+that, for example once the Plan Reviewer revised the loaded plan, <code>status</code> stops
+printing it: loading the file again would replace the newer plan. To have the
+changed plan reviewed again, <code>plan</code> starts a new pull request, on branch
+<code>autocode/issue-N-&lt;title&gt;-plan-2</code> (then <code>-plan-3</code>) made from the base branch
+that holds the merged file, so it shows only what changed since.</p>
 <h2 id="credentials">Credentials<a class="headerlink" href="#credentials" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Token:</strong> reads <code>GITHUB_TOKEN</code>, or <code>GH_TOKEN</code> if that is unset.</li>
@@ -2126,8 +2212,8 @@ gate is evidence for review, not proof of correctness.</p>
 <li><strong>GitHub Enterprise:</strong> set <code>AUTOCODE_GITHUB_API=https://HOST/api/v3</code>.</li>
 </ul>
 <h2 id="label-triggered-action-example">Label-triggered Action example<a class="headerlink" href="#label-triggered-action-example" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/examples/github-issue/issue.yml">The example workflow</a> and
-<a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
+<p><a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/examples/github-issue/issue.yml">The example workflow</a> and
+<a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
 and public task-run interface. Applying the configured label starts a run and
 posts its current status with exact human commands. Applying it again
 reattaches to the same issue worktree and run, without advancing it or approving
@@ -2331,10 +2417,10 @@ may still change after that read; the submitted review's <code>commit_id</code> 
 the captured reviewed head. Repeating <code>--post</code> creates a separate review.
 GitHub posting tokens and Git authentication helper/header values are blanked
 at the TaskRun child boundary; normal provider configuration stays available.</p>
-<p>The companion <a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/examples/github-review/review.yml">pull request Action</a> uses
+<p>The companion <a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/examples/github-review/review.yml">pull request Action</a> uses
 trusted installed AutoCode/provider tooling on an explicitly configured runner.
 It reviews without posting by default, and keeps its result as a workflow
-artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/examples/github-review/README.md">its setup</a>; never install
+artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/examples/github-review/README.md">its setup</a>; never install
 AutoCode or provider tooling from the PR with secrets available.</p>
 
 

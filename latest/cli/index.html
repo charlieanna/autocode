@@ -2382,7 +2382,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2458,8 +2458,8 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <td>Agent wrapper that refuses operator decisions and reports a stop (see <a href="#unattended-callers-agents">Unattended callers</a>).</td>
 </tr>
 <tr>
-<td><code>autocode issue brief\|start\|status\|continue\|pr</code></td>
-<td>Read a GitHub issue, work on it through the task-run interface, and prepare a pull request (see <a href="../issues/">GitHub issues</a>).</td>
+<td><code>autocode issue brief\|start\|status\|continue\|plan\|pr</code></td>
+<td>Read a GitHub issue, work on it through the task-run interface, put the plan waiting for approval in a pull request as a plan file for review (<code>plan</code>), and prepare a pull request (see <a href="../issues/">GitHub issues</a>).</td>
 </tr>
 <tr>
 <td><code>autocode arena init\|ingest\|cases\|run\|report\|propose\|annotate\|compare</code></td>
@@ -2582,7 +2582,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3148,7 +3148,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3749,8 +3749,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode issue</code></td>
-<td><code>--project</code>, <code>--remote</code>, <code>--issue-file</code>, <code>--note</code>, <code>--base</code>, <code>--pr-base</code>, <code>--open</code>, <code>--ready</code></td>
-<td>Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls. See <a href="../issues/">GitHub issues</a>.</td>
+<td><code>--project</code>, <code>--remote</code>, <code>--issue-file</code>, <code>--note</code>, <code>--base</code>, <code>--pr-base</code>, <code>--open</code>, <code>--ready</code>, <code>--path</code></td>
+<td>Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls; with <code>plan</code>, where the plan file goes in the repository (default <code>plans/issue-N.md</code>). See <a href="../issues/">GitHub issues</a>.</td>
 </tr>
 <tr>
 <td><code>autocode arena</code></td>
@@ -3810,7 +3810,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,

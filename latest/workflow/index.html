@@ -770,6 +770,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#a-teams-plan-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A team's plan review
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2252,6 +2263,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#a-teams-plan-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A team's plan review
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2328,7 +2350,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2944,7 +2966,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/ceebbc1301927dd9d1559554291e85055eda9717/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3268,6 +3290,24 @@ names no file for it. For example:</p>
 <pre><code class="language-text">Plan goal hash: 3f1c… (what `autocode plan --check FILE` prints for a file holding exactly this plan).
 Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision 2; the approved plan differs from that file's plan only in the runner's records of the plan's review.
 </code></pre>
+<h3 id="a-teams-plan-review">A team's plan review<a class="headerlink" href="#a-teams-plan-review" title="Permanent link">&para;</a></h3>
+<p>Put together, a team reviews a plan like this:</p>
+<ol>
+<li><strong>AutoCode drafts the plan.</strong> A run stops with its plan waiting for approval. For a GitHub issue,
+   <code>autocode-issue start</code> gets it there.</li>
+<li><strong>A person opens a pull request with the file.</strong> <code>autocode-issue plan ISSUE --open</code> exports the
+   plan, commits it as <code>plans/issue-N.md</code> on a branch of its own and opens a draft pull request
+   (<a href="../issues/#reviewing-the-plan-in-a-pull-request">GitHub issues</a>). Without an issue, run
+   <code>autocode plan --export FILE</code>, then commit, push and open the pull request yourself.</li>
+<li><strong>Reviewers edit it.</strong> They change the front matter, regenerate the text with
+   <code>autocode plan --render FILE</code> and check it with <code>autocode plan --check FILE</code>. Merging approves nothing.</li>
+<li><strong>The merged file goes back to the run that drafted it.</strong> <code>autocode --goal-file FILE --run-dir RUN</code>
+   loads it as that run's next revision, and a person approves it at the approval stop as usual.</li>
+</ol>
+<p>Not available yet: starting a new run from the merged file (<code>autocode "TASK" --goal-file FILE</code>), for
+example on another machine or once the drafting run is gone. A plan file carries the exporting run's
+records of the plan's review, and how a new run should treat them is still to be decided (#720). Until
+then, <code>--goal-file</code> revises a saved run; it does not start one.</p>
 <h2 id="task-chat-message-intent">Task chat message intent<a class="headerlink" href="#task-chat-message-intent" title="Permanent link">&para;</a></h2>
 <p>Task chat uses deterministic, context-first rules; it makes no model call to
 guess a destructive action. Each saved message includes its kind and rule
