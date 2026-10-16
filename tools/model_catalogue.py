@@ -451,9 +451,14 @@ def choose(
                 ask=ask,
                 out=out,
                 inventory=inventory if facade is provider else None,
+                named_strong=named_strong,
             )
             for role, route in selected["roles"].items():
                 settings["roles"][role]["model"] = route["model"]
+            if "route_ladders" in selected:
+                settings["route_ladders"] = selected["route_ladders"]
+            if "builder_retry" in selected:
+                settings["builder_retry"] = selected["builder_retry"]
         return settings
     roles = {
         role: route
@@ -472,7 +477,7 @@ def choose(
     # Availability comes from the provider, not a hardcoded model policy.
     advice = advise(roles, available, refused_missing=False)
     if not advice["missing"]:
-        return _serve(settings, available, named_strong)
+        return _serve(settings, available, named_strong, roles=settings.get("roles"))
     signed_in = getattr(provider, "openai_auth", None)
     if signed_in and any(model.startswith("openai/") for model in available):
         advice = advise(roles, available, openai_auth=signed_in(workspace), refused_missing=False)
@@ -484,12 +489,12 @@ def choose(
         raise RuntimeError("No model was changed and nothing was launched; start the run with the flags above")
     for role, suggestion in advice["suggestions"].items():
         settings["roles"][role]["model"] = suggestion["model"]
-    return _serve(settings, available, named_strong)
+    return _serve(settings, available, named_strong, roles=settings.get("roles"))
 
 
-def _serve(settings: dict, available, named_strong) -> dict:
+def _serve(settings: dict, available, named_strong, roles=None) -> dict:
     try:
-        return route_ladder.serve(settings, available, named_strong=named_strong)
+        return route_ladder.serve(settings, available, roles=roles, named_strong=named_strong)
     except ValueError as error:
         raise RuntimeError(f"{error}. Nothing was launched") from None
 

@@ -40,7 +40,9 @@ def inherit(settings, role, source_role=None):
     """Save an immutable tool identity for a derived role copied mid-run from a source role."""
     if not settings or not isinstance(settings, dict):
         return None
-    identities = settings.setdefault("transport_identities", {})
+    identities = settings.get("transport_identities")
+    if not identities or not isinstance(identities, dict):
+        return None
     target_key = PREFIX + str(role)
     if target_key in identities:
         return identities[target_key]
@@ -60,14 +62,16 @@ def inherit(settings, role, source_role=None):
             and isinstance(src_identity, dict)
             and (provider is None or src_identity.get("provider") == provider)
         ):
-            identities[target_key] = copy.deepcopy(src_identity)
-            return identities[target_key]
+            inherited = copy.deepcopy(src_identity)
+            settings.setdefault("transport_identities", {})[target_key] = inherited
+            return inherited
 
     if provider and provider not in (None, "opencode", "openai", settings.get("provider")):
         for k, v in identities.items():
             if k.startswith(PREFIX) and isinstance(v, dict) and v.get("provider") == provider:
-                identities[target_key] = copy.deepcopy(v)
-                return identities[target_key]
+                inherited = copy.deepcopy(v)
+                settings.setdefault("transport_identities", {})[target_key] = inherited
+                return inherited
 
     return None
 
