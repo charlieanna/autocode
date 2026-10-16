@@ -558,6 +558,14 @@ PR template asks for an entry here; a change without one is incomplete.
   budget above the slice's counted time, which a resume does not restart, and `--max-seconds` when the stop names
   `run_seconds`. The request's options, the status view's `needs.action` and the progress line still offer that
   response, which AutoResolver holds at this stop as before; what releases the pause is unchanged (#611).
+- A rework loop that stops because a repeat brings no new evidence (the recovery novelty hold, "No causal
+  progress for the same incident") now says what the run has spent of its cost cap. With `--max-cost-usd`, the
+  hold's reason, in the line printed when the run stops and in the stop reason `--status` shows, ends with the
+  `Cost:` line `--status` prints: "... authorizes one attempt under existing limits. Cost: $0.53 so far; cap
+  $5.00." You can see what is left of the cap before the one scoped retry the hold admits. Without a cap nothing
+  is added, as the cost stops do. The pause status, exit code and request kind are unchanged, and the
+  hold's own record keeps its reason without the spend. The `rework-same-failure` scenario's oracle now checks
+  that the stop states the status view's spend and cap (#611).
 
 ### Removed
 

@@ -31,6 +31,7 @@ try:
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
     from . import autocode_check_refs as check_refs
+    from . import autocode_cost as cost
     from . import autocode_efficiency as efficiency
     from . import autocode_escalation as escalation
     from . import autocode_failure_classification as classification
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
     import autocode_check_refs as check_refs
+    import autocode_cost as cost
     import autocode_efficiency as efficiency
     import autocode_escalation as escalation
     import autocode_failure_classification as classification
@@ -1492,6 +1494,14 @@ def known_builder_pause(state: RunState):
     )
 
 
+def _cost_left(state: RunState):
+    """The run's spend against its cost cap, as `--status` prints it, for a hold's stop text: a person
+    deciding on the one scoped retry sees what is left of the cap (#611). Without a cap it adds nothing,
+    as the cost stops do. Only the stop's text carries it; the hold's own record keeps the bare reason."""
+    view = cost.view(state)
+    return f". {cost.line(view)}" if view["cap_usd"] is not None else ""
+
+
 def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
     """Run inside the caller's final locked admission, before any allowance charge."""
     stage = record.get("stage")
@@ -1618,8 +1628,9 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
                 reason="duplicate_no_new_information",
                 provenance={"incident_id": incident.id, "packet": pointer, "reason": reason},
             )
-            state.update({"stop_reason": reason})
-            raise util.Paused("PAUSED_NO_PROGRESS", reason)
+            stop = reason + _cost_left(state)
+            state.update({"stop_reason": stop})
+            raise util.Paused("PAUSED_NO_PROGRESS", stop)
         decisions.append(decision)
     record["recovery_novelty"] = {
         "version": 1,

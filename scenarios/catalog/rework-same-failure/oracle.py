@@ -10,7 +10,9 @@ With a run it also checks, from the scripted run's trace and the public status v
 - the stop names that check and says there was no progress on it, and is not a budget stop;
 - the run stopped with budget left: the view's cost shows the scenario's cap and less spent, and the run's active
   time is under its time budget. A scripted run never comes near either bound, so this reads only that the stop
-  reports what is left. A loop that keeps spending fails the first item's checks: a third attempt or a diagnosis.
+  reports what is left. A loop that keeps spending fails the first item's checks: a third attempt or a diagnosis;
+- the stop's own text states that spend and that cap, as the view's cost has them, so a person deciding whether to
+  retry sees what is left without asking for the status.
 """
 
 import hashlib
@@ -108,6 +110,18 @@ def check(project, scenario, run=None):
             and isinstance(allowed, (int, float))
             and active < allowed,
             f"cost spent {spent} of cap {cost.get('cap_usd')} (scenario {cap}); active {active} s of {allowed} s",
+        )
+    )
+    stated = re.search(r"Cost: (?:at least )?\$([\d,]+\.\d+) so far.*?; cap \$([\d,]+\.\d+)\.", reason)
+    checks.append(
+        Check(
+            "stop_states_spend_and_cap",
+            stated is not None
+            and cap is not None
+            and isinstance(spent, (int, float))
+            and abs(float(stated[1].replace(",", "")) - spent) < 0.005
+            and float(stated[2].replace(",", "")) == cap,
+            f"stop {stated[0] if stated else reason[-300:]!r}; view spent {spent}, cap {cost.get('cap_usd')}",
         )
     )
     return checks

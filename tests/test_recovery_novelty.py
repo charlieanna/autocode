@@ -666,6 +666,24 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertEqual(before["stages"], restarted["stages"])
         self.assertNotIn("resolver", restarted)
 
+    def test_a_hold_states_what_is_left_of_the_cost_cap(self):
+        # #611: a repeat with no new evidence stops before the run's budget is spent, and the stop says what
+        # it has spent of its cost cap, as --status prints it, so a person can decide on the one scoped retry.
+        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        recovery.admit_dispatch(self.state, first, self.root, self.run)
+        self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
+        self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
+        held = "authorizes one attempt under existing limits"
+        for limits, ending in (({"max_cost_usd": 5}, held + ". Cost: $1.75 so far; cap $5.00."), ({}, held)):
+            with self.subTest(limits=limits):
+                state = copy.deepcopy(self.state)
+                state["settings"]["limits"] = limits
+                again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+                with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
+                    recovery.admit_dispatch(state, again, self.root, self.run)
+                self.assertTrue(str(caught.exception).endswith(ending), str(caught.exception))
+                self.assertEqual(str(caught.exception), state["stop_reason"])
+
     def test_only_an_attempt_archived_without_a_report_leaves_its_incident_untried(self):
         # #422: automatic recovery accounts and archives a stopped attempt that ended without a
         # completed turn (timeout, capacity, startup). It returned no report, so its relaunch is
