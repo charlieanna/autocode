@@ -7,7 +7,7 @@ category = "feature"
 # harness/completion_rework_provider.py) applies the reference on every Builder attempt, so the Tester fails the same
 # check twice with nothing new to try. The right ending is a stop (`expected = "stop"`) that names the check and says
 # there was no progress, with the greeting fixed, nothing else changed, and the status view's cost showing the spend
-# under the $5 cap.
+# under the $5 cap, which the stop's text also states.
 # The bump (0.9.0 to 0.10.0) changes VERSION's size: the fake copies an overlay file with its modification time, and
 # under git's core.checkStat=minimal a same-size change in the same second would not show as changed.
 

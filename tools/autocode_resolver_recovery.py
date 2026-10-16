@@ -31,6 +31,7 @@ try:
     from . import autocode_builder_failure as builder_failure
     from . import autocode_builder_policy as builder_policy
     from . import autocode_check_refs as check_refs
+    from . import autocode_cost as cost
     from . import autocode_efficiency as efficiency
     from . import autocode_escalation as escalation
     from . import autocode_failure_classification as classification
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
     import autocode_check_refs as check_refs
+    import autocode_cost as cost
     import autocode_efficiency as efficiency
     import autocode_escalation as escalation
     import autocode_failure_classification as classification
@@ -1492,6 +1494,44 @@ def known_builder_pause(state: RunState):
     )
 
 
+def held_reason(state: RunState, text):
+    """The reason of the novelty hold on the next stage's request when ``text`` starts with it, as that
+    hold's stop text (hold_stop) and a stop reason composed from it do; otherwise None."""
+    reason = (_request(state, state.get("next_stage")).get("novelty_hold") or {}).get("reason")
+    return reason if isinstance(reason, str) and reason and str(text).startswith(reason) else None
+
+
+def hold_stop(state: RunState, reason):
+    """A novelty hold's stop text: ``reason``, then the run's spend against its cost cap as `--status`
+    prints it, so a person deciding on the one scoped retry sees what is left of the cap (#611). Without
+    a cap it adds nothing, as the cost stops do. The spend and cap are read from ``state`` each time the
+    stop is composed and are never saved with the reason: the hold's record and AutoResolver's request
+    keep the bare reason. A request asked again composes its stop anew
+    (autocode_resolver_runtime.record_operational_exhaustion), and restate_hold updates a saved stop
+    when the run's settings change."""
+    view = cost.view(state)
+    return reason + (f". {cost.line(view)}" if view["cap_usd"] is not None else "")
+
+
+# The spend hold_stop states after a hold's reason: with a cap, `cost.line` ends "; cap $N." (#611).
+_STATED_SPEND = re.compile(r"\. Cost: .*?; cap (?:under )?\$[\d,]+\.\d+\.")
+
+
+def restate_hold(state: RunState):
+    """Restate the spend and cap in a novelty hold's saved stop reason, as hold_stop composes them now,
+    keeping the advice after them. autocode_run_setup calls it when it saves changed settings at a stop, so
+    a cap changed at the hold is the cap the stop states, whether or not the request is asked again."""
+    text = state.get("stop_reason")
+    reason = held_reason(state, text) if isinstance(text, str) else None
+    if not reason:
+        return
+    rest = cast(str, text)[len(reason) :]
+    stated = _STATED_SPEND.match(rest)
+    rest = rest[stated.end() :] if stated else rest.removeprefix(".")
+    head = hold_stop(state, reason)
+    state["stop_reason"] = head + ("" if not rest or head.endswith(".") else ".") + rest
+
+
 def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authorization=None):
     """Run inside the caller's final locked admission, before any allowance charge."""
     stage = record.get("stage")
@@ -1618,8 +1658,9 @@ def admit_dispatch(state: RunState, record, workspace, run_dir, *, retry_authori
                 reason="duplicate_no_new_information",
                 provenance={"incident_id": incident.id, "packet": pointer, "reason": reason},
             )
-            state.update({"stop_reason": reason})
-            raise util.Paused("PAUSED_NO_PROGRESS", reason)
+            stop = hold_stop(state, reason)
+            state.update({"stop_reason": stop})
+            raise util.Paused("PAUSED_NO_PROGRESS", stop)
         decisions.append(decision)
     record["recovery_novelty"] = {
         "version": 1,

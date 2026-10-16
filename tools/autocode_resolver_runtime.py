@@ -522,6 +522,12 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
     pending = state.get("user_request") or (state.get("agent_request") or {}).get("request")
     if pending and pending.get("kind") != "none":
         return False
+    # A recovery novelty hold stops stating its spend against the cost cap (#611). The request saves the
+    # hold's reason alone as its cause, and the stop text below reads the spend and cap again, so a request
+    # asked again after a settings change (autocode_run_setup) states the cap the run has then.
+    held = recovery.held_reason(state, error) if error.status == "PAUSED_NO_PROGRESS" else None
+    if held and str(error) != held:
+        error = support.Paused(error.status, held)
     if request is None:
         error = _asked_again(state, error)
     kind = {
@@ -668,7 +674,8 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
     )
     # Keep the printed stop reason on the same contract as the published request, after the cause it
     # stops for (an external_directory denial, a spent budget), which the advice alone does not name.
-    state["stop_reason"] = _stop_reason(error, request.get("decision_needed") or decision)
+    cause = recovery.hold_stop(state, held) if held and str(error) == held else error
+    state["stop_reason"] = _stop_reason(cause, request.get("decision_needed") or decision)
     return True
 
 
