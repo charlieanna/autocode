@@ -2538,7 +2538,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/71fc500adf436d852ce7baa2b3fe811d9c488516/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/653661ef966b2c8e99539237a99a5a0fdbcf0790/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2894,17 +2894,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/71fc500adf436d852ce7baa2b3fe811d9c488516/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/653661ef966b2c8e99539237a99a5a0fdbcf0790/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/71fc500adf436d852ce7baa2b3fe811d9c488516/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/653661ef966b2c8e99539237a99a5a0fdbcf0790/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/71fc500adf436d852ce7baa2b3fe811d9c488516/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/653661ef966b2c8e99539237a99a5a0fdbcf0790/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3155,7 +3155,7 @@ run's final <code>--status --json</code>, and each row a person made must name t
 host and a command of option names only. In a scenario of one run, each plan and review
 approval the harness gave must also be listed, and so must each budget pause the scenario's
 person acknowledged, as the resume that names it; a program's or a components run's task runs are
-checked for provenance only (<a href="https://github.com/charlieanna/autocode/blob/71fc500adf436d852ce7baa2b3fe811d9c488516/scenarios/README.md">scenarios/README.md</a>).</p>
+checked for provenance only (<a href="https://github.com/charlieanna/autocode/blob/653661ef966b2c8e99539237a99a5a0fdbcf0790/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3671,10 +3671,17 @@ admission as one (#418).</p>
 <p>An unchanged incident can pause as <code>PAUSED_NO_PROGRESS</code> before another provider
 launch. A source hash, session rotation or comment-only edit alone cannot clear
 that hold. Existing healthy or uncertain workers are not restarted to create a
-new attempt. A supported known correction still receives the ordinary retry or
-escalation decision, assignment checks, fresh independent validation and the
-Completion gate. Unsupported changes remain unknown rather than being treated as
-proven progress.</p>
+new attempt. The hold's stop names the incident's check and its packet. With a
+cost cap, its reason is followed by the <a href="#money-cap"><code>Cost:</code> line <code>--status</code> prints</a>:
+"... authorizes one attempt under existing limits. Cost: $0.53 so far; cap $5.00."
+You can see what is left of the cap before the one scoped retry the hold admits.
+The spend and cap are read when the stop is written, never saved with the hold's
+reason, so a cap you change at the hold, with or without <code>--resume-paused</code>, is
+the cap the stop then states. Without a cap it says nothing about cost (#611).
+A supported known correction still receives the ordinary retry or escalation
+decision, assignment checks, fresh independent validation and the Completion
+gate. Unsupported changes remain unknown rather than being treated as proven
+progress.</p>
 <p>A recovery packet is bound to the run's settings, but not to its launch ceilings: the iteration
 limit, the active-time budget, the cost cap and the milestone budget. They decide whether an
 attempt may launch, not what it acts on, so resuming with a new one, as a budget stop advises,
@@ -3689,7 +3696,8 @@ admission written then lets its repair launch after a milestone budget change.</
 <p>The <code>rework-same-failure</code> scenario (scenarios/README.md) shows the hold on a correct repair: the
 required suite keeps failing on a file the task may not change, so after the second identical
 failure the run stops at <code>RESOLVER_PENDING</code> naming that check, with no paid diagnosis or third
-Builder attempt, and the status view's <code>cost</code> shows the spend under the cost cap (#611).</p>
+Builder attempt. The status view's <code>cost</code> shows the spend under the cost cap, and the stop's own
+text states that spend and the cap (#611).</p>
 <p>An attempt that automatic recovery archived because it ended without a completed
 turn (a provider timeout, capacity or startup failure, or a denied path) returned
 no report, so relaunching it repeats no experiment; that recovery route's own
