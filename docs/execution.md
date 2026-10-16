@@ -255,11 +255,12 @@ the projection, the milestone's time so far, the total and the budget to resume 
 active time, the last Builder attempt's duration, it would take this milestone's active time from
 650 s to 1,250 s, past the 1,000 s milestone budget you set ... resume with --max-milestone-seconds
 1250 or more`. The climb stays saved, so `--resume-paused --max-milestone-seconds M` with `M` at
-least that total launches that same attempt; that resume also restarts the milestone's count, as
-it always does. Reasserting the saved budget alone does not acknowledge this pause; any other
-`M`, or `0` for no limit, does, and the attempt is then checked against `M` from the restarted
-count. Only the Builder is checked against this budget, since it gates writer launches; a Tester or
-Completion Reviewer climb is not. The new-run default and a budget delegated with
+least that total launches that same attempt, including one a repair's recovery packet holds (see
+[Evidence-bound repair](#evidence-bound-repair)); that resume also restarts the milestone's
+count, as it always does. Reasserting the saved budget alone does not acknowledge this pause; any
+other `M`, or `0` for no limit, does, and the attempt is then checked against `M` from the
+restarted count. Only the Builder is checked against this budget, since it gates writer launches;
+a Tester or Completion Reviewer climb is not. The new-run default and a budget delegated with
 `--autoresolver-managed-limits` are not projected and keep only the check at the writer launch, as
 do a progressive run's slice budget and a last attempt without a recorded duration. So does a
 budget given while turning checkpoints on for a saved run, in the same command
@@ -1211,6 +1212,23 @@ escalation decision, assignment checks, fresh independent validation and the
 Completion gate. Unsupported changes remain unknown rather than being treated as
 proven progress.
 
+A recovery packet is bound to the run's settings, but not to its launch ceilings: the iteration
+limit, the active-time budget, the cost cap and the milestone budget. They decide whether an
+attempt may launch, not what it acts on, so resuming with a new one, as a budget stop advises,
+or AutoResolver's one-time extension of a default one, keeps the packet and the repair it holds,
+and buys no novelty. Other settings changes, such as another model or stage time limit, still
+make the repair a stale handoff (`PAUSED_STALE_HANDOFF`). Bindings recorded before #611, on a
+packet, a repair admission, a novelty hold, a retry grant or a retained diagnosis, hashed the
+milestone budget too. Each still holds while the run's settings are unchanged, and stops holding
+when the milestone budget changes. A binding recorded after the upgrade leaves the budget out, even
+for a packet saved before it: once the Resolver's plan for that packet finishes, the repair
+admission written then lets its repair launch after a milestone budget change.
+
+The `rework-same-failure` scenario (scenarios/README.md) shows the hold on a correct repair: the
+required suite keeps failing on a file the task may not change, so after the second identical
+failure the run stops at `RESOLVER_PENDING` naming that check, with no paid diagnosis or third
+Builder attempt, and the status view's `cost` shows the spend under the cost cap (#611).
+
 An attempt that automatic recovery archived because it ended without a completed
 turn (a provider timeout, capacity or startup failure, or a denied path) returned
 no report, so relaunching it repeats no experiment; that recovery route's own
@@ -1575,8 +1593,7 @@ the CLI whose Builder, Tester and Completion Reviewer launch inside the real bub
 boundary. It checks that the run finishes, that `--status --json` names the backend, and
 that a Builder shell write planted outside the workspace is blocked; an uncontained
 control shows the same write lands. The fake client's own edits and checks run outside
-the boundary, so this does not replace `NativeToolTests` either. The container backend
-(`docker` or `podman`) and a fake scenario under each backend are still open.
+the boundary, so this does not replace `NativeToolTests` either.
 
 A pull request runs this job when it changes any Python file that flow loads, or a stage
 report schema in `tools/autocode-schemas/`. `tools/ci_scope.py` works the Python files out
@@ -1586,6 +1603,23 @@ fake clients and the runtime's own workers. That is most of `tools/`, so a chang
 status view or the containment setup check runs the job without anyone adding it to a list.
 It does not follow a module loaded by a name built at run time through `importlib`, such as
 a subcommand from the subcommand table. Prompt changes do not select the job.
+
+The scenario harness runs the same contained flow as a scenario, in the suite job rather
+than in `linux-tool-containment`: `scenarios/test_contained_opencode.py` runs
+`greenfield-greeting-cli` with the scripted model behind the fake OpenCode client, with no
+`--allow-uncontained-tools`, so its Builder, Tester and Completion Reviewer launch inside
+bubblewrap. It checks that the scenario's oracle passes and the run completes; that every
+record of those three stages names `bubblewrap` and the version `autocode doctor` reports;
+that a Builder shell write planted outside the project is blocked; and that `--status --json`
+says `tool_containment: "contained"` and names the same backend. It asks
+`autocode doctor --json` whether this host has the boundary. Without a working bubblewrap,
+the test skips locally and fails in CI on Linux. Any other problem doctor reports, such as
+the fake client no longer reporting the qualified OpenCode version, fails it everywhere. The
+suite job installs bubblewrap before its scenario harness step. On a pull request that step
+runs the case when the case itself, the shared harness (`scenarios/harness/`,
+`scenarios/run.py`) or the fake OpenCode client changes (`SCENARIO_FIXTURES` in
+`tools/run_suite.py`); master runs it every time. The container backend (`docker` or
+`podman`) and a fake scenario under it are still open.
 
 ## Secret redaction
 

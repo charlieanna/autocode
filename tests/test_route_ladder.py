@@ -266,6 +266,42 @@ class ServeTests(unittest.TestCase):
         settings = route_ladder.serve(self.settings(strong="gpt-6-sol"), self.OFFERED)
         self.assertEqual("gpt-6-sol", settings["builder_retry"]["strong_model"])
 
+    def test_serve_filters_only_specified_roles_and_preserves_other_ladders(self):
+        settings = self.settings()
+        # The provider offers none of the models on any effort ladder:
+        # when roles={"sol"} is specified, only sol's ladder is filtered (emptied).
+        # resolver, terra, and completion ladders are preserved.
+        served = route_ladder.serve(settings, ["some-custom-model"], roles={"sol"})
+        self.assertEqual([], served["route_ladders"]["effort"]["sol"])
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["terra"]],
+            served["route_ladders"]["effort"]["terra"],
+        )
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["completion"]],
+            served["route_ladders"]["effort"]["completion"],
+        )
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["resolver"]],
+            served["route_ladders"]["effort"]["resolver"],
+        )
+
+    def test_serve_maps_astra_to_resolver(self):
+        settings = self.settings()
+        served = route_ladder.serve(settings, ["some-custom-model"], roles={"astra"})
+        self.assertEqual([], served["route_ladders"]["effort"]["resolver"])
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["sol"]],
+            served["route_ladders"]["effort"]["sol"],
+        )
+
+    def test_serve_leaves_builder_retry_untouched_when_terra_not_in_roles(self):
+        settings = self.settings()
+        expected = copy.deepcopy(settings["builder_retry"])
+        # Provider offers neither strong_model nor checker_model, but terra is not in roles:
+        served = route_ladder.serve(settings, ["some-custom-model"], roles={"sol"}, named_strong="openai/gpt-6-sol")
+        self.assertEqual(expected, served["builder_retry"])
+
 
 class OutcomeTests(unittest.TestCase):
     def state(self):

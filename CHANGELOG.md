@@ -9,7 +9,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- Filter each role's escalation ladder only against its own tool's model list under `--role-transport`, preserving effort ladders for roles running on other tools (#1426).
+
 ### Added
+
+- Opt-in blind tests via `--blind-tests` execute acceptance tests written by the Tester in a separate candidate
+  scratch tree without exposing test implementations or file paths to the Builder's workspace or prompt (#702).
 
 - `docs/cli.md` now includes a dedicated subcommand exit-code reference table documenting exit codes 0, 1, and 2
   across all subcommands, and `tests/test_cli_surface.py` tests that documented inventory (#714).
@@ -297,6 +304,29 @@ PR template asks for an entry here; a change without one is incomplete.
   after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
   work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
   judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- Fake scenarios for escalation outcomes, read black box through `autocode --status --json`: `escalation-converts`
+  (the Builder's stronger attempt fixes what its ordinary attempts could not; one `escalations` row with both routes,
+  one attempt and its cost, `passed`, and the run completes) and `escalation-ladder-end` (that attempt fails too; the
+  row reads `paused` and the run pauses at `PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's
+  diagnosis). `scenarios/test_escalation.py` runs both and checks that a `--builder-strong-model` the tool does not
+  list refuses the new run before any model call. The scripted provider gains the two faults
+  (`harness/escalation_provider.py`) and the oracle helper `escalation_checks`; no runtime change (#612).
+- A scenario catalog case for #611's rework loop, with an oracle, a reference and broken variants.
+  `rework-same-failure` has a correct greeting repair whose required suite also fails a release test the task may
+  not change: the run must stop after the second identical failure, naming the check, with no paid diagnosis or
+  third Builder attempt, and its status view's `cost` must show the spend under the $5 cap; it passes today.
+- The scenario harness runs a fake OpenCode build inside the Linux bubblewrap boundary (#709).
+  `scenarios/test_contained_opencode.py` runs `greenfield-greeting-cli` on the fake OpenCode client, with the
+  harness's scripted model behind it and `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1`, so its Builder, Tester and
+  Completion Reviewer launch contained. It checks that the scenario's oracle passes and the run completes, that
+  every record of those three stages names `bubblewrap` and the version `autocode doctor` reports, that a Builder
+  shell write planted outside the project is blocked, and that `--status --json` says `tool_containment:
+  "contained"` and names the same backend. The test asks `autocode doctor --json` whether the boundary is
+  available. Without a working bubblewrap, the test skips, except in CI on Linux, where it fails; the suite job
+  installs bubblewrap before the scenario harness runs. Any other problem doctor reports, such as the fake no
+  longer reporting the qualified OpenCode version, fails it everywhere. A pull request that changes only
+  `tools/fake_opencode.py` now runs the scenario harness step and this case (`SCENARIO_FIXTURES` in
+  `tools/run_suite.py`, read by `tools/ci_scope.py`). Only tests and CI selection change.
 - The scenario harness now checks who approved each task run a scenario completes (#722, sixth part). It reads
   `approvals` from that run's final `--status --json`. Each row a person made must name the scenario's person
   (`Scenario Person <person@scenario.example.test>`, which every scenario project now sets in its own Git
@@ -535,6 +565,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- When a role is copied mid-run from an existing role (such as Analyst or Investigator in the discuss
+  and bug-fix workflows, Architect in the design workflow, Acceptance Tester in spec-first runs, Resolver,
+  Stuck Investigator, or Utility route), it now inherits the source role's saved transport tool identity,
+  preventing missing-identity failures when using external role transports such as `--role-transport` (#1426).
 - When the OpenCode planning roles receive the complete Figma manifest and catalog as SHA-256 and
   byte-bound file references, their handoff now also carries the complete case roster inline (ID, route
   and state of every case, in manifest order), as Builder and Tester handoffs already did. Before, the
@@ -1072,6 +1106,18 @@ PR template asks for an entry here; a change without one is incomplete.
   leaving the next climbed attempt, its failed check and its cost out while the cost said complete. The correction
   task the review assigns (`REWORK`) now sends that work back as the retry policy's charge does, so the row reads
   `failed_again` with every climbed attempt and its cost (#612).
+- A milestone-budget stop before a repair's Builder launched could not be resumed as it advised. The repair's
+  recovery packet bound the milestone budget with the run's other settings, so
+  `--resume-paused --max-milestone-seconds M` stopped at `PAUSED_STALE_HANDOFF` ("Recovery packet: current source,
+  task, settings, contract or scope changed before admission") instead of launching the attempt, such as the
+  stronger attempt a known correction chose. The packet now leaves the milestone budget out, as it already left out
+  the iteration limit, the active-time budget and the cost cap: those decide whether an attempt may launch, not
+  what it acts on. AutoResolver's one-time extension of a default milestone budget changes the same setting and no
+  longer counts as a settings change either. A binding saved before this change, on a packet, a repair admission,
+  a novelty hold, a retry grant or a retained diagnosis, still holds while the run's settings are unchanged, and
+  stops holding when the milestone budget changes. One recorded after the upgrade leaves the budget out, even for a
+  packet saved before it: the repair admission written when the Resolver's plan finishes lets that repair launch
+  after a milestone budget change (#611).
 
 ## [0.7.1] — 2026-10-09
 

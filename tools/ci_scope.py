@@ -148,7 +148,9 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             # An unfamiliar repository input still gets the Python regression gate.
             selected["suite"] = True
 
-        if path.startswith(("scenarios/", "test-scenarios/", *LIFECYCLE, *MACHINERY)):
+        if path.startswith(("scenarios/", "test-scenarios/", *LIFECYCLE, *MACHINERY)) or (
+            path in run_suite.SCENARIO_FIXTURES
+        ):
             selected["scenarios"] = True
         if path.startswith(
             (

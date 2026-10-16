@@ -23,6 +23,7 @@ import textwrap
 from pathlib import Path
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_cli_surface as cli_surface
     from . import autocode_conversation_args as conversation_args
     from . import autocode_design_args as design_args
@@ -42,6 +43,7 @@ try:
     from .autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
     from .autocode_control_tokens import resolve_placeholders
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_cli_surface as cli_surface
     import autocode_conversation_args as conversation_args
     import autocode_design_args as design_args
@@ -244,6 +246,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         "concern approve the draft (docs/adaptive-planning.md); --no-adaptive-planning opts out",
     )
     resolver_human.requirements_review.add_argument(parser)
+    acceptance_tests.add_argument(parser)
     parser.add_argument(
         "--planning-v2",
         action="store_true",
