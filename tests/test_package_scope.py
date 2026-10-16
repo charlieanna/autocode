@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_bug_job as bug_job
 import autocode_native_test_names as native_names
 import autocode_package_scope as package_scope
 import autocode_preflight_worker as preflight_worker
@@ -118,6 +119,41 @@ class PackageNames(unittest.TestCase):
                 self.assertFalse(package_scope.contains(web, path))
         self.assertEqual([admin], package_scope.outside(web, [admin, "packages/web/test_web.py"]))
 
+    def test_a_change_outside_the_package_is_any_changed_path_not_strictly_inside_it(self):
+        changes = {
+            f"{GREET}/greet.py": "modified",
+            f"{GREET}/sub/new.py": "added",
+            f"{OTHER}/other.py": "deleted",
+            "packages/greeter/x.py": "added",
+            GREET: "added",
+            "README.md": "modified",
+        }
+        outside = {
+            GREET: "added",
+            "README.md": "modified",
+            "packages/greeter/x.py": "added",
+            f"{OTHER}/other.py": "deleted",
+        }
+        self.assertEqual(outside, package_scope.changes_outside(GREET, changes))
+        self.assertEqual(sorted(outside), list(package_scope.changes_outside(GREET, changes)))
+        self.assertEqual({}, package_scope.changes_outside(GREET, {f"{GREET}/greet.py": "deleted"}))
+
+    def test_an_exempt_path_is_left_out_with_everything_under_it(self):
+        changes = {
+            "vendored/": "added",  # a nested repository, as changed_files reports one
+            "vendored//x.txt": "added",  # or its files, read through declared source paths
+            "libs/lib": "modified",  # a submodule with uncommitted work
+            "libs/lib/src.c": "added",
+            "libs/library.c": "modified",  # beside the submodule, not under it
+            "docs/bugs/note.json": "added",
+            "README.md": "modified",
+        }
+        exempt = ["vendored/", "libs/lib", "docs/bugs/note.json", ""]
+        self.assertEqual(
+            {"README.md": "modified", "libs/library.c": "modified"},
+            package_scope.changes_outside(GREET, changes, exempt),
+        )
+
     def test_proving_tests_are_narrowed_inside_the_package(self):
         command = package_scope.command(GREET, f"{sys.executable} -m unittest -v test_greet.py")
         narrowed = proof_stability.narrow(
@@ -158,6 +194,29 @@ class PackageSuite(unittest.TestCase):
         self.assertEqual(SEED_TESTS, sorted(receipt["results"]["passed"]))
         # The other package's tests are not this package's suite.
         self.assertFalse([test for test in receipt["results"]["passed"] if "other" in test])
+
+    def test_the_candidate_changes_outside_the_package_count_each_side_of_a_rename_and_no_autocode_file(self):
+        root = self.project.root
+        (root / OTHER / "other.py").rename(root / GREET / "other.py")  # into the package: its old path is outside
+        (root / GREET / "greet.py").rename(root / "greet.py")  # out of it: its new path is outside
+        (root / OTHER / "test_other.py").unlink()
+        self.project.write(
+            {
+                ".autocode/runs/run/state.json": "{}\n",
+                ".autocode-ui/session.json": "{}\n",
+                f"{GREET}/__pycache__/greet.cpython-313.pyc": "bytecode",
+            }
+        )
+        (root / "node_modules").symlink_to(root / OTHER, target_is_directory=True)  # the runner's dependency link
+        changes = verify.changed_files(root, self.project.base)
+        self.assertEqual(
+            {"greet.py": "added", f"{OTHER}/other.py": "deleted", f"{OTHER}/test_other.py": "deleted"},
+            package_scope.changes_outside(GREET, changes),
+        )
+        self.assertEqual(
+            {f"{GREET}/greet.py": "deleted", f"{GREET}/other.py": "added"},
+            {path: change for path, change in changes.items() if package_scope.contains(GREET, path)},
+        )
 
     def test_a_package_that_is_missing_or_a_symlink_has_no_suite(self):
         self.assertIsNone(verify.detect_framework(self.project.root, python=sys.executable, package="packages/none"))
@@ -560,6 +619,29 @@ class PackageSuite(unittest.TestCase):
         self.assertIn(
             "Files outside the package packages/greet/ changed, and its suite does not cover them: "
             "packages/other/other.py",
+            proof["unverified"],
+        )
+
+    def test_only_the_unchanged_diagnosis_note_the_runner_wrote_is_not_the_change(self):
+        # The bug-fix workflow's note is at the repository root, under docs/bugs/ (autocode_bug_job): the proof,
+        # like the check before review (tests.test_package_writes), leaves it out only while it is unchanged.
+        from tests.test_bug_job import diagnosis
+
+        note = "docs/bugs/blank-name.json"
+        case = {"id": "blank", "given": "a blank name", "when": "greet runs", "then": "it is rejected"}
+        report = diagnosis(note_path=note, test_cases=[case])
+        output = self.run_dir / "bug-investigation-01.json"
+        output.write_text(json.dumps(report))
+        state = bugfix_state(self.project)
+        bug_job.apply(state, report, {"changed_files": [], "output": str(output)}, self.project.root)
+        self.project.write(FIX)
+        proof = regression.prove(state, self.project.root, self.run_dir / "unchanged")
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        written = json.loads((self.project.root / note).read_text())
+        self.project.write({note: json.dumps({**written, "conclusion": "edited"}, indent=2) + "\n"})
+        proof = regression.prove(state, self.project.root, self.run_dir / "edited")
+        self.assertIn(
+            f"Files outside the package packages/greet/ changed, and its suite does not cover them: {note}",
             proof["unverified"],
         )
 

@@ -626,9 +626,58 @@ What the package changes:
   command unless `--test-command` gives one, so a large repository does not bind
   thousands of unrelated tests. The replay of the package suite is read in the
   package as the same suite is read at the root.
+- The package is the Builder's write scope, and its handoff says so
+  (`write_scope`). No other stage is told the package. Before each Tester and
+  Completion Reviewer dispatch, in every package run, whether or not it owes a
+  regression proof, the runner compares the candidate with the run's base, as
+  the regression proof reads it. The Code Reviewer, Designer and Design
+  Reviewer dispatches are not checked. A file added, modified (its content or
+  its mode) or deleted outside the package (another package, a file at the
+  repository root, a shared lockfile or workspace file; a rename counts on both
+  sides) opens one blocking finding with source `runner` that names each path
+  and what happened to it. A file restored with the same content but a
+  different mode still counts as modified. The completion gate and a
+  milestone's acceptance refuse while the finding is open; every stage sees it
+  in `open_findings`, and a correction task is assigned it. Only the runner
+  closes it, when a later check finds no change outside the package; no
+  reviewer report can. Closing it with `--close-finding` accepts nothing:
+  `--accept-completion` runs the same check once its own checks pass (a
+  finished run, an unapproved plan or missing evidence is refused for that
+  reason first) and refuses while the change is there, and the next check
+  before review opens a new finding. A task that must change files outside the
+  package, such as a root lockfile, needs a run without `--package`.
+- What the check does not count outside the package:
+  - what the regression proof does not count either: AutoCode's own
+    `.autocode/` files, bytecode, the runner's dependency links, and an
+    untracked file Git ignores, unless the approved plan names its path;
+  - an untracked Git repository or a submodule's uncommitted work that the
+    checkout already held when the run started, which the run's base cannot
+    hold. Every new package run records what is there when its base is taken
+    (none, in a new task worktree). While such a path is still a Git
+    repository, it and everything under it are left out, so a later change
+    inside it is not seen. Once it is deleted, or is no longer a Git
+    repository (replaced by a file, or its `.git` removed), the finding names
+    it apart from the Builder's changes and tells the Builder not to delete,
+    move or reset anything there: the person restores it. A package run saved
+    before this record existed has none, so its check leaves out every nested
+    Git repository and submodule work it finds outside the package rather
+    than report the person's own as the Builder's;
+  - the files the runner wrote for this run, while they are as the runner
+    wrote them: a bug fix's diagnosis note under `docs/bugs/` (compared with
+    the investigation the run saved, whether or not it reproduced the bug)
+    and a review's or design review's report (its saved hash). Once changed,
+    the finding names them apart and tells the Builder to put back what the
+    runner wrote, not to delete them;
+  - a design check's blockers file and what an earlier, finished turn of the
+    run left (a discussion's note, a design's documents, the other files the
+    turn changed), which the run records by path only: they are left out by
+    path, so an edit to one is not seen.
+
+  The regression proof's list of changes outside the package leaves out the
+  same paths, apart from the person's Git work that is no longer as it was.
 - A runner regression proof (a bug fix, or a plan whose criteria name tests)
-  leaves a change outside the package `UNVERIFIED`, because the package suite
-  never ran it. The run cannot complete with such a change.
+  also leaves a change outside the package `UNVERIFIED`, because the package
+  suite never ran it.
 
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
@@ -656,8 +705,9 @@ baseline cache, as at the root.
 
 Not covered yet (#711):
 
-- The package does not limit what the Builder may write, and a run that owes no
-  runner regression proof does not check for changes outside the package.
+- Nothing limits what the Builder writes while it works: a change outside the
+  package is found when the candidate is checked before review, not refused when
+  it is written.
 - Detection in the package does not read pytest configuration in parent
   directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
   `conftest.py`), so a package that relies on it is detected as unittest. Give

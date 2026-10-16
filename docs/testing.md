@@ -157,6 +157,22 @@ interruption and checkpoint-write failure. The repair audit (archived at tag `ar
 `audits/opencode-repair-2026-09-19/`) also verifies the original defects with native
 OpenCode metadata and a loopback provider fixture, without hosted model requests.
 
+`tests/test_contained_fake_cli.py` runs that fake OpenCode through the CLI inside the
+runner's real Linux bubblewrap boundary (#709). With `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1`
+the fake reports OpenCode 1.18.33 and answers the model-free `opencode debug agent`
+conformance checks, running each `--tool bash` command through the boundary shell the
+runner configured. `AUTOCODE_FIXTURE_SHELL_ESCAPE=<path>` makes its Builder write that path
+through the same shell. The module checks that such a run finishes; that its Builder,
+Tester and Completion Reviewer stage records and `autocode --status --json`
+(`tool_containment_backend`) name `bubblewrap` and its version; and that the planted write
+outside the workspace is blocked. Its uncontained control (`--allow-uncontained-tools`)
+shows the same write lands. The fake's own work, the scripted Codex delegate's edits and
+checks, still runs outside the boundary. So this proves the runner's contained launch
+path, not OpenCode's own tool dispatch, which the opt-in `NativeToolTests` cover. The
+module skips without a working bubblewrap; as root, drop the capabilities as described in
+[host requirements](#host-requirements-for-tests). Without those variables the fake is
+unchanged.
+
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 

@@ -278,7 +278,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             # Saving adjudicated a queued resolver request (published or deferred it): launch nothing.
             return runner.orchestrator.SKIP
         # A role's climb on its effort ladder is checked before it launches (#611): priced against the money cap
-        # (PAUSED_COST_LIMIT), then timed against an active-time budget you set (PAUSED_TIME_LIMIT).
+        # (PAUSED_COST_LIMIT), then timed against an active-time budget you set (PAUSED_TIME_LIMIT) and, for the
+        # Builder, against the milestone budget you set (PAUSED_MILESTONE_BUDGET).
         climb_cap.guard(current, stage, route_role)
         schema_value = request.schema
         schema_path = run_dir / "schemas" / f"v3-{stage}.json"
@@ -374,7 +375,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
                 and not any(not row.get("runner_owned") for row in state.get("stages") or [])
             ):
                 # Found the checkout busy at launch (autocode_run_setup.launch_base): it starts from here.
-                state["base_commit"] = regression.launch_base(workspace, run_dir)
+                regression.start(state, workspace, run_dir)
                 runner.write_json(state_path, state)
             runner.orchestrator.drive(
                 state,
