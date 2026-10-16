@@ -448,7 +448,7 @@ def progressive(state: RunState) -> dict | None:
     return deepcopy(result)
 
 
-def evidence_report(state):
+def evidence_report(state: RunState):
     try:
         from .autocode_evidence_export import metadata
     except ImportError:
@@ -630,7 +630,7 @@ def evidence(state: RunState) -> dict:
     }
 
 
-def workflow_result(state):
+def workflow_result(state: RunState):
     """Bounded job outcome facts; job completion is separate from code checks."""
     kind = (state.get("workflow") or {}).get("kind")
     if kind == "review" and state.get("review"):

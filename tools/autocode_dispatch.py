@@ -386,7 +386,7 @@ def finish_preparation(state: RunState, workspace, run_dir, batch):
             if any(saved.get(key) != value for key, value in child.items()):
                 raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Prepared Builder state changed before launch")
         else:
-            autocode_status.persist(worker_dir / "state.json", child)
+            autocode_status.persist(worker_dir / "state.json", cast("RunState", child))
         row["status"] = "PENDING"
         autocode_status.persist(run_dir / "state.json", state)
     batch["status"] = "BUILDING"

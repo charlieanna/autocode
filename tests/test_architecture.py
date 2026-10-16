@@ -55,8 +55,10 @@ TANGLED = frozenset(
 # 2026-10-15: the pinned pytest policy reader moved beside the current one in autocode_test_root, and a
 # package's suite (#711) is detected and run through autocode_package_scope, which lowered autocode_verify.py.
 # 2026-10-16: queuing a report-only repair moved to autocode_report_repair_queue (#1257).
+# 2026-10-16: annotating commit_boundary_candidate's state as RunState (#695) pushed its signature past
+# the line length, and ruff format wrapped it onto three lines: autocode.py +2, no new behavior.
 MAX_LINES = {
-    "autocode.py": 2003,
+    "autocode.py": 2005,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1513,

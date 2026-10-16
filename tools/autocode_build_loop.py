@@ -91,7 +91,7 @@ def record_resume(runner, args, state: RunState, state_path) -> None:
         runner.write_json(state_path, state)
 
 
-def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=False):
+def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checkout_owned=False):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
 
     def consume_boundary(current):
