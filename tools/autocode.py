@@ -1833,7 +1833,8 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
                         "PAUSED_INTERVENTION_PENDING", "Queued intervention takes precedence over this human response"
                     ) from None
                 raise
-        approval_provenance.decide(callback, state, candidate, sys.argv[1:])  # who approved (#722)
+        if not approval_provenance.decide(callback, state, candidate, sys.argv[1:]):  # who approved (#722)
+            return False  # the run's require-approver refused this checkout's Git identity: nothing changed
         if published:
             finish_human_action(candidate, published)
         normalize_human_boundary(candidate, run_dir)
@@ -1845,6 +1846,7 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
             persist=save,
             native=native,
         )
+        return True
 
     def show_handoff():
         rendered = lifecycle.present(state, run_dir)
@@ -1884,10 +1886,9 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
                     print("Artifact review remains pending.")
                     return False
                 current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
-                action(
-                    lambda candidate: goals.approve_review(candidate, criterion, state["displayed_review"], current),
-                    resolver_human.current(state),
-                )
+                review = lambda copied: goals.approve_review(copied, criterion, state["displayed_review"], current)
+                if not action(review, resolver_human.current(state)):
+                    return False
             return state["status"] == "RUNNING"
         if not state.get("pending_questions"):
             show_handoff()
@@ -1949,7 +1950,7 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
                 print("\nChat paused; the brief remains available for approval.")
                 return False
             if reply.lower() in ("y", "yes", "/approve"):
-                action(
+                return action(
                     lambda candidate: (
                         native.approve(lifecycle.approve, candidate, state["displayed_goal"])
                         if native is not None
@@ -1957,7 +1958,6 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
                     ),
                     published,
                 )
-                return True
             if reply.lower() in ("", "n", "no", "/pause"):
                 print("Brief not approved. Resume this run when you are ready.")
                 return False

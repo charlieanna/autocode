@@ -548,6 +548,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         },
         # The monorepo package the run works in (autocode_package_scope); fixed at launch.
         **({"package": args.package} if getattr(args, "package", None) else {}),
+        # Who may approve: the project's require-approver, fixed at launch (autocode_required_approver).
+        **({"require_approver": args.require_approver} if getattr(args, "require_approver", None) else {}),
         "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
         "rotation_after_input_tokens": args.rotate_after_input_tokens
         if args.rotate_after_input_tokens is not None

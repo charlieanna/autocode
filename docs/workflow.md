@@ -818,7 +818,8 @@ out, because the proof accepts it with only a note. When no criterion is marked 
 (or in a design job) it says that nothing shows a check would fail without the change. Approval saves
 `READY_TO_EXECUTE`; the next ordinary invocation begins execution. The approval records who gave it:
 the Git identity, host and command, plus an optional `--as NAME` on a shared machine
-([Who approved](execution.md#who-approved)). User-input commands
+([Who approved](execution.md#who-approved)). A project can name the Git identities allowed to
+approve; any other approver is refused at the same stop ([Required approver](execution.md#required-approver)). User-input commands
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.
 

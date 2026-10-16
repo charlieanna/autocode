@@ -146,13 +146,16 @@ class ProjectConfigTests(unittest.TestCase):
         for key in (*project_config.KEYS, *project_config.USER_ONLY):
             with self.subTest(key=key):
                 self.assertIn("--" + key, parser._option_string_actions)
+        for key in project_config.FILE_ONLY:  # require-approver: no flag can set or override it (#722)
+            with self.subTest(key=key):
+                self.assertNotIn("--" + key, parser._option_string_actions)
         self.assertEqual(len(project_config.KEYS), len(set(project_config.KEYS)))
         text = DOCS.read_text()
         section = text[text.index("### Project settings") :]
         section = section[: section.index("\n### ", 1)]
         table = [line for line in section.splitlines() if line.startswith("| ") and "`" in line]
         documented = [key for line in table for key in re.findall(r"`([a-z-]+)`", line.split("|")[2])]
-        self.assertEqual(list(project_config.KEYS), documented)
+        self.assertEqual([*project_config.KEYS, *project_config.FILE_ONLY], documented)
 
     def test_autocodes_own_gitignore_leaves_only_reviewable_project_files_trackable(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
