@@ -259,6 +259,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--workspace", type=Path, default=Path.cwd())
     result.add_argument("--max-parallel", type=int, default=2)
     result.add_argument("--dry-run", action="store_true")
+    result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
     return result
 
 

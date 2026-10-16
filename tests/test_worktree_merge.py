@@ -78,6 +78,42 @@ class WorktreeMergeTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue("branch" in message.lower() or "delivered" in message.lower(), message)
 
+    def test_merge_cli_json_success(self):
+        meta = workspaces.create(self.project, "Build a greeting CLI")
+        tree = Path(meta["workspace"])
+        (tree / "b.txt").write_text("two\n")
+        git(tree, "add", "b.txt")
+        git(tree, "-c", "user.name=T", "-c", "user.email=t@e.test", "commit", "-qm", "deliver")
+        import contextlib
+        import io
+        import json
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = merge_mod.cli(["--workspace", str(self.project), str(tree), "--json"])
+        self.assertEqual(0, code)
+        payload = json.loads(out.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertIn("fast-forwarded", payload["message"])
+        self.assertEqual(str(self.project.resolve()), str(Path(payload["project"]).resolve()))
+        self.assertEqual(str(tree.resolve()), str(Path(payload["worktree"]).resolve()))
+
+    def test_merge_cli_json_refused(self):
+        meta = workspaces.create(self.project, "Build a greeting CLI")
+        tree = Path(meta["workspace"])
+        (tree / "b.txt").write_text("two\n")
+        import contextlib
+        import io
+        import json
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = merge_mod.cli(["--workspace", str(self.project), str(tree), "--json"])
+        self.assertEqual(1, code)
+        payload = json.loads(out.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertTrue("branch" in payload["message"].lower() or "delivered" in payload["message"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()

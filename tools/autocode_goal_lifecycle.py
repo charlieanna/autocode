@@ -55,6 +55,7 @@ try:
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
+    from . import autocode_planning_cycle as planning_cycle
     from . import autocode_progressive_state as progressive_state
     from . import autocode_proof_declarations as proof_declarations
     from . import autocode_recovery_context as recovery_context
@@ -100,6 +101,7 @@ except ImportError:
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
+    import autocode_planning_cycle as planning_cycle
     import autocode_progressive_state as progressive_state
     import autocode_proof_declarations as proof_declarations
     import autocode_recovery_context as recovery_context
@@ -390,11 +392,7 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         if origin == "glm_revise":
             state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "astra_finalize"})
         else:
-            try:
-                from . import autocode_planning as planning
-            except ImportError:
-                import autocode_planning as planning
-            planning.start(state)
+            planning_cycle.start(state)
         return
     record = record or {}
     proposed_by = {
