@@ -170,8 +170,9 @@ class ContainedFlowFilesTests(unittest.TestCase):
         # A worker the runtime starts beside itself, a package import and an import whose file is gone.
         "tools/cli.py": 'from units import stage\nimport removed_module\nWORKER = HERE.with_name("worker.py")\n',
         "tools/units/__init__.py": "",
-        "tools/units/stage.py": "from . import common\nimport providers.client\n",
+        "tools/units/stage.py": 'from . import common\nimport providers.client\nHELPER = HERE / "helper.py"\n',
         "tools/units/common.py": "",
+        "tools/units/helper.py": "",
         "tools/providers/__init__.py": "",
         "tools/providers/client.py": "",
         "tools/worker.py": "import broken\n",
