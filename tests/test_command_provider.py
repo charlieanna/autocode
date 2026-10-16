@@ -1226,6 +1226,22 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         self.assertIn("role:acceptance_tester", settings["transport_identities"])
         self.assertIs(self.external, self.transport.adapter(settings, "acceptance_tester", self.open, self.workspace))
 
+    def test_a_derived_role_on_the_run_s_own_tool_inherits_no_external_identity(self):
+        import copy
+
+        # The Resolver keeps its own model on OpenCode while its source role, the
+        # Completion Reviewer, moves to kilocode: nothing is copied and it stays on OpenCode.
+        self.cli_configure(
+            [*self.args(), "--role-transport", "astra=kilocode", "--astra-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        self.assertIsNone(settings["roles"]["resolver"].get("provider"))
+        self.assertIsNone(self.transport.entry(settings, "resolver"))
+        self.assertIsNone(self.transport.inherit(settings, "resolver", "astra"))
+        self.assertNotIn("role:resolver", settings["transport_identities"])
+        self.assertIs(self.open, self.transport.adapter(settings, "resolver", self.open, self.workspace))
+        self.assertEqual("kilocode", self.transport.entry(settings, "astra")["provider"])
+
     def test_external_route_without_matching_source_identity_is_refused_with_clear_message(self):
         import copy
 
