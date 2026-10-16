@@ -18,6 +18,7 @@ from unittest.mock import patch
 import autocode_action_authority as action_authority
 import autocode_captured_process as captured_process
 import autocode_goal_lifecycle as lifecycle
+import autocode_plan_file as plan_file
 import autocode_process as processes
 import autocode_prompts as prompts
 import autocode_run_view as run_view
@@ -235,7 +236,9 @@ class RunViewTests(unittest.TestCase):
         self.assertNotIn("approved_contract", draft)
         approved = run_view.view(state)
         shown = approved["approved_contract"]
-        self.assertEqual({"revision", "hash", "token", "task_id", "approved_at", "body"}, set(shown))
+        self.assertEqual(
+            {"revision", "hash", "token", "task_id", "approved_at", "body", "goal_hash", "plan_file"}, set(shown)
+        )
         # Expected values are public and independent of the saved contract: what the draft view
         # showed for approval, the token it asked for, and the inputs the run was given.
         self.assertEqual(
@@ -244,6 +247,9 @@ class RunViewTests(unittest.TestCase):
         )
         self.assertEqual("greet-task", shown["task_id"])
         self.assertEqual(goal_fixtures.body(), shown["body"])
+        # What `autocode plan --check FILE` prints for a file holding this plan; none was loaded from one (#720).
+        self.assertEqual(plan_file.goal_hash(goal_fixtures.body()), shown["goal_hash"])
+        self.assertIsNone(shown["plan_file"])
         self.assertIsInstance(shown["approved_at"], str)
         self.assertTrue(shown["approved_at"])
         self.assertEqual({"approved_contract"}, set(approved) - set(draft))

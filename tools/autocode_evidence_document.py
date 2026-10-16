@@ -27,6 +27,9 @@ APPROVER_UNVERIFIED = (
     "Who approved is recorded as given, not verified: the Git identity is what the checkout's Git configuration "
     "held and a name given with --as is the person's own claim"
 )
+DIGEST = re.compile(r"[0-9a-f]{64}")
+# The fields of the status view's approved_contract.plan_file the report copies (#720).
+PLAN_FILE_FIELDS = ("path", "goal_hash", "revision", "changed")
 
 
 def mapping(value):
@@ -109,6 +112,33 @@ def approval_facts(approvals):
             }
         )
     return facts
+
+
+def _digest(value):
+    return isinstance(value, str) and DIGEST.fullmatch(value) is not None
+
+
+def plan_identity(approved, contract_token):
+    """The approved plan's goal hash and the plan file it was loaded from, as report facts (#720).
+
+    ``approved`` is the status view's ``approved_contract``. Empty unless it is the plan the report is bound to
+    (its token is the report's contract token) and carries a goal hash, so a report built from other facts, or
+    written before the view gave one, has neither field. ``plan_file`` is null for a plan not loaded with
+    --goal-file and for a citation that is not one autocode_plan_file_origin.citation writes.
+    """
+    approved = mapping(approved)
+    if not contract_token or approved.get("token") != contract_token or not _digest(approved.get("goal_hash")):
+        return {}
+    cited = approved.get("plan_file")
+    well_formed = (
+        isinstance(cited, dict)
+        and isinstance(cited.get("path"), str)
+        and _digest(cited.get("goal_hash"))
+        and type(cited.get("revision")) is int
+        and isinstance(cited.get("changed"), list)
+        and all(isinstance(key, str) for key in cited["changed"])
+    )
+    return {"goal_hash": approved["goal_hash"], "plan_file": select(cited, PLAN_FILE_FIELDS) if well_formed else None}
 
 
 def build(view, *, run_identity, completed_at, provenance, binding, kind="task", children=(), role_context=None):
@@ -203,6 +233,7 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
             "criteria_revision": verification.get("criteria_revision"),
             "task_id": verification.get("task_id"),
             "intended_outcome": evidence.get("outcome"),
+            **plan_identity(view.get("approved_contract"), verification.get("contract_token")),
         },
         "revision": {
             "base_commit": evidence.get("base_commit"),
@@ -241,6 +272,14 @@ def validate(document):
         value = row.get("prompts_hash")
         if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)):
             raise ValueError("Prompt identity must be a SHA-256 digest or unknown")
+    plan = document["plan"]
+    if "plan_file" in plan and "goal_hash" not in plan:
+        raise ValueError("A plan file is cited only beside the approved plan's goal hash")
+    hashes = [plan["goal_hash"]] if "goal_hash" in plan else []
+    if isinstance(plan.get("plan_file"), dict):
+        hashes.append(plan["plan_file"]["goal_hash"])
+    if not all(_digest(value) for value in hashes):
+        raise ValueError("A plan's goal hash must be a SHA-256 digest")
     # Also reject non-JSON numbers (NaN/Infinity) in nested public accounting.
     json.dumps(document, allow_nan=False)
 
@@ -250,7 +289,7 @@ REDACTION_NOTICE = (
     "identify the original raw evidence bytes."
 )
 _AUTH_FIELDS = frozenset(
-    ("binding", "contract_token", "criteria_revision", "source_revision", "base_commit", "prompts_hash")
+    ("binding", "contract_token", "criteria_revision", "source_revision", "base_commit", "prompts_hash", "goal_hash")
 )
 
 
@@ -373,6 +412,35 @@ def _approval_lines(document):
     return [*lines, ""]
 
 
+def _plan_lines(plan):
+    """The approved plan's goal hash and the plan file it was loaded from (#720), or [] for a report without
+    them (one written before AutoCode cited them), so an older report's Markdown still renders byte for byte.
+
+    The approved plan is the file's when their goal hashes are equal. Otherwise ``changed`` names what differs
+    from the revision loaded from it; when it names nothing, only the runner's records of the plan's review do
+    (autocode_goal_file.approval_lines says the same at the approval stop)."""
+    if "goal_hash" not in plan:
+        return []
+    lines = [
+        f"Plan goal hash: {text(plan['goal_hash'])} (what `autocode plan --check FILE` prints for a file holding "
+        "exactly this plan)."
+    ]
+    cited = plan.get("plan_file")
+    if not cited:
+        return lines
+    if cited["goal_hash"] == plan["goal_hash"]:
+        relation = "is that file's plan, unchanged"
+    elif not cited["changed"]:
+        relation = "differs from that file's plan only in the runner's records of the plan's review"
+    else:
+        relation = "differs from that file's plan in " + text(", ".join(cited["changed"]))
+    return [
+        *lines,
+        f"Plan file: {code(cited['path'])} (goal hash {text(cited['goal_hash'])}), loaded as plan revision "
+        f"{text(cited['revision'])}; the approved plan {relation}.",
+    ]
+
+
 def _render(document):
     validate(document)
     run, revision, plan = document["run"], document["revision"], document["plan"]
@@ -389,6 +457,7 @@ def _render(document):
         text(plan["intended_outcome"]),
         "",
         f"Agreed plan: {text(plan['contract_token'])}. Completed: {text(run['completed_at'])}.",
+        *_plan_lines(plan),
         f"Elapsed wall time (including input waits): {text(run['elapsed_seconds'])} seconds.",
         *([f"Launch prompt set (SHA-256): {text(run['prompts_hash'])}."] if "prompts_hash" in run else []),
         f"Checked source snapshot: {text(revision['source_revision'])}; base commit: {text(revision['base_commit'])}.",

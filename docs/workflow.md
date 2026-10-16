@@ -917,6 +917,20 @@ records, so that plan's goal hash differs from the file's; any other change is n
 token locks the revision on the screen, as always. `--goal-file` revises a saved run; it does not
 start a new one.
 
+When the run completes, its evidence report (`evidence.md`, and so the pull request body
+`autocode-issue pr` writes around it) gives the approved plan's goal hash, the one `--check` prints
+for a file holding exactly that plan. When the approved plan came from a plan file, the report also
+names the file, its goal hash and the plan revision it was loaded as, and says how the two differ:
+the approved plan is the file's plan unchanged (the two goal hashes are equal), differs from it only
+in the runner's records of the plan's review, or differs from it in the parts it names. A plan
+approved, changed and approved again after the load is the later approval's plan, so the report
+names no file for it. For example:
+
+```text
+Plan goal hash: 3f1c… (what `autocode plan --check FILE` prints for a file holding exactly this plan).
+Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision 2; the approved plan differs from that file's plan only in the runner's records of the plan's review.
+```
+
 ## Task chat message intent
 
 Task chat uses deterministic, context-first rules; it makes no model call to

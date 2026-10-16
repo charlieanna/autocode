@@ -46,6 +46,8 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_pause_category as pause_category
     from . import autocode_pause_command as pause_command
+    from . import autocode_plan_file as plan_file
+    from . import autocode_plan_file_origin as plan_file_origin
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
@@ -80,6 +82,8 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_pause_category as pause_category
     import autocode_pause_command as pause_command
+    import autocode_plan_file as plan_file
+    import autocode_plan_file_origin as plan_file_origin
     import autocode_progressive_plan as progressive_rules
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
@@ -326,21 +330,29 @@ def approved_contract(state: RunState) -> dict | None:
     follow-up answered by a review, design or discussion, it is the earlier request's plan.
     A program coordinating several runs reads the child's approved criteria here, never
     state.json.
+
+    ``goal_hash`` is the plan's goal hash, what `autocode plan --check FILE` prints for a file
+    holding exactly this plan; ``plan_file`` names the plan file it was loaded from with
+    --goal-file, or is None (autocode_plan_file_origin.citation, which never fails on a
+    malformed record, so such a record cannot take the approved plan out of the view).
     """
     contract = state.get("goal_contract") or {}
     try:
         if not contract_identity.approved(state):
             return None
-        return {
+        approved = {
             "revision": contract["revision"],
             "hash": contract["hash"],
             "token": contract_identity.token(contract),
             "task_id": contract.get("task_id"),
             "approved_at": (contract.get("approval_event") or {}).get("at"),
             "body": deepcopy(contract["body"]),
+            "goal_hash": plan_file.goal_hash(contract["body"]),
         }
     except (KeyError, TypeError, AttributeError, ValueError):
         return None
+    approved["plan_file"] = plan_file_origin.citation(state)
+    return approved
 
 
 def progressive(state: RunState) -> dict | None:

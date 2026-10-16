@@ -253,6 +253,14 @@ PR template asks for an entry here; a change without one is incomplete.
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
 
+- A completed run's evidence report, and so the pull request body `autocode-issue pr` builds from `evidence.md`,
+  gives the approved plan's goal hash (what `autocode plan --check FILE` prints for a file holding exactly that
+  plan). When the approved plan was loaded with `--goal-file`, it also names the file, its goal hash and the plan
+  revision it was loaded as, and says whether the approved plan is the file's plan unchanged, differs only in the
+  runner's records of the plan's review, or differs in named parts. The status view's `approved_contract` gains
+  `goal_hash` and `plan_file`, and the report's `plan` gains the same two optional fields; older reports still
+  authenticate. Starting a new run from a plan file is not part of this change (#720).
+
 ### Changed
 
 - Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the
