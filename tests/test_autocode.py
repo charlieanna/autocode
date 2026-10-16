@@ -23,6 +23,7 @@ import autocode_configure
 import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_planning as planning
+import autocode_run_view as run_view
 import autocode_stage_context as stage_context
 import autocode_support as s
 import autopilot
@@ -229,6 +230,56 @@ class RetrofitTest(unittest.TestCase):
         runner._apply_result(self.state, "astra_review", self.decision(), record, self.root, self.run)
         self.assertEqual("xhigh", self.state["settings"]["roles"]["terra"]["reasoning_effort"])
         self.assertEqual("GPT-6 Sol XHigh", self.state["reasoning_escalations"][-1]["selected"]["profile"])
+
+    def escalated(self, escalate_at):
+        """The Tester passed the work (its attempt started at 10:00); the Builder's retry policy had made one
+        ordinary retry and its stronger attempt, that one at `escalate_at`. Returns the Completion Reviewer's record."""
+        self.valid_completion()
+        tester = str(self.run / "sol-03.json")
+        self.state["stages"] = [
+            {"stage": "sol", "role": "sol", "output": tester, "started_at": "2026-10-16T10:00:00+00:00"}
+        ]
+        self.state["validation"]["output"] = tester
+        self.state["builder_retry_decisions"] = [
+            {"at": "2026-10-16T09:30:00+00:00", "action": "retry"},
+            {"at": escalate_at, "action": "escalate"},
+        ]
+        return {
+            "role": "astra",
+            "route_role": "completion",
+            "stage": "astra_review",
+            "output": str(self.run / "d.json"),
+        }
+
+    def test_a_run_that_completes_on_the_stronger_attempts_work_stamps_its_escalations_passed(self):
+        # #612: the status view's `escalation_outcomes` counted them open once the run completed.
+        record = self.escalated("2026-10-16T09:50:00+00:00")
+        runner._apply_result(self.state, "astra_review", self.decision("TASK_COMPLETE"), record, self.root, self.run)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+        self.assertEqual({"passed": 2, "paused": 0, "open": 0}, run_view.view(self.state)["escalation_outcomes"])
+
+    def test_a_completion_the_gate_refuses_leaves_the_escalations_open(self):
+        record = self.escalated("2026-10-16T09:50:00+00:00")
+        self.state["validation"]["verdict"] = "FAIL"
+        with self.assertRaises(s.Paused) as refused:
+            runner._apply_result(
+                self.state, "astra_review", self.decision("TASK_COMPLETE"), record, self.root, self.run
+            )
+        self.assertEqual("PAUSED_COMPLETION_GATE", refused.exception.status)
+        self.assertEqual({"passed": 0, "paused": 0, "open": 2}, run_view.view(self.state)["escalation_outcomes"])
+
+    def test_the_next_task_on_a_pass_stamps_the_builders_escalations_only_when_the_work_was_not_sent_back(self):
+        # #612: a review sent the passed work back and the retry policy made the stronger attempt (10:05); the task
+        # assigned on that PASS stamped it `passed` before it ran. Made before the PASS (09:50), it passed.
+        for escalate_at, expected in (
+            ("2026-10-16T10:05:00+00:00", {"passed": 0, "paused": 0, "open": 2}),
+            ("2026-10-16T09:50:00+00:00", {"passed": 2, "paused": 0, "open": 0}),
+        ):
+            with self.subTest(escalate_at):
+                record = self.escalated(escalate_at)
+                runner._apply_result(self.state, "astra_review", self.decision(), record, self.root, self.run)
+                self.assertEqual("RUNNING", self.state["status"])
+                self.assertEqual(expected, run_view.view(self.state)["escalation_outcomes"])
 
     def test_process_guard_targets_only_real_runner_processes(self):
         marker = ".autocode/runs/run-x"

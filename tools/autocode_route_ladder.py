@@ -14,6 +14,12 @@ A new run's rungs are checked against the models its provider offers before any
 model call (``serve``), so a climb never lands on a model the provider cannot
 serve.
 
+It also stamps how each escalation's struggle ended, for the status view's
+``escalation_outcomes`` (``record_outcome``, ``outcome_summary``): ``passed`` when
+the run completes, or moves on from work a validation passed (``record_pass``,
+which leaves the Builder's own open when ``sent_back`` finds that work was sent
+back since), and ``paused`` at the Builder's retry-limit pause.
+
 Rungs are (model, reasoning_effort, label) tuples with provider-qualified
 models; persisted rungs in settings["route_ladders"] are lists (state.json
 is JSON), which index the same way.
@@ -21,6 +27,7 @@ is JSON), which index the same way.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -334,23 +341,76 @@ def _unoffered_climb(settings, retry, available):
     return checker if moved else None
 
 
-def record_outcome(state: RunState, outcome):
+def record_outcome(state: RunState, outcome, *, builder=True):
     """Stamp every escalation decision that has no outcome yet.
 
-    Written where the struggle's result is known: a validation PASS passed
-    the retried work, a retry-limit pause ended it. Events stay open
-    otherwise — an open event is an honest unknown, not a success.
+    Written where the struggle's result is known: the run completed on work a
+    validation passed or moved on from it (record_pass), or a retry-limit pause
+    ended it. Events stay open otherwise — an open event is an honest unknown,
+    not a success. ``builder=False`` leaves the Builder's own open: its effort
+    climbs and its retry policy's retries and stronger attempt.
     """
     stamped = []
     for event in state.get("reasoning_escalations", []):
-        if "outcome" not in event:
+        if "outcome" not in event and (builder or event.get("role") != "terra"):
             event["outcome"] = outcome
             stamped.append(event)
-    for decision in state.get("builder_retry_decisions", []):
+    for decision in state.get("builder_retry_decisions", []) if builder else ():
         if decision.get("action") in ("retry", "escalate") and "outcome" not in decision:
             decision["outcome"] = outcome
             stamped.append(decision)
     return stamped
+
+
+# The Builder retry policy's decisions that charge the attempt they name as a failure (autocode_builder_policy._decide);
+# the same set as autocode_escalation_view.CHARGES, which this domain module must not import (it is a view above it).
+CHARGES = ("retry", "escalate", "pause")
+
+
+def _when(value):
+    """A saved timestamp as an aware datetime, or None when it cannot be read."""
+    try:
+        moment = dt.datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+    return moment if moment is not None and moment.tzinfo is not None else None
+
+
+def sent_back(state: RunState):
+    """Whether the work the last validation passed was sent back to the Builder after that validation's attempt
+    started: the Builder's retry policy charged a failure (a retry, the stronger attempt or the retry-limit pause),
+    or a review assigned a correction task (an implement task whose decision is REWORK). True too when that
+    attempt's start is not known, since a send-back cannot then be ruled out.
+
+    The status view's escalation rows take the same two as a failure after a PASS (autocode_escalation_view), but
+    only for an attempt of the escalation's own milestone. This rule is deliberately broader: any charge or
+    correction in the run after that attempt started counts, so where the two differ the stamp stays open (an
+    honest unknown, stamped at a later PASS the run moves on from or at its completion) rather than claiming a pass."""
+    output = (state.get("validation") or {}).get("output")
+    started = next(
+        (
+            _when(record.get("started_at"))
+            for record in reversed(state.get("stages") or [])
+            if isinstance(record, dict) and output and record.get("output") == output
+        ),
+        None,
+    )
+    if started is None:
+        return True
+    tasks = [*(state.get("task_archive") or []), state.get("current_task") or {}]
+    since = [row.get("at") for row in state.get("builder_retry_decisions") or [] if row.get("action") in CHARGES]
+    since += [
+        task.get("assigned_at") for task in tasks if (task.get("kind"), task.get("decision")) == ("implement", "REWORK")
+    ]
+    return any(when is not None and when > started for when in map(_when, since))
+
+
+def record_pass(state: RunState):
+    """Stamp `passed` the escalations still open where the Completion Reviewer or Resolver assigns the next task
+    while the last validation passed (autopilot). Not the Builder's own when that work was sent back (sent_back):
+    it failed, and a stronger attempt the charge just made has not run yet. Another role's climb is stamped as
+    before. Returns the stamped entries."""
+    return record_outcome(state, "passed", builder=not sent_back(state))
 
 
 def outcome_summary(state: RunState):

@@ -708,7 +708,17 @@ has that basis, and `spent_usd` is null when no stage is known at all; while `co
 so its `estimated` can differ from `cost.estimated_usd`.
 
 `escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
-stamped on them (`passed`, `paused`, `open`). `escalations` lists each escalation the run made, oldest
+stamped on them (`passed`, `paused`, `open`; `tools/autocode_route_ladder.py`). The runner stamps
+every one still open `passed` when the run completes on work a validation passed, or when the
+Completion Reviewer or Resolver assigns the next task while the last validation passed, and `paused`
+at the Builder's retry-limit pause. At that assignment it leaves the Builder's own (its climbs, its
+retries and its stronger attempt) open when the work was sent back after that validation's attempt
+started (a retry-policy charge or a correction task anywhere in the run; `escalations` takes the same
+two as a failure after a PASS of the escalation's own milestone), or when that attempt's start is not
+in the run's records, so a send-back cannot be ruled out. A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a
+climb a later climb replaced reads `passed` there and `failed_again` as a row, and before the struggle
+ends a stamp is `open` while its row may read `passed`. `--accept-completion` stamps nothing. Read a
+row's `outcome` for how one escalation ended. `escalations` lists each escalation the run made, oldest
 first (`tools/autocode_escalation_view.py`, #612): a role's climb on its effort ladder (`kind`
 `effort_climb`) and the Builder's stronger attempt (`stronger_attempt`; see
 [Models](models.md#builder-retry-policy)). Each row has the route `role` that moved, the `stage` that
@@ -776,13 +786,13 @@ serially), `inherited`, `attempts`, `cost` and `outcome`:
   (`recorded`), for a role other than the Builder, only when every attempt of its role since it, until
   the role's next escalation, ran on the route it climbed to and there was at least one, else the
   run's status now (`run_status`: complete is `passed`, running is `running`, any pause, wait or stop
-  is `paused`). The runner stamps every open escalation `passed` where the Completion Reviewer or
+  is `paused`). The runner stamps another role's open climb `passed` where the Completion Reviewer or
   Resolver assigns the next task while the last validation passed, whoever's work passed, so that
   stamp is not taken over a failure of its own work, once a person or the Builder's retry policy
   moved the role to another route, or when the role ran nothing since.
-  Validations judge the Builder's work, and the runner stamps its stronger attempt `passed` in the
-  handler that made it, at the PASS the review just sent back, before that attempt runs, so the
-  Builder's stamp is never taken. It is a projection of saved records, so it can change as the run
+  Validations judge the Builder's work, and a run saved by AutoCode before this change (#612) may hold
+  a `passed` stamp the runner wrote on the Builder's stronger attempt in the handler that made it, at the PASS the review
+  just sent back, before that attempt ran, so the Builder's stamp is never taken. It is a projection of saved records, so it can change as the run
   continues.
 
 A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view

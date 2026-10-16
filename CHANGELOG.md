@@ -1141,6 +1141,19 @@ PR template asks for an entry here; a change without one is incomplete.
   stops holding when the milestone budget changes. One recorded after the upgrade leaves the budget out, even for a
   packet saved before it: the repair admission written when the Resolver's plan finishes lets that repair launch
   after a milestone budget change (#611).
+- The status view's `escalation_outcomes`, the runner's own stamp on each escalation and Builder retry, disagreed
+  with the `escalations` row for the Builder's stronger attempt. A run that completed on that attempt's work left it
+  and the ordinary retry before it `open` while the row read `passed`: the runner stamped `passed` only where the
+  Completion Reviewer or Resolver assigned a next task on a PASS, never at completion. And where a review sent work
+  the Tester had passed back and the retry policy made the stronger attempt, that same assignment stamped it
+  `passed` before it ran. The runner now also stamps every open one `passed` when the run completes, and at an
+  assignment leaves the Builder's own open when the work was sent back after the validation's attempt started (a
+  retry-policy charge or a correction task anywhere in the run, which the rows take as a failure after a PASS of the
+  escalation's own milestone), or when that attempt's start is not recorded, so a send-back cannot be ruled out
+  (`autocode_route_ladder.record_pass`). In `escalation-converts`, `escalation_outcomes` now reads 2 passed and 0
+  open, as its row does, and the scenario's oracle checks it. A stamp still ends with the struggle, so a climb a
+  later climb replaced reads `passed` there and `failed_again` as a row; `docs/models.md` and `docs/task-run.md`
+  say which to read (#612).
 
 ## [0.7.1] — 2026-10-09
 
