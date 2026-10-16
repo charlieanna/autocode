@@ -28,6 +28,7 @@ except ImportError:
 try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_adaptive_planning as adaptive_planning
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
@@ -65,6 +66,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
+    import autocode_adaptive_planning as adaptive_planning
     import autocode_approval_provenance as approval_provenance
     import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
@@ -197,6 +199,9 @@ def view(
         # "model" when the recognizer decided it, "user" when --workflow named it; the reason it gave.
         "workflow_source": (state.get("workflow") or {}).get("source"),
         "workflow_reason": (state.get("workflow") or {}).get("reason"),
+        # How much planning the run chose and why (autocode_adaptive_planning.view, #697): whether recognition
+        # skipped Requirements as clear, the plan's size, the review allowance and an early approval.
+        "planning_depth": adaptive_planning.view(state),
         # Which request of the conversation the run is on: 1, then one more per --follow-up
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,

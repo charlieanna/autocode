@@ -25,6 +25,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode --status --json` shows the run's planning-depth decisions under `planning_depth`: whether the request
+  was judged clear and Requirements skipped, the plan's size and the review allowance it set, and whether the Plan
+  Reviewer approved the draft at its first review. Before, these were only in `state.json` (#697).
+
 - A novelty hold's stop also states the run's active time against its time limit and, with milestone checkpoints
   on, the current milestone's time against its budget, after the spend against the cost cap; a limit or budget
   changed at the hold is the one the stop then states (#611).
