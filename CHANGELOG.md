@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A `--package` run no longer stays blocked when the person removes their own untracked nested repository
+  entirely during the run: the launch record held it as added, so its absence names no change of the
+  candidate. A deleted submodule or a path that is no longer a Git repository is still named (#711).
+- A design check that passes now removes the blockers file an earlier, stopped check of the same run wrote,
+  so no stale one is left outside the package; and while a blockers file is live its content is recorded
+  (a saved hash), so an edit to it is reported as the runner's file instead of being left out by path (#711).
 - Stamp open reasoning escalations and Builder retries as `passed` when completion is accepted via `--accept-completion` (#612).
 - Filter each role's escalation ladder only against its own tool's model list under `--role-transport`, preserving effort ladders for roles running on other tools (#1426).
 - A resume is listed among the run's approvals only once a role's climb on its effort ladder is admitted against
