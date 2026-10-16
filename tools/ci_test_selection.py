@@ -85,7 +85,9 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # --package's launch checks (resume, --test-root, committed files) are in autocode_run_setup.resolve,
     # and its out-of-package finding (autocode_package_writes) stops a run only through the CLI flow, as
     # does its --accept-completion refusal (the autocode_action_decisions step, reading autocode_run_base).
-    # The build loop takes a busy checkout's launch record and runs the check before each review dispatch.
+    # The regression proof runs the check itself: it records a launch's files outside the package (start) and
+    # checks the candidate before each review dispatch (before_review), both called from the build loop. Its
+    # path is given in full, since autocode_regression_selection does not reach the check.
     (
         (
             "tools/autocode_package_scope",
@@ -94,6 +96,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_action_decisions",
             "tools/autocode_run_base",
             "tools/autocode_build_loop",
+            "tools/autocode_regression.py",
         ),
         ("tests.test_package_scope_cli",),
     ),

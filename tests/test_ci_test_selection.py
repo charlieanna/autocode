@@ -62,9 +62,10 @@ class DynamicDependenciesTests(unittest.TestCase):
 
     def test_package_launch_wiring_selects_the_package_cli_consumer(self):
         # --package is checked at launch in autocode_run_setup.resolve, a change outside the package stops
-        # the run at completion (autocode_package_writes, checked from the build loop, which also takes a
-        # busy checkout's launch record), and --accept-completion refuses it in its action step against the
-        # run's base (autocode_run_base); only the slow CLI module drives them all (#711).
+        # the run at completion (autocode_package_writes, run by the regression proof before each review
+        # dispatch from the build loop, which also takes a busy checkout's launch record), and
+        # --accept-completion refuses it in its action step against the run's base (autocode_run_base); only
+        # the slow CLI module drives them all (#711).
         for path in (
             "tools/autocode_package_scope.py",
             "tools/autocode_package_writes.py",
@@ -72,9 +73,13 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tools/autocode_action_decisions.py",
             "tools/autocode_run_base.py",
             "tools/autocode_build_loop.py",
+            "tools/autocode_regression.py",
         ):
             with self.subTest(path=path):
                 self.assertIn("tests.test_package_scope_cli", dependencies.dependencies(path))
+        self.assertNotIn(
+            "tests.test_package_scope_cli", dependencies.dependencies("tools/autocode_regression_selection.py")
+        )
         self.assertIn(
             "tests.test_package_writes", dependencies.dependencies("tools/prompts/fragments/package-scope/builder.md")
         )

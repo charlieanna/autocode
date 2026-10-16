@@ -2065,7 +2065,11 @@ class MonorepoPackageOracleTests(unittest.TestCase):
     def finding(self, text, status="open"):
         return {"id": "F-1", "source": "runner", "status": status, "blocking": True, "finding": self.FINDING + text}
 
-    def test_every_change_outside_the_package_must_be_named_in_an_open_runner_finding(self):
+    def other_runner_finding(self, text):
+        # The run's other runner finding (autocode_risk_findings) is not the package check's report.
+        return {**self.finding(""), "finding": "Runner lifecycle replay failed after " + text}
+
+    def test_every_change_outside_the_package_must_be_named_in_the_open_blocking_package_finding(self):
         both = "packages/farewell/farewell.py (modified), packages/farewell/test_farewell_formal.py (added). Restore"
         one = "packages/farewell/farewell.py (modified). Restore"
         for findings, ok in (
@@ -2073,6 +2077,8 @@ class MonorepoPackageOracleTests(unittest.TestCase):
             ([self.finding(one)], False),
             ([self.finding(both, status="closed")], False),
             ([{**self.finding(both), "source": "reviewer"}], False),
+            ([{**self.finding(both), "blocking": False}], False),
+            ([self.other_runner_finding(both)], False),
             ([], False),
         ):
             with self.subTest(findings=findings):
@@ -2084,6 +2090,8 @@ class MonorepoPackageOracleTests(unittest.TestCase):
         checks = self.score("reference", [self.finding("README.md (modified). Restore")])
         self.assertFalse(checks["outside_changes_reported"].ok)
         self.assertTrue(self.score("reference", [])["outside_changes_reported"].ok)
+        other = [self.other_runner_finding("packages/greet/greet.py (modified)")]
+        self.assertTrue(self.score("reference", other)["outside_changes_reported"].ok)
         # A live profile is not started with --package: only the delivered files are judged.
         self.assertNotIn("outside_changes_reported", self.score("broken/edits-farewell-package", [], package=None))
 

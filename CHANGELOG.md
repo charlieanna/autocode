@@ -297,9 +297,9 @@ PR template asks for an entry here; a change without one is incomplete.
   oracle reads it from the status view). Run against AutoCode from before #1415, that variant completes and is
   judged `FALSE_COMPLETE`. The harness no longer repeats `--package` on calls to the saved run, which the CLI
   refuses. A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the
-  delivered files alone. A pull request that changes `tools/autocode_build_loop.py` now also runs
-  `tests.test_package_scope_cli`, since the build loop takes a busy checkout's launch record and runs the package
-  check before review.
+  delivered files alone. A pull request that changes `tools/autocode_regression.py` or
+  `tools/autocode_build_loop.py` now also runs `tests.test_package_scope_cli`: the regression proof records a
+  launch's files outside the package and runs the package check before each review, and the build loop calls it.
 
 ### Changed
 
