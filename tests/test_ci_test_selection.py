@@ -60,6 +60,12 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in selected})
                 self.assertIn("tests.test_completion_status", kept)
 
+    def test_package_launch_wiring_selects_the_package_cli_consumer(self):
+        # --package is checked at launch in autocode_run_setup.resolve; only the slow CLI module drives it (#711).
+        for path in ("tools/autocode_package_scope.py", "tools/autocode_run_setup.py"):
+            with self.subTest(path=path):
+                self.assertIn("tests.test_package_scope_cli", dependencies.dependencies(path))
+
     def test_unknown_runtime_and_repository_data_select_actual_fake_flows(self):
         for path in ("tools/new_runtime_rule.json", "new_runtime_rule.json", "tools/new_runtime_rule.py"):
             with self.subTest(path=path):
@@ -79,6 +85,15 @@ class DynamicDependenciesTests(unittest.TestCase):
                 selected = self.select(path)
                 self.assertTrue(set(dependencies.REFUSAL_CONSUMERS) <= selected.keys())
                 self.assertNotIn("tests.test_unrelated", selected)
+
+    def test_component_fixture_selects_both_end_to_end_consumers_even_when_slow(self):
+        consumers = {"tests.test_multicomponent", "tests.test_local_compose_scenario"}
+        selected = run_suite.select_tests(
+            ["tools/fixtures/multicomponent_fake.py"], {module: "" for module in consumers}
+        )
+        kept, skipped = run_suite.drop_slow(selected, {module: "120s" for module in consumers})
+        self.assertTrue(consumers <= kept.keys())
+        self.assertEqual([], skipped)
 
     def test_removed_prompt_resource_still_selects_its_dynamic_consumers(self):
         selected = self.select("tools/prompts/fragments/milestones/deleted-policy.md")

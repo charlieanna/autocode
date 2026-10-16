@@ -1343,8 +1343,12 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             if modern and value["status"] == "CONTINUE":
                 completion_probe = {**value, "status": "TASK_COMPLETE"}
                 probe_snapshot = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
+                native = getattr(runtime, "native_calls", None)
+                # A scoped native run is judged with the runner CODE authority its terminal completion uses.
                 if visual_runtime.completion_allowed(
-                    state, current_snapshot=probe_snapshot
+                    state,
+                    current_snapshot=probe_snapshot,
+                    **({"scope_authority": native.context.factory.scope_authority} if native is not None else {}),
                 ) and completion_gate.completion_ready(state, completion_probe, probe_snapshot):
                     state.update(
                         next_stage="astra_review",

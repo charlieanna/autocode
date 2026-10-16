@@ -86,7 +86,7 @@ def resolve_and_run(base, args, parser, *, failure_routing=True):
 
 
 def run(base, args, parser, resolved, *, failure_routing=True):
-    workspace, run_dir, state_path, state = resolved
+    workspace, run_dir, state_path, state = base.json_output.loaded(base, args, resolved)
     intent = native_profile.initial_intent(state["task"])
     if intent is not None and "replay_recording" in (state.get("settings") or {}):
         raise base.support.Paused("PAUSED_VISUAL_EVIDENCE", "Native initial planning cannot use recorded inference")

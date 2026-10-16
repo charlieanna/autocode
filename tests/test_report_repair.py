@@ -463,6 +463,61 @@ class RepairTests(unittest.TestCase):
         self.assertIn("original_report is historical planning context", prompt)
         self.assertNotIn("original_report is also supplied, it is the immutable execution-history baseline", prompt)
 
+    def test_finalizer_repair_carries_the_reviewed_draft_once_and_launches_under_the_cap(self):
+        # #1337: a program child's plan-finalize repair carried the superseded discovery draft and the
+        # revised draft in full beside its own rejected draft, and passed the 256 KiB cap, so it could
+        # never launch. The final review's prompt carries one full contract; its repair now carries the
+        # reviewed draft's full contract once. The repair runs through run_role up to the stubbed provider
+        # launch, so both size checks run: the complete handoff's and the provider-decorated prompt's, the
+        # one the issue's run hit.
+        draft = 90 * 1024
+        reports = {
+            "astra_discovery": {
+                "output": "discovery.json",
+                "report": {"summary": "First draft", "contract": {"intended_outcome": "first-draft " + "d" * draft}},
+            },
+            "astra_challenge": {
+                "output": "review.json",
+                "report": {"concerns": [{"id": "C1", "concern": "Narrow the scope"}]},
+            },
+            "glm_revise": {
+                "output": "revision.json",
+                "report": {
+                    "responses": [{"concern_id": "C1"}],
+                    "contract": {"intended_outcome": "revised-draft " + "r" * draft},
+                },
+            },
+        }
+        self.state["settings"]["engine"] = "opencode"
+        self.state.update(next_stage="astra_finalize", planning={"reports": copy.deepcopy(reports)})
+        rejected = json.dumps({"summary": "Final", "contract": {"intended_outcome": "final-draft " + "f" * draft}})
+        self.queue(stage="astra_finalize", role="astra", report=rejected)
+        with (
+            patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})),
+            patch.object(runner.opencode, "prompt_for_schema", wraps=runner.opencode.prompt_for_schema) as decorate,
+            patch.object(runner.processes, "preflight", return_value=None),
+            patch.object(runner.supervision, "launch", side_effect=RuntimeError("fixture stop")) as launch,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "fixture stop"):
+                runner.execute_report_repair(self.state, self.run, self.root)
+
+        decorate.assert_called_once()
+        launch.assert_called_once()
+        self.assertEqual(["fixture-provider"], launch.call_args.args[0])
+        prompt = Path(launch.call_args.kwargs["stdin"].name).read_text()  # what the provider reads
+        self.assertGreater(len(prompt), len(decorate.call_args.args[0]))
+        self.assertLess(len(prompt.encode("utf-8")), runner.REPAIR_HANDOFF_BYTES)
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        exchange = data["clarification_context"]["planning_exchange"]
+        self.assertEqual(
+            {"output": "discovery.json", "report": {"summary": "First draft"}}, exchange["astra_discovery"]
+        )
+        self.assertEqual(reports["astra_challenge"], exchange["astra_challenge"])
+        self.assertEqual(reports["glm_revise"], exchange["glm_revise"])
+        self.assertEqual(json.loads(rejected), data["rejected_report"]["content"])
+        self.assertEqual(1, prompt.count("revised-draft "))
+        self.assertNotIn("first-draft ", prompt)
+
     def test_builder_repair_retains_immutable_execution_baseline_instruction(self):
         self.queue()
 
@@ -927,6 +982,23 @@ class RepairTests(unittest.TestCase):
             len(initial["acceptance_criteria"][0]["criterion"]) + padding + 1,
             len(self.state["acceptance_criteria"][0]["criterion"]),
         )
+
+    def test_repair_handoff_stays_compact_through_provider_decoration(self):
+        # An indented handoff and an indented inline schema overflowed a program child's finalize repair (#1337).
+        import providers.claude as claude
+
+        self.queue()
+        prompt = self.repair_request()["prompt"]
+        packet = prompt.split("CURRENT HANDOFF DATA\n", 1)[1]
+        self.assertNotIn("\n", packet.strip())
+        self.assertTrue(json.loads(packet)["report_repair"])
+        schema = support.read(Path(self.state["pending_report_repair"]["original"]["schema"]))
+        for name, decorate in (("opencode", runner.opencode.prompt_for_schema), ("claude", claude.prompt_for_schema)):
+            with self.subTest(provider=name):
+                decorated = decorate(prompt, schema, self.run / "events.jsonl")
+                head, packet = decorated.split("CURRENT HANDOFF DATA\n", 1)
+                self.assertNotIn("\n", packet.strip())
+                self.assertIn(json.dumps(schema, separators=(",", ":")), head)
 
     def test_provider_decorated_handoff_overflow_never_publishes_or_launches_and_refunds_attempt(self):
         self.state["settings"]["engine"] = "opencode"
@@ -1608,6 +1680,22 @@ class RepairTests(unittest.TestCase):
         self.assertEqual("PAUSED_INVALID_OUTPUT", saved["status"])
         self.assertEqual("GPT-6 Sol High", saved["reasoning_escalations"][-1]["selected"]["profile"])
         self.assertNotIn("terra", saved["sessions"])
+
+    def test_a_rejected_task_plan_leaves_the_astra_route_where_it_was(self):
+        """The per-task Planner (astra_plan) runs on the astra route, which no longer climbs GPT-6 Astra
+        (#1345): a task plan rejected once report repair is spent pauses on the route it had."""
+        self.state["settings"].update(engine="opencode", report_repair={"max_attempts": 0})
+        self.state["settings"]["roles"]["astra"].update(
+            engine="opencode", provider=None, model="openai/gpt-6-astra", reasoning_effort="high"
+        )
+        record = self.stage_record(stage="astra_plan", role="astra")
+        with self.assertRaises(support.Paused) as paused:
+            runner.reject_completed_stage(self.state, self.run, record, ValueError("Missing task id"))
+        self.assertEqual("PAUSED_INVALID_OUTPUT", paused.exception.status)
+        astra = self.state["settings"]["roles"]["astra"]
+        self.assertEqual(("openai/gpt-6-astra", "high"), (astra["model"], astra["reasoning_effort"]))
+        self.assertEqual([], self.state.get("reasoning_escalations", []))
+        self.assertEqual("a-session", self.state["sessions"]["astra"])
 
     def test_rejected_active_is_not_reconciled_again(self):
         self.state["active_stage"] = {"rejected": True}

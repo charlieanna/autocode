@@ -8,7 +8,7 @@ from here, so a module that only reads a contract does not pull that machinery i
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -51,6 +51,7 @@ try:
     from . import autocode_design_plan as design_plan
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_findings as findings
+    from . import autocode_goal_file as goal_file
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
@@ -95,6 +96,7 @@ except ImportError:
     import autocode_design_plan as design_plan
     import autocode_finding_rescope as finding_rescope
     import autocode_findings as findings
+    import autocode_goal_file as goal_file
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
@@ -134,7 +136,7 @@ except ImportError:
     )
 
 
-def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
+def validate_body(state: RunState, body, *, ready=False, allow_legacy=False, origin=None):
     """Refuse a contract body this run cannot hold. ``origin`` is the draft's (install_draft's, or the saved
     contract's at approval): the user's own edit is not held to the Go test names read from their brief."""
     legacy = allow_legacy and not any(key in body for key in BRIEF_FIELDS)
@@ -246,7 +248,7 @@ def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
     design_plan.validate((state.get("settings") or {}).get("design_manifest"), body, ready=ready)
 
 
-def validate_initial_task(state, body):
+def validate_initial_task(state: RunState, body):
     """Preflight the first assignment with draft ownership, without approving or admitting work."""
     first = body.get("initial_task")
     if not first or (first["kind"] == "none" and body.get("open_blocking_questions")):
@@ -274,7 +276,7 @@ def apply_requirements_report(state: RunState, value, *, artifact_sha256, record
     project_memory_lifecycle.capture(state, value)
 
 
-def apply_requirements(state, body, *, artifact_sha256, record=None):
+def apply_requirements(state: RunState, body, *, artifact_sha256, record=None):
     """Install a v2 requirements handoff and privately stage any clarification."""
     validate_requirements_body(state, body)
     state["requirements_artifact_token"] = "requirements:" + artifact_sha256
@@ -300,7 +302,7 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
             next_stage="requirements",
         )
     else:
-        state.update(status="RUNNING", phase="PLANNING", next_stage="plan")
+        state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "plan"})
 
 
 # Drafts no model writes at install, so a refusal of their wording has no author to repair it: the Plan
@@ -311,7 +313,7 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
 UNAUTHORED_DRAFTS = ("adaptive_review_approval", "bugfix_small_correction", "acceptance_tests_correction")
 
 
-def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
+def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     body = brief_obligations.prepare_body(state, body, origin, record)
     body = risk_obligations.prepare_body(state, body, origin, record)
     validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
@@ -380,13 +382,13 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
         and origin in ("glm_draft", "glm_revise", "user_cli_edit", "resolver_recommendation", "plan", "plan_revise")
     ):
         if origin == "plan":
-            state.update(status="RUNNING", phase="PLANNING", next_stage="plan_review")
+            state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "plan_review"})
             return
         if origin == "plan_revise":
-            state.update(status="RUNNING", phase="PLANNING", next_stage="plan_finalize")
+            state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "plan_finalize"})
             return
         if origin == "glm_revise":
-            state.update(status="RUNNING", phase="PLANNING", next_stage="astra_finalize")
+            state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": "astra_finalize"})
         else:
             try:
                 from . import autocode_planning as planning
@@ -415,7 +417,7 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
     )
 
 
-def apply_resolver_recommendation(state, *, run_dir=None):
+def apply_resolver_recommendation(state: RunState, *, run_dir=None):
     """Apply one authenticated acceptance as an unapproved, ordinarily reviewed draft.
 
     The caller owns the transaction's candidate copy and persistence. No files are
@@ -526,7 +528,7 @@ def apply_resolver_recommendation(state, *, run_dir=None):
     return True
 
 
-def require_supported_checkpoint(state):
+def require_supported_checkpoint(state: RunState):
     """Refuse a checkpoint this runner cannot safely interpret (#338).
 
     ``version`` is the state format. A number above SUPPORTED_VERSION was written
@@ -546,7 +548,7 @@ def require_supported_checkpoint(state):
         )
 
 
-def migrate(state, *, fresh=False):
+def migrate(state: RunState, *, fresh=False):
     """Call only at a saved, idle boundary. Preserve artifacts and execution history.
     A fresh run (``fresh``) first recognizes what kind of job the request is."""
     require_supported_checkpoint(state)
@@ -566,7 +568,7 @@ def migrate(state, *, fresh=False):
     # come from planning; inventing a blocking question here makes models ask
     # for redundant migration permission. Saved legacy runs remain conservative.
     if not fresh:
-        body = {
+        body: dict = {
             k: []
             for k in BODY_SCHEMA["properties"]
             if k not in ("task_kind", "brief_acceptance", "risk_acceptance", "source_trace")
@@ -601,12 +603,14 @@ def migrate(state, *, fresh=False):
         if "requirements" in state.get("settings", {}).get("roles", {})
         else "astra_discovery"
     )
-    state.update(version=3, phase="DISCOVERING", status="RUNNING", pending_questions=[], next_stage=first_stage)
+    state.update(
+        {"version": 3, "phase": "DISCOVERING", "status": "RUNNING", "pending_questions": [], "next_stage": first_stage}
+    )
     if fresh:
         workflows.begin(state, first_stage)
 
 
-def render(state, run_dir=None):
+def render(state: RunState, run_dir=None):
     """The brief as a person reads it; ``run_dir``, when given, completes the approve command."""
     contract = state.get("goal_contract")
     if not contract:
@@ -804,6 +808,7 @@ def render(state, run_dir=None):
             test_cases.proof_cases(state, all_due=True),
             design_only=test_cases.design_only(state),
         )
+        lines += goal_file.approval_lines(state)
         lines += [""] + approval_view.actions(
             token(contract), state.get("settings") or {}, state.get("iteration", 0), run_dir
         )
@@ -811,7 +816,7 @@ def render(state, run_dir=None):
     return "\n".join(lines)
 
 
-def present(state, run_dir=None):
+def present(state: RunState, run_dir=None):
     public = human.current(state)
     state.pop("displayed_goal", None)
     # Preserve the historical display acknowledgement for exact, already-recorded
@@ -845,17 +850,17 @@ def present(state, run_dir=None):
     return rendered
 
 
-def approve(state, selected, *, initial_assignment_proof=None):
+def approve(state: RunState, selected, *, initial_assignment_proof=None):
     # Assignment/eligibility may still reject after seal preflight. Publish no
     # approval, retirement or active pointer unless the whole boundary succeeds.
     candidate = copy.deepcopy(state)
     _approve(candidate, selected, initial_assignment_proof=initial_assignment_proof)
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
 
 
-def _approve(state, selected, *, initial_assignment_proof=None):
-    contract = state["goal_contract"]
+def _approve(state: RunState, selected, *, initial_assignment_proof=None):
+    contract = cast(dict, state["goal_contract"])
     # Resuming after an environment failure can reach the execution guard with
     # the same reviewed draft. Keep exact-token approval available in that pause.
     if (
@@ -875,7 +880,9 @@ def _approve(state, selected, *, initial_assignment_proof=None):
             + ", ".join(ob["id"] for ob in open_obligations(state))
         )
     joint = state.get("settings", {}).get("joint_planning")
-    if joint and (state.get("planning", {}).get("final_token") != selected or "initial_task" not in contract["body"]):
+    if joint and (
+        cast(dict, state.get("planning", {})).get("final_token") != selected or "initial_task" not in contract["body"]
+    ):
         raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
     prepared_progressive = progressive_state.prepare_seal(state, selected)
     recorded_under = finding_rescope.previous_approved(state)
@@ -887,7 +894,7 @@ def _approve(state, selected, *, initial_assignment_proof=None):
     finding_rescope.on_approval(
         state, recorded_under, contract_token=selected, at=event["at"], new_id=lambda: findings.allocate_id(state)
     )
-    state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
+    state.update({"phase": "READY_TO_EXECUTE", "status": "RUNNING", "next_stage": "astra_plan"})
     # Approval authorizes the selected inventory, including Git-ignored deliverables.
     current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot) if joint else None
     carried = []
@@ -897,8 +904,10 @@ def _approve(state, selected, *, initial_assignment_proof=None):
     if joint:
         if contract["body"]["initial_task"]["milestone_id"] in carried:
             state.update(
-                next_stage="astra_review",
-                next_action="Preserve carried milestones; assign unfinished work or final integration validation",
+                {
+                    "next_stage": "astra_review",
+                    "next_action": "Preserve carried milestones; assign unfinished work or final integration validation",
+                }
             )
             recovery_context.revision_approved(state)
             return
@@ -910,18 +919,20 @@ def _approve(state, selected, *, initial_assignment_proof=None):
         except ImportError:
             import autocode_dispatch as dispatch
         state.update(
-            next_action=decision["next_objective"],
-            next_stage="sol"
-            if kind == "validate"
-            else "terra"
-            if progressive_state.enabled(state)
-            else dispatch.build_stage(state),
+            {
+                "next_action": decision["next_objective"],
+                "next_stage": "sol"
+                if kind == "validate"
+                else "terra"
+                if progressive_state.enabled(state)
+                else dispatch.build_stage(state),
+            }
         )
         record_decision(state, decision)
     recovery_context.revision_approved(state)
 
 
-def resolve_passing_checkpoint(state, question_id, text):
+def resolve_passing_checkpoint(state: RunState, question_id, text):
     """Record the user's explicit reconciliation choice for a now-passing gate."""
     request = state.get("user_request") or {}
     questions = state.get("pending_questions") or []
@@ -957,16 +968,16 @@ def resolve_passing_checkpoint(state, question_id, text):
         "question": questions[0],
         "text": text,
         "contract_token": token(state["goal_contract"]),
-        "validation_source_revision": state["validation"]["source_revision"],
+        "validation_source_revision": cast(dict, state["validation"])["source_revision"],
     }
     state.setdefault("user_events", []).append(event)
     state.setdefault("answers", {})[question_id] = event
-    state.update(status="RUNNING", phase="READY_TO_EXECUTE", pending_questions=[])
+    state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "pending_questions": []})
     state.pop("user_request", None)
     state.pop("milestone_blocker", None)
 
 
-def wait_for_user(state, request, *, origin=None, evidence=None, next_stage=None):
+def wait_for_user(state: RunState, request, *, origin=None, evidence=None, next_stage=None):
     request = checkpoints.route_review_only_request(state, request, origin)
     if request is None:
         return
@@ -1002,7 +1013,14 @@ def wait_for_user(state, request, *, origin=None, evidence=None, next_stage=None
             state.pop("user_request", None)
             state.pop(human.PRIVATE, None)
             state.pop(human.PUBLIC, None)
-            state.update(status="RUNNING", phase="READY_TO_EXECUTE", pending_questions=[], next_stage="astra_review")
+            state.update(
+                {
+                    "status": "RUNNING",
+                    "phase": "READY_TO_EXECUTE",
+                    "pending_questions": [],
+                    "next_stage": "astra_review",
+                }
+            )
             return
     state.pop("permission_reuse_context", None)
     origin = origin or {"stage": "goal_request"}
@@ -1022,17 +1040,17 @@ def wait_for_user(state, request, *, origin=None, evidence=None, next_stage=None
     if review_criteria:
         question.update(review_criteria=review_criteria, review_token=review_token(state))
         evidence.update(review_token=review_token(state), criteria=review_criteria)
-        evidence.setdefault("hashes", {}).update(state.get("validation", {}).get("evidence_hashes", {}))
+        evidence.setdefault("hashes", {}).update(cast(dict, state.get("validation", {})).get("evidence_hashes", {}))
         if request.get("kind") == "human_review":
             request["criteria"] = review_criteria
     scope = request["kind"] if request["kind"] in ("permission", "goal_change", "human_review") else "blocker"
     human.queue(state, scope, origin, request=request, questions=[question], evidence=evidence, next_stage=next_stage)
 
 
-def assign_task(state, decision, current, *, draft_slice=None, visual_proof=None):
+def assign_task(state: RunState, decision, current, *, draft_slice=None, visual_proof=None):
     """Persist one bounded handoff tied to the approved brief, not a second brief."""
     spec = decision.get("next_task")
-    if spec is None and "milestones" not in state["goal_contract"]["body"]:
+    if spec is None and "milestones" not in cast(dict, state["goal_contract"])["body"]:
         # A recovered old-format stage still uses its original handoff.
         return "implement"
     if not spec or spec["kind"] not in ("implement", "validate"):
@@ -1044,7 +1062,7 @@ def assign_task(state, decision, current, *, draft_slice=None, visual_proof=None
             raise ValueError(f"The bounded task needs {field}")
     if not decision["next_objective"].strip():
         raise ValueError("The bounded task needs an objective")
-    body = state["goal_contract"]["body"]
+    body = cast(dict, state["goal_contract"])["body"]
     ids = spec["acceptance_criteria"]
     if len(set(ids)) != len(ids) or not set(ids) <= {c["id"] for c in body["acceptance_criteria"]}:
         raise ValueError("Task criteria must reference the approved brief")
@@ -1128,7 +1146,7 @@ def assign_task(state, decision, current, *, draft_slice=None, visual_proof=None
             "stage": "stage_timeout_seconds",
         }.get(recovery["timeout_kind"])
         recorded_limits = recovery["execution_limits"]
-        compared_limits = (
+        compared_limits: dict = (
             {failed_limit: recorded_limits[failed_limit]} if failed_limit in recorded_limits else recorded_limits
         )
         same_limits = all(limits.get(key, defaults.get(key)) == value for key, value in compared_limits.items())
@@ -1149,7 +1167,7 @@ def assign_task(state, decision, current, *, draft_slice=None, visual_proof=None
     )
     if state.get("current_task"):
         state.setdefault("task_archive", []).append(copy.deepcopy(state["current_task"]))
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     state["current_task"] = {
         **copy.deepcopy(spec),
         "id": "task-" + uuid.uuid4().hex[:12],
@@ -1164,8 +1182,8 @@ def assign_task(state, decision, current, *, draft_slice=None, visual_proof=None
     progressive_state.bind_task(state)
     if spec["milestone_id"] in previous_batch:
         # Rework stays accountable for every member of the integrated wave.
-        state["current_task"]["milestone_ids"] = previous_batch
-        state["current_task"]["acceptance_criteria"] = list(
+        cast(dict, state["current_task"])["milestone_ids"] = previous_batch
+        cast(dict, state["current_task"])["acceptance_criteria"] = list(
             dict.fromkeys(cid for mid in previous_batch for cid in milestones[mid]["acceptance_criteria"])
         )
     findings.assign(state, state["current_task"], spec, decision)

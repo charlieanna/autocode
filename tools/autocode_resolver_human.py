@@ -1,5 +1,7 @@
 """AutoResolver's request-only authority; publication never grants execution."""
 
+from __future__ import annotations
+
 try:
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
@@ -12,6 +14,10 @@ import json
 import shlex
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, Final, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_bug_questions as bug_questions
@@ -50,11 +56,11 @@ SCOPES = frozenset(
         "intake",
     }
 )
-PRIVATE = RESOLVER_PROPOSAL_KEY
-PUBLIC = RESOLVER_REQUEST_KEY
+PRIVATE: Final = RESOLVER_PROPOSAL_KEY
+PUBLIC: Final = RESOLVER_REQUEST_KEY
 
 
-def _contract(state):
+def _contract(state: RunState):
     contract = state.get("goal_contract")
     if not contract:
         return None
@@ -70,7 +76,7 @@ def _contract(state):
     }
 
 
-def _binding(state):
+def _binding(state: RunState):
     """Stable state frontier; excludes publication/response bookkeeping itself."""
     source = None
     if state.get("workspace"):
@@ -146,7 +152,7 @@ def pending_interruptions(run_dir):
 
 
 def queue(
-    state,
+    state: RunState,
     scope,
     origin,
     *,
@@ -223,7 +229,11 @@ def queue(
     if previous is None:
         key = (state.get(PUBLIC) or {}).get("request_id")
         previous = (
-            state.get("resolver", {}).get("human_escalations", {}).get(key, {}).get("identity", {}).get("proposal")
+            cast(dict, state.get("resolver", {}))
+            .get("human_escalations", {})
+            .get(key, {})
+            .get("identity", {})
+            .get("proposal")
         )
     if previous and {k: v for k, v in previous.items() if k != "previous_status"} == {
         k: v for k, v in proposal.items() if k != "previous_status"
@@ -234,13 +244,13 @@ def queue(
     state.pop(PUBLIC, None)
     state.pop("user_request", None)
     state["pending_questions"] = []
-    state.update(status="RESOLVER_PENDING", phase="RESOLVING")
+    state.update({"status": "RESOLVER_PENDING", "phase": "RESOLVING"})
     if next_stage is not None:
         state["next_stage"] = next_stage
     return copy.deepcopy(proposal)
 
 
-def internal_questions(state):
+def internal_questions(state: RunState):
     proposal = state.get(PRIVATE) or {}
     return copy.deepcopy(proposal.get("questions", state.get("pending_questions", [])))
 
@@ -277,7 +287,7 @@ def _evidence_valid(proposal):
         return False
 
 
-def _decision(state, proposal):
+def _decision(state: RunState, proposal):
     """Evaluate permitted recovery or established human-only authority."""
     scope = proposal["scope"]
     # Asking for intent/permission is valid before a workspace exists. Its
@@ -394,8 +404,10 @@ def _decision(state, proposal):
         )
         if resolved:
             return "escalate", "The read-only AutoResolver diagnosed the blocker but could not resolve it"
-    recorded = state.get("resolver", {}).get("operational_diagnostics", [])
-    receipt = state.get("resolver", {}).get("operational_receipts", {}).get(evidence.get("resolver_receipt_id"))
+    recorded = cast(dict, state.get("resolver", {})).get("operational_diagnostics", [])
+    receipt = (
+        cast(dict, state.get("resolver", {})).get("operational_receipts", {}).get(evidence.get("resolver_receipt_id"))
+    )
     if (
         evidence.get("resolver_receipt_id") in recorded
         and isinstance(receipt, dict)
@@ -408,7 +420,7 @@ def _decision(state, proposal):
     return "defer", "This blocker needs internal AutoResolver investigation before any human request"
 
 
-def evaluate(state):
+def evaluate(state: RunState):
     """Serialized writer boundary. Readers must use projection(), never this."""
     proposal = state.get(PRIVATE)
     if not proposal:
@@ -450,7 +462,7 @@ def evaluate(state):
     return action
 
 
-def _publish(state, identity):
+def _publish(state: RunState, identity):
     """Publish an evaluated identity as this run's one answerable request."""
     key = support.digest(identity)
     proposal = identity["proposal"]
@@ -490,14 +502,14 @@ def _publish(state, identity):
         state["user_request"] = copy.deepcopy(proposal["request"])
     else:
         state.pop("user_request", None)
-    state.update(status=proposal["status"], phase=proposal["phase"])
+    state.update({"status": proposal["status"], "phase": proposal["phase"]})
     if proposal.get("next_stage") is not None:
         state["next_stage"] = proposal["next_stage"]
     state.pop(PRIVATE, None)
     return copy.deepcopy(public)
 
 
-def rebind_stale(state, request_id, request_token):
+def rebind_stale(state: RunState, request_id, request_token):
     """Re-publish a stranded request so an operator decision applies once.
 
     The operator displayed a request, the saved state then changed (for example
@@ -509,7 +521,7 @@ def rebind_stale(state, request_id, request_token):
     operator answered. Consumed, forged, diverged, interruption-shadowed or
     evidence-invalid requests are never re-bound.
     """
-    ledger = (state.get("resolver", {}) or {}).get("human_escalations") or {}
+    ledger = cast(dict, state.get("resolver", {}) or {}).get("human_escalations") or {}
     entries = ([request_id] if request_id in ledger else []) + [key for key in ledger if key != request_id]
     for key in entries:
         entry = ledger.get(key) or {}
@@ -566,13 +578,13 @@ def rebind_stale(state, request_id, request_token):
     return None
 
 
-def current(state):
+def current(state: RunState):
     """Read-only receipt verification; an issuer label alone grants nothing."""
     public = state.get(PUBLIC)
     if not isinstance(public, dict) or public.get("version") != VERSION or public.get("issuer") != "resolver":
         return None
     try:
-        entry = state.get("resolver", {}).get("human_escalations", {}).get(public.get("request_id"))
+        entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(public.get("request_id"))
     except (AttributeError, TypeError):
         return None
     if not isinstance(entry, dict) or entry.get("status") != "pending":
@@ -603,7 +615,7 @@ def current(state):
     return copy.deepcopy(public)
 
 
-def projection(state):
+def projection(state: RunState):
     public = current(state)
     saved_status = state.get("status")
     status = (
@@ -621,7 +633,7 @@ def projection(state):
     }
 
 
-def pending_issued(state):
+def pending_issued(state: RunState):
     """The published receipt's pending ledger entry, including one a settings write left stale."""
     public = state.get(PUBLIC) or {}
     entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(public.get("request_id"))
@@ -634,7 +646,7 @@ def pending_issued(state):
     return None
 
 
-def _consumed_proposal(state, proposal):
+def _consumed_proposal(state: RunState, proposal):
     """Recognize an answered proposal without rebinding it to changed accounting."""
     resolver = state.get("resolver") or {}
     ledger = resolver.get("human_escalations") or {}
@@ -670,7 +682,7 @@ def _consumed_proposal(state, proposal):
     return False
 
 
-def restage_pending(state):
+def restage_pending(state: RunState):
     """Retain an unanswered request when a valid duplicate review is accepted.
 
     Restaging preserves its questions, origin and evidence. evaluate() remains
@@ -722,7 +734,7 @@ def restage_pending(state):
     return True
 
 
-def withdrawn(state):
+def withdrawn(state: RunState):
     """The last active operational proposal if withdrawn and no other request is open.
 
     Re-publishing an identity keeps its first issued_at, so its latest withdrawal or response
@@ -752,7 +764,7 @@ def withdrawn(state):
     return copy.deepcopy(proposal) if proposal.get("scope") == "operational_exhaustion" else None
 
 
-def stale_request_message(state):
+def stale_request_message(state: RunState):
     """How to answer after the displayed request stopped being current."""
     live = current(state)
     if live:
@@ -775,14 +787,14 @@ def stale_request_message(state):
     )
 
 
-def require_response(state, request_id, request_token):
+def require_response(state: RunState, request_id, request_token):
     public = current(state)
     if public and public["request_id"] == request_id and public["request_token"] == request_token:
         return public
     # A saved request whose token the caller reproduced exactly is stale, not
     # forged: the frontier moved after it was displayed, or a newer request
     # superseded it.
-    entry = state.get("resolver", {}).get("human_escalations", {}).get(request_id) or {}
+    entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(request_id) or {}
     identity = entry.get("identity") or {}
     if (
         entry.get("status") in ("pending", "superseded")
@@ -793,11 +805,11 @@ def require_response(state, request_id, request_token):
     raise ValueError("Human response requires the exact current AutoResolver request and token")
 
 
-def supersede_operational(state, reason):
+def supersede_operational(state: RunState, reason):
     """Withdraw only a resolver-issued operational question after explicit repair."""
     public = state.get(PUBLIC) or {}
     key = public.get("request_id")
-    entry = state.get("resolver", {}).get("human_escalations", {}).get(key)
+    entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(key)
     if not isinstance(entry, dict) or entry.get("status") != "pending":
         return False
     identity = entry.get("identity") or {}
@@ -816,7 +828,7 @@ def supersede_operational(state, reason):
     state.pop(PUBLIC, None)
     if state.get("status") == "WAITING_FOR_USER" and not state["pending_questions"]:
         previous = proposal["origin"].get("pause_status") or proposal.get("previous_status")
-        run_status.pause(state, previous if str(previous).startswith("PAUSED_") else "PAUSED_RESOLVER")
+        run_status.pause(state, cast(str, previous) if str(previous).startswith("PAUSED_") else "PAUSED_RESOLVER")
     return True
 
 
@@ -825,7 +837,7 @@ RESPONSE_RECEIVED = (
 )
 
 
-def release_stranded_operational(state):
+def release_stranded_operational(state: RunState):
     """Return a queued operational request that can never be published to its pause; True if it did.
 
     Its resolver receipt is bound to a frontier that has since moved (an earlier version staged it
@@ -854,9 +866,9 @@ def release_stranded_operational(state):
     return True
 
 
-def respond_operational(state, request_id, request_token, action, text=""):
+def respond_operational(state: RunState, request_id, request_token, action, text=""):
     """Store human input for the resolver; this is not retry or approval consent."""
-    old = state.get("resolver", {}).get("human_escalations", {}).get(request_id, {})
+    old = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(request_id, {})
     if old.get("status") == "consumed":
         response = old.get("response") or {}
         if (
@@ -916,7 +928,7 @@ def contract_decision_advice(scope, action="provide_information") -> str:
     return " " + recovery_limits.CONTRACT_DECISION_ADVICE
 
 
-def held_response_scope(state):
+def held_response_scope(state: RunState):
     """The scope of the consumed request whose response holds the run at this frontier, or None."""
     resolver = state.get("resolver") or {}
     frontier = resolver.get("human_response_frontier") or {}
@@ -926,7 +938,7 @@ def held_response_scope(state):
     return ((entry.get("identity") or {}).get("proposal") or {}).get("scope")
 
 
-def review_operational_response(state):
+def review_operational_response(state: RunState):
     """Consume information without manufacturing authority for another attempt.
 
     The response itself stays a hold. Corrective information on an operational_exhaustion
@@ -949,7 +961,7 @@ def review_operational_response(state):
         "response": copy.deepcopy(event),
     }
     resolver.setdefault("human_response_resolutions", {})[event["request_id"]] = resolution
-    state.setdefault("recovery_context", {})["human_information"] = copy.deepcopy(event)
+    cast(dict, state.setdefault("recovery_context", {}))["human_information"] = copy.deepcopy(event)
     resolver.pop("pending_human_response", None)
     resolver["human_response_frontier"] = {
         "binding": _binding(state),
@@ -967,6 +979,6 @@ def review_operational_response(state):
     return copy.deepcopy(resolution)
 
 
-def response_holds_current_frontier(state):
-    frontier = state.get("resolver", {}).get("human_response_frontier") or {}
+def response_holds_current_frontier(state: RunState):
+    frontier = cast(dict, state.get("resolver", {})).get("human_response_frontier") or {}
     return frontier.get("pause_status") == state.get("status") and frontier.get("binding") == _binding(state)

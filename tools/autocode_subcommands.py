@@ -3,7 +3,8 @@
 A table rather than one ``if`` per subcommand in autocode.py, which is at its
 recorded size limit (tests/test_architecture.py). Each module named here has a
 ``cli(argv) -> int`` and, unless it is in WITHOUT_PARSER, a ``parser()`` that returns
-the parser its cli() reads; `autocode completion` completes the command's options from it.
+the parser its cli() reads (program's holds the parser each of its commands reads);
+`autocode completion` completes the command's options from it.
 """
 
 from __future__ import annotations
@@ -62,8 +63,8 @@ SUBCOMMANDS = {
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}
 SYS_ARGV_COMMANDS = frozenset({"dashboard", "unattended"})
 # No parser() to read: the dashboard is frozen; unattended passes run arguments through to
-# the main parser; program dispatches its commands by hand, each with its own parser.
-WITHOUT_PARSER = frozenset({"dashboard", "unattended", "program"})
+# the main parser. Program dispatches its commands by hand; its parser() gathers theirs.
+WITHOUT_PARSER = frozenset({"dashboard", "unattended"})
 DISTRIBUTION = "autocode-supervisor"
 
 try:

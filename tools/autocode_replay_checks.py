@@ -164,7 +164,7 @@ def replay_receipt(tape, check_id, destination):
     return envelope
 
 
-def _context(state):
+def _context(state: RunState):
     task = identity_bindings.semantic_task(state.get("current_task"))
     return {
         "contract_body": copy.deepcopy((state.get("goal_contract") or {}).get("body")),
@@ -173,7 +173,7 @@ def _context(state):
     }
 
 
-def _retained(state, tape, summary, purpose, *, case_ids=None, dispatch=None):
+def _retained(state: RunState, tape, summary, purpose, *, case_ids=None, dispatch=None):
     """Authenticate reused archival bytes and their exact semantic obligation."""
     ledger = state.get("replay_result") or {}
     used = ledger.get("consumed_checks")
@@ -240,7 +240,7 @@ def _retained(state, tape, summary, purpose, *, case_ids=None, dispatch=None):
     return row, value
 
 
-def _obligation(state, workspace, record, purpose, commands, *, case_ids=None):
+def _obligation(state: RunState, workspace, record, purpose, commands, *, case_ids=None):
     tape = transport.selected(state["settings"])
     dispatch = (record.get("replay") or {}).get("dispatch_id") if record else None
     if not dispatch:
@@ -300,7 +300,7 @@ def _obligation(state, workspace, record, purpose, commands, *, case_ids=None):
     return envelope
 
 
-def replay(checks, state, workspace, record, *, prescribed=()):
+def replay(checks, state: RunState, workspace, record, *, prescribed=()):
     commands = [row["command"] for row in checks]
     commands.extend(command for command in prescribed if command not in commands)
     envelope = _obligation(state, workspace, record, "independent_clean_replay", commands)
@@ -321,7 +321,7 @@ def replay(checks, state, workspace, record, *, prescribed=()):
     return value
 
 
-def require_supported(state):
+def require_supported(state: RunState):
     """Refuse obligations whose portable archival semantics v1 does not implement."""
     settings = state.get("settings") or {}
     body = (state.get("goal_contract") or {}).get("body") or {}
@@ -363,7 +363,7 @@ def require_supported(state):
             )
 
 
-def regression(state, workspace, *, case_ids, suite, regression_command):
+def regression(state: RunState, workspace, *, case_ids, suite, regression_command):
     require_supported(state)
     # A repeated pre-review guard may reuse only a freshly reauthenticated
     # archival result. It remains ineligible for every current-proof reader.
@@ -411,7 +411,7 @@ def regression(state, workspace, *, case_ids, suite, regression_command):
     return value
 
 
-def proof(state, workspace, *, case_ids, command):
+def proof(state: RunState, workspace, *, case_ids, command):
     """One explicitly declared standalone proof obligation (legacy fixture API)."""
     envelope = _obligation(state, workspace, None, "regression_proof", [command], case_ids=case_ids)
     value = copy.deepcopy(envelope["recorded"])
@@ -424,7 +424,7 @@ def proof(state, workspace, *, case_ids, command):
     return value
 
 
-def archival_ready(state, current, *, logical_ready, required_case_ids=None):
+def archival_ready(state: RunState, current, *, logical_ready, required_case_ids=None):
     """Logical eligibility is supplied by the existing shared domain predicate.
 
     This authenticates only consumed archival obligations. It grants neither
@@ -520,7 +520,7 @@ def finish_decision(
     )
 
 
-def finish(state, record, decision, workspace, *, logical_ready):
+def finish(state: RunState, record, decision, workspace, *, logical_ready):
     """Interception before ordinary completion; no TASK_COMPLETE/delivery promotion."""
     tape = transport.selected(state["settings"])
     index = (record.get("replay") or {}).get("ordinal")
@@ -544,6 +544,10 @@ def finish(state, record, decision, workspace, *, logical_ready):
     ):
         raise recording.RecordingError("Replay diverged: logical completion or archival obligations are incomplete")
     state.update(
-        status="REPLAY_COMPLETE", next_stage=None, replay_result={**archival_result(tape), "consumed_checks": used}
+        {
+            "status": "REPLAY_COMPLETE",
+            "next_stage": None,
+            "replay_result": {**archival_result(tape), "consumed_checks": used},
+        }
     )
     return True

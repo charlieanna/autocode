@@ -181,6 +181,11 @@ def prepare(
                 "read_roots": [str(path) for path in sorted(roots)],
                 "protected_paths": [str(Path(run_dir).resolve()), str(runtime)],
             }
+            if planning and type(native_role_isolation) is native_isolation.NativeRoleIsolation:
+                # Its readonly planning shell coordinates through the handoff, not private run
+                # state: no run's state, events or receipts are readable, only this run's
+                # planning/ artifacts (#1250).
+                containment["private_run"] = str(Path(run_dir).resolve())
         launch_kwargs = {"containment": containment} if containment else {}
         launch_kwargs["env"] = environment
         if native_image_preparation is not None:
@@ -392,6 +397,8 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     # and verification keep the original inventory; no task input is omitted.
     data["tool_containment"] = native_locators.boundary_value(policy)
     instruction = prompts.get("fragments/provider-launch/containment-prompt.md")
+    if policy.get("private_reads"):
+        instruction += prompts.get("fragments/provider-launch/containment-prompt-run-store.md")
     if stage == "sol":
         # Bind the entire presented projection, including JSON types, not only its source revision.
         regression_proof_current = (

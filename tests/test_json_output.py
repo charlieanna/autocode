@@ -1,6 +1,7 @@
 """--json on user actions: one JSON object on stdout, everything else on stderr (#714)."""
 
 import contextlib
+import copy
 import io
 import json
 import os
@@ -17,7 +18,10 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_json_output as json_output
 import autocode_support as support
+import autocode_util as util
 from goal_fixtures import body, seed_greeting_workspace
+
+SCHEMA = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
 
 
 class JsonOutputTests(unittest.TestCase):
@@ -140,6 +144,7 @@ class JsonActionCliTests(unittest.TestCase):
         code, stdout, stderr = self.invoke("--approve-goal", self.token, "--json")
         self.assertEqual(0, code, stderr)
         payload = json.loads(stdout)  # exactly one object: anything else would not parse
+        util.validate_schema(payload, SCHEMA)
         self.assertEqual(self.state["status"], payload["status"])
         self.assertIn("needs", payload["view"])
         result = payload["result"]
@@ -150,6 +155,7 @@ class JsonActionCliTests(unittest.TestCase):
     def test_a_refused_action_reports_its_error_as_json_on_both_streams(self):
         code, stdout, stderr = self.invoke("--approve-goal", "r9:stale", "--json")
         self.assertEqual(2, code)
+        util.validate_schema(json.loads(stdout), SCHEMA)
         error = json.loads(stdout)["result"]["error"]
         self.assertEqual("input_rejected", error["code"])
         self.assertTrue(error["message"])
@@ -173,6 +179,87 @@ class JsonActionCliTests(unittest.TestCase):
             },
             json.loads(stdout),
         )
+
+    def test_a_run_stopped_inside_the_build_loop_prints_its_saved_payload_with_the_result(self):
+        self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
+        (self.run_dir / "pause-requested").write_text("")  # what --pause-after-stage and a person's pause leave
+        code, stdout, stderr = self.invoke("--json")
+        self.assertEqual(2, code, stderr)
+        payload = json.loads(stdout)
+        util.validate_schema(payload, SCHEMA)
+        self.assertEqual(("PAUSED_REQUESTED", "PAUSED_REQUESTED"), (self.state["status"], payload["view"]["status"]))
+        self.assertEqual("resume", payload["view"]["needs"]["kind"])
+        result = payload["result"]
+        self.assertEqual((2, False, None), (result["exit_code"], result["saved"], result["error"]))
+
+    def test_a_run_stopped_by_its_iteration_or_time_limit_prints_its_saved_payload_with_the_result(self):
+        waiting = self.state  # the plan waits for approval
+        for pause, limit in (
+            ("PAUSED_ITERATION_LIMIT", {"iteration_ceiling": 0}),
+            ("PAUSED_TIME_LIMIT", {"max_seconds": 60}),
+        ):
+            with self.subTest(pause):
+                state = copy.deepcopy(waiting)
+                state["settings"]["limits"].update(limit)
+                state["active_seconds"] = 60
+                support.atomic_json(self.run_dir / "state.json", state)
+                self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
+                code, stdout, stderr = self.invoke("--json")
+                self.assertEqual(2, code, stderr)
+                payload = json.loads(stdout)
+                util.validate_schema(payload, SCHEMA)
+                # AutoResolver cannot raise a saved limit, so it asks the person (an operational stop).
+                view = payload["view"]
+                self.assertEqual(("WAITING_FOR_USER", "autocode"), (view["status"], view["pause_category"]))
+                self.assertEqual(
+                    (pause, "operational_exhaustion"), (view["needs"]["pause_origin"], view["needs"]["resolver_scope"])
+                )
+                result = payload["result"]
+                self.assertEqual((2, False, None), (result["exit_code"], result["saved"], result["error"]))
+
+    def test_a_run_stopped_for_its_environment_or_provider_prints_its_saved_payload_with_the_result(self):
+        """Environment and provider pauses keep their category under --status and --json (#714)."""
+        self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
+        approved = self.state
+        for pause, category, after in (
+            # Auth stays on resume. A rate limit asks for corrective information, like a saved limit.
+            ("PAUSED_AUTH", "your_environment", ("PAUSED_AUTH", "resume", None)),
+            ("PAUSED_RATE_LIMIT", "model_or_provider", ("WAITING_FOR_USER", "answer", "operational_exhaustion")),
+        ):
+            with self.subTest(pause):
+                state = copy.deepcopy(approved)
+                state["status"] = pause
+                state["stop_reason"] = f"fixture {pause}"
+                support.atomic_json(self.run_dir / "state.json", state)
+                code, stdout, stderr = self.invoke("--status")
+                self.assertEqual(0, code, stderr)
+                status = json.loads(stdout)
+                util.validate_schema(status, SCHEMA)
+                self.assertNotIn("result", status)
+                self.assertEqual(
+                    (pause, category, "resume"),
+                    (status["view"]["status"], status["view"]["pause_category"], status["view"]["needs"]["kind"]),
+                )
+                self.assertIn("--resume-paused", status["view"]["next_command"])
+                code, stdout, stderr = self.invoke("--json")
+                self.assertEqual(2, code, stderr)
+                payload = json.loads(stdout)
+                util.validate_schema(payload, SCHEMA)
+                view = payload["view"]
+                status_after, need_kind, scope = after
+                self.assertEqual(
+                    (status_after, category, need_kind),
+                    (view["status"], view["pause_category"], view["needs"]["kind"]),
+                )
+                if scope is not None:
+                    self.assertEqual((pause, scope), (view["needs"]["pause_origin"], view["needs"]["resolver_scope"]))
+                else:
+                    self.assertEqual(
+                        (view["status"], view["needs"]),
+                        (status["view"]["status"], status["view"]["needs"]),
+                    )
+                result = payload["result"]
+                self.assertEqual((2, False, None), (result["exit_code"], result["saved"], result["error"]))
 
     def test_without_json_an_action_prints_its_prose(self):
         code, stdout, _ = self.invoke("--approve-goal", self.token)

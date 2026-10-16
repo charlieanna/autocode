@@ -48,6 +48,7 @@ try:
     from . import autocode_job_route as job_route
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
+    from . import autocode_package_scope as package_scope
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
@@ -62,6 +63,7 @@ try:
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_route_advisory as route_advisory
     from . import autocode_run_destination as run_destination
+    from . import autocode_run_finder as run_finder
     from . import autocode_run_status as run_status
     from . import autocode_source_log as source_log
     from . import autocode_status_command as status_command
@@ -88,6 +90,7 @@ except ImportError:
     import autocode_job_route as job_route
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
+    import autocode_package_scope as package_scope
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
@@ -102,6 +105,7 @@ except ImportError:
     import autocode_retired_token_budget as retired_token_budget
     import autocode_route_advisory as route_advisory
     import autocode_run_destination as run_destination
+    import autocode_run_finder as run_finder
     import autocode_run_status as run_status
     import autocode_source_log as source_log
     import autocode_status_command as status_command
@@ -160,7 +164,9 @@ def _protected_test_settings(state: RunState, settings, args, workspace, run_dir
     def discover_command():
         nonlocal discovered
         framework = verify.detect_framework(
-            workspace, python=verify.python_for(state.get("project_workspace") or workspace)
+            workspace,
+            python=verify.python_for(state.get("project_workspace") or workspace),
+            **package_scope.detection(settings),
         )
         discovered = framework.to_dict() if framework else None
         return framework.suite if framework else None
@@ -228,6 +234,15 @@ def resolve(runner, args, parser):
             args.test_root = test_roots.normalize(args.test_root)
         except ValueError as error:
             parser.error(str(error))
+    if getattr(args, "package", None) is not None:
+        if args.run_dir:
+            parser.error("--package is fixed when a run starts")
+        if getattr(args, "test_root", None) is not None:
+            parser.error("--package already selects the suite inside the package; do not add --test-root")
+        try:
+            args.package = package_scope.normalize(args.package)
+        except ValueError as error:
+            parser.error(str(error))
     if args.ui_run and args.figma_file:
         parser.error("Choose --ui-run or --figma-file")
     if args.run_dir and (args.ui_run or args.figma_review):
@@ -283,6 +298,11 @@ def resolve(runner, args, parser):
             parser.error(
                 "Native planning requires an existing owned Git checkout with --in-place; automatic provisioning is not qualified"
             )
+        if getattr(args, "package", None):
+            try:  # a new task worktree starts from HEAD; an in-place run uses the checkout as it is
+                package_scope.require(workspace, args.package, committed=not (args.in_place or read_only))
+            except ValueError as error:
+                parser.error(str(error))
         created = fresh = False
         if not (workspace / ".git").exists():
             if args.dry_run or args.status or args.explain:
@@ -399,6 +419,24 @@ def launch_base(workspace, run_dir, parser):
         parser.error(f"cannot record the checkout's uncommitted and untracked files as the run's start: {error}")
 
 
+def resumed_pause(state: RunState) -> str | None:
+    """The stop an explicit resume finds holding ``state``, or None when it holds none (#722).
+
+    A pause or block --resume-paused acknowledges, one that waits for an edit included, or the pause
+    behind the AutoResolver operational request a waiting run shows (pause_authority.held_origin). A
+    pause intervention that interrupted another pause names that one (pause_authority.interrupted): the
+    resume acknowledges the intervention, then the interrupted pause is what it must release before any
+    stage launches. A run waiting on a person's answer or approval, or one that is running, is held by no pause.
+    """
+    status = str(state.get("status") or "")
+    interrupted = pause_authority.interrupted(state)
+    if interrupted:
+        return str(interrupted["status"])
+    if status in ("WAITING_FOR_USER", "RESOLVER_PENDING"):
+        status = str(pause_authority.held_origin(state).get("pause_status") or status)
+    return status if run_finder.resume_acknowledges(status) or status in run_finder.WAITS_FOR_AN_EDIT else None
+
+
 def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     """Under the run lock: reread, configure, register and migrate the run; return its state."""
     support.assert_no_legacy_process(run_dir, workspace)
@@ -431,6 +469,8 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
     # Preserve only this locked invocation's pre-change settings for grant validation.
     args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
+    # The stop an explicit resume finds holding the run, for the build loop to record who resumed it (#722).
+    args._resumed_pause = resumed_pause(state) if args.resume_paused else None
     recovering_report = getattr(args, "recover_job_report", None) is not None
     try:
         settings = runner.configure(args, copy.deepcopy(state) if recovering_report else state)

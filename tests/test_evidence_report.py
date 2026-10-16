@@ -318,6 +318,241 @@ class EvidenceDocumentTests(unittest.TestCase):
         self.assertIn("No independent check replay recorded", document.render(report))
 
 
+APPROVER = {"git_user_name": "Ana Example", "git_user_email": "ana@example.test", "host": "desk-7"}
+UNVERIFIED_APPROVER = (
+    "Who approved is recorded as given, not verified: the Git identity is what the checkout's Git configuration "
+    "held and a name given with --as is the person's own claim"
+)
+
+
+def approved_state():
+    """A completed run as saved: a plan approval from before AutoCode recorded approvers, a goal edit, the
+    edited plan's approval, a resume out of a time-limit pause and a review acceptance (#722)."""
+    return {
+        "status": "TASK_COMPLETE",
+        "workflow": {"kind": "build"},
+        "base_commit": "base",
+        "contract_history": [
+            {"revision": 1, "hash": "a", "origin": "astra_finalize", "created_at": "2026-10-15T07:00:00+00:00"}
+        ],
+        "goal_contract": {
+            "revision": 2,
+            "hash": "b",
+            "origin": "user_cli_edit",
+            "created_at": "2026-10-15T07:30:00+00:00",
+            "provenance": {**APPROVER, "command": "autocode --run-dir --edit-goal --as", "claimed_as": "Bo"},
+        },
+        "user_events": [
+            {"kind": "goal_approval", "actor": "user_cli", "at": "2026-10-15T07:10:00+00:00", "token": "r1:a"},
+            {
+                "kind": "goal_approval",
+                "actor": "user_cli",
+                "at": "2026-10-15T08:00:00+00:00",
+                "token": "r2:b",
+                "provenance": {**APPROVER, "command": "autocode --run-dir --approve-goal", "claimed_as": None},
+            },
+            {
+                "kind": "human_review",
+                "actor": "user_cli",
+                "at": "2026-10-15T09:00:00+00:00",
+                "criterion": "C1",
+                "token": "r2:b@src:review-secret",
+                "provenance": {
+                    **APPROVER,
+                    "command": "autocode --run-dir --approve-review --review-token",
+                    "claimed_as": None,
+                },
+            },
+        ],
+        "pause_acknowledgements": [
+            {
+                "at": "2026-10-15T08:30:00+00:00",
+                "pause_status": "PAUSED_TIME_LIMIT",
+                "provenance": {**APPROVER, "command": "autocode resume --run-dir --as", "claimed_as": "Cy"},
+            }
+        ],
+    }
+
+
+class ApprovalReportTests(unittest.TestCase):
+    """Who approved, in the evidence report and the pull request body wrapped around it (#722)."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="evidence-approvals-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def test_the_report_and_pull_request_body_list_each_approval_with_its_provenance(self):
+        import autocode_issue as issue
+
+        state = approved_state()
+        view = run_view.view(state)
+        export.publish(self.root, state, view, provenance.configured({}, "fake"))
+        report = export.read(
+            self.root,
+            state["evidence_export"],
+            expected_binding=export.binding(state, view["usage"]["accounting"]),
+            current=True,
+            include=True,
+        )
+        self.assertEqual("current", report["availability"], report["reasons"])
+        self.assertEqual(view["approvals"], report["document"]["approvals"])
+        self.assertEqual(
+            ["plan", "edit", "plan", "resume", "review"], [row["kind"] for row in report["document"]["approvals"]]
+        )
+        self.assertIn(UNVERIFIED_APPROVER, report["document"]["unverified"])
+        self.assertIn(
+            "Who approved was not recorded for 1 of the listed approval records, saved before AutoCode recorded it",
+            report["document"]["unverified"],
+        )
+        markdown = report["markdown"]
+        rows = [
+            "| 2026-10-15T07:10:00+00:00 | Plan r1:a approved | not recorded: saved before AutoCode recorded who "
+            "approved | not recorded | not recorded | not recorded |",
+            "| 2026-10-15T07:30:00+00:00 | Edited plan r2:b saved | Ana Example &lt;ana@example.test&gt; | desk-7 "
+            "| autocode --run-dir --edit-goal --as | Bo (a claim, not verified) |",
+            "| 2026-10-15T08:00:00+00:00 | Plan r2:b approved | Ana Example &lt;ana@example.test&gt; | desk-7 "
+            "| autocode --run-dir --approve-goal | none given |",
+            "| 2026-10-15T08:30:00+00:00 | Resumed from PAUSED_TIME_LIMIT | Ana Example &lt;ana@example.test&gt; "
+            "| desk-7 | autocode resume --run-dir --as | Cy (a claim, not verified) |",
+            "| 2026-10-15T09:00:00+00:00 | Review of C1 approved | Ana Example &lt;ana@example.test&gt; | desk-7 "
+            "| autocode --run-dir --approve-review --review-token | none given |",
+        ]
+        self.assertIn("\n".join(rows) + "\n", markdown)
+        self.assertLess(markdown.index("## Intended outcome"), markdown.index("## Approvals"))
+        self.assertLess(markdown.index("## Approvals"), markdown.index("## Acceptance criteria"))
+        self.assertIn("a name given with `--as` is the person's own claim", markdown)
+        self.assertNotIn("review-secret", markdown + json.dumps(report["document"]))
+        record = {"owner": "acme", "repo": "widgets", "number": 7, "run_dir": str(self.root), "base_commit": "a" * 40}
+        body = issue.pr_body(record, {}, " app.py | 1 +", evidence_markdown=markdown)
+        for row in rows:
+            self.assertIn(row, body)
+
+    def test_a_run_without_approvals_says_so_and_an_older_report_renders_unchanged(self):
+        # A report built without the status view's approvals (one written before AutoCode listed them, or a
+        # verification, program or component report) has no field and no section, so its pair still authenticates.
+        view = public_view()
+        older = value(view)
+        self.assertNotIn("approvals", older)
+        view["approvals"] = []
+        report = value(view)
+        self.assertEqual([], report["approvals"])
+        self.assertEqual(older["unverified"], report["unverified"])
+        rendered = document.render(report)
+        section = rendered[rendered.index("## Approvals") : rendered.index("## Acceptance criteria")]
+        self.assertIn(
+            "\nNone recorded: this run saved no plan approval, review approval, plan edit or resume from a pause.\n",
+            section,
+        )
+        self.assertEqual(rendered.replace(section, ""), document.render(older))
+        anchor = export.write(self.root, older)
+        self.assertEqual(
+            "current", export.read(self.root, anchor, expected_binding="binding", current=True)["availability"]
+        )
+
+    def test_a_workflow_policy_approval_names_no_person(self):
+        state = {
+            "status": "TASK_COMPLETE",
+            "user_events": [
+                {
+                    "kind": "goal_approval",
+                    "actor": "workflow_policy",
+                    "at": "2026-10-15T08:00:00+00:00",
+                    "token": "r1:a",
+                }
+            ],
+        }
+        report = value({**public_view(), "approvals": run_view.view(state)["approvals"]})
+        self.assertNotIn(UNVERIFIED_APPROVER, report["unverified"])
+        self.assertFalse(any("Who approved was not recorded" in gap for gap in report["unverified"]))
+        self.assertIn(
+            "| 2026-10-15T08:00:00+00:00 | Plan r1:a approved | none: approved under the workflow policy, not by a "
+            "person | not applicable | not applicable | not applicable |",
+            document.render(report),
+        )
+
+    def resumed_report(self, kind, **saved):
+        """The published, authenticated report of a completed ``kind`` run that was resumed from a pause once."""
+        root = self.root / str(kind)
+        root.mkdir()
+        state = {
+            "status": "TASK_COMPLETE",
+            **({"workflow": {"kind": kind}} if kind else {}),
+            "base_commit": "base",
+            "pause_acknowledgements": [
+                {
+                    "at": "2026-10-15T08:30:00+00:00",
+                    "pause_status": "PAUSED_TIME_LIMIT",
+                    "provenance": {**APPROVER, "command": "autocode resume --run-dir --as", "claimed_as": "Cy"},
+                }
+            ],
+            **saved,
+        }
+        view = run_view.view(state)
+        self.assertEqual(["resume"], [row["kind"] for row in view["approvals"]])  # --status still lists it
+        export.publish(root, state, view, provenance.configured({}, "fake"))
+        report = export.read(
+            root,
+            state["evidence_export"],
+            expected_binding=export.binding(state, view["usage"]["accounting"]),
+            current=True,
+            include=True,
+        )
+        self.assertEqual("current", report["availability"], report["reasons"])
+        return report
+
+    def test_a_review_or_discussion_report_lists_no_approvals_not_even_who_resumed_it(self):
+        # Neither workflow has an approval step, and review-pr --post publishes a review's report verbatim as a
+        # GitHub review on someone else's pull request.
+        import autocode_pr_review as pr_review
+
+        for kind, saved in (
+            ("review", {"review": {"verdict": "approve", "blocking": 0, "advisory": 0, "report_sha256": "c" * 64}}),
+            ("discuss", {"answer": {"answer": "Yes.", "note_path": ""}}),
+        ):
+            with self.subTest(workflow=kind):
+                report = self.resumed_report(kind, **saved)
+                self.assertEqual(kind, report["document"]["run"]["workflow"])
+                self.assertNotIn("approvals", report["document"])
+                published = report["markdown"] + json.dumps(report["document"])
+                for absent in (
+                    "## Approvals",
+                    "this run saved no plan approval",
+                    "ana@example.test",
+                    "desk-7",
+                    UNVERIFIED_APPROVER,
+                ):
+                    self.assertNotIn(absent, published)
+                if kind == "review":
+                    posted = pr_review.summary(
+                        {"verdict": "approve", "summary": "No defects."},
+                        report,
+                        "https://example.test/pull/7",
+                        "a" * 40,
+                    )
+                    self.assertIn(report["markdown"], posted)
+                    self.assertNotIn("## Approvals", posted)
+                    self.assertNotIn("ana@example.test", posted)
+
+    def test_a_build_bug_fix_or_design_report_keeps_its_approvals(self):
+        # Each can ask for an approval (a reproduced bug and a proposed design are planned and approved); a run
+        # saved before workflow recognition (no kind) is a build.
+        import autocode_issue as issue
+
+        for kind in ("build", "bugfix", "design", None):
+            with self.subTest(workflow=kind):
+                report = self.resumed_report(kind)
+                self.assertEqual(["resume"], [row["kind"] for row in report["document"]["approvals"]])
+                self.assertIn(UNVERIFIED_APPROVER, report["document"]["unverified"])
+                row = (
+                    "| 2026-10-15T08:30:00+00:00 | Resumed from PAUSED_TIME_LIMIT | Ana Example &lt;ana@example.test&gt; "
+                    "| desk-7 | autocode resume --run-dir --as | Cy (a claim, not verified) |"
+                )
+                self.assertIn(row, report["markdown"])
+                record = {"owner": "acme", "repo": "widgets", "number": 7, "run_dir": "run", "base_commit": "a" * 40}
+                self.assertIn(row, issue.pr_body(record, {}, " app.py | 1 +", evidence_markdown=report["markdown"]))
+
+
 class EvidenceFileTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="evidence-files-")

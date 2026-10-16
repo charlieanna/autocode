@@ -11,6 +11,10 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_goals as goals
@@ -57,7 +61,7 @@ def _safe_path(run_dir, relative):
     return path
 
 
-def _stored_stage(state, stage):
+def _stored_stage(state: RunState, stage):
     entry = state.get("planning_artifacts", {}).get(stage)
     if (
         not isinstance(entry, dict)
@@ -68,12 +72,12 @@ def _stored_stage(state, stage):
     return entry
 
 
-def predecessor_for(state, stage):
+def predecessor_for(state: RunState, stage):
     previous_stage = PREDECESSOR_STAGES.get(stage)
     return (previous_stage, _stored_stage(state, previous_stage)) if previous_stage else (None, None)
 
 
-def verify_predecessor(state, stage, run_dir):
+def verify_predecessor(state: RunState, stage, run_dir):
     """Read only the state-recorded predecessor and its delta, never a filename scan."""
     previous_stage, entry = predecessor_for(state, stage)
     if previous_stage is None:
@@ -140,7 +144,7 @@ def _graph_diffs(previous, current):
     return node_diffs, edge_diffs
 
 
-def _input_artifact(state, stage, run_dir):
+def _input_artifact(state: RunState, stage, run_dir):
     try:
         previous_stage, entry = predecessor_for(state, stage)
     except ValueError:
@@ -157,7 +161,7 @@ def _input_artifact(state, stage, run_dir):
     return verified["artifact"], json.loads(Path(verified["artifact"]["absolute_path"]).read_text())
 
 
-def prepare(state, stage, report, *, origin=None, run_dir=None, input_override=None, record=True):
+def prepare(state: RunState, stage, report, *, origin=None, run_dir=None, input_override=None, record=True):
     """Compute stage handoff bytes, optionally recording identities in candidate state."""
     if stage not in STAGE_STEMS:
         return None
@@ -202,7 +206,7 @@ def prepare(state, stage, report, *, origin=None, run_dir=None, input_override=N
     return prepared
 
 
-def record_prepared(state, prepared):
+def record_prepared(state: RunState, prepared):
     """Attach a previously validated handoff to the candidate state."""
     stage = prepared["stage"]
     entry = {"artifact": prepared["artifact"], "delta": prepared["delta"]}
@@ -218,9 +222,9 @@ def record_prepared(state, prepared):
     )
 
 
-def prepare_final_outputs(state, prepared):
+def prepare_final_outputs(state: RunState, prepared):
     """Queue canonical final-plan aliases and the graph sealed to this revision."""
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     final_token = goals.token(contract)
     artifact_value = {**prepared["artifact_value"], "final_token": final_token}
     artifact_bytes = _canonical_bytes(artifact_value)
@@ -231,7 +235,7 @@ def prepare_final_outputs(state, prepared):
         "delta": _identity("planning/final-plan.delta.json", delta_bytes),
         "graph": graph_identity,
     }
-    archived = state.get("planning_final_archive", [])
+    archived: list = state.get("planning_final_archive", [])
     previous = archived[-1].get("outputs", {}) if archived else {}
     state["planning_final"] = {"final_token": final_token, **outputs}
     state.setdefault("pending_planning_outputs", []).extend(
@@ -256,23 +260,26 @@ def prepare_final_outputs(state, prepared):
     return state["planning_final"]
 
 
-def prepare_user_cli_edit(state, *, run_dir=None):
-    """Turn an accepted v2 --edit-goal candidate into the normal plan handoff."""
-    return _prepare_contract_edit(state, "user_cli_edit", "--edit-goal", "User-edited plan", run_dir)
+def prepare_user_cli_edit(state: RunState, *, run_dir=None, label="--edit-goal"):
+    """Turn an accepted v2 --edit-goal candidate into the normal plan handoff.
+
+    ``label`` is the flag the person used, which a refusal names: --goal-file loads a plan file this way too.
+    """
+    return _prepare_contract_edit(state, "user_cli_edit", label, "User-edited plan", run_dir)
 
 
-def prepare_resolver_recommendation(state, *, run_dir=None):
+def prepare_resolver_recommendation(state: RunState, *, run_dir=None):
     """A user-accepted Resolver correction enters the same v2 Plan Reviewer handoff."""
     return _prepare_contract_edit(
         state, "resolver_recommendation", "Resolver recommendation", "User-accepted Resolver correction", run_dir
     )
 
 
-def _prepare_contract_edit(state, origin, label, summary, run_dir):
+def _prepare_contract_edit(state: RunState, origin, label, summary, run_dir):
     contract = state.get("goal_contract")
     if not contract or roles.planning_flow(state) != "v2":
         return None
-    history = state.get("planning_artifact_history", [])
+    history: list = state.get("planning_artifact_history", [])
     prior = next(
         (item for item in reversed(history) if item.get("stage") in ("plan_finalize", "plan_revise", "plan")), None
     )
@@ -323,9 +330,9 @@ def atomic_write(path, data):
             os.unlink(temporary)
 
 
-def flush_pending(state, run_dir):
+def flush_pending(state: RunState, run_dir):
     """Atomically materialize prepared handoffs before state.json is persisted."""
-    pending = state.get("pending_planning_artifacts", [])
+    pending: list = state.get("pending_planning_artifacts", [])
     created = []
     try:
         for entry in pending:
@@ -361,7 +368,7 @@ def flush_pending(state, run_dir):
     return created
 
 
-def commit_pending(state, run_dir, persist):
+def commit_pending(state: RunState, run_dir, persist):
     """Publish artifact bytes and state as one rollback-safe runner transaction."""
     created = flush_pending(state, run_dir)
     try:
@@ -398,7 +405,7 @@ def rollback_created(created, run_dir):
             os.close(descriptor)
 
 
-def reconcile_orphans(state, run_dir):
+def reconcile_orphans(state: RunState, run_dir):
     """Archive direct planning files that have no durable state identity."""
     planning_dir = Path(run_dir) / "planning"
     if not planning_dir.is_dir():
@@ -415,7 +422,7 @@ def reconcile_orphans(state, run_dir):
             if identity.get("path"):
                 referenced.add(identity["path"])
     for kind in ("artifact", "delta", "graph"):
-        identity = state.get("planning_final", {}).get(kind, {})
+        identity = cast(dict, state.get("planning_final", {})).get(kind, {})
         if identity.get("path"):
             referenced.add(identity["path"])
     reconciled = []

@@ -226,7 +226,9 @@ ROLES = {
     "plan_reviewer": (roles.SCREEN["plan_reviewer"], "--plan-reviewer-model", "judge"),
     "sol": (roles.SCREEN["tester"], "--sol-model", "judge"),
     "completion": (roles.SCREEN["completion"], "--completion-model", "judge"),
-    "astra": (roles.SCREEN["resolver"], "--astra-model", "resolver"),
+    # The per-task Planner runs on the astra route, and the Resolver starts as a copy of it unless
+    # --resolver-model sets the Resolver's own route (docs/models.md).
+    "astra": (f"{roles.SCREEN['resolver']} and per-task {roles.SCREEN['planner']}", "--astra-model", "resolver"),
 }
 # Producer and checker roles that must not share a model (autocode_verifier_independence.PAIRS).
 CHECKS = tuple((producer, verifier) for producer, verifier, _label in verifier_independence.PAIRS)

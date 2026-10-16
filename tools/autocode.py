@@ -1323,7 +1323,8 @@ def execute_report_repair(state, run_dir, workspace, *, native=None):
                 "state_file": str(run_dir / "state.json"),
                 **jobs.repair_context(original["stage"], state),
             },
-            indent=2,
+            # Compact: indentation was 16% of a program child's finalize repair, which then overflowed (#1337).
+            separators=(",", ":"),
         )
     )
     if len(prompt.encode("utf-8")) > REPAIR_HANDOFF_BYTES:

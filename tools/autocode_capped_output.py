@@ -37,7 +37,10 @@ class Watch:
     def enforce(self):
         """Look at the file once; cut it back to the limit if it is past it."""
         size = os.fstat(self.descriptor).st_size
-        self.total = max(self.total, size)
+        # A final write can land after the size sample and be truncated below.
+        # The shared offset survives truncation, including that otherwise lost write.
+        offset = os.lseek(self.descriptor, 0, os.SEEK_CUR)
+        self.total = max(self.total, size, offset)
         if size > self.limit:
             os.ftruncate(self.descriptor, self.limit)
 

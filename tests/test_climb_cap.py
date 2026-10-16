@@ -157,6 +157,41 @@ class ClimbCapTests(unittest.TestCase):
             stop(state, "astra_review", "completion"),
         )
 
+    def test_the_resolvers_climb_is_priced_on_its_own_route_role(self):
+        """The Resolver's stages run on route role "resolver", which climbs GPT-6 Astra (#1345); the build loop
+        passes that route role to guard(), so the climb is priced from the last Resolver attempt."""
+        astra = route("high", "gpt-6-astra")
+        state = {
+            "settings": {
+                "engine": "codex",
+                "roles": {"astra": dict(astra), "resolver": dict(astra)},
+                "limits": {"max_cost_usd": 0.03},
+            },
+            "stages": [attempt(astra, stage="astra_resolve", role="astra", route_role="resolver", started_at=EARLIER)],
+        }
+        escalation.advance(state, "resolver", trigger="rejected_output", detail="invalid report")
+        # 1,000 input and 200 output tokens at GPT-6 Astra's $10 / $50 per million cost $0.02.
+        self.assertIn(
+            "The Resolver's climb to GPT-6 Astra XHigh (gpt-6-astra at xhigh effort) did not launch: projected at "
+            "$0.02, the last Resolver attempt's 1,000 input and 200 output tokens at gpt-6-astra's price, it would "
+            "take the spend from $0.02 to $0.04, past the $0.03 cost cap",
+            stop(state, "astra_resolve", "resolver"),
+        )
+        self.assertIn("The Resolver's climb to GPT-6 Astra XHigh", stop(state, "astra_diagnose", "resolver"))
+
+    def test_a_rejected_task_plan_leaves_no_astra_climb_to_price(self):
+        """Before #1345 the per-task Planner's astra route climbed GPT-6 Astra on a rejected report, and this cap
+        paused its next attempt; the astra route is on no ladder now, so that attempt launches on its route."""
+        astra = route("high", "gpt-6-astra")
+        state = {
+            "settings": {"engine": "codex", "roles": {"astra": dict(astra)}, "limits": {"max_cost_usd": 0.03}},
+            "stages": [attempt(astra, stage="astra_plan", role="astra", started_at=EARLIER)],
+        }
+        escalation.advance(state, "astra", trigger="rejected_output", detail="invalid task plan")
+        # Spent $0.02; a climbed attempt projected at another $0.02 would pass the $0.03 cap.
+        climb_cap.guard(state, "astra_plan", "astra")
+        self.assertEqual(astra, state["settings"]["roles"]["astra"])
+
     def test_each_role_is_priced_from_its_own_climb_and_attempt(self):
         # The Tester climbs High -> XHigh, then the Completion Reviewer Medium -> High.
         tester, reviewer = {"input_tokens": 100, "output_tokens": 20}, {"input_tokens": 200, "output_tokens": 40}

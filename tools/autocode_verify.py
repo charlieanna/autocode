@@ -59,6 +59,7 @@ try:
     from . import autocode_junit_proof as junit_proof
     from . import autocode_junit_tests as junit_tests
     from . import autocode_node_tests as node_tests
+    from . import autocode_package_scope as package_scope
     from . import autocode_project_inventory as project_inventory
     from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
@@ -92,6 +93,7 @@ except ImportError:
     import autocode_junit_proof as junit_proof
     import autocode_junit_tests as junit_tests
     import autocode_node_tests as node_tests
+    import autocode_package_scope as package_scope
     import autocode_project_inventory as project_inventory
     import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
@@ -522,8 +524,10 @@ def _python_can_import(python, module):
         return False
 
 
-def detect_framework(root, *, python=None, test_root=None, base=None) -> Framework | None:
-    """Detect the project suite, or a caller-scoped Python suite with pinned base policy."""
+def detect_framework(root, *, python=None, test_root=None, base=None, package=None) -> Framework | None:
+    """Detect the project suite, a caller-scoped Python suite with pinned base policy, or a package's suite."""
+    if package is not None:  # its directory as the project root; its commands enter that directory
+        return package_scope.detect(root, package, lambda directory: detect_framework(directory, python=python))
     root = Path(root)
     # Untracked files count: AutoCode never commits, so in a new project every file the Builder wrote,
     # tests included, is untracked (a live greenfield run found no test command and could not prove its
@@ -655,49 +659,6 @@ def _pytest_configured(directory, files, *, read=None) -> bool:
     )
 
 
-def _pinned_policy(workspace, path, entries):
-    """Read one Git tree's policy with bounded relative pinned symlink resolution.
-
-    An absent policy is empty; an unsafe or unresolved existing link is not.
-    Directory links resolve too, without consulting the mutable checkout or host.
-    """
-    pending, resolved, links = list(path.parts), [], 0
-    seen = set()
-    while pending:
-        part = pending.pop(0)
-        if part == ".":
-            continue
-        if part == "..":
-            if not resolved:
-                raise ValueError("Pinned policy escapes the repository")
-            resolved.pop()
-            continue
-        name = "/".join([*resolved, part])
-        entry = entries.get(name)
-        if entry is None:
-            if links:
-                raise ValueError("Pinned policy link target is absent from the base")
-            return ""
-        mode, kind, object_id = entry
-        if mode == "120000" and kind == "blob":
-            step = (name, tuple(pending))
-            if step in seen:
-                raise ValueError("Pinned policy link contains a loop")
-            seen.add(step)
-            links += 1
-            target = _git(workspace, "cat-file", "blob", object_id)
-            if links > 32 or not target or target.startswith("/") or "\0" in target:
-                raise ValueError("Pinned policy link is external or exceeds the resolution limit")
-            pending = [part for part in target.split("/") if part] + (["."] if target.endswith("/") else []) + pending
-        elif mode == "040000" and kind == "tree":
-            resolved.append(part)
-        elif mode in ("100644", "100755") and kind == "blob" and not pending:
-            return _git(workspace, "cat-file", "blob", object_id)
-        else:
-            raise ValueError("Pinned policy is not a regular file")
-    raise ValueError("Pinned policy resolves to a directory")
-
-
 def _rooted_python(workspace, test_root, files, python, *, base=None) -> Framework | None:
     """Honor current/ancestor and pinned pytest policy without narrowing collection.
 
@@ -714,7 +675,9 @@ def _rooted_python(workspace, test_root, files, python, *, base=None) -> Framewo
     configured = False
     policies = [(files, lambda path: test_roots.read_policy(workspace, path))]
     if base:
-        policies.append((base_files, lambda path: _pinned_policy(workspace, path.relative_to(workspace), entries)))
+        policies.append(
+            (base_files, lambda path: test_roots.pinned_policy(workspace, path.relative_to(workspace), entries))
+        )
     relative_root = PurePosixPath(test_root)
     for relative_dir in (relative_root, *relative_root.parents):
         policy_dir, prefix = workspace / relative_dir, relative_dir.as_posix()
@@ -879,7 +842,7 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     if not framework or not framework.per_test or framework.name in ("node", "vitest"):
         return None
     if framework.name == "go":
-        invocation = go_tests.parse(receipt.get("command") or framework.suite)
+        invocation = go_tests.parse(package_scope.split(framework, receipt.get("command") or framework.suite)[1])
         if invocation is None or invocation.json_disabled:
             return None
         output = receipt.get("output")
@@ -1641,11 +1604,13 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
             execute=run_command,
             is_tracked=lambda path: bool(_git(tree, "--literal-pathspecs", "ls-files", "-z", "--", path)),
         )
+    package, command = package_scope.split(framework, command)  # a package's suite runs from its directory
+    root = Path(tree) / package if package else tree
     extension = (
         "node.jsonl"
         if node_tests.command_words(command)
         else "vitest.json"
-        if vitest_tests.command_words(command, tree)
+        if vitest_tests.command_words(command, root)
         else "junit.xml"
     )
     xml = Path(evidence_dir) / f"{label}.{extension}"
@@ -1654,16 +1619,17 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         xml = native_execution.result_path(tree, xml)
     xml.unlink(missing_ok=True)  # never parse a previous run's results
-    actual = _with_results(framework, command, xml, tree)
+    actual = _with_results(framework, command, xml, root)
     if native_execution is not None:
         planned = native_execution.instrument(framework.name if framework else None, command, xml, tree)
         if planned != actual:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native suite instrumentation differs from the runner")
+    actual = package_scope.command(package, actual) if package else actual
     receipt = run_command(
         actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout, native_execution=native_execution
     )
-    receipt["results"] = per_test_results(framework, receipt, xml, tree=tree)
-    receipt["results_expected"] = expects_results(framework, command, tree)
+    receipt["results"] = per_test_results(framework, receipt, xml, tree=root)
+    receipt["results_expected"] = expects_results(framework, command, root)
     if native_execution is not None:
         native_execution.retain_results(receipt)
     return receipt
@@ -1934,7 +1900,7 @@ def baseline_identity(
     bound = {k: v for k, v in identity.items() if k not in _SOURCE_IDENTITY_KEYS}
     bound["dependencies"] = sorted(dependencies) or identity.get("dependencies")
     bound["environment_hash"] = util.digest(environment)
-    node_command = node_tests.parse(command) is not None
+    node_command = node_tests.parse(package_scope.within(command)) is not None  # a package's runs fresh too
     bound["cache_policy"] = "fresh_execution_only" if node_command else "baseline_runtime_identity"
     bound["cache_binding_complete"] = not (
         node_command or identity.get("unbound_editables") or identity.get("unbound_relative_pythonpath")
@@ -2103,7 +2069,7 @@ def scratch_run(
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
-            framework = command_framework(command)
+            framework = command_framework(command) or package_scope.recognize(command, command_framework)
             if framework:
                 receipt = run_suite(
                     framework,
@@ -2297,6 +2263,7 @@ def verify(
     test_root=None,
     cases=(),
     candidate_tree=None,
+    package=None,
 ) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
@@ -2345,6 +2312,7 @@ def verify(
 
     ``test_root`` is caller-selected at launch. Changes outside it remain unverified.
     Only its independently canonical detected suite may establish a first suite.
+    So do changes outside a run's ``package`` (autocode_package_scope): its suite does not run them.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     test_root = test_roots.normalize(test_root) if test_root is not None else None
@@ -2397,6 +2365,11 @@ def verify(
     if stray:
         unverified.append(
             f"Files outside the test root {test_root}/ changed, and no test there covers them: " + ", ".join(stray[:10])
+        )
+    if package is not None and (elsewhere := package_scope.outside(package, changes)):
+        unverified.append(
+            f"Files outside the package {package}/ changed, and its suite does not cover them: "
+            + ", ".join(elsewhere[:10])
         )
     for kind in ("regression", "suite"):
         if commands[f"{kind}_source"] == "builder":
@@ -2497,6 +2470,7 @@ def verify(
                 on_base,
                 repeat,
                 base_tree="base_with_tests" in trees,
+                directory=getattr(framework, "directory", None),
             )
             if unstable:
                 fail.append(proof_stability.failure_text(unstable))
@@ -2519,7 +2493,7 @@ def verify(
                 review_reasons,
                 new_behavior=new_behavior,
                 preserve_only=preserve,
-                absent_go_base=no_go_project and _go_test(commands["regression"] or ""),
+                absent_go_base=no_go_project and _go_test(package_scope.split(framework, commands["regression"])[1]),
                 absent_junit_base=no_junit_project
                 and junit_first.reported_absence(on_base or {}, junit_first.family(commands["suite"])),
                 known_failures=lambda: _pre_existing(
@@ -2600,10 +2574,10 @@ def verify(
             # port, for example) has no Go suite to preserve. `go test` then reports
             # no packages — inside a parent module that the candidate just added,
             # "matched no packages" — and that is not a broken base suite. A base
-            # that already has a Go module or Go source keeps the ordinary rule.
-            allow_absent_go = bool(
-                no_go_project and comparable and comparable.get("base") == base and _go_test(commands["suite"] or "")
-            )
+            # that already has a Go module or Go source keeps the ordinary rule. A package's
+            # suite command is read inside its `cd PKG && `, as per_test_results reads it.
+            suite_go = _go_test(package_scope.split(framework, commands["suite"] or "")[1])
+            allow_absent_go = bool(no_go_project and comparable and comparable.get("base") == base and suite_go)
             # The base's own suite definition, executed over the candidate's product code,
             # decides preservation for an exit-code-only script-driven suite (#587). The
             # trigger is evidential: passing base, completed exit-0 candidate suite,

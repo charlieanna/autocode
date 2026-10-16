@@ -21,6 +21,10 @@ import copy
 import json
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_job_source as source
@@ -58,9 +62,9 @@ def owner(record):
     return stage if stage in jobs.STAGES and not record.get("report_only") else None
 
 
-def configuration(state):
+def configuration(state: RunState):
     settings = state.get("settings") or {}
-    configured = copy.deepcopy(
+    configured: dict = copy.deepcopy(
         {
             k: settings.get(k)
             for k in (
@@ -177,7 +181,7 @@ def _route_reason(failure):
     )
 
 
-def _question(runtime, state, attempt):
+def _question(runtime, state: RunState, attempt):
     """The stopped job's model question (quota_route.question) with the runtime's launch rules, when it has them.
 
     ``runtime`` is the runner, or anything with its ``dispatch`` and ``opencode``. Without them
@@ -191,7 +195,7 @@ def _question(runtime, state, attempt):
     )
 
 
-def _reasked(runtime, state, failure):
+def _reasked(runtime, state: RunState, failure):
     """The job's model question asked again against the configuration its retry is now bound to.
 
     Its candidates then never list the model the job now runs on (quota_route.validate refuses
@@ -216,7 +220,7 @@ def _reasked(runtime, state, failure):
     return route
 
 
-def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False, launch=None):
+def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandoned=False, launch=None):
     """Pause a stopped workflow job for one exact retry; False when the active stage is not one.
 
     ``launch`` carries the launch rules (``dispatch``, ``opencode``) a job stopped on its model
@@ -323,7 +327,7 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False, 
     return True
 
 
-def authorize(runtime, state, run_dir, workspace, token):
+def authorize(runtime, state: RunState, run_dir, workspace, token):
     failure = state.get("job_failure") or {}
     if state.get("status") not in PAUSES or not failure:
         raise ValueError("Exact job retry requires a paused failed workflow job")
@@ -353,12 +357,12 @@ def authorize(runtime, state, run_dir, workspace, token):
             "token": token,
         }
     )
-    state.update(status="RUNNING", phase="EXECUTING", next_stage=failure["stage"])
+    state.update({"status": "RUNNING", "phase": "EXECUTING", "next_stage": failure["stage"]})
     state.pop("stop_reason", None)
     runtime.write_json(Path(run_dir) / "state.json", state)
 
 
-def reroute(runtime, state, run_dir, workspace, assignment):
+def reroute(runtime, state: RunState, run_dir, workspace, assignment):
     """Bind the stopped job's exact retry to the model a person named for it (#463); return the new token.
 
     ``assignment`` is the route_assignment quota_route.assign just applied for the failure's own
@@ -412,7 +416,7 @@ def reroute(runtime, state, run_dir, workspace, assignment):
     return failure["job_retry_token"]
 
 
-def admit(state, record, workspace):
+def admit(state: RunState, record, workspace):
     if not owner(record):
         return
     record["job_configuration"] = configuration(state)
@@ -438,13 +442,13 @@ def admit(state, record, workspace):
     record["job_retry_token"] = auth["token"]
 
 
-def supersede(state):
+def supersede(state: RunState):
     """Drop a job failure a later non-job pause replaced. Its token must not retry the old stage."""
     state.pop("job_failure", None)
     state.pop("job_retry_authorization", None)
 
 
-def resume_gate(state, *, resume, retry, token):
+def resume_gate(state: RunState, *, resume, retry, token):
     """How ``--resume-paused`` meets ``job_failure``.
 
     ``'authorize'`` checks the token and retries that job. An error string stops
@@ -465,7 +469,7 @@ def resume_gate(state, *, resume, retry, token):
     return None
 
 
-def completed(state, stage):
+def completed(state: RunState, stage):
     if stage == (state.get("job_failure") or {}).get("stage"):
         state.pop("job_failure", None)
         state.pop("job_retry_authorization", None)

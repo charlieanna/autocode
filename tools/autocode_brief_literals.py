@@ -4,7 +4,8 @@ A live run (docs/bugs/2026-10-01-reliability-live-cases.md) completed falsely be
 Requirements stage wrote the brief's `ID TEXT [open|done]` into its examples as `1 buy milk open`.
 The Builder, its tests, the Validator and the completion gate then all honestly served the corrupted
 criteria. Every other handoff has an independent check; this is the mechanical one for the
-brief-to-contract transcription, run where the runner checks each planner draft's requirement trace.
+brief-to-contract transcription, run where the runner checks each planner draft's requirement trace
+and on each plan file a person loads with --goal-file (autocode_goal_file).
 
 A literal is an inline code span in text the user wrote (the task, brief feedback, the user's own
 answers); fenced code blocks are left out. The contract keeps a literal when it quotes it verbatim
@@ -91,6 +92,13 @@ def missing(found: list[str], contract: dict) -> list[str]:
         if literal not in text and not (pattern and any(pattern.search(criterion) for criterion in criteria)):
             lost.append(literal)
     return lost
+
+
+def check(texts, contract: dict) -> None:
+    """Refuse ``contract`` when it drops a literal of ``texts``, with the repair instruction (``error``)."""
+    lost = missing(literals(texts), contract)
+    if lost:
+        raise ValueError(error(lost))
 
 
 def error(lost: list[str]) -> str:

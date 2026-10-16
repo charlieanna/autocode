@@ -351,6 +351,7 @@ def load_action(state, run_dir, args):
     forbidden = (
         "approve_goal",
         "edit_goal",
+        "goal_file",
         "approve_review",
         "reject_review",
         "delegate",

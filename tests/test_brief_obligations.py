@@ -615,10 +615,36 @@ class BriefObligationsTests(unittest.TestCase):
         ):
             request = autoplanner.prepare(state, "astra_discovery", self.root / "state.json", self.root)
         instructions, encoded_packet = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
-        self.assertEqual("Build greeting", json.loads(encoded_packet)["task"])
+        packet = json.loads(encoded_packet)
+        self.assertEqual("see source_inventory id task:0", packet["task"])
+        self.assertEqual([{"id": "task:0", "kind": "task", "text": "Build greeting"}], packet["source_inventory"])
+        self.assertEqual(1, request.prompt.count("Build greeting"))
         self.assertIn("brief_acceptance in a contract is runner-owned", instructions)
         self.assertNotIn("brief_acceptance", request.schema["properties"]["contract"]["properties"])
         self.assertEqual((len(request.prompt.encode()) + 3) // 4, request.metrics["estimated_prompt_tokens"])
+
+    def test_handoff_task_points_at_inventory_only_when_the_brief_matches(self):
+        text = "Build a notes CLI under the parent agreement. " + ("x" * 2048)
+        inventory = [{"id": "task:0", "kind": "task", "text": text}]
+        self.assertEqual("see source_inventory id task:0", brief.handoff_task(text, inventory))
+        self.assertEqual("A different request", brief.handoff_task("A different request", inventory))
+        self.assertEqual(text, brief.handoff_task(text, [{"id": "answer:Q1", "kind": "user_answer", "text": "yes"}]))
+
+    def test_citation_stage_embeds_a_program_sized_brief_once(self):
+        # #1337: program-child briefs were in task, source_inventory, and the citation rule.
+        text = "Parent agreement and workstream M1 brief.\n" + ("obligation line\n" * 400)
+        state = self.planning_state()
+        state["task"] = text
+        request = autoplanner.prepare(state, "astra_challenge", self.root / "state.json", self.root)
+        instruction, encoded = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
+        packet = json.loads(encoded)
+        # Handoff JSON escapes newlines; count the encoded form in the prompt body.
+        encoded_brief = json.dumps(text)[1:-1]
+        self.assertEqual(1, request.prompt.count(encoded_brief))
+        self.assertEqual("see source_inventory id task:0", packet["task"])
+        self.assertEqual(text, packet["source_inventory"][0]["text"])
+        self.assertIn("[task:0] kind=task", instruction)
+        self.assertNotIn(encoded_brief, instruction)
 
     def test_unrelated_task_reviewer_schema_and_prompt_omit_brief_fields(self):
         state = self.state(task="Build greeting")

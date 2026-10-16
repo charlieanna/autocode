@@ -562,7 +562,13 @@ The other roles retain their routes selected by the ordinary model flags and
 OpenCode defaults. Keep the GLM and MiMo role flags when using a profile that
 assigns them requirements, planning, building, plan review or resolution; a
 role selection does not assign every role to the new tool. Each tool checks
-only its own selected models and auth routes. Independent verification and all
+only its own selected models and auth routes. At build start, the model-access
+probe covers every tool whose config declares `[auth]` billing routes, including
+a selected tool when the run's own tool declares none. It sends each role's model
+only through the tool that runs that role. Before the first request, it checks
+the login of each of those tools that still has a model to probe; a tool whose
+models all passed earlier in the run is not probed again. A pass on one tool
+never counts for the same model on another. Independent verification and all
 ordinary approval, evidence and completion gates still apply.
 
 The binding is immutable once the run starts. Do not repeat `--role-transport`

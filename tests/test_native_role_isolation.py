@@ -157,13 +157,17 @@ class IsolationTests(unittest.TestCase):
             allow_write=writable,
         )
 
-    def finalize_fixture(self, owner):
+    def finalize_fixture(self, owner, *, private_reads=None, control_name="a" * 32):
         command, env = self.stage(owner)
-        control = self.root / ".autocode" / ("tool-containment-" + "a" * 32)
+        control = self.root / ".autocode" / ("tool-containment-" + control_name)
         control.mkdir()
         (control / "scratch").mkdir()
         (control / "shell").write_text("#!/bin/sh\nexit 99\n")
-        (control / "policy.sb").write_text(containment.policy(self.root, control / "scratch"))
+        (control / "policy.sb").write_text(
+            containment.policy(self.root, control / "scratch")
+            if private_reads is None
+            else containment._render_policy(self.root, control / "scratch", private_reads=private_reads)
+        )
         boundary = {
             "version": 1,
             "platform": "darwin",
@@ -172,6 +176,7 @@ class IsolationTests(unittest.TestCase):
             "allow_write": False,
             "tools": ["bash"],
             "scratch": str(control / "scratch"),
+            **({"private_reads": private_reads} if private_reads is not None else {}),
         }
         for name, filename in (("shell", "shell"), ("profile", "policy.sb")):
             path = control / filename
@@ -180,7 +185,8 @@ class IsolationTests(unittest.TestCase):
             boundary[name + "_sha256"] = util.file_hash(path)
         final = json.loads(env["OPENCODE_CONFIG_CONTENT"])
         final["shell"] = boundary["shell"]
-        final["agent"]["autocode_terra"]["permission"] = containment.shell_permissions(self.actual["permission"])
+        agent = command[command.index("--agent") + 1]
+        final["agent"][agent]["permission"] = containment.shell_permissions(self.actual["permission"])
         env.update(OPENCODE_CONFIG_CONTENT=json.dumps(final), SHELL=boundary["shell"])
         proof = control / "conformance.json"
         proof.write_text(
@@ -188,6 +194,11 @@ class IsolationTests(unittest.TestCase):
                 {
                     "test_only_controlled_native_response": True,
                     "launch_identity": native.observe(command, env, self.executable, self.actual),
+                    **(
+                        {"private_reads": {**private_reads, "command": "controlled", "tool": "bash", "exit": 0}}
+                        if private_reads is not None
+                        else {}
+                    ),
                 }
             )
         )
@@ -281,6 +292,28 @@ class IsolationTests(unittest.TestCase):
         self.assertEqual(original, receipt["launch_identity"]["effective_permission"])
         with patch.object(containment.sys, "platform", "darwin"):
             owner.verify_launch(state=self.state, command=command, environment=env, boundary=boundary)
+
+    def test_planning_agent_launch_requires_this_runs_private_read_denial(self):
+        # #1250: the owner refuses a native planning shell that could read private run state.
+        agent = "autocode_terra_plan_" + "0" * 32
+        self.command[self.command.index("--agent") + 1] = agent
+        config = json.loads(self.env["OPENCODE_CONFIG_CONTENT"])
+        config["agent"] = {agent: config["agent"]["autocode_terra"]}
+        self.env["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+        self.actual["name"] = agent
+        sibling = self.root / ".autocode" / "runs" / "sibling"
+        sibling.mkdir()
+        for number, reads in enumerate((None, containment.private_run_reads(self.root, sibling))):
+            with self.subTest(reads=reads), self.assertRaisesRegex(ValueError, "private run-state read denial"):
+                self.finalize_fixture(self.owner(), private_reads=reads, control_name=str(number) * 32)
+        owner = self.owner()
+        reads = containment.private_run_reads(self.root, self.run)
+        command, env, boundary, descriptor = self.finalize_fixture(owner, private_reads=reads, control_name="f" * 32)
+        self.assertEqual(reads, boundary["private_reads"])
+        with patch.object(containment.sys, "platform", "darwin"):
+            self.assertEqual(
+                descriptor, owner.verify_launch(state=self.state, command=command, environment=env, boundary=boundary)
+            )
 
     def test_unshadowed_native_output_allowance_refuses_before_launch(self):
         self.actual["permission"].append(

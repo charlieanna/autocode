@@ -61,7 +61,7 @@ def clarification_context(state: RunState, stage: str) -> dict:
     )
     return {
         "protected_contract": goals.protected_contract_snapshot(state) if stage in goals.PLANNER_ORIGINS else None,
-        "planning_exchange": {name: copy.deepcopy(reports[name]) for name in predecessors if name in reports},
+        "planning_exchange": planning_exchange(reports, predecessors),
         "requirements_handoff": handoff,
         "investigation_request": copy.deepcopy(investigation),
         "clarification_episode": copy.deepcopy(state.get("clarification_episode")),
@@ -80,6 +80,25 @@ def clarification_context(state: RunState, stage: str) -> dict:
             if isinstance(event, dict)
         ],
     }
+
+
+def planning_exchange(reports: dict, predecessors: tuple[str, ...]) -> dict:
+    """The predecessor reports a plan-finalize repair sees, with the draft under review included once.
+
+    The newest predecessor contract is the draft the rejected stage reviewed; an earlier one is
+    superseded. The stage prompt includes the current contract once (units/autoplanner.context);
+    a program child's plan-finalize repair that carried both drafts in full passed the 256 KiB
+    repair cap (#1337). A superseded report keeps every other field, and its whole text stays at
+    its output path."""
+    exchange = {name: copy.deepcopy(reports[name]) for name in predecessors if name in reports}
+    drafts = [
+        entry["report"]
+        for entry in exchange.values()
+        if isinstance(entry, dict) and isinstance(entry.get("report"), dict) and "contract" in entry["report"]
+    ]
+    for report in drafts[:-1]:
+        del report["contract"]
+    return exchange
 
 
 def repair_payloads(state: RunState, stage: str) -> tuple[dict, dict | None]:

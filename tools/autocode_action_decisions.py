@@ -1,7 +1,7 @@
 """The user's decisions on a saved run (a step of autocode_run_actions.handle).
 
 Answers (--answer, --delegate, --delegate-all, --reject-assumption), plan approval and edits
-(--approve-goal, --edit-goal, --feedback, --follow-up), a program's correction of the displayed
+(--approve-goal, --edit-goal, --goal-file, --feedback, --follow-up), a program's correction of the displayed
 plan (--program-guidance, autocode_program_guidance), review decisions (--approve-review,
 --reject-review, --reconcile-review), --accept-completion, --close-finding and a planning budget change apply
 together to a copy of the run, checked against AutoResolver's current request, and are committed
@@ -25,6 +25,7 @@ try:
     from . import autocode_conversation_policy as conversation_policy
     from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
+    from . import autocode_goal_file as goal_file
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_pause_authority as pause_authority
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_conversation_policy as conversation_policy
     import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
+    import autocode_goal_file as goal_file
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_pause_authority as pause_authority
@@ -138,6 +140,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
             args.feedback is not None,
             args.program_guidance is not None,
             args.edit_goal,
+            args.goal_file,
             args.answer,
             args.delegate,
             args.delegate_all,
@@ -162,6 +165,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
             args.reject_assumption,
             args.approve_goal,
             args.edit_goal,
+            args.goal_file,
             args.approve_review,
             args.reject_review,
             args.reconcile_review,
@@ -278,6 +282,16 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                     raise ValueError(refusal)
                 lifecycle.install_draft(candidate, runner.read_json(args.edit_goal), origin="user_cli_edit")
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
+            if args.goal_file:
+                # The person's own edit, as --edit-goal, held to a planner draft's checks too (#720).
+                refusal = pause_authority.correction_refusal(candidate, "A plan file")
+                if refusal:
+                    raise ValueError(refusal)
+                plan = goal_file.read(args.goal_file)
+                goal_file.check(candidate, plan.body, coverage=planning.traces_coverage(plan.body))
+                lifecycle.install_draft(candidate, plan.body, origin="user_cli_edit")
+                goal_file.record(candidate, args.goal_file, plan)
+                planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir, label="--goal-file")
             if args.approve_goal:
                 getattr(runner, "approve_goal", lifecycle.approve)(candidate, args.approve_goal)
             for criterion in args.approve_review:
@@ -340,6 +354,8 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
         except ValueError as error:
             return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
         print(rendered)
+        if args.goal_file:
+            print(goal_file.summary(state, args.goal_file))
         if args.answer:
             view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)
             print(answer_output.summary(view, after_answer=True), file=sys.stderr)

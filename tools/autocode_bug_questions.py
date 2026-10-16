@@ -5,6 +5,13 @@ The bug job owns ``investigation``; its retained output hash binds these questio
 to one accepted report. Existing human request receipts bind answers to the run.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_util as util
     from . import autocode_workflows as workflows
@@ -13,7 +20,7 @@ except ImportError:
     import autocode_workflows as workflows
 
 
-def has_questions(state):
+def has_questions(state: RunState):
     """Questions belong to initial diagnosis, before a build contract or task."""
     found = state.get("investigation") or {}
     return (
@@ -25,7 +32,7 @@ def has_questions(state):
     )
 
 
-def questions(state):
+def questions(state: RunState):
     """Stable ordinary questions for the exact retained diagnosis report."""
     if not has_questions(state):
         return []
@@ -43,7 +50,7 @@ def questions(state):
     ]
 
 
-def matches_questions(state, rows):
+def matches_questions(state: RunState, rows):
     declared = questions(state)
     return (
         state.get("next_stage") == workflows.INVESTIGATE_STAGE
@@ -53,13 +60,13 @@ def matches_questions(state, rows):
     )
 
 
-def evidence(state):
+def evidence(state: RunState):
     found = state.get("investigation") or {}
     output, digest = found.get("output"), found.get("output_hash")
     return {"hashes": {output: digest}} if output and digest else {"hashes": {}}
 
 
-def repeated_answers(state, rows):
+def repeated_answers(state: RunState, rows):
     answered = {
         str((answer.get("question") or {}).get("question", "")).strip()
         for answer in state.get("answers", {}).values()
@@ -70,13 +77,13 @@ def repeated_answers(state, rows):
     return [text for text in rows if text.strip() in answered]
 
 
-def answer_frontier(state, default_stage):
+def answer_frontier(state: RunState, default_stage):
     if has_questions(state) and state.get("next_stage") == workflows.INVESTIGATE_STAGE:
         return {"phase": "INVESTIGATING", "next_stage": workflows.INVESTIGATE_STAGE}
     return {"phase": "DISCOVERING", "next_stage": default_stage}
 
 
-def accepts(state, proposal):
+def accepts(state: RunState, proposal):
     """Only actual questions from a successfully recorded Investigator report."""
     if proposal.get("scope") != "clarification" or not matches_questions(state, proposal.get("questions") or []):
         return False

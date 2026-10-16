@@ -30,9 +30,10 @@ consumes it once (``reevaluate``), with zero provider calls:
 
 State: ``resolver.information_reviews`` maps a request ID to its record; this module is its only
 writer. autocode_action_authority acts on ``reevaluate`` and ``retired``; the status view reads
-``projection``. Imports autocode_util, autocode_quota_route, autocode_member_stop and, for the
-Validator gate it runs itself, autocode_findings, autocode_source_scope and autocode_validation_rounds. The runner is passed
-in, as autocode_run_actions does, so these runtime dependencies are not import edges:
+``projection``. At runtime it imports autocode_util, autocode_quota_route, autocode_member_stop and, for
+the Validator gate it runs itself, autocode_findings, autocode_source_scope and autocode_validation_rounds;
+RunState is imported for type checking only. The runner is passed in, as autocode_run_actions does, so
+these runtime dependencies are not import edges:
 runner.write_json, runner.repair_limit, runner.support (Paused, snapshot), runner.interventions.admission,
 runner.timeout_recovery_guard, runner.planning.review_call_limit, runner.resolver_runtime.operational_boundary and
 runner.resolver_human (current, response_holds_current_frontier and its frontier helpers
@@ -45,6 +46,10 @@ import copy
 import shlex
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_findings as findings_ledger
@@ -117,7 +122,7 @@ class Outcome:
         self.action, self.message = action, message
 
 
-def resume_flags(state, pause):
+def resume_flags(state: RunState, pause):
     """The explicit operator control for a pause class, or None when a plain resume is its path (#301)."""
     if pause == "PAUSED_TIMEOUT_RECOVERY":
         return "--resume-paused --grant-recovery N"
@@ -144,7 +149,7 @@ def _receipt_pins(resolver, receipt_id):
     return util.digest(receipt), pins
 
 
-def schedule(state, event, entry, frontier):
+def schedule(state: RunState, event, entry, frontier):
     """Schedule one evaluation of an accepted `provide_information` operational response.
 
     Bound to the request ID and token, the response itself, the pause status, the frontier
@@ -181,7 +186,7 @@ def _changed(saved, current):
     return ", ".join(keys) or "the frontier"
 
 
-def _problem(human, state, record):
+def _problem(human, state: RunState, record):
     """Why this record cannot be evaluated against the current run, or None."""
     try:
         resolver = state["resolver"]
@@ -234,7 +239,7 @@ def _attempt(active):
     return None
 
 
-def operator_flags(state, cause):
+def operator_flags(state: RunState, cause):
     """The control named for an operator-only stop, only where the CLI accepts it (#288)."""
     if cause == "PAUSED_ORCHESTRATOR_WORKER":
         batch = state.get("orchestration_batch") or {}
@@ -278,7 +283,7 @@ def _stalled_validation(runner, probe, workspace):
     return stop["reason"] if stop else None
 
 
-def decide(runner, state, run_dir, workspace, cause):
+def decide(runner, state: RunState, run_dir, workspace, cause):
     """AutoResolver's decision under existing authority: (action, reason, flags, adopted status)."""
     Paused = runner.support.Paused
     active = state.get("active_stage") or {}
@@ -331,7 +336,7 @@ def decide(runner, state, run_dir, workspace, cause):
                     None,
                 )
         elif probe.get("next_stage") in REVIEW_STAGES:
-            probe.update(status="RUNNING")
+            probe.update({"status": "RUNNING"})
             runner.resolver_runtime.operational_boundary(runner, probe, run_dir, workspace, persist=False)
         runner.timeout_recovery_guard(probe)
     except Paused as error:
@@ -352,7 +357,7 @@ def decide(runner, state, run_dir, workspace, cause):
     return "continue", None, None, None
 
 
-def _resume_after(state, cause):
+def _resume_after(state: RunState, cause):
     """The resume that follows setting a stopped attempt aside.
 
     After a content-filter refusal it names a model change, since the same model would likely refuse
@@ -397,17 +402,19 @@ def _view_action(flags, after):
     return flags if flags.startswith("--resume-paused") else f"{flags} then {after}"
 
 
-def _current_record(state):
-    resolver = state.get("resolver") if isinstance(state.get("resolver"), dict) else {}
-    reviews = resolver.get(KEY) if isinstance(resolver.get(KEY), dict) else {}
+def _current_record(state: RunState):
+    resolver = cast(dict, state.get("resolver")) if isinstance(state.get("resolver"), dict) else {}
+    reviews = cast(dict, resolver.get(KEY)) if isinstance(resolver.get(KEY), dict) else {}
     frontier = (
-        resolver.get("human_response_frontier") if isinstance(resolver.get("human_response_frontier"), dict) else {}
+        cast(dict, resolver.get("human_response_frontier"))
+        if isinstance(resolver.get("human_response_frontier"), dict)
+        else {}
     )
     record = reviews.get(frontier.get("request_id"))
     return record if isinstance(record, dict) else None
 
 
-def reevaluate(runner, state, run_dir, workspace, *, resume):
+def reevaluate(runner, state: RunState, run_dir, workspace, *, resume):
     """Consume the scheduled review once at an explicit continuation; None when none applies.
 
     The caller holds the run lock and calls this only for an invocation without another
@@ -534,28 +541,32 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
             runner.write_json(state_path, candidate)
     except runner.support.Paused:
         return None  # An intervention arrived first; nothing was consumed.
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
     return Outcome(action, message)
 
 
-def _unscheduled(state):
+def _unscheduled(state: RunState):
     """The request ID of corrective information accepted without a scheduled review, or None.
 
     An AutoCode from before #486 consumed `provide_information` and saved the frontier but no review.
     """
-    resolver = state.get("resolver") if isinstance(state.get("resolver"), dict) else {}
+    resolver = cast(dict, state.get("resolver")) if isinstance(state.get("resolver"), dict) else {}
     frontier = (
-        resolver.get("human_response_frontier") if isinstance(resolver.get("human_response_frontier"), dict) else {}
+        cast(dict, resolver.get("human_response_frontier"))
+        if isinstance(resolver.get("human_response_frontier"), dict)
+        else {}
     )
     rid = frontier.get("request_id")
-    reviews = resolver.get(KEY) if isinstance(resolver.get(KEY), dict) else {}
-    ledger = resolver.get("human_escalations") if isinstance(resolver.get("human_escalations"), dict) else {}
+    reviews = cast(dict, resolver.get(KEY)) if isinstance(resolver.get(KEY), dict) else {}
+    ledger = (
+        cast(dict, resolver.get("human_escalations")) if isinstance(resolver.get("human_escalations"), dict) else {}
+    )
     entry = ledger.get(rid) if isinstance(rid, str) else None
     if not isinstance(entry, dict) or rid in reviews:
         return None
-    response = entry.get("response") if isinstance(entry.get("response"), dict) else {}
-    identity = entry.get("identity") if isinstance(entry.get("identity"), dict) else {}
+    response = cast(dict, entry.get("response")) if isinstance(entry.get("response"), dict) else {}
+    identity = cast(dict, entry.get("identity")) if isinstance(entry.get("identity"), dict) else {}
     proposal = identity.get("proposal")
     if (
         entry.get("status") == "consumed"
@@ -567,7 +578,7 @@ def _unscheduled(state):
     return None
 
 
-def retired(state):
+def retired(state: RunState):
     """Why the current information can no longer be re-evaluated, or None.
 
     That is a review retired as stale, or information an older AutoCode accepted without scheduling
@@ -592,7 +603,7 @@ def retired(state):
     )
 
 
-def projection(state):
+def projection(state: RunState):
     """The status view's read of the current review; plain saved data, never authority."""
     record = _current_record(state)
     if record is None:

@@ -52,15 +52,17 @@ TANGLED = frozenset(
 # by its --chat re-prompt; the rule is in autocode_answer_options.
 # 2026-10-14: the report-only mutation check (#699) runs in autocode_regression; verify() keeps the candidate
 # tree for it and diffs product files through the staged tree, which raised autocode_verify.py.
+# 2026-10-15: the pinned pytest policy reader moved beside the current one in autocode_test_root, and a
+# package's suite (#711) is detected and run through autocode_package_scope, which lowered autocode_verify.py.
 # 2026-10-16: queuing a report-only repair moved to autocode_report_repair_queue (#1257).
 MAX_LINES = {
-    "autocode.py": 2002,
+    "autocode.py": 2003,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1513,
     "autocode_run_actions.py": 366,
     "autocode_args.py": 1020,
-    "autocode_verify.py": 3360,
+    "autocode_verify.py": 3333,
 }
 
 # Line counts of the largest functions, (module, function): lines. handle() was 946 lines before its

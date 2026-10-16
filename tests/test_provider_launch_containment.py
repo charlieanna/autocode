@@ -213,6 +213,60 @@ class LaunchContainment(unittest.TestCase):
         with mock.patch.dict("os.environ", {"AUTOCODE_TOOL_CONTAINMENT": json.dumps(self.policy)}):
             self.assertEqual(text, launch.containment_prompt(text, {}, stage="sol", regression_proof_current=True))
 
+    def test_only_native_isolated_planning_asks_its_shell_to_deny_private_run_state(self):
+        # #1250: the native planning shell must not read the run store; other launches are unchanged.
+        import autocode_native_role_isolation as native_isolation
+        from providers.kilocode import KiloProvider
+
+        descriptor = {"manifest": "/controlled/native-manifest.json", "manifest_sha256": "a" * 64}
+        owners = {}
+        for name, kind in (
+            ("native", native_isolation.NativeRoleIsolation),
+            ("kilo", native_isolation.KiloRoleIsolation),
+        ):
+            owners[name] = object.__new__(kind)
+            owners[name].containment_request = lambda **kwargs: {}
+            owners[name]._descriptor = descriptor  # Controlled loader result; no native authority.
+        # A Kilo owner launches only through the configured Kilo facade.
+        kilo = object.__new__(KiloProvider)
+        kilo.launch = self.adapter.launch
+        located = {"AUTOCODE_NATIVE_ROLE_ISOLATION": json.dumps(descriptor)}
+        located["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps({**self.policy, "native_role_isolation": descriptor})
+        run_dir = str(self.options["run_dir"].resolve())
+        for changes, owner, expected in (
+            ({"planning": True}, "native", run_dir),
+            ({}, "native", None),
+            ({"allow_write": True, "sandbox": "workspace-write"}, "native", None),
+            ({}, None, None),
+            # Kilo isolation is not a NativeRoleIsolation owner: no private_run, so its planning
+            # shell gets the same profile bytes and bwrap arguments as before.
+            ({"planning": True, "adapter": kilo}, "kilo", None),
+        ):
+            with self.subTest(changes=changes, owner=owner):
+                self.adapter.launch.return_value = (["opencode", "run"], dict(located if owner else {}), {})
+                if not owner:
+                    self.adapter.launch.return_value[1]["AUTOCODE_TOOL_CONTAINMENT"] = json.dumps(self.policy)
+                launch.prepare(
+                    **{**self.options, **changes}, **({"native_role_isolation": owners[owner]} if owner else {})
+                )
+                request = self.adapter.launch.call_args.kwargs["containment"]
+                self.assertEqual(expected, request.get("private_run"))
+                self.assertIn(run_dir, request["protected_paths"])
+
+    def test_denied_planning_shell_is_told_its_handoff_replaces_private_run_state(self):
+        text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "plan"})
+        reads = {"run_dir": "/w/.autocode/runs/one", "denied": ["/w/.autocode/runs"], "readable": ["/p"]}
+        self.assertNotIn("PRIVATE RUN STATE", launch.containment_prompt(text, {"tool_containment": self.policy}))
+        updated = launch.containment_prompt(text, {"tool_containment": {**self.policy, "private_reads": reads}})
+        instructions, handoff = updated.split("\nCURRENT HANDOFF DATA\n")
+        self.assertIn("PRIVATE RUN STATE", instructions)
+        self.assertIn("not a blocker", instructions)
+        # It supersedes the planning prompt's own instruction to read state_file.
+        superseded = "state_file is context to read"
+        self.assertIn(superseded, launch.prompts.get("fragments/autoplanner/evidence-facts.md"))
+        self.assertIn(f'It overrides any instruction above to read state_file, such as "{superseded}"', instructions)
+        self.assertEqual(reads, json.loads(handoff)["tool_containment"]["private_reads"])
+
     def test_tester_note_uses_caller_stage_not_route_or_handoff_claims(self):
         text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "sol"})
         worker = {"role": "sol", "tool_containment": self.policy}

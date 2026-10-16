@@ -25,6 +25,8 @@ In a program (scenarios/README.md, "Programs") every workstream is a run whose t
 the program's workstream brief. The fake reads that brief as a model would and plans the
 workstream alone (``workstream``): a code workstream its own milestone, an integration
 workstream every requirement and journey it inherits, each under the inherited ids.
+Citation stages may set ``task`` to ``see source_inventory id …`` (#1337); the fake
+resolves that pointer before parsing the brief.
 """
 
 from __future__ import annotations
@@ -67,6 +69,8 @@ INHERITED = re.compile(
     re.M,
 )
 WORKSTREAM: dict | None = None  # the program workstream this call serves (workstream()), set in main()
+# Citation-stage handoffs keep the full brief once in source_inventory (#1337); task is a pointer.
+INVENTORY_TASK = re.compile(r"^see source_inventory id (\S+)$")
 SCOPED_REQUEST = {
     "kind": "permission",
     "discovered": "An optional explanatory comment can be added to lessons.py, already inside the current task's approved paths",
@@ -77,13 +81,26 @@ SCOPED_REQUEST = {
 }
 
 
+def resolved_task() -> str:
+    """The request text for this handoff: full brief, or the source_inventory row a stub points at (#1337)."""
+    task = str(DATA.get("task") or "")
+    match = INVENTORY_TASK.match(task)
+    if not match:
+        return task
+    source_id = match.group(1)
+    for row in DATA.get("source_inventory") or []:
+        if isinstance(row, dict) and row.get("id") == source_id and row.get("text"):
+            return str(row["text"])
+    return task
+
+
 def turn_number() -> int:
     """Which turn of the conversation this stage serves: 0 for the brief, n for the n-th follow-up.
     A report repair's packet has no task; it serves the turn of the stage it repairs, the last one seen."""
     seen = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-turn.json")
-    if not DATA.get("task"):
+    task = resolved_task()
+    if not task:
         return json.loads(seen.read_text()) if seen.is_file() else 0
-    task = str(DATA["task"])
     number = max((n for n, say in enumerate(CONFIG.get("turns") or [], start=1) if task.startswith(say)), default=0)
     seen.write_text(json.dumps(number))
     return number
@@ -146,7 +163,7 @@ def workstream() -> dict | None:
     seen = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name(
         "fake-workstream-" + hashlib.sha256(str(Path.cwd()).encode()).hexdigest()[:12] + ".json"
     )
-    task = str(DATA.get("task") or "")
+    task = resolved_task()
     if not task:
         return json.loads(seen.read_text()) if seen.is_file() else None
     head = WORKSTREAM_HEADER.match(task)
@@ -192,9 +209,10 @@ def request() -> str:
     A program workstream's request is its own brief."""
     if WORKSTREAM:
         return WORKSTREAM["task"]
-    if not CONFIG.get("turns") or not DATA.get("task"):
+    task = resolved_task()
+    if not CONFIG.get("turns") or not task:
         return CONFIG["brief"]
-    return str(DATA["task"]).split(FOLLOW_UP, 1)[0]
+    return task.split(FOLLOW_UP, 1)[0]
 
 
 def renewal_proposal(later=False, done=None):
@@ -1964,7 +1982,7 @@ def report_for(stage: str, data: dict) -> dict:
         if execution_repair:
             raise SystemExit("fake_codex: report-only repair is missing its rejected report")
     if stage == "recognize_workflow":
-        return recognize(data.get("task") or CONFIG["brief"], data.get("follow_up"))
+        return recognize(resolved_task() or CONFIG["brief"], data.get("follow_up"))
     if stage == "answer_question":
         return answer()
     if stage == "check_design":

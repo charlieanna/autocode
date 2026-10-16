@@ -14,7 +14,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from ..autocode_run_state import RunState
@@ -148,12 +148,12 @@ CITATION_STAGES = (
 )
 
 
-def source_inventory(state):
+def source_inventory(state: RunState):
     """The handoff list models quote in criterion sources (#595); shared by prepare and report repair."""
     return [{"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in brief_obligations.sources(state)]
 
 
-def repair_source_inventory(state, stage):
+def repair_source_inventory(state: RunState, stage):
     """Citation stages keep source_inventory on report-repair handoffs (#595 / #1201)."""
     return source_inventory(state) if stage in CITATION_STAGES else None
 
@@ -170,7 +170,7 @@ def traces_coverage(contract):
     return not (contract or {}).get("open_blocking_questions")
 
 
-def trace_rows(state, stage):
+def trace_rows(state: RunState, stage):
     """The requirements a stage's requirement_trace must cover, one row each; [] when there are none."""
     if stage not in (*TRACE_STAGES, "astra_challenge"):
         return []
@@ -189,12 +189,12 @@ def trace_rows(state, stage):
 REREVIEW_RULE = prompts.get("fragments/autoplanner/rereview-rule.md")
 
 
-def previous_review(state):
+def previous_review(state: RunState):
     """The last planning cycle's review when it ended in questions the user has since answered, so the next
     review checks the answers instead of reviewing the plan from scratch; None otherwise."""
     history = state.get("planning_history") or []
     reports = ((history[-1] if history else None) or {}).get("reports") or {}
-    last = next(
+    last: dict = next(
         (
             reports[stage]["report"]
             for stage in ("astra_finalize", "glm_revise")
@@ -223,7 +223,7 @@ def previous_review(state):
     }
 
 
-def fill_trace_id(state, stage, value):
+def fill_trace_id(state: RunState, stage, value):
     """Name the one requirement_trace row a Planner report left without requirement_id, when exactly one
     requirement it must trace is missing from the trace: that row can only be for it, so no report repair is
     spent on the missing field (GLM 5.3 left it out when tracing feedback, 2026-10-02; 16 repairs to date).
@@ -535,21 +535,21 @@ SCHEMAS["requirements_gather"]["properties"]["task_kind"] = goals.TASK_KIND
 JOB_TYPE_POLICY = goals.JOB_TYPE_POLICY
 
 
-def enabled(state):
+def enabled(state: RunState):
     return bool(state.get("settings", {}).get("joint_planning"))
 
 
-def is_planning(state, stage):
+def is_planning(state: RunState, stage):
     stages = V2_STAGES if role_names.planning_flow(state) == "v2" else STAGES
     # Recognition is a read-only planning stage on every run, joint or not.
     return stage == RECOGNIZE or (enabled(state) and stage in stages)
 
 
-def entry_stage(state):
+def entry_stage(state: RunState):
     return "requirements" if role_names.planning_flow(state) == "v2" else "requirements_gather"
 
 
-def next_after(state, stage):
+def next_after(state: RunState, stage):
     if role_names.planning_flow(state) == "v2":
         return dict(zip(V2_STAGES, V2_STAGES[1:], strict=False)).get(stage)
     return {
@@ -560,7 +560,7 @@ def next_after(state, stage):
     }.get(stage)
 
 
-def role_for(state, stage):
+def role_for(state: RunState, stage):
     if stage == RECOGNIZE:
         return "requirements" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra"
     if role_names.planning_flow(state) == "v2" and stage in V2_STAGE_ROLES:
@@ -585,7 +585,7 @@ JOB_ROUTES = {
 }
 
 
-def route_for(state, stage, role=None):
+def route_for(state: RunState, stage, role=None):
     """Return the saved model route for a semantic workflow role.
 
     Completion remains a Plan Reviewer-format decision stage, but it intentionally has
@@ -673,7 +673,7 @@ def admit_requirements(state: RunState, previous_token):
     return planning
 
 
-def start(state):
+def start(state: RunState):
     """Begin (or restart) planning: archive the previous planning record and route to plan review."""
     try:
         from .. import autocode_resolver_human as human
@@ -684,11 +684,11 @@ def start(state):
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
     next_stage = "plan_review" if role_names.planning_flow(state) == "v2" else "astra_challenge"
-    state.update(status="RUNNING", phase="PLANNING", next_stage=next_stage, pending_questions=[])
+    state.update({"status": "RUNNING", "phase": "PLANNING", "next_stage": next_stage, "pending_questions": []})
 
 
-def review_call_limit(state):
-    limit = state.get("planning", {}).get(
+def review_call_limit(state: RunState):
+    limit = cast(dict, state.get("planning", {})).get(
         "review_call_limit", state.get("settings", {}).get("planning_review_call_limit", 2)
     )
     if type(limit) is not int or (limit != 0 and limit < 2):
@@ -696,7 +696,7 @@ def review_call_limit(state):
     return limit
 
 
-def set_review_call_limit(state, limit):
+def set_review_call_limit(state: RunState, limit):
     """An explicit allowance, preserving usage and approval boundaries."""
     try:
         from .. import autocode_resolver_human as human
@@ -757,7 +757,7 @@ def set_review_call_limit(state, limit):
     )
 
 
-def refund_unreported(state, planning):
+def refund_unreported(state: RunState, planning):
     """Only a review that returned a report counts against the allowance (user decision, 2026-09-29).
 
     A call is charged at admission, before anyone knows how it ends. An attempt that timed out or whose
@@ -776,7 +776,7 @@ def refund_unreported(state, planning):
             row["planning_review_refunded"] = True
 
 
-def charge(state, stage, record=None, workspace=None):
+def charge(state: RunState, stage, record=None, workspace=None):
     if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         return
     if progressive.charge_review(state, stage, record):
@@ -992,11 +992,11 @@ BRIEF_ACCEPTANCE_CARRY_RULE = prompts.get("fragments/autoplanner/brief-acceptanc
 RISK_OBSERVATION_REVIEW_RULE = prompts.get("fragments/autoplanner/risk-observation-review-rule.md")
 
 
-def context(state, stage, state_path):
+def context(state: RunState, stage, state_path):
     predecessor = None
     if stage in V2_STAGES:
         predecessor = artifacts.verify_predecessor(state, stage, Path(state_path).parent)
-    exchange = copy.deepcopy(state.get("planning", {}))
+    exchange: dict = copy.deepcopy(state.get("planning", {}))
     for entry in exchange.get("reports", {}).values():
         # Current contract is included once. Older full drafts stay retrievable
         # via the artifact path; every concern, response and decision remains in
@@ -1053,8 +1053,11 @@ def context(state, stage, state_path):
         packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
     if stage in CITATION_STAGES:
         # The model quotes these verbatim in criterion sources (#595); the fake
-        # provider reads the same list to build its scripted citations.
-        packet["source_inventory"] = source_inventory(state)
+        # provider reads the same list to build its scripted citations. The full
+        # brief stays only here when it already matches an inventory row (#1337).
+        inventory = source_inventory(state)
+        packet["source_inventory"] = inventory
+        packet["task"] = brief_obligations.handoff_task(packet["task"], inventory)
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]
@@ -1223,7 +1226,7 @@ def context(state, stage, state_path):
     }
 
 
-def _model_report_schema(schema, state):
+def _model_report_schema(schema, state: RunState):
     """Protected contract provenance is retained by the runner, never generated by a model."""
     result = copy.deepcopy(schema)
     for field in ("contract", "requirements"):
@@ -1251,7 +1254,7 @@ def _model_report_schema(schema, state):
     return result
 
 
-def prepare(state, stage, state_path, schema_dir):
+def prepare(state: RunState, stage, state_path, schema_dir):
     from .common import ModelRequest
 
     if progressive.revision_pending(state):
@@ -1335,7 +1338,7 @@ def prepare(state, stage, state_path, schema_dir):
     )
 
 
-def schema_for(state, stage):
+def schema_for(state: RunState, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
     if stage == RECOGNIZE:
         return adaptive.recognizer_schema(state, SCHEMAS[stage])
@@ -1345,13 +1348,13 @@ def schema_for(state, stage):
     )
 
 
-def after_challenge(state, value, record):
+def after_challenge(state: RunState, value, record):
     """Where the first review leads. In an adaptive run, a review with no blocking concern approves
     the Planner's draft as the final plan (autocode_adaptive_planning); otherwise the Planner revises."""
     if not adaptive.enabled(state):
         state["next_stage"] = "glm_revise"
         return
-    planning, contract = state["planning"], state["goal_contract"]
+    planning, contract = state["planning"], cast(dict, state["goal_contract"])
     if "adaptive" not in planning:
         planning["adaptive"] = {**adaptive.plan_size(contract["body"]), "approved_at": None, "challenges": 0}
         if planning.get("review_call_limit_origin") != "user_explicit":
@@ -1392,22 +1395,24 @@ def after_challenge(state, value, record):
     )
 
 
-def rerun_requirements(state, value):
+def rerun_requirements(state: RunState, value):
     """Whether the Planner sent feedback on the shown plan back to Requirements instead of revising the plan
     (adaptive planning). Its draft is discarded and the Requirements stage, which reads every saved feedback,
     runs next; the pipeline then continues in full, as it would without adaptive planning."""
     reason = adaptive.requirements_rerun(state, value)
     if reason:
         state.update(
-            status="RUNNING",
-            phase="DISCOVERING",
-            next_stage="requirements_gather",
-            discovery_summary="Planner: " + reason,
+            {
+                "status": "RUNNING",
+                "phase": "DISCOVERING",
+                "next_stage": "requirements_gather",
+                "discovery_summary": "Planner: " + reason,
+            }
         )
     return bool(reason)
 
 
-def after_revise(state):
+def after_revise(state: RunState):
     """After a revision: the final review, or in an adaptive run another first-style review while budget allows."""
     if not adaptive.enabled(state) or progressive.view(state).get("candidate"):
         return "astra_finalize"
@@ -1417,7 +1422,7 @@ def after_revise(state):
     )
 
 
-def recognize(state, value, record):
+def recognize(state: RunState, value, record):
     """Save the recognized kind of job; the run then continues with its first real stage."""
     workflows.apply(state, value, record)
     state["phase"] = "DISCOVERING"

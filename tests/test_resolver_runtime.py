@@ -1225,6 +1225,61 @@ class OperationalDiagnosisTests(unittest.TestCase):
             self.assertEqual(public, assert_operational_wait(self, self.state, "PAUSED_NO_PROGRESS"))
         self.assertEqual(1, len(launches))
 
+    def test_cli_rejected_diagnosis_climbs_the_resolver_route_one_astra_rung(self):
+        """A Resolver report rejected on the real dispatch path climbs the Resolver's own route
+        (route role "resolver") from GPT-6 Astra High to XHigh (#1345)."""
+        self.repeated_terra_failure()
+        self.state["settings"]["report_repair"] = {"max_attempts": 0}
+        self.state["settings"]["roles"]["astra"].update(model="gpt-6-astra", reasoning_effort="high")
+        cap = runner.build_loop.climb_cap
+        with (
+            self.provider(value={}) as launches,
+            patch.object(cap, "guard", wraps=cap.guard) as priced,
+        ):
+            self.assertEqual(2, self.cli("--diagnose-failed-stage"))
+        self.assertEqual([("astra_diagnose", "resolver")], [(row["stage"], row["route_role"]) for row in launches])
+        # The launch went through the build loop's dispatch, which prices a climb on the Resolver's
+        # route role before every Resolver attempt (autocode_climb_cap, #611).
+        self.assertEqual([("astra_diagnose", "resolver")], [call.args[1:] for call in priced.call_args_list])
+        saved = support.read(self.run / "state.json")
+        self.assertEqual("PAUSED_INVALID_OUTPUT", saved["status"])
+        [event] = saved["reasoning_escalations"]
+        self.assertEqual(("resolver", "rejected_output"), (event["role"], event["trigger"]))
+        self.assertEqual(
+            ("GPT-6 Astra High", "GPT-6 Astra XHigh"), (event["previous"]["profile"], event["selected"]["profile"])
+        )
+        resolver = saved["settings"]["roles"]["resolver"]
+        self.assertEqual(("gpt-6-astra", "xhigh"), (resolver["model"], resolver["reasoning_effort"]))
+        self.assertNotIn("resolver", saved["sessions"])
+        # The climb is not a changed setting for the recovery packet bound before it: resuming
+        # holds on the packet's causal-progress check with a request the operator can answer,
+        # never a stale handoff, and the authorized retry launches the climbed Resolver on
+        # XHigh in a fresh session.
+        self.state = saved
+        with self.provider() as held:
+            self.assertEqual(2, self.cli())
+        self.assertEqual([], held)
+        saved = support.read(self.run / "state.json")
+        self.assertEqual("WAITING_FOR_USER", saved["status"])
+        self.assertIn("No causal progress", saved["stop_reason"])
+        self.state = saved
+        with self.provider() as retried:
+            self.cli("--retry-failed-stage")
+        self.assertEqual(
+            [("astra_diagnose", "gpt-6-astra", "xhigh", None)],
+            [
+                (
+                    row["stage"],
+                    row["launch_route"]["model"],
+                    row["launch_route"]["reasoning_effort"],
+                    row.get("expected_session"),
+                )
+                for row in retried
+                if row["stage"] == "astra_diagnose"
+            ],
+        )
+        self.assertNotEqual("PAUSED_STALE_HANDOFF", support.read(self.run / "state.json")["status"])
+
     def test_uncertain_launch_is_not_refunded_or_replayed_on_reload(self):
         self.repeated_terra_failure()
         self.admit()
