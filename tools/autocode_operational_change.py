@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import json
 
@@ -57,7 +62,7 @@ def _value(settings, path):
     return {"present": key in values, "value": copy.deepcopy(values.get(key))}
 
 
-def bind(state, request, question):
+def bind(state: RunState, request, question):
     """Pin precisely the settings offered by this question before publication."""
     rows = options(request)
     if rows is None:
@@ -77,7 +82,7 @@ def bind(state, request, question):
     question["why"] += "\nExact operational effects: " + "; ".join(descriptions)
 
 
-def apply(state, request, question, text):
+def apply(state: RunState, request, question, text):
     """Apply only an exact selected option, after validating all input pins."""
     rows = options(request)
     if rows is None:
@@ -108,7 +113,7 @@ def apply(state, request, question, text):
     return receipt
 
 
-def answer_event(state, request, question, text, contract_token, at):
+def answer_event(state: RunState, request, question, text, contract_token, at):
     """Apply a scoped choice and return its immutable answer receipt."""
     changes = apply(state, request, question, text)
     event = {

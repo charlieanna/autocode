@@ -1,5 +1,12 @@
 """Report schema compatibility, review identities and ID-only decoding."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 
 try:
@@ -30,7 +37,7 @@ def normalize_absent_authority(value, schema, record):
     return result
 
 
-def review_generation_schema(schema, state, stage):
+def review_generation_schema(schema, state: RunState, stage):
     """Constrain runner-owned identity at generation, not by accepting bad reports."""
     result = design_coverage.extend_schema(copy.deepcopy(schema), state, stage)
     if stage not in ("sol", "astra_review", "astra_checkpoint"):
@@ -63,7 +70,7 @@ def review_generation_schema(schema, state, stage):
 COMPLETION_STAGES = {"astra_review"}
 
 
-def review_validation_schema(schema, state, record, value):
+def review_validation_schema(schema, state: RunState | None, record, value):
     """Validate one report shape and its full ordered IDs before report repair ends.
 
     New providers produce ID-only rows; legacy reports must still copy every
@@ -100,7 +107,7 @@ def review_validation_schema(schema, state, record, value):
     return result
 
 
-def hydrate_review_report(value, state, record):
+def hydrate_review_report(value, state: RunState | None, record):
     """Fill runner-owned text after validation for the canonical saved report.
 
     The loader preserves the original response in its existing reported_output
@@ -113,6 +120,8 @@ def hydrate_review_report(value, state, record):
     if not rows or any("criterion" in row for row in rows):
         return value
     result = copy.deepcopy(value)
-    for row, approved in zip(result["acceptance_criteria"], state["acceptance_criteria"], strict=False):
+    for row, approved in zip(
+        result["acceptance_criteria"], cast("RunState", state)["acceptance_criteria"], strict=False
+    ):
         row["criterion"] = approved["criterion"]
     return result

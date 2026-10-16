@@ -6,6 +6,15 @@ writes record.report_recovery, retained in normal stage history as provenance.
 Controller services are supplied rather than imported.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 from contextvars import ContextVar
@@ -21,7 +30,7 @@ except ImportError:
     import autocode_job_source as source
     import autocode_util as util
 
-BEFORE_WRITE = ContextVar("inspected_job_report_before_write", default=None)
+BEFORE_WRITE: ContextVar[Callable[[], object] | None] = ContextVar("inspected_job_report_before_write", default=None)
 
 
 def _owned(path, expected):
@@ -31,7 +40,7 @@ def _owned(path, expected):
     return path
 
 
-def inspect(runtime, state, run_dir, workspace):
+def inspect(runtime, state: RunState, run_dir, workspace):
     """Return a source/attempt/hash-bound offer, or reject without changing state."""
     record = state.get("active_stage") or {}
     if (
@@ -144,21 +153,21 @@ def inspect(runtime, state, run_dir, workspace):
     }
 
 
-def offer(runtime, state, run_dir, workspace):
+def offer(runtime, state: RunState, run_dir, workspace):
     try:
         return inspect(runtime, state, run_dir, workspace)
     except (ValueError, OSError, KeyError, TypeError, RuntimeError):
         return None
 
 
-def apply(runtime, state, run_dir, workspace, token):
+def apply(runtime, state: RunState, run_dir, workspace, token):
     inspected = inspect(runtime, state, run_dir, workspace)
     if token != inspected["token"]:
         raise ValueError("Job report recovery token does not match the inspected report and attempt")
     # Charge the durable active attempt, not a speculative copy: a rejected probe
     # can checkpoint accounting, and a second adoption must not charge it again.
     runtime.account_stage(state, state["active_stage"])
-    record = deepcopy(state["active_stage"])
+    record = deepcopy(cast(dict, state["active_stage"]))
     raw = Path(inspected["report"]).read_bytes()
     if hashlib.sha256(raw).hexdigest() != inspected["sha256"]:
         raise ValueError("Report changed before loading the inspected report")

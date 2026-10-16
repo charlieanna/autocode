@@ -8,6 +8,11 @@ No observation, model claim, screenshot, or green test creates visual acceptance
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import datetime as dt
 import json
 import math
@@ -55,7 +60,7 @@ def _rows(value):
 
 
 def record_observation(
-    state,
+    state: RunState,
     *,
     event_id,
     kind,
@@ -115,7 +120,7 @@ def record_observation(
         return False
 
 
-def observe_replay(state, replay, *, attempt_id):
+def observe_replay(state: RunState, replay, *, attempt_id):
     """Retain runner replay measurements, including a precommit crash's proof.
 
     Called with the scheduling module's verified return value, not model JSON.
@@ -302,7 +307,8 @@ def _timing(attempts, observations, now):
     }
 
 
-def _observations(state):
+def _observations(state: RunState):
+    grouped: dict
     grouped, observations, issues = {}, [], []
     for row in _rows(state.get("efficiency_observations")):
         grouped.setdefault(row.get("event_id"), []).append(row)
@@ -340,7 +346,7 @@ def _observations(state):
     return observations, issues
 
 
-def _visual(state, acceptance=None, *, now=None, accounting=None):
+def _visual(state: RunState, acceptance=None, *, now=None, accounting=None):
     manifest = _dict(_dict(state.get("settings")).get("design_manifest"))
     body = _dict(manifest.get("body"))
     cases = _rows(body.get("cases"))
@@ -752,7 +758,7 @@ def _category_usage(attempts, observations, now):
     return result
 
 
-def summary(state, now=None, *, accounting=None, completion_current=None, visual_acceptance=None):
+def summary(state: RunState, now=None, *, accounting=None, completion_current=None, visual_acceptance=None):
     """Current acceptance requires a trusted current-checkout completion gate result.
 
     Never read that authority from saved/model state. Without the caller's fresh

@@ -14,6 +14,11 @@ The CLI also uses the shared transactional response path for operational chat.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 
 try:
@@ -56,7 +61,7 @@ OPERATIONAL_NOT_ANSWER = (
 )
 
 
-def answer(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def answer(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Apply a model answer to a quota stop or a --resolver-response, saving without launching anything."""
     routed = answer_quota_question(runner, args, state, run_dir, workspace)
     if routed is not None:
@@ -148,7 +153,7 @@ def review_response(runner, candidate, run_dir):
     return False
 
 
-def chat(runner, state, run_dir, published, *, persist=None, native=None):
+def chat(runner, state: RunState, run_dir, published, *, persist=None, native=None):
     """Collect one operational response through the same transactional boundary as flags."""
     print("AutoResolver: " + published["request"]["decision_needed"])
     print("No retry, approval, permission or budget increase is implied by a response.")
@@ -187,7 +192,7 @@ def chat(runner, state, run_dir, published, *, persist=None, native=None):
     return False
 
 
-def answer_quota_question(runner, args, state, run_dir, workspace):
+def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
     """--answer route-ROLE=MODEL at a quota stop (#184); None when this invocation answers something else.
 
     The one operational question answered with --answer. The model must pass the launch rules
@@ -260,6 +265,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
             raise ValueError("Apply the queued intervention before answering")
         if proposal["origin"].get("quota_worker") and not parallel:
             raise ValueError("The quota-stopped Builder is no longer current; inspect the batch before retrying")
+        attempt: dict | None
         if parallel:
             row, stopped_worker = parallel
             worker_quota.validate_model(model, stopped_worker, dispatch._model_family)

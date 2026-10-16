@@ -27,7 +27,7 @@ Imports only autocode_usage and autocode_prices, which import only the standard 
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -66,13 +66,13 @@ def _count(value):
     return value if type(value) is int and value >= 0 else 0
 
 
-def spend(state):
+def spend(state: RunState):
     """Known spend: the finished stages' reported and estimated subtotals, and what a checkpoint
     continuation carried from the run it restored (`inherited_spend`), with unpriced and partial counts."""
     rows = usage.stage_rows(state, estimator=prices.estimate)
     reported = [row["cost_usd"] for row in rows if row["basis"] == "reported"]
     estimated = [row["cost_usd"] for row in rows if row["basis"] == "estimated"]
-    carried = state.get("inherited_spend") if isinstance(state.get("inherited_spend"), dict) else {}
+    carried = cast(dict, state.get("inherited_spend")) if isinstance(state.get("inherited_spend"), dict) else {}
     inherited = _money(carried.get("usd")) or 0.0
     return {
         "reported_usd": round(sum(reported), 6) if reported else None,
@@ -84,7 +84,7 @@ def spend(state):
     }
 
 
-def carried(state):
+def carried(state: RunState):
     """What a checkpoint continuation of this run inherits (`inherited_spend`), or None when it spent nothing."""
     known = spend(state)
     record = {
@@ -95,7 +95,7 @@ def carried(state):
     return record if any(record.values()) else None
 
 
-def view(state):
+def view(state: RunState):
     """The status view's `cost` field. Never raises on a damaged state."""
     state = state if isinstance(state, dict) else {}
     known = spend(state)
@@ -120,12 +120,12 @@ def view(state):
     }
 
 
-def spent(state):
+def spent(state: RunState):
     """The known spend in USD that the cap is compared with (reported plus estimated; unpriced excluded)."""
     return spend(state)["known_usd"]
 
 
-def exceeded(state):
+def exceeded(state: RunState):
     """(spent, cap) when the run's known spend has reached its cap, else None."""
     limit = cap(state.get("settings"))
     if limit is None:
