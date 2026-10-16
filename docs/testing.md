@@ -118,7 +118,13 @@ cancels or skips. Master and manual runs retain their existing complete coverage
 
 Maintain the mappings in `tools/ci_scope.py` and `tools/ci_test_selection.py`
 alongside new consumers. A tests-workflow edit exercises its heavy job wiring;
-it does not enroll the whole fake catalog as a PR prerequisite.
+it does not enroll the whole fake catalog as a PR prerequisite. One trigger is
+derived rather than mapped: `linux-tool-containment` runs for every Python file that
+`tests/test_contained_fake_cli.py` loads, which `ci_scope.py` works out from their
+import statements and the scripts they start by file name
+([Conformance in CI](execution.md#conformance-in-ci)). Data the flow reads is not
+derived: the report schemas are listed in `CONTAINED_FLOW_DATA`, and a new data
+directory the flow depends on goes there.
 
 ### Unit suite
 
