@@ -50,7 +50,10 @@ import json
 import re
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_acceptance_policy as acceptance_policy
@@ -182,7 +185,7 @@ def replay(
             return receipt
 
     if recorded_checks.simulated((approved_state or {}).get("settings")):
-        recorded_checks.require_supported(approved_state or {})
+        recorded_checks.require_supported(cast("RunState", approved_state or {}))
         selected_checks, _prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
         for check in selected_checks:
             if WORKTREE_STATE.search(str(check.get("command") or "")):

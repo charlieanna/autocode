@@ -9,10 +9,16 @@ checkout, is imported only within the repair's affected paths, and is rolled bac
 on any rejection. External provenance lands in user_events, never in a stage.
 """
 
+from __future__ import annotations
+
 import copy
 import os
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_milestones as milestones
@@ -46,7 +52,7 @@ DELIVERY = (
 )
 
 
-def dispatched(state):
+def dispatched(state: RunState):
     """The bounded repair a paused classification/review dispatched, or None."""
     if not str(state.get("status") or "").startswith("PAUSED_"):
         return None
@@ -58,7 +64,7 @@ def dispatched(state):
     return task if task.get("contract_hash") else None
 
 
-def _require(state):
+def _require(state: RunState):
     task = dispatched(state)
     if task is None:
         raise ValueError(
@@ -68,7 +74,7 @@ def _require(state):
     return task
 
 
-def spec(state):
+def spec(state: RunState):
     """The standalone, machine-readable handoff for the dispatched bounded repair."""
     task = _require(state)
     body = (state.get("goal_contract") or {}).get("body") or {}
@@ -155,7 +161,7 @@ def render(specification):
     return "\n".join(lines)
 
 
-def export(state, run_dir):
+def export(state: RunState, run_dir):
     """Write handoff/repair-spec.json and .md beside the run; run state is untouched."""
     specification = spec(state)
     handoff = Path(run_dir) / "handoff"
@@ -167,7 +173,7 @@ def export(state, run_dir):
     return {"spec": str(json_path), "readme": str(doc_path)}
 
 
-def _handoff_matches(state, run_dir):
+def _handoff_matches(state: RunState, run_dir):
     path = Path(run_dir) / "handoff" / SPEC_NAME
     if not path.is_file():
         raise ValueError("no exported handoff beside this run; run --export-repair first")
@@ -227,11 +233,11 @@ def _restore(workspace, staged):
             path.write_bytes(value)
 
 
-def _command_criteria(state):
+def _command_criteria(state: RunState):
     body = (state.get("goal_contract") or {}).get("body") or {}
     task = state.get("current_task") or {}
     ids = sorted(task.get("acceptance_criteria") or [])
-    mapping = {}
+    mapping: dict = {}
     for row in body.get("acceptance_criteria") or []:
         if row.get("human_review") or (ids and row.get("id") not in ids):
             continue
@@ -243,7 +249,7 @@ def _command_criteria(state):
     return {command: sorted(found) for command, found in mapping.items()}
 
 
-def _verify(state, workspace, run_dir):
+def _verify(state: RunState, workspace, run_dir):
     """Run the static gates and the regression proof; return (summary, rejection reason)."""
     mapping = _command_criteria(state)
     logs = Path(run_dir) / "handoff" / "verification"
@@ -256,7 +262,7 @@ def _verify(state, workspace, run_dir):
             ids = mapping.get(command) or []
             where = "criterion " + ", ".join(ids) if ids else "the dispatched validation plan"
             return {"commands": results}, f"{where} failed: `{command}` exited {receipt.get('exit_code')}"
-    summary = {"commands": results}
+    summary: dict = {"commands": results}
     if regression.required(state, all_due=True):
         proof = regression.prove(state, workspace, run_dir, all_due=True)
         summary["regression"] = {
@@ -270,7 +276,7 @@ def _verify(state, workspace, run_dir):
     return summary, ""
 
 
-def _record(state, kind, external, changed, task, summary, reason=""):
+def _record(state: RunState, kind, external, changed, task, summary, reason=""):
     state.setdefault("user_events", []).append(
         {
             "kind": kind,
@@ -287,7 +293,7 @@ def _record(state, kind, external, changed, task, summary, reason=""):
     )
 
 
-def submit(state, run_dir, workspace, external_dir):
+def submit(state: RunState, run_dir, workspace, external_dir):
     """Adopt an externally implemented repair after re-running its verification obligations.
 
     Returns {"accepted": bool, "message": str}. Gate refusals raise ValueError
@@ -337,7 +343,10 @@ def submit(state, run_dir, workspace, external_dir):
     state.pop("current_task", None)
     state.pop("resolution_request", None)
     state.update(
-        status="RUNNING", phase="PLANNING" if planning.is_planning(state, state.get("next_stage")) else "EXECUTING"
+        {
+            "status": "RUNNING",
+            "phase": "PLANNING" if planning.is_planning(state, state.get("next_stage")) else "EXECUTING",
+        }
     )
     state.pop("stop_reason", None)
     return {

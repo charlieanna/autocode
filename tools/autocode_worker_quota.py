@@ -7,7 +7,13 @@ the question was answered without a model, --retry-builder is that member's one 
 (autocode_member_stop, #541).
 """
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_member_stop as member_stop
@@ -27,13 +33,13 @@ except ImportError:
     import autocode_util as util
 
 
-def payload(state, directory, workspace):
+def payload(state: RunState, directory, workspace):
     record = state.get("active_stage") or {}
     if not record or not record.get("events"):
         return None
     return {
         "role": "terra",
-        "milestone_id": state["current_task"]["milestone_id"],
+        "milestone_id": cast(dict, state["current_task"])["milestone_id"],
         "run_dir": str(directory),
         "workspace": str(workspace),
         "model": quota_route._launched_model(record),
@@ -42,7 +48,7 @@ def payload(state, directory, workspace):
     }
 
 
-def stop(state, row, result, directory):
+def stop(state: RunState, row, result, directory):
     """The parent's stop for a batch member its model stopped, or None for any other result.
 
     A refusal is named from the worker's own events, never from its saved reason: after a restart that
@@ -61,19 +67,19 @@ def stop(state, row, result, directory):
             provider_refusal.explain(support.events(worker["events"]), job=job, model=worker.get("model"))
             or f"{job}: the provider's content filter refused the response"
         )
-    error = util.Paused(status, f"{reason}; {directory}")
+    error: Any = util.Paused(status, f"{reason}; {directory}")
     error.quota_worker = worker
     return error
 
 
-def stopped(state, error):
+def stopped(state: RunState, error):
     worker = getattr(error, "quota_worker", None)
     if not worker or error.status not in quota_route.STATUSES:
         return None
     return {**worker, "stage": "terra", "pause_status": error.status, "active": True}
 
 
-def question(state, attempt, *, family=None, **options):
+def question(state: RunState, attempt, *, family=None, **options):
     """quota_route.question for one milestone's Builder; ``options`` (cross_check, configured_tool) pass through.
 
     Its answer is judged against the model this member ran on (a sibling's answer may already have moved
@@ -91,7 +97,7 @@ def question(state, attempt, *, family=None, **options):
 current = member_stop.current  # The stopped member a request's origin names, for the answer path.
 
 
-def at_checkpoint(state):
+def at_checkpoint(state: RunState):
     """Whether the parent is at the parallel batch's build checkpoint.
 
     Its last stage records there are copied member attempts, never legacy parent decisions.
@@ -100,7 +106,7 @@ def at_checkpoint(state):
     return batch.get("status") == "BUILDING" and state.get("next_stage") == "orchestrator"
 
 
-def asked_again(state, error, origin):
+def asked_again(state: RunState, error, origin):
     """Restore a withdrawn request's member payload only while that exact member stop is current."""
     worker = (origin or {}).get("quota_worker")
     if (
@@ -143,7 +149,7 @@ def _builder_route(settings):
     return route
 
 
-def retry_route_refusal(state, selected, before, after, *, asked=None):
+def retry_route_refusal(state: RunState, selected, before, after, *, asked=None):
     """Why a member retry would silently use a route different from its parent's settings.
 
     The child's saved route is changed by assign_child when its route-terra question is answered.
@@ -200,7 +206,7 @@ def retry_route_refusal(state, selected, before, after, *, asked=None):
     return None
 
 
-def asked_member(state, public):
+def asked_member(state: RunState, public):
     """What the open request asks about: a member's milestone ID, "" for another request, None for none."""
     if not public and not state.get("pending_questions"):
         return None
@@ -211,7 +217,7 @@ def asked_member(state, public):
         return ""
 
 
-def refused_retry(state, row, result, *, asked):
+def refused_retry(state: RunState, row, result, *, asked):
     """The error --retry-builder raises for this batch member, or None when it may rerun it.
 
     A member its provider's content filter refused reruns only on another model: the one a person names
@@ -234,7 +240,7 @@ def refused_retry(state, row, result, *, asked):
     if worker.get("model") and routed and routed != worker["model"]:
         return None
     milestone = row["milestone_id"]
-    first = (member_stop.answered(state) or ({},))[0].get("milestone_id")
+    first = cast(dict, (member_stop.answered(state) or ({},))[0]).get("milestone_id")
     if asked is None and first in (None, milestone):
         return stop(state, row, result, Path(row["run_dir"]))
     if asked is None:

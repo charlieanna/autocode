@@ -16,6 +16,10 @@ except ImportError:
 
 import copy
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_completion as completion_gate
@@ -50,15 +54,15 @@ APPROVAL_TEXT = (
 )
 
 
-def enabled(state):
+def enabled(state: RunState):
     return state.get("settings", {}).get("workflow", {}).get("mode") in (MODE, FINAL_MODE)
 
 
-def final_only(state):
+def final_only(state: RunState):
     return state.get("settings", {}).get("workflow", {}).get("mode") == FINAL_MODE
 
 
-def guard(state):
+def guard(state: RunState):
     if state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled") and enabled(state):
         raise support.Paused(
             "PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Builder → Validator → Plan Reviewer routing"
@@ -72,19 +76,19 @@ def guard(state):
         or event.get("actor") != "user"
         or event.get("policy") != (FINAL_APPROVAL if final_only(state) else APPROVAL_TEXT)
         or event not in state.get("user_events", [])
-        or event.get("contract_hash") != state.get("goal_contract", {}).get("hash")
+        or event.get("contract_hash") != cast(dict, state.get("goal_contract", {})).get("hash")
     ):
         raise support.Paused("PAUSED_WORKFLOW_APPROVAL", "Reviewer routing needs approval for this goal revision")
 
 
-def review_stage(state):
+def review_stage(state: RunState):
     guard(state)
     if final_only(state):
         return "terra"
     return "astra_checkpoint" if enabled(state) else "sol"
 
 
-def activate_final(state, *, approval_source):
+def activate_final(state: RunState, *, approval_source):
     if state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled"):
         raise ValueError("Enforced milestone checkpoints cannot use final-only review routing")
     if (
@@ -105,7 +109,7 @@ def activate_final(state, *, approval_source):
         "actor": "user",
         "at": support.now(),
         "policy": FINAL_APPROVAL,
-        "contract_hash": state["goal_contract"]["hash"],
+        "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "source": approval_source,
     }
     state.setdefault("user_events", []).append(event)
@@ -144,16 +148,18 @@ def implementation_schema(schema_dir):
     return schema
 
 
-def dispatch_guard(state, stage, workspace):
+def dispatch_guard(state: RunState, stage, workspace):
     guard(state)
     if not final_only(state):
         return
     if stage not in ("sol", "astra_checkpoint"):
         return
-    saved = state.get("final_audit_request" if stage == "astra_checkpoint" else "targeted_consultation") or {}
+    saved = (
+        cast(dict, state).get("final_audit_request" if stage == "astra_checkpoint" else "targeted_consultation") or {}
+    )
     if (
-        saved.get("contract_hash") != state["goal_contract"]["hash"]
-        or saved.get("task_id") != state.get("current_task", {}).get("id", "")
+        saved.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
+        or saved.get("task_id") != cast(dict, state.get("current_task", {})).get("id", "")
         or saved.get("source_revision")
         != source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
     ):
@@ -167,7 +173,7 @@ def dispatch_guard(state, stage, workspace):
         raise support.Paused("PAUSED_STALE_HANDOFF", "Final-audit self-check evidence is missing or changed")
 
 
-def apply_implementation(runner, state, value, record, workspace, run_dir):
+def apply_implementation(runner, state: RunState, value, record, workspace, run_dir):
     support.validate_schema(value, implementation_schema(runner.SCHEMA_DIR))
     goals.execution_guard(state, value)
     c = value["continuation"]
@@ -196,7 +202,9 @@ def apply_implementation(runner, state, value, record, workspace, run_dir):
             "next_task": {k: v for k, v in spec.items() if k not in ("objective", "affected_paths")},
         }
         lifecycle.assign_task(state, decision, {"revision": record["source_revision"]})
-        state.update(next_stage="terra", next_action=spec["objective"], affected_paths=spec["affected_paths"])
+        state.update(
+            {"next_stage": "terra", "next_action": spec["objective"], "affected_paths": spec["affected_paths"]}
+        )
         state["iteration"] += 1
         goals.record_decision(state, decision)
     elif action == "ESCALATE_SOL":
@@ -237,7 +245,11 @@ def apply_implementation(runner, state, value, record, workspace, run_dir):
             require_independent=False,
         ):
             raise ValueError("Final audit requires current executed self-check evidence for every approved criterion")
-        state["final_audit_request"] = {**probe["validation"], "requested_at": support.now(), "independent": False}
+        state["final_audit_request"] = {
+            **cast(dict, probe["validation"]),
+            "requested_at": support.now(),
+            "independent": False,
+        }
         state["next_stage"] = "astra_checkpoint"
 
 
@@ -246,7 +258,7 @@ FINAL_POLICY = prompts.get("fragments/workflow/final-policy.md")
 FINAL_CHECKPOINT = prompts.get("fragments/workflow/final-checkpoint.md")
 
 
-def activate(state, *, approval_source):
+def activate(state: RunState, *, approval_source):
     """Called only by an explicit operator action at an idle, reconciled boundary."""
     if state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled"):
         raise ValueError("Enforced milestone checkpoints require the separate Validator review")
@@ -262,7 +274,7 @@ def activate(state, *, approval_source):
         "actor": "user",
         "at": support.now(),
         "policy": APPROVAL_TEXT,
-        "contract_hash": state["goal_contract"]["hash"],
+        "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "source": approval_source,
     }
     state.setdefault("user_events", []).append(event)
@@ -293,7 +305,7 @@ def checkpoint_schema(schema_dir):
     )
 
 
-def rollback(state):
+def rollback(state: RunState):
     """Restore legacy routing at a safe checkpoint without restoring old task state."""
     if (
         state.get("active_stage")
@@ -308,7 +320,7 @@ def rollback(state):
     state.setdefault("configuration_changes", []).append(
         {"at": support.now(), "reason": "Explicit rollback to legacy Validator routing", "previous_workflow": old}
     )
-    if state.get("validation", {}).get("reviewer_role") == "astra":
+    if cast(dict, state.get("validation", {})).get("reviewer_role") == "astra":
         state.setdefault("validation_archive", []).append(
             {"reason": "Routing rollback requires Validator revalidation", "validation": state.pop("validation")}
         )
@@ -332,7 +344,7 @@ POLICY = prompts.get("fragments/workflow/policy.md")
 CHECKPOINT = prompts.get("completion-checkpoint.md")
 
 
-def apply_checkpoint(runner, state, value, record, workspace, run_dir):
+def apply_checkpoint(runner, state: RunState, value, record, workspace, run_dir):
     guard(state)
     if not enabled(state) or record.get("role") != "astra":
         raise ValueError("Independent checkpoint must run under the approved Plan Reviewer role")
@@ -366,8 +378,8 @@ def apply_checkpoint(runner, state, value, record, workspace, run_dir):
     # Reuse existing validators and goal transitions transactionally. These are two
     # logical results from ONE provider call, so persist only its single receipt.
     runner._apply_result(state, "sol", validation, record, workspace, run_dir)
-    state["validation"]["reviewer_role"] = "astra"
-    state["validation"]["final_audit"] = final_only(state)
+    cast(dict, state["validation"])["reviewer_role"] = "astra"
+    cast(dict, state["validation"])["final_audit"] = final_only(state)
     if consult["requested"]:
         goals.execution_guard(state, decision)
         if support.criteria_definition(decision["acceptance_criteria"]) != support.criteria_definition(
