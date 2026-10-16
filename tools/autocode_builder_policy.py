@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -118,27 +118,27 @@ def configured(strong_model=None, provider=None, single_model=None):
     return config
 
 
-def enabled(state):
+def enabled(state: RunState):
     return state.get("settings", {}).get("builder_retry", {}).get("enabled") is True and not state.get(
         "settings", {}
     ).get("workflow")
 
 
-def key(state, task=None):
+def key(state: RunState, task=None):
     task = task if task is not None else state.get("current_task") or {}
     members = task.get("milestone_ids") or [task.get("milestone_id") or task.get("id")]
-    return s.digest([state.get("goal_contract", {}).get("hash"), sorted(members)])
+    return s.digest([cast(dict, state.get("goal_contract", {})).get("hash"), sorted(members)])
 
 
-def classification_limit(state):
+def classification_limit(state: RunState):
     """Builder failures one milestone may have classified (#686): as many as its lane takes, the
     one it pauses on included. That is the ordinary retries, the stronger attempt (or one more
     ordinary retry in its place), then the pause, so classifying never stops a milestone sooner."""
     count = ((state.get("settings") or {}).get("builder_retry") or {}).get("ordinary_retries")
-    return (count if type(count) is int and 0 <= count <= 3 else DEFAULTS["ordinary_retries"]) + 2
+    return (count if type(count) is int and 0 <= count <= 3 else cast(int, DEFAULTS["ordinary_retries"])) + 2
 
 
-def lane(state):
+def lane(state: RunState):
     ident = key(state)
     lanes = state.setdefault("builder_retries", {})
     previous = lanes.get(state.get("builder_retry_key"))
@@ -156,7 +156,7 @@ def lane(state):
     )
 
 
-def guard(state):
+def guard(state: RunState):
     if not enabled(state):
         return
     current = lane(state)
@@ -204,13 +204,13 @@ def _climb_within_cap(state: RunState) -> None:
         )
 
 
-def failed_before(state, milestone_id):
+def failed_before(state: RunState, milestone_id):
     """Whether a Builder already failed this milestone; the rest of its attempts are serial."""
     current = state.get("builder_retries", {}).get(key(state, {"milestone_id": milestone_id}))
     return bool(current and current["failures"])
 
 
-def adopt(state, worker):
+def adopt(state: RunState, worker):
     """Carry a parallel worker's deferred retry lane into the parent run.
 
     Its failures stay counted, so the parent makes only the stronger attempt the worker
@@ -232,7 +232,7 @@ def adopt(state, worker):
             decisions.append(copy.deepcopy(decision))
 
 
-def _take_deferred(state, current):
+def _take_deferred(state: RunState, current):
     """Make the stronger attempt a parallel worker deferred, now that this run builds serially."""
     config = state["settings"]["builder_retry"]
     route = state["settings"]["roles"]["terra"]
@@ -250,7 +250,7 @@ def _take_deferred(state, current):
     )
 
 
-def _tool_route(state, route):
+def _tool_route(state: RunState, route):
     """A route a configured command tool serves (settings.provider names its config).
 
     Such a tool spells its models itself (autocode_configure._provider_model): no openai/ alias
@@ -262,12 +262,12 @@ def _tool_route(state, route):
     )
 
 
-def _movable(state, route):
+def _movable(state: RunState, route):
     # One rule with the run-creation check of the checker model (route_ladder.serve).
     return route_ladder.movable(state["settings"], route)
 
 
-def _tool_swap_problem(state, config, model):
+def _tool_swap_problem(state: RunState, config, model):
     """Why a configured tool's checkers cannot all move off the strong model, or None.
 
     AutoCode cannot ask the tool what it serves here, so a checker moves only when the cross-model
@@ -293,7 +293,7 @@ def _tool_swap_problem(state, config, model):
     return None
 
 
-def colliding_checkers(state, model):
+def colliding_checkers(state: RunState, model):
     """Checker roles the dispatch guard would refuse with the given Builder model, or that may run it."""
     roles = state["settings"]["roles"]
     return [
@@ -303,7 +303,7 @@ def colliding_checkers(state, model):
     ]
 
 
-def swap_checkers(state, current, config, model):
+def swap_checkers(state: RunState, current, config, model):
     """Move checkers off the escalated Builder's model so it never checks its own work.
 
     The replaced routes are kept on the lane and restored at the next milestone. Pinned,
@@ -325,7 +325,7 @@ def swap_checkers(state, current, config, model):
     return swapped
 
 
-def _escalate(state, current, config, route):
+def _escalate(state: RunState, current, config, route):
     """Move the Builder to the strong model, or say why this run cannot: (action, checkers, stop reason)."""
     if not config.get("strong_model"):
         missing = config.get("not_offered")
@@ -362,7 +362,7 @@ def _escalate(state, current, config, route):
     return "escalate", swap_checkers(state, current, config, model), None
 
 
-def _decide(state, current, action, evidence, reason, checkers, stop_reason):
+def _decide(state: RunState, current, action, evidence, reason, checkers, stop_reason):
     route = state["settings"]["roles"]["terra"]
     current["action"] = action
     state.setdefault("sessions", {}).pop("terra", None)
@@ -385,10 +385,10 @@ def _decide(state, current, action, evidence, reason, checkers, stop_reason):
         route_ladder.record_outcome(state, "paused")
         run_status.pause(state, "PAUSED_BUILDER_RETRY_LIMIT", "Execution failure: " + stop_reason)
     elif action == "defer":
-        state.update(status=SERIAL, stop_reason="Execution failure: " + stop_reason)
+        state.update({"status": SERIAL, "stop_reason": "Execution failure: " + stop_reason})
 
 
-def failure(state, evidence, reason, *, classification="execution"):
+def failure(state: RunState, evidence, reason, *, classification="execution"):
     """One charge per execution failure; replay observes the lane's current gate.
 
     Nonexecution actions are routing observations, not authority to replay a stage;

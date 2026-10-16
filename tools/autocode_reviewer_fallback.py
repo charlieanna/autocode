@@ -15,6 +15,10 @@ except ImportError:
 
 import copy
 from pathlib import Path
+from typing import TYPE_CHECKING, NoReturn
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_support as support
@@ -26,7 +30,7 @@ REVIEW_STAGES = frozenset({"astra_challenge", "astra_finalize", "plan_review", "
 SCOPE = "planning_reviewer_provider_stream_silence"
 
 
-def _stop(message):
+def _stop(message) -> NoReturn:
     raise support.Paused("PAUSED_REVIEWER_FALLBACK", message)
 
 
@@ -43,12 +47,12 @@ def _route(config):
     return {key: config.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
 
 
-def _reviewer_role(state):
+def _reviewer_role(state: RunState):
     roles = state.get("settings", {}).get("roles", {})
     return "plan_reviewer" if "plan_reviewer" in roles else "astra"
 
 
-def _producer_role(state, stage):
+def _producer_role(state: RunState, stage):
     roles = state.get("settings", {}).get("roles", {})
     preferred = (
         ("technical_planner", "glm") if stage in ("plan_review", "plan_finalize") else ("glm", "technical_planner")
@@ -66,7 +70,7 @@ def _explicitly_pinned(settings, reviewer_role, current):
     )
 
 
-def _input_pins(state):
+def _input_pins(state: RunState):
     paths = {}
     planning = state.get("planning") or {}
     entries = list((planning.get("reports") or {}).values())
@@ -82,7 +86,7 @@ def _input_pins(state):
     return paths
 
 
-def _cycle(state, stage):
+def _cycle(state: RunState, stage):
     planning = state.get("planning") or {}
     reports = planning.get("reports") or {}
     discovery = reports.get("astra_discovery") or reports.get("plan") or {}
@@ -143,7 +147,7 @@ def _silent_attempt(record, expected, source_revision, *, focused):
     return evidence
 
 
-def _evidence(state, stage, current_route, source_revision):
+def _evidence(state: RunState, stage, current_route, source_revision):
     attempts = [row for row in state.get("stages", []) if not row.get("runner_owned") and row.get("stage") == stage]
     if len(attempts) < 2:
         return None
@@ -160,7 +164,7 @@ def _evidence(state, stage, current_route, source_revision):
     }
 
 
-def _candidate(state, stage, current_role, current):
+def _candidate(state: RunState, stage, current_role, current):
     settings = state["settings"]
     roles = settings.get("roles") or {}
     producer_role = _producer_role(state, stage)
@@ -191,7 +195,7 @@ def _candidate(state, stage, current_role, current):
     return {"role": role, **route, "producer_role": producer_role, "producer_model": producer_model}
 
 
-def _binding(state, stage, workspace, current, selected, evidence):
+def _binding(state: RunState, stage, workspace, current, selected, evidence):
     inputs = _input_pins(state)
     contract = state.get("goal_contract") or {}
     return {
@@ -210,14 +214,14 @@ def _binding(state, stage, workspace, current, selected, evidence):
     }
 
 
-def _existing(state, cycle):
+def _existing(state: RunState, cycle):
     grants = (state.get("planning") or {}).get("reviewer_route_fallbacks", [])
     if not isinstance(grants, list) or any(not isinstance(grant, dict) for grant in grants):
         _stop("Saved reviewer fallback state is malformed; no provider will launch")
     return next((grant for grant in grants if grant.get("binding", {}).get("cycle") == cycle), None)
 
 
-def reserve(state, run_dir, workspace, stage=None):
+def reserve(state: RunState, run_dir, workspace, stage=None):
     """Reserve one fallback after an ordinary attempt and same-route recovery stall.
 
     Returns the saved grant, or None when policy is ineligible.  Ineligibility is
@@ -281,7 +285,7 @@ def reserve(state, run_dir, workspace, stage=None):
     return grant
 
 
-def admit(state, run_dir, workspace, stage=None):
+def admit(state: RunState, run_dir, workspace, stage=None):
     """Revalidate and consume the sole fallback at the provider admission lock."""
     stage = stage or state.get("next_stage")
     cycle = _cycle(state, stage)
@@ -320,7 +324,7 @@ def admit(state, run_dir, workspace, stage=None):
     return copy.deepcopy(selected)
 
 
-def pending_route(state, stage=None):
+def pending_route(state: RunState, stage=None):
     """Return the already reserved route for command preparation, without authority."""
     stage = stage or state.get("next_stage")
     if stage not in REVIEW_STAGES:
@@ -332,7 +336,7 @@ def pending_route(state, stage=None):
     return copy.deepcopy(selected) if isinstance(selected, dict) else None
 
 
-def record_failed(state, grant_id, record=None):
+def record_failed(state: RunState, grant_id, record=None):
     """Record exhaustion without creating another route switch or changing counts."""
     grants = (state.get("planning") or {}).get("reviewer_route_fallbacks", [])
     grant = next((item for item in grants if item.get("id") == grant_id), None)

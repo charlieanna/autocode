@@ -15,7 +15,10 @@ import json
 import re
 import uuid
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 # The contract: schemas, tokens, validation and invalidation. The steps that act on it (install,
 # present, approve, assign, ask the user) are in autocode_goal_lifecycle, which imports this module,
@@ -231,7 +234,7 @@ except ImportError:
     from autocode_contract_identity import sealed as sealed
 
 
-def validate_requirements_body(state, body):
+def validate_requirements_body(state: RunState, body):
     """Validate the nontechnical v2 handoff without creating a goal contract."""
     s.validate_schema(body, REQUIREMENTS_BODY_SCHEMA)
     questions = body["open_blocking_questions"]
@@ -267,14 +270,14 @@ def validate_requirements_body(state, body):
             raise ValueError(f"Requirements are missing {key}")
 
 
-def protected_contract_snapshot(state):
+def protected_contract_snapshot(state: RunState):
     body = (state.get("goal_contract") or {}).get("body") or {}
     return {
         key: copy.deepcopy(body.get(key)) for key in (*_PROTECTED_LISTS, "acceptance_criteria", "permission_boundaries")
     }
 
 
-def _cites_saved_user_event(state, evidence):
+def _cites_saved_user_event(state: RunState, evidence):
     """Accept a saved event ID alone or as a whole token in an explanation."""
     ids = {key for key in state.get("answers", {}) if _saved_user_basis(state, "user_answer", key)}
     ids.update(
@@ -364,7 +367,7 @@ def validate_assumptions(rows, known_requirement_ids):
     return normalized
 
 
-def check_requirement_handoff(state, report):
+def check_requirement_handoff(state: RunState, report):
     sources = source_texts(state)
     requirements = report.get("requirements", [])
     if not isinstance(requirements, list):
@@ -445,7 +448,7 @@ def check_requirement_handoff(state, report):
                 )
 
 
-def check_requirement_trace(state, report, contract, *, coverage=True):
+def check_requirement_trace(state: RunState, report, contract, *, coverage=True):
     if coverage:
         brief_literals.check(scan_texts(state), contract)
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
@@ -541,7 +544,7 @@ def check_requirement_trace(state, report, contract, *, coverage=True):
             raise ValueError("Unaccepted requirement reframe must remain a blocking question: " + qid)
 
 
-def invalidate(state, reason):
+def invalidate(state: RunState, reason):
     state.pop("permission_reuse_context", None)
     state.pop(RESOLVER_PROPOSAL_KEY, None)
     state.pop(RESOLVER_REQUEST_KEY, None)
@@ -565,7 +568,7 @@ def invalidate(state, reason):
         )
 
 
-def plan_preview(state):
+def plan_preview(state: RunState):
     """Rule E9 (issue #62): what the run knows, what it would assume, and what only
     the user can decide, at a planning clarification stop. Counts only; no score.
     Bound to the displayed contract revision and the requirements handoff hash.
@@ -652,17 +655,17 @@ def plan_preview(state):
     return lines
 
 
-def task_kind(state):
+def task_kind(state: RunState):
     return ((state.get("goal_contract") or {}).get("body") or {}).get("task_kind") or "build"
 
 
-def handoff_ref(state):
+def handoff_ref(state: RunState):
     """Short, stable reference to the current requirements handoff report."""
     report = (state.get("requirements_handoff") or {}).get("report")
     return s.digest(report)[:12] if report else "none"
 
 
-def check_displayed(state, selected):
+def check_displayed(state: RunState, selected):
     """An action the user takes on a preview must name the revision they saw.
     Rejects a stale token, and a requirements handoff refreshed since display."""
     contract = state.get("goal_contract")
@@ -678,7 +681,7 @@ def check_displayed(state, selected):
         )
 
 
-def check_displayed_handoff(state, selected):
+def check_displayed_handoff(state: RunState, selected):
     """Question actions bind to the displayed requirements handoff revision.
 
     Delegation and assumption rejection never grant approval, so they do not
@@ -706,7 +709,7 @@ def initial_decision(body):
     }
 
 
-def feedback(state, text):
+def feedback(state: RunState, text):
     """A free-form brief correction is input to the Plan Reviewer, never authorization to build."""
     if state.get("status") == "PAUSED_COMPONENT_PLAN":
         need = component_plan.recovery(
@@ -721,7 +724,7 @@ def feedback(state, text):
         and not no_contract_v2
     ) or not text.strip():
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
-    if state.get("user_request", {}).get("kind") == "human_review":
+    if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
         raise ValueError("Record the artifact review with --approve-review or --reject-review, not brief feedback")
     contract = state.get("goal_contract")
     event = {
@@ -755,11 +758,16 @@ def feedback(state, text):
         else "astra_discovery"
     )
     state.update(
-        status="RUNNING", phase="DISCOVERING", next_stage=adaptive.feedback_stage(event, default), pending_questions=[]
+        {
+            "status": "RUNNING",
+            "phase": "DISCOVERING",
+            "next_stage": adaptive.feedback_stage(event, default),
+            "pending_questions": [],
+        }
     )
 
 
-def apply_intervention_feedback(state, receipt, applied_receipt):
+def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
     """Save runner-applied feedback without treating it as a checkpoint approval."""
     contract = state.get("goal_contract")
     event = {
@@ -806,7 +814,7 @@ def apply_intervention_feedback(state, receipt, applied_receipt):
     )
 
 
-def answer(state, question_id, text, *, delegated=False):
+def answer(state: RunState, question_id, text, *, delegated=False):
     if (state.get("user_request") or {}).get("kind") == "blocker" or (state.get(RESOLVER_REQUEST_KEY) or {}).get(
         "scope"
     ) in ("blocker", "operational_exhaustion"):
@@ -843,13 +851,13 @@ def answer(state, question_id, text, *, delegated=False):
         # user's own answer discharges it, never a delegated default.
         resolve_obligation(state, question_id, "answer:" + question_id)
     state["pending_questions"] = [row for row in state["pending_questions"] if row["id"] != question_id]
-    body = state.get("goal_contract", {}).get("body", {})
+    body = cast(dict, state.get("goal_contract", {})).get("body", {})
     if "open_blocking_questions" in body:
         body["open_blocking_questions"] = [
             row for row in body["open_blocking_questions"] if row.get("id") != question_id
         ]
     if not state["pending_questions"]:
-        state.update(
+        cast(dict, state).update(
             status="RUNNING",
             **bug_questions.answer_frontier(
                 state, "requirements" if roles.planning_flow(state) == "v2" else "astra_discovery"
@@ -864,7 +872,7 @@ def answer(state, question_id, text, *, delegated=False):
         invalidate(state, "A new user answer requires a reviewed draft")
 
 
-def start_clarification_episode(state, started_by):
+def start_clarification_episode(state: RunState, started_by):
     """Begin a new runner-owned clarification episode. Only a saved user event
     that changes intent calls this (a non-delegated answer, brief feedback, an
     applied intervention, or an edited goal). Model output never does, so
@@ -890,12 +898,12 @@ def start_clarification_episode(state, started_by):
     return state["clarification_episode"]
 
 
-def clarification_episode(state):
+def clarification_episode(state: RunState):
     """The current episode, created on first use. Legacy runs have none."""
     return state.get("clarification_episode") or start_clarification_episode(state, "initial_task")
 
 
-def open_obligations(state, kind=None):
+def open_obligations(state: RunState, kind=None):
     """Unresolved deferred obligations; legacy runs have none."""
     return [
         ob
@@ -904,7 +912,7 @@ def open_obligations(state, kind=None):
     ]
 
 
-def resolve_obligation(state, obligation_id, resolved_by):
+def resolve_obligation(state: RunState, obligation_id, resolved_by):
     for ob in open_obligations(state):
         if ob["id"] == obligation_id:
             ob.update(status="resolved", resolved_by=resolved_by, resolved_at=s.now())
@@ -912,7 +920,7 @@ def resolve_obligation(state, obligation_id, resolved_by):
     return None
 
 
-def delegate_all(state, selected):
+def delegate_all(state: RunState, selected):
     """Bulk-delegate every currently pending question to its proposed default.
     Conservative by construction: a question with no default, or not explicitly
     marked delegable=True, blocks the whole call rather than being silently
@@ -940,7 +948,7 @@ def delegate_all(state, selected):
         answer(state, q["id"], "accept default", delegated=True)
 
 
-def reject_assumption(state, assumption_id, selected):
+def reject_assumption(state: RunState, assumption_id, selected):
     """Record that the user rejects a specific structured assumption from the
     current requirements handoff. This never removes or rewords any entry in
     requirements[]: check_requirement_handoff and check_requirement_trace are
@@ -1003,7 +1011,7 @@ def reject_assumption(state, assumption_id, selected):
     first_stage = (
         "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra_discovery"
     )
-    state.update(status="RUNNING", phase="DISCOVERING", next_stage=first_stage, pending_questions=[])
+    state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": first_stage, "pending_questions": []})
     return obligation
 
 
@@ -1029,7 +1037,7 @@ def is_operational_response(request):
     )
 
 
-def resolve_permission(state, question_id, text):
+def resolve_permission(state: RunState, question_id, text):
     """Record a scoped permission response without revising an approved goal."""
     request = state.get("user_request", {})
     # A blocked execution checkpoint can ask for a scoped retry while keeping
@@ -1050,13 +1058,13 @@ def resolve_permission(state, question_id, text):
     state.pop("user_request", None)
     state.pop("permission_reuse_context", None)
     if not state["pending_questions"]:
-        state.update(status="RUNNING", phase="READY_TO_EXECUTE")
+        state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE"})
 
 
-def execution_guard(state, value=None):
+def execution_guard(state: RunState, value=None):
     if not approved(state):
         raise s.Paused("PAUSED_GOAL_UNAPPROVED", "Current goal revision has no valid explicit approval")
-    contract = state["goal_contract"]
+    contract = cast(dict, state["goal_contract"])
     try:
         component_plan.validate(
             state.get("task", ""),
@@ -1069,11 +1077,15 @@ def execution_guard(state, value=None):
         value.get("contract_revision") != contract["revision"] or value.get("contract_hash") != contract["hash"]
     ):
         raise s.Paused("PAUSED_STALE_GOAL", "Role result belongs to another goal revision")
-    if value is not None and state.get("current_task") and value.get("task_id") != state["current_task"]["id"]:
+    if (
+        value is not None
+        and state.get("current_task")
+        and value.get("task_id") != cast(dict, state["current_task"])["id"]
+    ):
         raise s.Paused("PAUSED_STALE_TASK", "Role result belongs to another implementation task")
 
 
-def record_decision(state, decision):
+def record_decision(state: RunState, decision):
     saved = {
         "at": s.now(),
         "iteration": state["iteration"],
@@ -1085,9 +1097,9 @@ def record_decision(state, decision):
     state.setdefault("decisions", []).append(saved)
 
 
-def milestone_status(state, current):
-    contract = state.get("goal_contract", {})
-    validation = state.get("validation", {})
+def milestone_status(state: RunState, current):
+    contract = cast(dict, state.get("goal_contract", {}))
+    validation = cast(dict, state.get("validation", {}))
     evidence = validation.get("evidence_hashes", {})
     fresh = (
         validation.get("source_revision") == current["revision"]
@@ -1114,9 +1126,9 @@ def milestone_status(state, current):
     return progress
 
 
-def render_completion(state):
-    contract = state["goal_contract"]
-    validation = state["validation"]
+def render_completion(state: RunState):
+    contract = cast(dict, state["goal_contract"])
+    validation = cast(dict, state["validation"])
     results = {row["id"]: row for row in validation["criterion_results"]}
     lines = [
         f"COMPLETE — build brief r{contract['revision']}",
@@ -1151,20 +1163,20 @@ def render_completion(state):
     return "\n".join(lines)
 
 
-def review_token(state):
+def review_token(state: RunState):
     return human_review_artifact.token(state)
 
 
-def missing_human_reviews(state):
+def missing_human_reviews(state: RunState):
     current = review_token(state)
     return [
         c["id"]
-        for c in state["goal_contract"]["body"]["acceptance_criteria"]
+        for c in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]
         if c["human_review"] and not review_binding_valid(state, c["id"], current)
     ]
 
 
-def legacy_review_acceptance(state, criterion, answer_id):
+def legacy_review_acceptance(state: RunState, criterion, answer_id):
     """Return an authenticated older answer that explicitly accepted a review criterion."""
     answer = state.get("answers", {}).get(answer_id)
     if not isinstance(answer, dict) or answer not in state.get("user_events", []):
@@ -1193,7 +1205,7 @@ def legacy_review_acceptance(state, criterion, answer_id):
     return answer
 
 
-def preserved_review_answers(state, criterion, original):
+def preserved_review_answers(state: RunState, criterion, original):
     """Find later authenticated instructions carrying the old acceptance forward."""
     result = {}
     for answer_id, answer in state.get("answers", {}).items():
@@ -1218,7 +1230,7 @@ def preserved_review_answers(state, criterion, original):
     return result
 
 
-def review_binding_valid(state, criterion, current):
+def review_binding_valid(state: RunState, criterion, current):
     if not current:
         return False
     binding = state.get("human_reviews", {}).get(criterion)
@@ -1243,11 +1255,11 @@ def review_binding_valid(state, criterion, current):
     )
 
 
-def reconcile_legacy_review(state, criterion, answer_id, selected, current):
+def reconcile_legacy_review(state: RunState, criterion, answer_id, selected, current):
     """Bind an existing user acceptance to current evidence without a new approval."""
     request = state.get("user_request") or {}
     pending = state.get("pending_questions") or []
-    required = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]}
+    required = {c["id"] for c in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"] if c["human_review"]}
     if (
         criterion not in required
         or state.get("status") != "WAITING_FOR_USER"
@@ -1266,10 +1278,10 @@ def reconcile_legacy_review(state, criterion, answer_id, selected, current):
     if (
         val.get("verdict") != "PASS"
         or val.get("source_revision") != current["revision"]
-        or val.get("contract_revision") != state["goal_contract"]["revision"]
-        or val.get("contract_hash") != state["goal_contract"]["hash"]
+        or val.get("contract_revision") != cast(dict, state["goal_contract"])["revision"]
+        or val.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
         or val.get("criteria_revision") != state.get("criteria_revision")
-        or (state.get("current_task") and val.get("task_id") != state["current_task"]["id"])
+        or (state.get("current_task") and val.get("task_id") != cast(dict, state["current_task"])["id"])
         or (
             state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled")
             and val.get("reviewer_role") != "sol"
@@ -1308,14 +1320,14 @@ def reconcile_legacy_review(state, criterion, answer_id, selected, current):
         raise ValueError("Existing acceptance did not satisfy the current review gate")
     state["pending_questions"] = []
     state.pop("user_request", None)
-    state.update(status="RUNNING", phase="READY_TO_EXECUTE", next_stage="astra_review")
+    state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "next_stage": "astra_review"})
 
 
-def requested_review_criteria(state, request):
+def requested_review_criteria(state: RunState, request):
     """Bind a review question to the existing artifact token and required IDs."""
     if not approved(state) or not review_token(state):
         return []
-    required = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]}
+    required = {c["id"] for c in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"] if c["human_review"]}
     if request.get("kind") == "human_review":
         claimed = request.get("criteria", [])
         return sorted(set(claimed)) if claimed and set(claimed) <= required else []
@@ -1330,10 +1342,10 @@ def requested_review_criteria(state, request):
     return []
 
 
-def human_only_pending_validation(state, validation, criterion):
+def human_only_pending_validation(state: RunState, validation, criterion):
     """A technically complete review awaiting the contract's human acceptance."""
     return human_review_flow.human_only_pending_validation(
-        state["goal_contract"]["body"]["acceptance_criteria"], validation, criterion
+        cast(dict, state["goal_contract"])["body"]["acceptance_criteria"], validation, criterion
     )
 
 
@@ -1342,7 +1354,7 @@ def flow_awaits_only(flow, human):
     return human_review_flow.flow_awaits_only(flow, human)
 
 
-def approve_review(state, criterion, selected, current):
+def approve_review(state: RunState, criterion, selected, current):
     execution_guard(state)
     human_review_artifact.validate(state, criterion, selected, current)
     request = state.get("user_request") or {}
@@ -1376,7 +1388,7 @@ def approve_review(state, criterion, selected, current):
         and state.get("status") == "WAITING_FOR_USER"
         and not state.get("user_request")
     ):
-        state.update(status="RUNNING", phase="READY_TO_EXECUTE", next_stage="astra_review")
+        state.update({"status": "RUNNING", "phase": "READY_TO_EXECUTE", "next_stage": "astra_review"})
 
 
 DECISION_PROVENANCE = prompts.get("fragments/goals/decision-provenance.md")

@@ -86,6 +86,15 @@ class DynamicDependenciesTests(unittest.TestCase):
                 self.assertTrue(set(dependencies.REFUSAL_CONSUMERS) <= selected.keys())
                 self.assertNotIn("tests.test_unrelated", selected)
 
+    def test_component_fixture_selects_both_end_to_end_consumers_even_when_slow(self):
+        consumers = {"tests.test_multicomponent", "tests.test_local_compose_scenario"}
+        selected = run_suite.select_tests(
+            ["tools/fixtures/multicomponent_fake.py"], {module: "" for module in consumers}
+        )
+        kept, skipped = run_suite.drop_slow(selected, {module: "120s" for module in consumers})
+        self.assertTrue(consumers <= kept.keys())
+        self.assertEqual([], skipped)
+
     def test_removed_prompt_resource_still_selects_its_dynamic_consumers(self):
         selected = self.select("tools/prompts/fragments/milestones/deleted-policy.md")
         self.assertIn("tests.test_milestone_policy", selected)
