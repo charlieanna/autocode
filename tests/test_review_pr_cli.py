@@ -266,6 +266,9 @@ class ReviewPullRequestCLI(unittest.TestCase):
         self.assertEqual(3, len(posted["comments"]))
         self.assertTrue(all(row["side"] == "RIGHT" for row in posted["comments"]))
         self.assertIn(result["evidence_report"]["markdown"], posted["body"])
+        # A review has no approval step, so the review posted on someone else's pull request lists no approvals.
+        self.assertNotIn("approvals", result["evidence_report"]["document"])
+        self.assertNotIn("## Approvals", posted["body"])
         self.assertEqual("GET", api.calls[-2][0])
         self.assertEqual("POST", api.calls[-1][0])
 

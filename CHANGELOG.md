@@ -50,6 +50,19 @@ PR template asks for an entry here; a change without one is incomplete.
   and `resume`; each row gains `pause_status`) and the completion summary names them. Nothing is verified and
   no authority changes. The evidence report and pull request body (#692) and a required approver (#707) are
   still to come.
+- The evidence report and the pull request body list who approved (#722, third part): a completed build,
+  bug-fix or design run's `evidence.json` gains an additive `approvals` list (the status view's rows: kind,
+  time, actor, plan token, criterion or released pause, and the recorded Git identity, host, command and `--as`
+  claim), and `evidence.md` shows it as an Approvals table after the intended outcome, so the
+  `autocode-issue pr` body, which wraps that file exactly, carries it too. A record saved without provenance
+  says it was not recorded, a workflow-policy approval says no person made it, and "Not verified" adds that
+  approver identity is recorded as given. Such a run with no record says so, in the report and in the
+  completion summary (`Approvals: none recorded`). Review and discuss runs never ask for an approval, so their
+  reports have no approvals field or section, not even a resume, and their completion summary has no such
+  line; a review posted with `autocode review-pr --post` therefore carries no approval record or resumer's Git
+  identity. Reports written before this change keep no field and render unchanged, so they still authenticate;
+  such a report gains the section only when AutoCode saves the completed run again. The evidence report schema
+  stays version 1. A required approver (#707) is still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
