@@ -7,8 +7,14 @@ consumes it. Existing classification history counts every reservation. No Builde
 retry, proposal assignment, approval or spending limit is granted here.
 """
 
+from __future__ import annotations
+
 import copy
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_builder_failure as failure
@@ -25,7 +31,7 @@ ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
 STAGE = "investigate_stuck"
 
 
-def _attempts(state, request):
+def _attempts(state: RunState, request):
     return [
         row
         for row in state.get("stages") or []
@@ -34,7 +40,7 @@ def _attempts(state, request):
     ]
 
 
-def retain(state, request):
+def retain(state: RunState, request):
     """Retain only the request whose finalized failed history abandon just wrote."""
     history = state.get("stuck_investigations") or []
     index = next(i for i in reversed(range(len(history))) if history[i]["identity"] == request["identity"])
@@ -62,7 +68,7 @@ def retain(state, request):
     }
 
 
-def _repair_finished(state, context):
+def _repair_finished(state: RunState, context):
     pending = context.get("report_repair")
     if not pending:
         return True
@@ -80,7 +86,7 @@ def _repair_finished(state, context):
     )
 
 
-def configuration(state):
+def configuration(state: RunState):
     settings = copy.deepcopy(state.get("settings") or {})
     # prepare_stuck derives this temporary role from the bound source roles and
     # Investigator settings; abandon removes it. It is not a user route change.
@@ -88,7 +94,7 @@ def configuration(state):
     return settings
 
 
-def _context(state):
+def _context(state: RunState):
     held = state.get("builder_failure_hold") or {}
     context = held.get("classification_retry") or {}
     request = context.get("request") or {}
@@ -123,7 +129,7 @@ def _context(state):
     return context
 
 
-def offer(state):
+def offer(state: RunState):
     """Read-only recovery projection; admission rechecks files and source."""
     context = _context(state)
     if not context:
@@ -172,7 +178,7 @@ def offer(state):
     }
 
 
-def gate(state, *, resume, retry, token, correction=False):
+def gate(state: RunState, *, resume, retry, token, correction=False):
     held = state.get("builder_failure_hold") or {}
     if (
         resume
@@ -190,7 +196,7 @@ def gate(state, *, resume, retry, token, correction=False):
     return "authorize"
 
 
-def authorize(runtime, state, run_dir, workspace, token, *, supersede_job):
+def authorize(runtime, state: RunState, run_dir, workspace, token, *, supersede_job):
     need = offer(state)
     if not need or need.get("kind") != "retry_job" or not token or token != need["job_retry_token"]:
         raise ValueError(
@@ -258,12 +264,12 @@ def authorize(runtime, state, run_dir, workspace, token, *, supersede_job):
     state.setdefault("user_events", []).append(
         {"kind": "classification_retry_authorized", "at": util.now(), "token": token, "identity": request["identity"]}
     )
-    state.update(status="RUNNING", phase="INVESTIGATING", next_stage=STAGE)
+    state.update({"status": "RUNNING", "phase": "INVESTIGATING", "next_stage": STAGE})
     state.pop("stop_reason", None)
     runtime.write_json(Path(run_dir) / "state.json", state)
 
 
-def admit(state, record, workspace):
+def admit(state: RunState, record, workspace):
     """Consume with active_stage immediately before Popen, never on report repair."""
     request = state.get("stuck_investigation") or {}
     authorization = request.get("classification_retry")

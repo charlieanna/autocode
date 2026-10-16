@@ -20,12 +20,17 @@ change that pause's bound. operational() says whether a pause is one AutoResolve
 operational request for (OPERATIONAL_PAUSES); correction_refusal() and feedback_refusal() say
 why a correction may not restart planning past the pause holding the run.
 
-Domain layer: it reads saved state only and imports nothing but autocode_goals (the request
-keys) and autocode_provider_refusal (its status name); never the runner, autopilot or a module
-in the import cycle.
+Domain layer: it reads saved state only and at runtime imports nothing but autocode_goals (the
+request keys) and autocode_provider_refusal (its status name); never the runner, autopilot or a
+module in the import cycle. RunState is imported for type checking only.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_provider_refusal as provider_refusal
@@ -93,11 +98,11 @@ def _entry_proposal(entry):
     return ((entry or {}).get("identity") or {}).get("proposal") or {}
 
 
-def _proposal(state, request_id):
+def _proposal(state: RunState, request_id):
     return _entry_proposal(((state.get("resolver") or {}).get("human_escalations") or {}).get(request_id))
 
 
-def _held_proposal(state):
+def _held_proposal(state: RunState):
     """The operational proposal behind the pause holding the run: live, queued or consumed; else {}."""
     queued = state.get(RESOLVER_PROPOSAL_KEY) or {}
     if queued.get("scope") == "operational_exhaustion" and queued.get("origin"):
@@ -116,12 +121,12 @@ def _held_proposal(state):
     return {}
 
 
-def held_origin(state):
+def held_origin(state: RunState):
     """The origin of the pause holding the run: its pause_status and, for a budget, the bound's kind."""
     return _held_proposal(state).get("origin") or {"pause_status": state.get("status")}
 
 
-def interrupted(state):
+def interrupted(state: RunState):
     """The pause an applied pause intervention interrupted, until --resume-paused acknowledges it; else None.
 
     autocode_stop records it as ``pause_intent.held_pause``; a later intervention keeps it.
@@ -133,7 +138,7 @@ def interrupted(state):
     return None
 
 
-def feedback_acknowledges(state, pause_status):
+def feedback_acknowledges(state: RunState, pause_status):
     """Whether brief feedback is ``pause_status``'s own authority.
 
     It is for the exhausted plan-review budget, and where the request asked for that pause offers
@@ -157,7 +162,7 @@ def feedback_acknowledges(state, pause_status):
     return bool((proposal.get("request") or {}).get("finding_ids"))
 
 
-def held_cause(state, pause_status):
+def held_cause(state: RunState, pause_status):
     """The saved stop reason without the advice an operational request for ``pause_status`` appended.
 
     record_operational_exhaustion stops with the request's cause followed by its advice. Asking
@@ -186,7 +191,7 @@ def operational(status):
     return status in OPERATIONAL_PAUSES
 
 
-def correction_refusal(state, correction):
+def correction_refusal(state: RunState, correction):
     """Why ``correction`` (feedback, an edited goal, a design revision) may not restart planning past the held pause.
 
     None when it may. A correction asks for a fresh approval in place of the pause, and an approval
@@ -201,7 +206,7 @@ def correction_refusal(state, correction):
     return None
 
 
-def feedback_refusal(state):
+def feedback_refusal(state: RunState):
     """Why brief feedback may not restart planning past the pause holding ``state``; None when it may."""
     refusal = correction_refusal(state, "Brief feedback")
     return refusal and refusal + " Queued feedback is applied under the pause."
@@ -213,7 +218,7 @@ def changes_held_bound(explicit_flags, origin):
     return any(flag in (explicit_flags or ()) for flag in BUDGET_FLAGS.get(kind, ()))
 
 
-def held_pause(state, *, own_status):
+def held_pause(state: RunState, *, own_status):
     """The pause already holding the run, for an intervention landing on it; None when it was running.
 
     ``own_status`` is the intervention's own pause status, which interrupts nothing. A run waiting on

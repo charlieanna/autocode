@@ -118,6 +118,20 @@ class ToolHandoffTests(unittest.TestCase):
             ["/runtime space/python", "/install space/autocode.py", "capture"], shlex.split(data["capture_command"])
         )
 
+    def test_capture_helper_keeps_the_packet_compact_or_indented_as_given(self):
+        # Re-indenting a compact report-repair handoff pushed it over the repair cap (#1337).
+        import autocode_tool_handoff as handoff
+
+        packet = {"nested": {"rows": [1, 2]}, "text": "a b"}
+        compact = handoff.with_capture_command("Task" + MARKER + json.dumps(packet, separators=(",", ":")))
+        indented = handoff.with_capture_command("Task" + MARKER + json.dumps(packet, indent=2))
+        self.assertNotIn("\n", compact.split(MARKER, 1)[1])
+        self.assertIn('\n  "nested": {', indented.split(MARKER, 1)[1])
+        for rendered in (compact, indented):
+            data = json.loads(rendered.split(MARKER, 1)[1])
+            self.assertEqual(packet, {key: data[key] for key in packet})
+            self.assertIn("capture_command", data)
+
     def test_markerless_prompt_keeps_its_existing_behavior(self):
         for name, render in renderers():
             with self.subTest(provider=name):

@@ -61,6 +61,11 @@ and `evidence.md` live in the run directory. They report what AutoCode recorded:
 - each acceptance criterion with its result and evidence
 - for bug fixes, the runner's fail-before/pass-after regression proof
 - the review findings and their status
+- for a build, bug fix or design, who approved the plan and each review, edited the plan or
+  resumed a pause, with the Git identity, host, command and any `--as` name recorded for each,
+  none of it verified ([Who approved](execution.md#who-approved)). A report written before
+  AutoCode listed approvals has no such section, and neither does a pull request body built
+  from it, until AutoCode saves the completed run again; reading its status does not.
 - the diffstat, the run and the base commit
 
 The report also records actual roles/models, durations, available usage and
@@ -279,7 +284,10 @@ autocode review-pr https://github.com/OWNER/REPO/pull/NUMBER --post -- \
 
 `--post` requires `GITHUB_TOKEN` or `GH_TOKEN` with permission to create PR
 reviews. It creates **COMMENT only**, with one comment per finding; the review
-summary includes the exact canonical evidence Markdown. Every finding must
+summary includes the exact canonical evidence Markdown. That report has no
+Approvals section. Only build, bug-fix and design reports list who approved; a
+review never asks for an approval, so the post carries no approval record and
+no Git identity or host of anyone who resumed the review. Every finding must
 name a changed file and a positive line/span entirely present on the diff's
 new side. Removed files, unavailable/truncated GitHub patches, invalid spans
 and stale heads refuse the whole write. The command reauthenticates the local

@@ -91,6 +91,22 @@ class ApprovalProvenanceCLITests(unittest.TestCase):
         self.assertIn("who gave the name 'Bo at the shared desk' (a claim, not verified)", summary)
         self.assertIn("Review of C1 approved", summary)
         self.assertLess(summary.index("Approvals:"), summary.index("Cost:"))
+        # The evidence report, which the pull request body wraps exactly, lists the same records.
+        report = json.loads(self.launch([*args, "--status", "--inspect-evidence"], 0).stdout)["view"]["evidence_report"]
+        self.assertEqual("current", report["availability"], report["reasons"])
+        self.assertEqual(view["approvals"], report["document"]["approvals"])
+        self.assertEqual(report["markdown"], (run / "evidence.md").read_text())
+        self.assertIn(
+            f"| Plan {plan} approved | Ana Example &lt;ana@example.test&gt; | {host or 'not recorded'} "
+            "| autocode --workspace --run-dir --approve-goal --as | Bo at the shared desk (a claim, not verified) |",
+            report["markdown"],
+        )
+        self.assertIn(
+            f"| Review of C1 approved | Ana Example &lt;ana@example.test&gt; | {host or 'not recorded'} "
+            "| autocode --workspace --run-dir --approve-review --review-token | none given |",
+            report["markdown"],
+        )
+        self.assertNotIn(review, report["markdown"] + json.dumps(report["document"]))
 
     def test_terminal_conversation_approvals_record_who_approved(self):
         self.identify()

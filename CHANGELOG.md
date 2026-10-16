@@ -50,6 +50,19 @@ PR template asks for an entry here; a change without one is incomplete.
   and `resume`; each row gains `pause_status`) and the completion summary names them. Nothing is verified and
   no authority changes. The evidence report and pull request body (#692) and a required approver (#707) are
   still to come.
+- The evidence report and the pull request body list who approved (#722, third part): a completed build,
+  bug-fix or design run's `evidence.json` gains an additive `approvals` list (the status view's rows: kind,
+  time, actor, plan token, criterion or released pause, and the recorded Git identity, host, command and `--as`
+  claim), and `evidence.md` shows it as an Approvals table after the intended outcome, so the
+  `autocode-issue pr` body, which wraps that file exactly, carries it too. A record saved without provenance
+  says it was not recorded, a workflow-policy approval says no person made it, and "Not verified" adds that
+  approver identity is recorded as given. Such a run with no record says so, in the report and in the
+  completion summary (`Approvals: none recorded`). Review and discuss runs never ask for an approval, so their
+  reports have no approvals field or section, not even a resume, and their completion summary has no such
+  line; a review posted with `autocode review-pr --post` therefore carries no approval record or resumer's Git
+  identity. Reports written before this change keep no field and render unchanged, so they still authenticate;
+  such a report gains the section only when AutoCode saves the completed run again. The evidence report schema
+  stays version 1. A required approver (#707) is still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -292,6 +305,13 @@ PR template asks for an entry here; a change without one is incomplete.
   (`autocode_brief_obligations`) and the reviewer fallback (`autocode_reviewer_fallback`) take the typed `RunState`,
   so the untyped-`state` ratchet drops from 628 to 545 and mypy checks those 83 function bodies. Type-only: no
   behaviour, output or `state.json` change (#695).
+- The operational-information re-evaluation (`autocode_operational_information`), workflow job failures
+  (`autocode_job_failure`), reviewer routing (`autocode_workflow`), the classification retry
+  (`autocode_classification_recovery`), pause authority (`autocode_pause_authority`), the recovery view
+  (`autocode_recovery_view`), the external repair handoff (`autocode_repair_handoff`), recorded check replay
+  (`autocode_replay_checks`), the risk obligations (`autocode_risk_obligations`) and the parallel Builder quota
+  handoff (`autocode_worker_quota`) take the typed `RunState`, so the untyped-`state` ratchet drops from 545 to 451
+  and mypy checks those 94 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
@@ -346,6 +366,12 @@ PR template asks for an entry here; a change without one is incomplete.
 - Model-access preflight passes are now bound to the saved provider configuration: accepting a transport change
   re-probes the same models, while legacy model-only markers re-probe once instead of authorizing a new route
   (#1333).
+
+- A native visual run's planning shell can no longer read AutoCode's run store. Before, the contained shell
+  blocked only writes there, so a Planner could read its own run's `state.json`, events and receipts and every
+  other run's files. On Seatbelt and bubblewrap the shell now reads only its own run's `planning/` artifacts in
+  `.autocode/runs`. Each launch proves this through the actual native shell, records it as `private_reads`, and
+  pauses as `PAUSED_TOOL_CONTAINMENT` if the boundary stops enforcing it (#1250).
 
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion

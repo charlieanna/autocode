@@ -63,6 +63,9 @@ def binding(state, accounting):
             "orchestration_batch",
         )
     }
+    # The report's approvals (#722) add no key, so historical bindings hold: a completed run gains a record only
+    # through a plan approval, review acceptance, goal edit or resume, and each also changes goal_contract,
+    # human_reviews, stages or status above.
     # Preserve authentication of historical reports that never recorded this field.
     if "prompts_hash" in state:
         stable["prompts_hash"] = state["prompts_hash"]

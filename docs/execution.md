@@ -626,8 +626,28 @@ whatever the checkout configures, and `--as` is taken at the person's word. The 
 and each pause's own rules remain the authority. `--status` lists every approval, goal edit and
 resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
 the completion summary lists the same records just before its cost line. A record saved before
-AutoCode kept it shows no provenance. The evidence report and the pull request body built from
-it (#692), and a required approver (#707), are not covered yet.
+AutoCode kept it shows no provenance. A build, bug-fix or design run that recorded none, such as
+one saved before AutoCode kept approval events, a design review or a bug that did not reproduce,
+says `Approvals: none recorded` there instead of leaving the section out. A review or discuss run
+never asks for an approval: its one stage completes the run without a plan. Its summary has no
+such line, but still lists any record the run saved, such as a resume from a pause.
+
+The evidence report of a completed build, bug-fix or design run lists the same records under
+`approvals` in `evidence.json` and as an Approvals table in `evidence.md`, just after the
+intended outcome ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
+A review or discuss report has neither, not even a resume, because those workflows have no
+approval step and `autocode review-pr --post` publishes a review's report on someone else's pull
+request ([Issues](issues.md#reviewing-a-pull-request)). A report written before AutoCode listed
+approvals has no such section either, until AutoCode saves the completed run again; reading its
+status does not. Each row gives the time, what was decided (the plan token approved, the criterion
+accepted, the draft an edit saved, or the pause a resume released), the Git identity, host,
+command and any `--as` name, marked as a claim. A record saved without provenance says it was not
+recorded, a workflow-policy approval says no person made it, and a run with none says
+`None recorded`. When the table names an approver, the report's "Not verified" list adds that
+approver identity is recorded as given; it also counts any records saved without a recorded
+approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
+([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A required
+approver (#707) is not covered yet.
 
 ## Timeouts and watchdog
 
@@ -1309,6 +1329,19 @@ This boundary covers shell-tool subprocesses, not the authenticated OpenCode
 client or its plugin hooks. Planning, report-only repair and configured custom
 providers are outside this kernel-containment claim; they retain the native
 permissions and snapshot checks described in [Providers](providers.md).
+The exception is the planning stages of a native visual run (native role
+isolation). They run in this boundary read-only, and their shell also cannot
+read the run store, `.autocode/runs`: not this run's `state.json`, events or
+receipts, and no other run's files. Only this run's `planning/` artifacts (the
+predecessor plan and its delta) stay readable there; the stage gets the rest of
+its run context from its handoff (#1250). Before the provider starts, each such
+launch shows through the actual native shell that a file in its run directory
+cannot be read, and records the denial as `private_reads` in its
+`tool_containment` record and conformance proof. A boundary that no longer
+enforces it pauses as `PAUSED_TOOL_CONTAINMENT`. On macOS such a launch also
+pauses that way, naming the path, when a path in its Seatbelt profile holds a
+control character such as a tab or newline: the re-check before launch accepts
+no such path.
 The runner does not pass blanket auto-approval. Contract permission text is a role instruction,
 not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
 responsible for individual tool permissions; custom MCP/connector write permissions
@@ -1331,7 +1364,10 @@ inside an empty read-only root that holds only:
   A writable directory that holds one of these further down is mounted onto itself,
   so the Builder can write in it but cannot rename it to recreate the protected name;
 - the stage's own scratch, writable. A reader's verification copy is one read-only
-  mount inside it.
+  mount inside it;
+- for a native visual run's planning stage, an empty read-only `tmpfs` over
+  `.autocode/runs`, with only that run's `planning/` mounted read-only inside it
+  (Seatbelt denies reading the same paths).
 
 There is no home directory, `/tmp`, `/run` or `/var`, so a write anywhere else fails
 (`Read-only file system`, or `No such file or directory` where nothing is mounted)
