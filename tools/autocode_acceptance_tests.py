@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+import argparse
 import hashlib
 from pathlib import Path
 
@@ -38,11 +39,39 @@ except ImportError:
 
 STAGE = "write_acceptance_tests"
 KEY: Final = "acceptance_tests"
+SETTING_BLIND: Final = "blind_tests"
 BUILD_STAGES = ("terra", "orchestrator")
 
 
+def is_blind(state: RunState) -> bool:
+    return bool((state.get("settings") or {}).get(SETTING_BLIND))
+
+
 def enabled(state: RunState) -> bool:
-    return bool((state.get("settings") or {}).get("spec_first"))
+    settings = state.get("settings") or {}
+    return bool(settings.get("spec_first") or settings.get(SETTING_BLIND))
+
+
+def add_argument(parser) -> None:
+    parser.add_argument(
+        "--blind-tests",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Run Tester acceptance tests blindly (#702): tests are archived under the run directory and removed "
+        "from the workspace so the Builder never sees them, then evaluated on candidate scratch trees; off by default",
+    )
+
+
+def new_run_setting(requested, joint: bool) -> bool:
+    """Off unless asked for; requires joint planning so acceptance tests can be written for approved cases."""
+    if requested is True and not joint:
+        raise ValueError("--blind-tests needs joint planning")
+    return requested is True
+
+
+def resume_refused(saved_settings: dict, requested) -> bool:
+    """A saved run keeps its choice; repeating its own choice is harmless, no flag changes nothing."""
+    return requested is not None and bool(requested) != bool(saved_settings.get(SETTING_BLIND))
 
 
 def _cases(state: RunState, *, all_due: bool = False) -> list[dict]:
@@ -144,7 +173,7 @@ def record_send_back(state: RunState, case_ids: list[str], output) -> None:
     )
 
 
-def protected(state: RunState) -> dict[str, dict]:
+def all_files(state: RunState) -> dict[str, dict]:
     """The Tester's files under the current contract: {path: {"sha256", "archive"}}."""
     current = (state.get("goal_contract") or {}).get("hash")
     files: dict[str, dict] = {}
@@ -152,6 +181,20 @@ def protected(state: RunState) -> dict[str, dict]:
         if receipt.get("contract_hash") == current:
             files.update(receipt.get("files") or {})
     return files
+
+
+def protected(state: RunState) -> dict[str, dict]:
+    """The Tester's files under the current contract that stay fixed in the workspace; {} when blind."""
+    if is_blind(state):
+        return {}
+    return all_files(state)
+
+
+def blind_files(state: RunState) -> dict[str, dict]:
+    """Archived blind test files under the current contract; {} when not blind."""
+    if not is_blind(state):
+        return {}
+    return all_files(state)
 
 
 def sha256(path: Path) -> str | None:
@@ -265,9 +308,153 @@ def view(state: RunState) -> dict | None:
     if not rows:
         return None
     last = rows[-1]
-    return {
-        "files": sorted(protected(state)),
+    payload = {
+        "files": sorted(all_files(state)),
         "case_ids": list(last.get("case_ids") or []),
         "results": dict(last.get("results") or {}),
         "output": last.get("output"),
     }
+    if is_blind(state):
+        payload["blind"] = True
+    return payload
+
+
+def open_row(state: RunState):
+    """The open finding about blind acceptance tests, or None."""
+    try:
+        from . import autocode_findings as findings_ledger
+    except ImportError:
+        import autocode_findings as findings_ledger
+    return next((row for row in findings_ledger.open_entries(state, "runner") if row.get("blind_tests")), None)
+
+
+def reconcile_candidate(state: RunState, receipt: dict, revision: str):
+    """Open, refresh, or resolve runner findings for blind acceptance tests."""
+    try:
+        from . import autocode_findings as findings_ledger
+    except ImportError:
+        import autocode_findings as findings_ledger
+
+    failed_names = []
+    results = receipt.get("results")
+    if isinstance(results, dict):
+        failed_names = list(results.get("failed") or [])
+    timed_out = bool(receipt.get("timed_out"))
+    error = receipt.get("error")
+    exit_code = receipt.get("exit_code", 0)
+
+    is_failing = bool(exit_code != 0 or timed_out or error or failed_names)
+    row = open_row(state)
+    at = util.now()
+    checked = f"Runner check of source {str(revision)[:12]}"
+
+    if not is_failing:
+        if row is not None:
+            findings_ledger.settle(
+                row,
+                "resolved",
+                resolved_at=at,
+                resolved_in=checked,
+                resolution_evidence=f"{checked}: blind acceptance tests passed",
+            )
+        return None
+
+    failure_details = []
+    if failed_names:
+        failure_details.append(f"failed tests: {', '.join(failed_names)}")
+    if timed_out:
+        failure_details.append("timed out")
+    if error:
+        failure_details.append(str(error))
+    if exit_code != 0 and not failure_details:
+        failure_details.append(f"exit code {exit_code}")
+    detail_str = "; ".join(failure_details)
+    finding_text = (
+        f"Blind acceptance tests failed on candidate source {str(revision)[:12]} ({detail_str}). "
+        "The change must satisfy the requirements and pass all acceptance tests."
+    )
+    evidence_text = f"{checked}: {detail_str}"
+
+    if row is None:
+        row = {
+            "id": findings_ledger.allocate_id(state),
+            "source": "runner",
+            "severity": "high",
+            "finding": finding_text,
+            "evidence": evidence_text,
+            "blocking": True,
+            "status": "open",
+            "opened_at": at,
+            "opened_in": checked,
+            "scope": None,
+            "times_reported": 1,
+            "last_reported_at": at,
+            "last_reported_in": checked,
+            "assigned_task": None,
+            "blind_tests": True,
+            "source_revision": revision,
+            "failed_tests": failed_names,
+        }
+        findings_ledger.ledger(state).append(row)
+    else:
+        row.update(
+            finding=finding_text,
+            evidence=evidence_text,
+            times_reported=row.get("times_reported", 1) + 1,
+            last_reported_at=at,
+            last_reported_in=checked,
+            source_revision=revision,
+            failed_tests=failed_names,
+        )
+    return row
+
+
+def check_candidate(state: RunState, workspace, run_dir=None, scratch_run=None, timeout=60):
+    """Run archived blind acceptance tests in a candidate scratch tree and reconcile findings."""
+    if not is_blind(state):
+        return None
+    files = blind_files(state)
+    if not files:
+        return None
+
+    try:
+        from . import autocode_source_scope as source_scope
+        from . import autocode_verify as verify
+    except ImportError:
+        import autocode_source_scope as source_scope
+        import autocode_verify as verify
+
+    try:
+        revision = source_scope.snapshot(workspace, state)["revision"]
+    except Exception:
+        revision = util.digest(sorted(files))
+    runner_scratch = scratch_run or verify.scratch_run
+    run_dir = run_dir or state.get("run_dir") or workspace
+    scratch_dir = Path(run_dir) / "blind-tests" / util.digest({"revision": revision, "files": sorted(files)})
+
+    overlay_files = {path: entry["archive"] for path, entry in files.items()}
+    current = (state.get("goal_contract") or {}).get("hash")
+    last_receipt = None
+    for receipt in receipts(state).values():
+        if receipt.get("contract_hash") == current:
+            last_receipt = receipt
+    cmd = (last_receipt or {}).get("command") or None
+
+    receipt = runner_scratch(
+        workspace,
+        scratch_dir,
+        files=overlay_files,
+        command=cmd,
+        tests=list(files.keys()),
+        timeout=timeout,
+    )
+    return reconcile_candidate(state, receipt, revision)
+
+
+def refuse(state: RunState, workspace, run_dir=None, scratch_run=None) -> None:
+    """Raise ValueError while blind acceptance tests fail."""
+    if not is_blind(state) or not blind_files(state):
+        return
+    row = check_candidate(state, workspace, run_dir=run_dir, scratch_run=scratch_run)
+    if row is not None:
+        raise ValueError("Completion acceptance requires blind acceptance tests to pass. " + row["finding"])

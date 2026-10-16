@@ -119,7 +119,7 @@ def _packet_still_binds(state: RunState, pointer, previous):
     if packet["scope"] != recovery._scope(state):
         raise ValueError("--accept-source-edit only accepts a source edit; the task scope also changed")
     bound = recovery._binding(state, previous)
-    if packet["binding"] != bound:
+    if not recovery._holds(packet["binding"], state, previous):
         changed = [
             key
             for key in ("contract_hash", "contract_revision", "task_id", "settings_hash")

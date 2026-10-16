@@ -88,6 +88,15 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on `openai/gpt-6-sol` (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.
 
+Two scripted scenarios check these rows end to end, through `autocode --status --json`
+([catalog](../scenarios/README.md#catalog)). In `escalation-converts` the Builder's stronger
+attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
+Sol XHigh, one attempt with its cost, `passed`, and the run completes. In `escalation-ladder-end`
+that attempt fails too: the row reads `paused`, and the run pauses at `PAUSED_BUILDER_RETRY_LIMIT`
+with the stuck-stage Investigator's diagnosis in its stop reason. `scenarios/test_escalation.py`
+also checks that a `--builder-strong-model` the tool does not list refuses the new run before any
+model call.
+
 The Resolver runs on a route of its own, `resolver`. It starts as a copy of the `astra`
 route, which the per-task Planner (`astra_plan`) runs on; `autocode models` lists that
 route as "Resolver and per-task Planner (`--astra-model`)". The Resolver's route is

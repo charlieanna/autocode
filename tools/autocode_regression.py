@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_tests as acceptance
     from . import autocode_base_patch as operator_patch
     from . import autocode_component_plan as component_plan
     from . import autocode_follow_up as follow_up
@@ -79,6 +80,7 @@ try:
     from . import autocode_verify as verify
     from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
+    import autocode_acceptance_tests as acceptance
     import autocode_base_patch as operator_patch
     import autocode_component_plan as component_plan
     import autocode_follow_up as follow_up
@@ -1004,6 +1006,8 @@ def before_review(state: RunState, stage, workspace, run_dir):
     runner_check.clear(state, run_dir, status.persist)
     if stage in package_writes.STAGES:
         package_writes.check(state, workspace)
+        if acceptance.is_blind(state):
+            acceptance.check_candidate(state, workspace, run_dir)
     # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).

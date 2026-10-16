@@ -17,8 +17,10 @@ from collections.abc import Mapping
 from typing import Any
 
 try:
+    from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_role_transport as role_transport
     import autocode_roles as roles
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -54,12 +56,14 @@ def configure(settings: dict, args, *, started: bool) -> str | None:
     if not model:
         raise ValueError("--utility-reasoning-effort needs --utility-model")
     saved = settings.setdefault("roles", {})
-    base = saved.get("plan_reviewer") or saved.get("requirements") or saved.get("astra") or {}
+    source = "plan_reviewer" if "plan_reviewer" in saved else ("requirements" if "requirements" in saved else "astra")
+    base = saved.get(source) or {}
     route = {key: base.get(key) for key in ("engine", "provider", "reasoning_effort") if key in base}
     route.update(model=model)
     if effort:
         route["reasoning_effort"] = effort
     saved[roles.UTILITY_ROUTE] = route
+    role_transport.inherit(settings, roles.UTILITY_ROUTE, source)
     return roles.UTILITY_ROUTE
 
 

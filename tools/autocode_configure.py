@@ -26,6 +26,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 try:
+    from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_adaptive_planning as adaptive
     from . import autocode_base_patch as operator_patch
     from . import autocode_budget_recovery as budget_recovery
@@ -48,6 +49,7 @@ try:
     from . import autocode_utility_route as utility_route
     from . import autocode_verification_config as verification_config
 except ImportError:
+    import autocode_acceptance_tests as acceptance_tests
     import autocode_adaptive_planning as adaptive
     import autocode_base_patch as operator_patch
     import autocode_budget_recovery as budget_recovery
@@ -457,6 +459,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
             if not settings.get("orchestration", {}).get("enabled"):
                 raise ValueError("Start a new run to enable milestone orchestration")
             settings["orchestration"]["max_parallel"] = args.max_parallel_builders
+        if acceptance_tests.resume_refused(settings, getattr(args, "blind_tests", None)):
+            raise ValueError("Start a new run to change blind tests setting")
         settings = autopilot.stuck.configure(settings, args)
         settings = verification_config.configure_resume(state, settings, args)
         settings = operator_patch.configure_resume(state, settings, args)
@@ -624,6 +628,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         getattr(args, "spec_first", None), joint, role_names.planning_flow(settings) == "v2"
     ):
         settings[requirements_review.SETTING] = True
+    if acceptance_tests.new_run_setting(getattr(args, "blind_tests", None), joint):
+        settings[acceptance_tests.SETTING_BLIND] = True
     if getattr(args, "unlimited_iterations", False):
         settings["limits"]["iteration_ceiling"] = None
     if utility := utility_route.configure(settings, args, started=False):
