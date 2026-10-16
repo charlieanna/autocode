@@ -693,7 +693,11 @@ class NativeProtection:
         original_supervision = sealed[ident]["body"]["barrier"]["supervision_envelope"]["supervision"]
         root = sealed[ident]["body"]["root"]
         _require(
-            metadata == original_supervision and original_supervision["provider"] == root,
+            metadata == original_supervision
+            # Admission retains SID; the sealed ProcessTree root carries only birth fields.
+            # Match the root as the original live envelope did, retaining the entire admission above.
+            and processes.matches(original_supervision["provider"], root)
+            and original_supervision["provider"].get("group") == root.get("group"),
             "timeout supervisor differs from the original sealed owner/keeper/nonce",
         )
         self._safe(metadata["receipt"], file=True)
