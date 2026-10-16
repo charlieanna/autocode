@@ -697,7 +697,7 @@ class VerificationRestartCLI(unittest.TestCase):
 
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
-        scratch = tempfile.TemporaryDirectory(prefix="verification-restart-", dir=results)
+        scratch = tempfile.TemporaryDirectory(prefix="verification-restart-", dir=results, ignore_cleanup_errors=True)
         self.addCleanup(scratch.cleanup)
         root = Path(scratch.name).resolve()
         scenario = catalog.load("verification-reuse")

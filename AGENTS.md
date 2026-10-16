@@ -1,7 +1,7 @@
 # Working on AutoCode
 
 Rules for anyone changing this repository, human or agent. They exist because
-the code grew faster than its structure: much of `tools/` sits in import
+the code grew faster than its structure: much of `tools/` sat in import
 cycles, and three naming schemes describe the same roles. The goal right
 now is to make the existing workflow dependable and the code easier to change,
 not to add surface area. See `RELIABILITY.md` for product priorities.
@@ -35,17 +35,15 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    Review responsibilities and dependency direction. A new CLI flag's action
    goes in the `autocode_action_*` step for its family (`autocode_run_actions.STEPS`),
    not in `handle()`.
-2. **Do not join an import cycle.** 6 modules are in one (listed in
-   `tests/test_architecture.py`): the goal lifecycle, workflow, the planning
-   unit and the stage context around them. `autocode.py`, `autopilot`, `autocode_goals`
-   (the contract; the steps that act on it are in `autocode_goal_lifecycle`)
-   and `autocode_support` (the completion gate is `autocode_completion`, the
-   stage prompt `autocode_stage_context`) are no longer in one. A new module
-   must depend only on lower-level modules, never on `autocode`, `autopilot` or
-   anything in a cycle. Pass what you need as arguments instead. The shared
-   helpers (clock, hashing, JSON files, locks, snapshots, schemas) are in
-   `autocode_util`, which imports nothing from AutoCode. Removing a module from
-   the cycles is progress: take it off the list (the test says when).
+2. **Do not create an import cycle.** No module is in one now (`TANGLED` in
+   `tests/test_architecture.py` is empty since #695), and that test fails on a
+   new one. `autocode_goals` is the contract; the steps that act on it are in
+   `autocode_goal_lifecycle`. `autocode_support` no longer holds the completion
+   gate (`autocode_completion`) or the stage prompt (`autocode_stage_context`).
+   A new module must depend only on lower-level modules, never on `autocode`,
+   `autopilot` or the planning unit. Pass what you need as arguments instead.
+   The shared helpers (clock, hashing, JSON files, locks, snapshots, schemas)
+   are in `autocode_util`, which imports nothing from AutoCode.
 3. **Target layering**, from the bottom: utilities (files, hashing, locking,
    schemas) → domain (contract, findings, milestones, completion gate; pure
    functions over state) → runtime (processes, providers) → controller
@@ -187,8 +185,7 @@ A break only a slow module catches can
 therefore first show up on master: fix it forward straight away. Making a slow test fast (in-process instead of a CLI
 subprocess, a copied Git fixture instead of `git init`, a fake clock instead
 of a wait) and taking it off the slow list is progress. Run the full suite yourself only when you change something many
-modules share. Every module taken out of the import cycle makes `--changed`
-more precise.
+modules share.
 
 Where a new test belongs:
 

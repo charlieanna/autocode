@@ -1,4 +1,5 @@
-"""Typed model request shared by units; transport and persistence belong to the runner."""
+"""Model requests shared by units (the ModelRequest type is units/model_request); transport and persistence
+belong to the runner."""
 
 from typing import TYPE_CHECKING
 
@@ -6,7 +7,6 @@ if TYPE_CHECKING:
     from ..autocode_run_state import RunState
 
 import copy
-from dataclasses import dataclass
 
 try:
     from .. import autocode_acceptance_tests as acceptance_tests
@@ -33,17 +33,7 @@ except ImportError:
     import autocode_test_examples as test_examples
     import autocode_workflow as workflow
 from . import autoplanner
-
-
-@dataclass(frozen=True)
-class ModelRequest:
-    role: str
-    route_role: str
-    prompt: str
-    metrics: dict
-    schema: dict
-    allow_write: bool
-
+from .model_request import ModelRequest
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 

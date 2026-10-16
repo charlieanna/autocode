@@ -340,6 +340,7 @@ def parser() -> argparse.ArgumentParser:
     action.add_argument("--restore", metavar="CHECKPOINT")
     result.add_argument("--expected-token")
     result.add_argument("--request-id")
+    result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
     return result
 
 

@@ -28,9 +28,9 @@ class RejectedRepairRetryCLI(unittest.TestCase):
 
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
-        scratch = tempfile.TemporaryDirectory(prefix="rejected-repair-", dir=results)
-        self.addCleanup(scratch.cleanup)
-        self.root = Path(scratch.name).resolve()
+        self.scratch = tempfile.TemporaryDirectory(prefix="rejected-repair-", dir=results, ignore_cleanup_errors=True)
+        self.addCleanup(self.scratch.cleanup)
+        self.root = Path(self.scratch.name).resolve()
         self.scenario = catalog.load("feature-stock-refusals")
         for name in ("config", "codex-home"):
             (self.root / name).mkdir()
@@ -38,9 +38,9 @@ class RejectedRepairRetryCLI(unittest.TestCase):
     def driver(self, investigator):
         """``investigator`` is ``retry`` (it recommends one more attempt) or ``pause`` (it leaves it to a person)."""
         from harness.driver import Driver, default_autocode, fake_setup
-        from harness.project import materialize
+        from harness.project import materialize, without_maintenance
 
-        self.project = materialize(self.scenario.seed, self.root / "project")
+        self.project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
         flags, env = fake_setup(self.scenario, self.root, self.scenario.reference)
         env.update(
             XDG_CONFIG_HOME=str(self.root / "config"),
@@ -169,6 +169,26 @@ class RejectedRepairRetryCLI(unittest.TestCase):
             raise
         retry = self.assert_repaired(driver, driver.until_stopped())
         self.assertEqual("invocation", retry["recovery_novelty"]["grant_kind"])
+
+    def test_fixture_disables_git_maintenance_and_ignores_cleanup_errors(self):
+        from unittest.mock import patch
+
+        from harness.project import git
+
+        self.assertTrue(
+            getattr(getattr(self, "scratch", None), "_ignore_cleanup_errors", False),
+            "TemporaryDirectory must ignore cleanup errors to prevent Directory not empty teardown failures (#967)",
+        )
+        self.driver("pause")
+        self.assertEqual("false", git(self.project, "config", "maintenance.auto").strip())
+        self.assertEqual("0", git(self.project, "config", "gc.auto").strip())
+
+        # Teardown must tolerate transient Directory not empty errors during rmtree
+        with patch("os.rmdir", side_effect=OSError(66, "Directory not empty")):
+            try:
+                self.scratch.cleanup()
+            except OSError as error:
+                self.fail(f"TemporaryDirectory.cleanup raised {error} instead of ignoring it (#967)")
 
 
 if __name__ == "__main__":
