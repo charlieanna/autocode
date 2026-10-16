@@ -123,6 +123,48 @@ class PrepareTests(unittest.TestCase):
             self.prepare(run)
         self.assertEqual("", self.git("branch", "--list", "*-plan"))
 
+    def test_a_merged_pull_request_shows_in_the_base_whatever_the_merge_method(self):
+        entry = self.prepare(_Run(BODY, 2))
+        bases = ("refs/remotes/origin/main", "refs/heads/main")  # a missing ref holds nothing
+        self.assertIsNone(issue_plan.merged_into(self.project, self.record, bases))
+        self.git("commit", "-q", "--allow-empty", "-m", "unrelated work on main")
+        self.assertIsNone(issue_plan.merged_into(self.project, self.record, bases))
+        self.git("branch", "squashed")
+        self.git("merge", "-q", "--no-edit", entry["branch"])
+        self.assertEqual(self.git("rev-parse", "main"), issue_plan.merged_into(self.project, self.record, bases))
+        # A squash merge of a reviewer's edit: the plan commit is not in the base, but its file changed there.
+        self.git("checkout", "-q", "squashed")
+        (self.project / "plans").mkdir(exist_ok=True)
+        (self.project / "plans/issue-7.md").write_text("edited by a reviewer\n")
+        self.git("add", "plans/issue-7.md")
+        self.git("commit", "-q", "-m", "Plan (#1)")
+        self.assertEqual(
+            self.git("rev-parse", "squashed"),
+            issue_plan.merged_into(self.project, self.record, ("refs/heads/squashed",)),
+        )
+
+    def test_after_a_merge_a_new_pull_request_starts_from_the_base_on_the_next_branch(self):
+        first = self.prepare(_Run(BODY, 2))
+        self.record[issue_plan.FIELD]["url"] = "https://github.example/acme/widgets/pull/1"
+        self.git("merge", "-q", "--ff-only", first["branch"])
+        merged = issue_plan.merged_into(self.project, self.record, ("refs/heads/main",))
+        self.assertTrue(issue_plan.carried(first, "r2:abc"))
+        self.assertFalse(issue_plan.carried(first, "r4:abc"))
+        with self.assertRaisesRegex(ValueError, "already holds this plan; there is nothing to propose"):
+            issue_plan.prepare(self.project, self.record, _Run(BODY, 2), "plans/issue-7.md", start=merged)
+        revised = {**BODY, "intended_outcome": "Greet by full name"}
+        second = issue_plan.prepare(self.project, self.record, _Run(revised, 4), "plans/issue-7.md", start=merged)
+        self.assertEqual(
+            ("autocode/issue-7-add-a-greeting-cli-plan-2", 2, merged, None),
+            (second["branch"], second["round"], second["parent"], second["url"]),
+        )
+        self.assertEqual(merged, self.git("rev-parse", f"{second['branch']}^"))
+        self.assertEqual("M\tplans/issue-7.md", self.git("diff", "--name-status", merged, second["branch"]))
+        self.assertEqual(first["commit"], self.git("rev-parse", first["branch"]))  # the merged one's branch stays
+        self.record[issue_plan.FIELD] = second
+        self.assertIsNone(issue_plan.merged_into(self.project, self.record, ("refs/heads/main",)))
+        self.assertEqual(second["commit"], self.prepare(_Run(revised, 4))["commit"])
+
     def test_another_path_than_the_one_the_pull_request_carries_is_refused(self):
         self.prepare(_Run(BODY, 2))
         with self.assertRaisesRegex(ValueError, "carries plans/issue-7.md; pass --path plans/issue-7.md"):

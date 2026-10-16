@@ -285,7 +285,9 @@ class _FakeGitHub(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         _FakeGitHub.pulls.append({"path": self.path, "auth": self.headers.get("Authorization"), **body})
-        payload = json.dumps({"html_url": "https://github.example/acme/widgets/pull/1"}).encode()
+        payload = json.dumps(
+            {"html_url": f"https://github.example/acme/widgets/pull/{len(_FakeGitHub.pulls)}"}
+        ).encode()
         self.send_response(201)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -525,8 +527,27 @@ class IssueCliTests(unittest.TestCase):
         load = ["--goal-file", str(merged), "--workspace", str(worktree), "--run-dir", record["run_dir"]]
         self.assertIn(f"Once that pull request is merged here: autocode {' '.join(load)}", status.stdout)
 
+        # Merged on GitHub, which deletes the head branch. Until the file is loaded, the merged pull request is
+        # not reused: `plan` refuses and pushes nothing, and the next step is to load the file.
+        self.git("push", "-q", "origin", f"{branch}:refs/heads/main")
+        self.git("push", "-q", "origin", "--delete", branch)
+        reused = self.cli("plan", "#7", "--open")
+        self.assertEqual(1, reused.returncode, reused.stdout)
+        self.assertIn(
+            "the plan pull request https://github.example/acme/widgets/pull/1 is merged into main, and the run still "
+            "waits on the plan it carried",
+            reused.stderr,
+        )
+        self.assertEqual("", self.git("ls-remote", "--heads", "origin", branch))
+        self.git("pull", "-q", "--ff-only", "origin", "main")
+        status = self.cli("status", "#7")
+        self.assertIn(
+            f"The plan pull request is merged; once it is pulled here, load its file: autocode {' '.join(load)}",
+            status.stdout,
+        )
+        self.assertNotIn("Or have it reviewed", status.stdout)
+
         # Merged, the file loads into the run as its next draft revision; the old token approves nothing.
-        self.git("merge", "-q", "--ff-only", branch)
         loaded = subprocess.run(
             [sys.executable, str(TOOLS / "autocode.py"), *load],
             capture_output=True,
@@ -541,6 +562,35 @@ class IssueCliTests(unittest.TestCase):
             loaded.stdout,
         )
         self.assertEqual({"kind": "continue"}, run.status()["needs"])
+
+        # Once the run's plan moved past the merged one, its file is spent: a changed plan goes in a new pull
+        # request, made from the base that holds the merged file, so it shows only what changed since.
+        reviewed = self.cli("continue", "#7")
+        self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+        needs = run.status()["needs"]
+        self.assertEqual("approve_plan", needs["kind"])
+        self.assertFalse(needs["token"].startswith(f"r{plan.revision}:"))
+        self.assertIn(
+            "Or have it reviewed in a new pull request: autocode-issue plan acme/widgets#7 --open", reviewed.stdout
+        )
+        self.assertNotIn("--goal-file", reviewed.stdout)
+        renewed = self.cli("plan", "#7", "--open")
+        self.assertEqual(0, renewed.returncode, renewed.stderr)
+        self.assertIn(
+            "The plan pull request https://github.example/acme/widgets/pull/1 is merged; this plan goes in a new one.",
+            renewed.stdout,
+        )
+        self.assertIn("Opened a draft plan pull request: https://github.example/acme/widgets/pull/2", renewed.stdout)
+        second = self.git("rev-parse", f"{branch}-2")
+        self.assertEqual(self.git("rev-parse", "main"), self.git("rev-parse", f"{second}^"))
+        self.assertEqual("M\tplans/issue-7.md", self.git("diff", "--name-status", "main", second))
+        self.assertEqual(second, self.git("rev-parse", f"refs/heads/{branch}-2", cwd=self.remote))
+        self.assertEqual("", self.git("ls-remote", "--heads", "origin", branch))
+        [_, renewal] = _FakeGitHub.pulls
+        self.assertEqual((f"{branch}-2", "main", True), (renewal["head"], renewal["base"], renewal["draft"]))
+        status = self.cli("status", "#7")
+        self.assertIn("Plan PR:  https://github.example/acme/widgets/pull/2", status.stdout)
+        self.assertIn(f"Once that pull request is merged here: autocode {' '.join(load)}", status.stdout)
 
     def test_plan_refuses_a_run_that_is_not_waiting_for_plan_approval(self):
         started = self.cli("start", "#7", "--issue-file", str(self.issue_file), "--", *self.options)

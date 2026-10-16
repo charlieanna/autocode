@@ -8,8 +8,10 @@ and the person's checkout are untouched. Reviewers edit the file in the pull req
 whoever holds the run loads it with `autocode --goal-file` and approves it there as usual
 (docs/workflow.md#a-teams-plan-review). Nothing here approves, loads or merges a plan.
 
-Run again after the run's plan changed, it commits the new plan on top of the branch's last commit, so the
-same pull request shows the change; an unchanged plan reuses that commit. A branch that moved since is refused.
+Run again after the run's plan changed while the pull request is open, it commits the new plan on top of the
+branch's last commit, so the same pull request shows the change; an unchanged plan reuses that commit. A branch
+that moved since is refused. A merged pull request is never reused: once the base branch holds its file
+(``merged_into``), a changed plan starts a new pull request from that base, on the next branch (``-plan-2``).
 
 Imports only autocode_plan_file (pure) and the standard library.
 """
@@ -34,9 +36,14 @@ def default_path(number: int) -> str:
     return f"plans/issue-{number}.md"
 
 
-def branch(record: dict) -> str:
-    """The plan's branch: the issue's own branch name and ``-plan``, so the two never collide."""
-    return f"{record['branch']}-plan"
+def branch(record: dict, round_: int = 1) -> str:
+    """The plan's branch: the issue's own branch name and ``-plan``, so the two never collide.
+
+    ``round_`` counts the issue's plan pull requests: the second, opened after the first was merged, is on
+    ``-plan-2``, and so on, so a new one never lands on a merged one's branch.
+    """
+    name = f"{record['branch']}-plan"
+    return name if round_ == 1 else f"{name}-{round_}"
 
 
 def title(record: dict) -> str:
@@ -53,18 +60,23 @@ def repository_path(value: str) -> str:
     return str(path)
 
 
-def prepare(project: Path, record: dict, run, path: str) -> dict:
+def prepare(project: Path, record: dict, run, path: str, start: str | None = None) -> dict:
     """Export ``run``'s plan and commit it at ``path`` on the plan branch; the record's new ``plan_pr`` entry.
 
-    ``run`` is the issue's TaskRun. ValueError, with nothing changed, when the branch moved since the last
-    commit made here, when the record already carries the plan at another path, or when the base commit already
-    holds this exact plan at ``path``.
+    ``run`` is the issue's TaskRun. ``start``, the commit of the pull request's base that holds the merged plan
+    pull request (``merged_into``), begins a new plan pull request from it, on the next branch and with no URL.
+    ValueError, with nothing changed, when the branch moved since the last commit made here, when the record
+    already carries the plan at another path, or when the base commit already holds this exact plan at ``path``.
     """
     saved = record.get(FIELD) or {}
     if saved and saved["path"] != path:
         raise ValueError(f"this issue's plan pull request carries {saved['path']}; pass --path {saved['path']}")
-    name = saved.get("branch") or branch(record)
-    previous = saved.get("commit")
+    if start:
+        round_, parent, previous, url = saved.get("round", 1) + 1, start, None, None
+    else:
+        round_, parent = saved.get("round", 1), saved.get("parent") or record["base_commit"]
+        previous, url = saved.get("commit"), saved.get("url")
+    name = branch(record, round_)
     if previous and _git(project, "rev-parse", "--verify", "-q", f"refs/heads/{name}", check=False) != previous:
         raise ValueError(
             f"branch {name} no longer points at {previous[:12]}, the plan commit autocode-issue made; "
@@ -80,7 +92,7 @@ def prepare(project: Path, record: dict, run, path: str) -> dict:
             f"Plan for {ref}: {record['title']}\n\nPlan revision {plan.revision} of AutoCode run "
             f"{Path(record['run_dir']).name}, exported for review before it is built (goal hash {plan.goal_hash})."
         )
-        made = commit(project, previous or record["base_commit"], path, exported, message)
+        made = commit(project, previous or parent, path, exported, message)
     if made is None and previous is None:
         raise ValueError(f"{path} at the base commit already holds this plan; there is nothing to propose")
     if made is not None:
@@ -91,12 +103,36 @@ def prepare(project: Path, record: dict, run, path: str) -> dict:
     return {
         "path": path,
         "branch": name,
+        "round": round_,
+        "parent": parent,  # the base commit the branch started from: what merged_into compares the base with
         "commit": made or previous,
         "revision": plan.revision,
         "goal_hash": plan.goal_hash,
         "run_goal_hash": plan.exported_hash,
-        "url": saved.get("url"),
+        "url": url,
     }
+
+
+def merged_into(project: Path, record: dict, bases) -> str | None:
+    """The commit of the first of ``bases`` (refs) holding the record's plan pull request merged; None otherwise.
+
+    A base holds it once its file at the pull request's path is no longer the one the plan branch started
+    from, whatever the merge method (fast-forward, merge commit, squash or rebase). A missing ref holds nothing.
+    """
+    entry = record.get(FIELD)
+    if not entry:
+        return None
+    started = _object(project, f"{entry.get('parent') or record['base_commit']}:{entry['path']}")
+    for ref in bases:
+        tip = _object(project, f"{ref}^{{commit}}")
+        if tip and _object(project, f"{tip}:{entry['path']}") != started:
+            return tip
+    return None
+
+
+def carried(entry: dict, token: str) -> bool:
+    """Whether the plan waiting for approval under ``token`` (``r<revision>:<hash>``) is the revision ``entry`` carries."""
+    return token.startswith(f"r{entry['revision']}:")
 
 
 def commit(project: Path, parent: str, path: str, source: Path, message: str) -> str | None:
@@ -152,6 +188,11 @@ def body(record: dict, entry: dict) -> str:
         )
         + "\n"
     )
+
+
+def _object(root: Path, name: str) -> str:
+    """The object ``name`` names, such as ``REF:PATH``; empty when there is none."""
+    return _git(root, "rev-parse", "-q", "--verify", name, check=False)
 
 
 def _git(root: Path, *args: str, check: bool = True, env: dict | None = None) -> str:

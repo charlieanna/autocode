@@ -54,7 +54,7 @@ filled in.
 | brief | The issue's title, URL, labels, description and up to 30 of its newest comments. The description and comments are quoted and marked as the reporter's words, not instructions. The brief adds no requirements of its own. AutoCode's requirements stage traces every requirement to the issue text or your `--note`. |
 | `pr` | Refuses unless the run is complete and its canonical evidence report is current. Checks that report before staging or committing. Commits every change except `.autocode/` on the issue branch. Writes the PR body to `.autocode/issues/OWNER-REPO-N-pr.md`. |
 | `pr --open` | Pushes the branch to `--remote` and opens a draft pull request against the branch that was current at `start` (override with `--base`). If `--remote` is a fork, the head is `FORK-OWNER:branch`. `--ready` opens it ready for review instead of as a draft. |
-| `plan` | Refuses unless the run is waiting for its plan to be approved. Exports that plan as a plan file and commits it, as the only change, on branch `autocode/issue-N-<title>-plan` made from the run's base commit. Writes that pull request's body to `.autocode/issues/OWNER-REPO-N-plan-pr.md`. See [Reviewing the plan in a pull request](#reviewing-the-plan-in-a-pull-request). |
+| `plan` | Refuses unless the run is waiting for its plan to be approved. Exports that plan as a plan file and commits it, as the only change, on branch `autocode/issue-N-<title>-plan` made from the run's base commit (after a merged plan pull request, on `-plan-2` from the base branch). Writes that pull request's body to `.autocode/issues/OWNER-REPO-N-plan-pr.md`. See [Reviewing the plan in a pull request](#reviewing-the-plan-in-a-pull-request). |
 | `plan --open` | Pushes that branch and opens a draft pull request with the same base, fork and `--ready` rules as `pr --open`. |
 
 The PR body says `Resolves OWNER/REPO#N` and includes the run's exact canonical
@@ -104,11 +104,12 @@ autocode-issue plan #812 --open                # push that branch and open a dra
   that merging approves nothing. The run's directory is named, not its path on
   your machine. If the export masked credential-shaped text, the body says so:
   the run refuses the file until those values are restored.
-- **A changed plan.** Run `plan` again after the run's plan changes, for example
-  after `--feedback`. The new plan is committed on top of the branch, so the same
-  pull request shows the change. An unchanged plan reuses the commit. It never
-  replaces commits it did not make: if the branch moved, it refuses, and if
-  reviewers pushed edits to the pull request, the push is refused.
+- **A changed plan.** While the pull request is open, run `plan` again after the
+  run's plan changes, for example after `--feedback`. The new plan is committed on
+  top of the branch, so the same pull request shows the change. An unchanged plan
+  reuses the commit. It never replaces commits it did not make: if the branch
+  moved, it refuses, and if reviewers pushed edits to the pull request, the push
+  is refused. A merged plan pull request is never reused (see below).
 
 Reviewers edit the file in the pull request as
 [Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request)
@@ -125,6 +126,18 @@ autocode --approve-goal TOKEN --workspace WT --run-dir RUN
 The approval stop names the file and its goal hash. The merged file goes back
 into the run that drafted the plan; starting a new run from it is not available
 yet ([A team's plan review](workflow.md#a-teams-plan-review)).
+
+`autocode-issue` counts the pull request as merged once the base branch, here or
+as last fetched from the remote (`plan --open` fetches it first), holds a
+different file at its path than the plan branch started from, whatever the
+merge method. Until the run's plan moves past the one the merged pull request
+carried, `plan` refuses and pushes nothing, and `status` prints the
+`--goal-file` command. After that, for example once the Plan Reviewer revised
+the loaded plan, `status` stops printing it: loading the file again would replace
+the newer plan. To have the changed plan reviewed again, `plan` starts a new
+pull request, on branch `autocode/issue-N-<title>-plan-2` (then `-plan-3`) made
+from the base branch that holds the merged file, so it shows only what changed
+since.
 
 ## Credentials
 
