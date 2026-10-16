@@ -1135,6 +1135,64 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             set(self.open.available_models(self.workspace)), self.open.check_models.call_args.kwargs["inventory"]
         )
 
+    def test_inherit_copies_transport_identity_for_derived_role(self):
+        import copy
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        settings["roles"]["acceptance_tester"] = copy.deepcopy(settings["roles"]["sol"])
+        self.transport.inherit(settings, "acceptance_tester", "sol")
+        self.assertIn("role:acceptance_tester", settings["transport_identities"])
+        self.assertEqual("kilocode", self.transport.entry(settings, "acceptance_tester")["provider"])
+        self.assertIs(self.external, self.transport.adapter(settings, "acceptance_tester", self.open, self.workspace))
+
+    def test_inherit_auto_detects_source_role_for_known_derived_roles(self):
+        import copy
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        for derived_role in ("analyst", "investigator", "architect", "stuck_investigator"):
+            with self.subTest(derived_role=derived_role):
+                run_settings = copy.deepcopy(settings)
+                run_settings["roles"][derived_role] = copy.deepcopy(run_settings["roles"]["plan_reviewer"])
+                self.transport.inherit(run_settings, derived_role)
+                self.assertIn(f"role:{derived_role}", run_settings["transport_identities"])
+                self.assertEqual("kilocode", self.transport.entry(run_settings, derived_role)["provider"])
+                self.assertIs(
+                    self.external, self.transport.adapter(run_settings, derived_role, self.open, self.workspace)
+                )
+
+    def test_entry_auto_inherits_for_derived_role_when_not_previously_called(self):
+        import copy
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        settings["roles"]["acceptance_tester"] = copy.deepcopy(settings["roles"]["sol"])
+        self.assertNotIn("role:acceptance_tester", settings["transport_identities"])
+        entry = self.transport.entry(settings, "acceptance_tester")
+        self.assertEqual("kilocode", entry["provider"])
+        self.assertIn("role:acceptance_tester", settings["transport_identities"])
+        self.assertIs(self.external, self.transport.adapter(settings, "acceptance_tester", self.open, self.workspace))
+
+    def test_external_route_without_matching_source_identity_is_refused_with_clear_message(self):
+        import copy
+
+        self.cli_configure(self.args())
+        settings = copy.deepcopy(self.observed[-1])
+        settings["roles"]["investigator"] = {
+            "engine": "opencode",
+            "provider": "kilocode",
+            "model": "anthropic/fixture-claude",
+        }
+        with self.assertRaisesRegex(ValueError, "Saved external role transport identity is missing for investigator"):
+            self.transport.entry(settings, "investigator")
+
 
 if __name__ == "__main__":
     unittest.main()
