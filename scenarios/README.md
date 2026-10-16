@@ -281,11 +281,14 @@ A fake run uses the Codex engine. `test_contained_opencode.py` runs
 never imported) on `PATH` beside the scripted model, which the client runs as its
 `codex`, and sets `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1` so the runner contains
 its Builder, Tester and Completion Reviewer. Then it checks the oracle's verdict, that
-each of those stage records in the saved `state.json` names `bubblewrap`, that a Builder
-write planted outside the project (`AUTOCODE_FIXTURE_SHELL_ESCAPE`) is blocked, and the
-status view's `tool_containment` and `tool_containment_backend`. Without a working
-bubblewrap, as `autocode doctor --json` reports it, the test skips, or fails in CI on
-Linux ([Conformance in CI](../docs/execution.md#conformance-in-ci)).
+every record of those three stages in the saved `state.json` names `bubblewrap` and the
+version doctor reports, that a Builder write planted outside the project
+(`AUTOCODE_FIXTURE_SHELL_ESCAPE`) is blocked, and the status view's `tool_containment`
+and `tool_containment_backend`. Without a working bubblewrap, as `autocode doctor --json`
+reports it, the test skips, or fails in CI on Linux. Any other problem doctor reports,
+such as the fake's OpenCode version, is the fixture's and fails it everywhere. A pull
+request that changes `tools/fake_opencode.py` runs it too (`SCENARIO_FIXTURES` in
+`tools/run_suite.py`; [Conformance in CI](../docs/execution.md#conformance-in-ci)).
 
 ## Verdicts
 

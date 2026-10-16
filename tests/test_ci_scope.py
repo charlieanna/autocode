@@ -96,6 +96,12 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue({"suite", "linux"} <= enabled)
                 self.assertFalse({"macos", "windows"} & enabled)
 
+    def test_a_tools_fixture_a_scenario_copies_turns_the_scenario_harness_on(self):
+        # scenarios/test_contained_opencode.py copies and runs the fake OpenCode client; no import names it (#709).
+        self.assertEqual({"suite", "scenarios", "linux", "wheel"}, self.enabled("tools/fake_opencode.py"))
+        # A tools/ fixture no scenario copies leaves the scenario harness off.
+        self.assertNotIn("scenarios", self.enabled("tools/fake_codex.py"))
+
     def test_files_the_contained_flow_never_reads_leave_the_linux_job_off(self):
         # Runtime modules the flow neither imports nor starts by name, the frozen dashboard,
         # the scenario runner, a fixture and a prompt.

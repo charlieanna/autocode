@@ -16,8 +16,10 @@ and the public status view, not OpenCode's own tool dispatch.
 
 Whether this host has the boundary is asked of `autocode doctor --json`, whose ``containment`` check
 is the one run setup makes. Without a working bubblewrap the test skips, except in CI on Linux, where
-the suite job installs bubblewrap before the scenario harness runs: there it fails instead. As root,
-run it without CAP_SYS_ADMIN and CAP_SYS_PTRACE (docs/testing.md), as every scenario run.
+the suite job installs bubblewrap before the scenario harness runs: there it fails instead. Any other
+problem doctor reports where bubblewrap works, such as the fake OpenCode's version, is this fixture's
+and fails the test everywhere. As root, run it without CAP_SYS_ADMIN and CAP_SYS_PTRACE
+(docs/testing.md), as every scenario run.
 """
 
 from __future__ import annotations
@@ -119,11 +121,16 @@ class ContainedOpenCodeScenarioTests(unittest.TestCase):
 
     def test_a_scripted_build_completes_with_its_stages_contained_by_bubblewrap(self):
         found = self.boundary()
-        if not found or found["backend"] != "bubblewrap" or found["problem"]:
+        self.assertIsNotNone(found, "autocode doctor reports no containment check for --engine opencode")
+        # Doctor names the backend only when this host's sandbox works (tool_containment.sandbox_problem).
+        if found["backend"] != "bubblewrap":
             message = f"requires the Linux bubblewrap tool boundary; autocode doctor reports {found}"
             if sys.platform.startswith("linux") and (os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")):
                 self.fail(message)
             self.skipTest(message)
+        # Bubblewrap works here, so any other problem is this fixture's, such as the fake OpenCode no
+        # longer reporting the version strict containment is qualified for: fail rather than skip.
+        self.assertIsNone(found["problem"], f"bubblewrap works, but autocode doctor reports {found}")
         args = argparse.Namespace(
             fake=True,
             profile=None,
