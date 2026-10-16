@@ -6,8 +6,9 @@ category = "bugfix"
 # so its suite is detected and run in that package. The reference fixes only that package.
 # broken/fixes-search-copy-too delivers the same correct fix and also fixes the other team's copy:
 # the runner must report that file in an open blocking runner finding and the run must stop without
-# completing (docs/workflow.md, "Monorepo packages"). The runner's diagnosis note under docs/bugs/
-# is the workflow's own file, not a change outside the package. The flag is a [fake] flag, so a
+# completing (docs/workflow.md, "Monorepo packages"). The runner's diagnosis note (the path the
+# run's saved investigation names) is the workflow's own file, not a change outside the package;
+# any other file under docs/bugs/ is one. The flag is a [fake] flag, so a
 # live profile runs the brief without --package and is judged on the delivered files alone.
 
 [fake]

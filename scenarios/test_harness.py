@@ -2253,26 +2253,33 @@ class MonorepoPackageOracleTests(unittest.TestCase):
 
 class BugfixMonorepoPackageOracleTests(unittest.TestCase):
     """bugfix-monorepo-package (#711): a --package bug fix investigated first, judged as feature-monorepo-package
-    judges its package. The runner's diagnosis note under docs/bugs/ is the workflow's own file, not a change
-    outside the package."""
+    judges its package. The runner's diagnosis note (the path the run's saved investigation names) is the
+    workflow's own file, not a change outside the package; any other file under docs/bugs/ is one."""
 
     FINDING = "Files outside the package packages/invoices/ changed: "
+    NOTE = "docs/bugs/scripted-diagnosis.json"
     STAGES = ["recognize_workflow", "investigate_bug", "astra_discovery", "astra_challenge", "terra", "sol"]
 
-    def score(self, overlay, findings, stages=STAGES, package="packages/invoices"):
+    def score(self, overlay, findings, stages=STAGES, package="packages/invoices", model_stages=None, extra=()):
         from harness.project import materialize
 
         scenario = catalog.load("bugfix-monorepo-package")
         with tempfile.TemporaryDirectory(prefix="bugfix-monorepo-oracle-test-") as root:
             project = materialize(scenario.seed, Path(root) / "project", scenario.dir / overlay)
-            (project / "docs" / "bugs").mkdir(parents=True)
-            (project / "docs" / "bugs" / "scripted-diagnosis.json").write_text('{"reproduced": true}\n')
+            for path in (self.NOTE, *extra):
+                (project / path).parent.mkdir(parents=True, exist_ok=True)
+                (project / path).write_text('{"reproduced": true}\n')
+            run_dir = Path(root) / "run"
+            run_dir.mkdir()
+            (run_dir / "state.json").write_text(json.dumps({"investigation": {"note_path": self.NOTE}}))
             record = {
                 "status": "RESOLVER_PENDING",
                 "view": {"workflow": "bugfix", "package": package, "evidence": {"findings": findings}},
                 "stages": stages,
+                "run_dir": str(run_dir),
                 "steps": [{"kind": "approve-plan", "exit": 0}],
                 "answers": [],
+                **({"model_stages": model_stages} if model_stages is not None else {}),
             }
             result = verdict.evaluate(scenario, project, record)
         self.assertEqual("", result.error)
@@ -2288,6 +2295,9 @@ class BugfixMonorepoPackageOracleTests(unittest.TestCase):
             ([self.finding(search, status="closed")], False),
             ([{**self.finding(search), "blocking": False}], False),
             ([], False),
+            # The finding must name the file, and come from the runner.
+            ([self.finding("packages/search/test_pager.py (modified). A --package run may change only")], False),
+            ([{**self.finding(search), "source": "sol"}], False),
         ):
             with self.subTest(findings=findings):
                 checks = self.score("broken/fixes-search-copy-too", findings)
@@ -2299,20 +2309,35 @@ class BugfixMonorepoPackageOracleTests(unittest.TestCase):
         reference = self.score("reference", [])
         self.assertTrue(reference["nothing_changed_outside_the_package"].ok)
         self.assertTrue(reference["outside_changes_reported"].ok)
+        # Another runner finding (a lifecycle observation) is not a report of changes outside the package.
+        lifecycle = {**self.finding(""), "finding": "Runner lifecycle observation failed: a claimed lease was lost"}
+        self.assertTrue(self.score("reference", [lifecycle])["outside_changes_reported"].ok)
         # Reporting the runner's own note as a change outside the package (as the proof did before #1415) is invented.
         note = [self.finding("docs/bugs/scripted-diagnosis.json (added). A --package run may change only files")]
         self.assertFalse(self.score("reference", note)["outside_changes_reported"].ok)
         self.assertNotIn("outside_changes_reported", self.score("reference", [], package=None))
+        # Only the runner's note is left out: another file under docs/bugs/ is a change outside the package.
+        other = self.score("reference", [], extra=["docs/bugs/search-pager.json"])
+        self.assertEqual(
+            "changed outside packages/invoices/: ['docs/bugs/search-pager.json']",
+            other["nothing_changed_outside_the_package"].detail,
+        )
+        self.assertFalse(other["nothing_changed_outside_the_package"].ok)
 
     def test_the_investigator_runs_before_any_other_model_stage_but_the_job_recognizer(self):
-        for stages, ok in (
-            (self.STAGES, True),
-            (self.STAGES[1:], True),
-            (["recognize_workflow", "astra_discovery", "investigate_bug", "terra"], False),
-            (["recognize_workflow", "astra_discovery", "terra"], False),
+        for stages, model_stages, ok in (
+            (self.STAGES, None, True),
+            (self.STAGES[1:], None, True),
+            (["recognize_workflow", "recognize_workflow_report_repair", *self.STAGES[1:]], None, True),
+            # A runner-owned record is not a model stage.
+            (["recognize_workflow", "model_preflight", *self.STAGES[1:]], self.STAGES, True),
+            (["recognize_workflow", "astra_discovery", "investigate_bug", "terra"], None, False),
+            (self.STAGES, ["recognize_workflow", "astra_discovery", "investigate_bug"], False),
+            (["recognize_workflow", "astra_discovery", "terra"], None, False),
         ):
-            with self.subTest(stages=stages):
-                self.assertEqual(ok, self.score("reference", [], stages=stages)["investigated_first"].ok)
+            with self.subTest(stages=stages, model_stages=model_stages):
+                checks = self.score("reference", [], stages=stages, model_stages=model_stages)
+                self.assertEqual(ok, checks["investigated_first"].ok, checks["investigated_first"])
 
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
