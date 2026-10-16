@@ -1014,6 +1014,12 @@ PR template asks for an entry here; a change without one is incomplete.
   run's first checkpoint). The text, the closing `autocode: …` on stderr, exit code 2 and the saved run are
   unchanged. A native visual run already saved such a refusal as a `PAUSED_INVALID_OUTPUT` pause and still
   does (#714).
+- With the Builder's retry policy off (a reviewer routing mode, or `builder_retry` disabled), the status view's
+  `escalations` row for a Builder climb read `passed` once the Tester passed a climbed attempt, even after the
+  Completion Reviewer sent that work back: nothing charged the review, so the climb's attempts stopped at that PASS,
+  leaving the next climbed attempt, its failed check and its cost out while the cost said complete. The correction
+  task the review assigns (`REWORK`) now sends that work back as the retry policy's charge does, so the row reads
+  `failed_again` with every climbed attempt and its cost (#612).
 
 ## [0.7.1] — 2026-10-09
 

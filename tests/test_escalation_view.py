@@ -99,6 +99,11 @@ def started(row):
     return [one["started_at"] for one in row["attempts"]]
 
 
+def ended(state):
+    """How each row of `state`, saved and read back, ended and when its attempts started."""
+    return [(row["outcome"], row["outcome_basis"], started(row)) for row in rows(json.loads(json.dumps(state)))]
+
+
 class NoEscalationTests(unittest.TestCase):
     def test_a_run_without_escalations_lists_none_and_prints_nothing(self):
         state = {"status": "TASK_COMPLETE", "stages": [attempt("sol", 1, HIGH)]}
@@ -780,7 +785,7 @@ class StrongerAttemptTests(unittest.TestCase):
 
     def validate_task(self, state):
         """A validate task of M1, as the runner assigns one: a new task whose Tester runs before any Builder attempt
-        (the Completion Owner sends unchanged work back to the Tester, or a replanned contract starts with one).
+        (the Completion Reviewer sends unchanged work back to the Tester, or a replanned contract starts with one).
         Returns its id."""
         task = self.assign(state, "M1")
         state["current_task"]["kind"] = "validate"
@@ -798,6 +803,7 @@ class StrongerAttemptTests(unittest.TestCase):
                 escalated, strong, check = self.tasked_stronger_attempt(state)
                 if paused:
                     self.assertEqual("pause", policy.failure(state, check["output"], "f"))
+                    self.decided_row(state, "pause")["at"] = at(3, escalated)  # made after the check it charges
                     expected = ("paused", "recorded", "; the run paused.")
                 else:
                     self.assertEqual("replan", policy.failure(state, check["output"], "f", classification="plan"))
@@ -829,7 +835,7 @@ class StrongerAttemptTests(unittest.TestCase):
         review = self.review(31, escalated, task_id=task)
         state["stages"] += [recheck, review]
         state["validation"] = verdict(recheck, "FAIL")
-        self.assertEqual("retry", policy.failure(state, review["output"], "Completion Owner REWORK"))
+        self.assertEqual("retry", policy.failure(state, review["output"], "Completion Reviewer REWORK"))
         self.decided_row(state, "retry")["at"] = at(32, escalated)  # made after the review it charges
         [row] = rows(json.loads(json.dumps(state)))
         self.assertEqual(
@@ -837,8 +843,8 @@ class StrongerAttemptTests(unittest.TestCase):
         )
 
     def test_a_review_of_a_validate_tasks_recheck_is_charged_to_the_work_it_rechecked(self):
-        """The Completion Owner sends the stronger attempt's unchanged work back to the Tester as a validate task, a new
-        task of M1 with no Builder attempt: after the Tester passed it (the runner then stamps every open escalation
+        """The Completion Reviewer sends the stronger attempt's unchanged work back to the Tester as a validate task, a
+        new task of M1 with no Builder attempt: after the Tester passed it (the runner then stamps every open escalation
         `passed`, the validation being that PASS) or failed it. The review of the recheck sends the work back, and
         astra_resolve charges that review's output to the Builder's lane: the retry-limit pause, on the stronger
         attempt's work. Neither PASS ended it: the run paused on it, as its status says."""
@@ -855,7 +861,7 @@ class StrongerAttemptTests(unittest.TestCase):
                 state["stages"] += [rechecked, review]
                 state["validation_archive"].append({"validation": state.pop("validation")})
                 state["validation"] = verdict(rechecked, recheck)
-                self.assertEqual("pause", policy.failure(state, review["output"], "Completion Owner REWORK"))
+                self.assertEqual("pause", policy.failure(state, review["output"], "Completion Reviewer REWORK"))
                 self.decided_row(state, "pause")["at"] = at(6, escalated)  # made after the review it charges
                 self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
                 [row] = rows(json.loads(json.dumps(state)))
@@ -865,9 +871,9 @@ class StrongerAttemptTests(unittest.TestCase):
                 self.assertTrue(escalation_view.lines([row])[1].endswith("; the run paused."))
 
     def test_a_builder_climbs_recheck_the_review_sent_back_did_not_end_it(self):
-        """The Builder climbs; the Tester fails its climbed attempt and the Completion Owner sends the unchanged work back
-        to the Tester as a validate task, which passes. The review sends that back, and the runner charges it to the
-        Builder's lane (a retry): that PASS did not end the climb. Its next attempt, which the Tester passes, is its
+        """The Builder climbs; the Tester fails its climbed attempt and the Completion Reviewer sends the unchanged work
+        back to the Tester as a validate task, which passes. The review sends that back, and the runner charges it to
+        the Builder's lane (a retry): that PASS did not end the climb. Its next attempt, which the Tester passes, is its
         attempt too, with its cost."""
         state = self.state()
         state.pop("current_task")
@@ -895,7 +901,7 @@ class StrongerAttemptTests(unittest.TestCase):
         checked(12, "PASS", [])
         review = self.review(13, start, task_id=recheck)
         state["stages"].append(review)
-        self.assertEqual("retry", policy.failure(state, review["output"], "Completion Owner REWORK"))
+        self.assertEqual("retry", policy.failure(state, review["output"], "Completion Reviewer REWORK"))
         self.decided_row(state, "retry")["at"] = at(14, start)  # made after the review it charges
         second = attempt("terra", 20, climbed, start=start, task_id=self.assign(state, "M1"))
         checked(21, "PASS", [second])
@@ -921,7 +927,7 @@ class StrongerAttemptTests(unittest.TestCase):
         state["validation_archive"] = [{"validation": verdict(failed, "FAIL")}]
         self.assertEqual("retry", policy.failure(state, failed["output"], "f"))
         state["validation"] = verdict(passed, "PASS")
-        self.assertEqual("escalate", policy.failure(state, review["output"], "Completion Owner REWORK"))
+        self.assertEqual("escalate", policy.failure(state, review["output"], "Completion Reviewer REWORK"))
         route_ladder.record_outcome(state, "passed")  # autopilot, after assign_task
         self.assertEqual("passed", self.decided_row(state, "escalate")["outcome"])
         escalated = self.decided(state, "escalate")
@@ -1078,13 +1084,13 @@ class StrongerAttemptTests(unittest.TestCase):
 
         first, review = passed_then_sent_back(10)
         state["stages"].append(review)
-        self.assertEqual("retry", policy.failure(state, review["output"], "Completion Owner REWORK"))
+        self.assertEqual("retry", policy.failure(state, review["output"], "Completion Reviewer REWORK"))
         self.decided_row(state, "retry")["at"] = at(13, start)  # made after the review it charges
         self.assertEqual([("failed_again", "recorded", [first["started_at"]])], outcomes())
         second, review = passed_then_sent_back(20)
         self.assertEqual([("passed", "validation", [first["started_at"], second["started_at"]])], outcomes())
         state["stages"].append(review)
-        self.assertEqual("escalate", policy.failure(state, review["output"], "Completion Owner REWORK"))
+        self.assertEqual("escalate", policy.failure(state, review["output"], "Completion Reviewer REWORK"))
         climb_row, stronger = rows(json.loads(json.dumps(state)))
         self.assertEqual(
             [
@@ -1095,6 +1101,141 @@ class StrongerAttemptTests(unittest.TestCase):
         )
         self.assertEqual(cost_of(round(2 * SOL, 6), estimated=round(2 * SOL, 6), complete=True), climb_row["cost"])
         self.assertEqual(("high", "xhigh"), (stronger["from"]["reasoning_effort"], stronger["to"]["reasoning_effort"]))
+
+    def checked(self, state, seconds, start, result, *records):
+        """`records`, then the Tester's check of the current task (`result`) and the Completion Reviewer's review of it."""
+        task = state["current_task"]["id"]
+        check = attempt("sol", seconds + 1, self.CHECKER, start=start, task_id=task)
+        state["stages"] += [*records, check, self.review(seconds + 2, start, task_id=task)]
+        if state.get("validation"):
+            state.setdefault("validation_archive", []).append({"validation": state.pop("validation")})
+        state["validation"] = verdict(check, result)
+
+    def built(self, state, seconds, start, result):
+        """A Builder attempt of the current task on its route now, then checked. Returns the attempt."""
+        route = dict(state["settings"]["roles"]["terra"])
+        builder = attempt("terra", seconds, route, start=start, task_id=state["current_task"]["id"])
+        self.checked(state, seconds, start, result, builder)
+        return builder
+
+    def reviewed(self, state, seconds, start, *, decision="REWORK", kind="implement"):
+        """The review handler with the Builder's retry policy off (autopilot): the task the review assigns, a new task of M1
+        (assign) with the decision that assigned it (a correction task on REWORK), its kind and when, as
+        autocode_goal_lifecycle.assign_task records them; then the climb at a FAIL (the Tester's for a validate task) or
+        the runner's `passed` stamp at a PASS."""
+        self.assign(state, "M1")
+        state["current_task"].update(kind=kind, decision=decision, assigned_at=at(seconds, start))
+        if state["validation"]["verdict"] == "FAIL":
+            event = escalation.advance(
+                state,
+                "sol" if kind == "validate" else "terra",
+                trigger="validation_rework",
+                detail="FAIL",
+                struggle_id=f"iteration:{seconds}",
+            )
+            event["at"] = at(seconds + 1, start)  # made after the task
+        else:
+            route_ladder.record_outcome(state, "passed")
+
+    def policy_off_climb(self):
+        """With the Builder's retry policy off (builder_retry disabled; a reviewer routing mode in settings.workflow turns
+        it off the same way), nothing charges a review that sends work back, and the Builder climbs at a FAIL instead
+        (reviewed). The Tester fails the Builder's first attempt of M1 and the Completion Reviewer sends it back, so the
+        Builder climbs; the Tester passes its climbed attempt. Returns the state, when it started and that attempt."""
+        state = self.state()
+        state["settings"]["builder_retry"]["enabled"] = False
+        state["settings"]["roles"]["terra"] = {"model": "openai/gpt-6-sol", "reasoning_effort": "medium"}
+        self.assertFalse(policy.enabled(state))
+        start = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=10)
+        state.pop("current_task")
+        self.assign(state, "M1")
+        state["current_task"].update(kind="implement", decision="CONTINUE", assigned_at=at(-1, start))
+        state["stages"] = []
+        self.built(state, 0, start, "FAIL")
+        self.reviewed(state, 3, start)
+        self.assertEqual("high", state["settings"]["roles"]["terra"]["reasoning_effort"])
+        return state, start, self.built(state, 10, start, "PASS")
+
+    def test_with_the_retry_policy_off_a_builder_climbs_pass_the_review_sent_back_did_not_end_it(self):
+        """The Builder climbed with its retry policy off and the Tester passed its climbed attempt (policy_off_climb). The
+        Completion Reviewer sends that work back as a correction task of M1, where the runner stamps every open escalation
+        `passed`. That PASS did not end the climb: the next climbed attempt, which the Tester fails, is its attempt too,
+        with its cost, and the climb failed again when the Builder climbed past it."""
+        state, start, passed = self.policy_off_climb()
+        self.assertEqual([("passed", "validation", [passed["started_at"]])], ended(state))
+        self.reviewed(state, 13, start)
+        self.assertEqual("passed", state["reasoning_escalations"][0]["outcome"])
+        self.assertEqual([("failed_again", "recorded", [passed["started_at"]])], ended(state))
+        failed = self.built(state, 20, start, "FAIL")
+        self.reviewed(state, 23, start)
+        self.assertEqual("xhigh", state["settings"]["roles"]["terra"]["reasoning_effort"])
+        climb_row, _ = rows(json.loads(json.dumps(state)))
+        self.assertEqual(
+            [
+                ("failed_again", "later_escalation", [passed["started_at"], failed["started_at"]]),
+                ("running", "run_status", []),
+            ],
+            ended(state),
+        )
+        self.assertEqual(cost_of(round(2 * SOL, 6), estimated=round(2 * SOL, 6), complete=True), climb_row["cost"])
+        self.assertTrue(escalation_view.lines([climb_row])[1].endswith("; failed again."))
+
+    def test_with_the_retry_policy_off_only_a_correction_task_of_its_milestone_sends_a_climbs_work_back(self):
+        """The Builder climbed with its retry policy off and the Tester passed its climbed attempt of M1 (policy_off_climb).
+        The task the review assigns next sends that work back only when it is a correction task of that milestone (an
+        implement task whose decision is REWORK), also once archived. So the climb passed when the review hands the
+        Builder more work on M1 (CONTINUE), when it sends the unchanged work back to the Tester (a validate task), and when
+        a person's feedback replanned the run and the Tester fails the revised contract's M1 (its first task, a validate
+        task): that milestone's correction task has no Builder attempt to send back, and the Builder climbs again. After a
+        correction task of M1, its next attempt passes and the review hands on more work: it passed, with both attempts."""
+        for case in ("more work", "a recheck", "a replanned contract", "a correction, then more work"):
+            with self.subTest(case):
+                state, start, passed = self.policy_off_climb()
+                expected = [("passed", "validation", [passed["started_at"]])]
+                if case == "more work":
+                    self.reviewed(state, 13, start, decision="CONTINUE")
+                elif case == "a recheck":
+                    self.reviewed(state, 13, start, kind="validate")
+                elif case == "a replanned contract":
+                    state["goal_contract"] = {"hash": "replanned"}
+                    self.validate_task(state)
+                    self.checked(state, 20, start, "FAIL")
+                    self.reviewed(state, 23, start)
+                    expected.append(("running", "run_status", []))
+                else:
+                    self.reviewed(state, 13, start)
+                    second = self.built(state, 20, start, "PASS")
+                    self.reviewed(state, 23, start, decision="CONTINUE")
+                    expected = [("passed", "validation", [passed["started_at"], second["started_at"]])]
+                self.assertEqual(expected, ended(state))
+
+    def test_the_runners_pass_stamp_is_never_a_builder_climbs_outcome(self):
+        """The Builder climbs after its report was rejected (autocode.reject_completed_stage keeps the rejected record)
+        and its climbed attempt runs. Before the Tester checks it, a person's feedback replans the run: the revised
+        contract's first task is a validate task of M1, whose Tester passes the workspace, and the runner stamps every
+        open escalation `passed` (autopilot). Every Builder attempt since the climb ran on the climbed rung, but that PASS
+        is of the replanned contract's milestone, not of the climb's work: the climb is running, as the run is."""
+        state = self.state()
+        state.pop("current_task")
+        state["settings"]["roles"]["terra"] = {"model": "openai/gpt-6-sol", "reasoning_effort": "medium"}
+        task = self.assign(state, "M1")
+        start = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=10)
+        route = dict(state["settings"]["roles"]["terra"])
+        state["stages"] = [attempt("terra", 0, route, start=start, task_id=task, rejected=True)]
+        escalation.advance(state, "terra", trigger="rejected_output", detail="The report was rejected")
+        state["reasoning_escalations"][0]["at"] = at(5, start)
+        climbed = attempt("terra", 10, dict(state["settings"]["roles"]["terra"]), start=start, task_id=task)
+        state["goal_contract"] = {"hash": "replanned"}
+        recheck = attempt("sol", 20, self.CHECKER, start=start, task_id=self.validate_task(state))
+        state["stages"] += [climbed, recheck]
+        state["validation"] = verdict(recheck, "PASS")
+        route_ladder.record_outcome(state, "passed")
+        self.assertEqual("passed", state["reasoning_escalations"][0]["outcome"])
+        [row] = rows(json.loads(json.dumps(state)))
+        self.assertEqual(
+            ("running", "run_status", [climbed["started_at"]]), (row["outcome"], row["outcome_basis"], started(row))
+        )
+        self.assertTrue(escalation_view.lines([row])[1].endswith("; still running."))
 
     def test_another_milestones_failure_on_the_climbed_rung_does_not_undo_the_climbs_pass(self):
         """The Builder was pinned on its climbed rung, so M2's Builder runs on it too. M2's attempt failing its check,
