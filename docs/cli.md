@@ -37,6 +37,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode compare-baseline` | Compare Vitest failure evidence (see [Execution](execution.md#baseline-comparison)). |
 | `autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS` / `autocode-issue review-pr` | Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. `--post` submits COMMENT only after every new-side anchor and the head are rechecked (see [Pull request reviews](issues.md#reviewing-a-pull-request)). |
 | `autocode review --workspace PATH [--run-dir RUN]` | Inspect pending human-review criteria and their recorded evidence, then approve, reject with a note, or skip. Reads decisions from terminal or piped input. `--show` and `--json` display without prompting; decisions never start a model. See [Human review](execution.md#human-review-in-the-terminal). |
+| `autocode serve start\|stop\|status [--workspace PATH] [--run-dir RUN]` | Run the run's development server in the foreground from the project's saved `serve` command ([Project settings](#project-settings)) on a free loopback port until Ctrl-C or `autocode serve stop`; `stop` ends it and waits (`--timeout`); `status` shows whether it is configured, running and its address (`--json`). See [Development server](#development-server). |
 | `autocode forget [--workspace PATH] [--json]` | Clear only the learned project record; keep explicit configuration, saved runs and evidence. See [Project memory](project-memory.md). |
 | `autocode clean-worktrees [--yes] [--json]` | List, then with `--yes` remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
 | `autocode prune-run RUN [--yes] [--json]` | List, then with `--yes` delete a run's settled evidence bytes: finished verification-copy trees (`tool-containment-*/scratch`) and settled job-source stores (`<attempt>.source/`). Manifests, receipts and hashes are retained, so what was there stays provable; `state.json` is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown. |
@@ -537,6 +538,30 @@ deferred until the UI runner supports checkpoint recovery; use `autocode ui` sep
 | `--figma-review human` | Require a human visual approval during implementation. |
 | `--max-plan-reworks`, `--max-reworks` | Review-loop limits (`none`, `0`, or a number). |
 
+## Development server
+
+`autocode serve start` runs the project's `serve` command for a saved run and
+keeps it in the foreground. AutoCode picks a free port on 127.0.0.1, puts it
+wherever the command says `{port}` and in `PORT`, sets `HOST=127.0.0.1`, and runs
+the command in the run's workspace with credentials removed from its
+environment, under the same process supervision as a test command. Once the
+server answers (any connection, or a status below 400 at `ready-path`) it prints
+`Serving http://127.0.0.1:PORT/`. Ctrl-C, closing the terminal or
+`autocode serve stop` from another terminal stops its whole process group; if
+the `autocode serve start` process dies, its supervisor ends the server. A run
+has at most one server; a second `start` is refused while one runs.
+
+The server never starts, pauses or decides a stage. Its record is
+`dev-server.json` in the run directory, and each start keeps its output and
+supervision receipt under `dev-server/`. `autocode serve status` and
+`autocode --status` (`view.dev_server`) show `configured`, `status` (`off`,
+`starting`, `running`, `stopped`, `exited`, `failed`, or `lost` when the process
+that served it is gone), the `url` while it runs, the `command`, its `port`,
+times, `exit_code`, `reason` and `log`. A server that exits, or does not answer
+within `ready-seconds`, ends `start` with exit status 1 and its last output.
+A run started before its project named `serve` has none: name it in
+`.autocode/config.toml` and start a new run.
+
 ## Subcommand options
 
 These options belong to the command in the first column. A shared spelling can
@@ -553,6 +578,7 @@ also accepts `-h` / `--help`.
 | `autocode models` | `--workspace`, `--provider`, `--json`, `--prices` | Project/provider model availability and default routes; optionally JSON; `--prices` shows the dated price table and each default route's rate. |
 | `autocode review-pr` | `--out`, `--post`, `--json` | New owned review directory, optional COMMENT-only posting after full finding/head admission, and JSON findings/evidence; creation/provider options follow `--`. |
 | `autocode review` | `--workspace`, `--run-dir`, `--show`, `--json` | Saved task workspace and run (otherwise the workspace's only run); text or JSON evidence without decisions. With neither display flag, ask approve/reject/skip for each pending criterion. |
+| `autocode serve` | `--workspace`, `--run-dir`, `--timeout`, `--json` | Saved task workspace and run (otherwise the workspace's only run); with `stop`, seconds to wait for the server to end (default 15); with `status`, one JSON object. |
 | `autocode clean-worktrees` | `--workspace`, `--yes`, `--json` | Select the project; remove eligible completed worktrees only with `--yes`; optionally format output as JSON. |
 | `autocode bundle` | `--out`, `--with-diff`, `--json` | Where to write the archive; add the run's diff of the workspace source; print the archive path and manifest as JSON. |
 | `autocode prune-run` | `--yes`, `--json` | Delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON. |
