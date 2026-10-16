@@ -175,6 +175,23 @@ class Reconcile(unittest.TestCase):
         )
         self.assertNotIn("leave those as they are too", scope["instruction"])
 
+    def test_the_investigator_handoff_names_the_package_and_the_suite_the_run_has(self):
+        suite = f"cd {GREET} && python3 -m unittest discover -v"
+        settings = {"package": GREET, "protected_tests": {"command": suite}}
+        scope = package_writes.context(settings, bug_job.STAGE)
+        self.assertEqual((f"{GREET}/", suite), (scope["package"], scope["suite"]))
+        self.assertIn(f"inside {GREET}/: the runner rejects a report that names anything else", scope["instruction"])
+        # A root-form --test-command runs from the root as given: the suite is not said to enter the package.
+        self.assertIn("run it exactly as given from the root of investigation_workspace", scope["instruction"])
+        self.assertNotIn(f"enters {GREET}/ first", scope["instruction"])
+        # A fix that does need a file outside the package keeps it named, so the report is refused and the run pauses.
+        self.assertIn(f"outside {GREET}/, name that file anyway", scope["instruction"])
+        self.assertNotIn("{", scope["instruction"])
+        # A package with no tests and no --test-command has no suite to name; the Builder's scope never names one.
+        self.assertNotIn("suite", package_writes.context({"package": GREET, "protected_tests": {}}, bug_job.STAGE))
+        self.assertNotIn("suite", package_writes.context(settings))
+        self.assertIsNone(package_writes.context({}, bug_job.STAGE))
+
 
 class Checkout(unittest.TestCase):
     """The check before review and the --accept-completion refusal, on a real checkout, in a build that owes
@@ -295,9 +312,14 @@ class RunnerFiles(unittest.TestCase):
         regression.before_review(self.state, "sol", self.project.root, self.run_dir)
         return runner_rows(self.state)
 
+    @staticmethod
+    def report():
+        """A reproduced diagnosis inside the package, as a package run's Investigator must give it."""
+        return diagnosis(affected_paths=[f"{GREET}/greet.py"], test_paths=[f"{GREET}/test_greet.py"])
+
     def write_note(self):
         """The bug-fix workflow's runner note, written as autocode_bug_job.apply writes it."""
-        report = diagnosis()
+        report = self.report()
         output = self.run_dir / "bug-investigation-01.json"
         output.write_text(json.dumps(report))
         bug_job.apply(self.state, report, {"changed_files": [], "output": str(output)}, self.project.root)
@@ -315,7 +337,7 @@ class RunnerFiles(unittest.TestCase):
         self.assertIn("do not delete it", row["finding"])
         self.assertNotIn("remove an added file", row["finding"])
         # Put back, it is the runner's again and the finding closes.
-        note.write_text(json.dumps({**bug_job.note(diagnosis()), "proven_by": ""}, indent=2) + "\n")
+        note.write_text(json.dumps({**bug_job.note(self.report()), "proven_by": ""}, indent=2) + "\n")
         self.assertEqual([], [row for row in self.check() if row["status"] == "open"])
         self.assertEqual("resolved", row["status"])
 

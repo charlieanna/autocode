@@ -50,6 +50,10 @@ def inherit(settings, role, source_role=None):
     routes = settings.get("roles", {})
     route = routes.get(role, {})
     provider = route.get("provider")
+    if provider in (None, "opencode", "openai", settings.get("provider")):
+        # The role runs on the run's own tool, so there is no external identity to copy:
+        # a copied one would contradict its route, and `_entry` refuses that pairing.
+        return None
 
     sources = (source_role,) if source_role else DERIVED_ROLES.get(role, ())
     for src in sources:
@@ -57,21 +61,16 @@ def inherit(settings, role, source_role=None):
             continue
         src_key = PREFIX + str(src)
         src_identity = identities.get(src_key)
-        if (
-            src_identity is not None
-            and isinstance(src_identity, dict)
-            and (provider is None or src_identity.get("provider") == provider)
-        ):
+        if src_identity is not None and isinstance(src_identity, dict) and src_identity.get("provider") == provider:
             inherited = copy.deepcopy(src_identity)
             settings.setdefault("transport_identities", {})[target_key] = inherited
             return inherited
 
-    if provider and provider not in (None, "opencode", "openai", settings.get("provider")):
-        for k, v in identities.items():
-            if k.startswith(PREFIX) and isinstance(v, dict) and v.get("provider") == provider:
-                inherited = copy.deepcopy(v)
-                settings.setdefault("transport_identities", {})[target_key] = inherited
-                return inherited
+    for k, v in identities.items():
+        if k.startswith(PREFIX) and isinstance(v, dict) and v.get("provider") == provider:
+            inherited = copy.deepcopy(v)
+            settings.setdefault("transport_identities", {})[target_key] = inherited
+            return inherited
 
     return None
 

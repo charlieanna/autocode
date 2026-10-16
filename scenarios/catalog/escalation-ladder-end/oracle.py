@@ -17,6 +17,9 @@ from harness.oracle import Check, escalation_checks
 CLIMBED = (("gpt-5.6-terra", "medium"), ("gpt-6-sol", "xhigh"))
 # The Builder's attempts: the first, its one ordinary retry, then the stronger attempt; then the ladder ends.
 BUILDS = 3
+# The runner's own stamps (the view's escalation_outcomes): the ordinary retry and the stronger attempt, both
+# `paused` at the retry-limit pause, as the row reads.
+STAMPED = {"passed": 0, "paused": 2, "open": 0}
 PAUSE = "PAUSED_BUILDER_RETRY_LIMIT"
 # The pause's own words, then what the Investigator read in the delivered greet.py (harness/escalation_provider.py).
 EXHAUSTED = "remains blocked after configured retry/escalation"
@@ -44,6 +47,7 @@ def check(project, scenario, run=None):
         attempts=1,
         outcome="paused",
         basis="recorded",
+        stamped=STAMPED,
     )
     builds = (run.get("model_stages") or []).count("terra")
     checks.append(Check("no_builder_attempt_after_the_stronger_one", builds == BUILDS, f"{builds} Builder attempts"))

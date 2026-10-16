@@ -356,5 +356,78 @@ class OutcomeTests(unittest.TestCase):
         self.assertNotIn("outcome", state["builder_retry_decisions"][1])
 
 
+class PassStampTests(unittest.TestCase):
+    """record_pass: the runner's `passed` stamp where the next task is assigned on a validation PASS (#612)."""
+
+    PASSED = "2026-10-16T10:00:00+00:00"  # when the Tester attempt that passed the work started
+
+    def state(self, **change):
+        state = {
+            "stages": [{"stage": "sol", "output": "sol-02.json", "started_at": self.PASSED}],
+            "validation": {"verdict": "PASS", "output": "sol-02.json"},
+            "reasoning_escalations": [{"role": "sol", "trigger": "validation_rework"}],
+            "builder_retry_decisions": [{"action": "retry", "at": "2026-10-16T09:30:00+00:00"}],
+            "current_task": {
+                "id": "t3",
+                "kind": "implement",
+                "decision": "CONTINUE",
+                "assigned_at": "2026-10-16T10:09:00+00:00",
+            },
+        }
+        return {**state, **change}
+
+    def stamped(self, state):
+        route_ladder.record_pass(state)
+        return [
+            row.get("outcome", "open") for row in (*state["reasoning_escalations"], *state["builder_retry_decisions"])
+        ]
+
+    def test_work_the_run_moves_on_from_stamps_every_open_escalation(self):
+        self.assertEqual(["passed", "passed"], self.stamped(self.state()))
+
+    def test_work_sent_back_since_the_pass_leaves_the_builders_own_open(self):
+        sent_back = {
+            "a stronger attempt charged on the review": self.state(
+                builder_retry_decisions=[
+                    {"action": "retry", "at": "2026-10-16T09:30:00+00:00"},
+                    {"action": "escalate", "at": "2026-10-16T10:05:00+00:00"},
+                ]
+            ),
+            "a correction task": self.state(
+                current_task={"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:09:00+00:00"}
+            ),
+            "a correction task since archived for the next task": self.state(
+                task_archive=[{"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:05:00+00:00"}]
+            ),
+            "a Builder climb and a correction task": self.state(
+                reasoning_escalations=[{"role": "sol"}, {"role": "terra"}],
+                current_task={"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:09:00+00:00"},
+            ),
+        }
+        for case, state in sent_back.items():
+            with self.subTest(case):
+                outcomes = self.stamped(state)
+                # The Tester's own climb passed its validation, as before; the Builder's work did not pass.
+                self.assertEqual("passed", outcomes[0])
+                self.assertEqual({"open"}, set(outcomes[1:]))
+                self.assertTrue(route_ladder.sent_back(state))
+
+    def test_a_charge_or_correction_before_the_pass_is_not_a_send_back(self):
+        state = self.state(
+            builder_retry_decisions=[
+                {"action": "retry", "at": "2026-10-16T09:30:00+00:00"},
+                {"action": "escalate", "at": "2026-10-16T09:50:00+00:00"},
+            ],
+            task_archive=[{"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T09:51:00+00:00"}],
+        )
+        self.assertFalse(route_ladder.sent_back(state))
+        self.assertEqual(["passed", "passed", "passed"], self.stamped(state))
+
+    def test_an_unknown_pass_leaves_the_builders_own_open(self):
+        for case, stages in {"no record of it": [], "no start": [{"output": "sol-02.json"}]}.items():
+            with self.subTest(case):
+                self.assertEqual(["passed", "open"], self.stamped(self.state(stages=stages)))
+
+
 if __name__ == "__main__":
     unittest.main()

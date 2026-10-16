@@ -1342,6 +1342,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
                 paused=support.Paused,
             ):
                 return
+            route_ladder.record_outcome(state, "passed")  # the run completed on work a validation passed
         elif value["status"] == "BLOCKED":
             if modern:
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "BLOCKED requires a structured user_request")
@@ -1472,7 +1473,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
                     struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}",
                 )
             elif validation_verdict == "PASS":
-                route_ladder.record_outcome(state, "passed")
+                route_ladder.record_pass(state)
             state.update(
                 {
                     "next_action": value["next_objective"],

@@ -360,6 +360,15 @@ PR template asks for an entry here; a change without one is incomplete.
   a new pull request, on `-plan-2`, made from the base branch that holds the merged file.
   `TaskRun.export_plan(path)` is the task-run interface's way to write the plan file. `docs/workflow.md` describes
   the team workflow. Starting a new run from the merged file is not available yet (#720).
+- A completed program's or components run's evidence report now lists its child runs' approvals (#722, seventh
+  part). Each row is copied from that child's own report with the child's id added as `child`, child by child, and
+  `evidence.md` shows them in an Approvals table with a Child column. It also says what is left out: a program
+  agreement (`autocode program approve`) records no approver, a program does not list approvals of a plan run it was
+  derived from (`autocode program derive`), and a components run does not list approvals of its architecture. A child whose report lists no approvals, written before AutoCode listed them, is named in the
+  report's not-verified list. When no child's report lists any, the report is unchanged. The scenario harness's
+  `approval provenance: RUN` check now also matches each budget pause a scenario's person acknowledged (`[fake]
+  acknowledge`) to the `resume` row naming that pause, as it matches plan approvals by token and review approvals
+  by criterion.
 - The scenario catalog has a bug fix in one package of a two-package repository, `bugfix-monorepo-package` (#711).
   Both `packages/invoices/` and `packages/search/` keep a copy of the same off-by-one pager; the report and the fix
   belong to the invoice package. The scripted run is started with `--package packages/invoices/`, goes through the
@@ -568,6 +577,16 @@ PR template asks for an entry here; a change without one is incomplete.
   written: a cap changed at the hold, with or without `--resume-paused`, is the cap the stop then states, and
   removing the cap removes the `Cost:` line. The `rework-same-failure` scenario's oracle now checks that the stop
   states the status view's spend and cap (#611).
+- In a `--package` bug fix, the Investigator is told the package (#711). Its handoff gains `package_scope`: the
+  package, `suite` (the command the run tests the package with, the suite detected there or `--test-command`) when
+  the run has one, and an instruction to name only files inside the package. A reproduced diagnosis whose
+  `affected_paths` or `test_paths` name anything outside the package is refused as invalid output, so it goes
+  through report repair with the reason and the run pauses rather than plan from it; before, it was accepted and the
+  fix was planned from it. When the fix does need a file outside the package, the instruction and the reason tell
+  the Investigator to keep naming it, so the run pauses: such a fix needs a run without `--package`. The diagnosis
+  note stays under `docs/bugs/` at the repository root and is still left out of the check for changes outside the
+  package. The scripted Investigator in `scenarios/` names only the package's files when its handoff names a
+  package, so `bugfix-monorepo-package`'s broken variant still reaches the Builder.
 
 ### Removed
 
@@ -589,6 +608,10 @@ PR template asks for an entry here; a change without one is incomplete.
   and bug-fix workflows, Architect in the design workflow, Acceptance Tester in spec-first runs, Resolver,
   Stuck Investigator, or Utility route), it now inherits the source role's saved transport tool identity,
   preventing missing-identity failures when using external role transports such as `--role-transport` (#1426).
+  A derived role whose own route stays on the run's tool (a Resolver with its own `--resolver-model` on
+  OpenCode while the Completion Reviewer moves to another tool) inherits nothing and keeps that route. Before,
+  it was handed the source role's identity, and every start then refused with "Saved role transport does not
+  match its immutable route".
 - When the OpenCode planning roles receive the complete Figma manifest and catalog as SHA-256 and
   byte-bound file references, their handoff now also carries the complete case roster inline (ID, route
   and state of every case, in manifest order), as Builder and Tester handoffs already did. Before, the
@@ -1138,6 +1161,19 @@ PR template asks for an entry here; a change without one is incomplete.
   stops holding when the milestone budget changes. One recorded after the upgrade leaves the budget out, even for a
   packet saved before it: the repair admission written when the Resolver's plan finishes lets that repair launch
   after a milestone budget change (#611).
+- The status view's `escalation_outcomes`, the runner's own stamp on each escalation and Builder retry, disagreed
+  with the `escalations` row for the Builder's stronger attempt. A run that completed on that attempt's work left it
+  and the ordinary retry before it `open` while the row read `passed`: the runner stamped `passed` only where the
+  Completion Reviewer or Resolver assigned a next task on a PASS, never at completion. And where a review sent work
+  the Tester had passed back and the retry policy made the stronger attempt, that same assignment stamped it
+  `passed` before it ran. The runner now also stamps every open one `passed` when the run completes, and at an
+  assignment leaves the Builder's own open when the work was sent back after the validation's attempt started (a
+  retry-policy charge or a correction task anywhere in the run, which the rows take as a failure after a PASS of the
+  escalation's own milestone), or when that attempt's start is not recorded, so a send-back cannot be ruled out
+  (`autocode_route_ladder.record_pass`). In `escalation-converts`, `escalation_outcomes` now reads 2 passed and 0
+  open, as its row does, and the scenario's oracle checks it. A stamp still ends with the struggle, so a climb a
+  later climb replaced reads `passed` there and `failed_again` as a row; `docs/models.md` and `docs/task-run.md`
+  say which to read (#612).
 
 ## [0.7.1] — 2026-10-09
 

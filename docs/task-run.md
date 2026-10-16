@@ -299,8 +299,9 @@ pause, with its recorded provenance, never verified), shown in the Markdown as a
 table after the intended outcome, or as `None recorded` for a run with none
 ([Who approved](execution.md#who-approved)). Review and discuss reports, which have no approval
 step, have no `approvals` field and no such section, even when the status view lists a resume.
-Neither do verification, program and component reports, nor reports written before AutoCode
-listed approvals, so older pairs still authenticate. An older build, bug-fix or design report
+Neither do verification reports, nor reports written before AutoCode listed approvals, so
+older pairs still authenticate. A program or components report lists its child runs' approvals
+(below). An older build, bug-fix or design report
 gains the section when AutoCode saves the completed run again; reading its status does not.
 A task report whose approved plan is in the status view also has `plan.goal_hash` and
 `plan.plan_file`, copied from `approved_contract` (#720); the Markdown says them after the
@@ -360,6 +361,16 @@ child deliveries; the aggregate reader does not claim fresh child verification.
 Aggregate completion timestamps and elapsed wall time remain unrecorded when the
 coordinator has no owned timing record. A child's completion time does not stand
 for later integration checks or runtime smoke.
+An aggregate also lists, under `approvals`, the approvals each child's own report lists
+(#722): child by child, in its `children` order, each row as that report has it plus `child`,
+the child's id. Its Markdown shows them as an Approvals table with a Child column, and says
+what it leaves out: a program agreement (`autocode program approve`) records no approver, a
+program does not list approvals of a plan run it was derived from (`autocode program derive`),
+and a components run does not list approvals of the architecture it was built from. Those runs'
+own reports list them. A child whose
+report lists no approvals, because it was written before AutoCode listed them, is named in the
+aggregate's not-verified list rather than taken to have recorded none. When no child's report
+lists approvals, the aggregate has no `approvals` and no such section, as before.
 For component `--run-local`, `--runtime-evidence-provenance fake|live|unknown`
 separately discloses the runtime smoke route. Its HTTP results and sanitized local
 receipt are included in the aggregate; simulated smoke does not prove real
@@ -697,7 +708,17 @@ has that basis, and `spent_usd` is null when no stage is known at all; while `co
 so its `estimated` can differ from `cost.estimated_usd`.
 
 `escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
-stamped on them (`passed`, `paused`, `open`). `escalations` lists each escalation the run made, oldest
+stamped on them (`passed`, `paused`, `open`; `tools/autocode_route_ladder.py`). The runner stamps
+every one still open `passed` when the run completes on work a validation passed, or when the
+Completion Reviewer or Resolver assigns the next task while the last validation passed, and `paused`
+at the Builder's retry-limit pause. At that assignment it leaves the Builder's own (its climbs, its
+retries and its stronger attempt) open when the work was sent back after that validation's attempt
+started (a retry-policy charge or a correction task anywhere in the run; `escalations` takes the same
+two as a failure after a PASS of the escalation's own milestone), or when that attempt's start is not
+in the run's records, so a send-back cannot be ruled out. A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a
+climb a later climb replaced reads `passed` there and `failed_again` as a row, and before the struggle
+ends a stamp is `open` while its row may read `passed`. `--accept-completion` stamps nothing. Read a
+row's `outcome` for how one escalation ended. `escalations` lists each escalation the run made, oldest
 first (`tools/autocode_escalation_view.py`, #612): a role's climb on its effort ladder (`kind`
 `effort_climb`) and the Builder's stronger attempt (`stronger_attempt`; see
 [Models](models.md#builder-retry-policy)). Each row has the route `role` that moved, the `stage` that
@@ -765,13 +786,13 @@ serially), `inherited`, `attempts`, `cost` and `outcome`:
   (`recorded`), for a role other than the Builder, only when every attempt of its role since it, until
   the role's next escalation, ran on the route it climbed to and there was at least one, else the
   run's status now (`run_status`: complete is `passed`, running is `running`, any pause, wait or stop
-  is `paused`). The runner stamps every open escalation `passed` where the Completion Reviewer or
+  is `paused`). The runner stamps another role's open climb `passed` where the Completion Reviewer or
   Resolver assigns the next task while the last validation passed, whoever's work passed, so that
   stamp is not taken over a failure of its own work, once a person or the Builder's retry policy
   moved the role to another route, or when the role ran nothing since.
-  Validations judge the Builder's work, and the runner stamps its stronger attempt `passed` in the
-  handler that made it, at the PASS the review just sent back, before that attempt runs, so the
-  Builder's stamp is never taken. It is a projection of saved records, so it can change as the run
+  Validations judge the Builder's work, and a run saved by AutoCode before this change (#612) may hold
+  a `passed` stamp the runner wrote on the Builder's stronger attempt in the handler that made it, at the PASS the review
+  just sent back, before that attempt ran, so the Builder's stamp is never taken. It is a projection of saved records, so it can change as the run
   continues.
 
 A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view

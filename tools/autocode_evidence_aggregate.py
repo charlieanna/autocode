@@ -42,6 +42,25 @@ def combine(reports):
     }
 
 
+def child_approvals(children, reports):
+    """The approvals each child run's own report lists, child by child, each row naming its child (#722), and the
+    children whose report lists none.
+
+    (None, []) when no child report lists approvals (each was written before AutoCode listed them): the report then
+    has no ``approvals``, as before. A child whose report lists none among others that do is named, so the report
+    never takes it to have recorded none. The rows are copied as the child report has them when this report is
+    written. As with the copied criteria and findings, nothing later compares them with the child reports: the binding
+    names each child report's digests, and this report's own anchor (its JSON and Markdown digests) authenticates the
+    rows.
+    """
+    listed = [(child["id"], report["document"]) for child, report in zip(children, reports, strict=False)]
+    if not any("approvals" in facts for _, facts in listed):
+        return None, []
+    rows = [{**row, "child": cid} for cid, facts in listed for row in facts.get("approvals", ())]
+    unlisted = [f"{cid}: its evidence report lists no approvals" for cid, facts in listed if "approvals" not in facts]
+    return rows, unlisted
+
+
 def publish(
     root,
     *,
@@ -131,5 +150,9 @@ def publish(
         for gap in report["document"]["unverified"]
     ]
     value["attempts"] = attempts
+    approvals, unlisted = child_approvals(children, reports)
+    if approvals is not None:
+        value["approvals"] = approvals
+        value["unverified"] += unlisted
     anchor = export.write(Path(root), value)
     return export.read(root, anchor, expected_binding=bound, include=True)

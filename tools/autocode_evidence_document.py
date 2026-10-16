@@ -27,6 +27,14 @@ APPROVER_UNVERIFIED = (
     "Who approved is recorded as given, not verified: the Git identity is what the checkout's Git configuration "
     "held and a name given with --as is the person's own claim"
 )
+# The reports that list their child runs' approvals, each row naming its ``child`` (autocode_evidence_aggregate),
+# and what each says it leaves out: the decisions of its own that record no approver, and the approvals of the run
+# it was planned in, which that run's own report lists (#722).
+COORDINATOR_APPROVALS_LEFT_OUT = {
+    "program": "The program agreement (`autocode program approve`) records no approver, so it is not listed, and "
+    "neither are the approvals of a plan run it was derived from (`autocode program derive`).",
+    "components": "Approvals of the architecture this run was built from are not listed.",
+}
 DIGEST = re.compile(r"[0-9a-f]{64}")
 # The fields of the status view's approved_contract.plan_file the report copies (#720).
 PLAN_FILE_FIELDS = ("path", "goal_hash", "revision", "changed")
@@ -187,6 +195,7 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
     # Only the task status view lists approvals; a report built from other facts (verification, program,
     # components) has no such record and omits the field rather than claiming there were none. So does the report
     # of a workflow with no approval step (review, discuss), which review-pr may post on someone else's pull request.
+    # A program or components report then gains its child runs' (autocode_evidence_aggregate.child_approvals).
     approvals = (
         approval_facts(view["approvals"])
         if "approvals" in view and approval_provenance.asks_for_approval(view.get("workflow"))
@@ -280,6 +289,13 @@ def validate(document):
         hashes.append(plan["plan_file"]["goal_hash"])
     if not all(_digest(value) for value in hashes):
         raise ValueError("A plan's goal hash must be a SHA-256 digest")
+    # Each approval a program or components report lists names the child run whose report lists it; no other
+    # report's approval names one, so each renders in exactly one table.
+    coordinated = document["kind"] in COORDINATOR_APPROVALS_LEFT_OUT
+    named = {child["id"] for child in document["children"]}
+    for row in document.get("approvals", ()):
+        if coordinated != ("child" in row) or (coordinated and row["child"] not in named):
+            raise ValueError("Only a program or components report names an approval's child run, one it lists")
     # Also reject non-JSON numbers (NaN/Infinity) in nested public accounting.
     json.dumps(document, allow_nan=False)
 
@@ -386,11 +402,43 @@ def _approval_cells(row):
     return (row["at"], decision, who, recorded["host"], recorded["command"], claimed)
 
 
+APPROVALS_UNVERIFIED = (
+    "None of it is verified: the Git identity is what the checkout's Git configuration held, and a name given "
+    "with `--as` is the person's own claim."
+)
+
+
+def _child_approval_lines(document):
+    """A program or components report's Approvals section (#722): the approvals each child run's own report lists,
+    child by child in the order of its children, each row naming its child."""
+    lines = [
+        "## Approvals",
+        "",
+        "Who approved in each child run, as that run's own evidence report lists it: child by child, oldest first.",
+        APPROVALS_UNVERIFIED,
+        COORDINATOR_APPROVALS_LEFT_OUT[document["kind"]],
+        "",
+    ]
+    if not document["approvals"]:
+        return [*lines, "None recorded: no child run's report lists an approval, plan edit or resume.", ""]
+    lines += [
+        "| Child | When | Decision | Git identity | Host | Command | Name given with --as |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    lines += [
+        "| " + " | ".join(text(cell) for cell in (row["child"], *_approval_cells(row))) + " |"
+        for row in document["approvals"]
+    ]
+    return [*lines, ""]
+
+
 def _approval_lines(document):
     """The Approvals section (#722), or [] for a report without approvals: one written before AutoCode listed
     them, so an older report's Markdown still renders byte for byte from its JSON, or a review or discussion's."""
     if "approvals" not in document:
         return []
+    if document["kind"] in COORDINATOR_APPROVALS_LEFT_OUT:
+        return _child_approval_lines(document)
     # Only a report that lists a completion acceptance names it here: every report written before AutoCode listed
     # one keeps its sentence, so its Markdown still renders byte for byte from its JSON.
     accepted = any(row["kind"] == "completion" for row in document["approvals"])
@@ -401,8 +449,7 @@ def _approval_lines(document):
         "completion, oldest first."
         if accepted
         else "Who approved the plan and each review, edited the plan or resumed the run from a pause, oldest first.",
-        "None of it is verified: the Git identity is what the checkout's Git configuration held, and a name given "
-        "with `--as` is the person's own claim.",
+        APPROVALS_UNVERIFIED,
         "",
     ]
     if not document["approvals"]:

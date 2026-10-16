@@ -60,7 +60,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/provider-", ("tests.test_command_source_schema",)),
     ("tools/prompts/fragments/output-policy/", ("tests.test_autocode_output_policy",)),
     ("tools/prompts/fragments/protected-oracles/", ("tests.test_autocode_protected_oracles",)),
-    ("tools/prompts/fragments/package-scope/", ("tests.test_package_writes",)),
+    ("tools/prompts/fragments/package-scope/", ("tests.test_package_writes", "tests.test_package_investigator_cli")),
 )
 
 # A CLI consumer is selected even if marked slow: otherwise the import-only gap
@@ -109,6 +109,22 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
         ("tests.test_package_scope_cli",),
     ),
+    # A --package bug fix's Investigator (#711): units.autoresolver hands it the package from
+    # autocode_package_writes.context, and autocode_bug_job.check refuses a diagnosis outside the package by
+    # autocode_package_scope's path rules. Only the CLI module drives them through TaskRun, with a stand-in
+    # Investigator.
+    (
+        (
+            "tools/autocode_bug_job",
+            "tools/units/autoresolver",
+            "tools/autocode_package_writes",
+            "tools/autocode_package_scope",
+        ),
+        ("tests.test_package_investigator_cli",),
+    ),
+    # A mapped path no longer gets the fake flows every unmapped tools/ module selects (``dependencies``); these
+    # two had them before the row above, and keep them.
+    (("tools/autocode_bug_job", "tools/units/autoresolver"), (*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS)),
 )
 
 SUITE_PATHS = (
