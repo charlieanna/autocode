@@ -2404,7 +2404,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/090bf0e9d1b5fe5649ac0e0603019e760a38f6f0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/6f5ba84daaf541f28ffacd4480ede101836c31d8/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2608,7 +2608,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/090bf0e9d1b5fe5649ac0e0603019e760a38f6f0/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/6f5ba84daaf541f28ffacd4480ede101836c31d8/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3174,7 +3174,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/090bf0e9d1b5fe5649ac0e0603019e760a38f6f0/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/6f5ba84daaf541f28ffacd4480ede101836c31d8/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3580,14 +3580,27 @@ server answers (any connection, or a status below 400 at <code>ready-path</code>
 <code>autocode serve stop</code> from another terminal stops its whole process group; if
 the <code>autocode serve start</code> process dies, its supervisor ends the server. A run
 has at most one server; a second <code>start</code> is refused while one runs.</p>
+<p><code>start</code> follows the run's code. After each code-changing step the run applies
+(each new code checkpoint), it stops the server and starts it again, on the same
+port when that port can be bound again, so the address stays the same, and
+prints <code>Serving http://127.0.0.1:PORT/ again after a code change</code>. It reads the
+run's <code>state.json</code> for this and never writes it. A pause or the run's completion
+leaves the server running, so you can try the app while you answer a question,
+approve a plan or review the result; it stops only when you stop it.</p>
 <p>The server never starts, pauses or decides a stage. Its record is
 <code>dev-server.json</code> in the run directory, and each start keeps its output and
 supervision receipt under <code>dev-server/</code>. <code>autocode serve status</code> and
 <code>autocode --status</code> (<code>view.dev_server</code>) show <code>configured</code>, <code>status</code> (<code>off</code>,
 <code>starting</code>, <code>running</code>, <code>stopped</code>, <code>exited</code>, <code>failed</code>, or <code>lost</code> when the process
 that served it is gone), the <code>url</code> while it runs, the <code>command</code>, its <code>port</code>,
-times, <code>exit_code</code>, <code>reason</code> and <code>log</code>. A server that exits, or does not answer
-within <code>ready-seconds</code>, ends <code>start</code> with exit status 1 and its last output.
+times, <code>exit_code</code>, <code>reason</code>, <code>log</code>, <code>restarts</code> (how many code changes restarted
+it), <code>code_checkpoint</code> (the code checkpoint it serves) and <code>waiting</code>. A server
+that exits, or does not answer within <code>ready-seconds</code>, is recorded as <code>exited</code> or
+<code>failed</code> with its last output, which <code>start</code> prints; <code>start</code> then keeps waiting
+(<code>waiting</code> is true) and starts it again after the run's next code change, so a
+step that fixes a broken app brings the preview back. <code>autocode serve stop</code> or
+Ctrl-C ends the wait. Once the run has completed no step will change its code,
+so such a server ends <code>start</code> with exit status 1 instead.
 A run started before its project named <code>serve</code> has none: name it in
 <code>.autocode/config.toml</code> and start a new run.</p>
 <h2 id="subcommand-options">Subcommand options<a class="headerlink" href="#subcommand-options" title="Permanent link">&para;</a></h2>
@@ -3882,7 +3895,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/090bf0e9d1b5fe5649ac0e0603019e760a38f6f0/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/6f5ba84daaf541f28ffacd4480ede101836c31d8/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
