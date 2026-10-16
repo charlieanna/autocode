@@ -47,6 +47,7 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/fixtures/multicomponent_fake.py", ("tests.test_multicomponent", "tests.test_local_compose_scenario")),
     ("tools/prompts/fragments/milestones/", ("tests.test_milestone_policy",)),
     ("tools/prompts/fragments/milestone-replan/", ("tests.test_milestone_policy", "tests.test_milestone_replan")),
     ("tools/prompts/fragments/autoplanner/", ("tests.test_autoplanner_review", "tests.test_planning_stages")),
