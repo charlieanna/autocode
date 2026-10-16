@@ -702,8 +702,9 @@ every one still open `passed` when the run completes on work a validation passed
 Completion Reviewer or Resolver assigns the next task while the last validation passed, and `paused`
 at the Builder's retry-limit pause. At that assignment it leaves the Builder's own (its climbs, its
 retries and its stronger attempt) open when the work was sent back after that validation's attempt
-started: a retry-policy charge or a correction task, the two `escalations` takes as a failure after a
-PASS. A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a
+started (a retry-policy charge or a correction task anywhere in the run; `escalations` takes the same
+two as a failure after a PASS of the escalation's own milestone), or when that attempt's start is not
+in the run's records, so a send-back cannot be ruled out. A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a
 climb a later climb replaced reads `passed` there and `failed_again` as a row, and before the struggle
 ends a stamp is `open` while its row may read `passed`. `--accept-completion` stamps nothing. Read a
 row's `outcome` for how one escalation ended. `escalations` lists each escalation the run made, oldest
@@ -778,8 +779,8 @@ serially), `inherited`, `attempts`, `cost` and `outcome`:
   Resolver assigns the next task while the last validation passed, whoever's work passed, so that
   stamp is not taken over a failure of its own work, once a person or the Builder's retry policy
   moved the role to another route, or when the role ran nothing since.
-  Validations judge the Builder's work, and runs saved before 2026-10-16 hold a `passed` stamp the
-  runner wrote on the Builder's stronger attempt in the handler that made it, at the PASS the review
+  Validations judge the Builder's work, and a run saved by AutoCode before this change (#612) may hold
+  a `passed` stamp the runner wrote on the Builder's stronger attempt in the handler that made it, at the PASS the review
   just sent back, before that attempt ran, so the Builder's stamp is never taken. It is a projection of saved records, so it can change as the run
   continues.
 

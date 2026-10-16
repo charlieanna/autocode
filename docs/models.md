@@ -75,8 +75,9 @@ stamps every one still open `passed` when the run completes on work a validation
 passed, or when the Completion Reviewer or Resolver assigns the next task while the
 last validation passed, and `paused` at the Builder's retry-limit pause. At that
 assignment it leaves the Builder's own open when the work was sent back since that
-validation, by a retry-policy charge or a correction task: the work failed, and a
-stronger attempt the charge just made has not run yet. `autocode --status` also lists
+validation, by a retry-policy charge or a correction task (the work failed, and a
+stronger attempt the charge just made has not run yet), or when the run's records do
+not say when that validation's attempt started, so a send-back cannot be ruled out. `autocode --status` also lists
 each escalation as a row of `escalations` (a climb, or the Builder's stronger
 attempt): the job and stage it was for, the route it climbed from and to, what its
 escalated attempts cost, and whether the work then passed, failed again, paused or is

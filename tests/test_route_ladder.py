@@ -396,6 +396,9 @@ class PassStampTests(unittest.TestCase):
             "a correction task": self.state(
                 current_task={"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:09:00+00:00"}
             ),
+            "a correction task since archived for the next task": self.state(
+                task_archive=[{"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:05:00+00:00"}]
+            ),
             "a Builder climb and a correction task": self.state(
                 reasoning_escalations=[{"role": "sol"}, {"role": "terra"}],
                 current_task={"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:09:00+00:00"},

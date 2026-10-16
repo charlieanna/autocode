@@ -914,10 +914,11 @@ class StrongerAttemptTests(unittest.TestCase):
 
     def test_the_pass_stamp_written_where_the_stronger_attempt_was_made_is_not_its_outcome(self):
         """The Completion Reviewer sends work the Tester passed back, and astra_resolve charges the review's output to
-        the Builder's lane: the stronger attempt. The same handler then assigns the task and, the validation still
-        being that PASS, stamps every open escalation `passed` (autopilot), before the stronger attempt runs. That is
-        not its outcome: it is running while it runs and once it has finished unchecked, and paused when the run pauses,
-        after a timeout or at the retry limit once its own check failed."""
+        the Builder's lane: the stronger attempt. A run saved before #612's stamp fix holds a `passed` stamp on it,
+        written where that handler assigned the task on that PASS, before the stronger attempt ran (the runner now
+        leaves it open: route_ladder.record_pass). That stamp is not its outcome: it is running while it runs and
+        once it has finished unchecked, and paused when the run pauses, after a timeout or at the retry limit once its
+        own check failed."""
         state = self.state()
         now = dt.datetime.now(dt.UTC)
         first, second = attempt("terra", -60, self.GLM, start=now), attempt("terra", -30, self.GLM, start=now)
@@ -928,7 +929,7 @@ class StrongerAttemptTests(unittest.TestCase):
         self.assertEqual("retry", policy.failure(state, failed["output"], "f"))
         state["validation"] = verdict(passed, "PASS")
         self.assertEqual("escalate", policy.failure(state, review["output"], "Completion Reviewer REWORK"))
-        route_ladder.record_outcome(state, "passed")  # autopilot, after assign_task
+        route_ladder.record_outcome(state, "passed")  # the stamp a run saved before this change holds
         self.assertEqual("passed", self.decided_row(state, "escalate")["outcome"])
         escalated = self.decided(state, "escalate")
         strong = attempt("terra", 1, self.STRONG, start=escalated)

@@ -14,6 +14,12 @@ A new run's rungs are checked against the models its provider offers before any
 model call (``serve``), so a climb never lands on a model the provider cannot
 serve.
 
+It also stamps how each escalation's struggle ended, for the status view's
+``escalation_outcomes`` (``record_outcome``, ``outcome_summary``): ``passed`` when
+the run completes, or moves on from work a validation passed (``record_pass``,
+which leaves the Builder's own open when ``sent_back`` finds that work was sent
+back since), and ``paused`` at the Builder's retry-limit pause.
+
 Rungs are (model, reasoning_effort, label) tuples with provider-qualified
 models; persisted rungs in settings["route_ladders"] are lists (state.json
 is JSON), which index the same way.
@@ -356,7 +362,8 @@ def record_outcome(state: RunState, outcome, *, builder=True):
     return stamped
 
 
-# The Builder retry policy's decisions that charge the attempt they name as a failure (autocode_builder_policy._decide).
+# The Builder retry policy's decisions that charge the attempt they name as a failure (autocode_builder_policy._decide);
+# the same set as autocode_escalation_view.CHARGES, which this domain module must not import (it is a view above it).
 CHARGES = ("retry", "escalate", "pause")
 
 
@@ -372,9 +379,13 @@ def _when(value):
 def sent_back(state: RunState):
     """Whether the work the last validation passed was sent back to the Builder after that validation's attempt
     started: the Builder's retry policy charged a failure (a retry, the stronger attempt or the retry-limit pause),
-    or a review assigned a correction task (an implement task whose decision is REWORK). The status view's
-    escalation rows take the same two as a failure after a PASS (autocode_escalation_view). True too when that
-    attempt's start is not known, since a send-back cannot then be ruled out."""
+    or a review assigned a correction task (an implement task whose decision is REWORK). True too when that
+    attempt's start is not known, since a send-back cannot then be ruled out.
+
+    The status view's escalation rows take the same two as a failure after a PASS (autocode_escalation_view), but
+    only for an attempt of the escalation's own milestone. This rule is deliberately broader: any charge or
+    correction in the run after that attempt started counts, so where the two differ the stamp stays open (an
+    honest unknown, stamped at a later PASS the run moves on from or at its completion) rather than claiming a pass."""
     output = (state.get("validation") or {}).get("output")
     started = next(
         (

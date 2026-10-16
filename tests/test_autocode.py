@@ -258,6 +258,16 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", self.state["status"])
         self.assertEqual({"passed": 2, "paused": 0, "open": 0}, run_view.view(self.state)["escalation_outcomes"])
 
+    def test_a_completion_the_gate_refuses_leaves_the_escalations_open(self):
+        record = self.escalated("2026-10-16T09:50:00+00:00")
+        self.state["validation"]["verdict"] = "FAIL"
+        with self.assertRaises(s.Paused) as refused:
+            runner._apply_result(
+                self.state, "astra_review", self.decision("TASK_COMPLETE"), record, self.root, self.run
+            )
+        self.assertEqual("PAUSED_COMPLETION_GATE", refused.exception.status)
+        self.assertEqual({"passed": 0, "paused": 0, "open": 2}, run_view.view(self.state)["escalation_outcomes"])
+
     def test_the_next_task_on_a_pass_stamps_the_builders_escalations_only_when_the_work_was_not_sent_back(self):
         # #612: a review sent the passed work back and the retry policy made the stronger attempt (10:05); the task
         # assigned on that PASS stamped it `passed` before it ran. Made before the PASS (09:50), it passed.
