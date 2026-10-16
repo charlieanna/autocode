@@ -351,6 +351,12 @@ PR template asks for an entry here; a change without one is incomplete.
   re-probes the same models, while legacy model-only markers re-probe once instead of authorizing a new route
   (#1333).
 
+- A native visual run's planning shell can no longer read AutoCode's run store. Before, the contained shell
+  blocked only writes there, so a Planner could read its own run's `state.json`, events and receipts and every
+  other run's files. On Seatbelt and bubblewrap the shell now reads only its own run's `planning/` artifacts in
+  `.autocode/runs`. Each launch proves this through the actual native shell, records it as `private_reads`, and
+  pauses as `PAUSED_TOOL_CONTAINMENT` if the boundary stops enforcing it (#1250).
+
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
   eligibility is unchanged (#1167).

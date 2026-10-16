@@ -269,6 +269,266 @@ def _policy_inputs(read_roots, protected_paths):
     }
 
 
+def private_run_reads(workspace, run_dir):
+    """The run-store read denial for a readonly planning shell of the run at ``run_dir`` (#1250).
+
+    The workspace's whole run store (``.autocode/runs``: this run's state, events and receipts,
+    and every sibling run, whatever its name) becomes unreadable. Only this run's ``planning/``
+    directory, the immutable predecessor artifacts and deltas the planner is handed, is read
+    back in. A readable path is only an exception to this denial, never a grant: the rest of
+    ``.autocode`` and the workspace keep their ordinary read-only authority.
+    """
+    root = _path(workspace)
+    store, run = root / ".autocode" / "runs", _path(run_dir)  # _path refuses symlinked authority paths.
+    if run.parent != store or not run.is_dir():
+        raise ValueError("A private-read denial needs an existing run directly inside workspace/.autocode/runs")
+    return {"run_dir": str(run), "denied": [str(store)], "readable": [str(_path(run / "planning"))]}
+
+
+def _reparsed_string(path):
+    """``path`` as a string in a Seatbelt profile that verify() parses again (_seatbelt_forms()).
+
+    The same bytes json.dumps writes, refused where those bytes would hold an escape other than
+    ``\\"`` and ``\\\\``: json.dumps writes a control character as another escape (``\\t``,
+    ``\\u0001``), which the strict parse refuses and Seatbelt may read differently.
+    """
+    text = str(path)
+    if any(ord(char) < 0x20 for char in text):
+        raise ValueError(f"Seatbelt private-read containment refuses a control character in a path: {text!r}")
+    return json.dumps(text, ensure_ascii=False)
+
+
+def _private_read_rules(reads):
+    """The Seatbelt lines enforcing private_run_reads(); verify() looks for these exact lines."""
+    subpath = lambda p: "(subpath " + _reparsed_string(p) + ")"
+    lines = []
+    for value in reads["denied"]:
+        denied = Path(value)
+        exemption = [Path(p) for p in reads["readable"] if Path(p).is_relative_to(denied)]
+        lines.append(
+            "(deny file-read* (require-all "
+            + subpath(denied)
+            + "".join(" (require-not " + subpath(p) + ")" for p in exemption)
+            + "))"
+        )
+    return lines
+
+
+# Operand counts of every bwrap option bubblewrap_arguments() writes, and the ones that show a source.
+BWRAP_OPERANDS = {
+    "--unshare-all": 0,
+    "--die-with-parent": 0,
+    "--new-session": 0,
+    "--cap-drop": 1,
+    "--dev": 1,
+    "--proc": 1,
+    "--tmpfs": 1,
+    "--remount-ro": 1,
+    "--symlink": 2,
+    "--bind": 2,
+    "--ro-bind": 2,
+    "--ro-bind-try": 2,
+}
+BWRAP_BINDS = ("--bind", "--ro-bind", "--ro-bind-try")
+# Every word _render_policy() writes outside a string. The private-read check refuses any
+# other word, so no comment, definition or quoting can change what a later rule means.
+SEATBELT_WORDS = frozenset(
+    [
+        "version",
+        "1",
+        "deny",
+        "allow",
+        "default",
+        "process-info*",
+        "target",
+        "self",
+        "process-exec",
+        "process-fork",
+        "signal",
+        "same-sandbox",
+        "sysctl-read",
+        "sysctl-name-prefix",
+        "sysctl-name",
+        "file-read-metadata",
+        "file-read*",
+        "file-write*",
+        "file-write-data",
+        "literal",
+        "subpath",
+        "regex",
+        "require-all",
+        "require-any",
+        "require-not",
+    ]
+)
+# The write operations _render_policy() grants; an allow naming one must keep its shape.
+SEATBELT_WRITES = ("file-write*", "file-write-data")
+SEATBELT_TOKEN = re.compile(r'\s+|[()]|"(?:[^"\\]|\\["\\])*"|[^\s()"]+')
+
+
+def _seatbelt_forms(text):
+    """The top-level forms of a profile in _render_policy()'s vocabulary, or None for anything else.
+
+    A form is a list of words, ``("string", raw)`` literals and nested forms. An unknown
+    word (a comment or a definition among them), an unbalanced form or string, or a string
+    escape other than ``\\"`` and ``\\\\`` is refused.
+    """
+    stack, index = [[]], 0
+    while index < len(text):
+        match = SEATBELT_TOKEN.match(text, index)
+        if match is None:
+            return None
+        token, index = match.group(), match.end()
+        if token == "(":
+            stack.append([])
+        elif token == ")":
+            if len(stack) == 1:
+                return None
+            form = stack.pop()
+            stack[-1].append(form)
+        elif token.startswith('"'):
+            stack[-1].append(("string", token))
+        elif not token.isspace():
+            if token not in SEATBELT_WORDS:
+                return None
+            stack[-1].append(token)
+    return stack[0] if len(stack) == 1 else None
+
+
+def _write_allow_is_confined(form, denied_dirs):
+    """Whether a Seatbelt ``(allow ...)`` write grant keeps the shape the renderer writes (#1250).
+
+    A write grant over a denied directory, inside it, or over an ancestor of it lets the shell
+    move or hard-link private run state to a readable path, so it defeats the read denial. The
+    read-only planning profile grants writes only to scratch, ``/dev/null`` and the recorded
+    check outputs, as ``file-write*`` or ``file-write-data`` with positive ``(literal "<path>")``
+    and ``(subpath "<path>")`` filters. Only that shape is accepted: write operations alone, at
+    least one filter, and each filter's path absolute, canonical as written (as _path() renders
+    it) and neither inside nor holding a denied directory. Anything else can reach the store
+    without naming a path near it, so it is refused: an unfiltered grant writes everywhere, a
+    ``require-not``, ``require-any`` or ``require-all`` filter can match the store through a
+    path it does not name, a ``regex`` is not reasoned about, and a symlink or ``..`` in a path
+    may not mean what the path's text says.
+    """
+    words = [item for item in form[1:] if isinstance(item, str)]
+    filters = [item for item in form[1:] if not isinstance(item, str)]
+    if not filters or any(word not in SEATBELT_WRITES for word in words):
+        return False
+    for item in filters:
+        if not (isinstance(item, list) and len(item) == 2 and item[0] in ("literal", "subpath")):
+            return False
+        if not isinstance(item[1], tuple):  # ("string", raw JSON token)
+            return False
+        value = json.loads(item[1][1])
+        if not value.startswith("/") or os.path.realpath(value) != value:
+            return False
+        target = Path(value)
+        if any(target.is_relative_to(d) or d.is_relative_to(target) for d in denied_dirs):
+            return False
+    return True
+
+
+def _enforces_private_reads(host, profile, reads):
+    """Whether these exact profile bytes enforce a private_run_reads() denial.
+
+    Seatbelt: a strict parse in the renderer's own vocabulary. Every top-level form is a
+    version, allow or deny rule, those words appear nowhere else, and each denial rule is a
+    top-level form after every allow rule, so it is the last match. No ``allow`` may grant
+    ``default``, and a write grant must keep the renderer's shape: positive literal or subpath
+    filters over canonical paths that neither lie inside nor hold a denied directory
+    (_write_allow_is_confined()). A write grant over the store or an ancestor defeats the
+    denial as surely as a read grant, by moving or hard-linking private state to a readable
+    path. bubblewrap: a strict parse of the arguments. Each denied directory is one tmpfs,
+    sealed read-only after it. A bind's source must be exactly as the renderer wrote it --
+    absolute, canonical as written (no symlink, ``.``, ``..`` or doubled slash, not even one a
+    lexical normalisation would cancel), and never a per-process ``/proc`` or ``/dev/fd``
+    link, which the kernel resolves differently in this verifier than in bwrap -- so the
+    source is judged as the kernel opens it: one inside a denied directory must be
+    inside a readable exception, one holding a denied directory must be mounted read-only
+    onto itself before the tmpfs, no writable bind may cover the store or an ancestor, and no
+    bind after the tmpfs may cover the denied directory again.
+    """
+    if host == SEATBELT:
+        heads = ("version", "allow", "deny")
+        forms = _seatbelt_forms(profile.decode("utf-8"))
+        rules = [_seatbelt_forms(rule) for rule in _private_read_rules(reads)]
+        if forms is None or None in rules or any(not form or form[0] not in heads for form in forms):
+            return False
+        pending, named = list(forms), 0
+        while pending:
+            part = pending.pop()
+            if isinstance(part, list):
+                pending.extend(part)
+            else:
+                named += part in heads
+        if named != len(forms):  # A rule word inside a rule.
+            return False
+        allowed = [index for index, form in enumerate(forms) if form[0] == "allow"]
+        if not all(rule[0] in forms[max(allowed, default=-1) + 1 :] for rule in rules):
+            return False
+        denied_dirs = [Path(os.path.normpath(value)) for value in reads["denied"]]
+        for form in forms:
+            if form[0] != "allow":
+                continue
+            words = [item for item in form[1:] if isinstance(item, str)]
+            if "default" in words:  # (allow default ...) grants writes over the store too.
+                return False
+            if any(word in SEATBELT_WRITES for word in words) and not _write_allow_is_confined(form, denied_dirs):
+                return False
+        return True
+    values = profile.split(b"\0")
+    if values[-1] != b"":
+        return False
+    arguments, operations, index = [os.fsdecode(value) for value in values[:-1]], [], 0
+    while index < len(arguments):
+        flag, width = arguments[index], BWRAP_OPERANDS.get(arguments[index])
+        operands = arguments[index + 1 : index + 1 + (width or 0)]
+        if width is None or len(operands) != width:
+            return False
+        if flag not in ("--cap-drop", "--symlink"):
+            if any(not value.startswith("/") for value in operands):
+                return False
+            normal = [os.path.normpath(value) for value in operands]
+            # A bind's source stays as written: normalising it first would cancel a symlink
+            # followed by "..", which the kernel resolves through the link's target (#1250).
+            operands = [operands[0], *normal[1:]] if flag in BWRAP_BINDS else normal
+        operations.append((flag, operands))
+        index += 1 + width
+    readable = [Path(os.path.normpath(value)) for value in reads["readable"]]
+    for value in reads["denied"]:
+        denied = Path(os.path.normpath(value))
+        hidden = [i for i, (flag, paths) in enumerate(operations) if flag == "--tmpfs" and Path(paths[0]) == denied]
+        sealed = [
+            i for i, (flag, paths) in enumerate(operations) if flag == "--remount-ro" and Path(paths[0]) == denied
+        ]
+        if len(hidden) != 1 or len(sealed) != 1 or sealed[0] < hidden[0]:
+            return False
+        for i, (flag, paths) in enumerate(operations):
+            if flag not in BWRAP_BINDS:
+                continue
+            raw = paths[0]  # Absolute and exactly as written, never normalised (see above).
+            # A per-process /proc or /dev/fd link resolves to one path in this verifier and
+            # another in bwrap (launched from the workspace), so its source cannot be judged
+            # here. Every source the renderer writes is already canonical as written (_path
+            # refuses symlinked authority paths), so require exactly that -- which refuses a
+            # symlink, and a symlink followed by "..", in the source as written -- and refuse
+            # the magic links.
+            if raw == "/proc" or raw == "/dev/fd" or raw.startswith(("/proc/", "/dev/fd/")):
+                return False
+            if os.path.realpath(raw) != raw:
+                return False
+            source, target = Path(raw), Path(paths[1])
+            if source.is_relative_to(denied) and not any(source.is_relative_to(p) for p in readable):
+                return False  # It shows private state at its target.
+            if denied.is_relative_to(source) and (target != source or i > hidden[0]):
+                return False  # It shows the denied directory where the tmpfs does not cover it.
+            if flag == "--bind" and (source.is_relative_to(denied) or denied.is_relative_to(source)):
+                return False  # A writable bind of the store or an ancestor defeats the tmpfs.
+            if i > hidden[0] and denied.is_relative_to(target):
+                return False  # It covers the tmpfs again.
+    return True
+
+
 def _authority(workspace, scratch, read_roots, protected_paths):
     """The validated paths every backend enforces: (root, scratch, extra reads, protected)."""
     root, scratch = _path(workspace), _path(scratch)
@@ -323,12 +583,18 @@ def _render_policy(
     write_roots=None,
     denied_write_paths=(),
     write_files=(),
+    private_reads=None,
 ):
-    """Render from the supplied exact map; this is not approved-task authority."""
+    """Render from the supplied exact map; this is not approved-task authority.
+
+    ``private_reads`` is a private_run_reads() denial for a readonly planning shell.
+    """
     root, scratch = _path(workspace), _path(scratch)
     footprint = writer_footprint(root, write_paths) if write_paths is not None else None
     if footprint is not None and not allow_write:
         raise ValueError("Read-only stages cannot receive a writer footprint")
+    if private_reads is not None and allow_write:
+        raise ValueError("Only a read-only shell takes the private run-store read denial")
     kinds = _bound_path_kinds(footprint, writer_path_kinds)
     private = root / ".autocode"
     if not scratch.is_relative_to(private) or scratch == private:
@@ -356,8 +622,10 @@ def _render_policy(
         raise ValueError("Check writes need exact descendants of the owned scratch")
     # Seatbelt accepts UTF-8 paths, not JSON's ASCII-only Unicode escapes.
     # JSON quoting still escapes literal quotes and backslashes in SBPL strings.
-    literal = lambda p: "(literal " + json.dumps(str(p), ensure_ascii=False) + ")"
-    subpath = lambda p: "(subpath " + json.dumps(str(p), ensure_ascii=False) + ")"
+    # verify() parses a private-read profile again, so each of its paths must parse back (#1250).
+    quoted = _reparsed_string if private_reads is not None else lambda p: json.dumps(str(p), ensure_ascii=False)
+    literal = lambda p: "(literal " + quoted(p) + ")"
+    subpath = lambda p: "(subpath " + quoted(p) + ")"
     lines = [
         "(version 1)",
         "(deny default)",
@@ -408,6 +676,8 @@ def _render_policy(
         exemption = " ".join("(require-not " + subpath(p) + ")" for p in exceptions if p.is_relative_to(denied))
         condition = "(require-all " + subpath(denied) + " " + exemption + ")" if exemption else subpath(denied)
         lines.append("(deny file-read* " + condition + ")")
+    if private_reads is not None:
+        lines.extend(_private_read_rules(private_reads))
     lines.append('(deny file-read* (regex "(^|/)\\\\.env($|\\\\.)") (regex "(^|/)(auth\\\\.json|id_rsa|id_ed25519)$"))')
     return "\n".join(lines) + "\n"
 
@@ -427,7 +697,9 @@ def _secret_files(root, own_control):
     return found
 
 
-def bubblewrap_arguments(workspace, scratch, *, allow_write=False, read_roots=(), protected_paths=(), links=()):
+def bubblewrap_arguments(
+    workspace, scratch, *, allow_write=False, read_roots=(), protected_paths=(), links=(), private_reads=None
+):
     """bwrap arguments for the Seatbelt profile's authority, and the paths it can only watch.
 
     No model command is interpreted here. An empty read-only root holds only the
@@ -446,8 +718,16 @@ def bubblewrap_arguments(workspace, scratch, *, allow_write=False, read_roots=()
     Returns (arguments, watched). A mount point must exist, so a protected path that
     does not exist yet inside writable space cannot be mounted without bwrap creating
     it in the real workspace; prepare()'s shell refuses to run once one appears.
+
+    ``private_reads`` (private_run_reads(), read-only shells only) covers each denied
+    directory with an empty tmpfs, binds each readable exception back read-only after
+    it, and remounts the tmpfs read-only once those mount points exist.
     """
+    if private_reads is not None and allow_write:
+        raise ValueError("Only a read-only shell takes the private run-store read denial")
     root, scratch, extra, protected = _authority(workspace, scratch, read_roots, protected_paths)
+    hidden = [_path(p) for p in (private_reads or {}).get("denied", ())]
+    shown_again = [_path(p) for p in (private_reads or {}).get("readable", ())]
     arguments = ["--unshare-all", "--cap-drop", "ALL", "--die-with-parent", "--new-session"]
     system = []
     for path in (*LINUX_READ_ROOTS, *LINUX_SYSTEM_FILES):
@@ -466,6 +746,9 @@ def bubblewrap_arguments(workspace, scratch, *, allow_write=False, read_roots=()
     }
     mounts[root] = "--bind" if allow_write else "--ro-bind"
     mounts[scratch] = "--bind"
+    # Neither is "--bind", so protected paths below them are never mounted again.
+    mounts.update({path: "--tmpfs" for path in hidden})
+    mounts.update({path: "--ro-bind-try" for path in shown_again})
     watched = []
     for path in sorted(protected, key=lambda item: (len(item.parts), str(item))):
         above = [mount for mount in mounts if path.is_relative_to(mount)]
@@ -488,12 +771,18 @@ def bubblewrap_arguments(workspace, scratch, *, allow_write=False, read_roots=()
             watched.append(path)
     # Names the Seatbelt profile refuses to read: a device node on bwrap's nodev bind
     # mounts cannot be opened, so each read fails with "Permission denied".
-    secrets = [(path, "/dev/null") for path in _secret_files(root, scratch.parent.name)]
+    # A secret inside a hidden directory is not shown at all (masking it would create its name there).
+    secrets = [
+        (path, "/dev/null")
+        for path in _secret_files(root, scratch.parent.name)
+        if not any(path.is_relative_to(denied) for denied in hidden)
+        or any(path.is_relative_to(readable) for readable in shown_again)
+    ]
     ordered = [(path, str(path), flag) for path, flag in mounts.items()]
     ordered += [(path, source, "--ro-bind") for path, source in secrets]
     # Stable by depth: an ancestor is mounted before anything inside it.
     for path, source, flag in sorted(ordered, key=lambda mount: len(mount[0].parts)):
-        arguments += [flag, source, str(path)]
+        arguments += [flag, str(path)] if flag == "--tmpfs" else [flag, source, str(path)]
     shown = [*system, *(Path(path) for path in (*LINUX_READ_ROOTS, *LINUX_SYSTEM_FILES)), *mounts]
     for link, target in links:
         link = Path(link)
@@ -501,6 +790,9 @@ def bubblewrap_arguments(workspace, scratch, *, allow_write=False, read_roots=()
             raise ValueError("Tool containment received an invalid symlink")
         if not any(link.is_relative_to(path) for path in shown):
             arguments += ["--symlink", target, str(link)]
+    # After every mount point inside them exists: a write there fails as everywhere read-only.
+    for path in hidden:
+        arguments += ["--remount-ro", str(path)]
     arguments += ["--remount-ro", "/"]
     for value in arguments:
         if "\0" in value:
@@ -533,11 +825,15 @@ def prepare(
     source_paths=(),
     write_paths=None,
     links=(),
+    private_run=None,
 ):
     """Create a fresh runner-owned policy and shell; return only nonsecret metadata.
 
     ``links`` are toolchain symlinks to show inside a bubblewrap boundary; Seatbelt
-    already lets the shell read symlink metadata, so it ignores them.
+    already lets the shell read symlink metadata, so it ignores them. ``private_run``,
+    a readonly planning stage's run directory, makes the run store unreadable except
+    that run's planning/ artifacts (private_run_reads(), #1250); the manifest records
+    the denial as ``private_reads``.
     """
     _reject_loopback_request(loopback_checks, loopback_authority)
     host = backend()
@@ -549,6 +845,9 @@ def prepare(
     footprint = writer_footprint(root, write_paths) if write_paths is not None else None
     if footprint is not None and not allow_write:
         raise ValueError("Read-only stages cannot receive a writer footprint")
+    if private_run is not None and allow_write:
+        raise ValueError("Only a read-only shell takes the private run-store read denial")
+    private_reads = private_run_reads(root, private_run) if private_run is not None else None
     if footprint is not None and host != SEATBELT:
         # bubblewrap binds the whole workspace writable; it cannot enforce a literal footprint.
         raise RuntimeError("A scoped writer footprint requires macOS Seatbelt containment; no provider launched")
@@ -586,6 +885,7 @@ def prepare(
                 protected_paths=protected_paths,
                 write_paths=footprint,
                 writer_path_kinds=kinds,
+                private_reads=private_reads,
             ),
             encoding="utf-8",
         )
@@ -598,6 +898,7 @@ def prepare(
             read_roots=read_roots,
             protected_paths=protected_paths,
             links=links,
+            private_reads=private_reads,
         )
         profile.write_bytes(b"".join(os.fsencode(value) + b"\0" for value in arguments))
     shell = control / "shell"
@@ -695,6 +996,7 @@ def prepare(
             if footprint is not None
             else {}
         ),
+        **({"private_reads": private_reads} if private_reads is not None else {}),
     }
 
 
@@ -730,6 +1032,8 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     Only model-free debug commands run here. No approval is auto-granted: an
     approval-bearing shell policy blocks conformance rather than using debug's
     auto-allow-ask behavior. The original model, effort and command are untouched.
+    A readonly request's ``private_run`` (prepare()) is proven through the actual
+    native bash too, and that proof is retained in conformance.json.
     """
     if type(retain_launch_identity) is not bool:
         raise ValueError("Native launch observation option must be an explicit boolean")
@@ -745,12 +1049,15 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
         "tool_commands",
         "source_paths",
         "write_paths",
+        "private_run",
     }:
         raise ValueError("Unsupported strict tool containment request")
     _reject_loopback_request(request.get("loopback_checks", ()), request.get("loopback_authority"))
     footprint = writer_footprint(workspace, request["write_paths"]) if "write_paths" in request else None
     if footprint is not None and not allow_write:
         raise ValueError("Read-only stages cannot receive a writer footprint")
+    if "private_run" in request and allow_write:
+        raise ValueError("Only a read-only shell takes the private run-store read denial")
     if footprint is not None and backend() != SEATBELT:
         # bubblewrap binds the whole workspace writable; it cannot enforce a literal footprint.
         raise RuntimeError("A scoped writer footprint requires macOS Seatbelt containment; no provider launched")
@@ -812,6 +1119,7 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
         source_paths=request.get("source_paths", ()),
         write_paths=None if opt_in_writer else footprint,
         links=tools_ready.get("links", ()),
+        private_run=request.get("private_run"),
     )
     config["shell"] = boundary["shell"]
     definition["permission"] = permissions
@@ -870,6 +1178,54 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
         return control, probe, result, native_receipt
 
     control, probe, result, native_receipt = shell_probe(boundary)
+
+    def private_read_probe(target):
+        # A parent-created sentinel in the planning run's own directory stands for its state:
+        # the actual native bash must fail to read it, and must list the run's planning/
+        # artifacts when they exist. Its random content never appears in the retained output.
+        reads = target["private_reads"]
+        sentinel = Path(reads["run_dir"]) / (Path(target["profile"]).parent.name + "-private-read-sentinel")
+        if sentinel.exists() or sentinel.is_symlink():
+            raise RuntimeError("Private run-state read sentinel already exists")
+        token = uuid.uuid4().hex
+        with sentinel.open("x") as stream:
+            stream.write(token + "\n")
+        try:
+            denied = "! /bin/cat " + shlex.quote(str(sentinel))
+            readable = [path for path in reads["readable"] if Path(path).is_dir()]
+            command = denied + "".join(" && /bin/ls " + shlex.quote(path) + " > /dev/null" for path in readable)
+            observed = debug(
+                [
+                    "--tool",
+                    "bash",
+                    "--params",
+                    json.dumps(
+                        {
+                            "command": command,
+                            "description": "AutoCode private run-state read denial (no model)",
+                            "workdir": str(Path(workspace).resolve()),
+                            "timeout": 10000,
+                        }
+                    ),
+                ]
+            )
+            checked = observed.get("result", {})
+            output = checked.get("output")
+            if (
+                observed.get("input", {}).get("command") != command
+                or type(checked.get("metadata", {}).get("exit")) is not int
+                or checked["metadata"]["exit"] != 0
+                or not isinstance(output, str)
+                or token in output
+                or not re.search(r"Operation not permitted|Permission denied|No such file or directory", output)
+                or sentinel.read_text() != token + "\n"
+            ):
+                raise RuntimeError("Actual native bash did not deny reading private run state; no provider launched")
+        finally:
+            sentinel.unlink()
+        return {**reads, "listed": readable, "command": command, "tool": "bash", "exit": 0, "output": output}
+
+    private_proof = private_read_probe(boundary) if "private_reads" in boundary else None
 
     def footprint_probe():
         # This parent-created temporary sentinel is outside every declared task
@@ -1001,6 +1357,8 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
             "profile_sha256": hashlib.sha256(Path(target["profile"]).read_bytes()).hexdigest(),
             "shell_sha256": hashlib.sha256(Path(target["shell"]).read_bytes()).hexdigest(),
         }
+        if "private_reads" in target:
+            proof["private_reads"] = private_proof
         if retain_launch_identity:
             proof["launch_identity"] = native_conformance.observe(command, child, executable, actual)
         if startup is not None:
@@ -1255,6 +1613,29 @@ def verify(boundary):
                 raise ValueError("Missing exact native writer-footprint conformance")
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise RuntimeError("Task writer-footprint authority changed; no provider launched") from error
+    if "private_reads" in boundary:
+        try:
+            reads = boundary["private_reads"]
+            if (
+                not isinstance(reads, dict)
+                or reads != private_run_reads(workspace, reads["run_dir"])
+                or boundary.get("allow_write") is not False
+                or not _enforces_private_reads(host, profile.read_bytes(), reads)
+            ):
+                raise ValueError("Profile does not enforce the exact recorded private run-store denial")
+            proof = json.loads(Path(boundary["conformance"]).read_text()).get("private_reads")
+            if (
+                not isinstance(proof, dict)
+                or {key: proof.get(key) for key in reads} != reads
+                or proof.get("tool") != "bash"
+                or type(proof.get("exit")) is not int
+                or proof["exit"] != 0
+                or not isinstance(proof.get("command"), str)
+                or not proof["command"]
+            ):
+                raise ValueError("Missing native private run-state read conformance")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            raise RuntimeError("Private run-state read denial changed; no provider launched") from error
     if boundary.get("verification_copy"):
         try:
             from . import autocode_verification_copy as copies
