@@ -191,7 +191,8 @@ custom-provider Builder never makes the stronger attempt, so its policy is left 
 A Builder failure whose cause the runner cannot tell from its evidence goes to the
 Investigator to be classified before this policy charges it. A milestone may have as many
 failures classified as this policy takes (its ordinary retries, the stronger attempt or the
-retry in its place, and the failure it pauses on), so classifying never stops a milestone
+retry in its place, the failure it pauses on, and each failure that did not count, see below),
+so classifying never stops a milestone
 before the policy would; the next milestone, or a later turn's new plan, starts its own.
 Classifications do not count toward the run's three stuck-stage investigations
 ([Workflow](workflow.md)), and turning those off (`max_calls_per_run = 0`) turns
@@ -207,6 +208,25 @@ Explicit model pins and custom providers are never overridden. Existing saved ru
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses
 are not automatically retried by this policy.
+
+Each charged failure is checked against the milestone's earlier ones (its evidence ledger,
+`tools/autocode_evidence_ledger.py`). A failure's items are the checks that exited nonzero, the
+criteria not met and the open blocking findings in the latest validation and review; its signature
+is those items with the files the Builder changed.
+
+- **A repeat**, a failure with the signature of an earlier one, has no new evidence, so it skips the
+  remaining ordinary retries. It goes straight to the stronger attempt, or pauses once that is spent
+  or the run has none. The stop reason then says the last failure repeated an earlier one.
+- **Progress**, a failure whose earlier failing items are all resolved (each check exits 0, each
+  criterion passes, each finding is closed) and that fails only on new items, does not count toward
+  the limit. The Builder retries on the route it has now, and a pause stays a pause. A run that keeps
+  finding new problems is still bounded by its milestone time budget, the stalled-review limit, the
+  iteration limit and any money cap.
+- **Anything else**, including a failure with no failing items, counts as before.
+
+Each decision in `builder_retry_decisions` records which of these it was as `novelty` (`new`,
+`repeat` or `progress`). A failure saved before the ledger existed has no signature, so the next
+failure cannot count as progress.
 
 The stronger attempt must not be checked by its own model. The rule is the cross-model
 guard's (`tools/autocode_verifier_independence.py`), so its families count: when the Tester or

@@ -415,6 +415,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The Builder retry policy now weighs each failure's evidence against the milestone's earlier failures. A failure
+  with the same failing checks, criteria, open findings and changed files as an earlier one skips the remaining
+  ordinary retries for the stronger attempt, or pauses once that is spent, and the stop says it repeated. A failure
+  whose earlier failing items are all resolved, and that fails only on new ones, does not count toward the limit.
+  Each decision records which it was as `novelty` (#611).
+
 - Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the
   last Builder attempt's tokens at the stronger model's rate. When the spend so far plus that projection would pass
   the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt starts, naming the model and effort, the tokens,
