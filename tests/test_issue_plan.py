@@ -71,9 +71,14 @@ class PrepareTests(unittest.TestCase):
         return entry
 
     def test_the_plan_is_committed_on_a_branch_of_its_own_without_touching_the_checkout(self):
+        # The checkout moved past the run's base commit since the run started; the plan still goes on the base.
+        (self.project / "later.txt").write_text("later\n")
+        self.git("add", "later.txt")
+        self.git("commit", "-q", "-m", "later work")
         (self.project / "staged.txt").write_text("staged\n")
         self.git("add", "staged.txt")
         before = (self.git("rev-parse", "HEAD"), self.git("status", "--porcelain"))
+        self.assertNotEqual(self.base, before[0])
         run = _Run(BODY, 2)
         entry = self.prepare(run)
         branch = "autocode/issue-7-add-a-greeting-cli-plan"
@@ -105,6 +110,17 @@ class PrepareTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no longer points at .*never replaces commits it did not make"):
             self.prepare(_Run({**BODY, "intended_outcome": "Other"}, 3))
         self.assertEqual(self.base, self.git("rev-parse", entry["branch"]))
+
+    def test_a_deleted_branch_is_made_again_where_it_was_left(self):
+        """A branch deleted here (`git branch -D`, `gh pr merge --delete-branch`) holds nothing to replace."""
+        entry = self.prepare(_Run(BODY, 2))
+        self.git("branch", "-D", entry["branch"])
+        self.assertEqual(entry["commit"], self.prepare(_Run(BODY, 2))["commit"])
+        self.assertEqual(entry["commit"], self.git("rev-parse", entry["branch"]))
+        self.git("branch", "-D", entry["branch"])
+        second = self.prepare(_Run({**BODY, "intended_outcome": "Greet by full name"}, 3))
+        self.assertEqual(entry["commit"], self.git("rev-parse", f"{second['commit']}^"))
+        self.assertEqual(second["commit"], self.git("rev-parse", entry["branch"]))
 
     def test_an_existing_branch_is_not_taken_over(self):
         self.git("branch", "autocode/issue-7-add-a-greeting-cli-plan", self.base)

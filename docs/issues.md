@@ -109,13 +109,16 @@ autocode-issue plan #812 --open                # push that branch and open a dra
   top of the branch, so the same pull request shows the change. An unchanged plan
   reuses the commit. It never replaces commits it did not make: if the branch
   moved, it refuses, and if reviewers pushed edits to the pull request, the push
-  is refused. A merged plan pull request is never reused (see below).
+  is refused. A branch deleted here holds nothing to replace, so `plan` makes it
+  again at its last plan commit. A merged plan pull request is never reused (see
+  below).
 
 Reviewers edit the file in the pull request as
 [Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request)
-describes. Merging it approves nothing. Once it is merged and pulled into your
-checkout, `status` prints the command that loads the file into the issue's run;
-loading and approving stay with you:
+describes. Merging it approves nothing. Once `plan --open` has opened it,
+`status` prints its URL and the command that loads the merged file into the
+issue's run, to run once it is merged and pulled into your checkout; loading and
+approving stay with you:
 
 ```sh
 autocode --goal-file /path/to/project/plans/issue-812.md --workspace WT --run-dir RUN
@@ -128,16 +131,17 @@ into the run that drafted the plan; starting a new run from it is not available
 yet ([A team's plan review](workflow.md#a-teams-plan-review)).
 
 `autocode-issue` counts the pull request as merged once the base branch, here or
-as last fetched from the remote (`plan --open` fetches it first), holds a
-different file at its path than the plan branch started from, whatever the
-merge method. Until the run's plan moves past the one the merged pull request
-carried, `plan` refuses and pushes nothing, and `status` prints the
-`--goal-file` command. After that, for example once the Plan Reviewer revised
-the loaded plan, `status` stops printing it: loading the file again would replace
-the newer plan. To have the changed plan reviewed again, `plan` starts a new
-pull request, on branch `autocode/issue-N-<title>-plan-2` (then `-plan-3`) made
-from the base branch that holds the merged file, so it shows only what changed
-since.
+as last fetched from the remote (`plan` fetches it first once it has committed a
+plan, with or without `--open`), holds a different file at its path than the plan
+branch started from, whatever the merge method, and whether or not the plan
+branch was deleted with it (`gh pr merge --delete-branch` deletes it here too).
+Until the run's plan moves past the one the merged pull request carried, `plan`
+refuses and pushes nothing, and `status` prints the `--goal-file` command. After
+that, for example once the Plan Reviewer revised the loaded plan, `status` stops
+printing it: loading the file again would replace the newer plan. To have the
+changed plan reviewed again, `plan` starts a new pull request, on branch
+`autocode/issue-N-<title>-plan-2` (then `-plan-3`) made from the base branch
+that holds the merged file, so it shows only what changed since.
 
 ## Credentials
 

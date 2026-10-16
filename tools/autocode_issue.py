@@ -297,7 +297,7 @@ def next_steps(record: dict, view: dict) -> list[str]:
                 steps.append(f"  Or have it reviewed in a new pull request: autocode-issue plan {ref} --open")
         else:
             steps.append(f"  Or have it reviewed in a pull request: autocode-issue plan {ref} --open")
-            if plan_pr:
+            if plan_pr and plan_pr.get("url"):  # opened; a plan commit that was never pushed has nothing to merge
                 steps.append(f"  Once that pull request is merged here: {load}")
         return steps + [f"  Then:           autocode-issue continue {ref}"]
     if kind == "answer":
@@ -481,8 +481,10 @@ def cmd_plan(args) -> int:
         )
     saved = record.get(issue_plan.FIELD) or {}
     base = args.base or record.get("pr_base")
-    if saved and args.open and base:
-        git(project, "fetch", "-q", record["remote"], base, check=False)  # so a merge made on GitHub counts below
+    if saved and base:
+        # So a merge made on GitHub counts below, with or without --open: `gh pr merge --delete-branch` also
+        # deletes the plan branch here, and a merged pull request must not be taken for one whose branch went.
+        git(project, "fetch", "-q", record["remote"], base, check=False)
     merged = merged_plan(record, base)
     if merged and issue_plan.carried(saved, view["needs"]["token"]):
         raise IssueError(

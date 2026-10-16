@@ -296,13 +296,14 @@ PR template asks for an entry here; a change without one is incomplete.
   made from the run's base commit, without touching any checkout or the run, and writes the pull request's body.
   `--open` pushes the branch and opens a draft pull request (`--base`, `--ready` as for `pr`). Run again after the
   plan changes while that pull request is open, it commits the new plan on top, so the same pull request shows the
-  change; it never replaces commits it did not make. Merging approves nothing: once the plan pull request exists,
-  `autocode-issue status` at the approval stop prints the `autocode --goal-file` command that loads the merged file
-  into the run, until the run's plan moves past the one it carried. A merged plan pull request is never reused:
-  a plan that changed after it goes in a new pull request, on `-plan-2`, made from the base branch that holds the
-  merged file. `TaskRun.export_plan(path)` is the
-  task-run interface's way to write the plan file. `docs/workflow.md` describes the team workflow. Starting a new
-  run from the merged file is not available yet (#720).
+  change; it never replaces commits it did not make (a plan branch deleted here is made again at its last plan
+  commit). Merging approves nothing: once `plan --open` has opened the plan pull request, `autocode-issue status` at
+  the approval stop prints its URL and the `autocode --goal-file` command that loads the merged file into the run,
+  until the run's plan moves past the one it carried. A merged plan pull request is never reused, even when its
+  branch was deleted with it: `plan` fetches the base branch first, and a plan that changed after the merge goes in
+  a new pull request, on `-plan-2`, made from the base branch that holds the merged file.
+  `TaskRun.export_plan(path)` is the task-run interface's way to write the plan file. `docs/workflow.md` describes
+  the team workflow. Starting a new run from the merged file is not available yet (#720).
 
 ### Changed
 

@@ -10,8 +10,9 @@ whoever holds the run loads it with `autocode --goal-file` and approves it there
 
 Run again after the run's plan changed while the pull request is open, it commits the new plan on top of the
 branch's last commit, so the same pull request shows the change; an unchanged plan reuses that commit. A branch
-that moved since is refused. A merged pull request is never reused: once the base branch holds its file
-(``merged_into``), a changed plan starts a new pull request from that base, on the next branch (``-plan-2``).
+that moved since is refused; one deleted since holds nothing to replace, so it is made again at that commit. A
+merged pull request is never reused: once the base branch holds its file (``merged_into``), a changed plan starts
+a new pull request from that base, on the next branch (``-plan-2``).
 
 Imports only autocode_plan_file (pure) and the standard library.
 """
@@ -65,8 +66,10 @@ def prepare(project: Path, record: dict, run, path: str, start: str | None = Non
 
     ``run`` is the issue's TaskRun. ``start``, the commit of the pull request's base that holds the merged plan
     pull request (``merged_into``), begins a new plan pull request from it, on the next branch and with no URL.
-    ValueError, with nothing changed, when the branch moved since the last commit made here, when the record
-    already carries the plan at another path, or when the base commit already holds this exact plan at ``path``.
+    A branch deleted since the last commit made here (``git branch -D``, ``gh pr merge --delete-branch``) is made
+    again, at that commit or the new one on top of it. ValueError, with nothing changed, when the branch moved
+    since that commit, when the record already carries the plan at another path, or when the base commit already
+    holds this exact plan at ``path``.
     """
     saved = record.get(FIELD) or {}
     if saved and saved["path"] != path:
@@ -77,7 +80,8 @@ def prepare(project: Path, record: dict, run, path: str, start: str | None = Non
         round_, parent = saved.get("round", 1), saved.get("parent") or record["base_commit"]
         previous, url = saved.get("commit"), saved.get("url")
     name = branch(record, round_)
-    if previous and _git(project, "rev-parse", "--verify", "-q", f"refs/heads/{name}", check=False) != previous:
+    current = _object(project, f"refs/heads/{name}")
+    if previous and current and current != previous:
         raise ValueError(
             f"branch {name} no longer points at {previous[:12]}, the plan commit autocode-issue made; "
             "it never replaces commits it did not make"
@@ -93,19 +97,20 @@ def prepare(project: Path, record: dict, run, path: str, start: str | None = Non
             f"{Path(record['run_dir']).name}, exported for review before it is built (goal hash {plan.goal_hash})."
         )
         made = commit(project, previous or parent, path, exported, message)
-    if made is None and previous is None:
+    tip = made or previous
+    if tip is None:
         raise ValueError(f"{path} at the base commit already holds this plan; there is nothing to propose")
-    if made is not None:
-        if previous is None:
-            _git(project, "branch", "--no-track", name, made)  # refuses a branch that already exists
-        else:
-            _git(project, "update-ref", f"refs/heads/{name}", made, previous)
+    if previous is None or not current:
+        # A new branch, or one deleted since: nothing on it can be replaced. `git branch` refuses one that exists.
+        _git(project, "branch", "--no-track", name, tip)
+    elif made is not None:
+        _git(project, "update-ref", f"refs/heads/{name}", made, previous)
     return {
         "path": path,
         "branch": name,
         "round": round_,
         "parent": parent,  # the base commit the branch started from: what merged_into compares the base with
-        "commit": made or previous,
+        "commit": tip,
         "revision": plan.revision,
         "goal_hash": plan.goal_hash,
         "run_goal_hash": plan.exported_hash,

@@ -527,17 +527,22 @@ class IssueCliTests(unittest.TestCase):
         load = ["--goal-file", str(merged), "--workspace", str(worktree), "--run-dir", record["run_dir"]]
         self.assertIn(f"Once that pull request is merged here: autocode {' '.join(load)}", status.stdout)
 
-        # Merged on GitHub, which deletes the head branch. Until the file is loaded, the merged pull request is
-        # not reused: `plan` refuses and pushes nothing, and the next step is to load the file.
-        self.git("push", "-q", "origin", f"{branch}:refs/heads/main")
-        self.git("push", "-q", "origin", "--delete", branch)
-        reused = self.cli("plan", "#7", "--open")
-        self.assertEqual(1, reused.returncode, reused.stdout)
-        self.assertIn(
-            "the plan pull request https://github.example/acme/widgets/pull/1 is merged into main, and the run still "
-            "waits on the plan it carried",
-            reused.stderr,
-        )
+        # Merged with `gh pr merge --delete-branch`: on GitHub main moves and the head branch goes; here the plan
+        # branch goes, and main and origin/main stay as they were. Until the file is loaded, the merged pull request
+        # is not reused: `plan`, with or without --open, fetches main, refuses, and makes or pushes no branch.
+        self.git("update-ref", "refs/heads/main", commit, cwd=self.remote)
+        self.git("update-ref", "-d", f"refs/heads/{branch}", cwd=self.remote)
+        self.git("branch", "-D", branch)
+        self.assertIsNone(issue_cli.merged_plan(self.saved_record()))  # nothing here shows the merge yet
+        for flags in ((), ("--open",)):
+            reused = self.cli("plan", "#7", *flags)
+            self.assertEqual(1, reused.returncode, reused.stdout)
+            self.assertIn(
+                "the plan pull request https://github.example/acme/widgets/pull/1 is merged into main, and the run "
+                "still waits on the plan it carried",
+                reused.stderr,
+            )
+        self.assertEqual("", self.git("branch", "--list", branch))
         self.assertEqual("", self.git("ls-remote", "--heads", "origin", branch))
         self.git("pull", "-q", "--ff-only", "origin", "main")
         status = self.cli("status", "#7")
@@ -591,6 +596,41 @@ class IssueCliTests(unittest.TestCase):
         status = self.cli("status", "#7")
         self.assertIn("Plan PR:  https://github.example/acme/widgets/pull/2", status.stdout)
         self.assertIn(f"Once that pull request is merged here: autocode {' '.join(load)}", status.stdout)
+
+    def test_plan_path_puts_the_plan_file_there_on_the_runs_base_commit(self):
+        """#720: `plan --path` commits the plan file at that path, on the run's base commit after the checkout moved
+        on; later runs keep the path, and `status` offers loading the file only once the pull request is open."""
+        started = self.cli("start", "#7", "--issue-file", str(self.issue_file), "--", *self.options)
+        self.assertEqual(0, started.returncode, started.stderr)
+        record = self.saved_record()
+        self.git("commit", "-q", "--allow-empty", "-m", "later work on main")
+        self.assertNotEqual(record["base_commit"], self.git("rev-parse", "HEAD"))
+
+        outside = self.cli("plan", "#7", "--path", "../plan.md")
+        self.assertEqual(1, outside.returncode, outside.stdout)
+        self.assertIn("must be a relative path inside the repository", outside.stderr)
+        path, branch = "docs/plans/greeting.md", "autocode/issue-7-add-a-greeting-cli-plan"
+        prepared = self.cli("plan", "#7", "--path", path)
+        self.assertEqual(0, prepared.returncode, prepared.stderr)
+        commit = self.git("rev-parse", branch)
+        self.assertEqual(record["base_commit"], self.git("rev-parse", f"{commit}^"))
+        self.assertEqual(f"A\t{path}", self.git("diff", "--name-status", f"{commit}^", commit))
+        self.assertIn(f"is {path} on {branch} at {commit[:12]}.", prepared.stdout)
+        body = (self.project / ".autocode/issues/acme-widgets-7-plan-pr.md").read_text()
+        self.assertIn(f"`{path}` is plan revision", body)
+        status = self.cli("status", "#7")  # no pull request yet, so none to merge and load
+        self.assertNotIn("Plan PR:", status.stdout)
+        self.assertNotIn("--goal-file", status.stdout)
+
+        elsewhere = self.cli("plan", "#7", "--path", "plans/issue-7.md")
+        self.assertEqual(1, elsewhere.returncode, elsewhere.stdout)
+        self.assertIn(f"carries {path}; pass --path {path}", elsewhere.stderr)
+        opened = self.cli("plan", "#7", "--open")  # the recorded path is kept
+        self.assertEqual(0, opened.returncode, opened.stderr)
+        self.assertEqual(commit, self.git("rev-parse", f"refs/heads/{branch}", cwd=self.remote))
+        status = self.cli("status", "#7")
+        load = f"--goal-file {self.project / path} --workspace {record['worktree']} --run-dir {record['run_dir']}"
+        self.assertIn(f"Once that pull request is merged here: autocode {load}", status.stdout)
 
     def test_plan_refuses_a_run_that_is_not_waiting_for_plan_approval(self):
         started = self.cli("start", "#7", "--issue-file", str(self.issue_file), "--", *self.options)
