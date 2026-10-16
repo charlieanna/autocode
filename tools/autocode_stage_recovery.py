@@ -16,6 +16,10 @@ except ImportError:
 import copy
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_escalation as escalation
@@ -55,7 +59,7 @@ except ImportError:
     import autocode_workflow as workflow
 
 
-def recover_legacy_report_repair(state, run_dir, workspace):
+def recover_legacy_report_repair(state: RunState, run_dir, workspace):
     """Upgrade one pre-report-repair checkpoint at an explicit resume boundary.
 
     Older checkpoints could reject a fully completed Builder response for a bad
@@ -121,7 +125,7 @@ def _stopped_on_route(record):
         return False
 
 
-def abandon_stage(state, run_dir, workspace, selected, *, launch=None):
+def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None):
     """Explicitly discard an uncertain response, retaining its edits and evidence.
 
     ``launch`` is the runner: a workflow job set aside here that stopped on its model lists the
@@ -230,7 +234,7 @@ def abandon_stage(state, run_dir, workspace, selected, *, launch=None):
 MAX_AUTOMATIC_CAPACITY_RECOVERIES = 3
 
 
-def automatically_recover_report_repair_timeout(state, run_dir, workspace, error):
+def automatically_recover_report_repair_timeout(state: RunState, run_dir, workspace, error):
     """Retire only a proven stopped repair; never replay its completed owner."""
     record = state.get("active_stage") or {}
     if not record.get("report_only") or not record.get("timed_out"):
@@ -357,7 +361,7 @@ def automatically_recover_report_repair_timeout(state, run_dir, workspace, error
     return True
 
 
-def automatically_recover_capacity_stage(state, run_dir, workspace, error):
+def automatically_recover_capacity_stage(state: RunState, run_dir, workspace, error):
     """Archive a confirmed model-capacity failure for bounded recovery.
 
     Workflow-job stages (``autocode_jobs.STAGES``) leave at once through
@@ -385,7 +389,7 @@ def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     except support.Paused:
         return False
 
-    recovered = state.get("automatic_capacity_recoveries", [])
+    recovered: list = state.get("automatic_capacity_recoveries", [])
     if len(recovered) >= MAX_AUTOMATIC_CAPACITY_RECOVERIES:
         raise support.Paused(
             "PAUSED_PROVIDER_CAPACITY",
@@ -455,7 +459,7 @@ def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     return True
 
 
-def automatically_recover_truncated_review(state, run_dir, workspace, error):
+def automatically_recover_truncated_review(state: RunState, run_dir, workspace, error):
     """Queue a bounded report-only repair for a truncated read-only review.
 
     Only Validator, Completion Owner and Plan Reviewer reports qualify. Their
@@ -566,7 +570,7 @@ def automatically_recover_truncated_review(state, run_dir, workspace, error):
     return True
 
 
-def reconcile_rate_limited_stage(state, run_dir, workspace):
+def reconcile_rate_limited_stage(state: RunState, run_dir, workspace):
     """AutoResolver retires a proven stopped rate-limit attempt without replay."""
     record = state.get("active_stage") or {}
     if job_failure.owner(record or {}):
@@ -618,7 +622,7 @@ def reconcile_rate_limited_stage(state, run_dir, workspace):
     return True
 
 
-def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
+def automatically_recover_timed_out_stage(state: RunState, run_dir, workspace, error):
     """Archive one fully stopped, non-terminal timeout and continue safely.
 
     This is deliberately *not* a replay: the original request remains archived,
@@ -733,7 +737,7 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
     return True
 
 
-def automatically_recover_external_directory_denial(state, run_dir, workspace, error):
+def automatically_recover_external_directory_denial(state: RunState, run_dir, workspace, error):
     """Recover the narrow, deterministic OpenCode external-directory denial.
 
     The native tool emits this denial before the agent can return a terminal
@@ -793,7 +797,9 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
         automatic_recovery=True,
         rejection_reason="OpenCode denied external_directory before a terminal turn; partial work retained",
     )
-    failures.record(state, record, error, records.now())
+    # The except clause above rebinds error and always raises, so this line still reads the error
+    # parameter. mypy treats a name as deleted after any `except ... as` clause that binds it.
+    failures.record(state, record, error, records.now())  # type: ignore[misc]
     originals = records.archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     next_stage = validation_recovery.permission_retry(state, record, review_stage=workflow.review_stage(state))
@@ -860,7 +866,7 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
     return True
 
 
-def prepare_planning_retry(state, run_dir):
+def prepare_planning_retry(state: RunState, run_dir):
     """Explicitly retry a planning report whose repair is spent or cannot launch; retain rejected evidence."""
     # Older runs may already have archived a repair under its internal stage
     # name. Recover only the exact abandoned attempt on an explicit resume.
@@ -947,7 +953,7 @@ def prepare_planning_retry(state, run_dir):
     return True
 
 
-def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, allow_repeated=False):
+def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace=None, *, allow_repeated=False):
     """Allow an explicit fresh execution report after bounded repairs fail or cannot launch."""
     if state.get("status") not in (
         "PAUSED_REPORT_REPAIR_LIMIT",
@@ -971,7 +977,7 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
         and any(
             record.get("stage") == "sol_report_repair"
             and record.get("abandoned")
-            and records.attempt_id(record) == state["recovery_context"].get("attempt_id")
+            and records.attempt_id(record) == cast(dict, state["recovery_context"]).get("attempt_id")
             for record in state.get("stages", [])
         )
     )
@@ -981,7 +987,7 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
         or planning.is_planning(state, stage)
         or not (
             unlaunchable
-            or pending.get("attempts") == records.repair_limit(state)
+            or cast(dict, pending).get("attempts") == records.repair_limit(state)
             or allow_repeated
             and report_retry.bounded_failure(state, records.repair_limit(state))
         )
@@ -1033,7 +1039,7 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
     return True
 
 
-def stale_report_repair(state, workspace):
+def stale_report_repair(state: RunState, workspace):
     """(repaired source, current source) when only the source moved under a queued report repair, else None.
 
     A repair restates the original report for the source that attempt ran on, so after an operator
@@ -1067,7 +1073,7 @@ def stale_report_repair(state, workspace):
     return checked, revision
 
 
-def archive_stale_report_repair(state, run_dir, workspace):
+def archive_stale_report_repair(state: RunState, run_dir, workspace):
     """On an explicit resume, archive (never delete) a stale report repair so the same stage starts afresh.
 
     The role's saved session judged the old source, so it is rotated like an exhausted repair's
@@ -1100,7 +1106,7 @@ def archive_stale_report_repair(state, run_dir, workspace):
     return message
 
 
-def retry_format_failed_report(state, run_dir, workspace, selected):
+def retry_format_failed_report(state: RunState, run_dir, workspace, selected):
     """Explicitly request fresh evidence after a bounded report rejection."""
     pending = state.get("pending_report_repair") or {}
     original = pending.get("original") or {}
@@ -1160,7 +1166,7 @@ def retry_format_failed_report(state, run_dir, workspace, selected):
     records.write_json(run_dir / "state.json", state)
 
 
-def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
+def prepare_abandoned_completion_revalidation(state: RunState, run_dir, workspace):
     """Repair old completion-abandonment routing on explicit resume only."""
     if (
         state.get("status") not in ("PAUSED_STAGE_ABANDONED", "PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
@@ -1262,7 +1268,7 @@ def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
     return True
 
 
-def authorize_failure_retry(state, run_dir, workspace):
+def authorize_failure_retry(state: RunState, run_dir, workspace):
     """Authorize one fresh attempt for an inspected, unchanged repeated failure.
 
     The durable record is audit only. The returned exception is consumed in this
@@ -1271,7 +1277,7 @@ def authorize_failure_retry(state, run_dir, workspace):
     issued = resolver_human.current(state)
     issued_cause = (
         (
-            state.get("resolver", {})
+            cast(dict, state.get("resolver", {}))
             .get("human_escalations", {})
             .get(issued["request_id"], {})
             .get("identity", {})
@@ -1292,15 +1298,15 @@ def authorize_failure_retry(state, run_dir, workspace):
     repeated = failures.repeated(state, record) if record else None
     if not repeated:
         raise ValueError("No unchanged repeated failure to authorize; fix the cause, then resume")
-    selected = record.get("failure_key")
+    selected = cast(dict, record).get("failure_key")
     revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
     identity = repeated["identity"]
     if (
         (state.get("failure_history") or {}).get(selected) is not repeated
         or failures.key(identity) != selected
         or identity["artifact_hash"] != revision
-        or record.get("source_revision") != revision
-        or identity["stage"] != (record.get("original_stage") or record.get("stage"))
+        or cast(dict, record).get("source_revision") != revision
+        or identity["stage"] != (cast(dict, record).get("original_stage") or cast(dict, record).get("stage"))
         or identity["stage"] != state.get("next_stage")
     ):
         raise ValueError("Retry authorization requires the exact current source, stage and failure identity")
@@ -1308,7 +1314,7 @@ def authorize_failure_retry(state, run_dir, workspace):
         "at": records.now(),
         "failure_key": selected,
         "identity": copy.deepcopy(identity),
-        "count": repeated["count"],
+        "count": cast(dict, repeated)["count"],
         "source_revision": revision,
     }
     resolver_human.supersede_operational(state, "Operator explicitly authorized one scoped failure retry")
@@ -1318,8 +1324,8 @@ def authorize_failure_retry(state, run_dir, workspace):
             "kind": "failure_retry_authorized",
             "at": records.now(),
             "failure_key": selected,
-            "stage": repeated["identity"].get("stage"),
-            "count": repeated["count"],
+            "stage": cast(dict, repeated)["identity"].get("stage"),
+            "count": cast(dict, repeated)["count"],
         }
     )
     records.write_json(run_dir / "state.json", state)

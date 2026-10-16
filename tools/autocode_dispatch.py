@@ -28,6 +28,10 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_interaction_timing as interaction_timing
@@ -73,7 +77,7 @@ DEFAULTS = {"enabled": True, "max_parallel": 2}
 _model_family = model_identity.family
 
 
-def enforce_cross_model_verification(state):
+def enforce_cross_model_verification(state: RunState):
     """Pause before dispatch unless the run explicitly uses single-model mode."""
     problems = verifier_independence.violations(state.get("settings"))
     if problems:
@@ -90,7 +94,7 @@ except ImportError:
     import autocode_status
 
 
-def enabled(state):
+def enabled(state: RunState):
     return (
         state.get("settings", {}).get("orchestration", {}).get("enabled") is True
         and milestones.enabled(state)
@@ -98,7 +102,7 @@ def enabled(state):
     )
 
 
-def build_stage(state):
+def build_stage(state: RunState):
     return "orchestrator" if enabled(state) else "terra"
 
 
@@ -116,13 +120,13 @@ def disjoint(a, b):
     return not any(contains(x, y.rstrip("/")) or contains(y, x.rstrip("/")) for x in a for y in b)
 
 
-def select(state):
+def select(state: RunState):
     """Pick a bounded ready wave; absent ownership information stays sequential."""
     goals.execution_guard(state)
-    task = state.get("current_task", {})
+    task = cast(dict, state.get("current_task", {}))
     if task.get("milestone_ids") or task.get("kind") != "implement" or task.get("decision") == "REWORK":
         return []
-    body = state["goal_contract"]["body"]
+    body = cast(dict, state["goal_contract"])["body"]
     rows = {m["id"]: m for m in body.get("milestones", [])}
     primary = rows.get(task.get("milestone_id"))
     accepted = milestones.accepted_ids(state)
@@ -248,12 +252,12 @@ def snapshot_commit(workspace, directory, *, source_paths=()):
         index.unlink(missing_ok=True)
 
 
-def task_for(state, milestone, baseline):
-    if milestone["id"] == state["current_task"]["milestone_id"]:
+def task_for(state: RunState, milestone, baseline):
+    if milestone["id"] == cast(dict, state["current_task"])["milestone_id"]:
         # select() checked ownership and coverage; preserve the reviewed handoff.
-        task = copy.deepcopy(state["current_task"])
+        task = copy.deepcopy(cast(dict, state["current_task"]))
     else:
-        criteria = {c["id"]: c for c in state["goal_contract"]["body"]["acceptance_criteria"]}
+        criteria = {c["id"]: c for c in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]}
         task = {
             "kind": "implement",
             "milestone_id": milestone["id"],
@@ -265,8 +269,8 @@ def task_for(state, milestone, baseline):
         }
     task.update(
         id="task-" + uuid.uuid4().hex[:12],
-        contract_revision=state["goal_contract"]["revision"],
-        contract_hash=state["goal_contract"]["hash"],
+        contract_revision=cast(dict, state["goal_contract"])["revision"],
+        contract_hash=cast(dict, state["goal_contract"])["hash"],
         assigned_at=s.now(),
         source_revision=baseline["revision"],
         decision="CONTINUE",
@@ -274,7 +278,7 @@ def task_for(state, milestone, baseline):
     return task
 
 
-def prepare(state, workspace, run_dir, selected):
+def prepare(state: RunState, workspace, run_dir, selected):
     batch_id = uuid.uuid4().hex[:12]
     directory = run_dir / "orchestration" / batch_id
     directory.mkdir(parents=True)
@@ -284,7 +288,7 @@ def prepare(state, workspace, run_dir, selected):
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Source changed while capturing the Builder baseline")
     batch = {
         "id": batch_id,
-        "contract_hash": state["goal_contract"]["hash"],
+        "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "baseline": baseline,
         "base_commit": base,
         "directory": str(directory),
@@ -314,7 +318,7 @@ def prepare(state, workspace, run_dir, selected):
     return batch
 
 
-def finish_preparation(state, workspace, run_dir, batch):
+def finish_preparation(state: RunState, workspace, run_dir, batch):
     """Recover worktree setup before any provider launch; membership is already saved."""
     for row in batch["workers"]:
         if row["status"] == "PENDING":
@@ -341,7 +345,7 @@ def finish_preparation(state, workspace, run_dir, batch):
                 "Existing files were left untouched",
             )
         worker_dir.mkdir(parents=True, exist_ok=True)
-        child = {
+        child: dict = {
             k: copy.deepcopy(state[k])
             for k in (
                 "version",
@@ -420,7 +424,7 @@ def unverified(row):
     return bool(row.get("supervision")) and lifeline.settled(row["supervision"]) not in lifeline.ADOPTABLE
 
 
-def run_workers(state, run_dir, batch):
+def run_workers(state: RunState, run_dir, batch):
     """One provider supervisor process per Builder, with durable launch intent.
 
     Each worker guards itself on a pipe whose only writer is this process
@@ -428,7 +432,7 @@ def run_workers(state, run_dir, batch):
     """
     processes.process_table()  # Refuse launch if process ownership cannot be supervised.
     active = []
-    writers = []  # closed by the finally below, so even an unrecorded launch loses its owner
+    writers: list = []  # closed by the finally below, so even an unrecorded launch loses its owner
 
     def release(fd):
         if fd in writers:
@@ -552,7 +556,7 @@ def run_workers(state, run_dir, batch):
             raise s.Paused("PAUSED_PROCESS_CLEANUP", "; ".join(cleanup_errors))
 
 
-def account_workers(state, run_dir, batch):
+def account_workers(state: RunState, run_dir, batch):
     """Charge finished attempts once, even when another member blocks integration."""
     accounted = set(batch.get("accounted_attempts", []))
     for row in batch["workers"]:
@@ -616,10 +620,10 @@ def retire_deferred(batch, workspace):
     worktrees.retire_builders(batch, workspace)
 
 
-def collect(state, workspace, run_dir, batch):
+def collect(state: RunState, workspace, run_dir, batch):
     account_workers(state, run_dir, batch)
     patches = []
-    changed = set()
+    changed: set = set()
     deferred = []
     expected = copy.deepcopy(batch["baseline"])
     tracked = set(util.git_names(git(workspace, "ls-files", "-z", "--cached")))
@@ -725,7 +729,7 @@ def collect(state, workspace, run_dir, batch):
     autocode_status.persist(run_dir / "state.json", state)
 
 
-def integrate(state, workspace, run_dir, batch):
+def integrate(state: RunState, workspace, run_dir, batch):
     if s.file_hash(batch["patch"]) != batch["patch_hash"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Saved integration patch changed")
     edited = acceptance_tests.edited(state, Path(batch["patch"]).read_bytes())
@@ -774,13 +778,15 @@ def integrate(state, workspace, run_dir, batch):
     state.setdefault("task_archive", []).append(state["current_task"])
     enforce_cross_model_verification(state)
     state.update(
-        current_task=combined,
-        affected_paths=combined["affected_paths"],
-        next_action=combined["objective"],
-        changed_files=batch["changed_files"],
-        diff_ref=batch["patch"],
-        next_stage="sol",
-        phase="EXECUTING",
+        {
+            "current_task": combined,
+            "affected_paths": combined["affected_paths"],
+            "next_action": combined["objective"],
+            "changed_files": batch["changed_files"],
+            "diff_ref": batch["patch"],
+            "next_stage": "sol",
+            "phase": "EXECUTING",
+        }
     )
     snapshot_path = Path(batch["directory"]) / "integrated.json"
     s.atomic_json(snapshot_path, current)
@@ -791,7 +797,7 @@ def integrate(state, workspace, run_dir, batch):
         "workspace": str(workspace),
         "builder_reports": [r["result"] for r in built],
         "task_id": combined["id"],
-        "contract_revision": state["goal_contract"]["revision"],
+        "contract_revision": cast(dict, state["goal_contract"])["revision"],
         "contract_hash": batch["contract_hash"],
     }
     goals.invalidate(state, "Parallel Builders integrated; validate the combined artifact")
@@ -807,13 +813,13 @@ def integrate(state, workspace, run_dir, batch):
     progress["seconds_by_role"] = {"terra": progress["seconds"]}
 
 
-def dispatch(state, workspace, run_dir):
+def dispatch(state: RunState, workspace, run_dir):
     goals.execution_guard(state)
     enforce_cross_model_verification(state)
     if not enabled(state):
         raise ValueError("Orchestration is not enabled for this run")
     batch = state.get("orchestration_batch")
-    if batch and batch["contract_hash"] != state["goal_contract"]["hash"]:
+    if batch and batch["contract_hash"] != cast(dict, state["goal_contract"])["hash"]:
         for row in batch["workers"]:
             if worker_alive(row):
                 raise s.Paused(
@@ -893,7 +899,7 @@ def dispatch(state, workspace, run_dir):
     return record
 
 
-def try_request_retry(state, run_dir, selected, *, issued=None):
+def try_request_retry(state: RunState, run_dir, selected, *, issued=None):
     """Reject invalid CLI selections without replacing the saved operational pause."""
     candidate = copy.deepcopy(state)
     try:
@@ -901,12 +907,12 @@ def try_request_retry(state, run_dir, selected, *, issued=None):
     except ValueError as error:
         print(f"Input rejected: {error}", file=sys.stderr)
         return False
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
     return True
 
 
-def member_retry_refusal(state, selected, *, issued=None):
+def member_retry_refusal(state: RunState, selected, *, issued=None):
     """The current batch's member retry rejection or collected model stop, otherwise None.
 
     Run setup uses the same approval, liveness and saved-result checks before a settings write.
@@ -923,7 +929,7 @@ def member_retry_refusal(state, selected, *, issued=None):
         not batch
         or batch["status"] != "BUILDING"
         or state.get("next_stage") != "orchestrator"
-        or batch["contract_hash"] != state["goal_contract"]["hash"]
+        or batch["contract_hash"] != cast(dict, state["goal_contract"])["hash"]
     ):
         return ValueError("Builder retry requires the current approved batch at its build checkpoint")
     rows = {row["milestone_id"]: row for row in batch["workers"]}
@@ -956,7 +962,7 @@ def member_retry_refusal(state, selected, *, issued=None):
     return None
 
 
-def request_retry(state, run_dir, selected, *, issued=None):
+def request_retry(state: RunState, run_dir, selected, *, issued=None):
     """Explicitly retry a stopped serial milestone or named parallel members."""
     if state.get("next_stage") == "terra":
         goals.execution_guard(state)
@@ -981,7 +987,7 @@ def request_retry(state, run_dir, selected, *, issued=None):
     refused = member_retry_refusal(state, selected, issued=issued)
     if refused:
         raise refused
-    batch = state["orchestration_batch"]
+    batch = cast(dict, state["orchestration_batch"])
     rows = {row["milestone_id"]: row for row in batch["workers"]}
     worker_limits.assign_selected(state, run_dir, [rows[mid] for mid in selected], persist=autocode_status.persist)
     held = [

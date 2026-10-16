@@ -11,6 +11,10 @@ from __future__ import annotations
 import copy
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_brief_acceptance as acceptance
@@ -45,7 +49,7 @@ def handoff_task(task, records):
     return task
 
 
-def sources(state):
+def sources(state: RunState):
     logged = source_log.sources(state)
     if logged is not None:
         return logged
@@ -88,17 +92,17 @@ def sources(state):
     return records
 
 
-def _version(state):
+def _version(state: RunState):
     """A sealed manifest pins this run's compiler, including subsequent reviews."""
     wrapper = _wrapper((state.get("goal_contract") or {}).get("body"))
     return wrapper["manifest"]["version"] if wrapper else acceptance.VERSION
 
 
-def _inventory(state, records=None):
+def _inventory(state: RunState, records=None):
     return acceptance.inventory(sources(state) if records is None else records, version=_version(state))
 
 
-def inventory(state):
+def inventory(state: RunState):
     return [{**row, "declaration_hash": acceptance.digest(row)} for row in _inventory(state)]
 
 
@@ -106,7 +110,7 @@ def _wrapper(body):
     return (body or {}).get(KEY)
 
 
-def _past_observations(state):
+def _past_observations(state: RunState):
     rows = {}
     for contract in [*(state.get("contract_history") or []), state.get("goal_contract") or {}]:
         wrapper = _wrapper(contract.get("body")) or {}
@@ -115,7 +119,7 @@ def _past_observations(state):
     return rows
 
 
-def _amendments(state, changes):
+def _amendments(state: RunState, changes):
     """Derive inactive declarations from exact, genuine source amendments."""
     declarations = {row["id"]: row for row in _inventory(state)}
     human_sources = sources(state)
@@ -196,7 +200,7 @@ def _verify_review(review, manifest):
         raise ValueError("Original-brief Plan Reviewer provenance is missing or changed")
 
 
-def validate_body(state, body, *, ready=False):
+def validate_body(state: RunState, body, *, ready=False):
     human = sources(state)
 
     def trace_checks():
@@ -244,7 +248,7 @@ def validate_body(state, body, *, ready=False):
     trace_checks()
 
 
-def reviewed_body(state, body, proposals, record, *, changes=(), trace=None):
+def reviewed_body(state: RunState, body, proposals, record, *, changes=(), trace=None):
     result = copy.deepcopy(body)
     previous = _wrapper((state.get("goal_contract") or {}).get("body"))
     if not _inventory(state) and previous is None:
@@ -303,7 +307,7 @@ def reviewed_body(state, body, proposals, record, *, changes=(), trace=None):
     return result
 
 
-def prepare_body(state, body, origin, record=None):
+def prepare_body(state: RunState, body, origin, record=None):
     result = copy.deepcopy(body)
     result = source_trace.prepare(state, result, origin, record)
     previous = _wrapper((state.get("goal_contract") or {}).get("body"))
@@ -321,7 +325,7 @@ def prepare_body(state, body, origin, record=None):
     raise ValueError("A Planner, Builder or edited contract cannot replace independently derived brief observations")
 
 
-def whole_product_claim(state, report, *, progressive_context=None):
+def whole_product_claim(state: RunState, report, *, progressive_context=None):
     """Select full observations only for an evidenced current whole-product claim.
 
     Task-local PASS and progressive contributions are insufficient. The existing
@@ -346,7 +350,7 @@ def whole_product_claim(state, report, *, progressive_context=None):
     return True
 
 
-def observations(state, *, progressive_context=None, all_observations=False):
+def observations(state: RunState, *, progressive_context=None, all_observations=False):
     """Canonical cases due in this task; completion independently requests all."""
     body = (state.get("goal_contract") or {}).get("body") or {}
     validate_body(state, body, ready=True)
@@ -370,7 +374,7 @@ def observations(state, *, progressive_context=None, all_observations=False):
     return [row for row in rows if selected.intersection(row["proposal"]["criterion_ids"])]
 
 
-def commands(state, *, python="python3", timeout=15, progressive_context=None, all_observations=False):
+def commands(state: RunState, *, python="python3", timeout=15, progressive_context=None, all_observations=False):
     selected = observations(state, progressive_context=progressive_context, all_observations=all_observations)
     wrapper = _wrapper((state.get("goal_contract") or {}).get("body"))
     if wrapper is None:
