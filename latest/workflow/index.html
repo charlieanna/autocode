@@ -2350,7 +2350,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/19cbe623567e476a8d0237cfedb928d94fd1fcb6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/76225c03c882d70314ddeade9bcbf0035e3cb4aa/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2966,7 +2966,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/19cbe623567e476a8d0237cfedb928d94fd1fcb6/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/76225c03c882d70314ddeade9bcbf0035e3cb4aa/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3015,23 +3015,28 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
     hold. Every new package run records what is there when its base is taken
     (none, in a new task worktree). While such a path is still a Git
     repository, it and everything under it are left out, so a later change
-    inside it is not seen. Once it is deleted, or is no longer a Git
-    repository (replaced by a file, or its <code>.git</code> removed), the finding names
-    it apart from the Builder's changes and tells the Builder not to delete,
-    move or reset anything there: the person restores it. A package run saved
-    before this record existed has none, so its check leaves out every nested
-    Git repository and submodule work it finds outside the package rather
-    than report the person's own as the Builder's;</li>
+    inside it is not seen. An untracked repository that is later removed
+    entirely was the person's own and names no change of the candidate: it
+    does not hold the run. A deleted submodule, or a path that is no longer a
+    Git repository (replaced by a file, or its <code>.git</code> removed), is named
+    apart from the Builder's changes, and the finding tells the Builder not
+    to delete, move or reset anything there: the person restores it. A
+    package run saved before this record existed has none, so its check
+    leaves out every nested Git repository and submodule work it finds
+    outside the package rather than report the person's own as the Builder's;</li>
 <li>the files the runner wrote for this run, while they are as the runner
     wrote them: a bug fix's diagnosis note under <code>docs/bugs/</code> (compared with
-    the investigation the run saved, whether or not it reproduced the bug)
-    and a review's or design review's report (its saved hash). Once changed,
-    the finding names them apart and tells the Builder to put back what the
-    runner wrote, not to delete them;</li>
-<li>a design check's blockers file and what an earlier, finished turn of the
-    run left (a discussion's note, a design's documents, the other files the
-    turn changed), which the run records by path only: they are left out by
-    path, so an edit to one is not seen.</li>
+    the investigation the run saved, whether or not it reproduced the bug),
+    a review's or design review's report (its saved hash) and a design
+    check's blockers file (its saved hash). Once changed, the finding names
+    them apart and tells the Builder to put back what the runner wrote, not
+    to delete them. A check of the same design that later passes removes the
+    blockers file an earlier, stopped check wrote, so no stale one is left
+    behind;</li>
+<li>what an earlier, finished turn of the run left (a discussion's note, a
+    design's documents, the other files the turn changed), and a blockers
+    file a run saved before it recorded the hash, are recorded by path only:
+    they are left out by path, so an edit to one is not seen.</li>
 </ul>
 <p>The regression proof's list of changes outside the package leaves out the
   same paths, apart from the person's Git work that is no longer as it was.
@@ -3039,7 +3044,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/19cbe623567e476a8d0237cfedb928d94fd1fcb6/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/76225c03c882d70314ddeade9bcbf0035e3cb4aa/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3271,7 +3276,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/19cbe623567e476a8d0237cfedb928d94fd1fcb6/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/76225c03c882d70314ddeade9bcbf0035e3cb4aa/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
