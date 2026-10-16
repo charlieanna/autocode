@@ -651,7 +651,11 @@ typed, and the option names of that invocation, never their values, so tokens st
   run goes on to build: once every check that could keep the run at that pause has passed,
   just before its next stage launches. A resume the pause's own rules refuse records nothing,
   such as `--resume-paused` without a higher `--max-iterations` at an iteration limit you
-  set, or a resume while the run's `pause-requested` file is still in place.
+  set, or a resume while the run's `pause-requested` file is still in place. Nor does one
+  whose next attempt is projected past a budget: a role's climb on its effort ladder, like the
+  Builder's stronger attempt, is checked against the cost cap, the time limit and the
+  milestone budget before the resume is saved, so a resume that pauses there again is not
+  listed (#611).
 
 On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`,
 `--accept-completion`, `--edit-goal`, `--goal-file` or the resume; the name is saved beside the

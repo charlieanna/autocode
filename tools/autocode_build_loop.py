@@ -75,8 +75,9 @@ def record_resume(runner, args, state: RunState, state_path) -> None:
 
     The loop calls it just before it launches work (a stage, a parallel batch, a report repair),
     once every check that could hold the run at its pause has passed. A pause the loop re-raises
-    before that, such as a kept ``pause-requested`` file, changed transport settings or a held
-    Builder failure, kept the run where it was and records nothing. Once per invocation.
+    before that, such as a kept ``pause-requested`` file, changed transport settings, a held
+    Builder failure or a climb projected past a budget (climb_cap.guard, #611), kept the run where
+    it was and records nothing. Once per invocation.
     """
     pause = getattr(args, "_resumed_pause", None)
     if not pause:
@@ -262,8 +263,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             launch_inputs.guard(current, workspace, run_dir)
         except ValueError as error:
             raise support.Paused("PAUSED_STALE_VALIDATION", str(error)) from error
-        record_resume(runner, args, current, state_path)  # every check that could hold the pause passed
         if stage == "orchestrator":
+            record_resume(runner, args, current, state_path)  # every check that could hold the pause passed
             return autopilot.unit_module(stage).dispatch(current, workspace, run_dir)
         request = autopilot.prepare_request(current, stage, state_path, runner.SCHEMA_DIR)
         role, route_role = request.role, request.route_role
@@ -281,6 +282,9 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         # (PAUSED_COST_LIMIT), then timed against an active-time budget you set (PAUSED_TIME_LIMIT) and, for the
         # Builder, against the milestone budget you set (PAUSED_MILESTONE_BUDGET).
         climb_cap.guard(current, stage, route_role)
+        # Only now has every check that could hold the pause passed, the climb's included, as for the Builder's
+        # stronger attempt (builder_policy.guard above): a resume the projection keeps paused records nothing.
+        record_resume(runner, args, current, state_path)
         schema_value = request.schema
         schema_path = run_dir / "schemas" / f"v3-{stage}.json"
         runner.write_json(schema_path, support.model_output_schema(schema_value))
