@@ -1152,7 +1152,13 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         import copy
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+            [
+                *self.args(),
+                "--role-transport",
+                "plan_reviewer=kilocode",
+                "--plan-reviewer-model",
+                "anthropic/fixture-claude",
+            ]
         )
         settings = copy.deepcopy(self.observed[-1])
         for derived_role in ("analyst", "investigator", "architect", "stuck_investigator"):
@@ -1195,10 +1201,17 @@ class ExplicitRoleTransportTests(unittest.TestCase):
 
     def test_autoresolver_prepare_answer_wires_analyst_transport_identity(self):
         import copy
+
         from units import autoresolver
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+            [
+                *self.args(),
+                "--role-transport",
+                "plan_reviewer=kilocode",
+                "--plan-reviewer-model",
+                "anthropic/fixture-claude",
+            ]
         )
         settings = copy.deepcopy(self.observed[-1])
         state = {"workspace": str(self.workspace), "task": "A discuss task", "settings": settings, "history": []}
@@ -1208,10 +1221,17 @@ class ExplicitRoleTransportTests(unittest.TestCase):
 
     def test_autoresolver_prepare_investigation_wires_investigator_transport_identity(self):
         import copy
+
         from units import autoresolver
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+            [
+                *self.args(),
+                "--role-transport",
+                "plan_reviewer=kilocode",
+                "--plan-reviewer-model",
+                "anthropic/fixture-claude",
+            ]
         )
         settings = copy.deepcopy(self.observed[-1])
         state = {"workspace": str(self.workspace), "task": "A bug task", "settings": settings, "history": []}
@@ -1221,6 +1241,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
 
     def test_autoreview_prepare_acceptance_tester_wires_transport_identity(self):
         import copy
+
         from units import autoreview
 
         self.cli_configure(
@@ -1234,10 +1255,17 @@ class ExplicitRoleTransportTests(unittest.TestCase):
 
     def test_autoreview_prepare_architect_wires_transport_identity(self):
         import copy
+
         from units import autoreview
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+            [
+                *self.args(),
+                "--role-transport",
+                "plan_reviewer=kilocode",
+                "--plan-reviewer-model",
+                "anthropic/fixture-claude",
+            ]
         )
         settings = copy.deepcopy(self.observed[-1])
         state = {"workspace": str(self.workspace), "task": "A design task", "settings": settings, "history": []}
@@ -1248,10 +1276,17 @@ class ExplicitRoleTransportTests(unittest.TestCase):
     def test_utility_route_configure_wires_utility_transport_identity(self):
         import argparse
         import copy
+
         import autocode_utility_route as utility_route
 
         self.cli_configure(
-            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+            [
+                *self.args(),
+                "--role-transport",
+                "plan_reviewer=kilocode",
+                "--plan-reviewer-model",
+                "anthropic/fixture-claude",
+            ]
         )
         settings = copy.deepcopy(self.observed[-1])
         args = argparse.Namespace(utility_model="fixture/util", utility_reasoning_effort=None)
@@ -1262,6 +1297,7 @@ class ExplicitRoleTransportTests(unittest.TestCase):
     def test_external_plan_reviewer_and_tester_across_all_five_paths(self):
         import copy
         from pathlib import Path
+
         import autocode_review_job as review_job
         import autocode_stuck_job as stuck_job
         from units import autoresolver, autoreview

@@ -55,10 +55,13 @@ def inherit(settings, role, source_role=None):
             continue
         src_key = PREFIX + str(src)
         src_identity = identities.get(src_key)
-        if src_identity is not None and isinstance(src_identity, dict):
-            if provider is None or src_identity.get("provider") == provider:
-                identities[target_key] = copy.deepcopy(src_identity)
-                return identities[target_key]
+        if (
+            src_identity is not None
+            and isinstance(src_identity, dict)
+            and (provider is None or src_identity.get("provider") == provider)
+        ):
+            identities[target_key] = copy.deepcopy(src_identity)
+            return identities[target_key]
 
     if provider and provider not in (None, "opencode", "openai", settings.get("provider")):
         for k, v in identities.items():
