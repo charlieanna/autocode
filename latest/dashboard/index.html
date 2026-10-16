@@ -1972,7 +1972,7 @@
 
 
 <h1 id="browser-dashboard">Browser dashboard<a class="headerlink" href="#browser-dashboard" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6f5ba84daaf541f28ffacd4480ede101836c31d8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/ef3f5871842b237cdaca08d20bc3358df5ff153e/README.md">← Back to README</a></p>
 <p>Autocode includes a local browser dashboard for planning work with the Requirements Planner, approving
 the lead-reviewed plan, choosing each execution role's model and reasoning level,
 following active tasks, and sending feedback or a pause
@@ -2055,6 +2055,13 @@ separate signals. A disconnected task retains its last successful view, labels i
 stale, disables mutations, and offers <strong>Retry status</strong>. Refreshing the project list
 does not make a failed task read look current. HTTP read failures never resume,
 restart, or retry an agent stage.</p>
+<p>An open task also carries the run's public status view (<code>status_view</code>, from the
+same cached <code>autocode --status</code> call that fills the intervention panel), so
+detail panes read fields such as <code>changes_by_criterion</code>, <code>dev_server</code> and <code>needs</code>
+from the contract in <a href="../task-run/">docs/task-run.md</a>. It is <code>null</code> when that call
+fails. The project list still reads saved run state for fields the view does not
+carry; that read is confined to <code>dashboard_run_state.py</code>, and the dashboard uses
+only public names of core modules (both checked in <code>tests/test_architecture.py</code>).</p>
 <h2 id="project-specific-counters">Project-specific counters<a class="headerlink" href="#project-specific-counters" title="Permanent link">&para;</a></h2>
 <p>Project-specific counters are optional. Declare a read-only projection in the
 project's <code>.autocode/dashboard.json</code> (not in runner state):</p>
