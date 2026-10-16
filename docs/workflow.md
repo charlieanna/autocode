@@ -684,6 +684,10 @@ The `feature-monorepo-package` scenario
 one package of a two-package repository with `--package` and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open `runner` finding.
+`bugfix-monorepo-package` does the same for a bug fix: the Investigator runs
+first, the proof runs in the package, and the runner's diagnosis note under
+`docs/bugs/` is not counted as a change outside it. Its broken variant also
+fixes the other package's copy of the bug and stops with that file named.
 
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
@@ -714,6 +718,12 @@ Not covered yet (#711):
 - Nothing limits what the Builder writes while it works: a change outside the
   package is found when the candidate is checked before review, not refused when
   it is written.
+- The bug-fix Investigator is not told the package. Its handoff names neither
+  the package nor the suite detected there, so it learns the package only from
+  the request's words, and nothing checks its diagnosis against the package: a
+  report whose affected or test paths are in another package is accepted and
+  planned from. The Builder's handoff still names the package, and the check
+  before review reports any change outside it.
 - Detection in the package does not read pytest configuration in parent
   directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
   `conftest.py`), so a package that relies on it is detected as unittest. Give

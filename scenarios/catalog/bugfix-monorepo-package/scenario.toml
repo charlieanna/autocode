@@ -1,0 +1,17 @@
+title = "Fix a bug in one package of a two-package monorepo"
+category = "bugfix"
+# Issue #711: a --package bug fix through the bug-fix workflow, whose first stage is the
+# Investigator. Both packages keep a copy of the same off-by-one pager; the report and the fix
+# belong to packages/invoices/, and the scripted run is started with --package packages/invoices/,
+# so its suite is detected and run in that package. The reference fixes only that package.
+# broken/fixes-search-copy-too delivers the same correct fix and also fixes the other team's copy:
+# the runner must report that file in an open blocking runner finding and the run must stop without
+# completing (docs/workflow.md, "Monorepo packages"). The runner's diagnosis note under docs/bugs/
+# is the workflow's own file, not a change outside the package. The flag is a [fake] flag, so a
+# live profile runs the brief without --package and is judged on the delivered files alone.
+
+[fake]
+check = "cd packages/invoices && python3 -m unittest discover -v"
+# Exits 0 while the seed's bug is present; the runner checks the scripted reproduction.
+probe = 'cd packages/invoices && python3 -c "from pager import page_count; assert page_count(5, 2) == 2"'
+flags = ["--package", "packages/invoices/"]

@@ -1806,6 +1806,11 @@ CONTROL_SUMMARIES = {
         "reference": "7/7 checks",
         "broken/edits-farewell-package": "6/7 checks; failing: nothing_changed_outside_the_package",
     },
+    "bugfix-monorepo-package": {
+        "seed": "4/6 checks; failing: hidden_tests_pass, new_tests_fail_on_original_code",
+        "reference": "6/6 checks",
+        "broken/fixes-search-copy-too": "5/6 checks; failing: nothing_changed_outside_the_package",
+    },
 }
 
 
@@ -2244,6 +2249,70 @@ class MonorepoPackageOracleTests(unittest.TestCase):
         self.assertTrue(self.score("reference", other)["outside_changes_reported"].ok)
         # A live profile is not started with --package: only the delivered files are judged.
         self.assertNotIn("outside_changes_reported", self.score("broken/edits-farewell-package", [], package=None))
+
+
+class BugfixMonorepoPackageOracleTests(unittest.TestCase):
+    """bugfix-monorepo-package (#711): a --package bug fix investigated first, judged as feature-monorepo-package
+    judges its package. The runner's diagnosis note under docs/bugs/ is the workflow's own file, not a change
+    outside the package."""
+
+    FINDING = "Files outside the package packages/invoices/ changed: "
+    STAGES = ["recognize_workflow", "investigate_bug", "astra_discovery", "astra_challenge", "terra", "sol"]
+
+    def score(self, overlay, findings, stages=STAGES, package="packages/invoices"):
+        from harness.project import materialize
+
+        scenario = catalog.load("bugfix-monorepo-package")
+        with tempfile.TemporaryDirectory(prefix="bugfix-monorepo-oracle-test-") as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.dir / overlay)
+            (project / "docs" / "bugs").mkdir(parents=True)
+            (project / "docs" / "bugs" / "scripted-diagnosis.json").write_text('{"reproduced": true}\n')
+            record = {
+                "status": "RESOLVER_PENDING",
+                "view": {"workflow": "bugfix", "package": package, "evidence": {"findings": findings}},
+                "stages": stages,
+                "steps": [{"kind": "approve-plan", "exit": 0}],
+                "answers": [],
+            }
+            result = verdict.evaluate(scenario, project, record)
+        self.assertEqual("", result.error)
+        return {check.name: check for check in result.checks}
+
+    def finding(self, text, status="open"):
+        return {"id": "F-1", "source": "runner", "status": status, "blocking": True, "finding": self.FINDING + text}
+
+    def test_the_other_packages_copy_must_be_named_and_the_diagnosis_note_is_not_outside(self):
+        search = "packages/search/pager.py (modified). A --package run may change only files inside packages/invoices/"
+        for findings, ok in (
+            ([self.finding(search)], True),
+            ([self.finding(search, status="closed")], False),
+            ([{**self.finding(search), "blocking": False}], False),
+            ([], False),
+        ):
+            with self.subTest(findings=findings):
+                checks = self.score("broken/fixes-search-copy-too", findings)
+                self.assertEqual(ok, checks["outside_changes_reported"].ok, checks["outside_changes_reported"])
+                self.assertEqual(
+                    "changed outside packages/invoices/: ['packages/search/pager.py']",
+                    checks["nothing_changed_outside_the_package"].detail,
+                )
+        reference = self.score("reference", [])
+        self.assertTrue(reference["nothing_changed_outside_the_package"].ok)
+        self.assertTrue(reference["outside_changes_reported"].ok)
+        # Reporting the runner's own note as a change outside the package (as the proof did before #1415) is invented.
+        note = [self.finding("docs/bugs/scripted-diagnosis.json (added). A --package run may change only files")]
+        self.assertFalse(self.score("reference", note)["outside_changes_reported"].ok)
+        self.assertNotIn("outside_changes_reported", self.score("reference", [], package=None))
+
+    def test_the_investigator_runs_before_any_other_model_stage_but_the_job_recognizer(self):
+        for stages, ok in (
+            (self.STAGES, True),
+            (self.STAGES[1:], True),
+            (["recognize_workflow", "astra_discovery", "investigate_bug", "terra"], False),
+            (["recognize_workflow", "astra_discovery", "terra"], False),
+        ):
+            with self.subTest(stages=stages):
+                self.assertEqual(ok, self.score("reference", [], stages=stages)["investigated_first"].ok)
 
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
@@ -4767,6 +4836,25 @@ class FakeRunTests(unittest.TestCase):
         """#711: the broken variant also edits packages/farewell/. The runner names both files in an open
         blocking finding and the run stops without completing; before #1415 it completed (FALSE_COMPLETE)."""
         result = self.run_fake("broken/edits-farewell-package", "feature-monorepo-package")
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        failing = [row["name"] for row in result["checks"] if not row["ok"]]
+        self.assertEqual(["nothing_changed_outside_the_package"], failing, result["checks"])
+        self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
+
+    def test_a_package_bug_fix_is_investigated_and_completes_inside_its_package(self):
+        """#711: a bug fix started with --package packages/invoices/ goes through the Investigator, its proof runs
+        in the package, and it completes; the runner's diagnosis note under docs/bugs/ is not reported as a change
+        outside the package (before #1415 the proof counted it, and the run never completed)."""
+        result = self.run_fake("reference", "bugfix-monorepo-package")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        names = [row["name"] for row in result["checks"]]
+        self.assertIn("investigated_first", names)
+        self.assertIn("outside_changes_reported", names)
+
+    def test_a_package_bug_fix_that_also_fixes_the_other_package_stops(self):
+        """#711: the broken variant also fixes packages/search/'s copy. The runner names that file in an open
+        blocking finding and the run stops without completing."""
+        result = self.run_fake("broken/fixes-search-copy-too", "bugfix-monorepo-package")
         self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
         failing = [row["name"] for row in result["checks"] if not row["ok"]]
         self.assertEqual(["nothing_changed_outside_the_package"], failing, result["checks"])
