@@ -48,6 +48,69 @@ and both proof normalizers. A legitimate absent `current_task` also remains
 assignable. All original exact-token, current-input and independent-review
 checks remain required.
 
+## Rejected planning reports
+
+A native Requirements, Planner or Plan Reviewer stage (`requirements`, `plan`,
+`plan_review`, `plan_revise`) that finished but returned a report that fails
+validation gets the ordinary bounded report-only repair: one more request on
+the same stage, saved route, model and effort, read-only, with the rejected
+response in its handoff, at most `report_repair.max_attempts` times. The
+rejected attempt's protected launch must have closed, and the native journal
+closes a launch only when it left its report file. An OpenCode event-stream
+response that does not parse as one JSON report leaves no report file, so that
+attempt keeps the original pause. The original bytes, events and the rejected
+record stay in the run; no file is moved or deleted. The repair goes through
+the same native launch owner and parent sink as the original, pins the same
+planning inputs as the stage it repairs, and is refused if the contract,
+source, pinned evidence, planning inputs or saved route changed. It is not charged
+to the planning review allowance, which is neither refunded nor renewed.
+`autocode resume` continues a queued repair without renewing its attempt count;
+`--retry-report` stays refused. A repair runs only on its original route, so a
+resume that gives the repaired stage's role a new model or reasoning effort (for
+example `--plan-reviewer-model`) moves the pending repair to
+`report_repair_archive` once setup has saved the new route (no file is moved or
+deleted), and the stage runs again as a fresh attempt on the new route, as such
+a resume did before this change. When the attempts are spent,
+the run pauses `PAUSED_INVALID_OUTPUT` with every attempt retained. A plain
+resume from that pause runs the stage again as a fresh attempt, as a resume
+after a rejected native planning report did before this change. It first moves
+the spent repair, with its attempt count, to `report_repair_archive` (no file is
+moved or deleted). If the fresh attempt's report is rejected, it gets its own
+bounded repair. A fresh Plan Reviewer call is still charged to the review
+allowance.
+
+**Warning: a new model or effort for the repaired stage's role discards its
+repair.** The resume archives the pending repair even when none of its attempts
+has run, and the fresh attempt that follows is charged like any other stage
+attempt. A rejected Plan Reviewer report that used the last of the two-review
+allowance is exactly the case the repair is for: at `PAUSED_REQUESTED`,
+`autocode resume --plan-reviewer-reasoning-effort low` archives the repair that
+would have cost no review call, and the fresh `plan_review` can stop at
+`PAUSED_PLANNING_BUDGET` before it launches. Resuming again with the old model
+or effort does not bring the archived repair back. To keep the repair, resume
+without changing that role's model or effort, and change it only after the
+repair has run.
+
+The final review (`plan_finalize`) is not repaired yet: its repaired report
+would need its own native reviewed-plan publication before approval, which this
+scope does not provide. A rejected final review, an attempt whose launch did not
+close, and any non-report error keep the original `PAUSED_INVALID_OUTPUT`
+pause. A native run never sends a stage pause to the stuck-stage Investigator,
+which native authority cannot run, so that pause keeps its original reason and
+spends no investigation. After approval, a Builder failure that needs
+classification still queues the Investigator; native authority refuses it, and
+the run is restored to `PAUSED_BUILDER_CLASSIFICATION` at the Builder, as before.
+
+A repair launch that stops (a timeout, a collected output limit, or a held
+launch at a failed cleanup) pauses the run with that launch still active, as a
+stopped original planning stage does; the ordinary automatic retry of a
+timed-out repair does not run. `--abandon-stage` with that attempt closes it
+through the original journal owner, as it closes an original planning stop: its
+attempt stays counted and the run pauses `PAUSED_STAGE_ABANDONED` at the stage
+it repairs. The resume that follows reconciles the abandoned repair the
+ordinary way: the pending repair moves to `report_repair_archive` (no file is
+moved or deleted) and the stage runs again as a new attempt.
+
 The launch freshness guard admits only the sole, genuine pending preparation
 from the same owner and process, with unchanged source, runtime and evidence
 pins. Generic idle checks remain strict; an unfinished historical launch cannot

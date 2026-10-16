@@ -463,6 +463,20 @@ PR template asks for an entry here; a change without one is incomplete.
   acceptance as `UNKNOWN` (with `completion_current` null) instead of a false `NOT_READY` denial when the
   runner's CODE scope authority is not available (#1255).
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
+- Native visual planning (`VISUAL_REVIEW_PROFILE=`): a Requirements, Planner or Plan Reviewer report that finished
+  but failed validation now gets the ordinary bounded report-only repair of the same stage on the same saved route
+  and model, through the run's native writer, instead of pausing at once with `PAUSED_INVALID_OUTPUT`. A resume does
+  not renew a queued repair's attempts, `--retry-report` stays refused, and the planning review allowance is not
+  charged for a repair. A resume that gives that stage's role a new model or reasoning effort archives the pending
+  repair and runs the stage again as a fresh attempt on the new route, as before. Warning: that resume discards the
+  repair even when none of its attempts has run, the fresh attempt is charged (with the two-review allowance spent,
+  `autocode resume --plan-reviewer-reasoning-effort low` can stop the fresh Plan Reviewer at
+  `PAUSED_PLANNING_BUDGET`), and restoring the old model later does not bring the repair back; to keep the repair,
+  resume without changing that role's model or effort. A repair launch that stops
+  (timeout, output limit, cleanup) is closed with `--abandon-stage`, as an original planning stop is. A native run
+  no longer sends a stage pause to an Investigator it cannot run, so that pause keeps its reason and spends no
+  investigation; a Builder failure classification still pauses as before. The final plan review is not repaired
+  yet (#1257).
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
   to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,

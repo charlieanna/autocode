@@ -224,5 +224,14 @@ def runner_view(base, calls):
     runner.approve_goal = lambda state, selected: calls.approve(base.lifecycle.approve, state, selected)
     runner.abandon_stage = lambda *a, **kw: calls.abandon_stage(*a, **kw)
     runner.recover_default_budget = lambda *a, **kw: False
-    runner.reject_completed_stage = lambda state, run_dir, record, error: calls.reject(state, record, error)
+    # Reached only after run_role returned, so the launch already recorded its finish.
+    runner.reject_completed_stage = lambda state, run_dir, record, error: calls.reject(
+        state, record, error, closed=True
+    )
+    # The bounded report-only repair keeps this invocation's writer and launch owner, and a
+    # resume never renews its attempt bound (--retry-report stays refused before setup).
+    runner.execute_report_repair = lambda *a, **kw: base.execute_report_repair(*a, **kw, native=calls)
+    runner.accept_repaired_report = lambda *a: base.repaired_result.accept(runner, *a)
+    runner.apply_result = lambda *a, **kw: base.apply_result(*a, **kw, native=calls)
+    runner.reset_report_repair_for_resume = lambda state: None
     return runner

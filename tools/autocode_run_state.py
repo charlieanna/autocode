@@ -337,7 +337,12 @@ class RunState(TypedDict, total=False):
     resolution_request: dict | None
     stuck_investigation: dict  # stuck_job writes a request; removed when no investigation is active
     stuck_investigations: list  # the investigation history
-    pending_report_repair: dict  # stage_recovery queues a repair; stuck_job consumes/restores it
+    # autocode_report_repair_queue.queue writes it for a rejected completed report (autocode.reject_completed_stage,
+    # native PlanningCalls.reject), stage_recovery for truncated reviews and missing executed-event evidence;
+    # execute_report_repair runs it, repaired_result, the resume and recovery archives and native
+    # PlanningCalls.archive_rerouted_repair (its route changed) consume it;
+    # stuck_job holds and restores it around an investigation.
+    pending_report_repair: dict
     uncertain_artifacts: list  # attempts whose cleanup is unverified
     job_failure: dict  # job_failure writes the classified failure; quota_route reads it
     failure_history: dict  # failure identity -> attempts (builder_failure)

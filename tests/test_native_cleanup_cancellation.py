@@ -144,6 +144,7 @@ class NativeHeldCancellationTests(unittest.TestCase):
                 "events": str(self.run / "plan-revise-01.jsonl"),
                 "output": str(self.run / "plan-revise-01.json"),
                 "before_ref": str(before),
+                **getattr(self, "record_overrides", {}),
             }
             Path(record["events"]).write_text('{"type":"partial","text":"controlled retained evidence"}\n')
             manifest = self.run / "controlled-isolation.json"

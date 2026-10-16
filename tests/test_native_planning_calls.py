@@ -96,6 +96,7 @@ class PreparedSourceAdmissionTests(unittest.TestCase):
             "events": str(self.run / "plan.jsonl"),
             "output": str(self.run / "plan.json"),
             "before_ref": str(before),
+            **getattr(self, "record_overrides", {}),
         }
         manifest = self.run / "controlled-isolation.json"
         manifest.write_text("{}\n")
