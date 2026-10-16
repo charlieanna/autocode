@@ -1,0 +1,13 @@
+title = "Add an option in one package of a two-package monorepo"
+category = "feature"
+# Issue #711: the task belongs to packages/greet/, and the scripted run is started with
+# --package packages/greet/, so its suite is detected and run in that package. The reference
+# changes only that package. broken/edits-farewell-package delivers the same correct change and
+# also edits the other team's package: the runner must report each of those files in an open
+# blocking runner finding and the run must stop without completing (docs/workflow.md, "Monorepo
+# packages"). The flag is a [fake] flag, so a live profile runs the brief without --package and
+# is judged on the delivered files alone.
+
+[fake]
+check = "cd packages/greet && python3 -m unittest discover -v"
+flags = ["--package", "packages/greet/"]
