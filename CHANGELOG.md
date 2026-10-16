@@ -260,7 +260,8 @@ PR template asks for an entry here; a change without one is incomplete.
   `paused` or `running`, with what decided it. A cost that cannot be known is unknown, never zero: an attempt
   with no usage record, an escalation a checkpoint continuation inherited (its attempts ran before the restore),
   and the role's stage records saved before launch routes were recorded (2026-10-01), which cannot be shown to
-  be its attempts (`unrouted_attempts`). Only a validation of the escalation's own work counts as its pass: the
+  be its attempts (`unrouted_attempts`). Only a validation of the escalation's own work for its own milestone counts
+  as its pass, and not once the Builder's retry policy charged that work as a failure (a review sent it back): the
   runner's blanket `passed` stamp does not override a failure of its own work, and is not taken once the role ran
   on another route. It is read from the records the run already keeps; no run-state key is added (#612).
 

@@ -21,25 +21,32 @@ work that passed (that attempt included), or the role's next escalation of eithe
 climb, the Builder's stronger attempt); a running attempt counts. A validation judged its work when
 its own attempt is one of them, or, for the Builder, whose work another role validates, when the
 Builder's last attempt before it is one of them; no other role is judged by another role's
-validation. Each is priced as the view's `cost` prices a stage
-(autocode_usage.stage_rows at the dated table of autocode_prices): reported, else estimated, else
-unpriced, never zero. A stage record of the role in that span with no launch route (saved before stage
-records kept one, 2026-10-01) cannot be shown to have run on the route it climbed to: it is counted
-(`cost.unrouted_attempts`) but neither listed nor taken as its work, and its cost is unknown, never
-zero. An escalation made before the run was created was made in the run a checkpoint continuation
-restored (`inherited`): its attempts there are not in this run's records, so its cost is unknown,
-never zero.
+validation. That attempt must also be for the escalation's own milestone: every assignment, a rework
+included, is a new task, so a task's milestone is its contract hash and milestone ids (the run's
+current and archived tasks), and an attempt whose task is of another milestone than the attempt the
+escalation was made from (a later milestone, or the same milestone of a replanned contract) is not
+its work; when either task is not known, they are not told apart. Each attempt is priced as the
+view's `cost` prices a stage (autocode_usage.stage_rows at the dated table of autocode_prices):
+reported, else estimated, else unpriced, never zero. A stage record of the role in that span with no
+launch route (saved before stage records kept one, 2026-10-01) cannot be shown to have run on the
+route it climbed to: it is counted (`cost.unrouted_attempts`) but neither listed nor taken as its
+work, and its cost is unknown, never zero. An escalation made before the run was created was made in
+the run a checkpoint continuation restored (`inherited`): its attempts there are not in this run's
+records, so its cost is unknown, never zero.
 
 How it ended (`outcome`), from the first of these that applies (`outcome_basis` says which):
 
 - the first decisive record after it: a validation of its work that passed (`passed`, basis
-  `validation`) or a later escalation of the same lane (the role's next climb, another stronger
-  attempt for the same milestone) or of the other kind made from one of its attempts (the Builder's
-  stronger attempt after its climb, or its climb after the stronger attempt) (`failed_again`, basis
-  `later_escalation`);
+  `validation`), unless the Builder's retry policy then charged one of its attempts of its milestone
+  as a failure (a retry, the stronger attempt or the retry-limit pause; a review that sent the
+  passed work back is charged so), or a later escalation of the same lane (the role's next climb,
+  another stronger attempt for the same milestone) or of the other kind made from one of its
+  attempts (the Builder's stronger attempt after its climb, or its climb after the stronger attempt)
+  (`failed_again`, basis `later_escalation`);
 - the runner's `paused` stamp (autocode_route_ladder.record_outcome at the Builder retry-limit
   pause; basis `recorded`);
-- the latest validation of its work failed or was blocked (`failed_again`, `validation`);
+- a validation of its work failed or was blocked (`failed_again`, `validation`), else the Builder's
+  retry policy charged one of its attempts of its milestone as a failure (`failed_again`, `recorded`);
 - the runner's `passed` stamp, only when every attempt of its role since it (until the role's next
   escalation) ran on the route it climbed to, and there was at least one (basis `recorded`). The
   runner stamps every open escalation `passed` at any validation PASS, whoever's work passed, so the
@@ -75,8 +82,10 @@ except ImportError:
 # finished statuses, but the view imports this module, so it cannot be imported back.
 FINISHED = ("TASK_COMPLETE", "COMPLETE")
 WORKING = ("RUNNING", "DISCOVERING")
-# A validation verdict after an escalation, as that escalation's outcome.
-VERDICTS = {"PASS": "passed", "FAIL": "failed_again", "BLOCKED": "failed_again"}
+# The validation verdicts that are a failure of the work they judged.
+FAILED = ("FAIL", "BLOCKED")
+# The Builder retry policy's decisions that charge the attempt they name as a failure (autocode_builder_policy._decide).
+CHARGES = ("retry", "escalate", "pause")
 # Each outcome in words for lines(): as one escalation's line ends, and as counted in the line above them.
 SAID = {"passed": "passed", "failed_again": "failed again", "paused": "the run paused", "running": "still running"}
 COUNTED = {"passed": "passed", "failed_again": "failed again", "paused": "paused", "running": "still running"}
@@ -153,6 +162,28 @@ def _job(stage, role, state: RunState | None = None) -> str | None:
         if job is not None:
             return roles.SCREEN[job]
     return None
+
+
+def _milestones(state: RunState) -> dict:
+    """Each task's milestone as (contract hash, its milestone ids), by task id, from the run's current and archived
+    tasks (autocode_goal_lifecycle.assign_task). Every assignment, a rework included, is a new task id, so a milestone
+    is told by these, never by a task id; a task without a milestone id is left out."""
+    found = {}
+    for task in [*_list(state.get("task_archive")), _dict(state.get("current_task"))]:
+        members = (
+            task.get("milestone_ids") if isinstance(task.get("milestone_ids"), list) else [task.get("milestone_id")]
+        )
+        named = sorted({member for member in members if isinstance(member, str)})
+        if isinstance(task.get("id"), str) and named:
+            found[task["id"]] = (_text(task.get("contract_hash")), tuple(named))
+    return found
+
+
+def _own(escalation, record, milestones) -> bool:
+    """Whether a stage record is for the escalation's milestone: false only when both its task and the task of the
+    attempt the escalation was made from are known and are of different milestones."""
+    theirs = milestones.get(_text(record.get("task_id")))
+    return escalation["milestone"] is None or theirs is None or theirs == escalation["milestone"]
 
 
 def _builder_failure(decision, attempts) -> tuple[dict | None, str | None]:
@@ -238,6 +269,19 @@ def _recorded(state: RunState, attempts) -> list[dict]:
     return sorted(found, key=lambda row: (row["when"] is None, row["when"] or dt.datetime.min.replace(tzinfo=dt.UTC)))
 
 
+def _charges(state: RunState, attempts) -> list[tuple[dt.datetime, dict]]:
+    """(when, the Builder attempt charged) for each failure the Builder's retry policy charged to an attempt found:
+    a retry, the stronger attempt or the retry-limit pause. A review that sent work a validation passed back to the
+    Builder is charged so (autopilot: queue_resolution, then route_builder_failure with the review's output)."""
+    found = []
+    for decision in _list(state.get("builder_retry_decisions")):
+        when = _when(decision.get("at"))
+        failed = _builder_failure(decision, attempts)[0] if decision.get("action") in CHARGES else None
+        if when is not None and failed is not None:
+            found.append((when, failed))
+    return found
+
+
 def _attempts(state: RunState) -> list[dict]:
     """Each launched attempt with its price: the saved stage records (autocode_usage.stage_rows at the dated
     table, the basis of the view's `cost`), then the running stage, whose cost is not known yet."""
@@ -269,18 +313,19 @@ def _validations(state: RunState, attempts) -> list[tuple[dt.datetime, str | Non
     return sorted(found, key=lambda row: row[0])
 
 
-def _judged(escalation, validations, index) -> list[tuple[dt.datetime, str | None]]:
+def _judged(escalation, validations, index, milestones) -> list[tuple[dt.datetime, str | None]]:
     """(when, verdict) of each validation of the escalation's work: one an attempt of it produced, or, for the
     Builder, whose work another role validates (the Tester, a checkpoint), one run after the Builder's last attempt,
     when that is an attempt of it. No other role is judged by another role's validation: a Tester PASS of the
-    Builder's work does not judge a Completion Reviewer's or a Resolver's climb. A validation of another milestone,
-    or of work on a route the role was moved to since, is not its work."""
+    Builder's work does not judge a Completion Reviewer's or a Resolver's climb. A validation of another milestone
+    (that attempt's task is of another milestone, or of a replanned contract), or of work on a route the role was
+    moved to since, is not its work."""
     mine = {id(row) for row in escalation["mine"]}
     found = []
     for when, verdict, attempt in validations:
         if _role(attempt["record"]) != escalation["role"]:
             attempt = _before(index, "terra", when) if escalation["role"] == "terra" else None
-        if attempt is not None and id(attempt) in mine:
+        if attempt is not None and id(attempt) in mine and _own(escalation, attempt["record"], milestones):
             found.append((when, verdict))
     return found
 
@@ -308,18 +353,23 @@ def _cost(attempts, known, inherited, unrouted) -> dict:
     }
 
 
-def _outcome(state: RunState, escalation, later, judged) -> tuple[str, str, dt.datetime | None, bool]:
-    """(outcome, basis, end, inclusive): how the escalation ended and where its attempts stop."""
-    passed = next((when for when, verdict in judged if verdict == "PASS"), None)
+def _outcome(state: RunState, escalation, later, judged, charged) -> tuple[str, str, dt.datetime | None, bool]:
+    """(outcome, basis, end, inclusive): how the escalation ended and where its attempts stop. `charged` holds when
+    the Builder's retry policy charged one of its attempts of its milestone as a failure: a PASS before such a charge
+    did not end it (a review sent that work back), so its attempts run on past that PASS."""
+    passed = next(
+        (when for when, verdict in judged if verdict == "PASS" and not any(when < charge for charge in charged)), None
+    )
     if passed is not None and (later is None or passed < later):
         return "passed", "validation", passed, True
     if later is not None:
         return "failed_again", "later_escalation", later, False
     if escalation["stamp"] == "paused":
         return "paused", "recorded", None, False
-    verdicts = [verdict for when, verdict in judged if verdict in VERDICTS]
-    if verdicts:
-        return VERDICTS[verdicts[-1]], "validation", None, False
+    if any(verdict in FAILED for when, verdict in judged):
+        return "failed_again", "validation", None, False
+    if charged:
+        return "failed_again", "recorded", None, False
     # record_outcome stamps every open escalation `passed` at any validation PASS, whoever's work passed: it is the
     # escalation's only while its role ran nothing but its attempts since it.
     if escalation["stamp"] == "passed" and escalation["only_mine"]:
@@ -370,12 +420,15 @@ def rows(state: RunState) -> list[dict]:
     escalations = _recorded(state, attempts)
     validations = _validations(state, attempts)
     index = _by_role(attempts)
+    milestones = _milestones(state)
+    charges = _charges(state, attempts)
     created = _when(state.get("created_at"))
     for escalation in escalations:
         when, role = escalation["when"], escalation["role"]
         latest = _before(index, role, when)
         # The attempt it was made from: the failed Builder attempt the decision names, else the role's last.
         escalation["struggled"] = escalation["failed"] or (latest["record"] if latest else {})
+        escalation["milestone"] = milestones.get(_text(escalation["struggled"].get("task_id")))
         if escalation["kind"] == "stronger_attempt":
             route = _dict(escalation["struggled"].get("launch_route")) or escalation["initial"]
             escalation["from"] = _side(*_route(route))
@@ -405,8 +458,14 @@ def rows(state: RunState) -> list[dict]:
     for escalation in escalations:
         when, role, mine = escalation["when"], escalation["role"], escalation["mine"]
         later = _next(escalations, escalation, _ends)
-        judged = _judged(escalation, validations, index)
-        outcome, basis, end, inclusive = _outcome(state, escalation, later, judged)
+        judged = _judged(escalation, validations, index, milestones)
+        # When the Builder's retry policy charged one of its attempts of its milestone as a failure.
+        charged = [
+            at
+            for at, failed in charges
+            if id(failed) in escalation["mine_records"] and _own(escalation, failed, milestones)
+        ]
+        outcome, basis, end, inclusive = _outcome(state, escalation, later, judged, charged)
         launched = _until(mine, end, inclusive)
         unrouted = len(_until(escalation["unrouted"], end, inclusive))
         struggled = escalation["struggled"]
