@@ -566,8 +566,13 @@ supervision receipt under `dev-server/`. `autocode serve status` and
 `starting`, `running`, `stopped`, `exited`, `failed`, or `lost` when the process
 that served it is gone), the `url` while it runs, the `command`, its `port`,
 times, `exit_code`, `reason`, `log`, `restarts` (how many code changes restarted
-it) and `code_checkpoint` (the code checkpoint it serves). A server that exits, or does not answer
-within `ready-seconds`, ends `start` with exit status 1 and its last output.
+it), `code_checkpoint` (the code checkpoint it serves) and `waiting`. A server
+that exits, or does not answer within `ready-seconds`, is recorded as `exited` or
+`failed` with its last output, which `start` prints; `start` then keeps waiting
+(`waiting` is true) and starts it again after the run's next code change, so a
+step that fixes a broken app brings the preview back. `autocode serve stop` or
+Ctrl-C ends the wait. Once the run has completed no step will change its code,
+so such a server ends `start` with exit status 1 instead.
 A run started before its project named `serve` has none: name it in
 `.autocode/config.toml` and start a new run.
 

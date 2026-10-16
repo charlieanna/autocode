@@ -26,6 +26,14 @@ import autocode_util as util
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = shlex.quote(sys.executable)
 SERVER = PYTHON + " -m http.server {port} --bind 127.0.0.1"
+# Serves the workspace unless a file named broken is there, as an app with a syntax error would fail.
+APP = """import pathlib, runpy, sys
+if pathlib.Path("broken").exists():
+    print("SyntaxError: the app is broken", flush=True)
+    sys.exit(3)
+sys.argv = ["http.server", sys.argv[1], "--bind", "127.0.0.1"]
+runpy.run_module("http.server", run_name="__main__")
+"""
 
 
 class Workspace(unittest.TestCase):
@@ -54,15 +62,16 @@ class Workspace(unittest.TestCase):
                     on_ready=lambda record: (
                         result.setdefault("readies", []).append(record) or result.setdefault("ready", record)
                     ),
+                    on_wait=lambda record: result.setdefault("waits", []).append(record),
                 )
             except BaseException as error:  # noqa: BLE001 - surfaced by the test
                 result["error"] = error
             finally:
                 ready.set()
 
-        def ready_or_ended(count=1):
+        def ready_or_ended(count=1, key="readies"):
             deadline = time.monotonic() + 30
-            while time.monotonic() < deadline and len(result.get("readies", ())) < count and not ready.is_set():
+            while time.monotonic() < deadline and len(result.get(key, ())) < count and not ready.is_set():
                 time.sleep(0.05)
             return result
 
@@ -140,13 +149,15 @@ class ServeTests(Workspace):
         self.assertIn(running["url"], str(refused.exception))
 
 
-class RestartTests(Workspace):
+class RunWorkspace(Workspace):
     def write_run(self, status, *checkpoints):
         util.atomic_json(
             self.run_dir / "state.json",
             {"status": status, "code_checkpoints": [{"id": ident, "recorded_check": None} for ident in checkpoints]},
         )
 
+
+class RestartTests(RunWorkspace):
     def test_the_code_version_is_the_latest_code_checkpoint(self):
         self.assertIsNone(dev_server.code_version({}))
         self.assertIsNone(dev_server.code_version({"code_checkpoints": []}))
@@ -176,6 +187,73 @@ class RestartTests(Workspace):
         self.assertFalse(thread.is_alive())
         self.assertEqual(("stopped", second["id"]), (ended["status"], ended["id"]))
         self.assertTrue((self.run_dir / dev_server.ATTEMPTS / first["id"] / "output.log").is_file())
+
+
+class CrashTests(RunWorkspace):
+    def broken_app(self):
+        (self.workspace / "app.py").write_text(APP)
+        (self.workspace / "broken").write_text("")
+        return self.saved(PYTHON + " app.py {port}")
+
+    def test_only_a_run_that_has_not_completed_can_still_change_its_code(self):
+        for status, expected in (
+            (None, False),
+            ("RUNNING", True),
+            ("PAUSED_FOR_REVIEW", True),
+            ("BLOCKED", True),
+            ("TASK_COMPLETE", False),
+            ("COMPLETE", False),
+        ):
+            with self.subTest(status=status):
+                state = {} if status is None else {"status": status}
+                self.assertIs(expected, dev_server.can_change_code(state))
+
+    def test_a_crashed_server_waits_for_the_next_code_change_and_starts_again(self):
+        saved = self.broken_app()
+        self.write_run("RUNNING", "code-a")
+        _, thread, ready = self.start(saved)
+        waiting = ready(key="waits")["waits"][0]
+        self.assertEqual(("exited", 3, True), (waiting["status"], waiting["exit_code"], waiting["waiting"]))
+        self.assertIn("the app is broken", waiting["tail"])
+        self.assertTrue(thread.is_alive())
+        shown = dev_server.inspect(self.run_dir, {})
+        self.assertEqual(("exited", True, None), (shown["status"], shown["waiting"], shown["url"]))
+        (self.workspace / "broken").unlink()
+        self.write_run("RUNNING", "code-a", "code-b")
+        running = ready()["ready"]
+        self.assertEqual(
+            ("running", "code-b", 1, False),
+            (running["status"], running["code_checkpoint"], running["restarts"], running["waiting"]),
+        )
+        with urllib.request.urlopen(running["url"] + "index.html", timeout=5) as page:
+            self.assertEqual(b"hello from the app", page.read())
+        dev_server.request_stop(self.run_dir, timeout=20)
+        thread.join(30)
+        self.assertFalse(thread.is_alive())
+
+    def test_autocode_serve_stop_ends_a_serve_that_is_waiting(self):
+        saved = self.broken_app()
+        self.write_run("PAUSED_FOR_REVIEW", "code-a")
+        _, thread, ready = self.start(saved)
+        ready(key="waits")
+        ended = dev_server.request_stop(self.run_dir, timeout=20)
+        thread.join(30)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(("stopped", 3, False), (ended["status"], ended["exit_code"], ended["waiting"]))
+        self.assertIn("autocode serve stop", ended["reason"])
+        self.assertIn("the app is broken", ended["tail"])
+
+    def test_a_run_that_completes_while_the_server_is_down_ends_serve(self):
+        saved = self.broken_app()
+        self.write_run("RUNNING", "code-a")
+        _, thread, ready = self.start(saved)
+        ready(key="waits")
+        self.write_run("COMPLETE", "code-a")
+        thread.join(30)
+        self.assertFalse(thread.is_alive())
+        record = ready()["record"]
+        self.assertEqual(("exited", False), (record["status"], record["waiting"]))
+        self.assertFalse(dev_server.inspect(self.run_dir, {})["waiting"])
 
 
 class InspectTests(Workspace):
@@ -288,6 +366,26 @@ class ServeCliTests(Workspace):
         self.assertEqual(f"Serving {url} again after a code change (code-b).\n", process.stdout.readline())
         process.send_signal(signal.SIGINT)
         self.assertEqual(0, process.wait(30))
+
+    def test_start_waits_after_a_crash_until_autocode_serve_stop(self):
+        (self.workspace / "app.py").write_text(APP)
+        (self.workspace / "broken").write_text("")
+        self.save_state({"serve": self.saved(PYTHON + " app.py {port}")})
+        start = ["serve", "start", "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)]
+        process = self.autocode(*start, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        deadline = time.monotonic() + 30
+        while process.poll() is None and not (dev_server.read(self.run_dir) or {}).get("waiting"):
+            self.assertLess(time.monotonic(), deadline, "serve start never waited")
+            time.sleep(0.05)
+        code, out, _ = self.cli("stop")
+        _, err = process.communicate(timeout=30)
+        self.assertEqual((0, 0), (code, process.returncode))
+        self.assertIn("stopped", out)
+        shown = err.splitlines()
+        self.assertIn("Development server exited: the server exited before it answered.", shown)
+        self.assertIn("  SyntaxError: the app is broken", shown)
+        self.assertIn("Waiting for the run's next code change; stop it with Ctrl-C or: autocode serve stop", shown)
 
     def test_ctrl_c_stops_a_foreground_server(self):
         self.save_state({"serve": self.saved()})

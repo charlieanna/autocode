@@ -1236,7 +1236,9 @@ criterion. It is `null` until a plan is approved.
 run saved a `serve` command, `status` is `off`, `starting`, `running`, `stopped`,
 `exited`, `failed` or `lost`, and `url` is set only while it is `running`.
 `code_checkpoint` names the code checkpoint the server was started on and
-`restarts` counts the code changes that restarted it; a client can compare
+`restarts` counts the code changes that restarted it, and `waiting` is true while
+a server that exited or failed waits for the run's next code change to start
+again; a client can compare
 `code_checkpoint` with the latest `code_checkpoints` row to tell whether the
 preview shows the newest code. The
 status command inspects it on every call; a direct `run_view.view()` without that
