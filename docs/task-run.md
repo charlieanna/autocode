@@ -634,8 +634,14 @@ pinned supervisor transcript), each `null` when the request declares none. A fai
 `risk_acceptance` makes the replay's `verdict` `FAIL` even though the Tester's
 own checks passed (see [Execution](execution.md#process-recovery-proof-for-declared-lifecycle-apis)).
 Each `findings` row also has `source`: `sol` (Tester), `astra` (Completion
-Reviewer) or `runner` (a failed runner lifecycle observation, which only the
-runner closes). `unverified_risk_claims` lists the person's own sentences that
+Reviewer) or `runner` (a failed runner lifecycle observation or, in a
+`--package` run, the files changed outside the package, one blocking row naming
+each path ([Monorepo packages](workflow.md#monorepo-packages))). No model
+report closes a `runner` finding: the runner closes it when a later check of its
+own passes, and a person can close one with `--close-finding`. Closing the
+package finding accepts nothing: the next check before review opens a new one,
+and `--accept-completion` refuses while the change is there.
+`unverified_risk_claims` lists the person's own sentences that
 promise durability or concurrency but that no runner protocol exercises (`kind`
 `durability` or `concurrency`, `source_id`, `quote`, `reason`); `[]` when there
 are none. It is a disclosure, not a check: a PASS never verifies them.
