@@ -124,7 +124,10 @@ derived rather than mapped: `linux-tool-containment` runs for every Python file 
 import statements and the scripts they start by file name
 ([Conformance in CI](execution.md#conformance-in-ci)). Data the flow reads is not
 derived: the report schemas are listed in `CONTAINED_FLOW_DATA`, and a new data
-directory the flow depends on goes there.
+directory the flow depends on goes there. A `tools/` script that a scenario module
+copies by file name and runs, which no import names, goes in `SCENARIO_FIXTURES` in
+`tools/run_suite.py` with that module: a pull request that changes the script then
+runs the scenario harness step and selects the module.
 
 ### Unit suite
 
@@ -178,6 +181,20 @@ path, not OpenCode's own tool dispatch, which the opt-in `NativeToolTests` cover
 module skips without a working bubblewrap; as root, drop the capabilities as described in
 [host requirements](#host-requirements-for-tests). Without those variables the fake is
 unchanged.
+
+`scenarios/test_contained_opencode.py` is the scenario harness's counterpart. It runs the
+`greenfield-greeting-cli` scenario on that fake OpenCode client, with the harness's scripted
+model as the client's `codex`, so the scenario's oracle judges a build whose Builder, Tester
+and Completion Reviewer ran contained. It checks that the oracle passes and the run
+completes; that every record of those three stages, in the state the harness saves as
+evidence, names `bubblewrap` and the version `autocode doctor` reports; that a Builder write
+planted outside the project with `AUTOCODE_FIXTURE_SHELL_ESCAPE` is blocked; and that
+`--status --json` says `tool_containment: "contained"` and that its
+`tool_containment_backend` names the same backend. It asks `autocode doctor --json` whether
+the boundary is available. Without a working bubblewrap, the test skips, except in CI on
+Linux, where it fails: the suite job installs bubblewrap before the scenario harness runs.
+Any other problem doctor reports where bubblewrap works, such as the fake no longer
+reporting the qualified OpenCode version, fails the test everywhere.
 
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).

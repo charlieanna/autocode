@@ -220,18 +220,19 @@ def offered(model, available):
     return model in available or normalize_model(model) in available
 
 
-def serve(settings, available, *, named_strong=None):
+def serve(settings, available, *, roles=None, named_strong=None):
     """Check every rung a new run may climb to against the models its provider offers (#612).
 
     ``available`` is the provider's model list, read once for the run's routes; None (a provider
     that cannot list) keeps every rung. Only routes on the OpenCode engine are checked, the engine
-    that list describes. An effort rung the provider does not offer is removed. The Builder's
-    stronger attempt moves two routes: the Builder onto the strong model and, when a Tester or
-    Completion Reviewer runs that model or its family, the checker onto ``checker_model``. When
-    the provider offers either model not, the run has no stronger attempt (the Builder gets one
-    more ordinary retry in its place, then pauses naming the model, recorded as ``not_offered``),
-    or, when the person named the strong model (``named_strong``), the run is refused here with a
-    ValueError, before any model call, rather than failing the launch mid-run.
+    that list describes. An effort rung the provider does not offer is removed. When ``roles``
+    is provided, only ladders for those roles are filtered; other roles keep their existing rungs
+    (#1426). The Builder's stronger attempt moves two routes: the Builder onto the strong model
+    and, when a Tester or Completion Reviewer runs that model or its family, the checker onto
+    ``checker_model``. When the provider offers either model not, the run has no stronger attempt
+    (the Builder gets one more ordinary retry in its place, then pauses naming the model, recorded
+    as ``not_offered``), or, when the person named the strong model (``named_strong``), the run is
+    refused here with a ValueError, before any model call, rather than failing the launch mid-run.
 
     Updates ``settings`` in place and returns it.
     """
@@ -239,15 +240,22 @@ def serve(settings, available, *, named_strong=None):
         return settings
     available = set(available)
     effort = (settings.get("route_ladders") or {}).get("effort")
+    target_roles = {_ladder_role(r) for r in roles} if roles is not None else None
     if effort:
         settings["route_ladders"]["effort"] = {
             role: [
                 list(rung) for rung in ladder if _engine(settings, role) != "opencode" or offered(rung[0], available)
             ]
+            if (target_roles is None or role in target_roles)
+            else [list(rung) for rung in ladder]
             for role, ladder in effort.items()
         }
     retry = settings.get("builder_retry")
-    missing = _unoffered_climb(settings, retry, available) if isinstance(retry, dict) else None
+    missing = (
+        _unoffered_climb(settings, retry, available)
+        if isinstance(retry, dict) and (target_roles is None or "terra" in target_roles)
+        else None
+    )
     if missing is None:
         return settings
     if named_strong:
@@ -263,8 +271,15 @@ def serve(settings, available, *, named_strong=None):
     return settings
 
 
+def _ladder_role(role):
+    return SAVED_LADDER_ROLES.get(role, role)
+
+
 def _engine(settings, role):
-    route = (settings.get("roles") or {}).get(role)
+    roles = settings.get("roles") or {}
+    route = roles.get(role)
+    if route is None and role == "resolver":
+        route = roles.get("astra")
     return (route if isinstance(route, dict) else {}).get("engine") or settings.get("engine") or "codex"
 
 

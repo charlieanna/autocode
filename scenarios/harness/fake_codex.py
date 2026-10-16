@@ -2015,6 +2015,9 @@ def report_for(stage: str, data: dict) -> dict:
             return scripted_fault(FAULT_PROVIDERS["refund_store_clock"])["classify"](data)
         if CONFIG.get("fault") == "vacuous_refusal_tests" and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") == "retry":
             return scripted_fault("vacuous_refusal_provider.py")["investigate"](data)
+        if CONFIG.get("fault") == "escalation_exhausted" and not builder_context:
+            # The Builder's retry-limit pause at the ladder's end (escalation-ladder-end): explain it.
+            return scripted_fault("escalation_provider.py")["investigate"](data)
         # A scripted run that got stuck is a scenario defect; pause and say so.
         return {
             "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
@@ -2093,6 +2096,10 @@ def report_for(stage: str, data: dict) -> dict:
         "astra_resolve",
     ):
         provider = scripted_fault("completion_rework_provider.py")
+        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+    if CONFIG.get("fault", "").startswith("escalation_") and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+        # The Builder's work passes only on its stronger route, or never (escalation-converts, escalation-ladder-end).
+        provider = scripted_fault("escalation_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])
