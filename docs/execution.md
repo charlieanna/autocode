@@ -1334,7 +1334,12 @@ These are delegated recovery-policy ceilings, not user account balances or
 mandatory spending targets. An explicit cap, missing progress, repeated unchanged
 failures, unknown usage, pending input or an exhausted financial guard prevents
 automatic growth. Disabled limits remain disabled, and unknown usage never becomes
-zero. Billing routes and provider quota cannot be changed by this mechanism.
+zero. A milestone budget given while turning checkpoints on for a saved run
+(`--milestone-checkpoints --max-milestone-seconds N` on a resume, or queued with
+`--request-milestone-checkpoints --max-milestone-seconds N`) is saved without being recorded
+as yours, so Resolver may extend it once as it would the default; a later resume with
+`--max-milestone-seconds` records the budget as yours. Billing routes and provider quota
+cannot be changed by this mechanism.
 The planning extension requires a changed accepted plan and matching review/revision
 evidence; it is not granted for narrative churn or recycled failed calls.
 
