@@ -916,6 +916,20 @@ PR template asks for an entry here; a change without one is incomplete.
   run store, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after the boundary
   was prepared; the store-specific pause now needs a boundary that otherwise verifies against its proof. A test
   also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
+- Under `--json`, a setting the run's configuration refuses as the run loads (such as `--single-model` or
+  `--spec-first` on a saved run, or `--single-model` with a per-role model flag) printed nothing on stdout.
+  It now prints the saved run's status payload with `result`, whose `error.code` is `input_rejected`
+  (`{"result": …}` alone before a new run's first checkpoint). The invocation still ends with `autocode: …`
+  on stderr and exits 2, and the refused setting is not saved (a new run without `--in-place` may already
+  have created its task worktree and branch, which `result.message` names). A native visual run
+  (`VISUAL_REVIEW_PROFILE=`) still saves such a refusal as a `PAUSED_INVALID_OUTPUT` pause, printed like any
+  other pause with `error` null. Tool-containment refusals (`--allow-uncontained-tools`) still print nothing
+  on stdout (#714).
+- A native planning launch whose recorded private-read denial leaves out the run store, or a store its pinned
+  profile still denies, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after
+  the boundary was prepared, even when its conformance proof was pinned again to match. The store-specific pause
+  now needs a boundary that otherwise verifies against its proof and names only stores its profile does not deny.
+  A test also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
 
 ## [0.7.1] — 2026-10-09
 
