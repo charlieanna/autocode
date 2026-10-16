@@ -1,12 +1,19 @@
 """Check saved joint-planning transports without importing the controller."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_role_transport as role_transport
 except ImportError:
     import autocode_role_transport as role_transport
 
 
-def check(state, workspace, *, engine_for, support, opencode, check_subscription):
+def check(state: RunState, workspace, *, engine_for, support, opencode, check_subscription):
     identities = state["settings"]["transport_identities"]
     retired = next((name for name in ("gocode", "qwen") if name in identities), None)
     if retired:

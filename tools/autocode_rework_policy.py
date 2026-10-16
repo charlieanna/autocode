@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -75,7 +80,7 @@ def owned(path, workspace, run_dir, *, settings=None, scratch=()):
     return any(target.is_relative_to(root) for root in roots) or visual.bundle_file(settings, workspace, target)
 
 
-def require_owned(pins, state, record, workspace, run_dir):
+def require_owned(pins, state: RunState, record, workspace, run_dir):
     """Refuse, when a validation is accepted, a pin that a later repair would refuse to re-verify.
 
     route() and resolver recovery re-verify the accepted validation's pins through owned(). Refused only
@@ -225,9 +230,9 @@ def _verify(record, workspace, run_dir, value=None):
     return report
 
 
-def _eligible(state, decision, record, previous_criteria, prior_request, pending_human, retry_policy):
+def _eligible(state: RunState, decision, record, previous_criteria, prior_request, pending_human, retry_policy):
     settings = state.get("settings", {})
-    body = state["goal_contract"]["body"]
+    body = cast(dict, state["goal_contract"])["body"]
     task = state.get("current_task") or {}
     spec = decision.get("next_task") or {}
     milestones = body.get("milestones") or []
@@ -343,7 +348,7 @@ def _eligible(state, decision, record, previous_criteria, prior_request, pending
     )
 
 
-def guard_pending_human(state):
+def guard_pending_human(state: RunState):
     """A completed repair proposal cannot consume an unanswered human decision."""
     pending = state.get("status") in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL") or any(
         state.get(key) for key in ("user_request", "pending_questions", "resolver_human_proposal")
@@ -354,7 +359,7 @@ def guard_pending_human(state):
         )
 
 
-def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
+def route(runtime, state: RunState, decision, record, queue, retry_policy, *, run_dir):
     """Preserve human holds; queue other repairs and replace only a proven first repair."""
     _require(
         record.get("stage") in (None, "astra_review") and decision.get("status") == "REWORK",
@@ -376,7 +381,7 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         for row in state.get("stages", [])
         if row.get("stage") == "sol" and not row.get("rejected") and row.get("output") == validation.get("output")
     ]
-    accepted = validators[0] if len(validators) == 1 else None
+    accepted: Any = validators[0] if len(validators) == 1 else None
     report = _verify(accepted, workspace, root) if accepted is not None else None
     if report is not None:
         # apply_review_result resolves runner-owned check:<n> aliases after loading.
@@ -397,8 +402,8 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         validation.get(key) == expected
         for key, expected in (
             ("task_id", task.get("id")),
-            ("contract_hash", state["goal_contract"]["hash"]),
-            ("contract_revision", state["goal_contract"]["revision"]),
+            ("contract_hash", cast(dict, state["goal_contract"])["hash"]),
+            ("contract_revision", cast(dict, state["goal_contract"])["revision"]),
             ("source_revision", record.get("source_revision")),
         )
     )
@@ -438,7 +443,7 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         or type(accepted.get("exit_code")) is not int
         or accepted["exit_code"] != 0
         or not all(isinstance(model, str) and model for model in (builder_model, validator_model))
-        or builder_model.rsplit("/", 1)[-1] == validator_model.rsplit("/", 1)[-1]
+        or cast(str, builder_model).rsplit("/", 1)[-1] == cast(str, validator_model).rsplit("/", 1)[-1]
         or (builder.get("thread_id") and builder.get("thread_id") == accepted.get("thread_id"))
     ):
         return False
@@ -507,18 +512,18 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
             ask_user=runtime.lifecycle.wait_for_user,
         )
         runtime.goals.record_decision(candidate, decision)
-        state.clear()
+        cast(dict, state).clear()
         state.update(candidate)
         return True
     runtime.goals.record_decision(candidate, decision)
-    request = candidate.pop("resolution_request")
+    request = cast(dict, candidate.pop("resolution_request"))
     # Sole writer: route. Readers: route's replay guard and the public run view.
     candidate.setdefault("direct_rework_assignments", []).append(
         {
             "source_task_id": task["id"],
-            "assigned_task_id": candidate["current_task"]["id"],
-            "contract_hash": state["goal_contract"]["hash"],
-            "contract_revision": state["goal_contract"]["revision"],
+            "assigned_task_id": cast(dict, candidate["current_task"])["id"],
+            "contract_hash": cast(dict, state["goal_contract"])["hash"],
+            "contract_revision": cast(dict, state["goal_contract"])["revision"],
             "source_revision": record["source_revision"],
             "source_output": record["output"],
             "source_stage": "astra_review",
@@ -536,11 +541,13 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
     )
     candidate.pop("agent_request", None)
     candidate.update(
-        status="RUNNING",
-        phase="EXECUTING",
-        next_action=decision["next_objective"],
-        next_stage=runtime.dispatch.build_stage(candidate),
+        {
+            "status": "RUNNING",
+            "phase": "EXECUTING",
+            "next_action": decision["next_objective"],
+            "next_stage": runtime.dispatch.build_stage(candidate),
+        }
     )
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
     return True

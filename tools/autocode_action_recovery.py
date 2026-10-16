@@ -16,6 +16,11 @@ Only autocode_run_actions imports it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import sys
 
 try:
@@ -42,7 +47,7 @@ except ImportError:
     import autocode_support as support
 
 
-def gate_failures(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def gate_failures(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Settle a classification or job failure before any pause authority is weighed."""
     classification_gate = classification_recovery.gate(
         state,
@@ -104,7 +109,7 @@ def gate_failures(runner, args, parser, state, state_path, run_dir, workspace, d
     decided.retained_report = retained_report
 
 
-def resume(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Set a stage aside (--abandon-stage), or apply an explicit resume's recovery to the saved run."""
     gate, retained_report, information_admitted = decided.gate, decided.retained_report, decided.information_admitted
     if args.abandon_stage is not None:
@@ -218,7 +223,7 @@ def resume(runner, args, parser, state, state_path, run_dir, workspace, decided)
             print(state["stop_reason"])
             return 2
         if fired == "capacity":
-            recovery = state["recovery_context"]
+            recovery = cast(dict, state["recovery_context"])
             print(
                 f"Provider capacity recovery {recovery['retry_number']}/{runner.MAX_AUTOMATIC_CAPACITY_RECOVERIES}: "
                 f"partial work archived; the Plan Reviewer will inspect before the next writer",
@@ -236,5 +241,6 @@ def resume(runner, args, parser, state, state_path, run_dir, workspace, decided)
             raise
     if state.get("uncertain_artifacts"):
         raise support.Paused(
-            "PAUSED_UNCERTAIN_STAGE", "Legacy partial stage remains unresolved: " + state["uncertain_artifacts"]
+            "PAUSED_UNCERTAIN_STAGE",
+            "Legacy partial stage remains unresolved: " + cast(str, state["uncertain_artifacts"]),
         )

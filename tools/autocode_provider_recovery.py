@@ -8,6 +8,11 @@ Runtime services are passed in so this module does not import the controller.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -66,7 +71,7 @@ def startup_lock(text):
     )
 
 
-def recover_startup(runtime, state, run_dir, workspace, error, *, sleep=time.sleep):
+def recover_startup(runtime, state: RunState, run_dir, workspace, error, *, sleep=time.sleep):
     """Retry at most twice after a stopped, unchanged failure with no observed turn.
 
     No model/billing/permission switch, session rotation, timeout extension or

@@ -1,6 +1,6 @@
 """CLI status rendering, with controller services supplied by the caller."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -8,11 +8,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_answer_output as answer_output
     from . import autocode_cost as cost
+    from . import autocode_escalation_view as escalation_view
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_answer_output as answer_output
     import autocode_cost as cost
+    import autocode_escalation_view as escalation_view
     import autocode_launch_inputs as launch_inputs
     import autocode_source_scope as source_scope
 
@@ -38,7 +40,7 @@ except ImportError:
     import autocode_verification_preparation as preparation
 
 
-def render(runner, state, args, workspace, run_dir, *, design_input_preview=None):
+def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_preview=None):
     owner = controller_owner.inspect(state, run_dir, workspace) if (Path(run_dir) / "state.json").is_file() else None
     state = controller_owner.project(state, owner)
     if getattr(args, "explain", False):
@@ -64,7 +66,7 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
         and not active_finished
     )
     check = state.get("active_runner_check")
-    check_workers = runner.processes.recorded_worker_state(check) if check else None
+    check_workers: Any = runner.processes.recorded_worker_state(check) if check else None
     check_liveness = runner.supervision.observe(check["supervision"]) if check and check.get("supervision") else None
     stale_check = bool(
         check
@@ -74,7 +76,7 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
         and not check_workers.get("alive")
     )
     strict_visual = runner.visual_runtime.requested(state)
-    current = (
+    current: Any = (
         source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
         if state["status"] == "TASK_COMPLETE" or strict_visual or state.get("settings", {}).get("design_manifest")
         else None
@@ -162,7 +164,7 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
             state["evidence_export"],
             expected_binding=(
                 None
-                if state["evidence_export"].get("error")
+                if cast(dict, state["evidence_export"]).get("error")
                 else evidence_export.binding(state, (public_view.get("usage") or {}).get("accounting"))
             ),
             current=completion_current is True and (inspected is None or inspected["freshness"] == "current"),
@@ -197,7 +199,7 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
         next_action = public_view["next_command"]
     # A stale runner check stopped before the next stage was launched: name the check, not that stage.
     stage_name = (
-        f"Runner check ({str(check.get('stage') or 'check').replace('_', ' ')})"
+        f"Runner check ({str(cast(dict, check).get('stage') or 'check').replace('_', ' ')})"
         if stale_check
         else runner.autocode_status.role_name(stage, state)
         if stage
@@ -224,7 +226,7 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
     if stale:
         print(
             f"STALE CHECKPOINT: saved status is RUNNING but the retained "
-            f"{active.get('stage')} attempt has no current supervised result. "
+            f"{cast(dict, active).get('stage')} attempt has no current supervised result. "
             "AutoResolver must reconcile the retained attempt before any further provider call.",
             file=sys.stderr,
         )
@@ -278,9 +280,11 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
         print(hint, file=sys.stderr)
     if "cost" in public_view:
         print(cost.line(public_view["cost"]), file=sys.stderr)
+    for line in escalation_view.lines(public_view.get("escalations")):
+        print(line, file=sys.stderr)
 
 
-def reviewed_criteria(runner, state):
+def reviewed_criteria(runner, state: "RunState"):
     """Human-review criteria whose review receipt is valid for the current validation."""
     contract = state.get("goal_contract") or {}
     try:
@@ -290,7 +294,7 @@ def reviewed_criteria(runner, state):
         return set()  # Legacy or partial plans carry no review binding to show.
 
 
-def pause_summary(runner, state, workspace, run_dir):
+def pause_summary(runner, state: "RunState", workspace, run_dir):
     """Read-only category and action header; never re-render the mutating plan."""
     try:
         from . import autocode_pause_command as pause_command
@@ -313,13 +317,13 @@ def print_pause(runner, state: "RunState", args, workspace, run_dir, rendered):
         print(rendered)
 
 
-def rejection_message(runner, state, workspace, run_dir, error):
+def rejection_message(runner, state: "RunState", workspace, run_dir, error):
     """Append the current read-only recovery command to a refused action."""
     summary = pause_summary(runner, state, workspace, run_dir)
     return str(error) + ("\n" + summary if summary else "")
 
 
-def reject_input(runner, state, workspace, run_dir, error):
+def reject_input(runner, state: "RunState", workspace, run_dir, error):
     """Print a refused input with its authoritative recovery action and exit 2."""
     print("Input rejected: " + rejection_message(runner, state, workspace, run_dir, error), file=sys.stderr)
     return 2

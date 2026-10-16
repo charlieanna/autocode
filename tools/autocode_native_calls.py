@@ -2,7 +2,9 @@
 
 The existing CLI supplies lifecycle operations; this module imports no
 controller/cycle member and never reads a private state file. A same-owner repair and final validate handoff retain the ordinary lifecycle;
-new owners and unrelated recovery controls remain held.
+new owners and unrelated recovery controls remain held. A completed planning
+report that fails validation gets the ordinary bounded report-only repair of the
+same stage on the same route, and nothing more (``repair_pending``).
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ try:
     from . import autocode_native_parent as parent
     from . import autocode_native_role_isolation as isolation
     from . import autocode_native_stage_recovery as stage_recovery
+    from . import autocode_report_repair_queue as report_repair_queue
+    from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_util as util
     from . import autocode_visual_evidence as evidence
@@ -32,6 +36,8 @@ except ImportError:
     import autocode_native_parent as parent
     import autocode_native_role_isolation as isolation
     import autocode_native_stage_recovery as stage_recovery
+    import autocode_report_repair_queue as report_repair_queue
+    import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_util as util
     import autocode_visual_evidence as evidence  # noqa: F401 - preserve existing import behavior
@@ -50,6 +56,7 @@ class PlanningCalls:
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.snapshot = snapshot
         self.stages = frozenset(planning_stages) | {recognizer}
+        self.repairable = frozenset(planning_stages)
         self.sink = parent.ParentSink(run_dir, factory=context.factory, ordinary_write=write, snapshot=snapshot)
         context.factory.bind_parent_sink(self.sink, parent.ParentSink)
         self.approval = None
@@ -102,12 +109,13 @@ class PlanningCalls:
                 self._captures_binding = deepcopy(binding)
             self.image_capture_authority(state=state, snapshot=current, captures=self._captures)
             return
+        repairing = self.repair_pending(state, stage, report_only=report_only, allow_write=allow_write)
         if (
             stage not in self.stages
-            or report_only
+            or (report_only and not repairing)
             or allow_write
             or state.get("current_task") is not None
-            or state.get("pending_report_repair")
+            or (state.get("pending_report_repair") and not repairing)
             or state.get("settings", {}).get("planning_flow") != "v2"
             or any(
                 state.get(key)
@@ -119,6 +127,97 @@ class PlanningCalls:
                 "Native Scope 3 ends at planning and first approval; execution/recovery/capture require later scopes",
             )
         self.context.factory.require_planning_origin(state, snapshot=self.snapshot(state))
+
+    def repair_pending(self, state: RunState, stage, *, report_only=False, allow_write=None):
+        """True for exactly the bounded report-only repair this native planning run queued.
+
+        Same stage, same saved route, read-only, unchanged contract, within its attempt bound:
+        never a new owner, a writer, the original stage again or a renewed allowance. A
+        repair launch is counted before it starts. Any other pending repair is refused.
+        """
+        pending = state.get("pending_report_repair")
+        if not pending and not report_only:
+            return False
+        repair = pending if isinstance(pending, dict) else {}
+        original, attempts = repair.get("original"), repair.get("attempts")
+        route = (state.get("settings") or {}).get("roles", {}).get(self.repair_route(state)) or {}
+        if not (
+            isinstance(original, dict)
+            and stage == original.get("stage") == state.get("next_stage")
+            and stage in self.repairable
+            and original.get("rejected") is True
+            and original.get("exit_code") == 0
+            and original.get("source_revision")
+            and not any(
+                original.get(key)
+                for key in ("report_only", "timed_out", "interrupted", "dry_run", "reviewer_fallback_grant")
+            )
+            and original.get("launch_route")
+            == {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
+            and repair.get("contract_hash") == (state.get("goal_contract") or {}).get("hash")
+            and type(attempts) is int
+            and (1 if report_only else 0) <= attempts <= report_repair_queue.repair_limit(state)
+            and not allow_write
+            and (report_only or allow_write is None)
+        ):
+            raise util.Paused(
+                "PAUSED_VISUAL_EVIDENCE",
+                "Native planning admits only its own bounded report-only repair of the same stage and route",
+            )
+        return True
+
+    def archive_rerouted_repair(self, state: RunState):
+        """Archive (never delete) a pending repair whose role's saved route has since changed.
+
+        The repair may run only on its original route, so once a resume changes that role's
+        model or effort it can never launch, even when none of its attempts was used. The stage
+        then runs again as a fresh attempt on the new route, as a resume after a rejected native
+        planning report did before repairs existed; that attempt is charged as one, and its
+        rejected report gets its own bounded repair. Restoring the old route later does not
+        bring the archived repair back. Returns the message shown, or None when the route is
+        unchanged.
+        """
+        pending = state.get("pending_report_repair")
+        original = pending.get("original") if isinstance(pending, dict) else None
+        role = self.repair_route(state)
+        route = (state.get("settings") or {}).get("roles", {}).get(role)
+        if (
+            not isinstance(original, dict)
+            or not isinstance(route, dict)
+            or not isinstance(original.get("launch_route"), dict)
+            or state.get("active_stage")
+            or original.get("stage") != state.get("next_stage")
+            or original.get("stage") not in self.repairable
+        ):
+            return None
+        before = original["launch_route"]
+        after = {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
+        if before == after:
+            return None
+        stage = original["stage"]
+        name = roles.screen_name(stage, state)
+        message = (
+            f"Archived the pending {name} report repair because the {name} route changed from "
+            f"{before.get('model')} ({before.get('reasoning_effort')}) to {after['model']} "
+            f"({after['reasoning_effort']}), so the {name} stage will run again as a fresh attempt on the new route."
+        )
+        at = util.now()
+        state.setdefault("report_repair_archive", []).append(
+            {"at": at, "reason": "The repaired stage's route changed", "repair": state.pop("pending_report_repair")}
+        )
+        state.setdefault("reconciliation_notes", []).append(
+            {"at": at, "stage": stage, "iteration": original.get("iteration"), "reason": message}
+        )
+        self.sink.write(self.run_dir / "state.json", state)
+        print(message, flush=True)
+        return message
+
+    @staticmethod
+    def repair_route(state: RunState):
+        """The saved route role of the pending repair's original attempt, or None."""
+        pending = state.get("pending_report_repair")
+        original = pending.get("original") if isinstance(pending, dict) else None
+        return (original.get("route_role") or original.get("role")) if isinstance(original, dict) else None
 
     def dispatch_guard(self, state: RunState, stage, ordinary_guard):
         """Thread the original typed first-writer scope into existing guards."""
@@ -165,6 +264,8 @@ class PlanningCalls:
 
     def role_isolation(self, state: RunState, route_role):
         self.guard(state)
+        if state.get("pending_report_repair") and route_role != self.repair_route(state):
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "A native report repair must use its original saved route")
         if profiles.kilo.selected(self.intent, state["settings"], route_role) is not None:
             return isolation.KiloRoleIsolation(
                 state, self.workspace, self.run_dir, route_role, profile=self.intent, native=self
@@ -236,10 +337,15 @@ class PlanningCalls:
             unsupported += ("test_command", "regression_command")
         if any(getattr(args, key, None) for key in unsupported):
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "This control needs a native scope beyond first approval")
-        if state.get("active_stage") or state.get("pending_report_repair"):
+        if state.get("active_stage"):
             raise util.Paused(
                 "PAUSED_VISUAL_EVIDENCE", "Original native worker reconciliation is not implemented by Scope 3"
             )
+        if state.get("pending_report_repair"):
+            # After setup has saved a changed route, the repair can never run: the stage runs afresh.
+            self.archive_rerouted_repair(state)
+        if state.get("pending_report_repair"):
+            self.repair_pending(state, state.get("next_stage"))  # Only a plain resume of the bounded repair.
         if state.get("current_task") is not None:
             stage = state.get("next_stage")
             if stage not in ("terra", "sol", "astra_review", "astra_resolve"):
@@ -332,12 +438,44 @@ class PlanningCalls:
                 "PAUSED_VISUAL_EVIDENCE", "Complete initial operator input changed after original activation"
             )
 
-    def reject(self, state: RunState, record, error):
-        """Retain original failed bytes; never archive/delete protected inputs."""
+    def reject_launch(self, state: RunState, record, error, prepared, after):
+        """Reject the report of a launch that just exited (run_role); close it only on its report file.
+
+        The protected journal closes a launch only when it left its report file, so a launch
+        without one (an OpenCode final message that never parsed) stays unclosed and keeps
+        the original pause instead of queuing a repair.
+        """
+        record["rejected"] = True
+        closed = Path(record["output"]).is_file()
+        if closed:
+            self.context.factory.finish_launch(prepared, record, after)
+        self.reject(state, record, error, closed=closed)
+
+    def reject(self, state: RunState, record, error, *, closed):
+        """Retain original failed bytes; never archive/delete protected inputs.
+
+        ``closed``: the protected launch recorded its finish. Only then can a completed
+        planning report get the ordinary bounded report-only repair; otherwise, or once
+        the repair attempts are spent, the run pauses with the original output retained.
+        """
         record.update(rejected=True, rejection_reason=str(error))
         if not any(row.get("output") == record.get("output") for row in state.get("stages", [])):
             state.setdefault("stages", []).append(deepcopy(record))
-        state.pop("active_stage", None)
+        if closed:
+            state.pop("active_stage", None)
+        else:
+            state["active_stage"] = deepcopy(record)
+        stage = record.get("original_stage") or record.get("stage")
+        if (
+            stage in self.repairable
+            and stage == state.get("next_stage")
+            and state.get("current_task") is None
+            # run_role reaches a report only after the attempt completed; a closed launch kept its report file.
+            and report_repair_queue.queue(state, record, error, completed=lambda: closed)
+        ):
+            run_status.running(state, "REPORT_REPAIR")
+            self.sink.write(self.run_dir / "state.json", state)
+            raise report_repair_queue.ReportRepairQueued()
         run_status.pause(state, "PAUSED_INVALID_OUTPUT", str(error))
         self.sink.write(self.run_dir / "state.json", state)
         raise util.Paused("PAUSED_INVALID_OUTPUT", "Original native output retained: " + str(error))

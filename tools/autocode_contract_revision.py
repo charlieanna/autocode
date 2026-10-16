@@ -78,7 +78,7 @@ def draft_proof_corrections(state: RunState, before: dict, after: dict) -> set[s
     }
 
 
-def saved_user_basis(state, basis, answer_id):
+def saved_user_basis(state: RunState, basis, answer_id):
     if basis == "user_answer":
         return bool(answer_id) and answer_id in state.get("answers", {})
     if basis == "user_feedback":
@@ -119,7 +119,7 @@ def canonical_items(previous: dict, changes: list) -> list:
     return [dict(raw, item=canonical(raw.get("item"))) if isinstance(raw, dict) else raw for raw in changes]
 
 
-def revision_guard(state, body, changes, origin):
+def revision_guard(state: RunState, body, changes, origin):
     """A planner revision may not drop protected text or widen permissions on its own.
 
     Returns the declared changes with each item named exactly (canonical_items)."""
@@ -164,7 +164,7 @@ def revision_guard(state, body, changes, origin):
             raise ValueError(
                 f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event; change={raw['change']!r}"
             )
-    declared = {}
+    declared: dict = {}
     for raw in protected_changes:
         declared.setdefault(raw["item"], []).append(raw)
 

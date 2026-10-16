@@ -10,6 +10,13 @@ stops it before any correction or repair runs. That fresh attempt is then the
 rejected attempt a further explicit retry names, never an earlier repair.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_failures as failures
 except ImportError:
@@ -22,7 +29,7 @@ RETRYABLE_ERRORS = (
 )
 
 
-def rejected_attempt(state):
+def rejected_attempt(state: RunState):
     """The latest rejected attempt of the pending repair, or None: its latest report-only repair,
     or the original itself when no correction or repair followed it and it is still the last
     attempt of its failure ledger entry (bounded_failure decides whether the bound stopped it)."""
@@ -42,7 +49,7 @@ def rejected_attempt(state):
     return None
 
 
-def bounded_failure(state, limit):
+def bounded_failure(state: RunState, limit):
     """Whether this pending repair reached its full-repair or exact failure bound."""
     pending = state.get("pending_report_repair") or {}
     used = pending.get("attempts")

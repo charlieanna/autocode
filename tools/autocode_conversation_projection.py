@@ -7,6 +7,11 @@ projection joins them without promoting any assistant text to a requirement.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from copy import deepcopy
 
 try:
@@ -19,7 +24,7 @@ except ImportError:
 REVIEW_STAGES = ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
 
 
-def _records(state, planning, *, current_cycle):
+def _records(state: RunState, planning, *, current_cycle):
     reports = dict(planning.get("reports") or {})
     if current_cycle and isinstance(state.get("requirements_handoff"), dict):
         reports.setdefault("requirements_gather", state["requirements_handoff"])
@@ -58,7 +63,7 @@ def _records(state, planning, *, current_cycle):
 
 
 def project(
-    state,
+    state: RunState,
     journal,
     *,
     displayed_plan=None,
@@ -89,7 +94,9 @@ def project(
         return {"availability": "unavailable", "reason": str(error)}
 
 
-def _project(state, journal, core, *, displayed_plan, needs, public_status, review_findings, review_scope_moves):
+def _project(
+    state: RunState, journal, core, *, displayed_plan, needs, public_status, review_findings, review_scope_moves
+):
     pointer = state.get("conversation_handoff") or {}
     if (pointer.get("conversation_id"), pointer.get("digest")) != (
         journal["conversation_id"],
@@ -140,7 +147,7 @@ def _project(state, journal, core, *, displayed_plan, needs, public_status, revi
             "body": deepcopy(contract["body"]),
             "freshness": "current" if current else "stale",
         }
-    findings = []
+    findings: list = []
     for record in review_records:
         report = record["report"]
         for key in ("concerns", "decisions"):

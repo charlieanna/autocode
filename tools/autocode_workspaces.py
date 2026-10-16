@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import contextlib
 import fcntl
 import json
@@ -197,7 +202,7 @@ def bootstrap(selected, task):
     return project
 
 
-def resume_workspace(selected, state):
+def resume_workspace(selected, state: RunState):
     selected = Path(selected).resolve()
     saved = Path(state["workspace"]).resolve()
     if selected == saved:

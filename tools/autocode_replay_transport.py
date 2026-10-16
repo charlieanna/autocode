@@ -7,6 +7,11 @@ its stdin, immutable event sink, deadline, collected exit and process cleanup.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import hashlib
 import json
@@ -42,12 +47,12 @@ def selected(settings):
     return recording.load(value["path"], value["sha256"])
 
 
-def configure(args, state):
+def configure(args, state: RunState):
     saved = (state.get("settings") or {}).get("replay_recording")
     path = getattr(args, "replay_recording", None)
     if not path and not saved:
         return None
-    tape = recording.load(path or saved["path"], saved["sha256"] if saved else None)
+    tape = recording.load(path or cast(dict, saved)["path"], saved["sha256"] if saved else None)
     checks = saved["checks"] if saved else getattr(args, "replay_checks", "fresh")
     if saved and path and str(tape.manifest_path) != saved["path"]:
         raise recording.RecordingError("A saved replay cannot change its recording")
@@ -75,11 +80,11 @@ def configure(args, state):
     return settings
 
 
-def consumed(state):
+def consumed(state: RunState):
     return len([row for row in state.get("stages", []) if isinstance(row.get("replay"), dict)])
 
 
-def progress(state):
+def progress(state: RunState):
     authority = (state.get("settings") or {}).get("replay_recording")
     if not authority:
         return None
@@ -126,7 +131,7 @@ class Facade:
         return native.final_report(path, **kwargs)
 
 
-def facade(args, state):
+def facade(args, state: RunState):
     settings = state.get("settings") or {}
     if not settings.get("replay_recording") and getattr(args, "replay_recording", None):
         tape = recording.load(args.replay_recording)

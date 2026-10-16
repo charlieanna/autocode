@@ -71,16 +71,16 @@ PR template asks for an entry here; a change without one is incomplete.
   user.email`, for the run's saved workspace in AutoCode's own environment, is not listed, compared without regard
   to case, before anything is approved: exit 2 (the conversation stops at the same question) with a message naming
   the required and the actual identity, and the run stays at the same stop. An `--as` name never counts. Goal
-  edits, resumes, workflow-policy approvals and `--accept-completion` are not checked. The run saves the list when
-  it starts (`settings.require_approver`), so a changed file never alters a run in progress; the key has no flag,
-  and `autocode doctor` shows it with its source. Without the setting nothing changes. It guards against an
-  approval under the wrong configured Git identity, not against someone who deliberately sets a listed address
-  (Git's environment variables or a repository-local `user.email` change what is checked): it is not
-  authentication. A replay (`autocode replay`, `--replay-recording`) never takes it, `autocode program` and
-  `autocode components` child runs read it from their own worktree (so only a committed file reaches them), and
-  `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task now reads the project
-  settings, all of them, as every other new run does (it read none before), so a project `engine` other than
-  `codex` refuses it, as it already did with a typed task.
+  edits, resumes and workflow-policy approvals are not checked; `--accept-completion` is, since the fifth part
+  below. The run saves the list when it starts (`settings.require_approver`), so a changed file never alters a run
+  in progress; the key has no flag, and `autocode doctor` shows it with its source. Without the setting nothing
+  changes. It guards against an approval under the wrong configured Git identity, not against someone who
+  deliberately sets a listed address (Git's environment variables or a repository-local `user.email` change what is
+  checked): it is not authentication. A replay (`autocode replay`, `--replay-recording`) never takes it,
+  `autocode program` and `autocode components` child runs read it from their own worktree (so only a committed file
+  reaches them), and `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task
+  now reads the project settings, all of them, as every other new run does (it read none before), so a project
+  `engine` other than `codex` refuses it, as it already did with a typed task.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -253,6 +253,32 @@ PR template asks for an entry here; a change without one is incomplete.
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
 
+- A fake OpenCode run through the CLI can launch its Builder, Tester and Completion Reviewer inside the real
+  Linux bubblewrap boundary (#709). With `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1` the test fixture reports
+  OpenCode 1.18.33 and answers the runner's model-free conformance checks through the boundary shell. The new
+  `tests/test_contained_fake_cli.py` checks that such a run finishes and that `--status --json` names `bubblewrap`
+  and its version in `tool_containment_backend`. It also checks that a Builder shell write planted outside the
+  workspace is blocked, while an uncontained control shows the same write lands. The `linux-tool-containment` CI
+  job runs it without skips, and changes to the fixture select that job. The fixture's own edits and checks still
+  run outside the boundary, so OpenCode's tool dispatch stays with the opt-in `NativeToolTests`. Without the
+  variable the fixture is unchanged.
+- Accepting completion records who accepted it, and a required approver covers it (#722, fifth part):
+  `--accept-completion` saves the workspace's Git `user.name` and `user.email`, the host name and the command's
+  option names on the event it records, and takes `--as NAME`. `--status` lists it in `approvals` (kind
+  `completion`), and the completion summary, the evidence report and so the `autocode-issue pr` body show it as
+  "Completion accepted"; a report that lists one says so in its Approvals introduction, and every earlier report
+  renders unchanged. A run started with `require-approver` refuses `--accept-completion` from a Git `user.email`
+  it does not list, as it refuses a plan approval: exit 2, nothing saved, and the run stays at its pause. A
+  completion accepted before this change is listed with no recorded acceptor. `--as NAME` now also goes with
+  `--goal-file`, which already recorded who loaded the plan as a goal edit.
+- A completed run's evidence report, and so the pull request body `autocode-issue pr` builds from `evidence.md`,
+  gives the approved plan's goal hash (what `autocode plan --check FILE` prints for a file holding exactly that
+  plan). When the approved plan was loaded with `--goal-file`, it also names the file, its goal hash and the plan
+  revision it was loaded as, and says whether the approved plan is the file's plan unchanged, differs only in the
+  runner's records of the plan's review, or differs in named parts. The status view's `approved_contract` gains
+  `goal_hash` and `plan_file`, and the report's `plan` gains the same two optional fields; older reports still
+  authenticate. Starting a new run from a plan file is not part of this change (#720).
+
 ### Changed
 
 - Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the
@@ -374,6 +400,41 @@ PR template asks for an entry here; a change without one is incomplete.
   recognized by path only, so an edit to them is not seen. Before, the proof left a package bug fix with its own
   diagnosis note, or an in-place run beside a nested repository, `UNVERIFIED`. Only the Builder's handoff states the
   write scope (`write_scope`); nothing limits its writes while it works.
+- The money cap (`autocode_cost`), token usage (`autocode_usage`), efficiency measurements (`autocode_efficiency`),
+  evidence report publication (`autocode_evidence_export`, except `record`), `--status` rendering
+  (`autocode_status_command`), progress updates (`autocode_status`, except `persist`), runner checks
+  (`autocode_runner_check`), review report schemas (`autocode_report_schema`), the recovery chain
+  (`autocode_recovery_dispatch`), protected test gates (`autocode_protected_oracles`), planning metadata recovery
+  (`autocode_planning_metadata`), the output display policy (`autocode_output_policy`), timeout changes
+  (`autocode_operational_change`), network retries (`autocode_network_retry`), Investigator report recovery
+  (`autocode_job_report_recovery`), the report format correction (`autocode_format_correction`), the repeated-failure
+  ledger (`autocode_failures`), draft example corrections (`autocode_draft_examples`), the conversation projection,
+  policy and ingress (`autocode_conversation_projection`, `autocode_conversation_policy`,
+  `autocode_conversation_ingress`), original-brief evidence (`autocode_brief_evidence`), the CLI's resolver-answer and
+  decision steps (`autocode_action_resolver`, `autocode_action_decisions`), accepted source edits
+  (`autocode_accepted_source`) and the test contract fixtures (`goal_fixtures`) take the typed `RunState`, so the
+  untyped-`state` ratchet drops from 287 to 201 and mypy checks those 86 function bodies. Type-only: no behaviour,
+  output or `state.json` change (#695).
+- Operator prerequisites (`autocode_task_preflight`, `autocode_preflight_contract`), the first serial repair
+  assignment (`autocode_rework_policy`), saved-run replay (`autocode_replay_transport`, `autocode_replay_source_trace`),
+  requested Go test names (`autocode_native_test_names`), the approved source scope and contract approval
+  (`autocode_source_scope`, `autocode_contract_identity`), each stage's context packet and the units' model request
+  (`autocode_stage_context`, `units/common`, `units/autocode`), run setup and configuration (`autocode_run_setup`,
+  `autocode_configure`, `autocode_containment_policy`, `autocode_verification_config`, `autocode_base_patch`), the
+  isolated Builder and its retries (`autocode_builder_worker`, `autocode_builder_recovery`, `autocode_worker_limits`),
+  result and repaired-report application (`autocode_result_application`, `autocode_repaired_result`), recovery
+  (`autocode_validation_recovery`, `autocode_report_retry`, `autocode_recovery_progress`, `autocode_recovery_grants`,
+  `autocode_recovery_inputs`, `autocode_provider_recovery`, `autocode_budget_recovery`, `autocode_action_recovery`),
+  human review (`autocode_human_review_artifact`, `autocode_review_rejection`), the plan and its revisions
+  (`autocode_contract_revision`, `autocode_draft_assignment`, `autocode_program_guidance`, `autocode_planning_graph`,
+  `autocode_repair_provenance`, `autocode_base_examples`, `autocode_toolchain_requirements`), verification and visual
+  evidence (`autocode_verification_inspection`, `autocode_verification_view`, `autocode_visual_profile`,
+  `autocode_visual_acceptance`), request usage (`autocode_request_usage`), risk disclosure (`autocode_risk_disclosure`),
+  task worktrees (`autocode_worktrees`, `autocode_workspaces`), execution checkpoints (`autocode_checkpoints`),
+  joint-planning transports (`autocode_joint_transport`), failed-job source captures (`autocode_job_source`), design
+  revisions (`autocode_design_revision`), the CLI's edit step (`autocode_action_edits`) and a UI run's accepted plan
+  (`autocode_ui`) take the typed `RunState`, so the untyped-`state` ratchet drops from 201 to 110 and mypy checks those
+  85 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
@@ -391,6 +452,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- When the OpenCode planning roles receive the complete Figma manifest and catalog as SHA-256 and
+  byte-bound file references, their handoff now also carries the complete case roster inline (ID, route
+  and state of every case, in manifest order), as Builder and Tester handoffs already did. Before, the
+  case IDs were only in the referenced files (#1263).
 - Ineligible plan approvals are rejected before stage reconciliation, preserving the stopped checkpoint and retained report. Verified conversation-action replays remain idempotent.
 - `--package` follow-ups (#711): a feature that adds the first Go module in the package, on a base with no Go
   project, is no longer left UNVERIFIED, as at the root (#685). A `--test-command` written for the run's
@@ -434,6 +499,22 @@ PR template asks for an entry here; a change without one is incomplete.
   other run's files. On Seatbelt and bubblewrap the shell now reads only its own run's `planning/` artifacts in
   `.autocode/runs`. Each launch proves this through the actual native shell, records it as `private_reads`, and
   pauses as `PAUSED_TOOL_CONTAINMENT` if the boundary stops enforcing it (#1250).
+- That planning shell also can no longer read these `.autocode` stores, which hold other runs or what they keep:
+  archived and bundled runs (`archive`, `bundles`), `autocode arena` attempts (`arena`), parallel Builder workspaces
+  (`builders`), `autocode issue` worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`),
+  the run `registry`, `replay` recordings, `task-flows`, `autocode verify` checkouts and reports (`verification`)
+  and task worktrees (`worktrees`). A store is denied when it exists as the launch is prepared; none is created.
+  Other `.autocode` directories, including other launches' `tool-containment-*` control directories, stay readable,
+  as do its own scratch, project settings, retained design inputs and capture bundles. Each denial is in
+  `private_reads`, the native-shell proof covers each store, and a profile missing any one of them pauses as
+  `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store first made after the profile was written,
+  up to the launch's last check just before the provider is released: every check before then computes the denial
+  again, including native preparation and the held launch's seal. That pause names the new store, and a plain
+  `--resume-paused` prepares the boundary again with it denied. A store made after that last check, such as one made
+  once the provider has started, causes no pause and stays readable to that stage until it ends; a later planning
+  launch denies it. A store path that is a symlink, even a dangling one, or not a directory cannot be denied, so
+  each native planning launch in that workspace pauses as `PAUSED_TOOL_CONTAINMENT`, naming the path: replace it
+  with a real directory, or remove it, then `--resume-paused` (#1250).
 
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
@@ -446,6 +527,22 @@ PR template asks for an entry here; a change without one is incomplete.
   acceptance as `UNKNOWN` (with `completion_current` null) instead of a false `NOT_READY` denial when the
   runner's CODE scope authority is not available (#1255).
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
+- Native visual planning (`VISUAL_REVIEW_PROFILE=`): a Requirements, Planner or Plan Reviewer report that finished
+  but failed validation now gets the ordinary bounded report-only repair of the same stage on the same saved route
+  and model, through the run's native writer, instead of pausing at once with `PAUSED_INVALID_OUTPUT`. A resume does
+  not renew a queued repair's attempts, `--retry-report` stays refused, and the planning review allowance is not
+  charged for a repair. A resume that gives that stage's role a new model or reasoning effort archives the pending
+  repair and runs the stage again as a fresh attempt on the new route, as before. Warning: that resume discards the
+  repair even when none of its attempts has run, the fresh attempt is charged (with the two-review allowance spent,
+  `autocode resume --plan-reviewer-reasoning-effort low` can stop the fresh Plan Reviewer at
+  `PAUSED_PLANNING_BUDGET`), and restoring the old model later does not bring the repair back; to keep the repair,
+  resume without changing that role's model or effort. A repair launch that stops
+  (timeout, output limit, cleanup) is closed with `--abandon-stage`, as an original planning stop is. A native run
+  no longer sends a stage pause to an Investigator it cannot run, so that pause keeps its reason and spends no
+  investigation; a Builder failure classification still pauses as before. The final plan review (`plan_finalize`)
+  now supports bounded report-only repair and publishes reviewed-plan records into the native visual protection
+  journal before approval; and unparsed OpenCode planning launches that left the launch unclosed at
+  `PAUSED_INVALID_OUTPUT` support operator closure via `--abandon-stage` without dispatching an agent (#1257).
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
   to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,
@@ -851,6 +948,24 @@ PR template asks for an entry here; a change without one is incomplete.
   retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
   receipts distinguish active execution from deliberate ready handoffs; status
   stays read-only and recovery persists under the existing run lock (#1021).
+- A native planning launch whose recorded private-read denial was weakened, such as one that no longer lists the
+  run store, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after the boundary
+  was prepared; the store-specific pause now needs a boundary that otherwise verifies against its proof. A test
+  also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
+- Under `--json`, a setting the run's configuration refuses as the run loads (such as `--single-model` or
+  `--spec-first` on a saved run, or `--single-model` with a per-role model flag) printed nothing on stdout.
+  It now prints the saved run's status payload with `result`, whose `error.code` is `input_rejected`
+  (`{"result": …}` alone before a new run's first checkpoint). The invocation still ends with `autocode: …`
+  on stderr and exits 2, and the refused setting is not saved (a new run without `--in-place` may already
+  have created its task worktree and branch, which `result.message` names). A native visual run
+  (`VISUAL_REVIEW_PROFILE=`) still saves such a refusal as a `PAUSED_INVALID_OUTPUT` pause, printed like any
+  other pause with `error` null. Tool-containment refusals (`--allow-uncontained-tools`) still print nothing
+  on stdout (#714).
+- A native planning launch whose recorded private-read denial leaves out the run store, or a store its pinned
+  profile still denies, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after
+  the boundary was prepared, even when its conformance proof was pinned again to match. The store-specific pause
+  now needs a boundary that otherwise verifies against its proof and names only stores its profile does not deny.
+  A test also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
 
 ## [0.7.1] — 2026-10-09
 

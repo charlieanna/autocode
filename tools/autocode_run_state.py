@@ -312,7 +312,8 @@ class RunState(TypedDict, total=False):
     acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     # The approved contract; written by goals. A revision loaded with --goal-file also names that file in
-    # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop).
+    # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop;
+    # autocode_plan_file_origin reads it for run_view's approved_contract and the evidence report).
     goal_contract: dict | None
     current_task: dict | None  # the task the Builder is on
     user_events: list  # goals writes answers/approvals; timeout receipts include operational_changes
@@ -346,7 +347,12 @@ class RunState(TypedDict, total=False):
     resolution_request: dict | None
     stuck_investigation: dict  # stuck_job writes a request; removed when no investigation is active
     stuck_investigations: list  # the investigation history
-    pending_report_repair: dict  # stage_recovery queues a repair; stuck_job consumes/restores it
+    # autocode_report_repair_queue.queue writes it for a rejected completed report (autocode.reject_completed_stage,
+    # native PlanningCalls.reject), stage_recovery for truncated reviews and missing executed-event evidence;
+    # execute_report_repair runs it, repaired_result, the resume and recovery archives and native
+    # PlanningCalls.archive_rerouted_repair (its route changed) consume it;
+    # stuck_job holds and restores it around an investigation.
+    pending_report_repair: dict
     uncertain_artifacts: list  # attempts whose cleanup is unverified
     job_failure: dict  # job_failure writes the classified failure; quota_route reads it
     failure_history: dict  # failure identity -> attempts (builder_failure)

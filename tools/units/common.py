@@ -1,5 +1,10 @@
 """Typed model request shared by units; transport and persistence belong to the runner."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..autocode_run_state import RunState
+
 import copy
 from dataclasses import dataclass
 
@@ -66,7 +71,7 @@ def capped_route(route, cap="medium"):
     return route
 
 
-def execution_request(state, stage, state_path, schema_dir):
+def execution_request(state: "RunState", stage, state_path, schema_dir):
     goals.execution_guard(state)
     state["phase"] = "EXECUTING"
     role = autoplanner.role_for(state, stage)

@@ -1,7 +1,14 @@
 """Retain approved initial checks while the same criteria undergo rework."""
 
+from __future__ import annotations
 
-def initial_validation(state):
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+
+def initial_validation(state: RunState):
     """Return declarations from the current contract, never historical tasks.
 
     A rework task can describe an existing check in prose. That does not revoke

@@ -216,8 +216,15 @@ def prepare(
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
                 raise
+            try:
+                from . import autocode_tool_containment as tool_containment
+            except ImportError:
+                import autocode_tool_containment as tool_containment
             recovery = (
-                ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
+                # It names a private .autocode store and what clears the stop; the setup is not the cause (#1250).
+                ""
+                if isinstance(error, tool_containment.STORE_ERRORS)
+                else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
                 if native_role_isolation is not None
                 else ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
                 "this run's non-planning stages with OpenCode's own permission checks only"

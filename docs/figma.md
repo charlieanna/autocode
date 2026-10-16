@@ -345,7 +345,9 @@ references fail intake. Builder handoffs contain only cases whose implementation
 paths overlap the assigned task paths and their linked inventory, while preserving
 all variants of a selected shared component. Tester handoffs carry the same slice and
 a complete case roster; the original full manifest remains retrievable by its hash-bound path.
-Planning and completion review retain the complete manifest. Each component entry binds a source set/component node; for a
+Planning and completion review retain the complete manifest. When the OpenCode planning
+roles read the complete manifest and catalog from SHA-256 and byte-bound retained files
+instead of inline, their handoff still carries the complete case roster inline. Each component entry binds a source set/component node; for a
 component set, every component variant in its page metadata must be listed. Shared
 components with the same stable library key are merged for handoff, while all
 distinct variant node IDs and properties are retained. Variables with the

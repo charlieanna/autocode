@@ -443,7 +443,11 @@ def resumed_pause(state: RunState) -> str | None:
     return status if run_finder.resume_acknowledges(status) or status in run_finder.WAITS_FOR_AN_EDIT else None
 
 
-def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
+class SettingRefused(ValueError):
+    """configure refused a setting this invocation gave; cli() prints it as ``autocode: ...`` (#714)."""
+
+
+def load_locked(runner, args, parser, state: RunState, state_path, run_dir, workspace):
     """Under the run lock: reread, configure, register and migrate the run; return its state."""
     support.assert_no_legacy_process(run_dir, workspace)
     if args.run_dir:
@@ -481,7 +485,9 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     try:
         settings = runner.configure(args, copy.deepcopy(state) if recovering_report else state)
     except ValueError as error:
-        raise ValueError(runner.status_command.rejection_message(runner, state, workspace, run_dir, error)) from None
+        raise SettingRefused(
+            runner.status_command.rejection_message(runner, state, workspace, run_dir, error)
+        ) from None
     if recovering_report:
         if settings != state.get("settings"):
             parser.error("Provider configuration or limits changed; report recovery requires unchanged saved settings")
@@ -558,7 +564,9 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             continue
         published = resolver_human.current(state)
         entry = (
-            state.get("resolver", {}).get("human_escalations", {}).get(published["request_id"], {}) if published else {}
+            cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(published["request_id"], {})
+            if published
+            else {}
         )
         origin = entry.get("identity", {}).get("proposal", {}).get("origin", {})
         live_pause = (
@@ -573,7 +581,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             state["_authorized_bound_change"] = {"pause_status": pause, "at": runner.now()}
     if state.get("settings") and settings != state["settings"]:
         published = state.get(resolver_human.PUBLIC) or {}
-        entry = state.get("resolver", {}).get("human_escalations", {}).get(published.get("request_id"), {})
+        entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(published.get("request_id"), {})
         origin = entry.get("identity", {}).get("proposal", {}).get("origin", {})
         # A --<role>-model change under a quota-stopped, still uncertain attempt is refused (#184),
         # naming --answer only when the pending request asks that model question.
@@ -705,12 +713,12 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             if contract:
                 contract.update(approval_status="draft", approval_event=None)
             goals.invalidate(state, "Independent requirements and plan review requested before further execution")
-            state.update(next_stage="requirements_gather", pending_questions=[])
+            state.update({"next_stage": "requirements_gather", "pending_questions": []})
             # Enabling it is a settings write: planning restarts once an operational pause holding the
             # run is released by its own authority, never past it (#486 review).
             held = stop.interrupted_pause(state)
             if not (held and pause_authority.operational(held["status"])):
-                state.update(status="RUNNING", phase="DISCOVERING")
+                state.update({"status": "RUNNING", "phase": "DISCOVERING"})
                 state.pop("stop_reason", None)
                 state.pop("paused_at", None)
         # A grant validates the original request before its writer publishes

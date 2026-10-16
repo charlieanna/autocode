@@ -16,6 +16,11 @@ Only autocode_run_actions imports it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import sys
 
@@ -69,7 +74,7 @@ except ImportError:
     from autocode_action_resolver import OPERATIONAL_NOT_ANSWER
 
 
-def resume_dispatch_requested(args, state):
+def resume_dispatch_requested(args, state: RunState):
     """True when this invocation should dispatch after committing a user action (#509).
 
     Only an explicit --resume-paused continues in-process, and only when the
@@ -84,7 +89,7 @@ def resume_dispatch_requested(args, state):
     return bool(state.get("next_stage")) or state.get("phase") == "READY_TO_EXECUTE"
 
 
-def revalidate_on_resume(state, workspace, *, review_stage):
+def revalidate_on_resume(state: RunState, workspace, *, review_stage):
     """Retire source-stale evidence at an admitted, reconciled explicit resume (#607).
 
     validation_archive retains the associated regression_proof for audit, alongside
@@ -129,11 +134,11 @@ def revalidate_on_resume(state, workspace, *, review_stage):
             state.setdefault("session_rotations", []).append(
                 {"role": role, "old_session": old, "at": records.now(), "reason": reason}
             )
-    state.update(next_stage=stage)
+    state.update({"next_stage": stage})
     return True
 
 
-def preflight(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def preflight(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Reject an ineligible approval before recovery can consume a retained report."""
     if getattr(args, "approve_goal", None) and (reason := lifecycle.approval_boundary_refusal(state)):
         try:
@@ -149,7 +154,7 @@ def preflight(runner, args, parser, state, state_path, run_dir, workspace, decid
     return None
 
 
-def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Apply the user's decisions together and save them; go on to the build only when --resume-paused asked."""
     # Recheck after settings/checkpoint activation and before an old draft can be approved or displayed.
     # Explicit draft corrections retain their existing ingress instead of being pre-empted by recovery.
@@ -253,7 +258,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                     and entry["identity"]["proposal"].get("evidence", {}).get("review_token") == args.review_token
                     and set(args.approve_review)
                     <= set(goals.requested_review_criteria(candidate, entry["identity"]["proposal"]["request"]))
-                    for entry in candidate.get("resolver", {}).get("human_escalations", {}).values()
+                    for entry in cast(dict, candidate.get("resolver", {})).get("human_escalations", {}).values()
                 )
                 if not (replay and issued):
                     raise ValueError("Artifact acceptance requires a current AutoResolver-issued review request")
@@ -265,7 +270,7 @@ def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
                 question, sep, response = item.partition("=")
                 if not sep:
                     raise ValueError("--answer uses QUESTION_ID=TEXT")
-                request = candidate.get("user_request", {})
+                request = cast(dict, candidate.get("user_request", {}))
                 if goals.is_operational_response(request):
                     goals.resolve_permission(candidate, question, response)
                 elif (

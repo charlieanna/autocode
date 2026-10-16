@@ -7,6 +7,11 @@ prompt text (STABLE, COMMON, ...) stays in autocode_support, where the planning 
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -41,7 +46,7 @@ except ImportError:
     from autocode_util import criteria_definition
 
 
-def context_packet(state, stage, state_path):
+def context_packet(state: RunState, stage, state_path):
     try:
         from . import autocode_milestones as checkpoints
     except ImportError:
@@ -130,7 +135,9 @@ def context_packet(state, stage, state_path):
             affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", [])
         )
         repair = state.get("repair_plan") or {}
-        if any(task.get("id") == state.get("current_task", {}).get("id") for task in repair.get("tasks", [])):
+        if any(
+            task.get("id") == cast(dict, state.get("current_task", {})).get("id") for task in repair.get("tasks", [])
+        ):
             base["repair_plan"] = repair
     elif stage in ("sol", "astra_checkpoint"):
         impl = state.get("implementation", {})
@@ -271,7 +278,7 @@ def context_packet(state, stage, state_path):
         base["milestone_checkpoint"]["current_evidence_ready"] = checkpoints.evidence_ready(state, current)
         base["current_milestone"] = checkpoints.scope(state)
         milestone_policy += checkpoints.POLICY
-        if state.get("current_task", {}).get("milestone_ids"):
+        if cast(dict, state.get("current_task", {})).get("milestone_ids"):
             milestone_policy += prompts.get("fragments/stage-context/context-packet-07.md")
         elif stage == "sol":
             milestone_policy += prompts.get("fragments/stage-context/context-packet-10.md")

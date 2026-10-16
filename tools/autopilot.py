@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_code_citations as code_citations
     from . import autocode_source_scope as source_scope
@@ -121,7 +126,7 @@ class LoopExit(Exception):
 
 
 def drive(
-    state,
+    state: RunState,
     dispatch,
     *,
     apply=None,
@@ -130,13 +135,15 @@ def drive(
     persist=None,
     active=lambda value: value.get("status") == "RUNNING",
     investigate=False,
+    queue=True,
 ):
     """Run the saved state's next stage until its workflow reaches a boundary.
 
     Units own prompts and schemas; Autopilot owns code-workflow transitions. The loop itself
     (guard -> select saved stage -> dispatch -> apply -> persist) is autocode_stuck_job.drive;
     SKIP from a hook restarts from the newly saved state without pretending a stage completed.
-    With ``investigate``, a stage that stops converging goes to the Investigator before a pause.
+    With ``investigate``, a stage that stops converging goes to the Investigator before a pause,
+    unless ``queue`` is False (an authority that cannot launch it; see autocode_stuck_job.drive).
     """
     return stuck.drive(
         state,
@@ -149,10 +156,11 @@ def drive(
         skip=SKIP,
         paused=support.Paused,
         investigate=investigate,
+        queue=queue,
     )
 
 
-def prepare_request(state, stage, state_path, schema_dir):
+def prepare_request(state: RunState, stage, state_path, schema_dir):
     """A unit's model request for ``stage``, carrying the Investigator's guidance when in force."""
     return stuck.with_guidance(state, stage, unit_module(stage).prepare(state, stage, state_path, schema_dir))
 
@@ -194,17 +202,17 @@ def unit_module(stage):
     return dict(zip(UNITS, (autoplanner, autocode, autoreview, autoresolver), strict=False))[unit_for(stage)]
 
 
-def pending_unit(state):
+def pending_unit(state: RunState):
     pending = state.get("pending_report_repair") or {}
     stage = (pending.get("original") or {}).get("stage") or state.get("next_stage")
     return unit_for(stage) if stage else None
 
 
-def publish_handoffs(state, run_dir):
+def publish_handoffs(state: RunState, run_dir):
     """Export versioned unit outputs; saved state and checked evidence stay authoritative."""
     outputs = {}
     if goals.approved(state):
-        contract = state["goal_contract"]
+        contract = cast(dict, state["goal_contract"])
         common = {"version": 1, "contract_hash": contract["hash"], "contract_revision": contract["revision"]}
         outputs["autoplanner"] = {
             **common,
@@ -252,7 +260,7 @@ def publish_handoffs(state, run_dir):
     return handoffs
 
 
-def admit_validation(runtime, state, stage, workspace, run_dir):
+def admit_validation(runtime, state: RunState, stage, workspace, run_dir):
     """Ask the user instead of launching another validation-only round that cannot close its blockers."""
     blocking = findings_ledger.blocking_entries(state) if stage == "sol" else []
     stop = blocking and validation_rounds.admit(
@@ -268,7 +276,7 @@ def admit_validation(runtime, state, stage, workspace, run_dir):
     raise LoopExit(2)
 
 
-def dispatch_unit(runtime, state, stage, workspace, run_dir):
+def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     """Call one unit using the runner's durable provider/recovery services."""
     progressive_state.guard_dispatch(state, stage)
     builder_failure.dispatch_guard(state, stage, workspace)
@@ -318,7 +326,7 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     except runtime.support.Paused as error:
         fired = recovery_dispatch.recover(runtime, state, run_dir, workspace, error)
         if fired == "capacity":
-            recovery = state["recovery_context"]
+            recovery = cast(dict, state["recovery_context"])
             inspector = runtime.autocode_status.role_name(recovery["next_stage"], state)
             print(
                 f"{stage}: provider capacity recovery {recovery['retry_number']}/"
@@ -333,11 +341,11 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     return record
 
 
-def _check_code_refs(state, refs, field="code_refs"):
+def _check_code_refs(state: RunState, refs, field="code_refs"):
     code_citations.require(state, refs, field, planning_unit=planning_unit)
 
 
-def _bind_plan(state, value, origin, record):
+def _bind_plan(state: RunState, value, origin, record):
     if "contract" not in value:
         return
     if (
@@ -380,7 +388,7 @@ def _bind_plan(state, value, origin, record):
     lifecycle.install_draft(state, body, origin=origin, changes=value.get("contract_changes") or [], record=record)
 
 
-def apply_planning(state, stage, value, record, *, run_dir=None):
+def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
     if progressive_state.revision_pending(state):
         result = progressive_state.apply_revision(
             state, stage, value, record, product_findings=findings_ledger.blocking_entries(state)
@@ -407,7 +415,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             kind = lifecycle.assign_task(
                 state, decision, source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
             )
-            state.update(next_stage="sol" if kind == "validate" else "terra", phase="EXECUTING")
+            state.update({"next_stage": "sol" if kind == "validate" else "terra", "phase": "EXECUTING"})
         return
     # Older saved reports predate explicit, user-backed conflict resolutions.
     # An absent list supplies no authority to resolve any conflict.
@@ -552,7 +560,12 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             state["discovery_summary"] = value["summary"]
             return
         state.update(
-            status="RUNNING", phase="PLANNING", next_stage=planning_unit.after_revise(state), pending_questions=[]
+            {
+                "status": "RUNNING",
+                "phase": "PLANNING",
+                "next_stage": planning_unit.after_revise(state),
+                "pending_questions": [],
+            }
         )
     elif stage == "astra_finalize":
         concerns = reports["astra_challenge"]["report"]["concerns"]
@@ -568,7 +581,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
     state["discovery_summary"] = value["summary"]
 
 
-def apply_planning_result(state, stage, value, record, *, run_dir=None):
+def apply_planning_result(state: RunState, stage, value, record, *, run_dir=None):
     if planning_unit.is_planning(state, stage):
         apply_planning(state, stage, value, record, run_dir=run_dir)
         return
@@ -579,7 +592,7 @@ def apply_planning_result(state, stage, value, record, *, run_dir=None):
     state["discovery_summary"] = value["summary"]
 
 
-def assert_within_assignment(state, record):
+def assert_within_assignment(state: RunState, record):
     """A serial Builder gets the same ownership gate as a parallel worktree.
 
     The declared affected_paths are the assignment boundary. Evidence is the retained
@@ -602,7 +615,7 @@ def assert_within_assignment(state, record):
         )
 
 
-def retained_validated_candidate(state, value, record, workspace):
+def retained_validated_candidate(state: RunState, value, record, workspace):
     """Compatibility entry point for previously validated retained work."""
     return retained_work.validated_candidate(
         state,
@@ -613,7 +626,7 @@ def retained_validated_candidate(state, value, record, workspace):
     )
 
 
-def recover_retained_candidate(state, workspace):
+def recover_retained_candidate(state: RunState, workspace):
     """Reconsider an already-saved no-progress report without another provider call."""
     reports = state.get("no_progress_reports") or []
     if (
@@ -654,7 +667,7 @@ def recover_retained_candidate(state, workspace):
     state.setdefault("retained_candidate_handoffs", []).append(
         {
             "at": support.now(),
-            "task_id": state["current_task"]["id"],
+            "task_id": cast(dict, state["current_task"])["id"],
             "builder_output": record["output"],
             "reconsidered": True,
             **evidence,
@@ -663,7 +676,7 @@ def recover_retained_candidate(state, workspace):
     return True
 
 
-def route_builder_failure(state, evidence, reason, *, completed_record=None):
+def route_builder_failure(state: RunState, evidence, reason, *, completed_record=None):
     """Interpret non-execution actions before any assignment or strong-model mutation."""
     row = milestones.progress(state)
     if row and row.get("needs_replan") and state.get("workspace"):
@@ -682,7 +695,7 @@ def route_builder_failure(state, evidence, reason, *, completed_record=None):
     )
 
 
-def apply_build_result(runtime, state, value, record, workspace, run_dir):
+def apply_build_result(runtime, state: RunState, value, record, workspace, run_dir):
     if acceptance_tests.check_untouched(state, workspace):  # spec-first: the Tester's files are fixed (#1200)
         return  # restored; the Builder goes again with its product work kept
     assert_within_assignment(state, record)
@@ -690,11 +703,13 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
         support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir
     )
     state.update(
-        implementation={**value, "source_revision": record.get("source_revision"), "workspace": str(workspace)},
-        changed_files=record["changed_files"],
-        source_snapshot=record["after_ref"],
-        next_stage=workflow.review_stage(state),
-        diff_ref=record.get("diff_ref"),
+        {
+            "implementation": {**value, "source_revision": record.get("source_revision"), "workspace": str(workspace)},
+            "changed_files": record["changed_files"],
+            "source_snapshot": record["after_ref"],
+            "next_stage": workflow.review_stage(state),
+            "diff_ref": record.get("diff_ref"),
+        }
     )
     if not record["changed_files"]:
         retained = retained_validated_candidate(state, value, record, workspace)
@@ -718,7 +733,7 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
             # identify the files left by an earlier Builder. They are a candidate
             # for independent review, never proof that the work passes.
             state["changed_files"] = fresh["retained_paths"]
-            state["implementation"]["changed_files"] = fresh["retained_paths"]
+            cast(dict, state["implementation"])["changed_files"] = fresh["retained_paths"]
             state["no_progress_batches"] = 0
             state.setdefault("retained_candidate_handoffs", []).append(
                 {
@@ -733,7 +748,7 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
             state["next_stage"] = workflow.review_stage(state)
             return
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
-        if state.get("current_task", {}).get("kind") == "implement":
+        if cast(dict, state.get("current_task", {})).get("kind") == "implement":
             state.setdefault("no_progress_reports", []).append(state.pop("implementation"))
             state.setdefault("unit_handoffs", {}).pop("autocode", None)
             state["next_stage"] = "terra"
@@ -756,7 +771,7 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
         workflow.apply_implementation(runtime, state, value, record, workspace, run_dir)
 
 
-def apply_review_result(runtime, state, stage, value, record, workspace, run_dir):
+def apply_review_result(runtime, state: RunState, stage, value, record, workspace, run_dir):
     modern = state.get("version", 2) >= 3
     progressive_state.require_reported_checks(state, value["checks"])
     support.verify_checks(value["checks"], workspace, record["events"], **runtime.check_evidence_options(record))
@@ -799,7 +814,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     refs += flow.get("evidence_refs", [])
     technical = flow.get("technical_result") or {}
     refs += technical.get("evidence_refs", [])
-    members = state.get("current_task", {}).get("milestone_ids", [])
+    members = cast(dict, state.get("current_task", {})).get("milestone_ids", [])
     if members:
         results = value.get("milestone_results", [])
         ids = [r["milestone_id"] for r in results]
@@ -850,7 +865,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     }
     human_pending = modern and any(
         goals.human_only_pending_validation(state, value, c["id"])
-        for c in state["goal_contract"]["body"]["acceptance_criteria"]
+        for c in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]
         if c["human_review"]
     )
     progressive_pass = progressive_state.enabled(state) and any(
@@ -930,7 +945,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
             }
         )
     else:
-        state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
+        state.update({"validation": validation, "unresolved_findings": value["findings"], "next_stage": "astra_review"})
     findings_ledger.record_validation(state, value, record)
     if stage == "sol":
         risk_findings.reconcile(state, validation["check_replay"], record, saved=not correction_open)
@@ -947,14 +962,14 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
         state["next_stage"] = "terra"
 
 
-def queue_resolution(state, decision, record, *, source_stage="astra_review", source_report=False):
+def queue_resolution(state: RunState, decision, record, *, source_stage="astra_review", source_report=False):
     goals.execution_guard(state, decision)
     task = state.get("current_task") or {}
     revision = record.get("source_revision")
     if (
         not task.get("id")
-        or task.get("contract_hash") != state["goal_contract"]["hash"]
-        or task.get("contract_revision") != state["goal_contract"]["revision"]
+        or task.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
+        or task.get("contract_revision") != cast(dict, state["goal_contract"])["revision"]
         or not revision
         or revision
         != source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)["revision"]
@@ -1001,7 +1016,7 @@ def queue_resolution(state, decision, record, *, source_stage="astra_review", so
         if (
             validation.get("source_revision") == revision
             and validation.get("task_id") == task["id"]
-            and validation.get("contract_hash") == state["goal_contract"]["hash"]
+            and validation.get("contract_hash") == cast(dict, state["goal_contract"])["hash"]
         )
         else {}
     )
@@ -1011,7 +1026,7 @@ def queue_resolution(state, decision, record, *, source_stage="astra_review", so
     if any(not Path(path).is_file() or support.file_hash(Path(path)) != digest for path, digest in pins.items()):
         raise support.Paused("PAUSED_STALE_HANDOFF", "Diagnosis evidence changed before the resolver handoff")
     state["resolution_request"] = {
-        "contract_hash": state["goal_contract"]["hash"],
+        "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "task_id": task["id"],
         "source_revision": revision,
         "source_stage": source_stage,
@@ -1027,12 +1042,12 @@ def queue_resolution(state, decision, record, *, source_stage="astra_review", so
     state.pop(human.PRIVATE, None)
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
-    state.update(status="RUNNING", phase="RESOLVING", next_stage="astra_resolve", pending_questions=[])
+    state.update({"status": "RUNNING", "phase": "RESOLVING", "next_stage": "astra_resolve", "pending_questions": []})
     resolver_recovery.prepare_resolution(state, decision, record)
 
 
-def finish_resolution(state, value, record):
-    request = state.pop("resolution_request")
+def finish_resolution(state: RunState, value, record):
+    request = cast(dict, state.pop("resolution_request"))
     plan = {
         "kind": "repair-plan",
         "version": 1,
@@ -1046,14 +1061,14 @@ def finish_resolution(state, value, record):
         **({"review_output": request["review_output"]} if "review_output" in request else {}),
         "evidence_hashes": request["evidence_hashes"],
         "output": record["output"],
-        "tasks": [{**copy.deepcopy(state["current_task"]), "depends_on": []}],
+        "tasks": [{**copy.deepcopy(cast(dict, state["current_task"])), "depends_on": []}],
     }
     state["repair_plan"] = plan
     resolver_recovery.finish_resolution_packet(state, request, plan)
     state.setdefault("resolution_history", []).append(copy.deepcopy(plan))
 
 
-def apply_diagnosis_result(runtime, state, value, record, workspace, run_dir):
+def apply_diagnosis_result(runtime, state: RunState, value, record, workspace, run_dir):
     """Validate a model's bounded diagnosis and, only if accepted, retry its
     original failed stage. A rejected or escalated diagnosis pauses; it never
     grants a second chance beyond the two-evaluation budget already spent
@@ -1069,7 +1084,7 @@ def apply_diagnosis_result(runtime, state, value, record, workspace, run_dir):
     )
 
 
-def apply_result(runtime, state, stage, value, record, workspace, run_dir):
+def apply_result(runtime, state: RunState, stage, value, record, workspace, run_dir):
     """Commit a unit result only after every transition and evidence gate succeeds."""
     candidate = result_application.prepare(
         state,
@@ -1078,11 +1093,11 @@ def apply_result(runtime, state, stage, value, record, workspace, run_dir):
         lambda current: _apply_result(runtime, current, stage, value, record, workspace, run_dir),
         persist=runtime.write_json,
     )
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
 
 
-def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, continuation=False):
+def _apply_result(runtime, state: RunState, stage, value, record, workspace, run_dir, *, continuation=False):
     """Autopilot alone interprets unit results and advances the workflow."""
     try:
         launch_inputs.guard(state, workspace, run_dir)
@@ -1106,7 +1121,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             evidence["diagnosis"] = continuation["diagnosis"]
             saved = continuation.get("resolver_continuation")
             if saved and failure_classification.classify(evidence) == "execution":
-                state["resolution_request"]["failure_diagnosis"] = continuation["diagnosis"]
+                cast(dict, state["resolution_request"])["failure_diagnosis"] = continuation["diagnosis"]
                 _apply_result(
                     runtime,
                     state,
@@ -1192,7 +1207,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                         evidence = {
                             "diagnosis": value["diagnosis"],
                             "output": record["output"],
-                            "hashes": dict(state["resolution_request"]["evidence_hashes"]),
+                            "hashes": dict(cast(dict, state["resolution_request"])["evidence_hashes"]),
                         }
                         evidence["hashes"][record["output"]] = support.file_hash(Path(record["output"]))
                         resolver_recovery.retain_diagnosis(state, record)
@@ -1204,15 +1219,17 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             state["agent_request"] = {"role": stage, "request": copy.deepcopy(value["user_request"])}
             if stage == "terra":
                 state.update(
-                    implementation={
-                        **value,
-                        "source_revision": record.get("source_revision"),
-                        "workspace": str(workspace),
-                    },
-                    changed_files=record.get("changed_files", []),
-                    source_snapshot=record.get("after_ref"),
-                    diff_ref=record.get("diff_ref"),
-                    next_stage="astra_review",
+                    {
+                        "implementation": {
+                            **value,
+                            "source_revision": record.get("source_revision"),
+                            "workspace": str(workspace),
+                        },
+                        "changed_files": record.get("changed_files", []),
+                        "source_snapshot": record.get("after_ref"),
+                        "diff_ref": record.get("diff_ref"),
+                        "next_stage": "astra_review",
+                    }
                 )
                 save_record(state, record)
                 return
@@ -1328,11 +1345,11 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
         elif value["status"] == "BLOCKED":
             if modern:
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "BLOCKED requires a structured user_request")
-            state.update(status="BLOCKED_HUMAN", stop_reason=value["blocker"], next_stage="astra_review")
+            state.update({"status": "BLOCKED_HUMAN", "stop_reason": value["blocker"], "next_stage": "astra_review"})
         elif value["status"] == "VALIDATE":
             if stage == "astra_review":
                 state["iteration"] += 1
-            state.update(next_stage=workflow.review_stage(state))
+            state.update({"next_stage": workflow.review_stage(state)})
         else:
             if not value["next_objective"].strip():
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "CONTINUE requires an action")
@@ -1347,7 +1364,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                     current_snapshot=probe_snapshot,
                     **({"scope_authority": native.context.factory.scope_authority} if native is not None else {}),
                 ) and completion_gate.completion_ready(state, completion_probe, probe_snapshot):
-                    state.update(
+                    cast(dict, state).update(
                         next_stage="astra_review",
                         **unit_module("astra_review").completion_review(state, probe_snapshot),
                     )
@@ -1376,9 +1393,9 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                 and value.get("next_task", {}).get("kind") == "implement"
                 and not (milestones.progress(state) or {}).get("builder_reassessment")
             ):
-                request = state["resolution_request"]
+                request = cast(dict, state["resolution_request"])
                 source_output = request.get("source_output", request.get("review_output"))
-                original = next(
+                original: dict = next(
                     (row for row in reversed(state.get("stages", [])) if row.get("output") == source_output), {}
                 )
                 evidence = builder_failure.evidence(state, original)
@@ -1386,8 +1403,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                 validation = state.get("validation") or {}
                 if (
                     validation.get("source_revision") == original.get("source_revision")
-                    and validation.get("task_id") == state.get("current_task", {}).get("id")
-                    and validation.get("contract_hash") == state["goal_contract"]["hash"]
+                    and validation.get("task_id") == cast(dict, state.get("current_task", {})).get("id")
+                    and validation.get("contract_hash") == cast(dict, state["goal_contract"])["hash"]
                 ):
                     accepted = next(
                         (
@@ -1443,7 +1460,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                 goals.record_decision(state, value)
                 save_record(state, record)
                 return
-            validation_verdict = state.get("validation", {}).get("verdict")
+            validation_verdict = cast(dict, state.get("validation", {})).get("verdict")
             if validation_verdict in ("FAIL", "BLOCKED") and not (
                 kind == "implement" and builder_policy.enabled(state)
             ):
@@ -1457,12 +1474,14 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             elif validation_verdict == "PASS":
                 route_ladder.record_outcome(state, "passed")
             state.update(
-                next_action=value["next_objective"],
-                next_stage=workflow.review_stage(state)
-                if kind == "validate"
-                else "terra"
-                if progressive_state.enabled(state)
-                else dispatch.build_stage(state),
+                {
+                    "next_action": value["next_objective"],
+                    "next_stage": workflow.review_stage(state)
+                    if kind == "validate"
+                    else "terra"
+                    if progressive_state.enabled(state)
+                    else dispatch.build_stage(state),
+                }
             )
             if stage == "astra_resolve":
                 finish_resolution(state, value, record)

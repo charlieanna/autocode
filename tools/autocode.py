@@ -59,7 +59,7 @@ try:
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, autocode_preflight_attempts as preflight_attempts, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_json_output as json_output, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_receipt_repair_context as receipt_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
-    from . import autocode_run_status as run_status
+    from . import autocode_run_status as run_status, autocode_report_repair_queue as report_repair_queue
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy, autocode_approval_provenance as approval_provenance  # noqa: F401 - compatibility API
@@ -100,6 +100,7 @@ except ImportError:
     import autocode_preflight_attempts as preflight_attempts
     import autocode_stop as stop_policy
     import autocode_run_status as run_status
+    import autocode_report_repair_queue as report_repair_queue
     import autocode_status as status_records
     import autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
     import autocode_supervision as supervision
@@ -227,7 +228,7 @@ check_subscription = autocode_configure.check_subscription
 iteration_limit_reached = build_loop.iteration_limit_reached
 
 
-def finish_human_action(state, published):
+def finish_human_action(state: RunState, published):
     """Consume the checked request after existing material-decision APIs succeed."""
     entry = state["resolver"]["human_escalations"][published["request_id"]]
     entry.update(
@@ -246,7 +247,7 @@ def finish_human_action(state, published):
         return
     if state.get("status") == "WAITING_FOR_USER":
         if (state.get("user_request") or {}).get("kind") == "human_review":
-            request = copy.deepcopy(state["user_request"])
+            request = copy.deepcopy(cast(dict, state["user_request"]))
             request["criteria"] = goals.missing_human_reviews(state)
             lifecycle.wait_for_user(
                 state, request, origin={"stage": "resolver_response"}, next_stage=state.get("next_stage")
@@ -262,7 +263,7 @@ def finish_human_action(state, published):
             )
 
 
-def recover_default_budget(state, run_dir, workspace, kind):
+def recover_default_budget(state: RunState, run_dir, workspace, kind):
     """AutoResolver may extend a proven internal default, never erase its usage."""
     with interventions.serialized(run_dir):
         if (
@@ -310,7 +311,7 @@ def recover_default_budget(state, run_dir, workspace, kind):
 slug = util.slug
 
 
-def load_stage_report(record, workspace=None, evidence_record=None, state=None):
+def load_stage_report(record, workspace=None, evidence_record=None, state: RunState | None = None):
     """Validate provider output, retaining raw bytes before hydrating review IDs."""
     readonly_events.assert_unchanged_review(record, workspace=workspace)
     if evidence_record:
@@ -377,11 +378,10 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     return rework_policy.capture(record, value) if workspace is not None else value
 
 
-class ReportRepairQueued(Exception):
-    """A finished request needs report-only repair, never implementation replay."""
+ReportRepairQueued = report_repair_queue.ReportRepairQueued  # a finished request needs report-only repair
 
 
-def reset_report_repair_for_resume(state):
+def reset_report_repair_for_resume(state: RunState):
     """Clear the bounded report-repair attempt count for an explicit resume.
 
     Mirrors resolver_runtime.reset_for_resume: the count is a current-cycle
@@ -411,50 +411,18 @@ def reset_report_repair_for_resume(state):
 REPAIR_HANDOFF_BYTES = 256 * 1024
 
 
-def reject_completed_stage(state, run_dir, record, error):
+def reject_completed_stage(state: RunState, run_dir, record, error):
     result_application.raise_if_uncertain(error)
     account_stage(state, record)
     error = stray_writes.undo(state, record, error)  # a read-only stage's writes are put back first
     failure = failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, error)
-    # Only terminal, source-pinned report errors: not transport, stale, permission, guard or stray-write ones.
-    eligible = (
-        isinstance(error, (ValueError, KeyError, RuntimeError))
-        and not isinstance(error, (support.Paused, stray_writes.StrayWrites))
-        and record.get("exit_code") == 0
-        and record.get("source_revision")
-        and not record.get("timed_out")
-        and not record.get("interrupted")
-        and stage_completed(state, record)
-    )
-    pending = state.get("pending_report_repair")
-    if eligible and repair_limit(state) and (not pending or record.get("report_only")):
-        if not pending:
-            pending = {
-                "original": copy.deepcopy(record),
-                "attempts": 0,
-                "contract_hash": (state.get("goal_contract") or {}).get("hash"),
-                "pins": {
-                    record[key]: support.file_hash(record[key])
-                    for key in ("events", "before_ref", "after_ref", "schema")
-                    if record.get(key)
-                },
-            }
-            state["pending_report_repair"] = pending
-        else:
-            pending["latest_rejected"] = copy.deepcopy(record)
-        for key in ("output", "response_text", "events", "schema"):
-            if record.get(key) and Path(record[key]).is_file():
-                pending["pins"].setdefault(record[key], support.file_hash(record[key]))
-        pending["error"] = str(error)
-        receipt_repair_context.retain(pending, error)
-        if pending["attempts"] < repair_limit(state):
-            state.update({"status": "RUNNING", "phase": "REPORT_REPAIR"})
-            state.pop("stop_reason", None)
-            write_json(run_dir / "state.json", state)
-            for artifact in originals:
-                artifact.unlink(missing_ok=True)
-            raise ReportRepairQueued()
+    if report_repair_queue.queue(state, record, error, completed=lambda: stage_completed(state, record)):
+        run_status.running(state, "REPORT_REPAIR")
+        write_json(run_dir / "state.json", state)
+        for artifact in originals:
+            artifact.unlink(missing_ok=True)
+        raise ReportRepairQueued()
     escalation.advance(state, record.get("route_role", record["role"]), trigger="rejected_output", detail=error)
     repeated = bool(failure and failures.stalled(failure))
     message = f"Completed {record['stage']} output was rejected ({error}); attempt archived. " + (
@@ -1098,10 +1066,7 @@ def run_role(
         raise
     except (ValueError, RuntimeError) as error:
         if native is not None:
-            record["rejected"] = True
-            if Path(record["output"]).is_file():
-                native.context.factory.finish_launch(native_prepared, record, after)
-            native.reject(state, record, error)
+            native.reject_launch(state, record, error, native_prepared, after)
         reject_completed_stage(state, run_dir, record, error)
     if native is not None:
         native.context.factory.finish_launch(native_prepared, record, after)
@@ -1186,11 +1151,13 @@ def assert_repair_preserves_builder_history(original, value):
             raise ValueError("Report repair invented a command absent from original execution events")
 
 
-def accept_repaired_report(state, run_dir, workspace, value, repair_record):
+def accept_repaired_report(state: RunState, run_dir, workspace, value, repair_record):
     return repaired_result.accept(sys.modules[__name__], state, run_dir, workspace, value, repair_record)
 
 
-def execute_report_repair(state, run_dir, workspace):
+def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
+    """Launch the bounded report-only repair; native planning keeps its own writer and launch owner."""
+    runtime = native_invocation.runner_view(sys.modules[__name__], native) if native else sys.modules[__name__]
     pending = state["pending_report_repair"]
     original = pending["original"]
     if state.get("next_stage") != original.get("stage"):
@@ -1250,8 +1217,8 @@ def execute_report_repair(state, run_dir, workspace):
         or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending["pins"].items())
     ):
         raise support.Paused("PAUSED_STALE_VALIDATION", "Saved report-repair inputs changed; do not retry")
-    resolver_runtime.boundary(sys.modules[__name__], state, run_dir, workspace)
-    if format_correction.execute(sys.modules[__name__], state, run_dir, workspace):
+    resolver_runtime.boundary(runtime, state, run_dir, workspace)
+    if native is None and format_correction.execute(runtime, state, run_dir, workspace):
         return
     original_source = repair_report_source(original)
     rejected_source = (
@@ -1368,11 +1335,11 @@ def execute_report_repair(state, run_dir, workspace):
         )
     pending["attempts"] += 1
     state.update({"phase": "REPORT_REPAIR"})
-    write_json(run_dir / "state.json", state)
+    runtime.write_json(run_dir / "state.json", state)
     role = original["role"]
     route_role = planning.route_for(state, original["stage"], role)
     try:
-        value, record = run_role(
+        value, record = runtime.run_role(
             role=role,
             prompt=prompt,
             sandbox="read-only",
@@ -1390,17 +1357,17 @@ def execute_report_repair(state, run_dir, workspace):
             "active_stage"
         ):
             pending["attempts"] -= 1
-            write_json(run_dir / "state.json", state)
-        if automatically_recover_truncated_review(state, run_dir, workspace, error):
+            runtime.write_json(run_dir / "state.json", state)
+        if native is None and automatically_recover_truncated_review(state, run_dir, workspace, error):
             raise ReportRepairQueued() from error
-        if automatically_recover_report_repair_timeout(state, run_dir, workspace, error):
+        if native is None and automatically_recover_report_repair_timeout(state, run_dir, workspace, error):
             raise ReportRepairQueued() from error
         raise
     account_stage(state, record)
-    accept_repaired_report(state, run_dir, workspace, value, record)
+    runtime.accept_repaired_report(state, run_dir, workspace, value, record)
 
 
-def apply_result(state, stage, value, record, workspace, run_dir, *, native=None):
+def apply_result(state: RunState, stage, value, record, workspace, run_dir, *, native=None):
     runtime = (
         native_invocation.runner_view(sys.modules[__name__], native) if native is not None else sys.modules[__name__]
     )
@@ -1409,7 +1376,7 @@ def apply_result(state, stage, value, record, workspace, run_dir, *, native=None
     return result
 
 
-def save_record(state, record):
+def save_record(state: RunState, record):
     state.setdefault("stages", []).append(record)
     state.setdefault("history", []).append(record)
     state["evidence_locations"] = [r["output"] for r in state["stages"][-3:]]
@@ -1418,7 +1385,7 @@ def save_record(state, record):
     recovery_context.stage_saved(state, record)
 
 
-def _apply_result(state, stage, value, record, workspace, run_dir):
+def _apply_result(state: RunState, stage, value, record, workspace, run_dir):
     """Compatibility entry for recovery and older callers; Autopilot owns transitions."""
     return autopilot._apply_result(sys.modules[__name__], state, stage, value, record, workspace, run_dir)
 
@@ -1426,13 +1393,13 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
 MAX_AUTOMATIC_RECOVERIES = recovery_accounting.MAX_AUTOMATIC_RECOVERIES
 
 
-def timeout_recovery_guard(state):
+def timeout_recovery_guard(state: RunState):
     reason = recovery_limits.stop_reason(state, recovery_count(state), MAX_AUTOMATIC_RECOVERIES)
     if reason:
         raise support.Paused(*reason)
 
 
-def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
+def grant_recovery_allowance(state: RunState, run_dir, amount, *, previous_settings=None):
     result = recovery_grants.grant(
         state,
         run_dir,
@@ -1449,7 +1416,7 @@ def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
     return result
 
 
-def repeated_failure_resume_guard(state, workspace, *, authorization=None):
+def repeated_failure_resume_guard(state: RunState, workspace, *, authorization=None):
     """A restart or plain resume cannot erase an unchanged repeated failure.
 
     A recognized recovery path that reroutes the run changes the saved status
@@ -1465,7 +1432,7 @@ def repeated_failure_resume_guard(state, workspace, *, authorization=None):
     )
 
 
-def refusal_reason(state, record):
+def refusal_reason(state: RunState, record):
     """Whose response the provider's content filter refused, and on which model; None for any other stop."""
     if not record.get("events"):
         return None
@@ -1476,7 +1443,7 @@ def refusal_reason(state, record):
     )
 
 
-def refused_at_clean_exit(state, record, role, events):
+def refused_at_clean_exit(state: RunState, record, role, events):
     """A content-filter refusal names the stop even when the provider exited 0 (#464); any other stop stays uncertain."""
     if refused := refusal_reason(state, record):
         raise support.Paused(
@@ -1484,7 +1451,7 @@ def refused_at_clean_exit(state, record, role, events):
         )
 
 
-def reconcile_active(state, run_dir, workspace):
+def reconcile_active(state: RunState, run_dir, workspace):
     regression.before_review(state, None, workspace, run_dir)
     record = state.get("active_stage")
     if not record:
@@ -1621,7 +1588,7 @@ def capture_command(argv):
     return autocode_capture_command.cli(argv, formatter=support.compact_output)
 
 
-def configure(args, state):
+def configure(args, state: RunState):
     return autocode_configure.configure(
         args, state, planning=planning, milestones=milestones, autopilot=autopilot, opencode=opencode
     )
@@ -1635,13 +1602,13 @@ def configure_codex_joint(settings, args):
     return autocode_configure.configure_codex_joint(settings, args, planning=planning)
 
 
-def migrate_opencode_roles(state, run_dir, workspace):
+def migrate_opencode_roles(state: RunState, run_dir, workspace):
     return autocode_configure.migrate_opencode_roles(
         state, run_dir, workspace, planning=planning, opencode=opencode, write_json=write_json, now=now
     )
 
 
-def check_joint_transports(state, workspace):
+def check_joint_transports(state: RunState, workspace):
     return joint_transport.check(
         state,
         workspace,
@@ -1713,7 +1680,7 @@ def accept_completion(state: RunState, workspace: Path, *, run_dir=None) -> None
     )
 
 
-def recheck_completion(state, workspace, *, run_dir=None):
+def recheck_completion(state: RunState, workspace, *, run_dir=None):
     if state.get("status") != "TASK_COMPLETE":
         return
     changed_inputs = None
@@ -1750,13 +1717,13 @@ def recheck_completion(state, workspace, *, run_dir=None):
 intervention_metadata = stop_policy.metadata
 
 
-def consume_interventions(state, run_dir, workspace, *, persist=None, **options):
+def consume_interventions(state: RunState, run_dir, workspace, *, persist=None, **options):
     """Commit receipt effects and identity together through the selected sink (options: lock_held, released)."""
     preflight_attempts.reconcile(sys.modules[__name__], state, run_dir)
     return stop_policy.consume(state, run_dir, workspace, write_json=persist or write_json, now=now, **options)
 
 
-def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False, persist=None, native=None):
+def commit_user_action(state: RunState, candidate, run_dir, *, require_current_inputs=False, persist=None, native=None):
     return parent_boundary.commit_user_action(
         state,
         candidate,
@@ -1771,7 +1738,7 @@ def commit_user_action(state, candidate, run_dir, *, require_current_inputs=Fals
     )
 
 
-def commit_stage_result(state, stage, value, record, workspace, run_dir, *, persist=None, native=None):
+def commit_stage_result(state: RunState, stage, value, record, workspace, run_dir, *, persist=None, native=None):
     """Preserve a finished report, applying any earlier input before authorization."""
     result_application.commit(
         state,
@@ -1794,7 +1761,9 @@ def commit_stage_result(state, stage, value, record, workspace, run_dir, *, pers
         commit_boundary_candidate(state, candidate, run_dir, workspace, persist=persist, native=native)
 
 
-def commit_boundary_candidate(state, candidate, run_dir, workspace, *, persist=None, native=None, planning_record=None):
+def commit_boundary_candidate(
+    state: RunState, candidate, run_dir, workspace, *, persist=None, native=None, planning_record=None
+):
     return parent_boundary.commit_boundary_candidate(
         state,
         candidate,
@@ -1972,7 +1941,7 @@ def chat_checkpoint(state: RunState, run_dir=None, *, persist=None, native=None)
     return state["status"] == "RUNNING"
 
 
-def rotate_if_needed(state, role, run_dir, *, persist=None):
+def rotate_if_needed(state: RunState, role, run_dir, *, persist=None):
     limit = state["settings"].get("rotation_after_input_tokens")
     latest = next(
         (
@@ -1996,7 +1965,7 @@ def rotate_if_needed(state, role, run_dir, *, persist=None):
         (persist or write_json)(run_dir / "state.json", state)
 
 
-def print_completion(state, args, workspace, run_dir):
+def print_completion(state: RunState, args, workspace, run_dir):
     """Deliver a completed task worktree, then print the outcome: with ``--json``,
     the same payload ``--status`` prints; otherwise the human completion summary.
     Delivery runs in both modes — it commits the branch, it is not just text."""
@@ -2007,7 +1976,7 @@ def print_completion(state, args, workspace, run_dir):
         print(jobs.render(state, goals.render_completion) + delivery)
 
 
-def print_pause(state, args, workspace, run_dir, rendered):
+def print_pause(state: RunState, args, workspace, run_dir, rendered):
     """Compatibility entry point for the CLI pause presentation."""
     return status_command.print_pause(sys.modules[__name__], state, args, workspace, run_dir, rendered)
 

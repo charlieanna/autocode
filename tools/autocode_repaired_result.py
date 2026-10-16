@@ -4,6 +4,13 @@ The CLI supplies its existing report, rejection and commit services. This helper
 owns only repaired-result acceptance and imports no controller or cyclic policy.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from copy import deepcopy
 from pathlib import Path
 
@@ -40,7 +47,7 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record):
             refreshed[path] = runtime.support.file_hash(path)
     pinned.update(refreshed)
 
-    def apply(state):
+    def apply(state: RunState):
         pending = state["pending_report_repair"]
         original = deepcopy(pending["original"])
         previous_planning = deepcopy(state.get("planning") or {})
@@ -107,7 +114,7 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record):
             state["phase"] = "PLANNING" if runtime.planning.is_planning(state, state["next_stage"]) else "EXECUTING"
             state.pop("stop_reason", None)
 
-    candidate = result_application.prepare(
-        owner, run_dir, owner["pending_report_repair"]["original"]["stage"], apply, persist=runtime.write_json
-    )
-    runtime.commit_boundary_candidate(owner, candidate, run_dir, workspace)
+    original_stage = owner["pending_report_repair"]["original"]["stage"]
+    candidate = result_application.prepare(owner, run_dir, original_stage, apply, persist=runtime.write_json)
+    planning_record = repair_record if original_stage == "plan_finalize" else None
+    runtime.commit_boundary_candidate(owner, candidate, run_dir, workspace, planning_record=planning_record)

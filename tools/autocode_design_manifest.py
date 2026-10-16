@@ -850,6 +850,11 @@ def retain(record, workspace, *, approved_scope=None, approved_scope_sha256=None
     return verify(retained)
 
 
+def _case_roster(body):
+    """Every case's identity, in manifest order, for a handoff without the inline body."""
+    return [{key: case[key] for key in ("id", "route", "state")} for case in body["cases"]]
+
+
 def context(settings, *, stage=None, current_task=None):
     record = settings.get("design_manifest")
     if not record:
@@ -863,7 +868,7 @@ def context(settings, *, stage=None, current_task=None):
         result["catalog"] = inventory.catalog(record["body"], record["root"], admission=admitted_scope(record))
         result["inventory_instruction"] = INSTRUCTION_SCOPED if record.get("scope_admission") else INSTRUCTION_V2
         if stage in ("terra", "sol"):
-            all_cases = copy.deepcopy(record["body"]["cases"])
+            roster = _case_roster(record["body"])
             affected_paths = (current_task or {}).get("affected_paths", [])
             projection = inventory.builder_slice(
                 record["body"], record["root"], affected_paths, admission=admitted_scope(record)
@@ -875,7 +880,7 @@ def context(settings, *, stage=None, current_task=None):
                 "manifest_hash": record["manifest_hash"],
                 "bundle_root": record["root"],
                 "full_manifest": record.get("manifest_path"),
-                "case_roster": [{key: case[key] for key in ("id", "route", "state")} for case in all_cases],
+                "case_roster": roster,
                 "catalog": projection["catalog"],
                 "builder_scope": {
                     key: projection[key] for key in ("affected_paths", "case_ids", "unmapped_affected_paths")
@@ -896,6 +901,9 @@ def planning_context(settings, *, role):
         return result
     if _complete_planning_root(result) is not None:
         refs = _complete_planning_refs(result, result["catalog"])
+        # The body becomes a file reference, so name every case inline; the
+        # planner maps each one to criteria without reading the whole body.
+        result["case_roster"] = _case_roster(result["body"])
         for field, ref in refs.items():
             result[field] = {
                 **ref,

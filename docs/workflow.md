@@ -236,7 +236,12 @@ criteria, weakens tests, grants permissions or extends budgets beyond that one a
 Permission, scope, goal, criteria and spend pauses go straight to you, and so does a pause a
 guard re-raises on resume before any stage runs, or the outcome of a retry you authorized
 with `--retry-failed-stage`. Only full Autopilot runs investigate; a
-single-unit invocation (`--unit`) stops at its own boundary. `--diagnose-failed-stage`
+single-unit invocation (`--unit`) stops at its own boundary. A native visual run
+(`VISUAL_REVIEW_PROFILE=`), whose scope cannot run the Investigator, never sends a stalled
+stage to it, so that pause keeps its original reason and spends no investigation. A Builder
+failure that needs classification still queues the Investigator there; native authority
+refuses it, and the run pauses `PAUSED_BUILDER_CLASSIFICATION` at the Builder with that
+classification spent, as before. `--diagnose-failed-stage`
 below remains the operator's explicit, policy-ledgered alternative for a Builder.
 
 ## Joint requirements planning and review
@@ -961,6 +966,20 @@ still the plan loaded from it. A review of an unchanged plan records the new rev
 records, so that plan's goal hash differs from the file's; any other change is named. The approval
 token locks the revision on the screen, as always. `--goal-file` revises a saved run; it does not
 start a new one.
+
+When the run completes, its evidence report (`evidence.md`, and so the pull request body
+`autocode-issue pr` writes around it) gives the approved plan's goal hash, the one `--check` prints
+for a file holding exactly that plan. When the approved plan came from a plan file, the report also
+names the file, its goal hash and the plan revision it was loaded as, and says how the two differ:
+the approved plan is the file's plan unchanged (the two goal hashes are equal), differs from it only
+in the runner's records of the plan's review, or differs from it in the parts it names. A plan
+approved, changed and approved again after the load is the later approval's plan, so the report
+names no file for it. For example:
+
+```text
+Plan goal hash: 3f1c… (what `autocode plan --check FILE` prints for a file holding exactly this plan).
+Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision 2; the approved plan differs from that file's plan only in the runner's records of the plan's review.
+```
 
 ## Task chat message intent
 

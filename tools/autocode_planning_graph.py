@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 from pathlib import Path
@@ -112,7 +117,7 @@ def identity(body, final_token):
     return {"path": GRAPH_PATH, "sha256": hashlib.sha256(data).hexdigest(), "final_token": final_token}, data
 
 
-def consume(state, run_dir):
+def consume(state: RunState, run_dir):
     """Inspect a finalized graph without authorizing or launching any work."""
     contract = state.get("goal_contract")
     final = state.get("planning_final")

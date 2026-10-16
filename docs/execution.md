@@ -607,8 +607,10 @@ typed, and the option names of that invocation, never their values, so tokens st
 - A plan approval (`--approve-goal`, or `yes` in the terminal conversation) and an artifact
   acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's review
   prompt), on the approval event.
-- A goal edit (`--edit-goal body.json`), on the draft revision the edit installed. The draft
-  still needs its own review and approval.
+- A completion acceptance (`--accept-completion`), on the event it saves when it closes a run
+  whose gates the runner verified but whose completion report could not be produced.
+- A goal edit (`--edit-goal body.json` or `--goal-file PATH`), on the draft revision the edit
+  installed. The draft still needs its own review and approval.
 - An explicit resume (`--resume-paused`, `autocode resume`, `TaskRun.resume_paused()`) that
   takes the run out of the pause holding it: the pause, the pause behind AutoResolver's
   operational request, or the pause a pause intervention interrupted. It is saved when the
@@ -617,14 +619,15 @@ typed, and the option names of that invocation, never their values, so tokens st
   such as `--resume-paused` without a higher `--max-iterations` at an iteration limit you
   set, or a resume while the run's `pause-requested` file is still in place.
 
-On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`, `--edit-goal` or
-the resume; the name is saved beside the Git identity as the person's own claim. With a resume
-it is saved only when the resume releases a pause, as above.
+On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`,
+`--accept-completion`, `--edit-goal`, `--goal-file` or the resume; the name is saved beside the
+Git identity as the person's own claim. With a resume it is saved only when the resume releases
+a pause, as above.
 
 None of this is verified, and none of it grants anything: Git identity is whatever the
 checkout configures, and `--as` is taken at the person's word. The token checks and each
 pause's own rules remain the authority; the one refusal is a project's required approver,
-below. `--status` lists every approval, goal edit and
+below. `--status` lists every approval, completion acceptance, goal edit and
 resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
 the completion summary lists the same records just before its cost line. A record saved before
 AutoCode kept it shows no provenance. A build, bug-fix or design run that recorded none, such as
@@ -641,9 +644,9 @@ approval step and `autocode review-pr --post` publishes a review's report on som
 request ([Issues](issues.md#reviewing-a-pull-request)). A report written before AutoCode listed
 approvals has no such section either, until AutoCode saves the completed run again; reading its
 status does not. Each row gives the time, what was decided (the plan token approved, the criterion
-accepted, the draft an edit saved, or the pause a resume released), the Git identity, host,
-command and any `--as` name, marked as a claim. A record saved without provenance says it was not
-recorded, a workflow-policy approval says no person made it, and a run with none says
+accepted, completion accepted, the draft an edit saved, or the pause a resume released), the Git
+identity, host, command and any `--as` name, marked as a claim. A record saved without provenance
+says it was not recorded, a workflow-policy approval says no person made it, and a run with none says
 `None recorded`. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
 approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
@@ -664,16 +667,16 @@ backslashes. An entry such as `Lee`, `Lee <lee@example.com>`, `<lee@example.com>
 `mailto:lee@example.com` stops a new run before it starts, naming the file and the key.
 
 A run started with that setting refuses a plan approval (`--approve-goal`, or `yes` in the
-terminal conversation) or an artifact acceptance (`--approve-review`, `autocode review`, a
-`TaskRun` approval, or `y` at the conversation's review prompt) whose recorded Git
-`user.email` is not on the list, compared without regard to case. The refusal comes before
-anything is approved: the command exits 2 (the conversation stops at the same question,
-without asking about any further criterion) with a message naming the required addresses and
-the actual Git identity, nothing it carried is saved, and the run stays at the same stop for a
-listed approver. An `--as` name is a claim and never counts. A goal edit installs a draft that
-still needs a listed approver's approval, a resume releases a pause rather than approving
-anything, and a small bug fix approved under the workflow policy has no person to check, so
-none of those is refused. `--accept-completion` is not checked.
+terminal conversation), an artifact acceptance (`--approve-review`, `autocode review`, a
+`TaskRun` approval, or `y` at the conversation's review prompt) or a completion acceptance
+(`--accept-completion`) whose recorded Git `user.email` is not on the list, compared without
+regard to case. The refusal comes before anything is approved: the command exits 2 (the
+conversation stops at the same question, without asking about any further criterion) with a
+message naming the required addresses and the actual Git identity, nothing it carried is saved,
+and the run stays at the same stop for a listed approver. An `--as` name is a claim and never
+counts. A goal edit installs a draft that still needs a listed approver's approval, a resume
+releases a pause rather than approving anything, and a small bug fix approved under the
+workflow policy has no person to check, so none of those is refused.
 
 The identity checked is the output of `git -C WORKSPACE config --get user.email`, where
 `WORKSPACE` is the run's saved workspace (its task worktree, or the checkout an `--in-place`
@@ -1415,11 +1418,45 @@ isolation). They run in this boundary read-only, and their shell also cannot
 read the run store, `.autocode/runs`: not this run's `state.json`, events or
 receipts, and no other run's files. Only this run's `planning/` artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
-its run context from its handoff (#1250). Before the provider starts, each such
-launch shows through the actual native shell that a file in its run directory
-cannot be read, and records the denial as `private_reads` in its
-`tool_containment` record and conformance proof. A boundary that no longer
-enforces it pauses as `PAUSED_TOOL_CONTAINMENT`. On macOS such a launch also
+its run context from its handoff (#1250). Nor can it read these `.autocode`
+stores, which hold other runs or what they keep: `archive` (runs archived from
+task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
+(parallel Builder workspaces and their runs), `bundles` (`autocode bundle`
+archives), `issues` (`autocode issue` worktrees and their runs), `programs`,
+`pull-reviews` (`autocode review-pr` checkouts and their runs), `registry` (the
+run registry), `replay` (replay recordings), `task-flows`, `verification`
+(`autocode verify` checkouts and reports) and `worktrees` (task and
+program worktrees). The list is not every place a run can be kept: a run kept
+elsewhere in the workspace (an `--out` or `--arena` directory outside these
+stores, or another `.autocode` directory) is not denied. Each store that exists
+when the launch is prepared is denied. The launch creates none of them: the only
+thing it adds to the workspace is its own `.autocode/tool-containment-<hex>/`
+control directory, as every contained launch does. New contents of a denied store
+stay unreadable, but a store first made after the launch's profile was written is
+not covered. Every check before the provider starts computes the denial again, up
+to the held launch's seal just before the provider is released, so a store made
+before that last check pauses the launch as `PAUSED_TOOL_CONTAINMENT`. Such a
+store usually comes from ordinary activity, for example another AutoCode command
+in the same checkout making `.autocode/issues` for the first time, so this pause
+is not a sandbox or setup problem: the stop reason names the new store, and a
+plain `--resume-paused` prepares the boundary again with it denied. One made
+after that last check, such as once the provider has started, causes no pause and
+can be read by the stage until it ends; a later planning launch denies it. A
+store path that is a symlink, even a dangling one, or that is not a directory
+cannot be denied, so every native planning launch in that workspace pauses as
+`PAUSED_TOOL_CONTAINMENT` before its provider starts, naming the path: replace it
+with a real directory, or remove it, then `--resume-paused`.
+Everything else in `.autocode` stays as readable as the rest of the workspace:
+the launch's own control directory and scratch, project settings,
+retained design inputs, capture bundles, the shared `evidence` and `output`
+areas, other launches' `tool-containment-*` control directories, conversation
+records and AutoCode's other internal files.
+Before the provider starts, each such launch shows through the actual native
+shell that a file in its run directory and in each denied store cannot be
+read, and records the denial as `private_reads` in its `tool_containment` record
+and conformance proof. A boundary that no longer enforces any one of these
+denials pauses as `PAUSED_TOOL_CONTAINMENT`.
+On macOS such a launch also
 pauses that way, naming the path, when a path in its Seatbelt profile holds a
 control character such as a tab or newline: the re-check before launch accepts
 no such path.
@@ -1447,8 +1484,9 @@ inside an empty read-only root that holds only:
 - the stage's own scratch, writable. A reader's verification copy is one read-only
   mount inside it;
 - for a native visual run's planning stage, an empty read-only `tmpfs` over
-  `.autocode/runs`, with only that run's `planning/` mounted read-only inside it
-  (Seatbelt denies reading the same paths).
+  `.autocode/runs`, with only that run's `planning/` mounted read-only inside it,
+  and one over each existing private store listed above (Seatbelt denies reading
+  the same paths).
 
 There is no home directory, `/tmp`, `/run` or `/var`, so a write anywhere else fails
 (`Read-only file system`, or `No such file or directory` where nothing is mounted)
@@ -1486,6 +1524,15 @@ Command Line Tools Git, so those tests skip on other hosts. These model-free che
 boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-in
 `NativeToolTests` (`AUTOCODE_NATIVE_CONTAINMENT_TEST=1`, OpenCode 1.18.33 on `PATH`)
 do, on either backend. The full scenario suite continues to run on Ubuntu.
+
+The `linux-tool-containment` job also runs `ContainedFakeOpenCodeFlow` from
+`tests/test_contained_fake_cli.py` without skips. It drives a fake OpenCode run through
+the CLI whose Builder, Tester and Completion Reviewer launch inside the real bubblewrap
+boundary. It checks that the run finishes, that `--status --json` names the backend, and
+that a Builder shell write planted outside the workspace is blocked; an uncontained
+control shows the same write lands. The fake client's own edits and checks run outside
+the boundary, so this does not replace `NativeToolTests` either. The container backend
+(`docker` or `podman`) and a fake scenario under each backend are still open.
 
 ## Secret redaction
 
