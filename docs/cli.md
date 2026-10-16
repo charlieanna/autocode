@@ -651,6 +651,23 @@ and `view.pause_category` say which outcome it was, and after an action `result.
 `result.error.code` say whether it was saved or refused. The exit codes stay 0 and 2 for
 compatibility.
 
+### Subcommand exit codes
+
+Subcommands exit 0 on success, 1 on a domain check or operational failure, and 2 when a run stopped short, input was rejected, or command arguments failed parsing. Under `--json`, results or error codes are reported in structured JSON.
+
+| Subcommand | Exit code 0 | Exit code 1 | Exit code 2 |
+| --- | --- | --- | --- |
+| `autocode plan` | Plan exported, verified matching front matter (`--check`), or rendered (`--render`). | — | Stale plan text (`stale_plan_text`), missing plan error (`plan_error`), or usage error. |
+| `autocode prune-run` | Settled evidence bytes pruned (`--yes`) or listed in dry run. | — | Active stage refusal (`stage_active`), or usage error. |
+| `autocode merge` | Worktree branch fast-forward merged into base. | Merge refused (branch not delivered or diverged). | Ambiguous worktree argument, or usage error. |
+| `autocode clean-worktrees` | Completed worktrees removed (`--yes`) or listed in dry run. | Worktree removal failed with error. | Usage error. |
+| `autocode checkpoint` | Checkpoint inspected (`--compare`) or restored (`--restore`). | — | Checkpoint refused (`checkpoint_refused`), or usage error. |
+| `autocode tasks` | Flow completed (`COMPLETE`) or dry-run validated. | — | Flow stopped (`PAUSED`, `WAITING`, `BLOCKED`, `FAILED`), or usage error. |
+| `autocode wait` | Watched run completed (`view.done` is true). | — | Watched run stopped (`needs_you`, `stopped`), timeout, lost controller, or usage error. |
+| `autocode doctor` | Environment, engines, tools and dependencies are ready. | Check missing or not ready. | Usage error. |
+| `autocode models` | Models available and default routes verified. | Missing required default model route. | Usage error. |
+| `autocode verify` | Verified criteria passed and evidence produced. | Verification checks failed. | Criteria invalid, run error, or usage error. |
+
 See also: [Install](install.md) · [Workflow](workflow.md) · [Execution](execution.md)
 
 ## Exact tool output
