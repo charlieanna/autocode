@@ -31,7 +31,7 @@ class GraderExitObservationTests(unittest.TestCase):
         after = self.observed_process(grader.psutil.STATUS_ZOMBIE)
         with (
             patch.object(grader.psutil, "Process", side_effect=[before, after]),
-            patch.object(grader.os, "getpgid", side_effect=ProcessLookupError),
+            patch.object(grader.os, "getpgid", side_effect=ProcessLookupError, create=True),
         ):
             row = grader._leader(SimpleNamespace(pid=77))
         self.assertEqual(grader.psutil.STATUS_ZOMBIE, row["state"])
@@ -42,7 +42,7 @@ class GraderExitObservationTests(unittest.TestCase):
         after = self.observed_process(grader.psutil.STATUS_ZOMBIE, birth=2.0)
         with (
             patch.object(grader.psutil, "Process", side_effect=[before, after]),
-            patch.object(grader.os, "getpgid", side_effect=ProcessLookupError),
+            patch.object(grader.os, "getpgid", side_effect=ProcessLookupError, create=True),
         ):
             with self.assertRaisesRegex(processes.ProcessError, "zombie identity"):
                 grader._leader(SimpleNamespace(pid=77))
@@ -51,7 +51,7 @@ class GraderExitObservationTests(unittest.TestCase):
         observations = [self.observed_process(status) for status in ("running", "unknown", grader.psutil.STATUS_ZOMBIE)]
         with (
             patch.object(grader.psutil, "Process", side_effect=observations),
-            patch.object(grader.os, "getpgid", side_effect=ProcessLookupError),
+            patch.object(grader.os, "getpgid", side_effect=ProcessLookupError, create=True),
             patch.object(grader.util, "sleep"),
         ):
             row = grader._leader(SimpleNamespace(pid=77))
@@ -107,6 +107,7 @@ class GraderProcessTests(unittest.TestCase):
                 tree.stop.assert_called_once_with(child)
                 child.wait.assert_not_called()
 
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups, signals and fd inheritance")
     def test_first_clock_sigterm_stops_ready_detached_helper_and_preserves_sentinel(self):
         ready_read, ready_write = os.pipe()
         script = (
@@ -178,6 +179,7 @@ class GraderProcessTests(unittest.TestCase):
         cleanup.capture_root()
         return child, cleanup
 
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups, signals and fd inheritance")
     def test_fast_parent_exit_waits_for_children_and_preserves_unrelated_process(self):
         sentinel = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
         try:
@@ -199,6 +201,7 @@ class GraderProcessTests(unittest.TestCase):
             sentinel.stdin.close()
             sentinel.wait(timeout=5)
 
+    @unittest.skipUnless(os.name == "posix", "requires POSIX process groups, signals and fd inheritance")
     def test_incomplete_cleanup_cannot_return_a_grading_result(self):
         with tempfile.TemporaryDirectory() as tmp:
             child, cleanup = self.fixture(Path(tmp))
