@@ -1,19 +1,20 @@
 """Who may approve: a project's ``require-approver`` setting (#722).
 
-A team that wants only named people to approve a plan or accept a reviewed artifact lists their Git email
-addresses as ``require-approver`` in its project settings (``.autocode/config.toml``, or ``[tool.autocode]`` in
-``pyproject.toml``: autocode_project_config). A new run saves the list in its settings (``SETTING``) when it
-starts, so a changed file never alters a run in progress, and no flag sets or overrides it.
+A team that wants only named people to approve a plan, accept a reviewed artifact or accept completion lists
+their Git email addresses as ``require-approver`` in its project settings (``.autocode/config.toml``, or
+``[tool.autocode]`` in ``pyproject.toml``: autocode_project_config). A new run saves the list in its settings
+(``SETTING``) when it starts, so a changed file never alters a run in progress, and no flag sets or overrides it.
 
 On such a run each approval a person makes, a plan approval or an artifact acceptance (by flag, through
-``autocode review`` or TaskRun, or in the terminal conversation), is checked against the Git identity its
-provenance records (autocode_approval_provenance.capture): the output of ``git -C WORKSPACE config --get
-user.email`` for the run's saved workspace, run in AutoCode's own environment, compared without regard to case.
-An approver not on the list is refused before anything is approved or saved, with a message naming the required
-and the actual identity, and the run stays at the same stop. An ``--as`` name is the person's claim and never
-counts. A goal edit installs a draft that still needs approval, a resume releases a pause rather than approving
-anything, and an approval made under a workflow policy is made by no person, so none of those is checked. A
-replay never takes the setting (autocode_project_config.apply): it re-applies its recording's decisions.
+``autocode review`` or TaskRun, or in the terminal conversation) or a completion acceptance
+(``--accept-completion``), is checked against the Git identity its provenance records
+(autocode_approval_provenance.capture): the output of ``git -C WORKSPACE config --get user.email`` for the run's
+saved workspace, run in AutoCode's own environment, compared without regard to case. An approver not on the list
+is refused before anything is approved or saved, with a message naming the required and the actual identity, and
+the run stays at the same stop. An ``--as`` name is the person's claim and never counts. A goal edit installs a
+draft that still needs approval, a resume releases a pause rather than approving anything, and an approval made
+under a workflow policy is made by no person, so none of those is checked. A replay never takes the setting
+(autocode_project_config.apply): it re-applies its recording's decisions.
 
 That identity is whatever Git resolves: Git's environment (GIT_CONFIG_COUNT with GIT_CONFIG_KEY_n and
 GIT_CONFIG_VALUE_n, GIT_CONFIG_GLOBAL, HOME) or a repository-local user.email in the workspace changes it. The

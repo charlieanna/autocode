@@ -1,11 +1,16 @@
-"""Who approved, edited the plan or resumed a pause: capture, stamping, the status view rows and the completion
-lines, and the pause a resume is found in (#722).
+"""Who approved, accepted completion, edited the plan or resumed a pause: capture, stamping, the status view rows
+and the completion lines, and the pause a resume is found in (#722).
 
-The public CLI runs are in test_approval_provenance_cli.
+The public CLI runs that launch a fake provider are in test_approval_provenance_cli; --accept-completion and
+--goal-file with --as, which launch nothing, run here through the real CLI entry in-process
+(CompletionAcceptanceTests, GoalFileTests).
 """
 
 import contextlib
+import copy
 import io
+import json
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -14,8 +19,15 @@ from types import SimpleNamespace
 import autocode_approval_provenance as provenance
 import autocode_args
 import autocode_configure as configure
+import autocode_contract_identity as contract_identity
+import autocode_goal_lifecycle as lifecycle
 import autocode_jobs as jobs
+import autocode_plan_file as plan_file
 import autocode_run_setup as run_setup
+import autocode_run_view as run_view
+import autocode_support as support
+
+from . import test_goals
 
 IDENTITY = {"git_user_name": "Ana Example", "git_user_email": "ana@example.test"}
 
@@ -31,6 +43,16 @@ def review_event(criterion="C1", **extra):
         "at": "2026-10-15T09:00:00+00:00",
         "criterion": criterion,
         "token": "r1:abc@src:val",
+        **extra,
+    }
+
+
+def completion_event(**extra):
+    return {
+        "kind": "completion_accept",
+        "actor": "user_cli",
+        "at": "2026-10-15T10:00:00+00:00",
+        "basis": "runner-verified gates; 2 completion-report attempts failed",
         **extra,
     }
 
@@ -95,6 +117,15 @@ class StampTests(unittest.TestCase):
         self.assertEqual(new_plan["provenance"], candidate["goal_contract"]["approval_event"]["provenance"])
         self.assertNotIn("provenance", candidate["user_events"][0])  # a repeated approval keeps its first record
         self.assertNotIn("provenance", answer)
+
+    def test_a_completion_acceptance_is_stamped_like_an_approval(self):
+        accepted = completion_event()
+        candidate = {"workspace": "/w", "user_events": [plan_event(), accepted]}
+        called = provenance.invocation(["--run-dir", "/r", "--accept-completion", "--as", "Bo"], claimed_as="Bo")
+        self.assertEqual(1, provenance.stamp({"user_events": [plan_event()]}, candidate, called, record=recorded))
+        self.assertEqual("autocode --run-dir --accept-completion --as", accepted["provenance"]["command"])
+        self.assertEqual("Bo", accepted["provenance"]["claimed_as"])
+        self.assertNotIn("provenance", candidate["user_events"][0])
 
     def test_nothing_is_captured_when_no_approval_was_added(self):
         def refuse(*args):
@@ -272,6 +303,33 @@ class ViewTests(unittest.TestCase):
             text,
         )
 
+    def test_a_completion_acceptance_is_listed_and_named_in_the_completion_lines(self):
+        stamped = {**IDENTITY, "host": "desk-7", "command": "autocode --accept-completion --as", "claimed_as": "Bo"}
+        older = completion_event(at="2026-10-14T10:00:00+00:00")  # accepted before AutoCode recorded who accepted
+        state = {"user_events": [older, plan_event(), completion_event(provenance=stamped)]}
+        rows = provenance.view(state)
+        self.assertEqual(["completion", "plan", "completion"], [row["kind"] for row in rows])
+        self.assertEqual(
+            {
+                "kind": "completion",
+                "at": "2026-10-15T10:00:00+00:00",
+                "actor": "user_cli",
+                "contract_token": None,
+                "criterion": None,
+                "pause_status": None,
+                "provenance": stamped,
+            },
+            rows[-1],
+        )
+        self.assertIsNone(rows[0]["provenance"])
+        text = "\n".join(provenance.lines(state))
+        self.assertIn("Completion accepted 2026-10-14T10:00:00+00:00 by someone AutoCode did not record", text)
+        self.assertIn(
+            "Completion accepted 2026-10-15T10:00:00+00:00 by Ana Example <ana@example.test> on desk-7 via "
+            "`autocode --accept-completion --as`, who gave the name 'Bo' (a claim, not verified).",
+            text,
+        )
+
     def test_an_edit_the_history_also_holds_is_listed_once(self):
         stamped = {**IDENTITY, "host": "desk-7", "command": "autocode --edit-goal", "claimed_as": None}
         edited = {
@@ -340,10 +398,12 @@ class ClaimArgumentTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             return autocode_args.parse(None, ["--run-dir", "/saved/run", *flags], configure.DEFAULT_ROLE_MODELS)[0]
 
-    def test_as_names_who_approves_edits_or_resumes_only(self):
+    def test_as_names_who_approves_accepts_edits_or_resumes_only(self):
         self.assertEqual("Bo", self.parse("--approve-goal", "r1:abc", "--as", "Bo").claimed_as)
         self.assertEqual("Bo", self.parse("--approve-review", "C1", "--review-token", "t", "--as", "Bo").claimed_as)
+        self.assertEqual("Bo", self.parse("--accept-completion", "--as", "Bo").claimed_as)
         self.assertEqual("Bo", self.parse("--edit-goal", "body.json", "--as", "Bo").claimed_as)
+        self.assertEqual("Bo", self.parse("--goal-file", "plan.md", "--as", "Bo").claimed_as)
         self.assertEqual("Bo", self.parse("--resume-paused", "--as", "Bo").claimed_as)
         self.assertIsNone(self.parse("--approve-goal", "r1:abc").claimed_as)
         for flags in (
@@ -355,3 +415,114 @@ class ClaimArgumentTests(unittest.TestCase):
             with self.subTest(flags=flags), self.assertRaises(SystemExit) as refused:
                 self.parse(*flags)
             self.assertEqual(2, refused.exception.code)
+
+
+class CompletionAcceptanceTests(unittest.TestCase):
+    """--accept-completion records who closed the run, through the real CLI entry in-process: a Git fixture
+    workspace paused after a passing validation, and no agent may launch (test_goals.GoalTests.invoke)."""
+
+    # The goal tests' Git fixture and CLI driver; binding the class here would run its tests again.
+    setUp, approve, draft, decision, validation, invoke = (
+        getattr(test_goals.GoalTests, name)
+        for name in ("setUp", "approve", "draft", "decision", "validation", "invoke")
+    )
+
+    def paused_at_completion(self, email="ana@example.test"):
+        """An approved run whose validation passed and whose completion report could not be produced, in a
+        workspace whose Git identity is Ana's (or ``email``)."""
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), support.snapshot(self.root))
+        self.validation()
+        self.state.update(
+            status="PAUSED_INVALID_OUTPUT",
+            phase="PAUSED_OR_BLOCKED",
+            next_stage="astra_review",
+            stop_reason="Completion report could not be produced",
+        )
+        for key, value in (("user.name", "Ana Example"), ("user.email", email)):
+            subprocess.run(["git", "-C", str(self.root), "config", key, value], check=True)
+
+    def test_accepting_completion_records_who_accepted_in_status_and_the_evidence_report(self):
+        self.paused_at_completion()
+        self.assertEqual(0, self.invoke("--accept-completion", "--as", "Bo"), self.stderr)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+        row = run_view.view(self.state)["approvals"][-1]
+        self.assertEqual(
+            {
+                "kind": "completion",
+                "at": row["at"],
+                "actor": "user_cli",
+                "contract_token": None,
+                "criterion": None,
+                "pause_status": None,
+                "provenance": {
+                    "git_user_name": "Ana Example",
+                    "git_user_email": "ana@example.test",
+                    "host": socket.gethostname() or None,
+                    "command": "autocode --workspace --run-dir --accept-completion --as",
+                    "claimed_as": "Bo",
+                },
+            },
+            row,
+        )
+        self.assertTrue(row["at"])
+        evidence = json.loads((self.run / "evidence.json").read_text())
+        self.assertEqual(row, evidence["approvals"][-1])
+        markdown = (self.run / "evidence.md").read_text()
+        self.assertIn("| Completion accepted | Ana Example &lt;ana@example.test&gt; |", markdown)
+        self.assertIn("resumed the run from a pause or accepted its completion, oldest first.", markdown)
+        # The completion summary a completed run prints names who accepted it.
+        self.assertEqual(0, self.invoke(), self.stderr)
+        self.assertIn(
+            f"  Completion accepted {row['at']} by Ana Example <ana@example.test> on "
+            f"{socket.gethostname() or 'an unnamed host'} via `autocode --workspace --run-dir --accept-completion "
+            "--as`, who gave the name 'Bo' (a claim, not verified).\n",
+            self.stdout,
+        )
+
+
+class GoalFileTests(unittest.TestCase):
+    """--goal-file PATH --as NAME records who loaded the plan file, through the real CLI entry in-process: the
+    loaded revision is a goal edit, and ``--status`` lists it with the name given (test_goals.GoalTests.invoke)."""
+
+    setUp, draft, invoke = (getattr(test_goals.GoalTests, name) for name in ("setUp", "draft", "invoke"))
+
+    def test_a_plan_file_loaded_with_as_lists_the_claim_on_its_edit_row(self):
+        self.draft()
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        for key, value in (("user.name", "Ana Example"), ("user.email", "ana@example.test")):
+            subprocess.run(["git", "-C", str(self.root), "config", key, value], check=True)
+        exported = self.state["goal_contract"]
+        edited = copy.deepcopy(exported["body"])
+        edited["constraints"].append("Keep the greeting on one line")
+        path = self.run / "plan.md"  # as `autocode plan --export` writes it, then edited and rendered
+        path.write_text(
+            plan_file.document(
+                {
+                    "autocode_plan": plan_file.FORMAT,
+                    "goal_hash": plan_file.goal_hash(exported["body"]),
+                    "revision": exported["revision"],
+                    "approval_status": "not approved",
+                    "contract": edited,
+                }
+            )
+        )
+        self.assertEqual(0, self.invoke("--goal-file", str(path), "--as", "Bo"), self.stderr)
+        self.assertEqual(edited, self.state["goal_contract"]["body"])
+        self.assertEqual(0, self.invoke("--status"), self.stderr)
+        rows = [row for row in json.loads(self.stdout)["view"]["approvals"] if row["kind"] == "edit"]
+        self.assertEqual(
+            [
+                {
+                    "git_user_name": "Ana Example",
+                    "git_user_email": "ana@example.test",
+                    "host": socket.gethostname() or None,
+                    "command": "autocode --workspace --run-dir --goal-file --as",
+                    "claimed_as": "Bo",
+                }
+            ],
+            [row["provenance"] for row in rows],
+        )
+        self.assertEqual(contract_identity.token(self.state["goal_contract"]), rows[0]["contract_token"])

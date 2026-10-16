@@ -294,14 +294,18 @@ commands and their exit codes, artifact paths and hashes, roles/models and
 attempt durations, reported usage, regression proof and remaining gaps. The report of a build,
 bug-fix or design run (the run's `workflow`, or none for a run saved before workflow
 recognition) also has `approvals`: the status view's `approvals` rows when the report was
-written (who approved each plan and review, edited the plan or resumed a pause, with its
-recorded provenance, never verified), shown in the Markdown as an Approvals table after the
-intended outcome, or as `None recorded` for a run with none
+written (who approved each plan and review, accepted completion, edited the plan or resumed a
+pause, with its recorded provenance, never verified), shown in the Markdown as an Approvals
+table after the intended outcome, or as `None recorded` for a run with none
 ([Who approved](execution.md#who-approved)). Review and discuss reports, which have no approval
 step, have no `approvals` field and no such section, even when the status view lists a resume.
 Neither do verification, program and component reports, nor reports written before AutoCode
 listed approvals, so older pairs still authenticate. An older build, bug-fix or design report
 gains the section when AutoCode saves the completed run again; reading its status does not.
+A task report whose approved plan is in the status view also has `plan.goal_hash` and
+`plan.plan_file`, copied from `approved_contract` (#720); the Markdown says them after the
+agreed plan's token. Reports written before AutoCode cited them have neither field and still
+authenticate; a completed run saved again rebuilds its pair with them.
 When the proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
 the regression proof; they are reported, not gaps. Review-only mutation reports
@@ -455,7 +459,8 @@ current, and something the options do not cover goes in `--feedback` (`/feedback
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. The terminal CLI also shows the remaining question IDs and
 current Resolver token on stderr after each successful answer and on `--status`, and `--status`
-also prints the run's cost line there (`Cost: ...`, from the view's `cost`);
+also prints the run's cost line there (`Cost: ...`, from the view's `cost`), then, when the run has
+escalated, one `Escalations: ...` line and a line per escalation (from the view's `escalations`);
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
@@ -684,6 +689,70 @@ has that basis, and `spent_usd` is null when no stage is known at all; while `co
 `spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`.
 
+`escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
+stamped on them (`passed`, `paused`, `open`). `escalations` lists each escalation the run made, oldest
+first (`tools/autocode_escalation_view.py`, #612): a role's climb on its effort ladder (`kind`
+`effort_climb`) and the Builder's stronger attempt (`stronger_attempt`; see
+[Models](models.md#builder-retry-policy)). Each row has the route `role` that moved, the `stage` that
+struggled and its `job` as the screen names it (from the role when the stage is not known; null, never
+a code name, when neither names a job), `at`, `trigger` (`validation_rework`, `rejected_output`,
+`no_progress` or `abandoned_attempt` for a climb, `execution_failure` for the stronger attempt),
+`detail`, `struggle_id`, `task_id` (for the stronger attempt, the task of the failed attempt its
+decision names), the route it climbed `from` and `to` (`model`, `reasoning_effort`, `profile`),
+`deferred_by_parallel_builder` (a parallel Builder left the stronger attempt to this run, which made it
+serially), `inherited`, `attempts`, `cost` and `outcome`:
+
+- `attempts` are the role's stage records launched on the route it climbed to, from the escalation
+  until the first of: a validation of its work that passed (that attempt included), unless the
+  Builder's retry policy then charged one of its attempts as a failure (see `outcome`), or the role's
+  next escalation of either kind (its next climb, the Builder's stronger attempt). The running one is
+  included (`active`); dry runs and the runner's own stages are not attempts. A climb lasts for the
+  rest of the run, so a later milestone's attempts on the climbed rung count until one of those ends
+  it. A stronger attempt's attempts are this run's own Builder records: a parallel Builder's records
+  the parent holds (`worker_milestone`) are its worker's, whose own stronger attempt is recorded only
+  in its worker run. A validation judged an escalation's work when one of its attempts produced it,
+  or, for the Builder, whose work another role validates, when the Builder's last attempt before it
+  is one of its attempts. No other role is judged by another role's validation: a Tester PASS of the
+  Builder's work is not the work of a Completion Reviewer's or Resolver's climb. Nor is a validation
+  of another milestone's work, or of work on a route the role was moved to. The runner assigns every
+  task, a rework included, a new id, so an attempt's milestone is its task's contract hash and
+  milestone ids (`current_task`, `task_archive`): an attempt whose task is of another milestone than
+  the attempt the escalation was made from (a later milestone, or a replanned contract's) is not its
+  work. When either task is not recorded, they are not told apart.
+- `cost` prices those attempts as `cost` prices a stage: `usd` (reported plus estimated),
+  `reported_usd`, `estimated_usd`, `unpriced_attempts`, `unrouted_attempts` and `complete`. An attempt
+  with no usage record is unpriced, never zero: `usd` is then a floor (`complete` false), or null when
+  no attempt is priced. A stage record saved without a launch route (before 2026-10-01) cannot be
+  shown to have run on the route it climbed to: the role's such records in that span are counted in
+  `unrouted_attempts`, not listed in `attempts`, and no validation of them decides the outcome; while
+  there are any, the cost is unknown the same way (`complete` false, `usd` null when no listed attempt
+  is priced). An escalation whose attempt never launched (a cost-cap or time-budget stop before it)
+  cost `0`.
+- `inherited` is true for an escalation made before this run was created: in a checkpoint
+  continuation (`autocode checkpoint --restore`), one the restored run made. Its attempts there are not
+  in this run's stage records, so its `cost` is unknown, never zero: `usd` is null (a floor of its
+  attempts since the restore, when it has any) and `complete` false. What that run spent is in `cost`'s
+  `inherited_usd`.
+- `outcome` is `passed`, `failed_again`, `paused` or `running`, and `outcome_basis` says what decided
+  it, the first that applies: the first decisive record after it (`validation`: a validation of its
+  work passed, unless the Builder's retry policy then charged one of its attempts of its milestone as
+  a failure, as it charges a review that sends passed work back; `later_escalation`: the role climbed
+  again, the milestone made another stronger attempt, or the Builder made its stronger attempt after
+  climbing, or climbed after it, from this escalation's attempt), the runner's `paused` stamp
+  (`recorded`: the Builder's retry-limit pause), a validation of its work failing or blocked
+  (`validation`), else such a charge (`recorded`: a retry, the stronger attempt or the retry-limit
+  pause charged to one of its attempts of its milestone), the runner's `passed` stamp
+  (`recorded`) only when every attempt of its role since it, until the role's next escalation, ran on
+  the route it climbed to and there was at least one, else the run's status now (`run_status`:
+  complete is `passed`, running is `running`, any pause, wait or stop is `paused`). The runner stamps
+  every open escalation `passed` at any validation PASS, whoever's work passed, so that stamp is not
+  taken over a failure of its own work, once a person or the Builder's retry policy moved the role to
+  another route, or when the role ran nothing since. It is a projection of saved records, so it can
+  change as the run continues.
+
+A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
+does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.
+
 `progress` is how far the run has got, counted only from saved records
 (`tools/autocode_progress_view.py`; added by `autocode --status`, which supplies
 the accepted milestones, the valid review receipts and the state of the recorded
@@ -743,7 +812,13 @@ or completion proof; the existing CLI approval checks remain authoritative.
 as that approval holds. It has `revision`, `hash`, `token` (the `r<revision>:<hash>`
 that was approved), `task_id`, `approved_at` and `body`, the full approved contract
 body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
-end-to-end flow, technical approach, milestones and the rest) copied as saved. It is
+end-to-end flow, technical approach, milestones and the rest) copied as saved. It also has
+`goal_hash`, the SHA-256 of that body (what `autocode plan --check FILE` prints for a file
+holding exactly this plan), and `plan_file`: null, or, when the plan was loaded with
+`--goal-file` and not approved, changed and approved again since, the file's `path` and
+`goal_hash`, the `revision` it was loaded as and the parts of the plan that `changed` since
+then, apart from the runner's records of the plan's review (#720). A malformed record gives
+null, never an absent `approved_contract`. It is
 absent until the current sealed contract carries an approval of exactly its token,
 once a newer draft revision replaces the approved one (a goal change, or the plan a
 `--follow-up` drafts), and while the contract itself records an open blocking
@@ -764,11 +839,12 @@ was approved. A coordinating layer such as
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
-`approvals` lists every plan and review approval, goal edit and pause-releasing resume the
-run recorded, oldest first (#722): `kind` (`plan`, `review`, `edit` or `resume`), `at`,
-`actor` (`user_cli` for a person, `workflow_policy` for a small bug fix approved under the
-workflow policy), `contract_token` (the plan token approved, or the draft an edit installed;
-null for a review or a resume), `criterion` (the accepted criterion, null otherwise),
+`approvals` lists every plan and review approval, completion acceptance, goal edit and
+pause-releasing resume the run recorded, oldest first (#722): `kind` (`plan`, `review`,
+`completion` for `--accept-completion`, `edit` or `resume`), `at`, `actor` (`user_cli` for a
+person, `workflow_policy` for a small bug fix approved under the workflow policy),
+`contract_token` (the plan token approved, or the draft an edit installed; null for a review,
+a completion acceptance or a resume), `criterion` (the accepted criterion, null otherwise),
 `pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
 one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
 `git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and

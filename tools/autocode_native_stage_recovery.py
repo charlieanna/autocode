@@ -132,9 +132,16 @@ def request(state: RunState, selected, stages):
     record = state.get("active_stage")
     goal = state.get("goal_contract") or {}
     repair = repair_launch(state, record)
+    unparsed = state.get("status") == "PAUSED_INVALID_OUTPUT"
     require(
         state.get("status")
-        in ("PAUSED_PROVIDER_TIMEOUT", output_cap.STATUS, "PAUSED_PROCESS_CLEANUP", "PAUSED_PROVIDER_UNCERTAIN")
+        in (
+            "PAUSED_PROVIDER_TIMEOUT",
+            output_cap.STATUS,
+            "PAUSED_PROCESS_CLEANUP",
+            "PAUSED_PROVIDER_UNCERTAIN",
+            "PAUSED_INVALID_OUTPUT",
+        )
         and state.get("settings", {}).get("planning_flow") == "v2"
         and state.get("current_task") is None
         and goal.get("approval_status") != "approved"
@@ -145,7 +152,7 @@ def request(state: RunState, selected, stages):
             for k in ("parent_run", "parent_batch", "orchestration_batch", "orchestration_history", "progressive")
         ),
         "only an original preapproval planning timeout or collected output limit, an error-only authentication "
-        "rejection, or a stopped launch of its pending report repair, is supported",
+        "rejection, an unparsed OpenCode launch, or a stopped launch of its pending report repair, is supported",
     )
     require(isinstance(record, dict) and record, "missing active planning stop")
     assert isinstance(record, dict)  # require above refused anything else
@@ -158,6 +165,11 @@ def request(state: RunState, selected, stages):
         and stage == state.get("next_stage"),
         "selected attempt does not match the current planning frontier",
     )
+    disallowed = (
+        ("interrupted", "dry_run", "abandoned", "cleanup_error")
+        if unparsed
+        else ("interrupted", "dry_run", "rejected", "abandoned", "cleanup_error")
+    )
     require(
         record.get("accounted") is True
         and type(record.get("pid")) is int
@@ -167,10 +179,19 @@ def request(state: RunState, selected, stages):
         and bool(record["finished_at"])
         and bool(record.get("supervision"))
         and (repair or not record.get("report_only"))
-        and not any(record.get(k) for k in ("interrupted", "dry_run", "rejected", "abandoned", "cleanup_error")),
+        and not any(record.get(k) for k in disallowed),
         "uncertain, unaccounted or already rejected attempt",
     )
-    if state.get("status") == "PAUSED_PROVIDER_UNCERTAIN":
+    if unparsed:
+        require(
+            not repair
+            and record.get("engine") == "opencode"
+            and record.get("timed_out") is False
+            and not Path(record.get("output", "")).is_file()
+            and not record.get("supervision_errors"),
+            "unparsed launch needs an original OpenCode attempt with no report file",
+        )
+    elif state.get("status") == "PAUSED_PROVIDER_UNCERTAIN":
         require(
             not repair
             and record.get("engine") == "opencode"
@@ -249,6 +270,7 @@ def abandoned(state: RunState, record, selected, *, at):
     collected_length = state.get("status") == output_cap.STATUS
     cancelled = state.get("status") == "PAUSED_PROCESS_CLEANUP"
     authentication = state.get("status") == "PAUSED_PROVIDER_UNCERTAIN"
+    unparsed = state.get("status") == "PAUSED_INVALID_OUTPUT"
     repair = record.get("report_only") is True
     # An original stage keeps its texts; a repair names itself instead.
     original, kind = ("", "native report repair") if repair else ("original ", "native planning")
@@ -259,7 +281,9 @@ def abandoned(state: RunState, record, selected, *, at):
         abandoned=True,
         rejected=True,
         rejection_reason=(
-            "Operator abandoned original authentication-rejected native planning request; no response adopted"
+            "Operator abandoned original unparsed native planning launch; no response adopted"
+            if unparsed
+            else "Operator abandoned original authentication-rejected native planning request; no response adopted"
             if authentication
             else f"Operator abandoned {original}collected {kind} output limit; incomplete response retained"
             if collected_length
@@ -283,7 +307,9 @@ def abandoned(state: RunState, record, selected, *, at):
         "events": record["events"],
         "source_snapshot": record["after_ref"],
         "instruction": (
-            "Original native authentication rejection retained after verified error-only stop; refresh credentials before explicit resume. No report is successful evidence."
+            "Original native unparsed launch retained after verified stop; inspect events before explicit resume. No report is successful evidence."
+            if unparsed
+            else "Original native authentication rejection retained after verified error-only stop; refresh credentials before explicit resume. No report is successful evidence."
             if authentication
             else f"{title} output limit abandoned after authenticated collected stop; incomplete report is not successful evidence."
             if collected_length
@@ -296,7 +322,9 @@ def abandoned(state: RunState, record, selected, *, at):
         candidate,
         "PAUSED_STAGE_ABANDONED",
         (
-            "Original native authentication rejection retained. Refresh credentials before explicit resume; no agent launched."
+            f"{stop_title} unparsed output retained. Resume explicitly; no agent launched."
+            if unparsed
+            else "Original native authentication rejection retained. Refresh credentials before explicit resume; no agent launched."
             if authentication
             else f"{stop_title} output limit retained. Resume explicitly; no agent launched."
             if collected_length
