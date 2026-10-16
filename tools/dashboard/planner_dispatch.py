@@ -220,8 +220,8 @@ def new_dispatch(*, logical_turn_id, requirements_revision, client_request_id, r
     ``autocode_conversation.transition`` drives it, with the Planner binding
     (requirements revision) and role carried additively.
     """
-    conversation_protocol._identifier(logical_turn_id, "Logical turn id")
-    conversation_protocol._identifier(client_request_id, "Client request id", optional=True)
+    conversation_protocol.checked_identifier(logical_turn_id, "Logical turn id")
+    conversation_protocol.checked_identifier(client_request_id, "Client request id", optional=True)
     if type(requirements_revision) is not int or requirements_revision < 1:
         raise PlannerDispatchError(
             "A Planner dispatch needs a positive requirements revision.", stage="dispatch_record"

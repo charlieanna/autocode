@@ -6,7 +6,7 @@ transfer of authority, rather than a copy of a transcript into a task string.
 
 This worktree's port keeps the snapshot's HANDOFF_VERSION=1 shapes and digests
 byte-compatible while additively extending plan-draft records in the
-authoritative ``normalize_document``/``_plan_drafts`` path: records may carry
+authoritative ``normalize_document``/``normalize_plan_drafts`` path: records may carry
 requirements-revision and logical-turn binding, role/model/reasoning
 attribution, ``pending``/``failed`` status and freshness values, and bounded
 freshness error evidence.  Records without those extension fields normalize to
@@ -124,7 +124,7 @@ def capabilities() -> dict:
     return deepcopy(CAPABILITY_MATRIX)
 
 
-def _identifier(value, label: str, *, conversation=False, optional=False):
+def checked_identifier(value, label: str, *, conversation=False, optional=False):
     if value is None and optional:
         return None
     matcher = _CONVERSATION_ID if conversation else _IDENT
@@ -144,7 +144,7 @@ def _route(value):
         raise ConversationProtocolError("Configured routes must be objects.")
     result = {}
     for name, route in value.items():
-        _identifier(name, "Configured route name")
+        checked_identifier(name, "Configured route name")
         if not isinstance(route, dict):
             raise ConversationProtocolError("Configured route is invalid.")
         model = _text(route.get("model"), "Configured model", limit=240)
@@ -165,15 +165,15 @@ def _message(value):
     if not isinstance(value, dict):
         raise ConversationProtocolError("Conversation message is invalid.")
     result = {
-        "id": _identifier(value.get("id"), "Message id"),
+        "id": checked_identifier(value.get("id"), "Message id"),
         "role": value.get("role"),
         "speaker": _text(value.get("speaker"), "Message speaker", limit=160),
         "text": _text(value.get("text"), "Message text"),
         "created_at": _text(value.get("created_at"), "Message timestamp", limit=80),
         "status": _text(value.get("status"), "Message status", limit=80),
-        "client_request_id": _identifier(value.get("client_request_id"), "Client request id", optional=True),
-        "logical_turn_id": _identifier(value.get("logical_turn_id"), "Logical turn id"),
-        "in_reply_to": _identifier(value.get("in_reply_to"), "Reply turn id", optional=True),
+        "client_request_id": checked_identifier(value.get("client_request_id"), "Client request id", optional=True),
+        "logical_turn_id": checked_identifier(value.get("logical_turn_id"), "Logical turn id"),
+        "in_reply_to": checked_identifier(value.get("in_reply_to"), "Reply turn id", optional=True),
     }
     if result["role"] not in ("user", "assistant"):
         raise ConversationProtocolError("Conversation message role is invalid.")
@@ -207,8 +207,8 @@ def _draft(value):
     if type(revision) is not int or revision < 0:
         raise ConversationProtocolError("Draft revision is invalid.")
     return {
-        "id": _identifier(value.get("id"), "Draft id"),
-        "tab_id": _identifier(value.get("tab_id"), "Draft tab id"),
+        "id": checked_identifier(value.get("id"), "Draft id"),
+        "tab_id": checked_identifier(value.get("tab_id"), "Draft tab id"),
         "text": _text(value.get("text"), "Draft text", allow_empty=True, limit=20_000),
         "revision": revision,
         "updated_at": _text(value.get("updated_at"), "Draft timestamp", limit=80),
@@ -258,7 +258,7 @@ def _attribution(value):
     return deepcopy(value)
 
 
-def _plan_drafts(value):
+def normalize_plan_drafts(value):
     """Validate the revisioned Planner-draft pipeline records (quiet preview).
 
     Each record is one draft revision: goal, requirements, milestones,
@@ -312,7 +312,7 @@ def _plan_drafts(value):
         if status == "failed" and not error:
             raise ConversationProtocolError("Failed plan drafts require error evidence.")
         record = {
-            "id": _identifier(row.get("id"), "Plan draft id"),
+            "id": checked_identifier(row.get("id"), "Plan draft id"),
             "revision": revision,
             "created_at": _text(row.get("created_at"), "Plan draft timestamp", limit=80),
             "status": status,
@@ -332,7 +332,7 @@ def _plan_drafts(value):
             if type(binding_revision) is not int or binding_revision < 1:
                 raise ConversationProtocolError("Plan draft requirements revision binding is invalid.")
             record["requirements_revision"] = binding_revision
-            record["logical_turn_id"] = _identifier(row.get("logical_turn_id"), "Plan draft logical turn id")
+            record["logical_turn_id"] = checked_identifier(row.get("logical_turn_id"), "Plan draft logical turn id")
             # A bound current revision represents an accepted structured Planner
             # result. Legacy snapshot records lack binding and must retain their
             # original shape, but a new accepted record cannot lose its actual
@@ -355,16 +355,16 @@ def _dispatch_records(records, *, turns, planner=False):
     result = deepcopy(records)
     seen = set()
     for turn, row in result.items():
-        _identifier(turn, "Dispatch turn")
+        checked_identifier(turn, "Dispatch turn")
         if turn not in turns or not isinstance(row, dict) or row.get("logical_turn_id") != turn:
             raise ConversationProtocolError("Dispatch references an unknown or mismatched human turn.")
-        ident = _identifier(row.get("id"), "Dispatch id")
+        ident = checked_identifier(row.get("id"), "Dispatch id")
         if ident in seen:
             raise ConversationProtocolError("Dispatch identities must be unique.")
         seen.add(ident)
         if row.get("state") not in DISPATCH_STATES:
             raise ConversationProtocolError("Dispatch state is invalid.")
-        _identifier(row.get("client_request_id"), "Dispatch request id", optional=True)
+        checked_identifier(row.get("client_request_id"), "Dispatch request id", optional=True)
         _route({"requirements_gatherer": row.get("route")})
         history = row.get("history")
         if (
@@ -415,7 +415,7 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
         raise ConversationProtocolError("Conversation document is invalid.")
     value = deepcopy(document)
     conversation_id = value.get("id")
-    _identifier(conversation_id, "Conversation id", conversation=True)
+    checked_identifier(conversation_id, "Conversation id", conversation=True)
     requests = value.get("_requests")
     if not isinstance(requests, dict):
         requests = {}
@@ -434,7 +434,7 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
             raise ConversationProtocolError("Conversation message is invalid.")
         item = deepcopy(row)
         message_id = item.get("id")
-        _identifier(message_id, "Message id")
+        checked_identifier(message_id, "Message id")
         assert isinstance(message_id, str)
         role = item.get("role")
         if role == "user":
@@ -457,7 +457,7 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
     # The revisioned Planner-draft pipeline (quiet in-chat preview) rides the
     # same document; absent records stay absent so legacy documents and
     # handoff digests remain byte-compatible.
-    value["plan_drafts"] = _plan_drafts(value.get("plan_drafts", []))
+    value["plan_drafts"] = normalize_plan_drafts(value.get("plan_drafts", []))
     if not isinstance(value.get("configured_routes"), dict):
         models = value.get("models")
         if not isinstance(models, dict):
@@ -550,7 +550,7 @@ def validate_handoff(value) -> dict:
         raise ConversationProtocolError("Conversation handoff digest is invalid.")
     if digest(payload) != received:
         raise ConversationProtocolError("Conversation handoff digest does not match its contents.")
-    _identifier(payload.get("conversation_id"), "Conversation id", conversation=True)
+    checked_identifier(payload.get("conversation_id"), "Conversation id", conversation=True)
     _text(payload.get("title"), "Conversation title", limit=120)
     _text(payload.get("created_at"), "Conversation timestamp", limit=80)
     messages = payload.get("messages")
@@ -641,7 +641,7 @@ def _safe_file(root: Path, candidate: Path) -> Path:
     return candidate
 
 
-def _atomic_json(path: Path, value) -> None:
+def write_private_json(path: Path, value) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     payload = canonical_json(value) + "\n"
     temporary = None
@@ -698,7 +698,7 @@ def stage_handoff(workspace: Path, handoff: dict) -> Path:
             if existing["digest"] != validated["digest"]:
                 raise ConversationProtocolError("Conversation handoff path conflicts with different data.")
         else:
-            _atomic_json(path, validated)
+            write_private_json(path, validated)
     return path
 
 
@@ -756,7 +756,7 @@ def validate_journal(value) -> dict:
         raise ConversationProtocolError("Unsupported Requirements Conversation journal schema.")
     if value.get("authority") != "runner":
         raise ConversationProtocolError("Requirements Conversation journal authority is invalid.")
-    _identifier(value.get("conversation_id"), "Conversation id", conversation=True)
+    checked_identifier(value.get("conversation_id"), "Conversation id", conversation=True)
     handoff_digest = value.get("handoff_digest")
     if not isinstance(handoff_digest, str) or not re.fullmatch(r"[a-f0-9]{64}", handoff_digest):
         raise ConversationProtocolError("Journal handoff digest is invalid.")
@@ -812,7 +812,7 @@ def ingest_handoff(run_dir: Path, handoff: dict, *, source_path: Path | None = N
                 raise ConversationProtocolError("A different conversation already owns this runner journal.")
             return existing
         journal = _journal_from_handoff(validated, source_path)
-        _atomic_json(path, journal)
+        write_private_json(path, journal)
         return journal
 
 
@@ -837,13 +837,13 @@ def update_journal(run_dir: Path, callback) -> dict:
         if proposed is None:
             proposed = journal
         proposed = validate_journal(proposed)
-        _atomic_json(path, proposed)
+        write_private_json(path, proposed)
         return proposed
 
 
 def new_dispatch(*, logical_turn_id: str, client_request_id: str | None, route: dict) -> dict:
-    _identifier(logical_turn_id, "Logical turn id")
-    _identifier(client_request_id, "Client request id", optional=True)
+    checked_identifier(logical_turn_id, "Logical turn id")
+    checked_identifier(client_request_id, "Client request id", optional=True)
     return {
         "id": uuid.uuid4().hex,
         "logical_turn_id": logical_turn_id,
