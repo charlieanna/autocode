@@ -1222,6 +1222,15 @@ The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --expected-token TOKEN --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
 
+`status()["changes_by_criterion"]` attributes those saved steps to the approved
+plan's acceptance criteria. Each criterion lists the plan milestones that cover
+it, the checkpoint ids of their saved Builder steps and the union of the files
+those steps changed. `overlapping` is true when a step outside the criterion's
+milestones also changed one of those files, so the file's diff may hold other
+work. `unattributed` lists steps whose milestone is not in the plan. It is
+attribution, not proof: it says where to look, not that the changes satisfy the
+criterion. It is `null` until a plan is approved.
+
 ### Conversation task provenance
 
 New dashboard attachments, including saved legacy conversations, carry a canonical

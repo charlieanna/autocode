@@ -37,6 +37,7 @@ try:
     from . import autocode_contract_identity as contract_identity
     from . import autocode_conversation_projection as conversation_projection
     from . import autocode_cost as cost
+    from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency, autocode_usage
     from . import autocode_escalation_view as escalation_view
@@ -75,6 +76,7 @@ except ImportError:
     import autocode_contract_identity as contract_identity
     import autocode_conversation_projection as conversation_projection
     import autocode_cost as cost
+    import autocode_criterion_changes as criterion_changes
     import autocode_design_coverage as design_coverage
     import autocode_efficiency
     import autocode_escalation_view as escalation_view
@@ -148,6 +150,7 @@ def view(
     # Saved stage records, then the running stage, so the running one is read first; a corrupt list reads empty.
     stages = state.get("stages")
     launches = [*(stages if isinstance(stages, list) else []), active]
+    plan = approved_contract(state)
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -182,6 +185,8 @@ def view(
         "recovery": recovery_view.project(state, need),
         "verification": verification_view.project(state),
         "code_checkpoints": code_checkpoints.project(state),
+        # Which saved checkpoints built each approved criterion's milestones (#730): attribution, not proof.
+        "changes_by_criterion": criterion_changes.attribute((plan or {}).get("body"), state.get("code_checkpoints")),
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
         "iteration": state.get("iteration"),
@@ -281,7 +286,7 @@ def view(
                 }
         except (KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
-        approved = approved_contract(state)
+        approved = plan
         if approved is not None:
             result["approved_contract"] = approved
     design = design_coverage.projection(state)
