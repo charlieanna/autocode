@@ -37,7 +37,6 @@ if TYPE_CHECKING:
 
 import argparse
 import contextlib
-import fcntl
 import json
 import os
 import shutil
@@ -46,8 +45,10 @@ import tempfile
 from pathlib import Path
 
 try:
+    from . import autocode_util as util
     from . import autocode_workspaces as workspaces
 except ImportError:
+    import autocode_util as util
     import autocode_workspaces as workspaces
 
 IDENTITY = {
@@ -171,7 +172,7 @@ def _locked(paths):
         for path in paths:
             handle = path.open("a+")
             handles.append(handle)
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            util.lock_file(handle)
         yield
     finally:
         for handle in handles:

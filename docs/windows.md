@@ -25,7 +25,10 @@ the job summary and never fails the workflow. Make it required once it is green.
 `tests/test_windows_portability.py` runs on Linux and fails when a runtime module
 gains a module-level import of a POSIX-only module (`fcntl`, `termios`, `pwd`, `grp`,
 `resource`, `pty` and similar), because one such import stops `autocode` from starting
-on Windows before any platform check runs. Its list is the debt below.
+on Windows before any platform check runs. Its list of known exceptions has been empty
+since 2026-10-16. It also loads the CLI and the thirteen modules that used to import
+`fcntl` in a fresh interpreter where `import fcntl` fails, so an import through another
+module is caught too.
 
 ## Audit (2026-10-15)
 
@@ -40,22 +43,42 @@ supervision is included because it decides the fake-scenario acceptance.
 | `autocode_util` | Module-level `import fcntl`: every module that imports the shared helpers failed to load. | `lock_file` / `unlock_file` use `fcntl.flock` on POSIX and `msvcrt.locking` on Windows. `workspace_lock` and `run_lock` use them. |
 | `autocode_util.lock_file` (Windows) | `msvcrt` locks are mandatory byte ranges: locking byte 0 would stop other processes reading a lock file that records its holder. | Lock one byte at offset 2^30, past any content, and restore the file position. A busy lock raises `BlockingIOError`, as `flock` does, so callers keep their busy pauses. A blocking lock polls through `autocode_util.sleep`. |
 | `autocode_util.atomic_json` | Syncing the directory after the rename opens it with `os.open`, which Windows refuses (`PermissionError`): every JSON state write failed. | Skip the directory sync on Windows. The file's data is still synced before the rename. |
+| Thirteen runtime modules (below) | Module-level `import fcntl` and direct `fcntl.flock` calls: loading any of them failed, and the CLI loads nine of them at start. | They lock through `autocode_util.lock_file` / `unlock_file`, with `blocking=True` where they waited before. On POSIX each takes the same exclusive `flock`, blocking or not, raises the same `BlockingIOError` when busy and unlocks at the same points. `autocode_registry` and `autocode_interventions` now unlock only a lock they took: `msvcrt` refuses to unlock a range its handle never locked, which would have replaced their "busy" error after a timed-out wait. |
 
-### Open: module-level `fcntl` imports
+The thirteen modules: `autocode_checkout_lock`, `autocode_checkpoint_cli`,
+`autocode_controller_owner`, `autocode_conversation`, `autocode_conversation_session`,
+`autocode_dependencies`, `autocode_interventions`, `autocode_milestones`,
+`autocode_registry`, `autocode_usage`, `autocode_workspaces`, `autocode_worktrees`,
+`opencode_stage_router` (2026-10-16).
 
-These runtime modules still `import fcntl` at load and lock with `fcntl.flock`
-directly. Each is a mechanical move to `autocode_util.lock_file` / `unlock_file`
-(`blocking=True` where they wait today). `tests/test_registry.py` and
-`tests/test_interventions.py` patch `registry.fcntl` and `interventions.fcntl`, so
-those tests move with them.
+### Open: `autocode_junit` at load
 
-`autocode_checkout_lock`, `autocode_checkpoint_cli`, `autocode_controller_owner`,
-`autocode_conversation`, `autocode_conversation_session`, `autocode_dependencies`,
-`autocode_interventions`, `autocode_milestones`, `autocode_registry`,
-`autocode_usage`, `autocode_workspaces`, `autocode_worktrees`,
-`opencode_stage_router`.
+`autocode_junit` computes `os.O_DIRECTORY | os.O_NOFOLLOW` and `os.O_NOFOLLOW |
+os.O_NONBLOCK` at module level. Windows has none of those flags, so loading the CLI
+raises `AttributeError` there. This is the next load failure now that `fcntl` is gone:
+found on Linux by removing `os.O_DIRECTORY` and `os.O_NOFOLLOW` before loading the CLI,
+not yet seen on the Windows runner. The import check above does not catch it. The module
+walks to a JUnit report one directory at a time with `dir_fd` and refuses links, which
+Windows does not support either, so it needs a Windows way to read the report safely,
+not only a default for the missing flags.
 
-The frozen dashboard (`tools/dashboard/`) has five more; it changes only for bug fixes.
+### Open: POSIX-only calls in those modules
+
+They no longer need `fcntl` to load, but some of their calls still fail on Windows:
+
+- `os.O_DIRECTORY` and `os.O_NOFOLLOW`, which Windows lacks, raise `AttributeError`:
+  `autocode_workspaces.keep_out_of_git` upgrading an existing `.autocode/.gitignore`,
+  `autocode_controller_owner` reading its receipt and probing its lock, and
+  `autocode_conversation_session` locking the selected folder before it creates a
+  project there. That last one locks the folder itself, which Windows cannot open with
+  `os.open`, so it needs a lock file on Windows.
+- `autocode_checkout_lock.exclusive` closes its handle without unlocking so that a
+  surviving provider child keeps the checkout locked. That relies on `flock`, where a
+  child that inherited the descriptor keeps the lock; whether a `msvcrt` lock survives
+  that way is unverified. It matters only once providers can run natively (below).
+
+The frozen dashboard (`tools/dashboard/`) still imports `fcntl` in five modules; it
+changes only for bug fixes.
 
 ### Open: needs a decision
 
@@ -82,6 +105,11 @@ whether it qualifies, before it is built.
 
 ### To verify on the Windows runner
 
+- Several of the thirteen modules release a lock by closing its file rather than
+  unlocking it (`autocode_checkpoint_cli`, `autocode_workspaces.creating`,
+  `autocode_worktrees`, `autocode_dependencies`, `opencode_stage_router`). Windows
+  releases a `msvcrt` lock when its handle closes, but documents the timing as
+  depending on system resources, so a lock taken again at once may briefly be busy.
 - `autocode_util.snapshot` records `executable:` from `st_mode & 0o111`. Windows
   derives those bits from the file extension, so a snapshot taken on Windows differs
   from one of the same tree on Linux. Snapshots are compared on one host, so this

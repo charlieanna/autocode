@@ -7,7 +7,6 @@ A restart re-reads the durable binding; no cross-task state.json reads or writes
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import shutil
@@ -16,9 +15,11 @@ import time
 from pathlib import Path
 
 try:
+    from . import autocode_util as util
     from .autocode_dependency import contained, sha
     from .autocode_taskrun import TaskRun
 except ImportError:
+    import autocode_util as util
     from autocode_dependency import contained, sha
     from autocode_taskrun import TaskRun
 
@@ -146,7 +147,7 @@ def main():
     consumer = TaskRun(args.workspace.resolve(), args.run_dir.resolve())
     # Only one transporter can answer and launch a consumer at a time.
     with (consumer.run_dir / "dependency-driver.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        util.lock_file(lock)
         while True:
             result = tick(consumer)
             print(result, flush=True)

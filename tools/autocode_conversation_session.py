@@ -6,7 +6,6 @@ only canonical envelope, and all planning runs through the ordinary task loop.
 
 from __future__ import annotations
 
-import fcntl
 import os
 import uuid
 from contextlib import contextmanager
@@ -16,11 +15,13 @@ try:
     from . import autocode_controller_isolation as isolation
     from . import autocode_conversation as protocol
     from . import autocode_conversation_policy as policy
+    from . import autocode_util as util
     from . import autocode_workspaces as workspaces
 except ImportError:
     import autocode_controller_isolation as isolation
     import autocode_conversation as protocol
     import autocode_conversation_policy as policy
+    import autocode_util as util
     import autocode_workspaces as workspaces
 
 
@@ -39,7 +40,7 @@ def _creation_lock(workspace):
     # Lock its existing directory instead, without creating any project files.
     fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0))
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        util.lock_file(fd, blocking=True)
         yield
     finally:
         os.close(fd)

@@ -587,6 +587,14 @@ PR template asks for an entry here; a change without one is incomplete.
   note stays under `docs/bugs/` at the repository root and is still left out of the check for changes outside the
   package. The scripted Investigator in `scenarios/` names only the package's files when its handoff names a
   package, so `bugfix-monorepo-package`'s broken variant still reaches the Builder.
+- Native Windows (#698): the last thirteen runtime modules that imported `fcntl` at load (the checkout, registry,
+  intervention, milestone-request, usage, worktree and conversation locks among them) now lock through
+  `autocode_util.lock_file` / `unlock_file`, so the CLI loads without `fcntl`. On Linux and macOS each lock is the
+  same exclusive `flock`, blocking or not, with the same busy error. The registry and intervention locks unlock only
+  a lock they took, so on Windows a timed-out wait still reports busy. `tests/test_windows_portability.py` now
+  allows no module-level POSIX-only import and loads the CLI with `fcntl` unimportable. On Windows the CLI still
+  stops loading at `autocode_junit`'s POSIX-only open flags; [Native Windows](docs/windows.md) records that and
+  the POSIX-only calls the thirteen modules still make.
 
 ### Removed
 
