@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode plan`, `autocode prune-run`, `autocode merge`, and `autocode clean-worktrees` now support `--json`
+  output for structured machine-readable reporting of results and errors, and `autocode checkpoint` and
+  `autocode tasks` accept `--json` for CLI caller consistency (#714).
+
 - `tests/test_json_output.py` holds `--status` and `--json` to the status-view schema and exit-code table on a
   saved auth pause (`your_environment`) and rate-limit pause (`model_or_provider`), matching the AutoCode
   iteration/time-limit coverage already there. The fake person-pause contract test still does not reach those
