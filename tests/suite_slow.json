@@ -20,7 +20,7 @@
   "tests.test_multicomponent": "104 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_component_design": "50 s locally (macOS); real CLI approval/resume, integration and design-drift cases, 2026-10-01",
   "tests.test_subprocess": "45 s in CI (Ubuntu, one module at a time), 2026-09-29",
-  "tests.test_builder_policy": "37 s in CI (Ubuntu, one module at a time), 2026-09-29",
+  "tests.test_builder_policy": "37 s in CI (Ubuntu, one module at a time), 2026-09-29; 324 s for 61 tests locally (Linux cloud container, shared 4-CPU host, load average 4), 2026-10-16, with three fake-Codex runs whose stronger Builder attempt pauses before it launches, past the cost cap, the active-time budget and the milestone budget (#611; the milestone one 19-27 s alone)",
   "tests.test_catalogue_t14": "26 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_command_flow": "25 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_human_publication": "25 s in CI (Ubuntu, one module at a time), 2026-09-29",

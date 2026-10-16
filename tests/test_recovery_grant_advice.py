@@ -84,6 +84,39 @@ class AdviceMatchesEligibility(unittest.TestCase):
         self.assertNotIn("--grant-recovery", text)
         self.assertNotIn("--max-seconds", text)
 
+    def test_a_progressive_slice_budget_stop_is_advised_for_that_budget(self):
+        # #611 review: PAUSED_MILESTONE_BUDGET is also a progressive run's slice-budget stop, whose reason names the
+        # spent ceilings (autocode_progressive_state.check_local_budget). A resume does not restart that count, and
+        # its run_seconds ceiling is --max-seconds, so the milestone stop's advice does not fit it.
+        milestone = limits.advice(
+            allow_grant=False,
+            pause_status="PAUSED_MILESTONE_BUDGET",
+            state={"settings": {"milestone_checkpoints": {"enabled": True, "max_seconds": 1000}}},
+            cause="Milestone active-time budget exhausted; verify existing work or explicitly raise "
+            "--max-milestone-seconds",
+        )
+        self.assertIn("autocode resume --max-milestone-seconds N with a budget other than the saved one", milestone)
+        self.assertIn("the total the stop names for a stronger Builder attempt", milestone)
+        self.assertNotIn("--max-seconds", milestone)
+        progressive = {"progressive": {"version": 1, "budget": {"run_limit": 43200, "run_seconds": 43200}}}
+        text = limits.advice(
+            allow_grant=False, pause_status="PAUSED_MILESTONE_BUDGET", state=progressive, cause="run_seconds"
+        )
+        self.assertIn(
+            "autocode resume --max-milestone-seconds N with N above the slice's counted time, which a resume does not "
+            "restart, or 0 for no slice limit",
+            text,
+        )
+        self.assertIn("When the stop names run_seconds, the run's own ceiling is spent too: add --max-seconds M", text)
+        for absent in ("a budget other than the saved one", "stronger Builder attempt", "--resolver-response"):
+            self.assertNotIn(absent, text)
+        # An uncertain attempt is still named after the advice.
+        self.assertTrue(
+            limits.advice(
+                allow_grant=False, pause_status="PAUSED_MILESTONE_BUDGET", state=progressive, attempt="001/terra-01"
+            ).endswith(limits.abandon_advice("001/terra-01"))
+        )
+
     @staticmethod
     def escalation(minute, discovered, pause_status="PAUSED_NO_PROGRESS", status="consumed"):
         return {
