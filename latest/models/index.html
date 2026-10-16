@@ -2072,7 +2072,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6c1c298c59bbabc09abddcf1d5990828785657d5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/71fc500adf436d852ce7baa2b3fe811d9c488516/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2202,18 +2202,25 @@ settings, with rungs removed that its provider does not offer: the provider's
 published list, and the model list a new run reads for its routes before its
 first model call (<a href="#builder-retry-policy">Builder retry policy</a> covers the stronger
 attempt). Each
-escalation later records how it ended — a validation PASS <code>passed</code>, a
-retry-limit pause <code>paused</code> — and <code>autocode --status</code> summarizes that as
-<code>escalation_outcomes</code>. It also lists each escalation as a row of <code>escalations</code>
-(a climb, or the Builder's stronger attempt): the job and stage it was for, the
-route it climbed from and to, what its escalated attempts cost, and whether the
-work then passed, failed again, paused or is still running, with one line each on
-stderr (<a href="../task-run/#status-view">status view</a>). Read a row's <code>outcome</code> rather than
-<code>escalation_outcomes</code> for how an escalation ended: that count is the runner's own
-stamp. The runner stamps every open escalation <code>passed</code> where the Completion Reviewer
-or Resolver assigns the next task while the last validation passed, whoever's work
-passed (even the Builder's stronger attempt, before that attempt runs), and a run that
-completes on a PASS leaves them <code>open</code>. The row judges each escalation by its own work.
+escalation, and each ordinary Builder retry, later records how its struggle ended,
+and <code>autocode --status</code> counts those stamps as <code>escalation_outcomes</code>. The runner
+stamps every one still open <code>passed</code> when the run completes on work a validation
+passed, or when the Completion Reviewer or Resolver assigns the next task while the
+last validation passed, and <code>paused</code> at the Builder's retry-limit pause. At that
+assignment it leaves the Builder's own open when the work was sent back since that
+validation, by a retry-policy charge or a correction task (the work failed, and a
+stronger attempt the charge just made has not run yet), or when the run's records do
+not say when that validation's attempt started, so a send-back cannot be ruled out. <code>autocode --status</code> also lists
+each escalation as a row of <code>escalations</code> (a climb, or the Builder's stronger
+attempt): the job and stage it was for, the route it climbed from and to, what its
+escalated attempts cost, and whether the work then passed, failed again, paused or is
+still running, with one line each on stderr (<a href="../task-run/#status-view">status view</a>).
+The row judges each escalation by its own work, so read a row's <code>outcome</code> for how one
+escalation ended; when its struggle has ended, its stamp agrees. A stamp is the
+struggle's, though: a climb a later climb replaced takes the struggle's end too while
+its row reads <code>failed_again</code>, and so does an ordinary retry, which has no row. Before
+the struggle ends the stamp is <code>open</code> while the row may already read <code>passed</code>, and a
+run completed with <code>--accept-completion</code> leaves its stamps <code>open</code>.
 The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
 are on no ladder: they keep their configured route, and a verifier that keeps
 struggling pauses the run instead. The Builder instead gets its
@@ -2221,13 +2228,14 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/6c1c298c59bbabc09abddcf1d5990828785657d5/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/71fc500adf436d852ce7baa2b3fe811d9c488516/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
-Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes. In <code>escalation-ladder-end</code>
-that attempt fails too: the row reads <code>paused</code>, and the run pauses at <code>PAUSED_BUILDER_RETRY_LIMIT</code>
-with the stuck-stage Investigator's diagnosis in its stop reason. <code>scenarios/test_escalation.py</code>
-also checks that a <code>--builder-strong-model</code> the tool does not list refuses the new run before any
-model call.</p>
+Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
+stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
+that attempt fails too: the row reads <code>paused</code>, as both stamps do, and the run pauses at
+<code>PAUSED_BUILDER_RETRY_LIMIT</code> with the stuck-stage Investigator's diagnosis in its stop reason.
+<code>scenarios/test_escalation.py</code> also checks that a <code>--builder-strong-model</code> the tool does not
+list refuses the new run before any model call.</p>
 <p>The Resolver runs on a route of its own, <code>resolver</code>. It starts as a copy of the <code>astra</code>
 route, which the per-task Planner (<code>astra_plan</code>) runs on; <code>autocode models</code> lists that
 route as "Resolver and per-task Planner (<code>--astra-model</code>)". The Resolver's route is
