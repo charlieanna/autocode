@@ -225,7 +225,8 @@ def check(value: dict, changed_files, package: str | None = None) -> None:
             raise ValueError(
                 f"This run works in the package {package}/ (--package): affected_paths and test_paths must "
                 f"name files inside it, not {', '.join(elsewhere)}. A fix outside the package needs a run "
-                "without --package."
+                "without --package: if the fix does need such a file, keep it named, and the run pauses rather "
+                "than plan the fix."
             )
         check_cases(value.get("test_cases") or [])
         probe, untestable = value.get("probe", "").strip(), value.get("untestable", "").strip()

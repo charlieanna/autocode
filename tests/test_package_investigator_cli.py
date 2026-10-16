@@ -195,6 +195,7 @@ class PackageInvestigatorCLI(unittest.TestCase):
         self.assertEqual("investigate_bug", view["next_stage"])
         self.assertIn("packages/search/pager.py", view["stop_reason"])
         self.assertIn(f"This run works in the package {PACKAGE}/", view["stop_reason"])
+        self.assertIn("A fix outside the package needs a run without --package", view["stop_reason"])
         self.assertFalse((self.project / NOTE).exists())
         # The Investigator, its report's repairs and the stuck-stage Investigator ran; nothing planned the fix.
         made = [json.loads(line)["call"] for line in (self.bindir / "calls.jsonl").read_text().splitlines()]

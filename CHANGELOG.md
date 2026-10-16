@@ -563,9 +563,11 @@ PR template asks for an entry here; a change without one is incomplete.
   the run has one, and an instruction to name only files inside the package. A reproduced diagnosis whose
   `affected_paths` or `test_paths` name anything outside the package is refused as invalid output, so it goes
   through report repair with the reason and the run pauses rather than plan from it; before, it was accepted and the
-  fix was planned from it. The diagnosis note stays under `docs/bugs/` at the repository root and is still left out
-  of the check for changes outside the package. The scripted Investigator in `scenarios/` names only the package's
-  files when its handoff names a package, so `bugfix-monorepo-package`'s broken variant still reaches the Builder.
+  fix was planned from it. When the fix does need a file outside the package, the instruction and the reason tell
+  the Investigator to keep naming it, so the run pauses: such a fix needs a run without `--package`. The diagnosis
+  note stays under `docs/bugs/` at the repository root and is still left out of the check for changes outside the
+  package. The scripted Investigator in `scenarios/` names only the package's files when its handoff names a
+  package, so `bugfix-monorepo-package`'s broken variant still reaches the Builder.
 
 ### Removed
 

@@ -181,6 +181,8 @@ class Reconcile(unittest.TestCase):
         scope = package_writes.context(settings, bug_job.STAGE)
         self.assertEqual((f"{GREET}/", suite), (scope["package"], scope["suite"]))
         self.assertIn(f"inside {GREET}/: the runner rejects a report that names anything else", scope["instruction"])
+        # A fix that does need a file outside the package keeps it named, so the report is refused and the run pauses.
+        self.assertIn(f"outside {GREET}/, name that file anyway", scope["instruction"])
         self.assertNotIn("{", scope["instruction"])
         # A package with no tests and no --test-command has no suite to name; the Builder's scope never names one.
         self.assertNotIn("suite", package_writes.context({"package": GREET, "protected_tests": {}}, bug_job.STAGE))

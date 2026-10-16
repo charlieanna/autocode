@@ -636,7 +636,9 @@ What the package changes:
   asked to repair it with the reason, and the run pauses rather than plan from a
   report that still names such a path. The diagnosis note stays under
   `docs/bugs/` at the repository root, where the runner writes it. A bug whose
-  fix is outside the package needs a run without `--package`.
+  fix is outside the package needs a run without `--package`: the Investigator
+  is told to name the file it would change there anyway, so its report is
+  refused and the run pauses rather than plan the fix.
 - The package is the Builder's write scope, and its handoff says so
   (`write_scope`). Apart from the Investigator, no other stage is told the
   package. Before each Tester and
