@@ -369,6 +369,16 @@ PR template asks for an entry here; a change without one is incomplete.
   reference did not complete, because the proof counted the diagnosis note as a change outside the package. The
   status view's `findings` documentation (`autocode_run_view`, `docs/task-run.md`) now names the package check as a
   source of `runner` findings, and `docs/workflow.md` records that the Investigator is not told the package.
+- The scenario runner (`scenarios/run.py`) now checks at every plan approval a catalog run reaches that the plan
+  file round trip reproduces the plan's goal hash (#720, the first acceptance check). Before it approves a plan, it
+  exports the plan with `autocode plan --export` to `plan-files/NN.md` in the evidence directory and reads the file
+  back with `autocode plan --check`, the reader `--goal-file` uses. The `plan round trip` check in `result.json`
+  requires the file to read back with the run plan's goal hash, the run directory to be unchanged by the two
+  commands, and the approved plan's goal hash in the final `--status --json` to be the exported one. A masked export
+  fails: its file does not reproduce the goal hash, and `--goal-file` refuses it. The two calls are no steps; they
+  add about 4 s per plan approval on the fake provider. Each plan approval's row in `approvals` keeps their output
+  as `plan_file`, and the record a program or components scenario is judged on now carries `approvals` too. A
+  failure makes the verdict `FALSE_COMPLETE` when the scenario completed, and `HONEST_BLOCKER` when it stopped.
 
 ### Changed
 
