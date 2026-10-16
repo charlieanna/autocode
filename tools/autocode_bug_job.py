@@ -55,7 +55,7 @@ import datetime as dt
 import hashlib
 import json
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 try:
@@ -220,7 +220,9 @@ def check(value: dict, changed_files, package: str | None = None) -> None:
         unsafe = [path for path in value["affected_paths"] + value["test_paths"] if not safe_path(path)]
         if unsafe:
             raise ValueError(f"Paths must be relative paths inside the repository: {unsafe}")
-        elsewhere = outside_package(package, value["affected_paths"] + value["test_paths"]) if package else []
+        elsewhere = (
+            package_scope.named_outside(package, value["affected_paths"] + value["test_paths"]) if package else []
+        )
         if elsewhere:
             raise ValueError(
                 f"This run works in the package {package}/ (--package): affected_paths and test_paths must "
@@ -267,17 +269,6 @@ def check_cases(cases: list) -> None:
     bad_kinds = sorted({case.get("kind", "restore") for case in cases} - {"restore", "preserve"})
     if bad_kinds:
         raise ValueError(f"A test case kind is restore or preserve: {bad_kinds}")
-
-
-def outside_package(package: str, paths) -> list[str]:
-    """The ``paths`` not inside ``package``, sorted; the package directory itself is inside it."""
-    return sorted(
-        {
-            path
-            for path in paths
-            if (name := PurePosixPath(path).as_posix()) != package and not package_scope.contains(package, name)
-        }
-    )
 
 
 def safe_path(path: str) -> bool:

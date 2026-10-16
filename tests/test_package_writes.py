@@ -181,6 +181,9 @@ class Reconcile(unittest.TestCase):
         scope = package_writes.context(settings, bug_job.STAGE)
         self.assertEqual((f"{GREET}/", suite), (scope["package"], scope["suite"]))
         self.assertIn(f"inside {GREET}/: the runner rejects a report that names anything else", scope["instruction"])
+        # A root-form --test-command runs from the root as given: the suite is not said to enter the package.
+        self.assertIn("run it exactly as given from the root of investigation_workspace", scope["instruction"])
+        self.assertNotIn(f"enters {GREET}/ first", scope["instruction"])
         # A fix that does need a file outside the package keeps it named, so the report is refused and the run pauses.
         self.assertIn(f"outside {GREET}/, name that file anyway", scope["instruction"])
         self.assertNotIn("{", scope["instruction"])

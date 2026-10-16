@@ -260,8 +260,8 @@
     "sha256": "707c67144828b4a51e9fdd585ff7077593bfa87208caadc214b455507ade9c7b"
   },
   "package/investigate_bug": {
-    "bytes": 8808,
-    "sha256": "61c4fb70ee066fba7ba6539682a42bee876cb87d47b4ac66bcb13f154915971c"
+    "bytes": 8852,
+    "sha256": "dd33d61bb4201a1ee69d1d872da82530ed3f28a88997ce0079306d4d27dc2b71"
   },
   "package/terra": {
     "bytes": 12868,

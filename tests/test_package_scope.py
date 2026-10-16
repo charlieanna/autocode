@@ -119,6 +119,13 @@ class PackageNames(unittest.TestCase):
                 self.assertFalse(package_scope.contains(web, path))
         self.assertEqual([admin], package_scope.outside(web, [admin, "packages/web/test_web.py"]))
 
+    def test_a_report_may_name_the_package_directory_and_plain_paths_inside_it(self):
+        # The bug-fix Investigator's affected and test paths (autocode_bug_job.check, #711).
+        inside = ["packages/web", "packages/web/", "./packages/web/app.py", "packages/web/tests/"]
+        outside = ["packages/web-admin/app.py", "tests/test_app.py", "package.json"]
+        self.assertEqual(sorted(outside), package_scope.named_outside("packages/web", [*inside, *outside]))
+        self.assertEqual([], package_scope.named_outside("packages/web", inside))
+
     def test_a_change_outside_the_package_is_any_changed_path_not_strictly_inside_it(self):
         changes = {
             f"{GREET}/greet.py": "modified",
