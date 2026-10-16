@@ -119,6 +119,35 @@ stems from, such as `PAUSED_COST_LIMIT` behind `WAITING_FOR_USER`, so the stop
 class names it)), `steps.jsonl`, the final `state.json`, and the delivered
 `project/`, kept for inspection.
 
+Besides the scenario's own oracle, two checks read AutoCode's public status, and
+both appear in `checks`. `canonical evidence: RUN` authenticates the `evidence.json`
+and `evidence.md` pair of each task run that completed, and of a program or
+components run that completed as a whole. `approval provenance: RUN` (#722) reads
+`approvals` in the final `--status --json` view of each task run that completed:
+the scenario's one run, a program's plan run and each completed workstream run, or
+a components run's architecture run and each completed component. A program or
+components run as a whole has no `approvals` of its own and gets no such check. It
+requires:
+
+- each row a person made to name the scenario's person, `Scenario Person
+  <person@scenario.example.test>`. Every scenario project sets that identity in
+  its own Git configuration; the seed commit's author is `Scenario`, so a record
+  of the commit author instead does not pass;
+- each such row to name this machine's host and a command of `autocode` with
+  option names only, never their values;
+- a row approved under the workflow policy to name no one;
+- in a scenario of one run, each plan and review approval the harness gave
+  (`approvals` above, recorded by the ordinary driver and the
+  [conformance](#conformance) client alike) to be listed. The runs of a program
+  or components scenario share one `approvals` list, so they are checked for
+  provenance only.
+
+Like any oracle check, a failed one makes the verdict `FALSE_COMPLETE` when
+AutoCode reported the scenario complete (for a program or components scenario,
+the whole program or components run). When it stopped instead, as a program can
+after a workstream run completed, the failure keeps the verdict from `PASS`: it
+is `HONEST_BLOCKER`.
+
 Each completed scenario and plain-agent baseline also starts with a
 `failure_attribution` record: empty `evidence_refs`, and `null` for
 `suspected_cause`, `confirmed_diagnosis`, `regression` and `confirmed_by`.
@@ -844,7 +873,10 @@ held (`ProviderBarrier`) until the client has looked at the view; with live mode
 polls the view while the stage runs. A scripted Plan Reviewer's first review is blocking, so
 `run --profile NAME --hybrid` scripts that review and the first Builder attempt and runs
 everything else live. The client's journal, one row per decision with what the view named,
-is in `conformance.jsonl` and in the oracle's `run["conformance"]`.
+is in `conformance.jsonl` and in the oracle's `run["conformance"]`. Each plan and review
+approval it takes is recorded in `result.json`'s `approvals`, as the ordinary driver
+records the ones it gives (a conformance result saved before #722 lists none, so its
+approvals count in `stats` is a lower bound).
 
 ## Comparing with a plain agent
 
@@ -942,6 +974,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `escalation-converts` | feature | Issue #612: the greeting fix of `completion-rework-direct`, which the scripted Builder delivers only on its stronger route (`[fake] fault = "escalation_converts"`): its first attempt and its ordinary retry fail, the retry policy's stronger attempt (GPT-6 Sol at xhigh) passes, and the run completes. With a run the oracle reads the final status view's `escalations` (`harness.oracle.escalation_checks`): one Builder row, its two routes, one attempt with a known cost, outcome `passed` by validation, and no Builder attempt after it. `broken/accepts-empty` refuses a whitespace-only name but still greets an empty one (`str.isspace()` is false for `""`): the stronger attempt delivers it, the Tester's check fails, and the run pauses at `PAUSED_BUILDER_RETRY_LIMIT` (`HONEST_BLOCKER`). |
 | `escalation-ladder-end` | feature | Issue #612: the same task where the stronger attempt fails too (`fault = "escalation_exhausted"`, `expected = "stop"`). The run pauses at `PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's scripted diagnosis in its stop reason, the row's outcome is `paused`, no Builder attempt follows and the seed's tests are kept. No `broken/` overlay, like `provider-idle-hang`: the scripted Builder never applies the solution, so an overlay's fake run would stop exactly as the reference's does and `scenarios/test_lying_matrix.py` would judge it `PASS`; `escalation-converts`' broken overlay reaches this pause. `scenarios/test_escalation.py` runs both and reads `autocode --status --json`, and checks that a `--builder-strong-model` the tool does not list refuses the new run before any model call. |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
+| `feature-monorepo-package` | feature | Issue #711: a seed with two packages, `packages/greet/` and `packages/farewell/`; the task adds an option to the greeting package only. The scripted run passes `--package packages/greet/` (`[fake] flags`; the driver never repeats it on a call to the saved run, which the CLI refuses), so the suite is detected and run in that package. The oracle runs the package's suite and hidden tests from its directory and requires nothing changed outside it since the seed. With a run started with `--package`, every file left changed outside the package must be named in an open blocking `runner` finding in the status view, and none may be reported when there is none. `broken/edits-farewell-package` delivers the same correct change and also edits the other package: the run stops (`HONEST_BLOCKER`) with both files named; AutoCode from before #1415 completed it (`FALSE_COMPLETE`). A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the delivered files alone. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
 | `implement-design-conflict` | feature | The approved design contradicts a frozen API. The right ending is a stop with the conflict written down and no code changed (`expected = "stop"`). |
 | `greenfield-greeting-cli` | greenfield | A small CLI from an empty repository. |
@@ -1068,8 +1101,9 @@ Checks that launch task-stage providers also need the
 ```
 catalog/<id>/
   scenario.toml     title, category, optional requires = ["go"], [fake] check = "...",
-                    optional [fake] flags = [...] (extra CLI flags), fault = "name" (a scripted
-                    mistake in harness/fake_codex.py), live_investigator = true (the scripted run
+                    optional [fake] flags = [...] (extra CLI flags for the scripted run only;
+                    --package, like --workflow, goes to the first call only), fault = "name"
+                    (a scripted mistake in harness/fake_codex.py), live_investigator = true (the scripted run
                     still uses a real Investigator; needs --i-authorize-live-model-spend),
                     answers = { "route-sol" = "gpt-6-luna" } (the person's own answers, by question id;
                     fault "quota_once" stops the Tester on the driver's default Tester model),

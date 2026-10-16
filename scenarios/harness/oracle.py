@@ -213,7 +213,8 @@ def run_checks(
 
     ``run`` is None in ``check`` mode (no AutoCode ran), and then there is nothing to
     judge. Otherwise it holds ``status``, the final status ``view`` (docs/task-run.md),
-    ``stages`` (saved stage names in order), ``answers`` (questions the driver answered)
+    ``stages`` (saved stage names in order), ``answers`` (questions the driver answered),
+    ``approvals`` (the gates the driver passed for the person, as in result.json)
     and ``cli_calls`` (the kinds of CLI call the driver made).
 
     ``workflow`` is the kind of job the run should have recognized; the harness

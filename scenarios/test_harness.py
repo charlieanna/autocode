@@ -18,6 +18,7 @@ import re
 import select
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run  # noqa: E402
 from harness import (  # noqa: E402
     api_cost,
+    approval_provenance,
     attempts,
     baseline,
     build_compare,
@@ -62,6 +64,7 @@ from harness.driver import (  # noqa: E402
     with_flag_values,
     workspace_files,
 )
+from harness.project import PERSON_EMAIL, PERSON_NAME, materialize  # noqa: E402
 
 
 class PhaseCatalogTests(unittest.TestCase):
@@ -318,6 +321,8 @@ class DriverFlagTests(unittest.TestCase):
             "--workflow=build",
             "--terra-model",
             "claude-haiku",
+            "--package",
+            "packages/greet/",
         ]
         done = subprocess.CompletedProcess([], 0, "", "")
         with tempfile.TemporaryDirectory() as root, patch("harness.driver.run_cli", return_value=done) as launch:
@@ -327,7 +332,8 @@ class DriverFlagTests(unittest.TestCase):
             driver.call("resume", "--resume-paused")
         first, then = (call.args[0] for call in launch.call_args_list)
         self.assertEqual(flags, first[first.index("--no-chat") + 1 :])
-        # The CLI refuses --builder-strong-model and --workflow on a saved run, so a resume never repeats them.
+        # The CLI refuses --builder-strong-model, --workflow and --package on a saved run, so a resume never
+        # repeats them.
         self.assertEqual(
             ["--provider", "claude", "--terra-model", "claude-haiku", "--resume-paused"],
             then[then.index("--no-chat") + 1 :],
@@ -1795,6 +1801,11 @@ CONTROL_SUMMARIES = {
         "broken/refusal-writes-store": "5/6 checks; failing: hidden_tests_pass",
         "broken/vacuous-refusal-tests": "5/6 checks; failing: new_command_tests_fail_on_original_code",
     },
+    "feature-monorepo-package": {
+        "seed": "4/7 checks; failing: hidden_tests_pass, new_tests_fail_on_original_code, readme_documents_option",
+        "reference": "7/7 checks",
+        "broken/edits-farewell-package": "6/7 checks; failing: nothing_changed_outside_the_package",
+    },
 }
 
 
@@ -1926,6 +1937,153 @@ class JudgeTests(unittest.TestCase):
         self.assertFalse(verdict.OracleResult([]).passed)
 
 
+class ApprovalProvenanceTests(unittest.TestCase):
+    """#722: a completed run's `--status --json` lists each approval with who made it (harness.approval_provenance)."""
+
+    token = "r2:" + "a" * 64
+
+    def row(self, kind="plan", actor="user_cli", **provenance):
+        recorded = {
+            "git_user_name": PERSON_NAME,
+            "git_user_email": PERSON_EMAIL,
+            "host": socket.gethostname() or None,
+            "command": "autocode --workspace --run-dir --approve-goal",
+            "claimed_as": None,
+            **provenance,
+        }
+        return {
+            "kind": kind,
+            "at": "2026-10-16T08:00:00Z",
+            "actor": actor,
+            "contract_token": self.token if kind == "plan" else None,
+            "criterion": "C1" if kind == "review" else None,
+            "pause_status": None,
+            "provenance": recorded,
+        }
+
+    def record(self, rows, gates=(), status="TASK_COMPLETE"):
+        return {"report_expected": True, "view": {"status": status, "approvals": rows}, "approvals": list(gates)}
+
+    def failures(self, record):
+        return [check.detail for check in approval_provenance.checks(record) if not check.ok]
+
+    def test_approvals_that_name_the_person_pass(self):
+        policy = {**self.row(actor="workflow_policy"), "provenance": None}
+        review = self.row("review", command="autocode --workspace --run-dir --approve-review --review-token")
+        resume = self.row("resume", command="autocode resume --run-dir --as", claimed_as="Ana")
+        gates = [
+            {"gate": "approve_plan", "token": self.token},
+            {"gate": "review", "criterion": "C1", "token": "review-token"},
+            {"gate": "planning_budget", "feedback": "more"},
+        ]
+        (check,) = approval_provenance.checks(self.record([self.row(), review, resume, policy], gates))
+        self.assertEqual("approval provenance: task", check.name)
+        self.assertTrue(check.ok, check.detail)
+        self.assertIn("4 recorded (plan, review, resume, plan)", check.detail)
+        self.assertTrue(approval_provenance.checks(self.record([]))[0].ok)  # a review or discussion approves nothing
+
+    def test_an_approval_without_the_person_s_provenance_fails(self):
+        for name, row, said in (
+            ("no provenance", {**self.row(), "provenance": None}, "row 1 (plan) records no provenance"),
+            ("no Git name", self.row(git_user_name=None), "git_user_name is None, not 'Scenario Person'"),
+            ("the seed's author", self.row(git_user_email="scenario@example.test"), "git_user_email"),
+            ("another host", self.row(host="elsewhere.invalid"), "host is 'elsewhere.invalid'"),
+            ("a token value", self.row(command="autocode --approve-goal " + self.token), "is not autocode and option"),
+            ("no command", self.row(command=None), "command None"),
+            ("no actor", self.row(actor="runner"), "neither a person nor the workflow policy"),
+            ("policy naming a person", self.row(actor="workflow_policy"), "under the workflow policy but names"),
+        ):
+            with self.subTest(name):
+                (failure,) = self.failures(self.record([row]))
+                self.assertIn(said, failure)
+
+    def test_each_approval_the_harness_gave_must_be_listed(self):
+        plan = {"gate": "approve_plan", "token": self.token}
+        review = {"gate": "review", "criterion": "C1", "token": "review-token"}
+        policy = {**self.row(actor="workflow_policy"), "provenance": None}
+        for name, rows, gates, said in (
+            ("nothing listed", [], [plan], f"the harness approved plan {self.token}, which no plan row lists"),
+            ("another plan", [self.row()], [{**plan, "token": "r3:b"}], "approved plan r3:b"),
+            ("no review row", [self.row()], [plan, review], "the review of C1, which no review row lists"),
+            ("another criterion", [self.row(), self.row("review")], [plan, {**review, "criterion": "C2"}], "of C2"),
+            ("only the policy's", [policy], [plan], "which no plan row lists"),
+        ):
+            with self.subTest(name):
+                (failure,) = self.failures(self.record(rows, gates))
+                self.assertIn(said, failure)
+
+    def test_the_run_record_carries_the_harness_s_approvals_to_the_check(self):
+        """run.run_record hands the gates the harness passed to the check; without them nothing is matched."""
+        gates = [{"gate": "approve_plan", "token": self.token}]
+        view = {"status": "TASK_COMPLETE", "approvals": []}
+        driver = argparse.Namespace(
+            run_dir=Path("r1"), view=lambda: view, answers=[], approvals=gates, steps=[], turn_marks=[]
+        )
+        record = run.run_record(driver, {"stages": []})
+        self.assertEqual(gates, record.get("approvals"))
+        self.assertEqual([f"the harness approved plan {self.token}, which no plan row lists"], self.failures(record))
+
+    def test_only_a_completed_executed_run_is_judged(self):
+        bad = [{**self.row(), "provenance": None}]
+        self.assertEqual([], approval_provenance.checks(None))
+        self.assertEqual([], approval_provenance.checks({**self.record(bad), "report_expected": False}))
+        self.assertEqual([], approval_provenance.checks(self.record(bad, status="PAUSED_INVALID_OUTPUT")))
+        missing = {"report_expected": True, "view": {"status": "TASK_COMPLETE"}}
+        self.assertEqual(["the status view has no approvals list"], self.failures(missing))
+
+    def test_each_completed_program_and_component_run_is_judged(self):
+        good, bad = [self.row()], [{**self.row(), "provenance": None}]
+        program = {
+            "report_expected": True,
+            "program": {"status": "COMPLETE"},
+            "plan": {"view": {"status": "TASK_COMPLETE", "approvals": good}},
+            "children": {"M1": [{"status": "TASK_COMPLETE", "approvals": bad}, {"status": "PAUSED", "approvals": bad}]},
+        }
+        components = {
+            "report_expected": True,
+            "components": {
+                "components": {
+                    "api": {"view": {"status": "TASK_COMPLETE", "approvals": bad}},
+                    "web": {"view": {"status": "PAUSED", "approvals": bad}},
+                }
+            },
+            "architecture_view": {"status": "TASK_COMPLETE", "approvals": good},
+        }
+        # A plan or architecture run that has not completed is not judged, whatever its rows.
+        waiting = {"status": "AWAITING_GOAL_APPROVAL", "approvals": bad}
+        workstream, component = ("approval provenance: M1", False), ("approval provenance: api", False)
+        for name, record, expected in (
+            ("program", program, [("approval provenance: program plan", True), workstream]),
+            ("plan waiting", {**program, "plan": {"view": waiting}}, [workstream]),
+            ("components", components, [("approval provenance: architecture", True), component]),
+            ("architecture waiting", {**components, "architecture_view": waiting}, [component]),
+        ):
+            with self.subTest(name):
+                self.assertEqual(expected, [(row.name, row.ok) for row in approval_provenance.checks(record)])
+
+    def test_every_executed_run_s_oracle_result_holds_the_check(self):
+        scenario = argparse.Namespace(oracle=lambda: lambda project, scenario: [verdict.Check("delivered", True)])
+        for row, ok in ((self.row(), True), ({**self.row(), "provenance": None}, False)):
+            with self.subTest(ok=ok):
+                result = verdict.evaluate(scenario, Path("."), {**self.record([row]), "run_dir": "."})
+                self.assertEqual(ok, {check.name: check.ok for check in result.checks}["approval provenance: task"])
+                self.assertFalse(result.error, result.error)
+
+    def test_a_scenario_project_names_the_person_who_is_not_the_seed_s_author(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(catalog.load("bugfix-trivial").seed, Path(root) / "project")
+
+            def git(*args):
+                return subprocess.run(
+                    ["git", "-C", str(project), *args], capture_output=True, text=True, check=True
+                ).stdout.strip()
+
+            self.assertEqual(
+                [PERSON_NAME, PERSON_EMAIL], [git("config", "--get", f"user.{key}") for key in ("name", "email")]
+            )
+            self.assertEqual("Scenario <scenario@example.test>", git("log", "-1", "--format=%an <%ae>"))
+
+
 class RunChecksTests(unittest.TestCase):
     """Run-level checks judge how AutoCode worked; without a run there is nothing to judge."""
 
@@ -2030,6 +2188,62 @@ class RunChecksTests(unittest.TestCase):
             c for c in oracle.run_checks(run_record, workflow="bugfix", max_model_stages=5) if c.name == "stage_budget"
         ]
         self.assertFalse(check.ok)
+
+
+class MonorepoPackageOracleTests(unittest.TestCase):
+    """feature-monorepo-package judges the run's own report of changes outside its package (#711): every one
+    named in an open blocking runner finding, none invented, and nothing to judge in a run without --package."""
+
+    FINDING = "Files outside the package packages/greet/ changed: "
+
+    def score(self, overlay, findings, package="packages/greet"):
+        from harness.project import materialize
+
+        scenario = catalog.load("feature-monorepo-package")
+        with tempfile.TemporaryDirectory(prefix="monorepo-oracle-test-") as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.dir / overlay)
+            record = {
+                "status": "RESOLVER_PENDING",
+                "view": {"workflow": "build", "package": package, "evidence": {"findings": findings}},
+                "stages": ["astra_challenge", "terra", "sol", "astra_review"],
+                "steps": [{"kind": "approve-plan", "exit": 0}],
+            }
+            result = verdict.evaluate(scenario, project, record)
+        self.assertEqual("", result.error)
+        return {check.name: check for check in result.checks}
+
+    def finding(self, text, status="open"):
+        return {"id": "F-1", "source": "runner", "status": status, "blocking": True, "finding": self.FINDING + text}
+
+    def other_runner_finding(self, text):
+        # The run's other runner finding (autocode_risk_findings) is not the package check's report.
+        return {**self.finding(""), "finding": "Runner lifecycle replay failed after " + text}
+
+    def test_every_change_outside_the_package_must_be_named_in_the_open_blocking_package_finding(self):
+        both = "packages/farewell/farewell.py (modified), packages/farewell/test_farewell_formal.py (added). Restore"
+        one = "packages/farewell/farewell.py (modified). Restore"
+        for findings, ok in (
+            ([self.finding(both)], True),
+            ([self.finding(one)], False),
+            ([self.finding(both, status="closed")], False),
+            ([{**self.finding(both), "source": "reviewer"}], False),
+            ([{**self.finding(both), "blocking": False}], False),
+            ([self.other_runner_finding(both)], False),
+            ([], False),
+        ):
+            with self.subTest(findings=findings):
+                checks = self.score("broken/edits-farewell-package", findings)
+                self.assertEqual(ok, checks["outside_changes_reported"].ok, checks["outside_changes_reported"])
+                self.assertFalse(checks["nothing_changed_outside_the_package"].ok)
+
+    def test_a_report_with_nothing_outside_is_invented_and_a_run_without_the_package_is_not_judged(self):
+        checks = self.score("reference", [self.finding("README.md (modified). Restore")])
+        self.assertFalse(checks["outside_changes_reported"].ok)
+        self.assertTrue(self.score("reference", [])["outside_changes_reported"].ok)
+        other = [self.other_runner_finding("packages/greet/greet.py (modified)")]
+        self.assertTrue(self.score("reference", other)["outside_changes_reported"].ok)
+        # A live profile is not started with --package: only the delivered files are judged.
+        self.assertNotIn("outside_changes_reported", self.score("broken/edits-farewell-package", [], package=None))
 
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
@@ -4505,6 +4719,10 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_fake("reference", scenario="bugfix-trivial")
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(["approve_plan"], [row["gate"] for row in result["approvals"]], result["approvals"])
+        # #722: `--status --json` lists that approval with the person's Git identity, this host and the command.
+        (provenance,) = [check for check in result["checks"] if check["name"] == "approval provenance: task"]
+        self.assertTrue(provenance["ok"], provenance["detail"])
+        self.assertIn(f"1 recorded (plan); each one a person made names {PERSON_NAME}", provenance["detail"])
         (row,) = stats.summarize([result])
         self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
@@ -4537,6 +4755,22 @@ class FakeRunTests(unittest.TestCase):
     def test_parallel_diamond_broken_variant_is_caught(self):
         result = self.run_fake("broken/missing-edge", "parallel-diamond")
         self.assertNotEqual(verdict.PASS, result["verdict"], result["summary"])
+
+    def test_a_package_run_completes_a_change_inside_its_package(self):
+        """#711: started with --package packages/greet/ ([fake] flags, never repeated on the saved run), the
+        reference completes, and the status view reports nothing outside the package."""
+        result = self.run_fake("reference", "feature-monorepo-package")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
+
+    def test_a_package_run_reports_a_write_to_the_other_package_and_stops(self):
+        """#711: the broken variant also edits packages/farewell/. The runner names both files in an open
+        blocking finding and the run stops without completing; before #1415 it completed (FALSE_COMPLETE)."""
+        result = self.run_fake("broken/edits-farewell-package", "feature-monorepo-package")
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        failing = [row["name"] for row in result["checks"] if not row["ok"]]
+        self.assertEqual(["nothing_changed_outside_the_package"], failing, result["checks"])
+        self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
 
     def test_a_review_runs_only_the_reviewer_and_leaves_the_tree_alone(self):
         result = self.run_fake("reference", "review-clean-pr")

@@ -304,6 +304,39 @@ PR template asks for an entry here; a change without one is incomplete.
   diagnosis). `scenarios/test_escalation.py` runs both and checks that a `--builder-strong-model` the tool does not
   list refuses the new run before any model call. The scripted provider gains the two faults
   (`harness/escalation_provider.py`) and the oracle helper `escalation_checks`; no runtime change (#612).
+- The scenario harness now checks who approved each task run a scenario completes (#722, sixth part). It reads
+  `approvals` from that run's final `--status --json`. Each row a person made must name the scenario's person
+  (`Scenario Person <person@scenario.example.test>`, which every scenario project now sets in its own Git
+  configuration), this host, and a command of `autocode` and option names only. A workflow-policy row must name no
+  one. In a scenario of one run, each plan and review approval the harness gave must also be listed; the
+  conformance client now records the approvals it takes in `result.json`'s `approvals`, as the ordinary driver
+  does. A program's plan and workstream runs and a components run's architecture and component runs are checked for
+  provenance only. The `approval provenance: RUN` check sits beside `canonical evidence: RUN` in `result.json`. A
+  failure makes the verdict `FALSE_COMPLETE` when the scenario completed, and `HONEST_BLOCKER` when it stopped.
+- The scenario catalog has a two-package scenario, `feature-monorepo-package` (#711). Its seed is a repository with
+  `packages/greet/` and `packages/farewell/`, and the task adds an option to the greeting package only. The scripted
+  run is started with `--package packages/greet/`: the reference completes, and `broken/edits-farewell-package`,
+  which also edits the other package, must stop with both files named in an open blocking `runner` finding (the
+  oracle reads it from the status view). Run against AutoCode from before #1415, that variant completes and is
+  judged `FALSE_COMPLETE`. The harness no longer repeats `--package` on calls to the saved run, which the CLI
+  refuses. A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the
+  delivered files alone. A pull request that changes `tools/autocode_regression.py` or
+  `tools/autocode_build_loop.py` now also runs `tests.test_package_scope_cli`: the regression proof records a
+  launch's files outside the package and runs the package check before each review, and the build loop calls it.
+- `autocode-issue plan ISSUE` puts the plan an issue's run is waiting to have approved in a pull request, so a
+  team reviews what will be built before anything is built. It exports the plan as `autocode plan --export` writes
+  it and commits it as `plans/issue-N.md` (`--path` for another place) on branch `autocode/issue-N-<title>-plan`,
+  made from the run's base commit, without touching any checkout or the run, and writes the pull request's body.
+  `--open` pushes the branch and opens a draft pull request (`--base`, `--ready` as for `pr`). Run again after the
+  plan changes while that pull request is open, it commits the new plan on top, so the same pull request shows the
+  change; it never replaces commits it did not make (a plan branch deleted here is made again at its last plan
+  commit). Merging approves nothing: once `plan --open` has opened the plan pull request, `autocode-issue status` at
+  the approval stop prints its URL and the `autocode --goal-file` command that loads the merged file into the run,
+  until the run's plan moves past the one it carried. A merged plan pull request is never reused, even when its
+  branch was deleted with it: `plan` fetches the base branch first, and a plan that changed after the merge goes in
+  a new pull request, on `-plan-2`, made from the base branch that holds the merged file.
+  `TaskRun.export_plan(path)` is the task-run interface's way to write the plan file. `docs/workflow.md` describes
+  the team workflow. Starting a new run from the merged file is not available yet (#720).
 
 ### Changed
 

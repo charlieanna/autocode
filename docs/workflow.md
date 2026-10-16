@@ -679,6 +679,12 @@ What the package changes:
   also leaves a change outside the package `UNVERIFIED`, because the package
   suite never ran it.
 
+The `feature-monorepo-package` scenario
+([scenarios/README.md, Catalog](../scenarios/README.md#catalog)) runs a build in
+one package of a two-package repository with `--package` and the scripted
+model. Its reference completes; its broken variant, which also edits the other
+package, stops with each of those files named in the open `runner` finding.
+
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
 package. A `--test-command` in exactly that form for the run's own package, with
@@ -738,7 +744,6 @@ Not covered yet (#711):
   with the suite detected at the repository root.
 - Diff coverage and the mutation report, which never change a verdict, are not
   narrowed to a package's commands and may be skipped.
-- The `scenarios/` catalog has no two-package scenario yet.
 
 ## Reviews, discussions and designs: findings and claims shown by running code
 
@@ -980,6 +985,26 @@ names no file for it. For example:
 Plan goal hash: 3f1c… (what `autocode plan --check FILE` prints for a file holding exactly this plan).
 Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision 2; the approved plan differs from that file's plan only in the runner's records of the plan's review.
 ```
+
+### A team's plan review
+
+Put together, a team reviews a plan like this:
+
+1. **AutoCode drafts the plan.** A run stops with its plan waiting for approval. For a GitHub issue,
+   `autocode-issue start` gets it there.
+2. **A person opens a pull request with the file.** `autocode-issue plan ISSUE --open` exports the
+   plan, commits it as `plans/issue-N.md` on a branch of its own and opens a draft pull request
+   ([GitHub issues](issues.md#reviewing-the-plan-in-a-pull-request)). Without an issue, run
+   `autocode plan --export FILE`, then commit, push and open the pull request yourself.
+3. **Reviewers edit it.** They change the front matter, regenerate the text with
+   `autocode plan --render FILE` and check it with `autocode plan --check FILE`. Merging approves nothing.
+4. **The merged file goes back to the run that drafted it.** `autocode --goal-file FILE --run-dir RUN`
+   loads it as that run's next revision, and a person approves it at the approval stop as usual.
+
+Not available yet: starting a new run from the merged file (`autocode "TASK" --goal-file FILE`), for
+example on another machine or once the drafting run is gone. A plan file carries the exporting run's
+records of the plan's review, and how a new run should treat them is still to be decided (#720). Until
+then, `--goal-file` revises a saved run; it does not start one.
 
 ## Task chat message intent
 

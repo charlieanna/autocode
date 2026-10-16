@@ -5,6 +5,8 @@
     autocode-issue start ISSUE [-- OPTS]  new branch and worktree, start a task run on the issue
     autocode-issue status ISSUE           where the run stands and the exact next command
     autocode-issue continue ISSUE         relaunch the run until it needs input again
+    autocode-issue plan ISSUE [--open]    commit the plan waiting for approval as a plan file on a branch of
+                                          its own and write the PR body; --open also pushes and opens it
     autocode-issue pr ISSUE [--open]      commit the finished run's change and write the PR body;
                                           --open also pushes the branch and opens a draft PR
 
@@ -33,12 +35,14 @@ from pathlib import Path
 try:
     from . import autocode_github as github
     from . import autocode_issue_delivery as delivery
+    from . import autocode_issue_plan as issue_plan
     from . import autocode_run_finder as run_finder
     from . import autocode_util as util
     from .autocode_taskrun import TaskRun, TaskRunError
 except ImportError:
     import autocode_github as github
     import autocode_issue_delivery as delivery
+    import autocode_issue_plan as issue_plan
     import autocode_run_finder as run_finder
     import autocode_util as util
     from autocode_taskrun import TaskRun, TaskRunError
@@ -276,13 +280,26 @@ def next_steps(record: dict, view: dict) -> list[str]:
         raise ValueError("Incomplete run view has no needs record")
     kind = need["kind"]
     if kind == "approve_plan":
-        return [
+        steps = [
             "AutoCode is waiting for you to approve its plan.",
             f"  Read the plan:  autocode --show-goal {where}",
             f"  Approve it:     autocode --approve-goal {need['token']} {where}",
             f"  Or revise it:   autocode --feedback 'WHAT TO CHANGE' {where}",
-            f"  Then:           autocode-issue continue {ref}",
         ]
+        plan_pr = record.get(issue_plan.FIELD)
+        load = plan_pr and f"autocode --goal-file {Path(record['project']) / plan_pr['path']} {where}"
+        if plan_pr and merged_plan(record):
+            # A merged plan pull request is done with: while the run still waits on the plan it carried, its
+            # file is loaded; once the run's plan moved past that one, a changed plan goes in a new pull request.
+            if issue_plan.carried(plan_pr, need["token"]):
+                steps.append(f"  The plan pull request is merged; once it is pulled here, load its file: {load}")
+            else:
+                steps.append(f"  Or have it reviewed in a new pull request: autocode-issue plan {ref} --open")
+        else:
+            steps.append(f"  Or have it reviewed in a pull request: autocode-issue plan {ref} --open")
+            if plan_pr and plan_pr.get("url"):  # opened; a plan commit that was never pushed has nothing to merge
+                steps.append(f"  Once that pull request is merged here: {load}")
+        return steps + [f"  Then:           autocode-issue continue {ref}"]
     if kind == "answer":
         lines = ["AutoCode has questions for you:"]
         for question in need["questions"]:
@@ -340,6 +357,18 @@ def next_steps(record: dict, view: dict) -> list[str]:
     return [f"The run can proceed: autocode-issue continue {ref}"]
 
 
+def merged_plan(record: dict, base: str | None = None) -> str | None:
+    """The commit of the pull request's base holding the issue's plan pull request merged, or None.
+
+    Both the base branch here and its remote-tracking branch count (autocode_issue_plan.merged_into).
+    """
+    base = base or record.get("pr_base")
+    if not record.get(issue_plan.FIELD) or not base:
+        return None
+    refs = (f"refs/remotes/{record['remote']}/{base}", f"refs/heads/{base}")
+    return issue_plan.merged_into(Path(record["project"]), record, refs)
+
+
 def report(record: dict, view: dict) -> str:
     lines = [
         f"Issue:    {record['owner']}/{record['repo']}#{record['number']}: {record['title']}",
@@ -347,6 +376,8 @@ def report(record: dict, view: dict) -> str:
         f"Run:      {record.get('run_dir')}",
         f"Status:   {view['status']}" + (f" (workflow {view['workflow']})" if view.get("workflow") else ""),
     ]
+    if (record.get(issue_plan.FIELD) or {}).get("url"):
+        lines.append(f"Plan PR:  {record[issue_plan.FIELD]['url']}")
     if record.get("pr_url"):
         lines.append(f"PR:       {record['pr_url']}")
     return "\n".join(lines + [""] + next_steps(record, view)) + "\n"
@@ -434,6 +465,87 @@ def cmd_continue(args) -> int:
     if not view["done"] and view["needs"]["kind"] == "continue":
         view = run.advance_until_input()
     sys.stdout.write(report(record, view))
+    return 0
+
+
+def cmd_plan(args) -> int:
+    project = project_root(args.project)
+    record = load(project, _ref(args, project))
+    ref = f"{record['owner']}/{record['repo']}#{record['number']}"
+    run = task_run(record)
+    view = run.status()
+    if view["done"] or view["needs"]["kind"] != "approve_plan":
+        raise IssueError(
+            f"the run is not waiting for its plan to be approved (status {view['status']}); a plan pull request "
+            "is for the plan AutoCode shows for approval.\n" + "\n".join(next_steps(record, view))
+        )
+    saved = record.get(issue_plan.FIELD) or {}
+    base = args.base or record.get("pr_base")
+    if saved and base:
+        # So a merge made on GitHub counts below, with or without --open: `gh pr merge --delete-branch` also
+        # deletes the plan branch here, and a merged pull request must not be taken for one whose branch went.
+        git(project, "fetch", "-q", record["remote"], base, check=False)
+    merged = merged_plan(record, base)
+    if merged and issue_plan.carried(saved, view["needs"]["token"]):
+        raise IssueError(
+            f"the plan pull request {saved.get('url') or saved['branch']} is merged into {base}, and the run still "
+            "waits on the plan it carried; pull it here and load the merged file into the run first.\n"
+            + "\n".join(next_steps(record, view))
+        )
+    try:
+        path = issue_plan.repository_path(args.path or saved.get("path") or issue_plan.default_path(record["number"]))
+        entry = issue_plan.prepare(project, record, run, path, start=merged)
+    except ValueError as error:
+        raise IssueError(str(error)) from error
+    record[issue_plan.FIELD] = entry
+    save(project, record)
+    body = issue_plan.body(record, entry)
+    body_path = project / STORE / f"{record['slug']}-plan-pr.md"
+    body_path.write_text(body)
+    if merged:
+        print(f"The plan pull request {saved.get('url') or saved['branch']} is merged; this plan goes in a new one.")
+    print(
+        f"Plan revision {entry['revision']} (goal hash {entry['goal_hash']}) is {entry['path']} on "
+        f"{entry['branch']} at {entry['commit'][:12]}.\nPR body: {body_path}"
+    )
+    if not args.open:
+        print(
+            f"\nNothing has been pushed. To open the pull request:\n  autocode-issue plan {ref} --open\n"
+            f"or yourself:\n  git -C {project} push {record['remote']} {entry['commit']}:refs/heads/{entry['branch']}\n"
+            f"  gh pr create --repo {record['owner']}/{record['repo']} --head {entry['branch']} "
+            f"--base {base or 'BASE'} --draft --title {json.dumps(issue_plan.title(record))} --body-file {body_path}"
+        )
+        return 0
+    if not base:
+        raise IssueError("no base branch to open the pull request against; pass --base BRANCH")
+    try:
+        git(project, "push", "-q", record["remote"], f"{entry['commit']}:refs/heads/{entry['branch']}")
+    except IssueError as error:
+        raise IssueError(
+            f"{error}\nThe pull request's branch may hold commits that are not here, such as reviewers' edits; "
+            "autocode-issue never replaces them."
+        ) from None
+    if entry.get("url"):
+        print(f"Pushed. The plan pull request is {entry['url']}")
+        return 0
+    pushed_to = default_repo(project, record["remote"])
+    head_ref = (
+        entry["branch"]
+        if not pushed_to or pushed_to[0].lower() == record["owner"].lower()
+        else f"{pushed_to[0]}:{entry['branch']}"
+    )
+    pull = github.Client().open_pull_request(
+        record["owner"],
+        record["repo"],
+        head=head_ref,
+        base=base,
+        title=issue_plan.title(record),
+        body=body,
+        draft=not args.ready,
+    )
+    entry["url"] = pull.get("html_url")
+    save(project, record)
+    print(f"Opened {'a' if args.ready else 'a draft'} plan pull request: {entry['url']}")
     return 0
 
 
@@ -573,10 +685,16 @@ def parser() -> argparse.ArgumentParser:
             sub.add_argument("--pr-base", help="branch the PR will target (default: the current branch)")
     command("status", cmd_status, "show where the run stands and what to do next")
     command("continue", cmd_continue, "relaunch the run until it needs input again")
-    sub = command("pr", cmd_pr, "commit the finished change and prepare or open the pull request")
-    sub.add_argument("--open", action="store_true", help="push the branch and open the pull request")
-    sub.add_argument("--ready", action="store_true", help="open it ready for review instead of as a draft")
-    sub.add_argument("--base", help="branch the PR targets (default: the one recorded at start)")
+    for name, handler, help_text in (
+        ("plan", cmd_plan, "put the plan waiting for approval in a pull request as a plan file"),
+        ("pr", cmd_pr, "commit the finished change and prepare or open the pull request"),
+    ):
+        sub = command(name, handler, help_text)
+        sub.add_argument("--open", action="store_true", help="push the branch and open the pull request")
+        sub.add_argument("--ready", action="store_true", help="open it ready for review instead of as a draft")
+        sub.add_argument("--base", help="branch the PR targets (default: the one recorded at start)")
+        if name == "plan":
+            sub.add_argument("--path", help="where the plan file goes in the repository (default: plans/issue-N.md)")
     return top
 
 

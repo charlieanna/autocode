@@ -580,6 +580,9 @@ def run_record(driver: Driver, state: dict) -> dict:
         "provider_evidence": verdict.evidence_reports.declared(getattr(driver, "flags", [])),
         "model_stages": metrics(state)["model_stage_names"],
         "answers": driver.answers,
+        # The gates the harness passed for the person (result.json "approvals"); approval_provenance
+        # requires each plan and review approval among them to be listed in the view's approvals.
+        "approvals": approvals_of(driver),
         "cli_calls": [step["kind"] for step in driver.steps],
         "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in driver.steps],
         # AutoResolver's accepted diagnoses, oldest first, for oracles that score them (issue #59).

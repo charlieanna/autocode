@@ -393,6 +393,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Start | `autocode "BRIEF" --in-place --no-chat [options]` | 0 complete, 2 stopped for input |
 | Status | `autocode --status` | 0; prints JSON, the view is under `"view"` |
 | Display brief | `autocode --show-goal` | 0; prints the current brief for human review |
+| Export the plan as a plan file (`TaskRun.export_plan(path)`) | `autocode plan --export PATH`: the plan shown for approval, or the approved one, as the file a team reviews in a pull request ([Workflow](workflow.md#reviewing-a-plan-in-a-pull-request)); changes nothing in the run | 0 written, 2 refused (no plan yet, or the file cannot be written) |
 | Continue | `autocode --no-chat [options]` | 0 complete, 2 stopped for input |
 | Resume a pause | `autocode resume --no-chat [options]`; after editing the design at `PAUSED_DESIGN_CONFLICT`, `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
