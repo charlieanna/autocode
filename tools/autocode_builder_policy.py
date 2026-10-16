@@ -62,8 +62,8 @@ NOT_OFFERED = (
 )
 
 # The stronger attempt is the one route climb this policy spends; before it launches it is checked against the
-# person's cost cap and active-time budget (#611), so a run that cannot afford it stops with the arithmetic
-# instead of climbing and stopping at the budget afterwards.
+# person's cost cap, active-time budget and milestone budget (#611), so a run that cannot afford it stops with the
+# arithmetic instead of climbing and stopping at the budget afterwards.
 CLIMB_OVER_CAP = {"attempt": "The Builder's stronger attempt", "basis": "the last Builder attempt"}
 
 
@@ -175,12 +175,12 @@ def guard(state: RunState):
 
 
 def _climb_within_cap(state: RunState) -> None:
-    """Pause before the stronger attempt launches when it is projected past the cost cap or the active-time
-    budget you set (#611).
+    """Pause before the stronger attempt launches when it is projected past the cost cap, the active-time budget
+    you set or the milestone budget you set (#611).
 
-    The projections are the last Builder attempt's tokens at the stronger route's price and its duration
-    (autocode_climb_cap.within_budgets). Once an attempt has launched on that route the stage-boundary checks
-    govern it. No cap or budget, no earlier attempt, or a model or attempt without a price or duration never
+    The projections are the last Builder attempt's tokens at the stronger route's price and its duration, the
+    latter added to the run's and to the milestone's active time (autocode_climb_cap.within_budgets, as a writer).
+    Once an attempt has launched on that route the stage-boundary checks govern it. No cap or budget, no earlier attempt, or a model or attempt without a price or duration never
     pauses here, as an unpriced stage never trips the cap. A parallel Builder sees only its own spend and time,
     not its siblings', so it leaves the check to the serial run.
     """
@@ -199,7 +199,12 @@ def _climb_within_cap(state: RunState) -> None:
     if not attempts or all(launched.get(key) == route.get(key) for key in ("model", "reasoning_effort")):
         return
     climb_cap.within_budgets(
-        state, attempts[-1], **CLIMB_OVER_CAP, model=route.get("model"), effort=route.get("reasoning_effort")
+        state,
+        attempts[-1],
+        **CLIMB_OVER_CAP,
+        model=route.get("model"),
+        effort=route.get("reasoning_effort"),
+        writer=True,
     )
 
 

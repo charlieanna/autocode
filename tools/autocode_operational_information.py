@@ -85,7 +85,10 @@ OPERATOR_ONLY = {
     "PAUSED_COST_LIMIT": "the saved cost cap is reached, or an attempt on a stronger route is projected past it",
     "PAUSED_ITERATION_LIMIT": "the saved iteration ceiling is reached",
     "PAUSED_MILESTONE_TIME_LIMIT": "the milestone's active-time budget is reached",
-    "PAUSED_MILESTONE_BUDGET": "the milestone's active-time budget is reached",
+    "PAUSED_MILESTONE_BUDGET": (
+        "the milestone's active-time budget is reached, or a stronger Builder attempt is projected past the budget "
+        "you set"
+    ),
     "PAUSED_NO_PROGRESS": "the limit on unchanged implementation batches is reached",
     "PAUSED_REPEATED_FAILURE": "the same failure repeated on unchanged source",
     "PAUSED_BUILDER_RETRY_LIMIT": "the Builder used its configured attempts for this task",

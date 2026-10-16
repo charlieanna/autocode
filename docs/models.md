@@ -126,7 +126,9 @@ that request is priced before it launches, from the role's last attempt's tokens
 climbed route's rate; when that projection would take the spend past the cap, the run
 pauses `PAUSED_COST_LIMIT`, naming the rung and the arithmetic, instead of launching it.
 Under an [active-time budget you set](execution.md#timeouts-and-watchdog) it is timed the same
-way, from the role's last attempt's duration, and pauses `PAUSED_TIME_LIMIT` instead.
+way, from the role's last attempt's duration, and pauses `PAUSED_TIME_LIMIT` instead. A Builder
+climb is also timed against a [milestone budget you set](execution.md#milestone-checkpoints-and-acceptance),
+and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that budget.
 
 > **Note on role names.** The CLI flags keep the older tier names — `--astra-model`
 > (the per-task Planner, and the route the Resolver starts from; see above),
@@ -172,7 +174,9 @@ Under a [money cap](execution.md#money-cap) the stronger attempt is priced befor
 from the last Builder attempt's tokens at the stronger model's rate; when that projection would take
 the spend past the cap, the run pauses `PAUSED_COST_LIMIT` with the arithmetic instead of launching it.
 Under an [active-time budget you set](execution.md#timeouts-and-watchdog) it is timed from the last
-Builder attempt's duration, and pauses `PAUSED_TIME_LIMIT` when it would take the run past that budget.
+Builder attempt's duration, and pauses `PAUSED_TIME_LIMIT` when it would take the run past that budget,
+or `PAUSED_MILESTONE_BUDGET` when it would take the milestone past a
+[milestone budget you set](execution.md#milestone-checkpoints-and-acceptance).
 Explicit model pins and custom providers are never overridden. Existing saved runs
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses

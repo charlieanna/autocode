@@ -65,6 +65,11 @@ BOUND_ADVICE = {
         "After fixing the cause, raise the bound and continue in the same command with "
         "autocode resume --max-milestone-seconds N (a different N supersedes this request)."
     ),
+    "PAUSED_MILESTONE_BUDGET": (
+        "To acknowledge this milestone-budget pause, use autocode resume --max-milestone-seconds N with a "
+        "budget other than the saved one (and at least the total the stop names for a stronger Builder attempt), "
+        "or 0 for no milestone limit. Information alone or unrelated settings do not acknowledge this pause."
+    ),
 }
 # #448: information alone never admits a no-progress pause, so its advice must not end in a plain
 # resume. It names the retained count, and the saved limit only when that limit is above the count:

@@ -243,6 +243,29 @@ per role, and separately estimated elapsed time for any recorded active stage.
 These are elapsed stage durations, not billed model-compute hours or proof a recorded
 process is still alive. Ordinary stage updates also print milestone time and progress.
 
+A milestone budget you set with `--max-milestone-seconds N` is also checked before a climbed
+Builder attempt launches: the milestone's Builder escalating to its stronger model, or the Builder
+climbing a rung of its effort ladder. The attempt is projected as for the
+[active-time budget](#timeouts-and-watchdog), from the last Builder attempt's recorded duration,
+never more than the stage time limit. If the milestone's counted time so far plus that projection
+would pass `N`, the run stops with `PAUSED_MILESTONE_BUDGET` before the attempt starts, instead of
+launching it and stopping at the next writer launch with that time spent. The stop names the climb,
+the projection, the milestone's time so far, the total and the budget to resume with, for example
+`The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of
+active time, the last Builder attempt's duration, it would take this milestone's active time from
+650 s to 1,250 s, past the 1,000 s milestone budget you set ... resume with --max-milestone-seconds
+1250 or more`. The climb stays saved, so `--resume-paused --max-milestone-seconds M` with `M` at
+least that total launches that same attempt; that resume also restarts the milestone's count, as
+it always does. Reasserting the saved budget alone does not acknowledge this pause; any other
+`M`, or `0` for no limit, does, and the attempt is then checked against `M` from the restarted
+count. Only the Builder is checked against this budget, since it gates writer launches; a Tester or
+Completion Reviewer climb is not. The new-run default and a budget delegated with
+`--autoresolver-managed-limits` are not projected and keep only the check at the writer launch, as
+do a progressive run's slice budget and a last attempt without a recorded duration. When a climb
+would also cross the cost cap or the run's active-time budget, that stop comes first. Once the
+climbed attempt has launched, the writer-launch check governs it, and a parallel Builder leaves this
+check to the serial run.
+
 The saved milestone replan limit defaults to one changed-approach replan. Set
 `--max-milestone-replans 0` on a saved-run resume to allow further evidence-backed
 changed-approach cycles within the same approved milestone. This does not change its
@@ -739,7 +762,9 @@ it follows. The new-run default and a budget delegated with `--autoresolver-mana
 projected, because Resolver may extend them once at the stage boundary; for them, and when the last
 attempt has no recorded duration, only the stage-boundary check applies, as before. When a climb would cross both
 the cost cap and this budget, the cost stop comes first. Once the climbed attempt has launched, the
-stage-boundary check governs it, and a parallel Builder leaves this check to the serial run.
+stage-boundary check governs it, and a parallel Builder leaves this check to the serial run. A Builder's
+climb is then checked against a milestone budget you set
+([Milestone checkpoints](#milestone-checkpoints-and-acceptance)).
 Runs created before these defaults keep the limits they saved. Saved stage limits are preserved,
 including an existing five-minute cap or an explicit zero; use
 `--max-stage-seconds 0` to deliberately remove a saved hard cap. Saved runs gain

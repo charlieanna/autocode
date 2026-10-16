@@ -1,4 +1,4 @@
-"""A climbed attempt is checked against the person's cost cap and active-time budget before it launches (#611).
+"""A climbed attempt is checked against the person's cost cap and time budgets before it launches (#611).
 
 autocode_escalation climbs a struggling role one rung on its effort ladder and records the climb in
 `reasoning_escalations`; the role's next request is the first attempt on the climbed rung. The serial build
@@ -9,19 +9,27 @@ from the role's last attempt and checks it against the run's budgets (within_bud
   (autocode_cost.crossing). Past the cap, the run pauses PAUSED_COST_LIMIT.
 - the active-time budget (`--max-seconds`, when you set it): the last attempt's recorded duration, never more
   than the stage time limit that would stop it (time_crossing). Past the budget, the run pauses PAUSED_TIME_LIMIT.
+- for a Builder attempt only, the milestone budget (`--max-milestone-seconds`, when you set it): the same
+  projection added to the current milestone's counted time (milestone_crossing). Past the budget, the run pauses
+  PAUSED_MILESTONE_BUDGET. That budget gates writer launches only (autocode_milestones.dispatch_guard), so a
+  Tester's or Completion Reviewer's climb is not checked against it.
 
 Each stop names the rung and the arithmetic, instead of climbing and stopping at the budget afterwards. The
 climb stays saved, so resuming with a cap or budget of at least the one the stop names lets that attempt run.
 The Builder retry policy's stronger attempt has the same checks (autocode_builder_policy.guard calls
-within_budgets). When both budgets would be crossed, the cost stop comes first.
+within_budgets). When more than one would be crossed, the cost stop comes first, then the run's active time.
 
 No cap or budget, no earlier attempt on the role, a model without a rate or an attempt without token counts or
 a duration never pause here, as an unpriced stage never trips the cap. A runner-default or delegated active-time
 budget is not projected: the stage-boundary check and AutoResolver's one-time extension govern it, as before.
+A runner-default or delegated milestone budget is not projected either: the writer-launch check
+(autocode_milestones.check_budget) governs it, as before. Nor is a progressive run's slice budget, which has its
+own check (autocode_progressive_state.check_local_budget).
 Once the climbed attempt has launched, the stage-boundary checks govern it. A parallel Builder sees only its own
 spend and time, so it leaves the checks to the serial run.
 
-Pure over saved state but for the pause it raises; imports only autocode_cost, autocode_roles and autocode_util.
+Pure over saved state but for the pause it raises; imports only autocode_cost, autocode_milestone_scope,
+autocode_roles and autocode_util.
 """
 
 from __future__ import annotations
@@ -35,10 +43,12 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_cost as cost
+    from . import autocode_milestone_scope as milestone_scope
     from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_cost as cost
+    import autocode_milestone_scope as milestone_scope
     import autocode_roles as roles
     import autocode_util as util
 
@@ -136,11 +146,89 @@ def time_stop(over, *, attempt, basis, model, effort=None):
     )
 
 
-def within_budgets(state: RunState, last, *, attempt, basis, model, effort=None) -> None:
+def milestone_budget_seconds(settings):
+    """The milestone active-time budget in seconds when you set it (`--max-milestone-seconds N`) with milestone
+    checkpoints on, else None.
+
+    None for checkpoints off, no budget (absent or 0), and the runner's default or a budget delegated to
+    AutoResolver (`--autoresolver-managed-limits`): those are left to the writer-launch check
+    (autocode_milestones.check_budget), which pauses once the milestone's time reaches them, as before.
+    """
+    settings = settings if isinstance(settings, dict) else {}
+    checkpoints = (
+        settings.get("milestone_checkpoints") if isinstance(settings.get("milestone_checkpoints"), dict) else {}
+    )
+    origins = settings.get("budget_origins") if isinstance(settings.get("budget_origins"), dict) else {}
+    value = _seconds(checkpoints.get("max_seconds"))
+    if checkpoints.get("enabled") is not True or origins.get("milestone_max_seconds") != "user_explicit":
+        return None
+    return value or None
+
+
+def milestone_crossing(state: RunState, record):
+    """The arithmetic when one more Builder attempt, projected from `record` (projected_seconds), would take the
+    current milestone's counted active time past the milestone budget you set: {"projected", "held", "used",
+    "total", "budget"}, or None.
+
+    None when there is no such budget, when a progressive run's slice budget governs instead (the condition under
+    which `--resume-paused --max-milestone-seconds` does not restart the count), when the current task is not on
+    the approved contract or its milestone has no saved row yet (as autocode_milestones.progress reads it; the row
+    is never created here), with no projection, and when the attempt fits within the budget.
+    """
+    settings = state.get("settings") if isinstance(state, dict) else None
+    limit = milestone_budget_seconds(settings)
+    if limit is None:
+        return None
+    progressive = state.get("progressive")
+    if isinstance(progressive, dict) and progressive.get("budget"):
+        return None
+    task = state.get("current_task") or {}
+    if not task or task.get("contract_hash") != (state.get("goal_contract") or {}).get("hash"):
+        return None
+    row = (state.get("milestone_progress") or {}).get(milestone_scope.key(state))
+    projected = projected_seconds(settings, record)
+    if not isinstance(row, dict) or projected is None:
+        return None
+    used = _seconds(row.get("seconds")) or 0
+    total = used + projected["seconds"]
+    if total <= limit:
+        return None
+    return {"projected": projected["seconds"], "held": projected["held"], "used": used, "total": total, "budget": limit}
+
+
+# The stop reason when milestone_crossing() refuses a climbed Builder attempt, beside CLIMB_OVER_TIME.
+CLIMB_OVER_MILESTONE = (
+    "{attempt} ({route}) did not launch: projected at {projected} of active time, {basis}'s duration{held}, it "
+    "would take this milestone's active time from {used} to {total}, past the {budget} milestone budget you set. "
+    "AutoCode never raises a budget you set; resume with --max-milestone-seconds {needed} or more (0 for no limit), "
+    "which also restarts this milestone's count, to make this attempt"
+)
+
+
+def milestone_stop(over, *, attempt, basis, model, effort=None):
+    """The stop reason for a climbed Builder attempt that `over` (milestone_crossing) refused, worded like
+    time_stop, with the total rounded up to a whole second as the budget to resume with.
+
+    That total is always above the budget you set, so resuming with it never lowers that budget and is a change
+    of it: reasserting the saved milestone budget alone does not acknowledge PAUSED_MILESTONE_BUDGET. It admits
+    the attempt even before `--resume-paused --max-milestone-seconds M` restarts the milestone's count
+    (autocode_action_recovery), after which the attempt is checked against M from 0 s."""
+    return CLIMB_OVER_MILESTONE.format(
+        attempt=attempt,
+        route=f"{model} at {effort} effort" if effort else model,
+        basis=basis,
+        held=f", held to the {_shown(over['held'])} stage time limit" if over.get("held") else "",
+        **{key: _shown(over[key]) for key in ("projected", "used", "total", "budget")},
+        needed=math.ceil(over["total"]),
+    )
+
+
+def within_budgets(state: RunState, last, *, attempt, basis, model, effort=None, writer=False) -> None:
     """Pause before a climbed attempt on `model` launches when its projection from `last`, the job's last
-    finished attempt, would take the spend past the cost cap (PAUSED_COST_LIMIT) or the active time past the
-    budget you set (PAUSED_TIME_LIMIT). `attempt` names the climbed attempt and `basis` the attempt it is
-    projected from, as in the stop reason."""
+    finished attempt, would take the spend past the cost cap (PAUSED_COST_LIMIT), the active time past the
+    budget you set (PAUSED_TIME_LIMIT) or, for a `writer` (Builder) attempt, the milestone's active time past the
+    milestone budget you set (PAUSED_MILESTONE_BUDGET). `attempt` names the climbed attempt and `basis` the attempt
+    it is projected from, as in the stop reason."""
     over = cost.crossing(state, model, last)
     if over:
         raise util.Paused(
@@ -150,6 +238,11 @@ def within_budgets(state: RunState, last, *, attempt, basis, model, effort=None)
     if late:
         raise util.Paused(
             "PAUSED_TIME_LIMIT", time_stop(late, attempt=attempt, basis=basis, model=model, effort=effort)
+        )
+    spent = milestone_crossing(state, last) if writer else None
+    if spent:
+        raise util.Paused(
+            "PAUSED_MILESTONE_BUDGET", milestone_stop(spent, attempt=attempt, basis=basis, model=model, effort=effort)
         )
 
 
@@ -192,8 +285,9 @@ def pending(state: RunState, role):
 
 
 def guard(state: RunState, stage, role) -> None:
-    """Pause before `stage` launches on `role`'s climbed rung when the attempt is projected past the cost cap or
-    the active-time budget (within_budgets), naming the job, the rung and the arithmetic."""
+    """Pause before `stage` launches on `role`'s climbed rung when the attempt is projected past the cost cap, the
+    active-time budget or, for the Builder, the milestone budget (within_budgets), naming the job, the rung and the
+    arithmetic."""
     if state.get("parent_run"):
         return
     climb = pending(state, role)
@@ -209,4 +303,5 @@ def guard(state: RunState, stage, role) -> None:
         basis=f"the last {roles.screen_name(last.get('stage'), state)} attempt",
         model=model,
         effort=effort,
+        writer=stage == "terra",
     )
