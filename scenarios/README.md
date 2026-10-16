@@ -275,6 +275,16 @@ provider.
 names and runs every other stage live; its mode is `NAME-hybrid`
 ([Hybrid runs](#hybrid-runs)).
 
+A fake run uses the Codex engine. `test_contained_opencode.py` runs
+`greenfield-greeting-cli` on the OpenCode engine instead, inside Linux bubblewrap
+(#709). It puts the checked fake OpenCode client (`tools/fake_opencode.py`, copied,
+never imported) on `PATH` beside the scripted model, which the client runs as its
+`codex`, and sets `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1` so the runner contains
+its Builder, Tester and Completion Reviewer. Then it checks the oracle's verdict and
+the status view's `tool_containment` and `tool_containment_backend`. Without a working
+bubblewrap, as `autocode doctor --json` reports it, the test skips, or fails in CI on
+Linux ([Conformance in CI](../docs/execution.md#conformance-in-ci)).
+
 ## Verdicts
 
 | Verdict | Meaning |

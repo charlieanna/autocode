@@ -179,6 +179,14 @@ module skips without a working bubblewrap; as root, drop the capabilities as des
 [host requirements](#host-requirements-for-tests). Without those variables the fake is
 unchanged.
 
+`scenarios/test_contained_opencode.py` is the scenario harness's counterpart. It runs the
+`greenfield-greeting-cli` scenario on that fake OpenCode client, with the harness's scripted
+model as the client's `codex`, so the scenario's oracle judges a build whose Builder, Tester
+and Completion Reviewer ran contained. It reads `tool_containment` and
+`tool_containment_backend` from `--status --json`. It asks `autocode doctor --json` whether
+the boundary is available. Without it, the test skips, except in CI on Linux, where it fails:
+the suite job installs bubblewrap before the scenario harness runs.
+
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 

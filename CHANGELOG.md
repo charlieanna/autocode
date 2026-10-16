@@ -297,6 +297,14 @@ PR template asks for an entry here; a change without one is incomplete.
   after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
   work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
   judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- The scenario harness runs a fake OpenCode build inside the Linux bubblewrap boundary (#709).
+  `scenarios/test_contained_opencode.py` runs `greenfield-greeting-cli` on the fake OpenCode client, with the
+  harness's scripted model behind it and `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1`, so its Builder, Tester and
+  Completion Reviewer launch contained. It checks that the scenario's oracle passes, that the run completes, and
+  that `--status --json` says `tool_containment: "contained"` and names `bubblewrap` and the version
+  `autocode doctor` reports. The test asks `autocode doctor --json` whether the boundary is available. Without
+  it, the test skips, except in CI on Linux, where it fails; the suite job installs bubblewrap before the scenario
+  harness runs. Only tests change.
 
 ### Changed
 
