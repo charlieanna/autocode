@@ -50,7 +50,8 @@ Preview remembers a loopback app address per project in this browser. Open
 Preview from any conversation in that project to reuse it. Existing task-level
 addresses remain available. The dashboard starts no development server; start your
 app separately, or with `autocode serve start` for a run whose project names `serve`
-([Development server](cli.md#development-server)), and enter its address once. A completed code-changing step
+([Development server](cli.md#development-server)), which restarts it on the same address after each code
+change, and enter its address once. A completed code-changing step
 refreshes the preview; ordinary status polling preserves the running frame.
 
 A Validator image reference appears in chat beside its requirement and recorded

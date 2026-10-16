@@ -25,6 +25,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode serve start` restarts the run's development server after each code-changing step the run applies, on
+  the same port when it can, and leaves it running through pauses and completion. A server that exits or never
+  answers is shown with its last output and started again after the next code change, unless the run has
+  completed. `dev_server` in the status view gains `restarts`, `code_checkpoint` and `waiting` (#730).
 - `autocode serve start|stop|status` runs a saved run's development server from its `serve` command (#730): in the
   foreground on a free loopback port, under the same process supervision as a test command and without the
   environment's credentials, until Ctrl-C or `autocode serve stop`. `autocode --status` shows it as

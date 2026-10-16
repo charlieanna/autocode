@@ -1,7 +1,8 @@
 """`autocode serve`: run a saved run's development server in the foreground, stop it, or show it (#730).
 
 The command is the project's ``serve`` setting, saved with the run when it started (autocode_dev_server_config);
-autocode_dev_server runs it. Nothing here starts, resumes or changes the run itself.
+autocode_dev_server runs it, restarts it after each code change the run applies and, when it fails, waits for the
+next one. Nothing here starts, resumes or changes the run itself.
 """
 
 from __future__ import annotations
@@ -93,7 +94,9 @@ def _start(_args, workspace, run_dir, state: RunState) -> int:
     signals = [signal.SIGINT, signal.SIGTERM, *([signal.SIGHUP] if hasattr(signal, "SIGHUP") else [])]
     previous = {number: signal.signal(number, lambda *_: stop.set()) for number in signals}
     try:
-        record = dev_server.serve(run_dir, workspace, saved, should_stop=stop.is_set, on_ready=_announce)
+        record = dev_server.serve(
+            run_dir, workspace, saved, should_stop=stop.is_set, on_ready=_announce, on_wait=_waiting
+        )
     finally:
         for number, handler in previous.items():
             signal.signal(number, handler)
@@ -106,8 +109,21 @@ def _start(_args, workspace, run_dir, state: RunState) -> int:
 
 
 def _announce(record) -> None:
+    if record.get("restarts"):
+        print(f"Serving {record['url']} again after a code change ({record['code_checkpoint']}).", flush=True)
+        return
     print(f"Serving {record['url']} ({record['command']}).", flush=True)
     print("Stop it with Ctrl-C or: autocode serve stop", flush=True)
+
+
+def _waiting(record) -> None:
+    print(f"Development server {record['status']}: {record['reason']}.", file=sys.stderr)
+    _print_tail(record)
+    print(
+        "Waiting for the run's next code change; stop it with Ctrl-C or: autocode serve stop",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def _stop(args, _workspace, run_dir, _state) -> int:
