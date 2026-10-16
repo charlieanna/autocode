@@ -455,7 +455,8 @@ current, and something the options do not cover goes in `--feedback` (`/feedback
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. The terminal CLI also shows the remaining question IDs and
 current Resolver token on stderr after each successful answer and on `--status`, and `--status`
-also prints the run's cost line there (`Cost: ...`, from the view's `cost`);
+also prints the run's cost line there (`Cost: ...`, from the view's `cost`), then, when the run has
+escalated, one `Escalations: ...` line and a line per escalation (from the view's `escalations`);
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
@@ -683,6 +684,37 @@ once. A null amount is unknown, never zero: `estimated_usd` and `reported_usd` a
 has that basis, and `spent_usd` is null when no stage is known at all; while `complete` is false,
 `spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`.
+
+`escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
+stamped on them (`passed`, `paused`, `open`). `escalations` lists each escalation the run made, oldest
+first (`tools/autocode_escalation_view.py`, #612): a role's climb on its effort ladder (`kind`
+`effort_climb`) and the Builder's stronger attempt (`stronger_attempt`; see
+[Models](models.md#builder-retry-policy)). Each row has the route `role` that moved, the `stage` that
+struggled and its `job` as the screen names it, `at`, `trigger` (`validation_rework`,
+`rejected_output`, `no_progress` or `abandoned_attempt` for a climb, `execution_failure` for the
+stronger attempt), `detail`, `struggle_id`, `task_id`, the route it climbed `from` and `to` (`model`,
+`reasoning_effort`, `profile`), `deferred_by_parallel_builder` (a parallel Builder left the stronger
+attempt to this run, which made it serially), `attempts`, `cost` and `outcome`:
+
+- `attempts` are the role's stage records launched on the route it climbed to, from the escalation
+  until the first of: a validation after it that passed (that attempt included), or the role
+  escalating again the same way (its next climb, the Builder's next stronger attempt). The running
+  one is included (`active`). A climb lasts for the rest of the run, so a later milestone's attempts
+  on the climbed rung count until one of those ends it.
+- `cost` prices those attempts as `cost` prices a stage: `usd` (reported plus estimated),
+  `reported_usd`, `estimated_usd`, `unpriced_attempts` and `complete`. An attempt with no usage record
+  is unpriced, never zero: `usd` is then a floor (`complete` false), or null when no attempt is priced.
+  An escalation whose attempt never launched (a cost-cap or time-budget stop before it) cost `0`.
+- `outcome` is `passed`, `failed_again`, `paused` or `running`, and `outcome_basis` says what decided
+  it, the first that applies: the first decisive record after it (`validation`: a validation of its
+  work passed; `later_escalation`: the role climbed again, or the milestone made another stronger
+  attempt), the outcome the runner stamped on it (`recorded`: a validation PASS, or the Builder's
+  retry-limit pause), the latest validation after its attempt failing or blocked (`validation`), else
+  the run's status now (`run_status`: complete is `passed`, running is `running`, any pause, wait or
+  stop is `paused`). It is a projection of saved records, so it can change as the run continues.
+
+A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
+does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.
 
 `progress` is how far the run has got, counted only from saved records
 (`tools/autocode_progress_view.py`; added by `autocode --status`, which supplies

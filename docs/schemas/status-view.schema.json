@@ -24,7 +24,7 @@
         "acceptance_tests", "usage", "cost", "progress", "delivery", "liveness", "controller", "recovery",
         "verification", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
-        "escalation_outcomes", "request_context", "output_transport", "direct_rework_assignments", "routes",
+        "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
         "efficiency", "conversation"
       ],
@@ -97,6 +97,57 @@
         "replay_progress": {"type": ["object", "null"]},
         "replay_result": {"type": ["object", "null"]},
         "escalation_outcomes": {"type": ["object", "null"]},
+        "escalations": {
+          "type": "array",
+          "description": "Each escalation the run made, oldest first (#612): a role's climb on its effort ladder or the Builder's stronger attempt, with the role and stage it was for, the route it climbed from and to, its escalated attempts and what they cost, and how it ended. Empty when the run made none (docs/task-run.md#status-view).",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind", "role", "stage", "job", "at", "trigger", "detail", "struggle_id", "task_id", "from", "to",
+              "deferred_by_parallel_builder", "attempts", "cost", "outcome", "outcome_basis"
+            ],
+            "properties": {
+              "kind": {"type": "string", "enum": ["effort_climb", "stronger_attempt"]},
+              "role": {"type": "string", "description": "The route role whose route moved (a settings.roles key: sol, terra, completion, resolver)."},
+              "stage": {"type": ["string", "null"], "description": "The stage that struggled, else the first escalated attempt's; null when neither is recorded."},
+              "job": {"type": ["string", "null"], "description": "That stage's job as the screen names it (Tester, Builder, ...)."},
+              "at": {"type": ["string", "null"]},
+              "trigger": {"type": ["string", "null"], "description": "What set it off: validation_rework, rejected_output, no_progress or abandoned_attempt for a climb; execution_failure for the stronger attempt."},
+              "detail": {"type": ["string", "null"]},
+              "struggle_id": {"type": ["string", "null"]},
+              "task_id": {"type": ["string", "null"]},
+              "from": {"type": "object", "required": ["model", "reasoning_effort", "profile"]},
+              "to": {"type": "object", "required": ["model", "reasoning_effort", "profile"]},
+              "deferred_by_parallel_builder": {"type": "boolean", "description": "True when a parallel Builder left this stronger attempt to the parent run, which made it serially."},
+              "attempts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["stage", "iteration", "started_at", "active", "cost_usd", "basis"],
+                  "properties": {
+                    "active": {"type": "boolean"},
+                    "cost_usd": {"type": ["number", "null"]},
+                    "basis": {"type": "string", "enum": ["reported", "estimated", "unknown", "running"], "description": "The provider's reported cost, tokens at the dated table, unpriced, or still running."}
+                  }
+                }
+              },
+              "cost": {
+                "type": "object",
+                "required": ["usd", "reported_usd", "estimated_usd", "unpriced_attempts", "complete"],
+                "description": "What the escalated attempts cost at the dated price table, as the view's `cost` prices a stage. A null amount is unknown, never zero; while `complete` is false, `usd` is a floor.",
+                "properties": {
+                  "usd": {"type": ["number", "null"]},
+                  "reported_usd": {"type": ["number", "null"]},
+                  "estimated_usd": {"type": ["number", "null"]},
+                  "unpriced_attempts": {"type": "integer"},
+                  "complete": {"type": "boolean"}
+                }
+              },
+              "outcome": {"type": "string", "enum": ["passed", "failed_again", "paused", "running"]},
+              "outcome_basis": {"type": "string", "enum": ["validation", "later_escalation", "recorded", "run_status"]}
+            }
+          }
+        },
         "request_context": {"type": ["object", "null"]},
         "output_transport": {"type": ["object", "null"]},
         "direct_rework_assignments": {"type": "array"},

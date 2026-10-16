@@ -71,7 +71,11 @@ first model call ([Builder retry policy](#builder-retry-policy) covers the stron
 attempt). Each
 escalation later records how it ended — a validation PASS `passed`, a
 retry-limit pause `paused` — and `autocode --status` summarizes that as
-`escalation_outcomes`.
+`escalation_outcomes`. It also lists each escalation as a row of `escalations`
+(a climb, or the Builder's stronger attempt): the job and stage it was for, the
+route it climbed from and to, what its escalated attempts cost, and whether the
+work then passed, failed again, paused or is still running, with one line each on
+stderr ([status view](task-run.md#status-view)).
 The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
 are on no ladder: they keep their configured route, and a verifier that keeps
 struggling pauses the run instead. The Builder instead gets its

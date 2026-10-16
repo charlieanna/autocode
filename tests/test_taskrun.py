@@ -103,6 +103,7 @@ class RunViewTests(unittest.TestCase):
                 "tool_containment_backend",
                 "package",
                 "escalation_outcomes",
+                "escalations",
                 "job_report_recovery",
                 "verification_obligation",
                 "evidence_report",

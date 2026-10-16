@@ -1,5 +1,6 @@
 """The money cap end to end (#721): it pauses at the cap for you and continues only when you raise it. A climbed
-attempt is also checked against the active-time budget you set before it launches (#611)."""
+attempt is also checked against the active-time budget you set before it launches (#611), and `--status` shows
+each climb with what its attempts cost and how it ended (#612)."""
 
 import json
 import math
@@ -12,7 +13,9 @@ import unittest
 from pathlib import Path
 
 import autocode_cost as cost
+import autocode_prices as prices
 import autocode_taskrun as taskrun
+import autocode_util as util
 
 from . import test_build_blackbox as bb
 
@@ -187,6 +190,50 @@ class ClimbCapBlackbox(unittest.TestCase):
             [("gpt-6-sol", "high"), ("gpt-6-sol", "xhigh")],
             [(row["model"], row["reasoning_effort"]) for row in launched],
         )
+
+    def test_status_shows_the_climb_with_its_stage_routes_cost_and_how_it_ended(self):
+        """#612: the Tester's climb is listed in the view (`--status --json`) and in words on stderr: the job and
+        stage it was for, the route it climbed from and to, what the climbed attempt cost and how it ended."""
+        self.climb()
+        # Before the climbed attempt launches, the climb has no attempt, has cost nothing and the run goes on.
+        [row] = self.status()["view"]["escalations"]
+        self.assertEqual(([], 0.0, "running"), (row["attempts"], row["cost"]["usd"], row["outcome"]))
+        # The climbed attempt runs, and the Tester's check fails again.
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        shown = self.invoke("autocode", ["--run-dir", str(self.run), "--status", "--json"])
+        payload = json.loads(shown.stdout)
+        util.validate_schema(payload, json.loads((TOOLS.parent / "docs/schemas/status-view.schema.json").read_text()))
+        view = payload["view"]
+        [row] = view["escalations"]
+        self.assertEqual(
+            ("effort_climb", "sol", "sol", "Tester", "validation_rework"),
+            (row["kind"], row["role"], row["stage"], row["job"], row["trigger"]),
+        )
+        self.assertEqual({"model": "gpt-6-sol", "reasoning_effort": "high", "profile": "GPT-6 Sol High"}, row["from"])
+        self.assertEqual({"model": "gpt-6-sol", "reasoning_effort": "xhigh", "profile": "GPT-6 Sol XHigh"}, row["to"])
+        climbed = [record for record in self.state()["stages"] if record["stage"] == "sol"][-1]
+        self.assertEqual(
+            ("gpt-6-sol", "xhigh"), (climbed["launch_route"]["model"], climbed["launch_route"]["reasoning_effort"])
+        )
+        self.assertEqual(
+            [(climbed["started_at"], "estimated", False)],
+            [(one["started_at"], one["basis"], one["active"]) for one in row["attempts"]],
+        )
+        # The fixture's 10 input and 10 output tokens at GPT-6 Sol's dated price.
+        spent = round(prices.estimate("gpt-6-sol", {"input_tokens": 10, "output_tokens": 10}), 6)
+        self.assertEqual(
+            {"usd": spent, "reported_usd": None, "estimated_usd": spent, "unpriced_attempts": 0, "complete": True},
+            row["cost"],
+        )
+        self.assertEqual(("failed_again", "validation"), (row["outcome"], row["outcome_basis"]))
+        # The older summary still counts the climb as open: no PASS or retry-limit pause stamped it.
+        self.assertEqual({"passed": 0, "paused": 0, "open": 1}, view["escalation_outcomes"])
+        for line in (
+            "Escalations: 1 (1 failed again).",
+            f"  Tester: GPT-6 Sol High → GPT-6 Sol XHigh after validation rework; 1 attempt, {cost.usd(spent)}; "
+            "failed again.",
+        ):
+            self.assertIn(line, shown.stderr.splitlines())
 
     def advance_clock(self, stage, seconds):
         """The fake clock. The fixture's stages take a fraction of a real second and --max-seconds counts whole
