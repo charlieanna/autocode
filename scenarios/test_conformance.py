@@ -84,6 +84,24 @@ class ClientDecisionTests(unittest.TestCase):
         with self.assertRaisesRegex(ConformanceGap, "name a model"):
             self.client.decide(need, ["--answer", "route-terra=MODEL"])
 
+    def test_each_approval_it_takes_is_a_gate_passed_for_the_person(self):
+        """Recorded as the ordinary driver records its own (result.json "approvals"), so the approval
+        provenance check (#722) matches each one to a row of the final view."""
+        review = ["--approve-review", "C1", "--approve-review", "C2", "--review-token", "-"]
+        with mock.patch.object(self.client, "call") as call:
+            self.client.take(view(token="r2:abc"), ["--approve-goal", "-"], {}, "next_command")
+            self.client.take(view("review", token="rt", criteria=["C1", "C2"]), review, {}, "next_command")
+            self.client.take(view("answer"), ["--answer", "Q1=Use UTC"], {}, "next_command")
+        self.assertEqual(3, call.call_count)
+        self.assertEqual(
+            [
+                {"gate": "approve_plan", "token": "r2:abc"},
+                {"gate": "review", "criterion": "C1", "token": "rt"},
+                {"gate": "review", "criterion": "C2", "token": "rt"},
+            ],
+            self.client.approvals,
+        )
+
     def test_an_operational_request_continues_only_through_a_named_retry(self):
         operational = view(
             "answer", "autocode --resolver-message 'WHAT CHANGED'", resolver_scope="operational_exhaustion"
@@ -260,6 +278,12 @@ class LifecycleScenarioTests(unittest.TestCase):
             ["interrupted", "feedback"], [row["did"] for row in journal if row["did"] in ("interrupted", "feedback")]
         )
         self.assertIn("needs.retry_action", [row["source"] for row in journal])
+        # #722: each plan approval the client took is listed in the final view with the person's provenance.
+        taken = [row for row in journal if row["did"] == "took" and "--approve-goal" in row["what"].split()]
+        self.assertEqual(len(taken), sum(gate["gate"] == "approve_plan" for gate in result["approvals"]))
+        self.assertGreaterEqual(len(taken), 2)
+        (provenance,) = [check for check in result["checks"] if check["name"] == "approval provenance: task"]
+        self.assertTrue(provenance["ok"], provenance["detail"])
 
 
 if __name__ == "__main__":
