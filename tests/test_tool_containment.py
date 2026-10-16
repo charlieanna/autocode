@@ -346,10 +346,20 @@ class PolicyTests(unittest.TestCase):
     def autocode_children(module):
         """The names a tools/ module's code joins directly under a .autocode directory.
 
-        Read from its syntax tree, so comments, docstrings and help text do not count: a string such
-        as ".autocode/worktrees" or Path(".autocode/arena"), or a name joined onto X / ".autocode",
-        Path(".autocode") or keep_out_of_git(X), which returns X/.autocode.
+        Read from its syntax tree, and only from code that builds a path: Path(".autocode/arena"),
+        X / ".autocode/worktrees", or a name joined onto X / ".autocode", Path(".autocode") or
+        keep_out_of_git(X), which returns X/.autocode. Comments, docstrings, help text, messages and
+        any other string do not count.
         """
+
+        def call(node, name):
+            """The positional constants of a keyword-free call of ``name``, else None."""
+            if not isinstance(node, ast.Call) or node.keywords:
+                return None
+            called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+            if called != name:
+                return None
+            return [argument.value if isinstance(argument, ast.Constant) else None for argument in node.args]
 
         def is_autocode(node):
             if isinstance(node, ast.BinOp):
@@ -358,24 +368,25 @@ class PolicyTests(unittest.TestCase):
                     and isinstance(node.right, ast.Constant)
                     and node.right.value == ".autocode"
                 )
-            if not isinstance(node, ast.Call) or node.keywords:
-                return False
-            called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
-            values = [argument.value if isinstance(argument, ast.Constant) else None for argument in node.args]
-            return (called, values) == ("Path", [".autocode"]) or (called == "keep_out_of_git" and len(values) == 1)
+            return call(node, "Path") == [".autocode"] or len(call(node, "keep_out_of_git") or ()) == 1
 
         names = set()
         for node in ast.walk(ast.parse((ROOT / "tools" / f"{module}.py").read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith(".autocode/"):
-                names.add(node.value.split("/")[1])
-            elif (
+            if (
                 isinstance(node, ast.BinOp)
                 and isinstance(node.op, ast.Div)
                 and isinstance(node.right, ast.Constant)
                 and isinstance(node.right.value, str)
-                and is_autocode(node.left)
             ):
-                names.add(node.right.value.split("/")[0])
+                if is_autocode(node.left):
+                    names.add(node.right.value.split("/")[0])
+                    continue
+                spelled = [node.right.value]
+            else:
+                spelled = call(node, "Path") or []
+            names.update(
+                value.split("/")[1] for value in spelled if isinstance(value, str) and value.startswith(".autocode/")
+            )
         return names
 
     def test_each_private_store_is_the_directory_its_owners_make(self):
@@ -2150,6 +2161,14 @@ class KernelTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed") as caught:
             containment.verify(repinned)
         self.assertNotIn("made after", str(caught.exception))
+        # So is one whose profile is pinned again without the run store's denial too. That boundary does
+        # leave the store readable, but the store holds this run, so the refusal still does not call it new.
+        unruled = self.without_denial(original, reads, str(runs))
+        profile.write_bytes(unruled)
+        with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed") as caught:
+            containment.verify({**repinned, "profile_sha256": hashlib.sha256(unruled).hexdigest()})
+        self.assertNotIn("made after", str(caught.exception))
+        profile.write_bytes(original)
 
     def test_native_planning_boundary_verification_requires_each_private_store(self):
         # #1250: each existing private store is its own denial. A profile pinned again without any
@@ -2212,6 +2231,25 @@ class KernelTests(unittest.TestCase):
         self.assertEqual(
             ("PAUSED_TOOL_CONTAINMENT", containment.DENIAL_CHANGED), (caught.exception.status, str(caught.exception))
         )
+        # So is one whose proof is pinned again to match it: a matching proof can be rewritten with the
+        # record. The pinned profile still denies that store, so the refusal does not say it was made since.
+        proof = Path(boundary["conformance"])
+        retained = proof.read_bytes()
+
+        def verify_with_repinned_proof():
+            reduced = json.loads(retained)
+            reduced["private_reads"].update(dropped["private_reads"])
+            proof.write_text(json.dumps(reduced))
+            repinned = {**dropped, "conformance_sha256": hashlib.sha256(proof.read_bytes()).hexdigest()}
+            try:
+                with self.assertRaises(util.Paused) as caught:
+                    containment.verify(repinned)
+            finally:
+                proof.write_bytes(retained)
+            return caught.exception
+
+        pause = verify_with_repinned_proof()
+        self.assertEqual(("PAUSED_TOOL_CONTAINMENT", containment.DENIAL_CHANGED), (pause.status, str(pause)))
         # A private store first made after the profile was rendered is not covered by it, so
         # verify() refuses the launch, naming that store and only that one.
         (late / "0123").mkdir(parents=True)
@@ -2221,6 +2259,8 @@ class KernelTests(unittest.TestCase):
         with self.assertRaises(util.Paused) as caught:
             containment.verify(dropped)
         self.assertEqual(containment.DENIAL_CHANGED, str(caught.exception))
+        # Beside that new store, the re-pinned record without the denied store is still not reported as new.
+        self.assertEqual(containment.DENIAL_CHANGED, str(verify_with_repinned_proof()))
         with self.assertRaises(util.Paused) as caught:
             provider_launch.verify_containment({"tool_containment": boundary})
         self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
