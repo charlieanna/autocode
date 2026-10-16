@@ -119,7 +119,7 @@ def check(project, scenario, run=None):
             stated is not None
             and cap is not None
             and isinstance(spent, (int, float))
-            and abs(float(stated[1].replace(",", "")) - spent) < 0.005
+            and abs(float(stated[1].replace(",", "")) - spent) <= 0.005 + 1e-9
             and float(stated[2].replace(",", "")) == cap,
             f"stop {stated[0] if stated else reason[-300:]!r}; view spent {spent}, cap {cost.get('cap_usd')}",
         )

@@ -704,6 +704,8 @@ class RecoveryPacketTests(unittest.TestCase):
             ({"max_cost_usd": 20}, ". Cost: $1.75 so far; cap $20.00. "),
             ({}, ". "),
             ({"max_cost_usd": 7}, ". Cost: $1.75 so far; cap $7.00. "),
+            ({"max_cost_usd": 1e-7}, ". Cost: $1.75 so far; cap under $0.000001. "),
+            ({"max_cost_usd": 7}, ". Cost: $1.75 so far; cap $7.00. "),
         ):
             with self.subTest(limits=limits):
                 self.state["settings"]["limits"] = limits

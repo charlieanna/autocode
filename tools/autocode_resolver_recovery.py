@@ -1514,7 +1514,7 @@ def hold_stop(state: RunState, reason):
 
 
 # The spend hold_stop states after a hold's reason: with a cap, `cost.line` ends "; cap $N." (#611).
-_STATED_SPEND = re.compile(r"\. Cost: .*?; cap \$[\d,]+\.\d+\.")
+_STATED_SPEND = re.compile(r"\. Cost: .*?; cap (?:under )?\$[\d,]+\.\d+\.")
 
 
 def restate_hold(state: RunState):
