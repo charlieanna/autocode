@@ -9,9 +9,11 @@ of the person at the terminal: the Git identity every scenario project configure
 (``project.PERSON_NAME``, ``project.PERSON_EMAIL``), this machine's host name, and the
 command as ``autocode`` with option names only (and the ``resume`` command word), never
 their values. A row approved under the workflow policy names no person and must carry no
-provenance. In a scenario of one task run, each plan and review approval the harness gave
-it (``Driver.approvals``, which the conformance client records too) must be listed among
-them, so a view that lists nothing cannot pass for a run that was approved. The runs of a
+provenance. In a scenario of one task run, each plan approval (by token) and review
+approval (by criterion) the harness gave it (``Driver.approvals``, which the conformance
+client records too), and each budget pause the scenario's person acknowledged (``[fake]
+acknowledge``, by the pause status its ``resume`` row names), must be listed among them, so a
+view that lists nothing cannot pass for a run that was approved or resumed. The runs of a
 program or components scenario are checked for provenance only: one list holds the gates
 the harness gave all of them, so none is matched to a row.
 
@@ -56,7 +58,7 @@ def views(run):
 def problems(view: dict, gates=(), *, host: str | None) -> list[str]:
     """Why ``view``'s ``approvals`` does not show the person's provenance for each approval; empty when it does.
 
-    ``gates`` are the harness's own records of what it approved for this run (``Driver.approvals``);
+    ``gates`` are the harness's own records of what it approved or acknowledged for this run (``Driver.approvals``);
     ``host`` is this machine's host name as AutoCode records it."""
     rows = view.get("approvals")
     if not isinstance(rows, list):
@@ -100,6 +102,10 @@ def problems(view: dict, gates=(), *, host: str | None) -> list[str]:
             row.get("kind") == "review" and row.get("criterion") == gate.get("criterion") for row in made
         ):
             found.append(f"the harness approved the review of {gate.get('criterion')}, which no review row lists")
+        elif gate.get("gate") == "acknowledge" and not any(
+            row.get("kind") == "resume" and row.get("pause_status") == gate.get("pause") for row in made
+        ):
+            found.append(f"the harness acknowledged {gate.get('pause')}, which no resume row lists")
     return found
 
 

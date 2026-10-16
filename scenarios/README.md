@@ -139,7 +139,10 @@ requires:
 - a row approved under the workflow policy to name no one;
 - in a scenario of one run, each plan and review approval the harness gave
   (`approvals` above, recorded by the ordinary driver and the
-  [conformance](#conformance) client alike) to be listed. The runs of a program
+  [conformance](#conformance) client alike) to be listed: a plan row with the
+  plan's token and a review row with the criterion. Each budget pause the
+  scenario's person acknowledged (`[fake] acknowledge`) must be listed too, as a
+  `resume` row whose `pause_status` names that pause. The runs of a program
   or components scenario share one `approvals` list, so they are checked for
   provenance only.
 
