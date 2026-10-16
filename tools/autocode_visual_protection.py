@@ -727,6 +727,7 @@ class NativeProtection:
         _require(not processes.live_processes(originals), "original native root/keeper/descendants remain live")
         length_hash = None
         authentication = state.get("status") == "PAUSED_PROVIDER_UNCERTAIN"
+        unparsed = state.get("status") == "PAUSED_INVALID_OUTPUT"
         absent_auth_reports = []
         if authentication:
             _require(
@@ -751,6 +752,24 @@ class NativeProtection:
             _require(
                 not any(path.exists() or path.is_symlink() for path in absent_auth_reports),
                 "authentication rejection has a response or report; explicit uncertain reconciliation is still required",
+            )
+        if unparsed:
+            _require(
+                receipt.get("cause") in ("provider_stopped", "controller_finished")
+                and record.get("engine") == "opencode"
+                and record.get("timed_out") is False
+                and not record.get("report_only")
+                and not self._safe(record["output"]).exists()
+                and not record.get("supervision_errors"),
+                "unparsed launch contradicts its original collected supervisor",
+            )
+            output = self._safe(record["output"])
+            absent_auth_reports = [output, output.with_suffix(".reported.json"), output.with_suffix(".response.txt")]
+            if record.get("reported_output"):
+                absent_auth_reports.append(self._safe(record["reported_output"]))
+            _require(
+                not any(path.exists() or path.is_symlink() for path in absent_auth_reports),
+                "unparsed launch has a response or report; explicit uncertain reconciliation is still required",
             )
         if state.get("status") == output_cap.STATUS:
             _require(
@@ -807,7 +826,9 @@ class NativeProtection:
         self._pins(pins)
         _require(
             not any(path.exists() or path.is_symlink() for path in absent_auth_reports),
-            "authentication response appeared while reconciling the error-only stop",
+            "report appeared while reconciling the unparsed launch"
+            if unparsed
+            else "authentication response appeared while reconciling the error-only stop",
         )
         _require(snapshot == self._fresh_snapshot(rows), "source changed while reconciling the timeout")
         retained.update(rejected=True, abandoned=True)
@@ -3205,25 +3226,49 @@ class NativeProtection:
             self._source_continuity(snapshot)
 
     def _planning_matches(self, record, candidate, snapshot):
+        is_repair = bool(
+            record.get("report_only") and record.get("original_stage", record.get("stage")) == "plan_finalize"
+        )
+        stage_valid = (
+            (record.get("original_stage") == "plan_finalize" or record["stage"] == "plan_finalize")
+            if is_repair
+            else record["stage"] == "plan_finalize" and not record.get("report_only")
+        )
         _require(
             candidate["settings"]["planning_flow"] == "v2"
             and not _contract_approved(candidate)
             and candidate.get("current_task") is None
-            and record["stage"] == "plan_finalize"
+            and stage_valid
             and record["exit_code"] == 0
             and not any(
-                record.get(key)
-                for key in ("report_only", "report_repaired", "timed_out", "interrupted", "dry_run", "rejected")
+                record.get(key) for key in ("report_repaired", "timed_out", "interrupted", "dry_run", "rejected")
             ),
             "initial planning authority needs the original successful v2 final native stage",
         )
-        _rows, original, stopped = self._finished_for(history.record_identity(record))
+        launch_record = dict(record)
+        if is_repair:
+            launch_record.pop("applied_original_events", None)
+        _rows, original, stopped = self._finished_for(history.record_identity(launch_record))
         _require(
             original["body"]["grants"] == []
             and original["body"]["binding"]["source"] == snapshot == stopped["body"]["after"]
             and original["body"]["binding"]["settings"] == candidate["settings"],
             "final native planning stage lost original readonly source/settings",
         )
+        if is_repair:
+            failed = [
+                row
+                for row in _rows
+                if row["kind"] == "finished"
+                and row["body"]["record"]["stage"] == "plan_finalize"
+                and row["body"]["record"].get("rejected") is True
+            ]
+            _require(len(failed) >= 1, "repaired final native planning stage has no original failed launch in journal")
+            original_failed = failed[-1]
+            _require(
+                original_failed["body"]["after"] == snapshot,
+                "original failed final planning stage had different source",
+            )
         self._pins(stopped["body"]["pins"])
         report = _json(self._safe(record["output"], file=True).read_bytes())
         events = self._safe(record["events"], file=True).read_bytes()
