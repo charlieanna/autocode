@@ -298,13 +298,15 @@ def view(state: RunState) -> dict:
 
     A copy of saved records, never a recomputation: a value the run has not decided, or saved malformed, is None
     (or 0 / False for the counters), so an old or corrupt checkpoint still has a view."""
-    settings = state.get("settings")
-    workflow = state.get("workflow") if isinstance(state.get("workflow"), dict) else {}
-    planning = state.get("planning") if isinstance(state.get("planning"), dict) else {}
-    record = planning.get("adaptive") if isinstance(planning.get("adaptive"), dict) else {}
+
+    def mapping(value: object) -> dict:
+        return value if isinstance(value, dict) else {}
+
+    workflow = mapping(state.get("workflow"))
+    record = mapping(mapping(state.get("planning")).get("adaptive"))
     limit, challenges = record.get("review_limit"), record.get("challenges")
     return {
-        "adaptive": isinstance(settings, dict) and bool(settings.get(SETTING)),
+        "adaptive": bool(mapping(state.get("settings")).get(SETTING)),
         "clarity": workflow.get("clarity") if workflow.get("clarity") in CLARITY else None,
         "requirements_skipped": workflow.get("requirements_skipped")
         if isinstance(workflow.get("requirements_skipped"), bool)
