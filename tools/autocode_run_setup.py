@@ -49,6 +49,7 @@ try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
     from . import autocode_package_scope as package_scope
+    from . import autocode_package_writes as package_writes
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
@@ -91,6 +92,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
     import autocode_package_scope as package_scope
+    import autocode_package_writes as package_writes
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
@@ -367,8 +369,11 @@ def resolve(runner, args, parser):
             state["base_commit"] = None
         elif created or fresh or args.dry_run or args.status or args.explain:
             state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
+            if created or fresh:  # a package run's launch record: {} in a new project or task worktree
+                package_writes.at_launch(state, workspace, getattr(args, "package", None))
         else:
-            state["base_commit"] = launch_base(workspace, run_dir, parser)
+            state["base_commit"] = None  # until launch_base saves it
+            launch_base(state, workspace, run_dir, parser, getattr(args, "package", None))
         if args.ui_run:
             state["ui_run"] = str(args.ui_run.resolve())
         if args.legacy_iteration_ceiling is None and args.max_iterations is not None:
@@ -405,16 +410,17 @@ def resolve(runner, args, parser):
     return workspace, run_dir, state_path, state
 
 
-def launch_base(workspace, run_dir, parser):
-    """A new in-place run's base_commit (regression.launch_base), taken while this run holds the
-    checkout. None while another run's agents hold it: its unfinished edits are not this run's
-    start, so the build loop records the base once this run holds the checkout."""
+def launch_base(state: RunState, workspace, run_dir, parser, package=None):
+    """Save a new in-place run's base_commit (regression.start), taken while this run holds the
+    checkout, with what a package run's checkout holds outside the package that the base cannot.
+    Left unset while another run's agents hold it: its unfinished edits are not this run's start,
+    so the build loop records the base once this run holds the checkout."""
     task_workspaces.keep_out_of_git(workspace)
     try:
         with checkout_lock.exclusive(workspace, run_dir):
-            return regression.launch_base(workspace, run_dir)
+            regression.start(state, workspace, run_dir, package)
     except checkout_lock.CheckoutBusy:
-        return None
+        return
     except RuntimeError as error:
         parser.error(f"cannot record the checkout's uncommitted and untracked files as the run's start: {error}")
 

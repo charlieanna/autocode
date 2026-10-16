@@ -68,14 +68,15 @@ try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_mutation_check as mutation_check
     from . import autocode_package_scope as package_scope
+    from . import autocode_package_writes as package_writes
     from . import autocode_regression_selection as selection
+    from . import autocode_run_base as run_base
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
     from . import autocode_test_cases as test_cases
     from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
     from . import autocode_verify as verify
-    from . import autocode_workspaces as workspaces
     from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
     import autocode_base_patch as operator_patch
@@ -85,14 +86,15 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_mutation_check as mutation_check
     import autocode_package_scope as package_scope
+    import autocode_package_writes as package_writes
     import autocode_regression_selection as selection
+    import autocode_run_base as run_base
     import autocode_runner_check as runner_check
     import autocode_status as status
     import autocode_test_cases as test_cases
     import autocode_util as util
     import autocode_verification_schedule as schedule
     import autocode_verify as verify
-    import autocode_workspaces as workspaces
     import autocode_wrapped_runner as wrapped_runner
 
 STAGE = "regression_proof"
@@ -189,34 +191,9 @@ def cases(state: RunState, *, all_due=False):
     return test_cases.proof_cases(state, all_due=all_due)
 
 
-def base_commit(state: RunState, workspace):
-    """The revision the run started from: saved at run creation, else the task worktree's base,
-    else the HEAD its first stage recorded (runs created before base_commit was saved)."""
-    if state.get("base_commit"):
-        return state["base_commit"]
-    try:
-        saved = (workspaces.metadata(workspace) or {}).get("base_commit")
-    except ValueError:
-        saved = None
-    return saved or _first_recorded_head(state, workspace)
-
-
-def _first_recorded_head(state: RunState, workspace):
-    first = next((record["before_ref"] for record in state.get("stages") or [] if record.get("before_ref")), None)
-    try:
-        start = util.read(first).get("head") if first else None
-    except (OSError, ValueError, AttributeError):
-        return None
-    # A commit the current source no longer descends from (a rebase, a reset) cannot be its base.
-    if (
-        start
-        and subprocess.run(
-            ["git", "-C", str(workspace), "merge-base", "--is-ancestor", start, "HEAD"], capture_output=True
-        ).returncode
-        == 0
-    ):
-        return start
-    return None
+# The run's base moved to autocode_run_base, so the package check (autocode_package_writes) reads it
+# without importing the proof; callers keep reading it here.
+base_commit = run_base.base_commit
 
 
 def head(workspace):
@@ -249,6 +226,13 @@ def launch_base(workspace, run_dir):
     with contextlib.suppress(RuntimeError, ValueError, OSError):
         _drop_finished_launch_refs(workspace)  # housekeeping only: the next launch tries again
     return commit
+
+
+def start(state: RunState, workspace, run_dir, package=None):
+    """Save a new in-place run's base_commit (launch_base); a package run (``package``, else the saved
+    one) also records what its checkout holds outside the package (autocode_package_writes.at_launch)."""
+    state["base_commit"] = launch_base(workspace, run_dir)
+    package_writes.at_launch(state, workspace, package)
 
 
 def _drop_finished_launch_refs(workspace):
@@ -648,6 +632,7 @@ def _proving(
             cases=due,
             candidate_tree=kept[-1],
             package=package_scope.of(state.get("settings")),
+            package_exempt=package_writes.exempt(state, workspace, base),
             **rooted(options),
         )
         path = out / "verification.json"
@@ -1011,9 +996,14 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
 
 
 def before_review(state: RunState, stage, workspace, run_dir):
-    """Refresh proof before independent validation or completion review in either dispatch path."""
+    """Refresh proof before independent validation or completion review in either dispatch path.
+
+    A package run's candidate is first checked for changes outside its package, whether or not a proof
+    is owed: they are a runner finding (autocode_package_writes)."""
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     runner_check.clear(state, run_dir, status.persist)
+    if stage in package_writes.STAGES:
+        package_writes.check(state, workspace)
     # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).

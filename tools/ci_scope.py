@@ -44,6 +44,14 @@ NATIVE_CHECKS = (
     "tests/test_native_check_",
     "tests/test_native_initial_callers",
 )
+# A fake OpenCode CLI run whose stages launch contained (#709): only linux-tool-containment
+# requires it to run, under bubblewrap, without skipping.
+CONTAINED_FAKE_CLI = (
+    "tools/fake_opencode.py",
+    "tests/opencode_fixture_cli.py",
+    "tests/test_contained_fake_cli",
+    "tests/test_containment_policy_cli",
+)
 LIFECYCLE = (
     *PLATFORM,
     "tools/autocode_completion",
@@ -123,6 +131,8 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
                 selected[job] = True
         if path.startswith(NATIVE_CHECKS):
             selected["macos"] = True
+        if path.startswith(CONTAINED_FAKE_CLI):
+            selected["linux"] = True
         if (
             path.startswith("tools/")
             or path.startswith("tests/installed_")

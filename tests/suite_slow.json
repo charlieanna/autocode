@@ -1,4 +1,5 @@
 {
+  "tests.test_contained_fake_cli": "Two real CLI fake OpenCode runs to completion, one with its Builder, Tester and Completion Reviewer contained under bubblewrap and one uncontained control (55 s locally in a Linux cloud container, one module at a time); skips without a working bubblewrap, 2026-10-16",
   "tests.test_required_approver_cli": "Two real CLI fake-provider runs under a project require-approver: refused and then accepted plan and review approvals by flag and in the terminal conversation, each to completion (32 s locally in a Linux cloud container), 2026-10-16",
   "tests.test_approval_provenance_cli": "Five real CLI fake-provider runs: plan approval by flag and in the terminal conversation, a goal edit and an autocode resume, a resume a kept pause request holds, and an iteration-limit resume, each to the human review or completion (45 s locally, Linux cloud container at load average about 5), 2026-10-15",
   "tests.test_agent_step": "Two real CLI runs through the agent step's command line: the offline fixture provider (question, plan approval, completion, evidence) and a scenario-fake review of an uncommitted change (its recorded evidence); 27 s locally in a Linux cloud container, 49-66 s when it was loaded, 2026-10-15",
@@ -9,7 +10,7 @@
   "tests.test_capacity_scenario": "Two real CLI capacity-recovery catalog runs plus oracle controls; 32.431 s locally on macOS, 2026-10-13",
   "tests.test_resolver_recommendation_cli": "Seven real CLI Resolver correction and approval controls; initial six-case qualification took 33.211 s locally on macOS, 2026-10-13",
   "tests.test_terminal_review_cli": "Four real CLI human-review controls (31.211 s locally on macOS), 2026-10-13",
-  "tests.test_package_scope_cli": "Real CLI fake-provider runs with --package in a two-package repository: two to completion or refusal, and the launch checks (57-111 s for the module locally, loaded Linux cloud container), 2026-10-15",
+  "tests.test_package_scope_cli": "Real CLI fake-provider runs with --package in a two-package repository: five to completion or refusal, the launch checks and a task-worktree launch (57-111 s for the module locally, loaded Linux cloud container, 2026-10-15; 96-114 s with five runs, 2026-10-16)",
   "tests.test_lazy_validator_refusal": "Two full fake CLI runs of greenfield-todo-cli (~25 s locally), 2026-10-12",
   "tests.test_investigator_route": "Public TaskRun Investigator quota/reroute and completion controls; whole10 measured53.582s in development qualification.",
   "tests.test_build_blackbox": "106 s in CI (Ubuntu, one module at a time), 2026-09-29",
@@ -19,7 +20,7 @@
   "tests.test_multicomponent": "104 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_component_design": "50 s locally (macOS); real CLI approval/resume, integration and design-drift cases, 2026-10-01",
   "tests.test_subprocess": "45 s in CI (Ubuntu, one module at a time), 2026-09-29",
-  "tests.test_builder_policy": "37 s in CI (Ubuntu, one module at a time), 2026-09-29",
+  "tests.test_builder_policy": "37 s in CI (Ubuntu, one module at a time), 2026-09-29; 324 s for 61 tests locally (Linux cloud container, shared 4-CPU host, load average 4), 2026-10-16, with three fake-Codex runs whose stronger Builder attempt pauses before it launches, past the cost cap, the active-time budget and the milestone budget (#611; the milestone one 19-27 s alone)",
   "tests.test_catalogue_t14": "26 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_command_flow": "25 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_human_publication": "25 s in CI (Ubuntu, one module at a time), 2026-09-29",

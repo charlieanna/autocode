@@ -167,6 +167,10 @@ def rendered_cases():
                 "context/protected-tests",
                 json.dumps(protected_oracles.context({"protected_tests": record}, ["tests/"]), sort_keys=True),
             )
+        # A package run's Builder is told its write scope (#711).
+        state = fixed_state()
+        state["settings"]["package"] = "packages/greeting"
+        add("package/terra", stage_context.context_packet(state, "terra", STATE_PATH))
         previous = {
             "revision": 1,
             "design_under_review": "docs/design.md",

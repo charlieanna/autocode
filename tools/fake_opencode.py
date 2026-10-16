@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
-"""Offline OpenCode event protocol fixture; never calls an actual provider."""
+"""Offline OpenCode event protocol fixture; never calls an actual provider.
 
+AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1 (tests only, #709) lets the runner contain its launches
+in the real kernel tool boundary: --version reports the conformance-tested 1.18.33, and the
+model-free `debug agent` checks the runner makes before a contained launch are answered, each
+`--tool bash` command running through the boundary shell the runner configured. Only those
+commands and a Builder write planted with AUTOCODE_FIXTURE_SHELL_ESCAPE go through that shell:
+the scripted Codex delegate's edits and checks below still run as ordinary processes, so this
+is no proof of OpenCode's own tool dispatch. Without these variables nothing here changes.
+"""
+
+import fnmatch
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -10,8 +21,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+QUALIFIED = os.environ.get("AUTOCODE_FIXTURE_QUALIFIED_OPENCODE") == "1"
 if sys.argv[1:] == ["--version"]:
-    print("1.18.31")
+    print("1.18.33" if QUALIFIED else "1.18.31")
     raise SystemExit(0)
 if sys.argv[1:] == ["models"]:
     print(
@@ -24,6 +36,38 @@ if sys.argv[1:] == ["auth", "list"]:
     print("● OpenAI " + os.environ.get("AUTOCODE_FIXTURE_OPENAI_AUTH", "oauth"))
     print("● Z.AI Coding Plan api")
     raise SystemExit(0)
+if QUALIFIED and sys.argv[1:3] == ["debug", "agent"]:
+    # The agent OpenCode would run: its default allow first, then this agent's own permission
+    # entries, the last matching rule winning (tool_containment.shell_permissions reads them).
+    agent = sys.argv[3]
+    config = json.loads(os.environ["OPENCODE_CONFIG_CONTENT"])
+    rules = [{"permission": "*", "pattern": "*", "action": "allow"}]
+    for name, value in config["agent"][agent].get("permission", {}).items():
+        patterns = value.items() if isinstance(value, dict) else [("*", value)]
+        rules.extend({"permission": name, "pattern": pattern, "action": action} for pattern, action in patterns)
+    if "--tool" not in sys.argv:
+
+        def enabled(tool):
+            matching = [
+                rule for rule in rules if rule["pattern"] == "*" and fnmatch.fnmatchcase(tool, rule["permission"])
+            ]
+            return matching[-1]["action"] != "deny"
+
+        tools = ("bash", "read", "edit", "write", "glob", "grep", "list", "webfetch", "task", "todowrite")
+        print(json.dumps({"name": agent, "permission": rules, "tools": {tool: enabled(tool) for tool in tools}}))
+        raise SystemExit(0)
+    assert sys.argv[sys.argv.index("--tool") + 1] == "bash"
+    params = json.loads(sys.argv[sys.argv.index("--params") + 1])
+    ran = subprocess.run(
+        [config.get("shell") or os.environ["SHELL"], "-c", params["command"]],
+        cwd=params["workdir"],
+        capture_output=True,
+        text=True,
+        timeout=params["timeout"] / 1000,
+    )
+    reply = {"output": ran.stdout + ran.stderr, "metadata": {"exit": ran.returncode}}
+    print(json.dumps({"input": {"command": params["command"]}, "result": reply}))
+    raise SystemExit(0)
 
 assert sys.argv[1] == "run"
 assert sys.argv[sys.argv.index("--format") + 1] == "json"
@@ -32,6 +76,9 @@ agent = sys.argv[sys.argv.index("--agent") + 1]
 config = json.loads(os.environ["OPENCODE_CONFIG_CONTENT"])
 assert config["share"] == "disabled"
 permissions = config["agent"][agent]["permission"]
+if QUALIFIED:
+    # A contained launch's shape (tool_containment.shell_permissions): "*" denies every tool but bash.
+    permissions = {**dict.fromkeys(("task", "question", "edit"), permissions.get("*")), **permissions}
 assert permissions["task"] == "deny" and permissions["question"] == "deny"
 if agent != "autocode_terra":
     assert permissions["edit"] == "deny"
@@ -57,6 +104,9 @@ else:
     # context-free report repairs, rather than deriving fields from the handoff.
     try:
         contract = prefix.rsplit("\nOPENCODE OUTPUT CONTRACT\n", 1)[1]
+        if QUALIFIED:
+            # A contained launch follows the contract with its boundary (provider_launch.containment_prompt).
+            contract = contract.split("\nNATIVE TOOL BOUNDARY:", 1)[0]
         start = contract.index("\n{") + 1
         output_schema, end = json.JSONDecoder().raw_decode(contract[start:])
         if not isinstance(output_schema, dict) or contract[start + end :].strip():
@@ -78,6 +128,27 @@ def emit(kind, part):
 
 
 emit("step_start", {"id": "prt_start", "type": "step-start"})
+planted = os.environ.get("AUTOCODE_FIXTURE_SHELL_ESCAPE")
+if planted and agent == "autocode_terra":
+    # A Builder shell write outside the workspace, through the shell this launch was given.
+    planted_command = ": > " + shlex.quote(planted)
+    shell = config.get("shell") or os.environ.get("SHELL") or "/bin/sh"
+    ran = subprocess.run([shell, "-c", planted_command], capture_output=True, text=True, timeout=30)
+    emit(
+        "tool_use",
+        {
+            "id": "prt_planted_escape",
+            "type": "tool",
+            "tool": "bash",
+            "callID": "call_planted_escape",
+            "state": {
+                "status": "completed",
+                "input": {"command": planted_command},
+                "metadata": {"exit": ran.returncode},
+                "output": ran.stdout + ran.stderr,
+            },
+        },
+    )
 # The provider's content filter refuses this stage on the named model: the model's own
 # words, a final content-filter finish and a clean exit, with no error event (#464).
 refused_stage = os.environ.get("AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE")

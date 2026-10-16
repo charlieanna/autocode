@@ -65,7 +65,23 @@ BOUND_ADVICE = {
         "After fixing the cause, raise the bound and continue in the same command with "
         "autocode resume --max-milestone-seconds N (a different N supersedes this request)."
     ),
+    "PAUSED_MILESTONE_BUDGET": (
+        "To acknowledge this milestone-budget pause, use autocode resume --max-milestone-seconds N with a "
+        "budget other than the saved one (and at least the total the stop names for a stronger Builder attempt), "
+        "or 0 for no milestone limit. Information alone or unrelated settings do not acknowledge this pause."
+    ),
 }
+# A progressive run's slice budget pauses with the same status (autocode_progressive_state.check_local_budget),
+# naming the ceilings it spent: `local_seconds`, the slice's, set by --max-milestone-seconds, and `run_seconds`, the
+# run's, set by --max-seconds. A resume does not restart the slice's count (autocode_action_recovery), and only
+# --max-milestone-seconds acknowledges the pause (autocode_pause_authority.PAUSE_BUDGET_KIND). advice() gives that
+# stop this text in place of BOUND_ADVICE's, which names neither (slice_budget_governs).
+SLICE_BUDGET_ADVICE = (
+    "To acknowledge this progressive slice-budget pause, use autocode resume --max-milestone-seconds N with N above "
+    "the slice's counted time, which a resume does not restart, or 0 for no slice limit. When the stop names "
+    "run_seconds, the run's own ceiling is spent too: add --max-seconds M above the run's counted time (0 for no "
+    "limit) to that command. Information alone or other settings do not acknowledge this pause."
+)
 # #448: information alone never admits a no-progress pause, so its advice must not end in a plain
 # resume. It names the retained count, and the saved limit only when that limit is above the count:
 # reasserting a limit at or below the count is refused (0 is offered as no cap either way).
@@ -178,11 +194,19 @@ def no_progress_advice(state: RunState) -> str:
     return NO_PROGRESS_ADVICE.format(count=count, saved=saved)
 
 
+def slice_budget_governs(state: RunState | None) -> bool:
+    """Whether a progressive run's slice budget, not the milestone budget, governs ``state``'s
+    PAUSED_MILESTONE_BUDGET: the condition autocode_action_recovery and autocode_climb_cap read."""
+    record = state.get("progressive") if state else None
+    return isinstance(record, dict) and bool(record.get("budget"))
+
+
 def advice(*, allow_grant, pause_status=None, attempt=None, state: RunState | None = None, cause=None):
     """The recovery-exhaustion next step. Never names a command the CLI will refuse.
 
     A PAUSED_NO_PROGRESS stop names its bound only with ``state`` whose limit caused it
-    (no_progress_bound_holds; ``cause`` is the error being published).
+    (no_progress_bound_holds; ``cause`` is the error being published). A PAUSED_MILESTONE_BUDGET stop
+    under a progressive run's slice budget (slice_budget_governs) names that budget's controls.
     """
     if allow_grant:
         return GRANT_ADVICE
@@ -190,7 +214,8 @@ def advice(*, allow_grant, pause_status=None, attempt=None, state: RunState | No
         text = no_progress_advice(cast("RunState", state))
         return text if not attempt else f"{text} {abandon_advice(attempt)}"
     if pause_status in BOUND_ADVICE:
-        text = BOUND_ADVICE[pause_status]
+        slice_stop = pause_status == "PAUSED_MILESTONE_BUDGET" and slice_budget_governs(state)
+        text = SLICE_BUDGET_ADVICE if slice_stop else BOUND_ADVICE[pause_status]
         return text if not attempt else f"{text} {abandon_advice(attempt)}"
     if attempt:
         # #340: after provide_information a plain resume holds; the working step is abandon.

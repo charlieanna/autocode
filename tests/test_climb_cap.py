@@ -1,5 +1,5 @@
-"""A role's climb on its effort ladder is checked against the cost cap and the active-time budget before its
-attempt launches (#611)."""
+"""A role's climb on its effort ladder is checked against the cost cap, the active-time budget and, for the
+Builder, the milestone budget before its attempt launches (#611)."""
 
 import unittest
 
@@ -70,6 +70,30 @@ def timed(budget, *, took=600, used=650, origin="user_explicit", stage_limit=360
     state["settings"]["budget_origins"] = {"max_seconds": origin}
     state["stages"][-1]["duration_seconds"] = took
     state["active_seconds"] = used
+    return state
+
+
+def built(budget, *, took=600, used=650, origin="user_explicit"):
+    """A run whose Builder built milestone M1 once on GPT-6 Sol Medium for `took` seconds, failed, and climbed to
+    High, with `used` seconds counted on M1 so far under a milestone budget of `budget` seconds that `origin` set.
+    Its Tester checked once on GPT-6 Sol High for as long and climbed to XHigh too."""
+    builder = attempt(route("medium"), stage="terra", role="terra", started_at=EARLIER, duration_seconds=took)
+    state = {
+        "settings": {
+            "engine": "codex",
+            "roles": {"terra": route("medium"), "sol": route("high")},
+            "limits": {"stage_timeout_seconds": 3600},
+            "milestone_checkpoints": {"enabled": True, "max_seconds": budget},
+            "budget_origins": {"milestone_max_seconds": origin},
+        },
+        "goal_contract": {"hash": "contract"},
+        "current_task": {"id": "task1", "milestone_id": "M1", "contract_hash": "contract"},
+        "milestone_progress": {"contract:M1": {"id": "M1", "contract_hash": "contract", "seconds": used}},
+        "stages": [builder, tested("high", started_at=EARLIER, duration_seconds=took)],
+    }
+    for role, rung in (("terra", "GPT-6 Sol High"), ("sol", "GPT-6 Sol XHigh")):
+        event = escalation.advance(state, role, trigger="validation_rework", detail="FAIL: Version prints 1")
+        assert event and event["selected"]["profile"] == rung, event
     return state
 
 
@@ -353,6 +377,84 @@ class ClimbTimeTests(unittest.TestCase):
         self.assertIn("past the $0.006 cost cap", stop(state, "sol", "sol"))
         state["settings"]["limits"]["max_cost_usd"] = 0.01
         self.assertIn("past the 1,000 s active-time budget", stop(state, "sol", "sol", "PAUSED_TIME_LIMIT"))
+
+
+class ClimbMilestoneTests(unittest.TestCase):
+    """A Builder's climb, projected against the milestone budget you set with --max-milestone-seconds."""
+
+    def test_a_builder_climb_projected_past_the_milestone_budget_pauses_before_its_attempt_launches(self):
+        # Used: 650 s on M1. Projected: the Medium attempt's 600 s. 1,250 s > the 1,000 s milestone budget.
+        state = built(1000)
+        self.assertEqual(
+            "The Builder's climb to GPT-6 Sol High (gpt-6-sol at high effort) did not launch: projected at 600 s of "
+            "active time, the last Builder attempt's duration, it would take this milestone's active time from 650 s "
+            "to 1,250 s, past the 1,000 s milestone budget you set. AutoCode never raises a budget you set; resume "
+            "with --max-milestone-seconds 1250 or more (0 for no limit), which also restarts this milestone's count, "
+            "to make this attempt",
+            stop(state, "terra", "terra", "PAUSED_MILESTONE_BUDGET"),
+        )
+        # The climb stands: a budget that admits the total, none, or a restarted count lets that attempt launch.
+        self.assertEqual(route("high"), state["settings"]["roles"]["terra"])
+        for budget, used in ((1250, 650), (0, 650), (1000, 0)):
+            with self.subTest(budget=budget, used=used):
+                climb_cap.guard(built(budget, used=used), "terra", "terra")
+        # The projection is held to the stage time limit.
+        self.assertIn(
+            "projected at 3,600 s of active time, the last Builder attempt's duration, held to the 3,600 s stage time "
+            "limit, it would take this milestone's active time from 0 s to 3,600 s, past the 1,000 s milestone budget "
+            "you set. AutoCode never raises a budget you set; resume with --max-milestone-seconds 3600 or more",
+            stop(built(1000, took=3700, used=0), "terra", "terra", "PAUSED_MILESTONE_BUDGET"),
+        )
+
+    def test_the_milestone_budget_gates_only_the_builder(self):
+        # The Tester's climb, with the same milestone numbers: that budget gates writer launches only.
+        state = built(1000)
+        self.assertIsNotNone(climb_cap.pending(state, "sol"))
+        climb_cap.guard(state, "sol", "sol")
+        self.assertEqual(
+            {"projected": 600, "held": None, "used": 650, "total": 1250, "budget": 1000},
+            climb_cap.milestone_crossing(state, state["stages"][-1]),
+        )
+
+    def test_only_a_milestone_budget_you_set_on_the_current_milestone_is_projected(self):
+        disabled = built(1000)
+        disabled["settings"]["milestone_checkpoints"]["enabled"] = False
+        progressive = built(1000)
+        progressive["progressive"] = {"version": 1, "budget": {"run_limit": 3600}}
+        revised = built(1000)
+        revised["current_task"]["contract_hash"] = "superseded"
+        # The 600 s projection alone passes 500 s, so projecting M2 from 0 s without its row would pause.
+        unassigned = built(500)
+        unassigned["current_task"]["milestone_id"] = "M2"
+        launched = built(1000)
+        launched["stages"].append(attempt(route("high"), stage="terra", role="terra", duration_seconds=600))
+        for name, state in (
+            ("runner default", built(1000, origin="runner_default")),
+            ("delegated", built(1000, origin="resolver_delegated")),
+            ("no limit", built(0)),
+            ("checkpoints off", disabled),
+            ("progressive slice budget", progressive),
+            ("task on another contract", revised),
+            ("no row for the current milestone", unassigned),
+            ("climbed attempt launched", launched),
+            ("parallel Builder", {**built(1000), "parent_run": "/runs/parent"}),
+        ):
+            with self.subTest(name):
+                climb_cap.guard(state, "terra", "terra")
+        self.assertEqual(1000, climb_cap.milestone_budget_seconds(built(1000)["settings"]))
+        self.assertNotIn("contract:M2", unassigned["milestone_progress"], "the check never creates a milestone row")
+
+    def test_the_cost_and_run_time_stops_come_before_the_milestone_stop(self):
+        # Spent: the Builder's and the Tester's $0.004 each. Projected: another $0.004; $0.012 (shown as $0.01) > $0.01.
+        state = built(1000)
+        state["settings"]["limits"].update(max_cost_usd=0.01, max_seconds=1000)
+        state["settings"]["budget_origins"]["max_seconds"] = "user_explicit"
+        state["active_seconds"] = 650
+        self.assertIn("from $0.008 to $0.01, past the $0.01 cost cap", stop(state, "terra", "terra"))
+        state["settings"]["limits"]["max_cost_usd"] = 0.02
+        self.assertIn("past the 1,000 s active-time budget", stop(state, "terra", "terra", "PAUSED_TIME_LIMIT"))
+        state["settings"]["limits"]["max_seconds"] = 0
+        self.assertIn("past the 1,000 s milestone budget", stop(state, "terra", "terra", "PAUSED_MILESTONE_BUDGET"))
 
 
 if __name__ == "__main__":

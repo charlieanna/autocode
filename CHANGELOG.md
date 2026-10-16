@@ -253,6 +253,15 @@ PR template asks for an entry here; a change without one is incomplete.
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
 
+- A fake OpenCode run through the CLI can launch its Builder, Tester and Completion Reviewer inside the real
+  Linux bubblewrap boundary (#709). With `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1` the test fixture reports
+  OpenCode 1.18.33 and answers the runner's model-free conformance checks through the boundary shell. The new
+  `tests/test_contained_fake_cli.py` checks that such a run finishes and that `--status --json` names `bubblewrap`
+  and its version in `tool_containment_backend`. It also checks that a Builder shell write planted outside the
+  workspace is blocked, while an uncontained control shows the same write lands. The `linux-tool-containment` CI
+  job runs it without skips, and changes to the fixture select that job. The fixture's own edits and checks still
+  run outside the boundary, so OpenCode's tool dispatch stays with the opt-in `NativeToolTests`. Without the
+  variable the fixture is unchanged.
 - Accepting completion records who accepted it, and a required approver covers it (#722, fifth part):
   `--accept-completion` saves the workspace's Git `user.name` and `user.email`, the host name and the command's
   option names on the event it records, and takes `--as NAME`. `--status` lists it in `approvals` (kind
@@ -373,6 +382,24 @@ PR template asks for an entry here; a change without one is incomplete.
   `prune-run` (`autocode_prune_run`), dependency waits (`autocode_dependency`) and milestone carry-forward
   (`autocode_carryforward`) take the typed `RunState`, so the untyped-`state` ratchet drops from 374 to 287 and mypy
   checks those 87 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- In a `--package` run, a change outside the package is a blocking finding (#711): before each Tester and Completion
+  Reviewer dispatch (not the Code Reviewer, Designer or Design Reviewer), the runner compares the candidate with the
+  run's base, and any file added, modified (content or mode) or deleted outside the package (a rename counts on both
+  sides) opens one finding with source `runner` naming each path. What the regression proof does not count (AutoCode's
+  `.autocode/` files, bytecode, the runner's dependency links, an ignored file the approved plan does not name) does
+  not count here either. The completion gate refuses while the finding is open, and only a later check that finds no
+  such change closes it. `--accept-completion` runs the same check once its own checks pass, so closing the finding
+  with `--close-finding` does not accept the change. Before, a run that owed no regression proof (a build whose
+  criteria name no test) completed with the change. Neither this check nor the regression proof counts an untracked
+  Git repository or a submodule's uncommitted work the checkout held at launch, which every new package run now
+  records (`package_outside_at_launch`), while it is still a Git repository; once deleted or no longer one, the
+  finding names it and tells the Builder to leave it to the person. A package run saved without that record leaves
+  every nested repository and submodule's work out of the check. Nor do they count the files the runner wrote for the
+  run while unchanged: the bug fix's diagnosis note and a review's or design review's report are compared with what
+  the runner wrote, and a changed one is reported; a design check's blockers and what an earlier turn left are
+  recognized by path only, so an edit to them is not seen. Before, the proof left a package bug fix with its own
+  diagnosis note, or an in-place run beside a nested repository, `UNVERIFIED`. Only the Builder's handoff states the
+  write scope (`write_scope`); nothing limits its writes while it works.
 - The money cap (`autocode_cost`), token usage (`autocode_usage`), efficiency measurements (`autocode_efficiency`),
   evidence report publication (`autocode_evidence_export`, except `record`), `--status` rendering
   (`autocode_status_command`), progress updates (`autocode_status`, except `persist`), runner checks
@@ -408,6 +435,22 @@ PR template asks for an entry here; a change without one is incomplete.
   revisions (`autocode_design_revision`), the CLI's edit step (`autocode_action_edits`) and a UI run's accepted plan
   (`autocode_ui`) take the typed `RunState`, so the untyped-`state` ratchet drops from 201 to 110 and mypy checks those
   85 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- Under a milestone budget you set (`--max-milestone-seconds N`), a climbed Builder attempt (the milestone's
+  stronger attempt or a climb on the Builder's effort ladder) is timed before it launches, from the last Builder
+  attempt's duration held to the stage time limit. When the milestone's counted time plus that projection would
+  pass the budget, the run pauses `PAUSED_MILESTONE_BUDGET` before the attempt, naming the climb, the projection,
+  the milestone's time so far, the total and the budget to resume with; `--resume-paused --max-milestone-seconds M`
+  with `M` at least that total launches exactly that attempt. Before, the milestone budget was checked only once
+  its time was already spent, so the climbed attempt launched. The cost cap and the run's active-time budget are
+  checked first. The new-run default, a delegated budget, a progressive run's slice budget and a budget given with
+  `--max-milestone-seconds` while turning checkpoints on for a saved run (`--milestone-checkpoints` on a resume, or
+  `--request-milestone-checkpoints`) are not projected, and Tester and Completion Reviewer climbs are not checked
+  against it. On every `PAUSED_MILESTONE_BUDGET` stop, the advice AutoResolver's request appends to its decision
+  and the stop reason now names `--max-milestone-seconds` instead of `--resolver-response provide_information`
+  followed by a resume. For a progressive run's slice-budget stop, which shares the status, it asks for a slice
+  budget above the slice's counted time, which a resume does not restart, and `--max-seconds` when the stop names
+  `run_seconds`. The request's options, the status view's `needs.action` and the progress line still offer that
+  response, which AutoResolver holds at this stop as before; what releases the pause is unchanged (#611).
 
 ### Removed
 
@@ -472,21 +515,22 @@ PR template asks for an entry here; a change without one is incomplete.
   other run's files. On Seatbelt and bubblewrap the shell now reads only its own run's `planning/` artifacts in
   `.autocode/runs`. Each launch proves this through the actual native shell, records it as `private_reads`, and
   pauses as `PAUSED_TOOL_CONTAINMENT` if the boundary stops enforcing it (#1250).
-- That planning shell also can no longer read these `.autocode` stores, which hold other runs or what they keep:
-  archived and bundled runs (`archive`, `bundles`), `autocode arena` attempts (`arena`), parallel Builder workspaces
-  (`builders`), `autocode issue` worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`),
-  the run `registry`, `replay` recordings, `task-flows`, `autocode verify` checkouts and reports (`verification`)
-  and task worktrees (`worktrees`). A store is denied when it exists as the launch is prepared; none is created.
-  Other `.autocode` directories, including other launches' `tool-containment-*` control directories, stay readable,
-  as do its own scratch, project settings, retained design inputs and capture bundles. Each denial is in
-  `private_reads`, the native-shell proof covers each store, and a profile missing any one of them pauses as
-  `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store first made after the profile was written,
-  up to the launch's last check just before the provider is released: every check before then computes the denial
-  again, including native preparation and the held launch's seal. That pause names the new store, and a plain
-  `--resume-paused` prepares the boundary again with it denied. A store made after that last check, such as one made
-  once the provider has started, causes no pause and stays readable to that stage until it ends; a later planning
-  launch denies it. A store path that is a symlink, even a dangling one, or not a directory cannot be denied, so
-  each native planning launch in that workspace pauses as `PAUSED_TOOL_CONTAINMENT`, naming the path: replace it
+- That planning shell also can no longer read these `.autocode` stores, which hold other runs, conversation
+  records, investigation workspaces or what they keep: archived and bundled runs (`archive`, `bundles`), `autocode arena`
+  attempts (`arena`), parallel Builder workspaces (`builders`), requirements conversation handoffs (`conversation-handoffs`),
+  conversation start markers (`conversation-starts`), bug investigation workspaces (`investigation`), `autocode issue`
+  worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`), the run `registry`, `replay`
+  recordings, `task-flows`, `autocode verify` checkouts and reports (`verification`) and task worktrees (`worktrees`).
+  A store is denied when it exists as the launch is prepared; none is created. Other `.autocode` directories, including
+  other launches' `tool-containment-*` control directories, stay readable, as do its own scratch, project settings,
+  retained design inputs and capture bundles. Each denial is in `private_reads`, the native-shell proof covers each store,
+  and a profile missing any one of them pauses as `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store
+  first made after the profile was written, up to the launch's last check just before the provider is released: every
+  check before then computes the denial again, including native preparation and the held launch's seal. That pause names
+  the new store, and a plain `--resume-paused` prepares the boundary again with it denied. A store made after that last
+  check, such as one made once the provider has started, causes no pause and stays readable to that stage until it ends;
+  a later planning launch denies it. A store path that is a symlink, even a dangling one, or not a directory cannot be
+  denied, so each native planning launch in that workspace pauses as `PAUSED_TOOL_CONTAINMENT`, naming the path: replace it
   with a real directory, or remove it, then `--resume-paused` (#1250).
 
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes

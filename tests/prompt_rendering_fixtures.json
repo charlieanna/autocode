@@ -259,6 +259,10 @@
     "bytes": 16076,
     "sha256": "707c67144828b4a51e9fdd585ff7077593bfa87208caadc214b455507ade9c7b"
   },
+  "package/terra": {
+    "bytes": 12868,
+    "sha256": "cbde47b98859cada541401ebdc88c6a954ed55d357526f079bdd57646f0add78"
+  },
   "planning/astra_challenge/adaptive": {
     "bytes": 39564,
     "sha256": "fef2ffbc2522959c6f9989b9037febe044473345fcf89d946f86e4c4fec9cb68"

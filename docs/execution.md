@@ -243,6 +243,39 @@ per role, and separately estimated elapsed time for any recorded active stage.
 These are elapsed stage durations, not billed model-compute hours or proof a recorded
 process is still alive. Ordinary stage updates also print milestone time and progress.
 
+A milestone budget you set with `--max-milestone-seconds N` is also checked before a climbed
+Builder attempt launches: the milestone's Builder escalating to its stronger model, or the Builder
+climbing a rung of its effort ladder. The attempt is projected as for the
+[active-time budget](#timeouts-and-watchdog), from the last Builder attempt's recorded duration,
+never more than the stage time limit. If the milestone's counted time so far plus that projection
+would pass `N`, the run stops with `PAUSED_MILESTONE_BUDGET` before the attempt starts, instead of
+launching it and stopping at the next writer launch with that time spent. The stop names the climb,
+the projection, the milestone's time so far, the total and the budget to resume with, for example
+`The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of
+active time, the last Builder attempt's duration, it would take this milestone's active time from
+650 s to 1,250 s, past the 1,000 s milestone budget you set ... resume with --max-milestone-seconds
+1250 or more`. The climb stays saved, so `--resume-paused --max-milestone-seconds M` with `M` at
+least that total launches that same attempt; that resume also restarts the milestone's count, as
+it always does. Reasserting the saved budget alone does not acknowledge this pause; any other
+`M`, or `0` for no limit, does, and the attempt is then checked against `M` from the restarted
+count. Only the Builder is checked against this budget, since it gates writer launches; a Tester or
+Completion Reviewer climb is not. The new-run default and a budget delegated with
+`--autoresolver-managed-limits` are not projected and keep only the check at the writer launch, as
+do a progressive run's slice budget and a last attempt without a recorded duration. So does a
+budget given while turning checkpoints on for a saved run, in the same command
+(`--milestone-checkpoints --max-milestone-seconds N` on a resume) or queued with
+`--request-milestone-checkpoints`: it is saved without being recorded as yours, until a later resume
+sets `--max-milestone-seconds` again. When a climb would also cross the cost cap or the run's
+active-time budget, that stop comes first. Once the climbed attempt has launched, the writer-launch
+check governs it, and a parallel Builder leaves this check to the serial run.
+
+A progressive run's slice budget pauses with the same `PAUSED_MILESTONE_BUDGET` status, naming the
+ceiling it spent: `local_seconds`, the slice's, which `--max-milestone-seconds` sets, or
+`run_seconds`, the run's, which `--max-seconds` sets. A resume does not restart the slice's count,
+so that stop's advice asks for `--resume-paused --max-milestone-seconds N` with `N` above the
+slice's counted time (or `0`), adding `--max-seconds M` above the run's counted time when it names
+`run_seconds`.
+
 The saved milestone replan limit defaults to one changed-approach replan. Set
 `--max-milestone-replans 0` on a saved-run resume to allow further evidence-backed
 changed-approach cycles within the same approved milestone. This does not change its
@@ -742,7 +775,9 @@ it follows. The new-run default and a budget delegated with `--autoresolver-mana
 projected, because Resolver may extend them once at the stage boundary; for them, and when the last
 attempt has no recorded duration, only the stage-boundary check applies, as before. When a climb would cross both
 the cost cap and this budget, the cost stop comes first. Once the climbed attempt has launched, the
-stage-boundary check governs it, and a parallel Builder leaves this check to the serial run.
+stage-boundary check governs it, and a parallel Builder leaves this check to the serial run. A Builder's
+climb is then checked against a milestone budget you set
+([Milestone checkpoints](#milestone-checkpoints-and-acceptance)).
 Runs created before these defaults keep the limits they saved. Saved stage limits are preserved,
 including an existing five-minute cap or an explicit zero; use
 `--max-stage-seconds 0` to deliberately remove a saved hard cap. Saved runs gain
@@ -876,6 +911,11 @@ report that no longer lists it; a finding reported again after a fix keeps its I
 and counts the repeat. The runner raises findings of its own (source `runner`)
 when its lifecycle observation fails, and only the runner closes them, when that
 observation passes (see [Process-recovery proof](#process-recovery-proof-for-declared-lifecycle-apis)).
+In a `--package` run it also raises one when the candidate changes a file outside
+the package, checked before each Tester and Completion Reviewer dispatch (not
+before the Code Reviewer, Designer or Design Reviewer) and by
+`--accept-completion`, and closes it when a later check finds no such change
+([Monorepo packages](workflow.md#monorepo-packages)).
 With milestone checkpoints, each finding also records the
 milestone criteria it was raised under, and a report closes it only if that report
 reviewed all of those criteria. A validation of different work, or a report-only
@@ -1414,13 +1454,15 @@ read the run store, `.autocode/runs`: not this run's `state.json`, events or
 receipts, and no other run's files. Only this run's `planning/` artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
 its run context from its handoff (#1250). Nor can it read these `.autocode`
-stores, which hold other runs or what they keep: `archive` (runs archived from
+stores, which hold other runs, conversation records or what they keep: `archive` (runs archived from
 task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
 (parallel Builder workspaces and their runs), `bundles` (`autocode bundle`
-archives), `issues` (`autocode issue` worktrees and their runs), `programs`,
-`pull-reviews` (`autocode review-pr` checkouts and their runs), `registry` (the
-run registry), `replay` (replay recordings), `task-flows`, `verification`
-(`autocode verify` checkouts and reports) and `worktrees` (task and
+archives), `conversation-handoffs` (requirements conversation handoffs),
+`conversation-starts` (conversation start markers), `investigation` (bug
+investigation workspaces), `issues` (`autocode issue` worktrees and their runs),
+`programs`, `pull-reviews` (`autocode review-pr` checkouts and their runs),
+`registry` (the run registry), `replay` (replay recordings), `task-flows`,
+`verification` (`autocode verify` checkouts and reports) and `worktrees` (task and
 program worktrees). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an `--out` or `--arena` directory outside these
 stores, or another `.autocode` directory) is not denied. Each store that exists
@@ -1444,8 +1486,8 @@ with a real directory, or remove it, then `--resume-paused`.
 Everything else in `.autocode` stays as readable as the rest of the workspace:
 the launch's own control directory and scratch, project settings,
 retained design inputs, capture bundles, the shared `evidence` and `output`
-areas, other launches' `tool-containment-*` control directories, conversation
-records and AutoCode's other internal files.
+areas, other launches' `tool-containment-*` control directories, and AutoCode's
+other internal files.
 Before the provider starts, each such launch shows through the actual native
 shell that a file in its run directory and in each denied store cannot be
 read, and records the denial as `private_reads` in its `tool_containment` record
@@ -1519,6 +1561,15 @@ Command Line Tools Git, so those tests skip on other hosts. These model-free che
 boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-in
 `NativeToolTests` (`AUTOCODE_NATIVE_CONTAINMENT_TEST=1`, OpenCode 1.18.33 on `PATH`)
 do, on either backend. The full scenario suite continues to run on Ubuntu.
+
+The `linux-tool-containment` job also runs `ContainedFakeOpenCodeFlow` from
+`tests/test_contained_fake_cli.py` without skips. It drives a fake OpenCode run through
+the CLI whose Builder, Tester and Completion Reviewer launch inside the real bubblewrap
+boundary. It checks that the run finishes, that `--status --json` names the backend, and
+that a Builder shell write planted outside the workspace is blocked; an uncontained
+control shows the same write lands. The fake client's own edits and checks run outside
+the boundary, so this does not replace `NativeToolTests` either. The container backend
+(`docker` or `podman`) and a fake scenario under each backend are still open.
 
 ## Secret redaction
 
