@@ -552,6 +552,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- When a role is copied mid-run from an existing role (such as Analyst or Investigator in the discuss
+  and bug-fix workflows, Architect in the design workflow, Acceptance Tester in spec-first runs, Resolver,
+  Stuck Investigator, or Utility route), it now inherits the source role's saved transport tool identity,
+  preventing missing-identity failures when using external role transports such as `--role-transport` (#1426).
 - When the OpenCode planning roles receive the complete Figma manifest and catalog as SHA-256 and
   byte-bound file references, their handoff now also carries the complete case roster inline (ID, route
   and state of every case, in manifest order), as Builder and Tester handoffs already did. Before, the
