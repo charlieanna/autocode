@@ -31,6 +31,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode --status --json` shows `changes_by_criterion`: for each acceptance criterion of the approved plan, the
   saved Builder steps of the milestones that cover it and the files they changed, with files another milestone also
   changed marked as overlapping. It says where to look, not that the criterion is met (#730).
+- `autocode review` shows, for each criterion, the diff of each saved Builder step attributed to it, against the
+  saved step before it and read from Git objects rather than the working tree (`criterion_diffs` in `--json`).
+  Labeled as attribution, not proof (#730).
 
 - A novelty hold's stop also states the run's active time against its time limit and, with milestone checkpoints
   on, the current milestone's time against its budget, after the spend against the cost cap; a limit or budget

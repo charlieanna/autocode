@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_criterion_changes as criterion_changes
 import autocode_review_diff as review_diff
 import autocode_review_presentation as presentation
 
@@ -94,6 +95,138 @@ class ReviewDiffTests(unittest.TestCase):
                 self.assertEqual("unavailable", shown["availability"])
                 self.assertIsNone(shown["files"][0]["text"])
                 self.assertTrue(shown["files"][0]["reason"])
+
+
+class CriterionDiffTests(unittest.TestCase):
+    """Each attributed step is diffed against the step before it, from saved Git objects only."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "project"
+        self.root.mkdir()
+        self.git("init", "-q")
+        self.base = self.commit({"a.py": "a0\n", "b.py": "b0\n"})
+        self.first = self.commit({"a.py": "a1\n"})
+        self.second = self.commit({"b.py": "b1\n", "new.py": "n\n"})
+        (self.root / "a.py").write_text("uncommitted working tree\n")
+        self.rows = [
+            {
+                "id": "code-1",
+                "milestone_id": "M1",
+                "label": "Change a",
+                "changed_files": ["a.py"],
+                "commit": self.first,
+            },
+            {
+                "id": "code-2",
+                "milestone_id": "M2",
+                "label": "Change b",
+                "changed_files": ["b.py", "new.py"],
+                "commit": self.second,
+            },
+        ]
+        self.body = {
+            "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
+            "milestones": [{"id": "M1", "acceptance_criteria": ["C1"]}, {"id": "M2", "acceptance_criteria": ["C2"]}],
+        }
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", str(self.root), *args], text=True, stderr=subprocess.PIPE)
+
+    def commit(self, files):
+        for name, text in files.items():
+            (self.root / name).write_text(text)
+        self.git("add", ".")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "step")
+        return self.git("rev-parse", "HEAD").strip()
+
+    def view(self):
+        rows = copy.deepcopy(self.rows)
+        return {
+            "evidence": {"base_commit": self.base},
+            "code_checkpoints": {"rows": rows},
+            "changes_by_criterion": criterion_changes.attribute(self.body, rows),
+        }
+
+    def test_each_criterion_shows_only_its_own_steps_from_saved_commits(self):
+        view = self.view()
+        before, status = copy.deepcopy(view), self.git("status", "--porcelain")
+        shown = review_diff.criterion_diffs(self.root, view)
+        self.assertEqual("available", shown["availability"])
+        self.assertEqual(
+            [
+                {"id": "C1", "checkpoints": ["code-1"], "overlapping": False},
+                {"id": "C2", "checkpoints": ["code-2"], "overlapping": False},
+            ],
+            shown["criteria"],
+        )
+        first, second = shown["steps"]["code-1"], shown["steps"]["code-2"]
+        self.assertEqual(["a.py"], [row["path"] for row in first["files"]])
+        self.assertIn("-a0\n+a1", first["files"][0]["text"])
+        self.assertEqual(["b.py", "new.py"], [row["path"] for row in second["files"]])
+        self.assertIn("-b0\n+b1", second["files"][0]["text"])
+        self.assertIn("--- /dev/null", second["files"][1]["text"])
+        self.assertNotIn("a1", str(second))
+        self.assertNotIn("uncommitted", str(shown))
+        self.assertEqual(status, self.git("status", "--porcelain"))
+        self.assertEqual(before, view)
+
+    def test_only_named_criteria_are_read(self):
+        shown = review_diff.criterion_diffs(self.root, self.view(), only=["C2"])
+        self.assertEqual(["C2"], [row["id"] for row in shown["criteria"]])
+        self.assertEqual(["code-2"], list(shown["steps"]))
+
+    def test_a_step_after_an_unavailable_checkpoint_cannot_be_separated(self):
+        self.rows[0].update(commit=None, available=False, reason="storage unavailable")
+        shown = review_diff.criterion_diffs(self.root, self.view())
+        self.assertEqual("unavailable", shown["availability"])
+        self.assertIn("storage unavailable", shown["steps"]["code-1"]["reason"])
+        self.assertIn("previous saved step", shown["steps"]["code-2"]["reason"])
+        self.assertEqual([], shown["steps"]["code-2"]["files"])
+
+    def test_invalid_commit_identities_never_reach_git(self):
+        self.rows[0]["commit"] = "--output=/tmp/x"
+        with patch.object(review_diff, "_git") as git:
+            shown = review_diff.criterion_diffs(self.root, self.view())
+        git.assert_not_called()
+        self.assertEqual("unavailable", shown["steps"]["code-1"]["availability"])
+        self.assertEqual("unavailable", shown["steps"]["code-2"]["availability"])
+
+    def test_without_plan_or_steps_nothing_is_read(self):
+        empty = self.view()
+        empty["changes_by_criterion"] = None
+        for view in (empty, {**self.view(), "changes_by_criterion": criterion_changes.attribute(self.body, [])}):
+            with self.subTest(view=view["changes_by_criterion"]), patch.object(review_diff, "_git") as git:
+                shown = review_diff.criterion_diffs(self.root, view)
+                self.assertEqual("unavailable", shown["availability"])
+                self.assertEqual({}, shown["steps"])
+                self.assertTrue(shown["reason"])
+                git.assert_not_called()
+
+    def test_oversized_step_file_is_unavailable_not_truncated(self):
+        big = self.commit({"a.py": "x" * (review_diff.MAX_FILE_BYTES + 1)})
+        self.rows.append({"id": "code-3", "milestone_id": "M1", "changed_files": ["a.py"], "commit": big})
+        shown = review_diff.criterion_diffs(self.root, self.view())
+        row = shown["steps"]["code-3"]["files"][0]
+        self.assertEqual("unavailable", row["availability"])
+        self.assertIsNone(row["text"])
+        self.assertIn("byte review limit", row["reason"])
+        self.assertEqual("partial", shown["availability"])
+
+    def test_render_labels_attribution_and_shows_only_the_criterion_steps(self):
+        self.rows[1]["changed_files"].append("a.py")
+        shown = review_diff.criterion_diffs(self.root, self.view())
+        text = presentation.render_review({"id": "C1", "text": "A changes", "criterion_diffs": shown})
+        self.assertIn("Saved Builder steps attributed to this criterion", text)
+        self.assertIn("not proof", text)
+        self.assertIn("code-1 (milestone M1): Change a", text)
+        self.assertIn("+a1", text)
+        self.assertNotIn("+b1", text)
+        self.assertIn("another milestone also changed", text)
+        missing = presentation.render_review({"id": "C1", "text": "A changes"})
+        self.assertIn("Saved Builder steps attributed to this criterion", missing)
+        self.assertIn("Unavailable in this status view.", missing)
 
 
 if __name__ == "__main__":

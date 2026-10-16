@@ -210,6 +210,43 @@ def _exact_observation(lines, check):
     _output(lines, check)
 
 
+def _criterion_steps(lines, row):
+    """Show the saved steps attributed to this criterion, labeled as attribution."""
+    lines.append("Saved Builder steps attributed to this criterion (attribution, not proof):")
+    shown = _mapping(row.get("criterion_diffs"))
+    criterion = next((item for item in _rows(shown.get("criteria")) if item.get("id") == row.get("id")), None)
+    if criterion is None:
+        lines.append("  Unavailable in this status view.")
+        if shown.get("reason"):
+            lines.append("  " + display_text(shown["reason"]))
+        return
+    lines.append("  " + display_text(shown.get("meaning")))
+    if criterion.get("overlapping"):
+        lines.append("  A step of another milestone also changed some of these files; their diffs may hold that work.")
+    if not _ids(criterion.get("checkpoints")):
+        lines.append("  No saved Builder step is attributed to this criterion yet.")
+    steps = _mapping(shown.get("steps"))
+    for ident in _ids(criterion.get("checkpoints")):
+        step = _mapping(steps.get(ident))
+        lines.append(
+            "  "
+            + display_text(ident)
+            + " (milestone "
+            + display_text(step.get("milestone_id"))
+            + "): "
+            + display_text(step.get("label"))
+        )
+        lines.append("    Availability: " + display_text(step.get("availability") or "unavailable"))
+        if step.get("reason"):
+            lines.append("    " + display_text(step["reason"]))
+        for file in _rows(step.get("files")):
+            lines.append("    " + display_text(file.get("path")))
+            if file.get("text"):
+                lines.extend("      " + line for line in display_text(file["text"]).splitlines())
+            if file.get("reason"):
+                lines.append("      " + display_text(file["reason"]))
+
+
 def render_review(row):
     """Render one ``review_data`` criterion without fetching paths or running checks."""
     lines = [
@@ -292,6 +329,7 @@ def render_review(row):
         if coverage.get("unmeasured"):
             lines.append("  Unmeasured files: " + display_text(coverage["unmeasured"]))
     diff = _mapping(row.get("diff_hunks"))
+    _criterion_steps(lines, row)
     lines.append("Run-level diff hunks:")
     if not diff:
         lines.append("  Unavailable in this status view.")

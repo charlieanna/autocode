@@ -1,7 +1,8 @@
-"""Bounded, read-only workspace diffs for paths named by public review evidence.
+"""Bounded, read-only diffs for paths named by public review evidence.
 
-The diff is a review aid, not authenticated execution proof. It uses immutable
-base blobs and ordinary current workspace files, never private run state.
+The diff is a review aid, not authenticated execution proof. The run-level diff
+uses immutable base blobs and ordinary current workspace files; the per-criterion
+diffs read only saved checkpoint commits. Neither reads private run state.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import os
 import re
 import stat
 import subprocess
+from copy import deepcopy
 from pathlib import Path, PurePosixPath
 
 MAX_FILES = 20
@@ -165,4 +167,102 @@ def collect(workspace, view):
     available = sum(row["availability"] == "available" for row in result["files"])
     if available:
         result["availability"] = "available" if available == len(paths) else "partial"
+    return result
+
+
+STEP_MEANING = (
+    "Each saved Builder step diffed against the saved step before it, from the run's Git objects: "
+    "attribution to the criterion's milestones, not proof that these changes satisfy it."
+)
+
+
+def _commit(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", value) is not None
+
+
+def _step_files(root, before, after, names, total):
+    files = []
+    for name in names[:MAX_FILES]:
+        row = {"path": name, "availability": "unavailable", "text": None}
+        try:
+            relative = _path(name)
+            text = _diff(name, _base(root, before, relative), _base(root, after, relative))
+            size = len(text.encode("utf-8"))
+            if total + size > MAX_DIFF_BYTES:
+                raise ValueError(f"The combined diff exceeds the {MAX_DIFF_BYTES}-byte review limit.")
+            total += size
+            row.update(availability="available", text=text, reason=None if text else "No content difference.")
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            row["reason"] = str(error)
+        files.append(row)
+    return files, total
+
+
+def _step_reason(rows, index, base):
+    row = rows[index]
+    if row.get("available") is False or not _commit(row.get("commit")):
+        return "This step's saved checkpoint is unavailable: " + str(row.get("reason") or "no commit identity.")
+    before = rows[index - 1] if index else None
+    if before is not None and (before.get("available") is False or not _commit(before.get("commit"))):
+        return "The previous saved step is unavailable, so this step's own change cannot be separated."
+    if before is None and not _commit(base):
+        return "The status view does not name a full base commit identity."
+    return None
+
+
+def criterion_diffs(workspace, view, only=None):
+    """Diff each criterion's attributed saved steps; read only committed Git objects, never the checkout."""
+    view = view if isinstance(view, dict) else {}
+    attribution = view.get("changes_by_criterion")
+    result: dict = {"meaning": STEP_MEANING, "availability": "unavailable", "steps": {}, "criteria": []}
+    if not isinstance(attribution, dict):
+        result["reason"] = "No approved plan attributes saved steps to criteria in this status view."
+        return result
+    for criterion in attribution.get("criteria") or []:
+        if isinstance(criterion, dict) and (only is None or criterion.get("id") in only):
+            result["criteria"].append(
+                {key: deepcopy(criterion.get(key)) for key in ("id", "checkpoints", "overlapping")}
+            )
+    wanted = list(
+        dict.fromkeys(
+            ident
+            for criterion in result["criteria"]
+            for ident in criterion["checkpoints"] or []
+            if isinstance(ident, str)
+        )
+    )
+    if not wanted:
+        result["reason"] = "No saved Builder step is attributed to these criteria yet."
+        return result
+    saved = view.get("code_checkpoints")
+    rows = [row for row in (saved.get("rows") or []) if isinstance(row, dict)] if isinstance(saved, dict) else []
+    position = {row.get("id"): index for index, row in enumerate(rows)}
+    evidence = view.get("evidence")
+    base = evidence.get("base_commit") if isinstance(evidence, dict) else None
+    root, total = Path(workspace), 0
+    for ident in wanted:
+        step: dict = {"files": [], "availability": "unavailable", "reason": None}
+        index = position.get(ident)
+        if index is None:
+            step["reason"] = "This step is not among the run's saved checkpoints."
+        else:
+            row = rows[index]
+            step.update(milestone_id=row.get("milestone_id"), label=row.get("label"))
+            step["reason"] = _step_reason(rows, index, base)
+            if step["reason"] is None:
+                names = [name for name in row.get("changed_files") or [] if isinstance(name, str)]
+                before = rows[index - 1]["commit"] if index else base
+                step["files"], total = _step_files(root, before, row["commit"], names, total)
+                if len(names) > MAX_FILES:
+                    step["reason"] = f"Only the first {MAX_FILES} of {len(names)} changed paths are shown."
+                if step["files"] and all(file["availability"] == "available" for file in step["files"]):
+                    step["availability"] = "available"
+                elif any(file["availability"] == "available" for file in step["files"]):
+                    step["availability"] = "partial"
+        result["steps"][ident] = step
+    states = {step["availability"] for step in result["steps"].values()}
+    if states == {"available"}:
+        result["availability"] = "available"
+    elif states - {"unavailable"}:
+        result["availability"] = "partial"
     return result
