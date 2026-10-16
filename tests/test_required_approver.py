@@ -1,7 +1,7 @@
 """A project's require-approver: the setting's values, the refusal, where provenance enforces it, how a new run
-takes it from the project file, and how the terminal conversation stops at a refusal (#722).
+takes it from the project file, how the terminal conversation stops at a refusal, and --accept-completion (#722).
 
-The public CLI runs are in test_required_approver_cli.
+The public CLI runs that launch a fake provider are in test_required_approver_cli.
 """
 
 import contextlib
@@ -22,7 +22,7 @@ import autocode_required_approver as required_approver
 from goal_fixtures import body
 from providers import opencode
 
-from . import test_goals
+from . import test_approval_provenance, test_goals
 
 ANA = {"git_user_name": "Ana Example", "git_user_email": "ana@example.test", "host": "desk-7", "claimed_as": None}
 SOURCE = "/w/.autocode/config.toml"
@@ -123,7 +123,11 @@ class EnforcementTests(unittest.TestCase):
     """autocode_approval_provenance.stamp, which every approval path calls, refuses before stamping."""
 
     def test_a_new_approval_from_another_identity_is_refused_and_nothing_is_stamped(self):
-        for event in (plan_event(), {**plan_event(), "kind": "human_review", "criterion": "C1"}):
+        for event in (
+            plan_event(),
+            {**plan_event(), "kind": "human_review", "criterion": "C1"},
+            {"kind": "completion_accept", "actor": "user_cli", "at": "2026-10-16T09:00:00+00:00"},
+        ):
             with self.subTest(kind=event["kind"]):
                 candidate = run_requiring("lead@example.test")
                 candidate["user_events"].append(event)
@@ -309,6 +313,34 @@ class TerminalConversationTests(unittest.TestCase):
         self.assertTrue(approved)
         self.assertEqual(2, len(prompts))
         self.assertEqual([], goals.missing_human_reviews(self.state))
+
+
+class CompletionAcceptanceTests(unittest.TestCase):
+    """--accept-completion through the real CLI entry in-process on a run started with require-approver: an
+    unlisted Git identity is refused before anything is saved, and a listed one closes the run."""
+
+    setUp, approve, draft, decision, validation, invoke = (
+        getattr(test_goals.GoalTests, name)
+        for name in ("setUp", "approve", "draft", "decision", "validation", "invoke")
+    )
+    paused_at_completion = test_approval_provenance.CompletionAcceptanceTests.paused_at_completion
+
+    def test_an_unlisted_identity_cannot_accept_completion_and_the_run_stays_paused(self):
+        self.paused_at_completion()
+        self.state["settings"][required_approver.SETTING] = ["lead@example.test"]
+        self.assertEqual(2, self.invoke("--accept-completion"))
+        self.assertIn("Approval refused", self.stderr)
+        self.assertIn("this checkout's Git identity is Ana Example <ana@example.test>", self.stderr)
+        self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
+        self.assertNotIn("completion_accept", [event.get("kind") for event in self.state.get("user_events") or []])
+        self.assertEqual(2, self.invoke("--accept-completion", "--as", "Lead"))
+        self.assertIn("The --as name 'Lead' is a claim and does not count.", self.stderr)
+        self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
+        subprocess.run(["git", "-C", str(self.root), "config", "user.email", "LEAD@example.test"], check=True)
+        self.assertEqual(0, self.invoke("--accept-completion"), self.stderr)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+        accepted = [event for event in self.state["user_events"] if event.get("kind") == "completion_accept"]
+        self.assertEqual(["LEAD@example.test"], [event["provenance"]["git_user_email"] for event in accepted])
 
 
 if __name__ == "__main__":

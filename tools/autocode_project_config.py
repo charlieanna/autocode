@@ -6,14 +6,14 @@ sub-tables belong to other tooling); config.toml wins a key both set. AutoCode's
 ``.autocode/.gitignore`` leaves config.toml trackable (autocode_workspaces), so the file can be
 committed and reviewed like any other.
 
-Keys are the flag names without the leading dashes (KEYS): ``engine``, ``test-command``, the role
-model and reasoning-effort flags, and the budgets. One key has no flag (FILE_ONLY): ``require-approver``,
-the Git email addresses allowed to approve the run's plan and reviews (autocode_required_approver), so no
-command line sets or replaces it; a replay (--replay-recording) never takes it. A flag on the command line
-wins over the file, and also over any file key it cannot be combined with (ITERATIONS, ROLE_MODELS); the file
-wins over the built-in default. No environment variable sets these keys. Only a new run reads the file (one
-started by --ui-run with no typed task is one): a saved run keeps the settings it started with, recorded in the
-run, so changing the file never alters a run in progress.
+Keys are the flag names without the leading dashes (KEYS): ``engine``, ``test-command``, the role model and
+reasoning-effort flags, and the budgets. One key has no flag (FILE_ONLY): ``require-approver``, the Git email
+addresses allowed to approve the run's plan and reviews and to accept its completion
+(autocode_required_approver), so no command line sets or replaces it; a replay (--replay-recording) never takes
+it. A flag on the command line wins over the file, and also over any file key it cannot be combined with
+(ITERATIONS, ROLE_MODELS); the file wins over the built-in default. No environment variable sets these keys.
+Only a new run reads the file (one started by --ui-run with no typed task is one): a saved run keeps the
+settings it started with, recorded in the run, so changing the file never alters a run in progress.
 
 Two settings stay out of a project's reach (USER_ONLY): the provider, which runs a command the user
 installed, is chosen by --provider, AUTOCODE_PROVIDER or default_provider in the user's

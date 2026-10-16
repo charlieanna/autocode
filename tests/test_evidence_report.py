@@ -428,6 +428,52 @@ class ApprovalReportTests(unittest.TestCase):
         for row in rows:
             self.assertIn(row, body)
 
+    def test_a_completion_acceptance_is_listed_and_only_then_named_in_the_section(self):
+        state = approved_state()
+        before = document.render(value({**public_view(), "approvals": run_view.view(state)["approvals"]}))
+        # Every report written before AutoCode listed completion acceptances keeps its sentence byte for byte.
+        self.assertIn(
+            "\nWho approved the plan and each review, edited the plan or resumed the run from a pause, oldest first.\n",
+            before,
+        )
+        state["user_events"].append(
+            {
+                "kind": "completion_accept",
+                "actor": "user_cli",
+                "at": "2026-10-15T10:00:00+00:00",
+                "basis": "runner-verified gates; 2 completion-report attempts failed",
+                "provenance": {
+                    **APPROVER,
+                    "command": "autocode --run-dir --accept-completion --as",
+                    "claimed_as": "Di",
+                },
+            }
+        )
+        view = run_view.view(state)
+        export.publish(self.root, state, view, provenance.configured({}, "fake"))
+        report = export.read(
+            self.root,
+            state["evidence_export"],
+            expected_binding=export.binding(state, view["usage"]["accounting"]),
+            current=True,
+            include=True,
+        )
+        self.assertEqual("current", report["availability"], report["reasons"])
+        self.assertEqual("completion", report["document"]["approvals"][-1]["kind"])
+        markdown = report["markdown"]
+        self.assertIn(
+            "\nWho approved the plan and each review, edited the plan, resumed the run from a pause or accepted its "
+            "completion, oldest first.\n",
+            markdown,
+        )
+        self.assertIn(
+            "| 2026-10-15T09:00:00+00:00 | Review of C1 approved | Ana Example &lt;ana@example.test&gt; | desk-7 "
+            "| autocode --run-dir --approve-review --review-token | none given |\n"
+            "| 2026-10-15T10:00:00+00:00 | Completion accepted | Ana Example &lt;ana@example.test&gt; | desk-7 "
+            "| autocode --run-dir --accept-completion --as | Di (a claim, not verified) |\n",
+            markdown,
+        )
+
     def test_a_run_without_approvals_says_so_and_an_older_report_renders_unchanged(self):
         # A report built without the status view's approvals (one written before AutoCode listed them, or a
         # verification, program or component report) has no field and no section, so its pair still authenticates.
