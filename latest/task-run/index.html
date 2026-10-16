@@ -2204,7 +2204,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0aa8c747470f918c0536c4d4a90269633a4ad20f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9a4db5cbc823f77dcee4e9ba6cd2fff058742cf8/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2474,7 +2474,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/0aa8c747470f918c0536c4d4a90269633a4ad20f/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/9a4db5cbc823f77dcee4e9ba6cd2fff058742cf8/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -2938,27 +2938,32 @@ decision names), the route it climbed <code>from</code> and <code>to</code> (<co
 serially), <code>inherited</code>, <code>attempts</code>, <code>cost</code> and <code>outcome</code>:</p>
 <ul>
 <li><code>attempts</code> are the role's stage records launched on the route it climbed to, from the escalation
-  until the first of: a validation of its work that passed (that attempt included), unless the
-  Builder's retry policy then charged one of its attempts as a failure (see <code>outcome</code>), or the role's
-  next escalation of either kind (its next climb, the Builder's stronger attempt). The running one is
-  included (<code>active</code>); dry runs and the runner's own stages are not attempts. A climb lasts for the
-  rest of the run, so a later milestone's attempts on the climbed rung count until one of those ends
-  it. A stronger attempt's attempts are this run's own Builder records: a parallel Builder's records
-  the parent holds (<code>worker_milestone</code>) are its worker's, whose own stronger attempt is recorded only
-  in its worker run. A validation judged an escalation's work when one of its attempts produced it,
-  or, for the Builder, whose work another role validates, when the Builder's last attempt before it
-  is one of its attempts. No other role is judged by another role's validation: a Tester PASS of the
-  Builder's work is not the work of a Completion Reviewer's or Resolver's climb. Nor is a validation
-  of another milestone's work, or of work on a route the role was moved to. The runner assigns every
-  task, a rework included, a new id, so an attempt's milestone is its task's contract hash and
-  milestone ids (<code>current_task</code>, <code>task_archive</code>): an attempt whose task is of another milestone than
-  the attempt the escalation was made from (a later milestone, or a replanned contract's) is not its
-  work, and for the Builder neither is a validation whose own task is: a replanned contract's first
-  task may be a validate task, whose Tester runs before any Builder attempt. When either task is not
-  recorded, they are not told apart. A charge names the record of the attempt that failed: the
-  Builder's own, or the Tester's or Completion Reviewer's that sent its work back, whose work is the
-  Builder's last attempt for that record's task, or, for a validate task (unchanged work sent back to
-  the Tester, with no Builder attempt), the Builder's last attempt of that task's milestone before it.</li>
+  until the first of: a validation of its work that passed (that attempt included), unless one of its
+  attempts was then charged as a failure (see <code>outcome</code>), or the role's next escalation of either kind
+  (its next climb, the Builder's stronger attempt). The running one is included (<code>active</code>); dry runs
+  and the runner's own stages are not attempts. A climb lasts for the rest of the run, so a later
+  milestone's attempts on the climbed rung count until one of those ends it. A stronger attempt's
+  attempts are this run's own Builder records: a parallel Builder's records the parent holds
+  (<code>worker_milestone</code>) are its worker's, whose own stronger attempt is recorded only in its worker
+  run. A validation judged an escalation's work when one of its attempts produced it, or, for the
+  Builder, whose work another role validates, when the Builder's last attempt before it is one of its
+  attempts. No other role is judged by another role's validation: a Tester PASS of the Builder's work
+  is not the work of a Completion Reviewer's or Resolver's climb. Nor is a validation of another
+  milestone's work, or of work on a route the role was moved to. The runner assigns every task, a
+  rework included, a new id, so an attempt's milestone is its task's contract hash and milestone ids
+  (<code>current_task</code>, <code>task_archive</code>): an attempt whose task is of another milestone than the attempt the
+  escalation was made from (a later milestone, or a replanned contract's) is not its work, and for the
+  Builder neither is a validation whose own task is: a replanned contract's first task may be a
+  validate task, whose Tester runs before any Builder attempt. When either task is not recorded, they
+  are not told apart. The Builder's retry policy's charge names the record of the attempt that failed:
+  the Builder's own, or the Tester's or Completion Reviewer's that sent its work back, whose work is
+  the Builder's last attempt for that record's task before the decision; when no Builder attempt of
+  that task started before it (a validate task: unchanged work sent back to the Tester; a record that
+  names no task), the Builder's last attempt of that task's milestone (of any, when it names none)
+  before that record. A review that sends the work back also assigns a correction task (an implement
+  task whose <code>decision</code> is <code>REWORK</code>), which charges the Builder's last attempt of that task's
+  milestone before it was assigned: with the retry policy off (<code>settings.workflow</code> set, or
+  <code>builder_retry</code> disabled), nothing else records that a review sent passed work back.</li>
 <li><code>cost</code> prices those attempts as <code>cost</code> prices a stage: <code>usd</code> (reported plus estimated),
   <code>reported_usd</code>, <code>estimated_usd</code>, <code>unpriced_attempts</code>, <code>unrouted_attempts</code> and <code>complete</code>. An attempt
   with no usage record is unpriced, never zero: <code>usd</code> is then a floor (<code>complete</code> false), or null when
@@ -2975,24 +2980,27 @@ serially), <code>inherited</code>, <code>attempts</code>, <code>cost</code> and 
   <code>inherited_usd</code>.</li>
 <li><code>outcome</code> is <code>passed</code>, <code>failed_again</code>, <code>paused</code> or <code>running</code>, and <code>outcome_basis</code> says what decided
   it, the first that applies: the first decisive record after it (<code>validation</code>: a validation of its
-  work passed, unless the Builder's retry policy then charged one of its attempts of its milestone as
-  a failure, as it charges a review that sends passed work back; <code>later_escalation</code>: the role climbed
-  again, the milestone made another stronger attempt, or the Builder made its stronger attempt after
-  climbing, or climbed after it, from this escalation's attempt), the Builder's retry-limit pause
-  (<code>recorded</code>: the runner's <code>paused</code> stamp, or the <code>pause</code> decision that charged one of its attempts
-  of its milestone, since the runner does not stamp an escalation it already stamped <code>passed</code>), a
-  validation of its work failing or blocked (<code>validation</code>), else such a charge (<code>recorded</code>: a retry,
-  the stronger attempt or the retry-limit pause charged to one of its attempts of its milestone), the
-  runner's <code>passed</code> stamp (<code>recorded</code>), for a role other than the Builder, only when every attempt of
-  its role since it, until the role's next escalation, ran on the route it climbed to and there was
-  at least one, else the run's status now (<code>run_status</code>: complete is <code>passed</code>, running is <code>running</code>,
-  any pause, wait or stop is <code>paused</code>). The runner stamps every open escalation <code>passed</code> at any
-  validation PASS, whoever's work passed, so that stamp is not taken over a failure of its own work,
-  once a person or the Builder's retry policy moved the role to another route, or when the role ran
-  nothing since. Validations judge the Builder's work, and the runner stamps its stronger attempt
-  <code>passed</code> in the handler that made it, at the PASS the review just sent back, before that attempt
-  runs, so the Builder's stamp is never taken. It is a projection of saved records, so it can change
-  as the run continues.</li>
+  work passed, unless one of its attempts of its milestone was then charged as a failure: by the
+  Builder's retry policy, as it charges a review that sends passed work back, or by any correction
+  task of its milestone assigned after that PASS, also one that sends back a later attempt that
+  failed its own check; <code>later_escalation</code>: the role climbed again, the milestone made another
+  stronger attempt, or the Builder made its stronger attempt after climbing, or climbed after it,
+  from this escalation's attempt), the Builder's retry-limit pause (<code>recorded</code>: the runner's <code>paused</code>
+  stamp, or the <code>pause</code> decision that charged one of its attempts of its milestone, since the runner
+  does not stamp an escalation it already stamped <code>passed</code>), a validation of its work failing or blocked
+  (<code>validation</code>), else such a charge (<code>recorded</code>: a retry, the stronger attempt, the retry-limit pause
+  or a correction task charged to one of its attempts of its milestone), the runner's <code>passed</code> stamp
+  (<code>recorded</code>), for a role other than the Builder, only when every attempt of its role since it, until
+  the role's next escalation, ran on the route it climbed to and there was at least one, else the
+  run's status now (<code>run_status</code>: complete is <code>passed</code>, running is <code>running</code>, any pause, wait or stop
+  is <code>paused</code>). The runner stamps every open escalation <code>passed</code> where the Completion Reviewer or
+  Resolver assigns the next task while the last validation passed, whoever's work passed, so that
+  stamp is not taken over a failure of its own work, once a person or the Builder's retry policy
+  moved the role to another route, or when the role ran nothing since.
+  Validations judge the Builder's work, and the runner stamps its stronger attempt <code>passed</code> in the
+  handler that made it, at the PASS the review just sent back, before that attempt runs, so the
+  Builder's stamp is never taken. It is a projection of saved records, so it can change as the run
+  continues.</li>
 </ul>
 <p>A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
 does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.</p>
