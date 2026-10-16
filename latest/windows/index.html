@@ -2117,8 +2117,7 @@ not only a default for the missing flags.</p>
   child that inherited the descriptor keeps the lock; whether a <code>msvcrt</code> lock survives
   that way is unverified. It matters only once providers can run natively (below).</li>
 </ul>
-<p>The frozen dashboard (<code>tools/dashboard/</code>) still imports <code>fcntl</code> in five modules; it
-changes only for bug fixes.</p>
+<p>The dashboard (<code>tools/dashboard/</code>) still imports <code>fcntl</code> in five modules.</p>
 <h3 id="open-needs-a-decision">Open: needs a decision<a class="headerlink" href="#open-needs-a-decision" title="Permanent link">&para;</a></h3>
 <p><strong>Supervised provider launches.</strong> Task-stage providers, fake ones included, run under
 the Linux kernel boundary in <a href="../providers/#provider-process-ownership">provider process ownership</a>:

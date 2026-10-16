@@ -2204,7 +2204,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5170d07288546cfeb069559a6f075014ef109c44/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/d6c8f7356262fcedc1eea5d90a2748f768029cfe/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2367,7 +2367,7 @@ start a second task. Read the current plan and use the separate <code>approve_pl
 action only when the operator authorizes implementation. The original handoff
 source digest stays immutable; later human feedback retains its own provenance.
 Assistant text and unapproved drafts never become mandatory requirements merely
-because they appear in the journal. The browser dashboard and macOS app remain on their existing frozen path.</p>
+because they appear in the journal. The browser dashboard and macOS app still use their existing path.</p>
 <p>The additive <code>view.conversation</code> is <code>None</code> for ordinary and legacy dashboard
 runs. A core conversation exposes actionable <code>status</code>/<code>needs</code> (including current questions and resolver tokens),
 <code>messages</code>, <code>pending_message_ids</code>,
@@ -2474,7 +2474,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/5170d07288546cfeb069559a6f075014ef109c44/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/d6c8f7356262fcedc1eea5d90a2748f768029cfe/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3543,6 +3543,14 @@ candidate; changed or uncertain partial candidates are preserved and refused.</p
 --compare CHECKPOINT</code>, followed by the mutually exclusive <code>--restore CHECKPOINT
 --expected-token TOKEN --request-id ID</code>. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.</p>
+<p><code>status()["changes_by_criterion"]</code> attributes those saved steps to the approved
+plan's acceptance criteria. Each criterion lists the plan milestones that cover
+it, the checkpoint ids of their saved Builder steps and the union of the files
+those steps changed. <code>overlapping</code> is true when a step outside the criterion's
+milestones also changed one of those files, so the file's diff may hold other
+work. <code>unattributed</code> lists steps whose milestone is not in the plan. It is
+attribution, not proof: it says where to look, not that the changes satisfy the
+criterion. It is <code>null</code> until a plan is approved.</p>
 <h3 id="conversation-task-provenance">Conversation task provenance<a class="headerlink" href="#conversation-task-provenance" title="Permanent link">&para;</a></h3>
 <p>New dashboard attachments, including saved legacy conversations, carry a canonical
 <code>autocode.conversation-task</code> envelope. The full validated handoff remains in the
