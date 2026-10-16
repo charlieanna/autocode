@@ -170,7 +170,9 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
         manifest = Path(temp.name) / "manifest.json"
         manifest.write_text("{}")
         with patch.dict(os.environ, {"FAKE_MANIFEST": str(manifest)}):
-            self.complete = runpy.run_path(str(FAKE_PROVIDER))["complete"]
+            fixture = runpy.run_path(str(FAKE_PROVIDER))
+            self.complete = fixture["complete"]
+            self.brief_of = fixture["brief_of"]
         self.schema = {
             "type": "object",
             "required": ["recovery_change"],
@@ -187,6 +189,35 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
                 },
             },
         }
+
+    def test_compact_task_resolves_the_named_source_without_dropping_literals(self):
+        brief = "Publish `greeting` and consume `click_event`."
+        packet = {
+            "task": "see source_inventory id task:0",
+            "source_inventory": [
+                {"id": "other:0", "text": "Unrelated source"},
+                {"id": "task:0", "text": brief},
+            ],
+        }
+        self.assertEqual(brief, self.brief_of(packet))
+
+    def test_full_and_repair_briefs_remain_verbatim(self):
+        brief = "Publish `greeting`."
+        for packet in ({"task": brief}, {"source_texts": [brief]}):
+            with self.subTest(packet=packet):
+                self.assertEqual(brief, self.brief_of(packet))
+
+    def test_missing_source_does_not_substitute_an_unrelated_brief(self):
+        pointer = "see source_inventory id task:0"
+        self.assertEqual(
+            pointer,
+            self.brief_of(
+                {
+                    "task": pointer,
+                    "source_inventory": [{"id": "other:0", "text": "Unrelated source"}],
+                }
+            ),
+        )
 
     def test_absent_nullable_field_defaults_to_null_and_preserves_explicit_null(self):
         for value in ({}, {"recovery_change": None}):

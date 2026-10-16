@@ -525,7 +525,12 @@ def proof_framework(state) -> str | None:
     """The framework the regression proof will run, chosen as autocode_regression.prove chooses it."""
     options = (state.get("settings") or {}).get("regression") or {}
     command = options.get("test_command")
-    framework = verify.command_framework(command) if command else None
+    settings = state.get("settings")
+    framework = (
+        verify.command_framework(command) or package_scope.own(settings, command, verify.command_framework)
+        if command
+        else None
+    )
     workspace = state.get("workspace")
     if framework is None and workspace and Path(workspace).is_dir():
         python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)

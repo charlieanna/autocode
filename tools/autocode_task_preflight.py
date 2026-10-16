@@ -172,7 +172,10 @@ def _proof_commands(state, workspace, checks):
     commands = [options[key] for key in ("test_command", "regression_command") if options.get(key)]
     if not commands:
         return  # Future test source may determine the command; no invented default.
-    framework = verify.detect_framework(
+    # A test command written for the run's package as `cd PACKAGE && RUNNER` is judged with that runner,
+    # as the proof reads it (autocode_regression.prove); otherwise against the suite detected for the run.
+    framework = package_scope.own(state["settings"], options.get("test_command"), verify.command_framework)
+    framework = framework or verify.detect_framework(
         workspace,
         python=options.get("python") or verify.python_for(workspace),
         **package_scope.detection(state["settings"]),
