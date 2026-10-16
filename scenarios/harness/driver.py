@@ -92,6 +92,19 @@ def leaves_for_person(need: dict) -> bool:
     )
 
 
+def attribute(gates: list[dict], run_dir) -> None:
+    """Record on each of ``gates`` that names no run yet that it was given to the task run in ``run_dir``.
+
+    A program or components scenario records one ``approvals`` list for all its task runs, so each gate the
+    harness gives one of them says which, and harness.approval_provenance matches it to that run's own rows. A
+    scenario of one run names none: every gate is that run's. Nothing is named before a run exists."""
+    if run_dir is None:
+        return
+    for gate in gates:
+        if isinstance(gate, dict):
+            gate.setdefault("run_dir", str(run_dir))
+
+
 class DriveError(RuntimeError):
     """The harness could not take the run any further."""
 
@@ -318,7 +331,8 @@ class Driver:
         # Every gate the harness passed on the person's behalf (result.json "approvals"): the plan
         # (``approve_plan``), each human-review criterion (``review``), more planning review calls
         # (``planning_budget``) and a budget pause the scenario's person acknowledged (``acknowledge``);
-        # a program driver adds its agreement, a components run its --auto-approve.
+        # a program driver adds its agreement, a components run its --auto-approve. In a program or
+        # components scenario each gate given to one of its task runs also names that run (``attribute``).
         self.approvals: list[dict] = []
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"

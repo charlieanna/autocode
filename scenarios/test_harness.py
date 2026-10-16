@@ -2104,7 +2104,7 @@ class ApprovalProvenanceTests(unittest.TestCase):
             },
             "architecture_view": {"status": "TASK_COMPLETE", "approvals": good},
         }
-        # A plan or architecture run that has not completed is not judged, whatever its rows.
+        # A plan run waiting for its plan's approval, or an architecture run that has not completed, is not judged.
         waiting = {"status": "AWAITING_GOAL_APPROVAL", "approvals": bad}
         workstream, component = ("approval provenance: M1", False), ("approval provenance: api", False)
         for name, record, expected in (
@@ -2115,6 +2115,99 @@ class ApprovalProvenanceTests(unittest.TestCase):
         ):
             with self.subTest(name):
                 self.assertEqual(expected, [(row.name, row.ok) for row in approval_provenance.checks(record)])
+
+    def test_each_task_run_of_a_program_or_components_run_must_list_the_gates_given_to_it(self):
+        """One approvals list holds the gates the harness gave all of a program's or components run's task runs;
+        each names the run it was given to (driver.attribute) and must be listed among that run's own rows."""
+        s_token, t_token = "r2:" + "5" * 64, "r2:" + "7" * 64
+
+        def listing(token):
+            return {"status": "TASK_COMPLETE", "approvals": [{**self.row(), "contract_token": token}]}
+
+        def plan(token, run_dir):
+            return {"gate": "approve_plan", "token": token, "run_dir": run_dir}
+
+        # The plan run is never relaunched once approved, so it is judged on its approved plan.
+        approved = {**listing(self.token), "status": "RUNNING", "approved_contract": {"token": self.token}}
+        program = {
+            "report_expected": True,
+            "program": {"status": "COMPLETE"},
+            "plan": {"run_dir": "/runs/plan", "view": approved},
+            "children": {
+                "S": [{**listing(s_token), "run_dir": "/runs/S"}],
+                "T": [{**listing(t_token), "run_dir": "/runs/T"}],
+            },
+            "approvals": [
+                plan(self.token, "/runs/plan"),
+                {"gate": "program_agreement", "token": "a1:agreement"},
+                plan(s_token, "/runs/S"),
+                plan(t_token, "/runs/T"),
+            ],
+        }
+        components = {
+            "report_expected": True,
+            "architecture_run_dir": "/runs/architecture",
+            "architecture_view": listing(self.token),
+            "components": {"components": {"api": {"run_dir": "/runs/api", "view": listing(s_token)}}},
+            "approvals": [plan(self.token, "/runs/architecture"), {"gate": "auto_approve", "call": "components"}],
+        }
+
+        def judged(record):
+            return [(check.name.removeprefix("approval provenance: "), check.detail) for check in self.failing(record)]
+
+        # Each run passes, and says it lists the gates given to it; a component, which the product approved for
+        # itself under --auto-approve, was given none.
+        listed = "; each gate the harness passed for this run is listed (approve_plan)"
+        for record, given in (
+            (program, [("program plan", True), ("S", True), ("T", True)]),
+            (components, [("architecture", True), ("api", False)]),
+        ):
+            checks = approval_provenance.checks(record)
+            self.assertTrue(all(check.ok for check in checks), [check.detail for check in checks])
+            self.assertEqual(
+                given,
+                [(check.name.removeprefix("approval provenance: "), check.detail.endswith(listed)) for check in checks],
+            )
+        s_gate, t_gate = program["approvals"][2], program["approvals"][3]
+        missing = "the harness approved plan {}, which no plan row lists"
+        for name, record, failures in (
+            (
+                "S's gate attributed to T",
+                {**program, "approvals": [*program["approvals"][:2], {**s_gate, "run_dir": "/runs/T"}, t_gate]},
+                [("T", missing.format(s_token))],
+            ),
+            (
+                "S lists T's approval and T lists S's",
+                {
+                    **program,
+                    "children": {
+                        "S": [{**listing(t_token), "run_dir": "/runs/S"}],
+                        "T": [{**listing(s_token), "run_dir": "/runs/T"}],
+                    },
+                },
+                [("S", missing.format(s_token)), ("T", missing.format(t_token))],
+            ),
+            (
+                "the plan run lists nothing",
+                {**program, "plan": {"run_dir": "/runs/plan", "view": {**approved, "approvals": []}}},
+                [("program plan", missing.format(self.token))],
+            ),
+            (
+                "the architecture's gate attributed to a component",
+                {**components, "approvals": [plan(self.token, "/runs/api")]},
+                [("api", missing.format(self.token))],
+            ),
+            (
+                "the architecture run lists nothing",
+                {**components, "architecture_view": {"status": "TASK_COMPLETE", "approvals": []}},
+                [("architecture", missing.format(self.token))],
+            ),
+        ):
+            with self.subTest(name):
+                self.assertEqual(failures, judged(record))
+
+    def failing(self, record):
+        return [check for check in approval_provenance.checks(record) if not check.ok]
 
     def test_every_executed_run_s_oracle_result_holds_the_check(self):
         scenario = argparse.Namespace(oracle=lambda: lambda project, scenario: [verdict.Check("delivered", True)])
@@ -3006,6 +3099,52 @@ class ProgramDriverTests(unittest.TestCase):
             ],
             [(row["gate"], row["token"]) for row in driver.approvals],
         )
+
+    def test_each_gate_names_the_task_run_it_was_given_to(self):
+        """#722: one approvals list holds the gates the harness gave the plan run and every workstream run, so each
+        names its run (harness.approval_provenance matches it to that run's rows); the agreement names none. A gate
+        whose command failed names its run too."""
+        from harness.driver import DriveError
+
+        class RefusingCLI(ProgramCLI):
+            def answer(self, args):
+                if "--approve-goal" in args and args[args.index("--run-dir") + 1] == "/runs/T":
+                    return "", 1
+                return super().answer(args)
+
+        passes = [
+            summary("WAITING", workstream("S", "WAITING", needs=self.APPROVE), workstream("T", "PENDING")),
+            summary("WAITING", workstream("S", "MERGED"), workstream("T", "WAITING", needs=self.APPROVE)),
+            summary("COMPLETE", workstream("S", "MERGED"), workstream("T", "MERGED")),
+        ]
+        for name, cli in (("served", ProgramCLI), ("T's approval refused", RefusingCLI)):
+            with self.subTest(name):
+                try:
+                    status, driver, cli = self.drive(passes, cli=cli)
+                except DriveError:
+                    self.assertIs(RefusingCLI, cli)
+                else:
+                    self.assertEqual("COMPLETE", status)
+                plan_run = self.record["plan"]["run_dir"]
+                self.assertEqual(
+                    [
+                        ("approve_plan", "r1:plan", plan_run),
+                        ("program_agreement", None),
+                        ("approve_plan", "r2:child", "/runs/S"),
+                        ("approve_plan", "r2:child", "/runs/T"),
+                    ],
+                    [
+                        (row["gate"], row.get("run_dir"))
+                        if row["gate"] == "program_agreement"
+                        else (row["gate"], row["token"], row.get("run_dir"))
+                        for row in self.record["approvals"]
+                    ],
+                )
+                # Each is the run the approval was typed in.
+                self.assertEqual(
+                    [plan_run, "/runs/S", "/runs/T"],
+                    [call[call.index("--run-dir") + 1] for call in self.cli_calls if "--approve-goal" in call],
+                )
 
     def test_each_plan_the_harness_approves_is_exported_and_read_back_first(self):
         """#720: the plan run and each workstream run reach plan approval, and a catalog run exports each plan and
@@ -5432,6 +5571,18 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual("approve_plan", gates[0])
         self.assertEqual({"approve_plan", "program_agreement"}, set(gates))
         self.assertEqual(2, gates.count("program_agreement"))
+        # #722: each plan approval names the task run it was given to and is listed among that run's own rows: the
+        # plan run's (approved, never relaunched), and each completed workstream run's, S's re-check run included.
+        listed = "each gate the harness passed for this run is listed (approve_plan)"
+        self.assertEqual(
+            [(name, True, True) for name in ("program plan", "S", "S", "T", "U", "integration")],
+            [
+                (check["name"].removeprefix("approval provenance: "), check["ok"], check["detail"].endswith(listed))
+                for check in result["checks"]
+                if check["name"].startswith("approval provenance: ")
+            ],
+        )
+        self.assertTrue(all(row.get("run_dir") for row in result["approvals"] if row["gate"] == "approve_plan"))
         program = result["program"]
         self.assertEqual(["S", "S", "T", "U", "integration"], [row["workstream"] for row in program["verifications"]])
         self.assertTrue(Path(result["product"]).is_relative_to(Path(result["evidence"]) / "project" / ".autocode"))

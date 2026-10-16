@@ -691,12 +691,14 @@ approver and is not among them, and neither are the approvals of a plan run the 
 derived from ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
 
 The scenario harness checks this record from outside on each task run a scenario completes,
-including a program's or a components run's own task runs. It reads `approvals` from that
-run's final `--status --json`, and each row a person made must name the scenario's person, the
-host and a command of option names only. In a scenario of one run, each plan and review
-approval the harness gave must also be listed, and so must each budget pause the scenario's
-person acknowledged, as the resume that names it; a program's or a components run's task runs are
-checked for provenance only ([scenarios/README.md](../scenarios/README.md)).
+including a program's or a components run's own task runs (a program's plan run once its plan
+is approved). It reads `approvals` from that run's final `--status --json`, and each row a
+person made must name the scenario's person, the host and a command of option names only. Each
+plan and review approval the harness gave a run must also be listed among that run's own rows,
+and so must each budget pause the scenario's person acknowledged, as the resume that names it.
+In a program or components scenario each such gate names the task run it was given to, so an
+approval listed only in another workstream's run fails
+([scenarios/README.md](../scenarios/README.md)).
 
 #### Required approver
 

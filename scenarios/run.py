@@ -434,7 +434,7 @@ def run_components(scenario, args, out, result, project, flags, env):
         architecture_view=driver.view(),
         architecture_run_dir=str(driver.run_dir),
         # The architecture run's plan approval row holds its plan file round trip, which plan_round_trip
-        # judges; approval_provenance matches no gate to a components scenario's rows.
+        # judges, and names that run, whose rows approval_provenance matches it to.
         approvals=approvals_of(driver),
     )
     oracle = verdict.evaluate(scenario, target, record)

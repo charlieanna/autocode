@@ -109,7 +109,9 @@ every oracle check, CLI calls, answers given on the user's behalf, each with its
 each human-review criterion, more planning review calls, a program agreement,
 and `auto_approve` for each call of a components run launched with
 `--auto-approve`, inside which the product answers its own gates, and
-`acknowledge` for a budget pause the scenario's person continued), wall time,
+`acknowledge` for a budget pause the scenario's person continued; in a program
+or components scenario, each gate given to one of its task runs also names that
+run's `run_dir`), wall time,
 stages with a per-stage count and time breakdown, report-repair rounds, model
 time and tokens, `cost` (the final status view's `cost` block, #721: estimated,
 provider-reported and known spend in USD against the run's cap, each `null` when
@@ -125,10 +127,11 @@ status, and each appears in `checks`. `canonical evidence: RUN` authenticates th
 and `evidence.md` pair of each task run that completed, and of a program or
 components run that completed as a whole. `approval provenance: RUN` (#722) reads
 `approvals` in the final `--status --json` view of each task run that completed:
-the scenario's one run, a program's plan run and each completed workstream run, or
-a components run's architecture run and each completed component. A program or
-components run as a whole has no `approvals` of its own and gets no such check. It
-requires:
+the scenario's one run, each completed workstream run of a program and its plan
+run once the plan is approved (the program is derived from that plan and never
+relaunches the run, so it does not complete), or a components run's architecture
+run and each completed component. A program or components run as a whole has no
+`approvals` of its own and gets no such check. It requires:
 
 - each row a person made to name the scenario's person, `Scenario Person
   <person@scenario.example.test>`. Every scenario project sets that identity in
@@ -137,14 +140,21 @@ requires:
 - each such row to name this machine's host and a command of `autocode` with
   option names only, never their values;
 - a row approved under the workflow policy to name no one;
-- in a scenario of one run, each plan and review approval the harness gave
-  (`approvals` above, recorded by the ordinary driver and the
-  [conformance](#conformance) client alike) to be listed: a plan row with the
-  plan's token and a review row with the criterion. Each budget pause the
-  scenario's person acknowledged (`[fake] acknowledge`) must be listed too, as a
-  `resume` row whose `pause_status` names that pause. The runs of a program
-  or components scenario share one `approvals` list, so they are checked for
-  provenance only.
+- each plan and review approval the harness gave a run (`approvals` above,
+  recorded by the ordinary driver and the [conformance](#conformance) client
+  alike) to be listed among that run's own rows: a plan row with the plan's
+  token and a review row with the criterion. Each budget pause the scenario's
+  person acknowledged (`[fake] acknowledge`) must be listed too, as a `resume`
+  row whose `pause_status` names that pause. The task runs of a program or
+  components scenario share one `approvals` list, so there each gate the harness
+  gave one of them also names that run's `run_dir`, and it is matched to that
+  run's rows only: a plan approval listed only in another workstream's run fails,
+  as `approval provenance: T` with `the harness approved plan r2:..., which no
+  plan row lists`. The `auto_approve` rows of a components run name no run: under
+  `--auto-approve` the product approves its components itself, so they are
+  checked for provenance only. A passing check ends by naming the gates it
+  matched, such as `each gate the harness passed for this run is listed
+  (approve_plan)`.
 
 `plan round trip` (#720) checks that a plan file reproduces its plan's goal hash
 ([Reviewing a plan in a pull request](../docs/workflow.md#reviewing-a-plan-in-a-pull-request)).
