@@ -1,11 +1,18 @@
 """Read-only original execution witnesses for accepted planning reports."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 from pathlib import Path
 
 
-def verify_accepted_repair(state, accepted):
+def verify_accepted_repair(state: RunState, accepted):
     """Read the repaired-output hash saved by accept_repaired_report, never repin it."""
     receipt = next(
         (
@@ -27,7 +34,7 @@ def verify_accepted_repair(state, accepted):
     return receipt
 
 
-def witness(state, stage, output):
+def witness(state: RunState, stage, output):
     accepted = next(
         (
             row

@@ -4,10 +4,17 @@ A saved preflight is not execution authority. Rejected drafts reuse the ordinary
 report repair path; they never create a user answer or renew planning allowance.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from copy import deepcopy
 
 
-def reconcile(runner, state, run_dir, validate):
+def reconcile(runner, state: RunState, run_dir, validate):
     """Queue repair before displaying or approving an unassignable saved draft; return whether changed."""
     contract = state.get("goal_contract") or {}
     if (
@@ -29,7 +36,7 @@ def reconcile(runner, state, run_dir, validate):
             # This reviewer accepts a draft but cannot rewrite it in its saved schema.
             # Ask its actual Planner to repair, then run the independent review again.
             origin = "astra_discovery"
-        report = state.get("planning", {}).get("reports", {}).get(origin, {})
+        report = cast(dict, state.get("planning", {})).get("reports", {}).get(origin, {})
         original = next(
             (
                 row
@@ -48,8 +55,8 @@ def reconcile(runner, state, run_dir, validate):
         # Invalidation retires the old exact-token handoff; repair must earn a new review/approval.
         runner.goals.invalidate(state, "Saved draft first assignment is no longer assignable")
         state.pop("user_request", None)
-        state.pop(runner.resolver_human.PUBLIC, None)
-        state.pop(runner.resolver_human.PRIVATE, None)
+        cast(dict, state).pop(runner.resolver_human.PUBLIC, None)
+        cast(dict, state).pop(runner.resolver_human.PRIVATE, None)
         state["planning"]["final_token"] = None
         state["next_stage"] = origin
         try:
@@ -58,7 +65,7 @@ def reconcile(runner, state, run_dir, validate):
             return True
 
 
-def retain_review_allowance(state, previous, original):
+def retain_review_allowance(state: RunState, previous, original):
     """A repair of an accepted draft cannot renew its already-spent review capacity.
 
     The runner marks draft_assignment_recheck on the saved original attempt when

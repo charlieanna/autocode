@@ -21,6 +21,11 @@ and autocode_regression reads it. Setting it on a saved run is a ``base_patch_se
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 from pathlib import Path
 
@@ -54,7 +59,7 @@ def pin(path, workspace, base):
     return {"path": str(patch), "sha256": hashlib.sha256(contents).hexdigest(), "files": files}
 
 
-def pinned(state):
+def pinned(state: RunState):
     return ((state.get("settings") or {}).get("regression") or {}).get("base_patch")
 
 
@@ -89,7 +94,7 @@ def review_reason(saved):
     )
 
 
-def configure_resume(state, settings, args):
+def configure_resume(state: RunState, settings, args):
     """Set the base patch on a saved run, at the same kind of stop where verification commands change."""
     path = getattr(args, "base_patch", None)
     if path is None:

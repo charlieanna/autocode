@@ -1,5 +1,12 @@
 """Internal isolated Builder entry point, supervised by the Orchestrator."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -32,7 +39,7 @@ except ImportError:
     import autocode_worker_quota as worker_quota
 
 
-def execute(state, directory, workspace, mode):
+def execute(state: RunState, directory, workspace, mode):
     def require_running():
         runner.stop_policy.refuse_admission(state)
         if state.get("status") != "RUNNING":
@@ -69,7 +76,7 @@ def execute(state, directory, workspace, mode):
         # The parent persisted launch intent but no provider attempt ever began.
         # Called under the worker workspace lock, after parent process-ownership
         # checks. A pristine, bound worktree can start; partial work cannot replay.
-        parent = runner.read_json(Path(state["parent_run"]) / "state.json")
+        parent = runner.read_json(Path(cast(str, state["parent_run"])) / "state.json")
         batch = parent.get("orchestration_batch") or {}
         row = next((r for r in batch.get("workers", []) if r.get("task") == state["current_task"]), None)
         current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
@@ -77,7 +84,7 @@ def execute(state, directory, workspace, mode):
         if (
             not row
             or batch.get("id") != state.get("parent_batch")
-            or batch.get("contract_hash") != state["goal_contract"]["hash"]
+            or batch.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]
             or Path(row["run_dir"]).resolve() != directory.resolve()
             or current["head"] != batch.get("base_commit")
             or current["files"] != expected
@@ -87,7 +94,7 @@ def execute(state, directory, workspace, mode):
             )
         mode = "start"
     if mode == "retry":
-        parent = runner.read_json(Path(state["parent_run"]) / "state.json")
+        parent = runner.read_json(Path(cast(str, state["parent_run"])) / "state.json")
         if any(r.get("stage") == "orchestrator" and not r.get("finished_at") for r in parent.get("stages", [])):
             raise runner.support.Paused("PAUSED_ORCHESTRATOR_WORKER", "Parent orchestrator stage is unfinished")
         # Only the entry-time pause is resumed by the parent's explicit member retry.
@@ -143,7 +150,7 @@ def execute(state, directory, workspace, mode):
                 "This Builder requires its queued controller stage before another execution",
             )
         runner.autopilot.builder_failure.dispatch_guard(state, "terra", workspace)
-        state.update(status="RUNNING", next_stage="terra")
+        state.update({"status": "RUNNING", "next_stage": "terra"})
         prompt, metrics = stage_context.context_packet(state, "terra", directory / "state.json")
         prompt = test_examples.add_to_prompt(prompt, workspace, state.get("current_task"))
         prompt = prompt.replace(
@@ -204,7 +211,7 @@ def execute(state, directory, workspace, mode):
                 "before another writer attempt",
             )
         return execute(state, directory, workspace, "retry")
-    implementation = state.get("implementation", {})
+    implementation = cast(dict, state.get("implementation", {}))
     runner.goals.execution_guard(state, implementation)
     request = implementation.get("user_request", {})
     if request.get("kind") != "none":
@@ -216,16 +223,16 @@ def execute(state, directory, workspace, mode):
         != source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)["revision"]
     ):
         raise runner.support.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Builder source changed after its result")
-    state.update(status="BUILT", next_stage=None)
+    state.update({"status": "BUILT", "next_stage": None})
     runner.write_json(directory / "state.json", state)
     runner.write_json(directory / "result.json", {"status": "BUILT", "report": state["stages"][-1]["output"]})
 
 
-def save_pause(directory, state, workspace, error):
+def save_pause(directory, state: RunState, workspace, error):
     """Record why this Builder stopped: its state, and the result the Orchestrator reads."""
     reason = str(error) or state.get("pending_report_repair", {}).get("error") or type(error).__name__
     interrupted = "PAUSED_INTERRUPTED" if isinstance(error, KeyboardInterrupt) else "PAUSED_ORCHESTRATOR_WORKER"
-    state.update(status=getattr(error, "status", interrupted), stop_reason=reason)
+    state.update({"status": getattr(error, "status", interrupted), "stop_reason": reason})
     runner.write_json(directory / "state.json", state)
     result = {"status": state["status"], "reason": reason}
     if state["status"] in quota_route.STATUSES:  # its quota or its provider's content filter (#465)

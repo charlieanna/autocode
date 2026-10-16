@@ -7,6 +7,11 @@ is evidence about the candidate's correctness.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import json
 import math
 import re
@@ -125,7 +130,7 @@ def read_result(text):
     return value
 
 
-def check_result(check, text, state):
+def check_result(check, text, state: RunState):
     contract = check.get("contract", {"kind": "command"})
     kind = contract["kind"]
     if kind == "command":

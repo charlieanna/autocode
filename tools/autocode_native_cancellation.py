@@ -99,13 +99,14 @@ def stop_facts(record):
         and bool(record["timeout_reason"])
         and isinstance(record.get("finished_at"), str)
         and bool(record["finished_at"])
+        # Report-only only as a report-repair launch, whose stage binds it to its original preparation.
+        and bool(record.get("report_only")) == str(record.get("stage") or "").endswith("_report_repair")
         and not any(
             record.get(k)
             for k in (
                 "cleanup_error",
                 "supervision_errors",
                 "interrupted",
-                "report_only",
                 "dry_run",
                 "rejected",
                 "abandoned",

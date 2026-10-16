@@ -4,6 +4,13 @@ The dispatch adapter owns approval, worker-liveness checks and persistence.
 No model route, contract, verification result or configured limit is changed.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 
 try:
@@ -14,7 +21,7 @@ except ImportError:
     import autocode_util as util
 
 
-def request_serial_retry(state, selected, *, pause_status=None):
+def request_serial_retry(state: RunState, selected, *, pause_status=None):
     """Grant one attempt to this stopped milestone; ordinary resume grants none."""
     task = state.get("current_task") or {}
     members = task.get("milestone_ids") or [task.get("milestone_id") or task.get("id")]
@@ -34,7 +41,7 @@ def request_serial_retry(state, selected, *, pause_status=None):
     if state.get("active_stage") or state.get("active_runner_check") or state.get("pending_report_repair"):
         raise ValueError("Reconcile the active attempt before retrying the serial Builder")
     pending = state.get("resolution_request")
-    if pending and pending.get("contract_hash") != state["goal_contract"]["hash"]:
+    if pending and pending.get("contract_hash") != cast(dict, state["goal_contract"])["hash"]:
         raise ValueError("Pending Builder repair belongs to a different approved contract")
     if not pending and task.get("kind") != "implement":
         raise ValueError("Serial Builder retry requires an implementation task or a pending Resolver repair")

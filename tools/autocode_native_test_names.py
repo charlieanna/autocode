@@ -95,7 +95,10 @@ except ImportError:
     import autocode_requirement_cues as cues
     import autocode_test_cases as test_cases
     import autocode_verify as verify
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])Test[A-Z0-9_][A-Za-z0-9_]*")
 # A Go test name as one word of the brief: the function, or a subtest path under it (TestCacheExpiry/expired).
@@ -521,7 +524,7 @@ def go_identifiers(workspace) -> set[str]:
     return found
 
 
-def proof_framework(state) -> str | None:
+def proof_framework(state: RunState) -> str | None:
     """The framework the regression proof will run, chosen as autocode_regression.prove chooses it."""
     options = (state.get("settings") or {}).get("regression") or {}
     command = options.get("test_command")
@@ -538,7 +541,7 @@ def proof_framework(state) -> str | None:
     return framework.name if framework else None
 
 
-def _user_edit(state) -> dict | None:
+def _user_edit(state: RunState) -> dict | None:
     """The body of the user's latest own edit of this job's plan, or None. A follow-up that builds a proposed
     design plans afresh (autocode_follow_up.plan_afresh) and archives the design job's contracts; an edit of
     those was not about this build's tests."""
@@ -556,7 +559,7 @@ def _user_edit(state) -> dict | None:
     return edits[-1].get("body") if edits else None
 
 
-def requested(state) -> list[str]:
+def requested(state: RunState) -> list[str]:
     """The Go test names the user asked for that the plan must declare (see the module docstring)."""
     if test_cases.design_only(state) or test_cases.diagnosis_cases(state):
         return []
@@ -695,7 +698,7 @@ def problems(body, names: list[str]) -> list[str]:
     return list(dict.fromkeys(errors))  # two subtest paths of one function find the same duplicate declaration
 
 
-def check(state, body, *, origin=None) -> None:
+def check(state: RunState, body, *, origin=None) -> None:
     """Refuse a contract body that does not account for the Go tests the user asked for. The user's own
     edit (``USER_EDIT``) is theirs to decide and is never refused here."""
     if origin == USER_EDIT:

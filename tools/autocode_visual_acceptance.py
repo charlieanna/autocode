@@ -9,6 +9,11 @@ Callbacks are runner dependencies, never fields decoded from a model report.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 import re
@@ -195,7 +200,9 @@ def _terminal(raw, report, session):
     return {"session_id": session, "message_id": finish["messageID"], "finish_id": finish["id"]}
 
 
-def accept(state, record, *, run_dir, current, manifest_path, verify_stage, verify_capture, verify_delivery=None):
+def accept(
+    state: RunState, record, *, run_dir, current, manifest_path, verify_stage, verify_capture, verify_delivery=None
+):
     """Persist once, or return None when no authenticated delivery adapter exists.
 
     current is a runner snapshot with task/contract/source/runtime identities,
@@ -293,7 +300,7 @@ def accept(state, record, *, run_dir, current, manifest_path, verify_stage, veri
     }
     cases, images = [], []
     scoped = "visual_scope" in bound
-    required_ids = set(bound["visual_scope"]["required_case_ids"]) if scoped else None
+    required_ids: Any = set(bound["visual_scope"]["required_case_ids"]) if scoped else None
     if scoped:
         # Refuse impossible outside claims before any capture/delivery callback.
         for row in rows:

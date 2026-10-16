@@ -15,6 +15,11 @@ before Popen. Native request/finish receipts remain mandatory after execution.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 import os
@@ -109,9 +114,9 @@ def _owned(root, value):
     return path
 
 
-def _profile(state):
+def _profile(state: RunState):
     _require(contract.approved(state), "Visual profile requires authenticated operator contract approval")
-    constraints = state["goal_contract"]["body"].get("constraints")
+    constraints = cast(dict, state["goal_contract"])["body"].get("constraints")
     _require(
         isinstance(constraints, list) and all(isinstance(row, str) for row in constraints),
         "Invalid approved constraints",
@@ -316,7 +321,7 @@ def _write(path, data, pins):
     pins[str(path)] = util.file_hash(path)
 
 
-def authority(state, worker, workspace, run_dir):
+def authority(state: RunState, worker, workspace, run_dir):
     """Return a concrete launch callback. All refusals occur inside prepare's gate.
 
     Creation is side-effect-free; the callback rechecks approval and source bytes.

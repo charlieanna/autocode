@@ -4,6 +4,13 @@ Changed or unbound evidence is archived and a completion retry goes through
 the Validator first. Only existing state fields are read or written here.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from pathlib import Path
 
 try:
@@ -12,7 +19,7 @@ except ImportError:
     from autocode_util import file_hash
 
 
-def current(state, record):
+def current(state: RunState, record):
     validation = state.get("validation") or {}
     contract = state.get("goal_contract") or {}
     task = state.get("current_task") or {}
@@ -32,7 +39,7 @@ def current(state, record):
         return False
 
 
-def permission_retry(state, record, *, review_stage="sol"):
+def permission_retry(state: RunState, record, *, review_stage="sol"):
     completion = record["stage"] in ("astra_review", "astra_checkpoint")
     if completion and current(state, record):
         return record["stage"]

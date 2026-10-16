@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_junit as junit
     from . import autocode_util as util
@@ -45,7 +50,7 @@ def validate(options):
     return options
 
 
-def configure_resume(state, settings, args):
+def configure_resume(state: RunState, settings, args):
     """Update existing regression settings; retain proofs for their context check.
 
     Only this function writes command-change user_events. Status/history readers

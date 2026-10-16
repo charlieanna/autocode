@@ -103,10 +103,35 @@ def only_abandon(argv):
     require(counts.get("--abandon-stage") == counts.get("--run-dir") == 1, "needs one exact saved-run attempt")
 
 
+def repair_launch(state: RunState, record) -> bool:
+    """True when ``record`` is the counted launch of this run's pending report-only repair.
+
+    That launch stops like the planning stage it repairs (timeout, collected output limit,
+    cleanup) and is closed the same way; its counted attempt stays spent.
+    """
+    pending = state.get("pending_report_repair")
+    if not isinstance(pending, dict) or not isinstance(record, dict):
+        return False
+    original = pending.get("original")
+    if not isinstance(original, dict):
+        return False
+    stage, attempts = original.get("stage"), pending.get("attempts")
+    return (
+        isinstance(stage, str)
+        and record.get("report_only") is True
+        and record.get("original_stage") == stage
+        and record.get("stage") == stage + "_report_repair"
+        and (record.get("route_role") or record.get("role")) == (original.get("route_role") or original.get("role"))
+        and type(attempts) is int
+        and attempts >= 1
+    )
+
+
 def request(state: RunState, selected, stages):
     """Select an accounted stop; the original owner must authenticate collected length bytes."""
     record = state.get("active_stage")
     goal = state.get("goal_contract") or {}
+    repair = repair_launch(state, record)
     require(
         state.get("status")
         in ("PAUSED_PROVIDER_TIMEOUT", output_cap.STATUS, "PAUSED_PROCESS_CLEANUP", "PAUSED_PROVIDER_UNCERTAIN")
@@ -114,21 +139,23 @@ def request(state: RunState, selected, stages):
         and state.get("current_task") is None
         and goal.get("approval_status") != "approved"
         and not goal.get("approval_event")
-        and not state.get("pending_report_repair")
+        and (repair or not state.get("pending_report_repair"))
         and not any(
             state.get(k)
             for k in ("parent_run", "parent_batch", "orchestration_batch", "orchestration_history", "progressive")
         ),
-        "only an original preapproval planning timeout, collected output limit or error-only authentication rejection is supported",
+        "only an original preapproval planning timeout or collected output limit, an error-only authentication "
+        "rejection, or a stopped launch of its pending report repair, is supported",
     )
     require(isinstance(record, dict) and record, "missing active planning stop")
     assert isinstance(record, dict)  # require above refused anything else
+    stage = record.get("original_stage") if repair else record.get("stage")
     require(
         type(record.get("iteration")) is int
         and record["iteration"] == state.get("iteration")
         and selected == f"{record['iteration']:03d}/{Path(record.get('output') or '').stem}"
-        and record.get("stage") in stages
-        and record.get("stage") == state.get("next_stage"),
+        and stage in stages
+        and stage == state.get("next_stage"),
         "selected attempt does not match the current planning frontier",
     )
     require(
@@ -139,18 +166,19 @@ def request(state: RunState, selected, stages):
         and isinstance(record.get("finished_at"), str)
         and bool(record["finished_at"])
         and bool(record.get("supervision"))
-        and not any(
-            record.get(k) for k in ("interrupted", "report_only", "dry_run", "rejected", "abandoned", "cleanup_error")
-        ),
+        and (repair or not record.get("report_only"))
+        and not any(record.get(k) for k in ("interrupted", "dry_run", "rejected", "abandoned", "cleanup_error")),
         "uncertain, unaccounted or already rejected attempt",
     )
     if state.get("status") == "PAUSED_PROVIDER_UNCERTAIN":
         require(
-            record.get("engine") == "opencode"
+            not repair
+            and record.get("engine") == "opencode"
             and record.get("timed_out") is False
             and record["exit_code"] > 0
             and not record.get("supervision_errors"),
-            "authentication rejection needs an original collected nonzero exit; the owner must verify its error-only bytes",
+            "authentication rejection needs an original collected nonzero exit, not a report repair launch; "
+            "the owner must verify its error-only bytes",
         )
     elif state.get("status") == output_cap.STATUS:
         require(
@@ -212,23 +240,32 @@ def constructor_record(intent, state: RunState):
 
 
 def abandoned(state: RunState, record, selected, *, at):
-    """Keep original paths/accounting/routes; leave explicit resume to the CLI."""
+    """Keep original paths/accounting/routes; leave explicit resume to the CLI.
+
+    A stopped report repair returns the run to the stage it repairs; its counted attempt stays spent.
+    """
     candidate = deepcopy(state)
     rejected = deepcopy(record)
     collected_length = state.get("status") == output_cap.STATUS
     cancelled = state.get("status") == "PAUSED_PROCESS_CLEANUP"
     authentication = state.get("status") == "PAUSED_PROVIDER_UNCERTAIN"
+    repair = record.get("report_only") is True
+    # An original stage keeps its texts; a repair names itself instead.
+    original, kind = ("", "native report repair") if repair else ("original ", "native planning")
+    title = "Native report repair" if repair else "Original native"
+    held = "Native report repair held cancellation" if repair else "Original native held planning cancellation"
+    stop_title = "Native report repair" if repair else "Original native planning"
     rejected.update(
         abandoned=True,
         rejected=True,
         rejection_reason=(
             "Operator abandoned original authentication-rejected native planning request; no response adopted"
             if authentication
-            else "Operator abandoned original collected native planning output limit; incomplete response retained"
+            else f"Operator abandoned {original}collected {kind} output limit; incomplete response retained"
             if collected_length
-            else "Operator abandoned original cancelled native planning launch; no response adopted"
+            else f"Operator abandoned {original}cancelled {kind} launch; no response adopted"
             if cancelled
-            else "Operator abandoned original stopped native planning timeout; partial response retained"
+            else f"Operator abandoned {original}stopped {kind} timeout; partial response retained"
         ),
     )
     candidate.setdefault("stages", []).append(rejected)
@@ -248,11 +285,11 @@ def abandoned(state: RunState, record, selected, *, at):
         "instruction": (
             "Original native authentication rejection retained after verified error-only stop; refresh credentials before explicit resume. No report is successful evidence."
             if authentication
-            else "Original native output limit abandoned after authenticated collected stop; incomplete report is not successful evidence."
+            else f"{title} output limit abandoned after authenticated collected stop; incomplete report is not successful evidence."
             if collected_length
-            else "Original native held launch cancelled after verified stop; no report is successful evidence."
+            else f"{title} held launch cancelled after verified stop; no report is successful evidence."
             if cancelled
-            else "Original native timeout abandoned after verified stop; partial report is not successful evidence."
+            else f"{title} timeout abandoned after verified stop; partial report is not successful evidence."
         ),
     }
     run_status.pause(
@@ -261,12 +298,12 @@ def abandoned(state: RunState, record, selected, *, at):
         (
             "Original native authentication rejection retained. Refresh credentials before explicit resume; no agent launched."
             if authentication
-            else "Original native planning output limit retained. Resume explicitly; no agent launched."
+            else f"{stop_title} output limit retained. Resume explicitly; no agent launched."
             if collected_length
-            else "Original native held planning cancellation retained. Resume explicitly; no agent launched."
+            else f"{held} retained. Resume explicitly; no agent launched."
             if cancelled
-            else "Original native planning timeout retained. Resume explicitly; no agent launched."
+            else f"{stop_title} timeout retained. Resume explicitly; no agent launched."
         ),
-        next_stage=record["stage"],
+        next_stage=record["original_stage"] if repair else record["stage"],
     )
     return candidate

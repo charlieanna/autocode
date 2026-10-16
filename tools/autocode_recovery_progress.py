@@ -1,5 +1,12 @@
 """Correct pre-build planning recoveries miscounted as implementation batches."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_roles as roles
 except ImportError:
@@ -9,7 +16,7 @@ PLANNING = frozenset(roles.ALL_PLANNING_STAGES)
 PRE_BUILD = PLANNING | {"recognize_workflow"}
 
 
-def planning_only_count(state):
+def planning_only_count(state: RunState):
     """Prove an old counter contains no implementation attempts, or decline."""
     count = state.get("no_progress_batches", 0)
     if type(count) is not int or count <= 0:
@@ -43,7 +50,7 @@ def planning_only_count(state):
     return sorted(attempts) if len(attempts) >= count else None
 
 
-def reconcile(state, *, issued, approved, supersede, now):
+def reconcile(state: RunState, *, issued, approved, supersede, now):
     """One explicit resume may withdraw only a verified, false pre-build hold.
 
     The caller verifies the current request under the run lock. Unknown history,
@@ -52,7 +59,7 @@ def reconcile(state, *, issued, approved, supersede, now):
     """
     if not issued or issued.get("scope") != "operational_exhaustion" or not approved:
         return False
-    entry = state.get("resolver", {}).get("human_escalations", {}).get(issued["request_id"], {})
+    entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(issued["request_id"], {})
     origin = entry.get("identity", {}).get("proposal", {}).get("origin", {})
     if origin.get("pause_status") != "PAUSED_NO_PROGRESS":
         return False
@@ -73,6 +80,6 @@ def reconcile(state, *, issued, approved, supersede, now):
             "reason": reason,
         }
     )
-    state.update(no_progress_batches=0, status="RUNNING", phase="READY_TO_EXECUTE")
+    state.update({"no_progress_batches": 0, "status": "RUNNING", "phase": "READY_TO_EXECUTE"})
     state.pop("stop_reason", None)
     return True

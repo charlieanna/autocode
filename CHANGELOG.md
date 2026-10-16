@@ -371,6 +371,26 @@ PR template asks for an entry here; a change without one is incomplete.
   (`autocode_accepted_source`) and the test contract fixtures (`goal_fixtures`) take the typed `RunState`, so the
   untyped-`state` ratchet drops from 287 to 201 and mypy checks those 86 function bodies. Type-only: no behaviour,
   output or `state.json` change (#695).
+- Operator prerequisites (`autocode_task_preflight`, `autocode_preflight_contract`), the first serial repair
+  assignment (`autocode_rework_policy`), saved-run replay (`autocode_replay_transport`, `autocode_replay_source_trace`),
+  requested Go test names (`autocode_native_test_names`), the approved source scope and contract approval
+  (`autocode_source_scope`, `autocode_contract_identity`), each stage's context packet and the units' model request
+  (`autocode_stage_context`, `units/common`, `units/autocode`), run setup and configuration (`autocode_run_setup`,
+  `autocode_configure`, `autocode_containment_policy`, `autocode_verification_config`, `autocode_base_patch`), the
+  isolated Builder and its retries (`autocode_builder_worker`, `autocode_builder_recovery`, `autocode_worker_limits`),
+  result and repaired-report application (`autocode_result_application`, `autocode_repaired_result`), recovery
+  (`autocode_validation_recovery`, `autocode_report_retry`, `autocode_recovery_progress`, `autocode_recovery_grants`,
+  `autocode_recovery_inputs`, `autocode_provider_recovery`, `autocode_budget_recovery`, `autocode_action_recovery`),
+  human review (`autocode_human_review_artifact`, `autocode_review_rejection`), the plan and its revisions
+  (`autocode_contract_revision`, `autocode_draft_assignment`, `autocode_program_guidance`, `autocode_planning_graph`,
+  `autocode_repair_provenance`, `autocode_base_examples`, `autocode_toolchain_requirements`), verification and visual
+  evidence (`autocode_verification_inspection`, `autocode_verification_view`, `autocode_visual_profile`,
+  `autocode_visual_acceptance`), request usage (`autocode_request_usage`), risk disclosure (`autocode_risk_disclosure`),
+  task worktrees (`autocode_worktrees`, `autocode_workspaces`), execution checkpoints (`autocode_checkpoints`),
+  joint-planning transports (`autocode_joint_transport`), failed-job source captures (`autocode_job_source`), design
+  revisions (`autocode_design_revision`), the CLI's edit step (`autocode_action_edits`) and a UI run's accepted plan
+  (`autocode_ui`) take the typed `RunState`, so the untyped-`state` ratchet drops from 201 to 110 and mypy checks those
+  85 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
@@ -443,6 +463,20 @@ PR template asks for an entry here; a change without one is incomplete.
   acceptance as `UNKNOWN` (with `completion_current` null) instead of a false `NOT_READY` denial when the
   runner's CODE scope authority is not available (#1255).
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
+- Native visual planning (`VISUAL_REVIEW_PROFILE=`): a Requirements, Planner or Plan Reviewer report that finished
+  but failed validation now gets the ordinary bounded report-only repair of the same stage on the same saved route
+  and model, through the run's native writer, instead of pausing at once with `PAUSED_INVALID_OUTPUT`. A resume does
+  not renew a queued repair's attempts, `--retry-report` stays refused, and the planning review allowance is not
+  charged for a repair. A resume that gives that stage's role a new model or reasoning effort archives the pending
+  repair and runs the stage again as a fresh attempt on the new route, as before. Warning: that resume discards the
+  repair even when none of its attempts has run, the fresh attempt is charged (with the two-review allowance spent,
+  `autocode resume --plan-reviewer-reasoning-effort low` can stop the fresh Plan Reviewer at
+  `PAUSED_PLANNING_BUDGET`), and restoring the old model later does not bring the repair back; to keep the repair,
+  resume without changing that role's model or effort. A repair launch that stops
+  (timeout, output limit, cleanup) is closed with `--abandon-stage`, as an original planning stop is. A native run
+  no longer sends a stage pause to an Investigator it cannot run, so that pause keeps its reason and spends no
+  investigation; a Builder failure classification still pauses as before. The final plan review is not repaired
+  yet (#1257).
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
   to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,
