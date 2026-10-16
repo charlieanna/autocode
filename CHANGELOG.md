@@ -290,6 +290,16 @@ PR template asks for an entry here; a change without one is incomplete.
   after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
   work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
   judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- `autocode-issue plan ISSUE` puts the plan an issue's run is waiting to have approved in a pull request, so a
+  team reviews what will be built before anything is built. It exports the plan as `autocode plan --export` writes
+  it and commits it as `plans/issue-N.md` (`--path` for another place) on branch `autocode/issue-N-<title>-plan`,
+  made from the run's base commit, without touching any checkout or the run, and writes the pull request's body.
+  `--open` pushes the branch and opens a draft pull request (`--base`, `--ready` as for `pr`). Run again after the
+  plan changes, it commits the new plan on top, so the same pull request shows the change; it never replaces
+  commits it did not make. Merging approves nothing: once the plan pull request exists, `autocode-issue status`
+  at the approval stop prints the `autocode --goal-file` command that loads the merged file into the run. `TaskRun.export_plan(path)` is the
+  task-run interface's way to write the plan file. `docs/workflow.md` describes the team workflow. Starting a new
+  run from the merged file is not available yet (#720).
 
 ### Changed
 

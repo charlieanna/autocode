@@ -18,6 +18,7 @@ import autocode_evidence_document as evidence_document
 import autocode_evidence_provenance as evidence_provenance
 import autocode_github as github
 import autocode_issue as issue_cli
+import autocode_plan_file as plan_file
 from autocode_taskrun import TaskRun, TaskRunError
 
 from tests import GIT_TEST_CONFIG
@@ -449,6 +450,109 @@ class IssueCliTests(unittest.TestCase):
         self.assertEqual(body, pull["body"])
         status = self.cli("status", "#7")
         self.assertIn("PR:       https://github.example/acme/widgets/pull/1", status.stdout)
+
+    def test_the_plan_waiting_for_approval_goes_to_a_pull_request_as_its_plan_file(self):
+        """#720: AutoCode drafts the plan, autocode-issue opens a pull request carrying it, and the merged file loads."""
+        started = self.cli("start", "#7", "--issue-file", str(self.issue_file), "--", *self.options)
+        self.assertEqual(0, started.returncode, started.stderr)
+        self.assertIn(
+            "Or have it reviewed in a pull request: autocode-issue plan acme/widgets#7 --open", started.stdout
+        )
+        record = self.saved_record()
+        worktree = Path(record["worktree"])
+        run = TaskRun(worktree, Path(record["run_dir"]), env=self.env)
+        token = run.status()["needs"]["token"]
+        untouched = [
+            (self.git("rev-parse", "HEAD", cwd=where), self.git("status", "--porcelain", cwd=where))
+            for where in (self.project, worktree)
+        ]
+
+        prepared = self.cli("plan", "#7")
+        self.assertEqual(0, prepared.returncode, prepared.stderr)
+        self.assertIn("Nothing has been pushed", prepared.stdout)
+        branch = "autocode/issue-7-add-a-greeting-cli-plan"
+        commit = self.git("rev-parse", branch)
+        # One commit on the run's base commit, adding only the plan file: the run's plan exactly, nothing masked.
+        self.assertEqual(record["base_commit"], self.git("rev-parse", f"{commit}^"))
+        self.assertEqual("A\tplans/issue-7.md", self.git("diff", "--name-status", f"{commit}^", commit))
+        committed = subprocess.run(
+            ["git", "-C", str(self.project), "cat-file", "blob", f"{commit}:plans/issue-7.md"],
+            capture_output=True,
+            check=True,
+        ).stdout
+        exported = Path(tempfile.mkdtemp(dir=self.project.parent)) / "plan.md"
+        run.export_plan(exported)
+        self.assertEqual(exported.read_bytes(), committed)
+        plan = plan_file.read(committed.decode())
+        self.assertEqual(plan.exported_hash, plan.goal_hash)
+        self.assertIn(
+            f"Plan revision {plan.revision} (goal hash {plan.goal_hash}) is plans/issue-7.md", prepared.stdout
+        )
+        # Nothing else changed: no checkout or index, and the run still waits for the same approval.
+        self.assertEqual(
+            untouched,
+            [
+                (self.git("rev-parse", "HEAD", cwd=where), self.git("status", "--porcelain", cwd=where))
+                for where in (self.project, worktree)
+            ],
+        )
+        self.assertEqual(("approve_plan", token), (run.status()["needs"]["kind"], run.status()["needs"]["token"]))
+        self.assertEqual([], _FakeGitHub.pulls)
+
+        opened = self.cli("plan", "#7", "--open")
+        self.assertEqual(0, opened.returncode, opened.stderr)
+        self.assertIn("Opened a draft plan pull request: https://github.example/acme/widgets/pull/1", opened.stdout)
+        self.assertEqual(commit, self.git("rev-parse", f"refs/heads/{branch}", cwd=self.remote))
+        [pull] = _FakeGitHub.pulls
+        self.assertEqual(
+            ("/repos/acme/widgets/pulls", branch, "main", True, "Plan: Add a greeting CLI (#7)"),
+            (pull["path"], pull["head"], pull["base"], pull["draft"], pull["title"]),
+        )
+        body = (self.project / ".autocode/issues/acme-widgets-7-plan-pr.md").read_text()
+        self.assertEqual(body, pull["body"])
+        self.assertIn(f"`plans/issue-7.md` is plan revision {plan.revision}", body)
+        self.assertIn(f"Its goal hash is `{plan.goal_hash}`", body)
+        self.assertIn("Merging this pull request approves nothing.", body)
+        self.assertNotIn("Resolves", body)
+
+        again = self.cli("plan", "#7", "--open")  # the same plan: the same commit and pull request
+        self.assertEqual(0, again.returncode, again.stderr)
+        self.assertIn("Pushed. The plan pull request is https://github.example/acme/widgets/pull/1", again.stdout)
+        self.assertEqual((1, commit), (len(_FakeGitHub.pulls), self.git("rev-parse", branch)))
+        status = self.cli("status", "#7")
+        self.assertIn("Plan PR:  https://github.example/acme/widgets/pull/1", status.stdout)
+        merged = self.project / "plans/issue-7.md"
+        load = ["--goal-file", str(merged), "--workspace", str(worktree), "--run-dir", record["run_dir"]]
+        self.assertIn(f"Once that pull request is merged here: autocode {' '.join(load)}", status.stdout)
+
+        # Merged, the file loads into the run as its next draft revision; the old token approves nothing.
+        self.git("merge", "-q", "--ff-only", branch)
+        loaded = subprocess.run(
+            [sys.executable, str(TOOLS / "autocode.py"), *load],
+            capture_output=True,
+            text=True,
+            env=self.env,
+            timeout=300,
+        )
+        self.assertEqual(0, loaded.returncode, loaded.stderr)
+        self.assertIn(
+            f"Loaded the plan in {merged.resolve()} (goal hash {plan.goal_hash}) as plan revision "
+            f"{plan.revision + 1}; it is not approved.",
+            loaded.stdout,
+        )
+        self.assertEqual({"kind": "continue"}, run.status()["needs"])
+
+    def test_plan_refuses_a_run_that_is_not_waiting_for_plan_approval(self):
+        started = self.cli("start", "#7", "--issue-file", str(self.issue_file), "--", *self.options)
+        self.assertEqual(0, started.returncode, started.stderr)
+        record = self.saved_record()
+        run = TaskRun(Path(record["worktree"]), Path(record["run_dir"]), env=self.env)
+        run.approve_plan(run.status()["needs"]["token"])
+        refused = self.cli("plan", "#7")
+        self.assertEqual(1, refused.returncode, refused.stdout)
+        self.assertIn("the run is not waiting for its plan to be approved", refused.stderr)
+        self.assertEqual("", self.git("branch", "--list", "*-plan"))
+        self.assertNotIn("plan_pr", self.saved_record())
 
     def start_that_fails(self, fail):
         """`autocode-issue start` whose TaskRun.start creates its run and then fails with ``fail(run_dir)`` (#1119)."""
