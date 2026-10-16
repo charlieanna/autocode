@@ -23,7 +23,7 @@ class ReportDeliveryCLI(unittest.TestCase):
 
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
-        scratch = tempfile.TemporaryDirectory(prefix="report-delivery-", dir=results)
+        scratch = tempfile.TemporaryDirectory(prefix="report-delivery-", dir=results, ignore_cleanup_errors=True)
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()
         self.scenario = catalog.load("greenfield-greeting-cli")
