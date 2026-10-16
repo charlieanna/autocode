@@ -49,9 +49,13 @@ NATIVE_CHECKS = (
     "tests/test_native_initial_callers",
 )
 # A fake OpenCode CLI run whose stages launch contained (#709): only linux-tool-containment
-# requires it to run, under bubblewrap, without skipping. That job runs for every file this
-# test module loads (contained_flow_files), not a hand list that misses what it imports.
+# requires it to run, under bubblewrap, without skipping. That job runs for every Python file
+# this test module loads (contained_flow_files), not a hand list that misses what it imports,
+# and for the data below.
 CONTAINED_FLOW = "tests/test_contained_fake_cli.py"
+# Data the flow reads that no import names: the JSON schemas each stage's report is checked
+# against (autocode.SCHEMA_DIR). Prompts are not listed, so a prompt-only change skips the job.
+CONTAINED_FLOW_DATA = ("tools/autocode-schemas/",)
 # Where an import can load from: tests/__init__.py puts tools/, scenarios/ and the root on sys.path.
 IMPORT_ROOTS = ("tools/", "scenarios/", "")
 # A script started or copied by its file name, as `TOOLS / "fake_opencode.py"` or
@@ -88,13 +92,15 @@ def module_files(name: str) -> list[str]:
 def contained_flow_files(root: Path = ROOT) -> frozenset[str]:
     """The repository files the contained fake OpenCode flow loads, followed from CONTAINED_FLOW.
 
-    It follows each file's imports (run_suite.imported_names, including imports inside functions)
-    and the scripts it names by file name, beside it or in tools/: the tests start the CLI and copy
-    the fake clients that way, and the runtime starts its own workers the same way. An import
-    counts whether or not its file exists, so deleting a module the flow still imports, or adding
-    one that would shadow it, selects the job too. A file that does not parse stays in, but its
-    imports are not followed. A missing CONTAINED_FLOW fails selection instead of quietly skipping
-    the job. Non-Python files the flow reads (prompts, schemas) are not followed."""
+    It follows each file's import statements (run_suite.imported_names, including those inside
+    functions) and the scripts it names by file name, beside it or in tools/: the tests start the
+    CLI and copy the fake clients that way, and the runtime starts its own workers the same way.
+    A module loaded by a name built at run time (importlib.import_module(f"...")), such as a
+    subcommand from autocode_subcommands' table, is not followed. An import counts whether or not
+    its file exists, so deleting a module the flow still imports, or adding one that would shadow
+    it, selects the job too. A file that does not parse stays in, but its imports are not followed.
+    A missing CONTAINED_FLOW fails selection instead of quietly skipping the job. Only Python files
+    are followed; select() adds CONTAINED_FLOW_DATA."""
     if not (root / CONTAINED_FLOW).is_file():
         raise FileNotFoundError(f"{CONTAINED_FLOW} is missing: name the module linux-tool-containment runs")
     seen: set[str] = set()
@@ -180,7 +186,7 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
                 selected[job] = True
         if path.startswith(NATIVE_CHECKS):
             selected["macos"] = True
-        if path.endswith(".py") and path in contained_flow_files():
+        if path.startswith(CONTAINED_FLOW_DATA) or (path.endswith(".py") and path in contained_flow_files()):
             selected["linux"] = True
         if (
             path.startswith("tools/")

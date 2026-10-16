@@ -1005,10 +1005,12 @@ PR template asks for an entry here; a change without one is incomplete.
   bubblewrap, only when one of four named files changed. A pull request that broke the flow through another
   file it loads, such as the status view (`autocode_run_view.py`) or the containment setup check
   (`autocode_containment_policy.py`), skipped the job, and the break first showed on master. `tools/ci_scope.py`
-  now works out the files from `tests/test_contained_fake_cli.py` itself. It follows every import and every
-  script started or copied by file name, so the list stays right as imports change. That covers most of
-  `tools/` (436 of 546 Python files today), so most pull requests that change runtime code now run this job too.
-  A missing test module fails CI's job selection instead of skipping the job (#709).
+  now works out the Python files from `tests/test_contained_fake_cli.py` itself. It follows their import
+  statements and the scripts they start or copy by file name, so the list stays right as imports change. A
+  change to the stage report schemas in `tools/autocode-schemas/` runs the job too. That covers most Python
+  files in `tools/` outside the dashboard, so most pull requests that change runtime code now run this job too,
+  on its own runner beside the suite job. A missing test module fails CI's job selection instead of skipping
+  the job (#709).
 
 ## [0.7.1] — 2026-10-09
 

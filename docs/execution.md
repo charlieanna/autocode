@@ -1571,13 +1571,14 @@ control shows the same write lands. The fake client's own edits and checks run o
 the boundary, so this does not replace `NativeToolTests` either. The container backend
 (`docker` or `podman`) and a fake scenario under each backend are still open.
 
-A pull request runs this job when it changes any Python file that flow loads.
-`tools/ci_scope.py` works the list out from the test module each time: it follows every
-import, including imports inside functions, and every script the code starts or copies by
-file name, such as the CLI, the fake clients and the runtime's own workers. That is most
-of `tools/`, so a change to the status view or the containment setup check runs the job
-without anyone adding it to a list. Non-Python files the flow reads, such as prompts and
-schemas, do not select the job.
+A pull request runs this job when it changes any Python file that flow loads, or a stage
+report schema in `tools/autocode-schemas/`. `tools/ci_scope.py` works the Python files out
+from the test module each time: it follows their import statements, including those inside
+functions, and every script the code starts or copies by file name, such as the CLI, the
+fake clients and the runtime's own workers. That is most of `tools/`, so a change to the
+status view or the containment setup check runs the job without anyone adding it to a list.
+It does not follow a module loaded by a name built at run time through `importlib`, such as
+a subcommand from the subcommand table. Prompt changes do not select the job.
 
 ## Secret redaction
 
