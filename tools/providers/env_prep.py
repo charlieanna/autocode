@@ -13,8 +13,7 @@ own mappings; billing admission deliberately checks both the explicit mapping
 and the process environment through :func:`combined_environment`.
 
 Pure functions over mappings, standard library only. This module imports
-nothing from AutoCode, so it cannot join the import cycle listed in
-tests/test_architecture.py.
+nothing from AutoCode, so it cannot create an import cycle.
 """
 
 from __future__ import annotations

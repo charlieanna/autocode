@@ -185,8 +185,7 @@ A break only a slow module catches can
 therefore first show up on master: fix it forward straight away. Making a slow test fast (in-process instead of a CLI
 subprocess, a copied Git fixture instead of `git init`, a fake clock instead
 of a wait) and taking it off the slow list is progress. Run the full suite yourself only when you change something many
-modules share. Keeping modules out of import cycles keeps `--changed`
-precise.
+modules share.
 
 Where a new test belongs:
 
