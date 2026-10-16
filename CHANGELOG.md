@@ -305,6 +305,13 @@ PR template asks for an entry here; a change without one is incomplete.
   (`autocode_brief_obligations`) and the reviewer fallback (`autocode_reviewer_fallback`) take the typed `RunState`,
   so the untyped-`state` ratchet drops from 628 to 545 and mypy checks those 83 function bodies. Type-only: no
   behaviour, output or `state.json` change (#695).
+- The operational-information re-evaluation (`autocode_operational_information`), workflow job failures
+  (`autocode_job_failure`), reviewer routing (`autocode_workflow`), the classification retry
+  (`autocode_classification_recovery`), pause authority (`autocode_pause_authority`), the recovery view
+  (`autocode_recovery_view`), the external repair handoff (`autocode_repair_handoff`), recorded check replay
+  (`autocode_replay_checks`), the risk obligations (`autocode_risk_obligations`) and the parallel Builder quota
+  handoff (`autocode_worker_quota`) take the typed `RunState`, so the untyped-`state` ratchet drops from 545 to 451
+  and mypy checks those 94 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 

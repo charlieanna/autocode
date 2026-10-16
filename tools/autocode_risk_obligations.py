@@ -11,6 +11,10 @@ import copy
 import re
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_brief_obligations as human
@@ -30,7 +34,7 @@ REVIEW_STAGES = human.REVIEW_STAGES
 KEY = "risk_acceptance"
 
 
-def sources(state):
+def sources(state: RunState):
     return human.sources(state)
 
 
@@ -44,7 +48,7 @@ def _target_rows(wrapper):
     return targets.verify(util.read_object(path))["targets"]
 
 
-def inventory(state):
+def inventory(state: RunState):
     wrapper = _wrapper((state.get("goal_contract") or {}).get("body"))
     rows = _target_rows(wrapper) if wrapper else []
     declared = acceptance.inventory(sources(state), rows)
@@ -58,7 +62,7 @@ def _wrapper(body):
     return (body or {}).get(KEY)
 
 
-def _past_observations(state):
+def _past_observations(state: RunState):
     rows = {}
     for contract in [*(state.get("contract_history") or []), state.get("goal_contract") or {}]:
         wrapper = _wrapper(contract.get("body")) or {}
@@ -67,7 +71,7 @@ def _past_observations(state):
     return rows
 
 
-def _amendments(state, changes, public_targets):
+def _amendments(state: RunState, changes, public_targets):
     """Derive inactive declarations from exact, genuine source amendments."""
     declarations = {row["id"]: row for row in acceptance.inventory(sources(state), public_targets)}
     human_sources = sources(state)
@@ -146,7 +150,7 @@ def _verify_review(review, manifest):
         raise ValueError("Risk lifecycle Plan Reviewer provenance is missing or changed")
 
 
-def validate_body(state, body, *, ready=False):
+def validate_body(state: RunState, body, *, ready=False):
     wrapper = _wrapper(body)
     declared = acceptance.inventory(sources(state), [])
     if wrapper is None:
@@ -190,7 +194,7 @@ def validate_body(state, body, *, ready=False):
     _verify_review(wrapper["review"], manifest)
 
 
-def reviewed_body(state, body, proposals, record, *, changes=()):
+def reviewed_body(state: RunState, body, proposals, record, *, changes=()):
     result = copy.deepcopy(body)
     previous = _wrapper((state.get("goal_contract") or {}).get("body"))
     if not acceptance.inventory(sources(state), []) and previous is None:
@@ -251,7 +255,7 @@ def reviewed_body(state, body, proposals, record, *, changes=()):
     return result
 
 
-def prepare_body(state, body, origin, record=None):
+def prepare_body(state: RunState, body, origin, record=None):
     result = copy.deepcopy(body)
     previous = _wrapper((state.get("goal_contract") or {}).get("body"))
     supplied = _wrapper(result)
@@ -268,7 +272,7 @@ def prepare_body(state, body, origin, record=None):
     raise ValueError("A Planner, Builder or edited contract cannot replace independently derived risk observations")
 
 
-def observations(state, *, progressive_context=None, all_observations=False):
+def observations(state: RunState, *, progressive_context=None, all_observations=False):
     body = (state.get("goal_contract") or {}).get("body") or {}
     validate_body(state, body, ready=True)
     wrapper = _wrapper(body)
@@ -291,7 +295,7 @@ def observations(state, *, progressive_context=None, all_observations=False):
     return [row for row in rows if selected.intersection(row["criterion_ids"])]
 
 
-def commands(state, *, python="python3", timeout=30, progressive_context=None, all_observations=False):
+def commands(state: RunState, *, python="python3", timeout=30, progressive_context=None, all_observations=False):
     return protocols.commands(
         observations(state, progressive_context=progressive_context, all_observations=all_observations),
         python=python,

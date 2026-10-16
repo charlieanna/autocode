@@ -7,7 +7,7 @@ normal approval, liveness, scope and allowance gates under its lock.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -64,7 +64,7 @@ BOUND_FIELDS = (
 )
 
 
-def token(state):
+def token(state: RunState):
     if state.get("status") in ACTIVE or not state.get("status"):
         return None
     value = {key: state.get(key) for key in BOUND_FIELDS}
@@ -72,7 +72,7 @@ def token(state):
     return "recovery-v1:" + hashlib.sha256(encoded).hexdigest()
 
 
-def require_token(state, expected):
+def require_token(state: RunState, expected):
     if expected is not None and (not isinstance(expected, str) or not expected or expected != token(state)):
         raise ValueError("The saved pause changed. Refresh and inspect the current recovery card before retrying.")
 
@@ -85,7 +85,7 @@ def _rows(value):
     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
 
 
-def _cause(state):
+def _cause(state: RunState):
     published = _dict(state.get("resolver_human_request"))
     entry = _dict(_dict(_dict(state.get("resolver")).get("human_escalations")).get(published.get("request_id")))
     origin = _dict(_dict(_dict(entry.get("identity")).get("proposal")).get("origin"))
@@ -166,7 +166,7 @@ _JOB_STOP_CAUSE = {
 }
 
 
-def _job_model_stop(state, role):
+def _job_model_stop(state: RunState, role):
     """What happened to a workflow job its provider refused or ran out of quota on (#463), or None.
 
     Once a person named another model (``route_assignment``), the next step is only the retry
@@ -211,7 +211,7 @@ def _job_model_stop(state, role):
     return None
 
 
-def _awaits_model(state, need):
+def _awaits_model(state: RunState, need):
     """A workflow job its provider's content filter refused, with no other model named yet (#463).
 
     Its exact retry would replay the refused model, so the card offers it only once a person named
@@ -294,7 +294,7 @@ def native_cleanup_need(state: RunState):
     }
 
 
-def _builder_members(state, cause):
+def _builder_members(state: RunState, cause):
     if cause != "PAUSED_BUILDER_RETRY_LIMIT" or state.get("next_stage") != "terra":
         return []
     if any(state.get(key) for key in ("active_stage", "active_runner_check", "pending_report_repair", "parent_run")):
@@ -309,7 +309,7 @@ def _builder_members(state, cause):
     return list(members)
 
 
-def _parallel_members(state):
+def _parallel_members(state: RunState):
     batch = _dict(state.get("orchestration_batch"))
     if (
         state.get("next_stage") != "orchestrator"
@@ -326,7 +326,7 @@ def _parallel_members(state):
     # offered a retry on the same model while that question is open (#465). Once a person answered it
     # without a model (information, or leaving it paused), its own control is the one way on (#541,
     # autocode_member_stop): a quota-stopped member reruns unchanged, a refused one is asked again.
-    answered = (member_stop.answered(state) or ({},))[0].get("milestone_id")
+    answered = cast(dict, (member_stop.answered(state) or ({},))[0]).get("milestone_id")
     return [
         row["milestone_id"]
         for row in workers
@@ -340,7 +340,7 @@ def _parallel_members(state):
     ]
 
 
-def _failures(state):
+def _failures(state: RunState):
     mode = _dict(_dict(state.get("settings")).get("workflow")).get("mode")
     groups = []
     for key, entry in _dict(state.get("failure_history")).items():
@@ -363,7 +363,7 @@ def _failures(state):
     return groups
 
 
-def project(state, need=None):
+def project(state: RunState, need=None):
     status = state.get("status") or ""
     if status in ACTIVE or not status:
         return None
