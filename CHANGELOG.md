@@ -301,6 +301,18 @@ PR template asks for an entry here; a change without one is incomplete.
   `rework-same-failure` has a correct greeting repair whose required suite also fails a release test the task may
   not change: the run must stop after the second identical failure, naming the check, with no paid diagnosis or
   third Builder attempt, and its status view's `cost` must show the spend under the $5 cap; it passes today.
+- The scenario harness runs a fake OpenCode build inside the Linux bubblewrap boundary (#709).
+  `scenarios/test_contained_opencode.py` runs `greenfield-greeting-cli` on the fake OpenCode client, with the
+  harness's scripted model behind it and `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1`, so its Builder, Tester and
+  Completion Reviewer launch contained. It checks that the scenario's oracle passes and the run completes, that
+  every record of those three stages names `bubblewrap` and the version `autocode doctor` reports, that a Builder
+  shell write planted outside the project is blocked, and that `--status --json` says `tool_containment:
+  "contained"` and names the same backend. The test asks `autocode doctor --json` whether the boundary is
+  available. Without a working bubblewrap, the test skips, except in CI on Linux, where it fails; the suite job
+  installs bubblewrap before the scenario harness runs. Any other problem doctor reports, such as the fake no
+  longer reporting the qualified OpenCode version, fails it everywhere. A pull request that changes only
+  `tools/fake_opencode.py` now runs the scenario harness step and this case (`SCENARIO_FIXTURES` in
+  `tools/run_suite.py`, read by `tools/ci_scope.py`). Only tests and CI selection change.
 - The scenario harness now checks who approved each task run a scenario completes (#722, sixth part). It reads
   `approvals` from that run's final `--status --json`. Each row a person made must name the scenario's person
   (`Scenario Person <person@scenario.example.test>`, which every scenario project now sets in its own Git
