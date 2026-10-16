@@ -294,14 +294,18 @@ commands and their exit codes, artifact paths and hashes, roles/models and
 attempt durations, reported usage, regression proof and remaining gaps. The report of a build,
 bug-fix or design run (the run's `workflow`, or none for a run saved before workflow
 recognition) also has `approvals`: the status view's `approvals` rows when the report was
-written (who approved each plan and review, edited the plan or resumed a pause, with its
-recorded provenance, never verified), shown in the Markdown as an Approvals table after the
-intended outcome, or as `None recorded` for a run with none
+written (who approved each plan and review, accepted completion, edited the plan or resumed a
+pause, with its recorded provenance, never verified), shown in the Markdown as an Approvals
+table after the intended outcome, or as `None recorded` for a run with none
 ([Who approved](execution.md#who-approved)). Review and discuss reports, which have no approval
 step, have no `approvals` field and no such section, even when the status view lists a resume.
 Neither do verification, program and component reports, nor reports written before AutoCode
 listed approvals, so older pairs still authenticate. An older build, bug-fix or design report
 gains the section when AutoCode saves the completed run again; reading its status does not.
+A task report whose approved plan is in the status view also has `plan.goal_hash` and
+`plan.plan_file`, copied from `approved_contract` (#720); the Markdown says them after the
+agreed plan's token. Reports written before AutoCode cited them have neither field and still
+authenticate; a completed run saved again rebuilds its pair with them.
 When the proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
 the regression proof; they are reported, not gaps. Review-only mutation reports
@@ -808,7 +812,13 @@ or completion proof; the existing CLI approval checks remain authoritative.
 as that approval holds. It has `revision`, `hash`, `token` (the `r<revision>:<hash>`
 that was approved), `task_id`, `approved_at` and `body`, the full approved contract
 body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
-end-to-end flow, technical approach, milestones and the rest) copied as saved. It is
+end-to-end flow, technical approach, milestones and the rest) copied as saved. It also has
+`goal_hash`, the SHA-256 of that body (what `autocode plan --check FILE` prints for a file
+holding exactly this plan), and `plan_file`: null, or, when the plan was loaded with
+`--goal-file` and not approved, changed and approved again since, the file's `path` and
+`goal_hash`, the `revision` it was loaded as and the parts of the plan that `changed` since
+then, apart from the runner's records of the plan's review (#720). A malformed record gives
+null, never an absent `approved_contract`. It is
 absent until the current sealed contract carries an approval of exactly its token,
 once a newer draft revision replaces the approved one (a goal change, or the plan a
 `--follow-up` drafts), and while the contract itself records an open blocking
@@ -829,11 +839,12 @@ was approved. A coordinating layer such as
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
-`approvals` lists every plan and review approval, goal edit and pause-releasing resume the
-run recorded, oldest first (#722): `kind` (`plan`, `review`, `edit` or `resume`), `at`,
-`actor` (`user_cli` for a person, `workflow_policy` for a small bug fix approved under the
-workflow policy), `contract_token` (the plan token approved, or the draft an edit installed;
-null for a review or a resume), `criterion` (the accepted criterion, null otherwise),
+`approvals` lists every plan and review approval, completion acceptance, goal edit and
+pause-releasing resume the run recorded, oldest first (#722): `kind` (`plan`, `review`,
+`completion` for `--accept-completion`, `edit` or `resume`), `at`, `actor` (`user_cli` for a
+person, `workflow_policy` for a small bug fix approved under the workflow policy),
+`contract_token` (the plan token approved, or the draft an edit installed; null for a review,
+a completion acceptance or a resume), `criterion` (the accepted criterion, null otherwise),
 `pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
 one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
 `git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and

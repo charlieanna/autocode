@@ -71,16 +71,16 @@ PR template asks for an entry here; a change without one is incomplete.
   user.email`, for the run's saved workspace in AutoCode's own environment, is not listed, compared without regard
   to case, before anything is approved: exit 2 (the conversation stops at the same question) with a message naming
   the required and the actual identity, and the run stays at the same stop. An `--as` name never counts. Goal
-  edits, resumes, workflow-policy approvals and `--accept-completion` are not checked. The run saves the list when
-  it starts (`settings.require_approver`), so a changed file never alters a run in progress; the key has no flag,
-  and `autocode doctor` shows it with its source. Without the setting nothing changes. It guards against an
-  approval under the wrong configured Git identity, not against someone who deliberately sets a listed address
-  (Git's environment variables or a repository-local `user.email` change what is checked): it is not
-  authentication. A replay (`autocode replay`, `--replay-recording`) never takes it, `autocode program` and
-  `autocode components` child runs read it from their own worktree (so only a committed file reaches them), and
-  `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task now reads the project
-  settings, all of them, as every other new run does (it read none before), so a project `engine` other than
-  `codex` refuses it, as it already did with a typed task.
+  edits, resumes and workflow-policy approvals are not checked; `--accept-completion` is, since the fifth part
+  below. The run saves the list when it starts (`settings.require_approver`), so a changed file never alters a run
+  in progress; the key has no flag, and `autocode doctor` shows it with its source. Without the setting nothing
+  changes. It guards against an approval under the wrong configured Git identity, not against someone who
+  deliberately sets a listed address (Git's environment variables or a repository-local `user.email` change what is
+  checked): it is not authentication. A replay (`autocode replay`, `--replay-recording`) never takes it,
+  `autocode program` and `autocode components` child runs read it from their own worktree (so only a committed file
+  reaches them), and `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task
+  now reads the project settings, all of them, as every other new run does (it read none before), so a project
+  `engine` other than `codex` refuses it, as it already did with a typed task.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -253,17 +253,22 @@ PR template asks for an entry here; a change without one is incomplete.
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
 
-- `autocode --status` shows each escalation a run made: a role's climb on its effort ladder and the Builder's
-  stronger attempt, as rows of the status view's new `escalations` field (`--status --json`) and one line each on
-  stderr after the cost line. A row names the job and stage it was for, the route it climbed from and to, its
-  escalated attempts and what they cost at the dated price table, and how it ended: `passed`, `failed_again`,
-  `paused` or `running`, with what decided it. A cost that cannot be known is unknown, never zero: an attempt
-  with no usage record, an escalation a checkpoint continuation inherited (its attempts ran before the restore),
-  and the role's stage records saved before launch routes were recorded (2026-10-01), which cannot be shown to
-  be its attempts (`unrouted_attempts`). Only a validation of the escalation's own work for its own milestone counts
-  as its pass, and not once the Builder's retry policy charged that work as a failure (a review sent it back): the
-  runner's blanket `passed` stamp does not override a failure of its own work, and is not taken once the role ran
-  on another route. It is read from the records the run already keeps; no run-state key is added (#612).
+- Accepting completion records who accepted it, and a required approver covers it (#722, fifth part):
+  `--accept-completion` saves the workspace's Git `user.name` and `user.email`, the host name and the command's
+  option names on the event it records, and takes `--as NAME`. `--status` lists it in `approvals` (kind
+  `completion`), and the completion summary, the evidence report and so the `autocode-issue pr` body show it as
+  "Completion accepted"; a report that lists one says so in its Approvals introduction, and every earlier report
+  renders unchanged. A run started with `require-approver` refuses `--accept-completion` from a Git `user.email`
+  it does not list, as it refuses a plan approval: exit 2, nothing saved, and the run stays at its pause. A
+  completion accepted before this change is listed with no recorded acceptor. `--as NAME` now also goes with
+  `--goal-file`, which already recorded who loaded the plan as a goal edit.
+- A completed run's evidence report, and so the pull request body `autocode-issue pr` builds from `evidence.md`,
+  gives the approved plan's goal hash (what `autocode plan --check FILE` prints for a file holding exactly that
+  plan). When the approved plan was loaded with `--goal-file`, it also names the file, its goal hash and the plan
+  revision it was loaded as, and says whether the approved plan is the file's plan unchanged, differs only in the
+  runner's records of the plan's review, or differs in named parts. The status view's `approved_contract` gains
+  `goal_hash` and `plan_file`, and the report's `plan` gains the same two optional fields; older reports still
+  authenticate. Starting a new run from a plan file is not part of this change (#720).
 
 ### Changed
 
@@ -507,8 +512,10 @@ PR template asks for an entry here; a change without one is incomplete.
   resume without changing that role's model or effort. A repair launch that stops
   (timeout, output limit, cleanup) is closed with `--abandon-stage`, as an original planning stop is. A native run
   no longer sends a stage pause to an Investigator it cannot run, so that pause keeps its reason and spends no
-  investigation; a Builder failure classification still pauses as before. The final plan review is not repaired
-  yet (#1257).
+  investigation; a Builder failure classification still pauses as before. The final plan review (`plan_finalize`)
+  now supports bounded report-only repair and publishes reviewed-plan records into the native visual protection
+  journal before approval; and unparsed OpenCode planning launches that left the launch unclosed at
+  `PAUSED_INVALID_OUTPUT` support operator closure via `--abandon-stage` without dispatching an agent (#1257).
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
   to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,
