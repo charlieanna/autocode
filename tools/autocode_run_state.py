@@ -331,8 +331,12 @@ class RunState(TypedDict, total=False):
     inherited_spend: dict
     base_commit: str  # the revision a bug fix is proven against
     # What a package run's checkout held outside the package at launch that base_commit cannot hold (an
-    # untracked Git repository, a submodule's uncommitted work): {path: added or modified}. Written once by
-    # autocode_package_writes.at_launch (via autocode_regression.start); read by package_writes.exempt.
+    # untracked Git repository, a submodule's uncommitted work): {path: added or modified}, {} when nothing.
+    # Written once by autocode_package_writes.at_launch, in every new package run once its base is saved
+    # (autocode_run_setup, or autocode_regression.start for an in-place run and one that found its checkout
+    # busy); read only by autocode_package_writes, whose check leaves out what it names while it is still a
+    # Git repository. A package run started before the record existed has none: its check leaves out every
+    # nested repository and submodule work it finds.
     package_outside_at_launch: dict[str, str]
 
     # --- recovery / diagnosis ---

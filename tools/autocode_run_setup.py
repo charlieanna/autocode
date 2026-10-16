@@ -49,6 +49,7 @@ try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
     from . import autocode_package_scope as package_scope
+    from . import autocode_package_writes as package_writes
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
@@ -91,6 +92,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
     import autocode_package_scope as package_scope
+    import autocode_package_writes as package_writes
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
@@ -367,6 +369,8 @@ def resolve(runner, args, parser):
             state["base_commit"] = None
         elif created or fresh or args.dry_run or args.status or args.explain:
             state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
+            if created or fresh:  # a package run's launch record: {} in a new project or task worktree
+                package_writes.at_launch(state, workspace, getattr(args, "package", None))
         else:
             state["base_commit"] = None  # until launch_base saves it
             launch_base(state, workspace, run_dir, parser, getattr(args, "package", None))

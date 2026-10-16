@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_bug_job as bug_job
 import autocode_native_test_names as native_names
 import autocode_package_scope as package_scope
 import autocode_preflight_worker as preflight_worker
@@ -621,18 +622,28 @@ class PackageSuite(unittest.TestCase):
             proof["unverified"],
         )
 
-    def test_the_diagnosis_note_the_runner_wrote_outside_the_package_is_not_the_change(self):
-        # The bug-fix workflow's note is at the repository root, under docs/bugs/ (autocode_bug_job).
-        self.project.write({**FIX, "docs/bugs/blank-name.json": "{}\n"})
-        proof = regression.prove(bugfix_state(self.project), self.project.root, self.run_dir / "unnamed")
+    def test_only_the_unchanged_diagnosis_note_the_runner_wrote_is_not_the_change(self):
+        # The bug-fix workflow's note is at the repository root, under docs/bugs/ (autocode_bug_job): the proof,
+        # like the check before review (tests.test_package_writes), leaves it out only while it is unchanged.
+        from tests.test_bug_job import diagnosis
+
+        note = "docs/bugs/blank-name.json"
+        case = {"id": "blank", "given": "a blank name", "when": "greet runs", "then": "it is rejected"}
+        report = diagnosis(note_path=note, test_cases=[case])
+        output = self.run_dir / "bug-investigation-01.json"
+        output.write_text(json.dumps(report))
+        state = bugfix_state(self.project)
+        bug_job.apply(state, report, {"changed_files": [], "output": str(output)}, self.project.root)
+        self.project.write(FIX)
+        proof = regression.prove(state, self.project.root, self.run_dir / "unchanged")
+        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
+        written = json.loads((self.project.root / note).read_text())
+        self.project.write({note: json.dumps({**written, "conclusion": "edited"}, indent=2) + "\n"})
+        proof = regression.prove(state, self.project.root, self.run_dir / "edited")
         self.assertIn(
-            "Files outside the package packages/greet/ changed, and its suite does not cover them: "
-            "docs/bugs/blank-name.json",
+            f"Files outside the package packages/greet/ changed, and its suite does not cover them: {note}",
             proof["unverified"],
         )
-        state = {**bugfix_state(self.project), "investigation": {"note_path": "docs/bugs/blank-name.json"}}
-        proof = regression.prove(state, self.project.root, self.run_dir / "named")
-        self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
 
 
 class PackageRequired(unittest.TestCase):
