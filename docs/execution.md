@@ -1214,13 +1214,20 @@ admission as one (#418).
 An unchanged incident can pause as `PAUSED_NO_PROGRESS` before another provider
 launch. A source hash, session rotation or comment-only edit alone cannot clear
 that hold. Existing healthy or uncertain workers are not restarted to create a
-new attempt. The hold's stop names the incident's check and its packet. With a
-cost cap, its reason is followed by the [`Cost:` line `--status` prints](#money-cap):
-"... authorizes one attempt under existing limits. Cost: $0.53 so far; cap $5.00."
-You can see what is left of the cap before the one scoped retry the hold admits.
-The spend and cap are read when the stop is written, never saved with the hold's
-reason, so a cap you change at the hold, with or without `--resume-paused`, is
-the cap the stop then states. Without a cap it says nothing about cost (#611).
+new attempt. The hold's stop names the incident's check and its packet. Its
+reason is followed by what is left of each budget the one scoped retry runs under:
+with a cost cap, the [`Cost:` line `--status` prints](#money-cap); with a time
+limit, the run's active time against it; and, with milestone checkpoints on, the
+current milestone's time against its budget:
+"... authorizes one attempt under existing limits. Cost: $0.53 so far; cap $5.00.
+Active time: 1,250 s of the 43,200 s limit. Milestone M1: 300 s of its 5,400 s budget."
+The time limit is the one the stage boundary enforces, whether you, the runner's
+default or AutoResolver's extension set it. The milestone line is left out while a
+progressive run's slice budget governs, or before the milestone has counted time.
+The figures are read when the stop is written, never saved with the hold's
+reason, so a cap, time limit or milestone budget you change at the hold, with or
+without `--resume-paused`, is the one the stop then states. A budget the run does
+not have is not mentioned (#611).
 A supported known correction still receives the ordinary retry or escalation
 decision, assignment checks, fresh independent validation and the Completion
 gate. Unsupported changes remain unknown rather than being treated as proven
@@ -1242,7 +1249,7 @@ The `rework-same-failure` scenario (scenarios/README.md) shows the hold on a cor
 required suite keeps failing on a file the task may not change, so after the second identical
 failure the run stops at `RESOLVER_PENDING` naming that check, with no paid diagnosis or third
 Builder attempt. The status view's `cost` shows the spend under the cost cap, and the stop's own
-text states that spend and the cap (#611).
+text states that spend and the cap, and the run's active time and its time limit (#611).
 
 An attempt that automatic recovery archived because it ended without a completed
 turn (a provider timeout, capacity or startup failure, or a denied path) returned
