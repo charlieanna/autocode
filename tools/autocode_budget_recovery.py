@@ -15,7 +15,10 @@ import datetime as dt
 import hashlib
 import json
 import math
-from typing import Any, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 HARD_CEILINGS = {
     "iteration_ceiling": 30,
@@ -64,7 +67,7 @@ def _fingerprint(value):
         return None
 
 
-def _planning_evidence(state, planning, stages, clock):
+def _planning_evidence(state: RunState, planning, stages, clock):
     # A completed revision, not an attempted review or a self-reported resolution,
     # is the only additional authority. Independent final review still must run.
     if (
@@ -102,7 +105,7 @@ def _planning_evidence(state, planning, stages, clock):
     ):
         return None
     reports = planning.get("reports")
-    history = state.get("planning_history", [])
+    history: Any = state.get("planning_history", [])
     if not isinstance(reports, dict) or not isinstance(history, list):
         return None
     bound = {}
@@ -194,7 +197,7 @@ def _planning_evidence(state, planning, stages, clock):
         not before
         or not after
         or before == after
-        or after != _fingerprint(state["goal_contract"].get("body"))
+        or after != _fingerprint(cast(dict, state["goal_contract"]).get("body"))
         or _fingerprint(prior_plan) == _fingerprint(next_plan)
         or any(
             not isinstance(revised.get(key), list)
@@ -217,7 +220,7 @@ def _planning_evidence(state, planning, stages, clock):
     }
 
 
-def recover(state, *, kind, now) -> bool:
+def recover(state: RunState, *, kind, now) -> bool:
     """Change one settings/planning limit and resolver.budget_extensions on success.
 
     Accepted progress means an accounted, successful committed ``stages`` row
@@ -242,7 +245,7 @@ def recover(state, *, kind, now) -> bool:
         return False
     clock = _timestamp(now)
     settings = state.get("settings")
-    resolver = state.get("resolver", {})
+    resolver: Any = state.get("resolver", {})
     if clock is None or not isinstance(settings, dict) or not isinstance(resolver, dict):
         return False
     planning = state.get("planning")

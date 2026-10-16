@@ -13,6 +13,11 @@ Only autocode_run_actions imports it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import sys
 
 try:
@@ -39,7 +44,7 @@ except ImportError:
     import autocode_support as support
 
 
-def apply(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Apply a standalone edit and stop, or record the conversation handoff and go on."""
     if args.revise_figma_manifest:
         try:

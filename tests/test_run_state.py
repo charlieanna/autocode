@@ -20,7 +20,7 @@ import autocode_run_state as run_state
 MAX_DICT_TYPED_STATE_PARAMS = 0
 # Unannotated ``state`` parameters still to move onto RunState, one module at a
 # time (#695). Lower this when a module moves; it must never grow.
-MAX_UNTYPED_STATE_PARAMS = 201
+MAX_UNTYPED_STATE_PARAMS = 110
 
 
 def _state_params(root: Path):

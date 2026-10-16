@@ -17,6 +17,11 @@ State: ``program_guidance`` is the list of saved corrections; this module is its
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import uuid
 
@@ -32,7 +37,7 @@ except ImportError:
 KIND = "program_guidance"
 
 
-def apply(state, text, selected):
+def apply(state: RunState, text, selected):
     """Save the program's correction of the displayed plan ``selected`` and send the run back to planning."""
     text = (text or "").strip()
     if state.get("status") != "AWAITING_GOAL_APPROVAL" or not text:
@@ -53,7 +58,7 @@ def apply(state, text, selected):
         state.setdefault("report_repair_archive", []).append(
             {"reason": "superseded_by_program_guidance", "guidance_id": event["id"], "repair": copy.deepcopy(pending)}
         )
-    state["goal_contract"].update(approval_status="draft", approval_event=None)
+    cast(dict, state["goal_contract"]).update(approval_status="draft", approval_event=None)
     goals.invalidate(state, "Program guidance requires a refreshed draft and explicit approval")
     # The stage brief feedback restarts at (autocode_goals.feedback), without its adaptive shortcut.
     settings = state.get("settings") or {}
@@ -64,11 +69,11 @@ def apply(state, text, selected):
         if "requirements" in settings.get("roles", {})
         else "astra_discovery"
     )
-    state.update(status="RUNNING", phase="DISCOVERING", next_stage=stage, pending_questions=[])
+    state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": stage, "pending_questions": []})
     return event
 
 
-def current(state):
+def current(state: RunState):
     """The program's corrections of this turn's plans, for the planning stages; none once a plan is approved."""
     turns = [turn for turn in state.get("turns") or [] if isinstance(turn, dict)]
     since = str(turns[-1].get("at") or "") if turns else ""

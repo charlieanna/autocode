@@ -6,6 +6,13 @@ criterion/artifact binding attached. Existing planning consumes its note and mus
 produce a refreshed plan for explicit approval before building again.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_goals as goals
     from . import autocode_human_review_artifact as artifact
@@ -14,7 +21,7 @@ except ImportError:
     import autocode_human_review_artifact as artifact
 
 
-def reject(state, criterion, selected, current, note):
+def reject(state: RunState, criterion, selected, current, note):
     """Validate a pending review, then retain its rejection as planning feedback."""
     if not isinstance(note, str) or not note.strip():
         raise ValueError("Rejecting an artifact review requires a nonempty review note")

@@ -19,6 +19,11 @@ Imports nothing from the runner.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_quota_route as quota_route
     from . import autocode_stuck_job as stuck_job
@@ -73,7 +78,7 @@ def refusal(problem: str) -> str:
     )
 
 
-def configure(state, settings, *, allow, configured_tool, workspace, now) -> None:
+def configure(state: RunState, settings, *, allow, configured_tool, workspace, now) -> None:
     """At run setup, before any stage: save an explicit opt-out, or refuse an uncontainable run.
 
     ``allow`` is True only when --allow-uncontained-tools was typed for this invocation.

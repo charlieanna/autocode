@@ -8,6 +8,13 @@ Eligibility is shared with the stop advice (#288): a pause must never advertise
 ``--grant-recovery`` unless :func:`eligible` would accept it.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_recovery_accounting as accounting
     from . import autocode_util as util
@@ -33,7 +40,7 @@ def _cause(issued, escalations):
     )
 
 
-def eligible(state, *, previous_settings=None, current_request, count, maximum, issued=None, cause=None):
+def eligible(state: RunState, *, previous_settings=None, current_request, count, maximum, issued=None, cause=None):
     """Whether ``--grant-recovery`` would be accepted at this stop."""
     if state.get("status") == "PAUSED_TIMEOUT_RECOVERY":
         return True
@@ -42,7 +49,7 @@ def eligible(state, *, previous_settings=None, current_request, count, maximum, 
         if issued is None and previous_settings is not None:
             issued = current_request({**state, "settings": previous_settings})
     if cause is None:
-        cause = _cause(issued, state.get("resolver", {}).get("human_escalations"))
+        cause = _cause(issued, cast(dict, state.get("resolver", {})).get("human_escalations"))
     if not (issued and issued.get("scope") == "operational_exhaustion"):
         return False
     # An audited grant may replenish a spent automatic-recovery budget at the
@@ -50,7 +57,7 @@ def eligible(state, *, previous_settings=None, current_request, count, maximum, 
     return cause in GRANTABLE_CAUSES or count >= maximum
 
 
-def grant(state, run_dir, amount, *, previous_settings, current_request, count, supersede, persist, maximum):
+def grant(state: RunState, run_dir, amount, *, previous_settings, current_request, count, supersede, persist, maximum):
     if type(amount) is not int or amount < 1:
         raise ValueError("recovery allowance must be a positive integer")
     issued = current_request(state)
