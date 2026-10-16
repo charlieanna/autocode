@@ -15,6 +15,7 @@ not to add surface area. See `RELIABILITY.md` for product priorities.
 | `scenarios/` | End-to-end scenario harness and catalog. Black box: it drives the CLI and never imports `tools/`. |
 | `test-scenarios/` | Older fault-injection suite (crash/resume, budgets, dirty workspaces) against a fake Codex. |
 | `tools/dashboard/`, `macos-app/` | Browser dashboard and native macOS host. Frozen: bug fixes only. |
+| `vscode-extension/` | VS Code thin client. The `autocode` CLI and the status view, nothing else. |
 | `docs/` | User documentation. |
 
 **Frozen since 2026-09-26: the browser dashboard (`tools/dashboard/`) and the
@@ -22,6 +23,26 @@ macOS app (`macos-app/`).** Bug fixes only, no new features, until the core is
 consolidated. Their tests stay in the suite gate. The installed macOS app runs
 the dashboard straight from this checkout, so a change that breaks the dashboard
 breaks the app. The core must not import the dashboard.
+
+**Narrow exception, decided 2026-10-15 for #884: one new thin client is allowed,
+in `vscode-extension/`.** The freeze is about the two existing UIs, not about the
+client shape roadmap #1006 asks for. It is a client of the
+[task-run interface](docs/task-run.md) and nothing else:
+
+- it starts `autocode` as an argument array with no shell, and reads only
+  `--status` and `registry list --json`;
+- it never imports a module from `tools/`, never reads `state.json`, and never
+  parses the CLI's prose to decide what to do;
+- it takes only the action the status view names (`view.next_command`), so it can
+  do nothing the headless conformance client (#1012,
+  `scenarios/harness/conformance.py`) cannot. Where the view names no action the
+  client could take, that is a gap in the CLI or the view: report it, never work
+  around it here;
+- it never launches a model on its own, and binds an approval to the plan token
+  it displayed, so it cannot approve a plan nobody read.
+
+The dashboard and the macOS app stay frozen. A second new client, or growth
+beyond that contract, needs the owner's decision again.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports
 were archived at tag `archive/pre-restructure-2026-09-26`

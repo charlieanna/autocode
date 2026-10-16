@@ -1,0 +1,141 @@
+{
+  "_source": "recorded from scenarios/harness/conformance.py named_command() and decide() on master",
+  "cases": [
+    {
+      "name": "approve_plan",
+      "workspace": "/ws",
+      "runDir": "/ws/.autocode/runs/r1",
+      "nextCommand": "AUTOCODE_APPROVE_GOAL_TOKEN=r20:abc autocode --workspace /ws --run-dir /ws/.autocode/runs/r1 --approve-goal -",
+      "expect": {
+        "ok": true,
+        "argv": [
+          "--approve-goal",
+          "-"
+        ],
+        "env": {
+          "AUTOCODE_APPROVE_GOAL_TOKEN": "r20:abc"
+        },
+        "decideOk": true,
+        "decidedTo": [
+          "--approve-goal",
+          "-"
+        ]
+      }
+    },
+    {
+      "name": "answer proposed default",
+      "workspace": "/ws",
+      "runDir": "/ws/.autocode/runs/r1",
+      "nextCommand": "AUTOCODE_RESOLVER_TOKEN=r7:beef autocode --workspace /ws --run-dir /ws/.autocode/runs/r1 --answer q-1=ANSWER --resolver-token -",
+      "expect": {
+        "ok": true,
+        "argv": [
+          "--answer",
+          "q-1=ANSWER",
+          "--resolver-token",
+          "-"
+        ],
+        "env": {
+          "AUTOCODE_RESOLVER_TOKEN": "r7:beef"
+        },
+        "decideOk": true,
+        "decidedTo": [
+          "--answer",
+          "q-1=the existing lock",
+          "--resolver-token",
+          "-"
+        ]
+      }
+    },
+    {
+      "name": "route model",
+      "workspace": "/ws",
+      "runDir": "/ws/.autocode/runs/r1",
+      "nextCommand": "autocode --workspace /ws --run-dir /ws/.autocode/runs/r1 --answer route-GLM=MODEL",
+      "expect": {
+        "ok": true,
+        "argv": [
+          "--answer",
+          "route-GLM=MODEL"
+        ],
+        "env": {},
+        "decideOk": false,
+        "decideError": "ConformanceGap: route-GLM asks a person to name a model; the scenario names none"
+      }
+    },
+    {
+      "name": "grant recovery N",
+      "workspace": "/ws",
+      "runDir": "/ws/.autocode/runs/r1",
+      "nextCommand": "autocode --resume-paused --grant-recovery N --workspace /ws --run-dir /ws/.autocode/runs/r1",
+      "expect": {
+        "ok": true,
+        "argv": [
+          "--resume-paused",
+          "--grant-recovery",
+          "N"
+        ],
+        "env": {},
+        "decideOk": false,
+        "decideError": "ConformanceGap: needs 'resume' leaves 'N' open, which the view does not supply"
+      }
+    },
+    {
+      "name": "edit goal file",
+      "workspace": "/ws",
+      "runDir": "/ws/.autocode/runs/r1",
+      "nextCommand": "autocode --edit-goal GOAL_FILE --workspace /ws --run-dir /ws/.autocode/runs/r1",
+      "expect": {
+        "ok": true,
+        "argv": [
+          "--edit-goal",
+          "GOAL_FILE"
+        ],
+        "env": {},
+        "decideOk": false,
+        "decideError": "ConformanceGap: needs 'resume' leaves 'GOAL_FILE' open, which the view does not supply"
+      }
+    },
+    {
+      "name": "abandon stage",
+      "workspace": "/ws",
+      "runDir": "/ws/.autocode/runs/r1",
+      "nextCommand": "autocode --workspace /ws --run-dir /ws/.autocode/runs/r1 --abandon-stage 001/astra_discovery-02",
+      "expect": {
+        "ok": true,
+        "argv": [
+          "--abandon-stage",
+          "001/astra_discovery-02"
+        ],
+        "env": {},
+        "decideOk": true,
+        "decidedTo": [
+          "--abandon-stage",
+          "001/astra_discovery-02"
+        ]
+      }
+    },
+    {
+      "name": "other run",
+      "workspace": "/ws",
+      "runDir": "/ws/.autocode/runs/r1",
+      "nextCommand": "autocode --run-dir /elsewhere --workspace /ws --approve-goal -",
+      "expect": {
+        "ok": false,
+        "error": "ConformanceGap: next_command names --run-dir /elsewhere, not this run's /ws/.autocode/runs/r1",
+        "decideOk": false
+      }
+    },
+    {
+      "name": "not the CLI",
+      "workspace": "/ws",
+      "runDir": "/ws/.autocode/runs/r1",
+      "nextCommand": "python3 tools/autocode.py --status",
+      "expect": {
+        "ok": false,
+        "error": "ConformanceGap: next_command does not start with autocode: 'python3 tools/autocode.py --status'",
+        "decideOk": false
+      }
+    }
+  ]
+}

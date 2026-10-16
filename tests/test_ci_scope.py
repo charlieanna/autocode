@@ -140,6 +140,7 @@ class WorkflowGateTests(unittest.TestCase):
         flags = {flag: str(flag in enabled).lower() for flag in ci_scope.JOBS}
         jobs = {
             "suite": bool(enabled & {"suite", "scenarios", "dashboard"}),
+            "extension": "extension" in enabled,
             "macos-tool-containment": "macos" in enabled,
             "linux-tool-containment": "linux" in enabled,
             "windows-fast-suite": "windows" in enabled,

@@ -14,7 +14,7 @@ import re
 import subprocess
 from pathlib import Path
 
-JOBS = ("suite", "scenarios", "dashboard", "visual", "containers", "macos", "linux", "windows", "wheel", "docs")
+JOBS = ("suite", "scenarios", "dashboard", "extension", "visual", "containers", "macos", "linux", "windows", "wheel", "docs")
 PLATFORM = (
     "tools/autocode_process",
     "tools/autocode_supervision",
@@ -101,6 +101,10 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             selected["dashboard"] = True
         if path.startswith("tests/test_") and "browser" in path:
             selected["dashboard"] = True
+        # The VS Code client is TypeScript over the CLI, so it has its own Node gate
+        # rather than the dashboard's (#884).
+        if path.startswith("vscode-extension/"):
+            selected["extension"] = True
         if path.startswith(("tools/autocode_visual", "tools/autocode_image", "tests/test_visual", "tests/test_image")):
             selected["visual"] = True
         if path.startswith(

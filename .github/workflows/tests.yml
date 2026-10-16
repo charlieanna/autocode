@@ -26,6 +26,7 @@ jobs:
       suite: ${{ steps.select.outputs.suite }}
       scenarios: ${{ steps.select.outputs.scenarios }}
       dashboard: ${{ steps.select.outputs.dashboard }}
+      extension: ${{ steps.select.outputs.extension }}
       visual: ${{ steps.select.outputs.visual }}
       containers: ${{ steps.select.outputs.containers }}
       macos: ${{ steps.select.outputs.macos }}
@@ -52,6 +53,31 @@ jobs:
           else
             python tools/ci_scope.py --full --github-output "$GITHUB_OUTPUT"
           fi
+
+  extension:
+    needs: scope
+    if: needs.scope.outputs.extension == 'true'
+    # The VS Code client (#884) is TypeScript over the CLI, so its gate is Node, not
+    # the Python suite. It reads only `--status` and `registry list --json`, so this
+    # job needs no provider and spends no model allowance.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install the client's dependencies
+        run: npm ci
+        working-directory: vscode-extension
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: vscode-extension
+      - name: Test the CLI-facing core against AutoCode's reference client
+        run: npm test
+        working-directory: vscode-extension
+      - name: Bundle
+        run: npm run build
+        working-directory: vscode-extension
 
   suite:
     needs: scope
@@ -513,7 +539,7 @@ jobs:
   ci-required:
     # One stable required check: a skipped unrelated job is expected, while a
     # failed scope selection or a selected job that fails/cancels cannot pass.
-    needs: [scope, suite, macos-tool-containment, linux-tool-containment, windows-fast-suite, wheel-smoke, visual-comparison, lint]
+    needs: [scope, suite, extension, macos-tool-containment, linux-tool-containment, windows-fast-suite, wheel-smoke, visual-comparison, lint]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -530,12 +556,13 @@ jobs:
           if needs["scope"]["result"] != "success":
               sys.exit("CI scope selection did not pass")
           scope = needs["scope"]["outputs"]
-          flags = ("suite", "scenarios", "dashboard", "visual", "containers",
+          flags = ("suite", "scenarios", "dashboard", "extension", "visual", "containers",
                    "macos", "linux", "windows", "wheel", "docs")
           if any(scope.get(flag) not in ("true", "false") for flag in flags):
               sys.exit("CI scope selection returned incomplete outputs")
           selected = {
               "suite": any(scope[flag] == "true" for flag in ("suite", "scenarios", "dashboard")),
+              "extension": scope["extension"] == "true",
               "macos-tool-containment": scope["macos"] == "true",
               "linux-tool-containment": scope["linux"] == "true",
               "windows-fast-suite": scope["windows"] == "true",

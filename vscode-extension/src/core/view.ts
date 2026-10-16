@@ -1,0 +1,267 @@
+/**
+ * Typed reads over the AutoCode status view (`docs/task-run.md`) and the
+ * browser registry (`docs/registry-api.md`).
+ *
+ * The status view is a contract: fields may be added, and existing fields keep
+ * their names. So every read here tolerates a missing field rather than
+ * assuming one, and nothing reaches for `state.json`.
+ *
+ * No VS Code API, so it is unit-testable in-process.
+ */
+
+export interface Needs {
+  kind: string;
+  token?: string;
+  reason?: string;
+  action?: string | null;
+  questions?: Question[];
+  criteria?: { id: string; criterion?: string }[];
+  question?: string;
+  resolver_scope?: string;
+  resolver_token?: string;
+  request_id?: string;
+  route?: Route;
+  retry_action?: string;
+  job_retry_token?: string;
+  new_run_required?: boolean;
+  edit_required?: boolean;
+  feedback_action?: string | null;
+}
+
+export interface Question {
+  id: string;
+  question: string;
+  why?: string;
+  options?: string[];
+  proposed_default?: string | null;
+}
+
+export interface Route {
+  question_id: string;
+  role: string;
+  job?: string;
+  current_model?: string;
+  engine?: string;
+  cause?: string;
+  stopped_model?: string;
+  candidates?: string[];
+}
+
+export interface Progress {
+  line?: string;
+  headline?: string;
+  stage?: string;
+  needs_you?: string;
+  tasks?: { done: number; total: number; known?: boolean; items?: ProgressTask[] };
+  requirements?: {
+    checked?: number;
+    failed?: number;
+    unchecked?: number;
+    awaiting_review?: number;
+    reviewed?: number;
+    total?: number;
+    items?: { id: string; criterion: string; state: string }[];
+  };
+  problems?: { open?: number; items?: { id: string; finding: string; severity?: string; blocking?: boolean }[] };
+  for_earlier_request?: boolean;
+}
+
+export interface ProgressTask {
+  number?: number;
+  id: string;
+  label?: string;
+  state: string;
+  current?: boolean;
+}
+
+export interface Usage {
+  stages?: number;
+  active_stage?: string | null;
+  tokens?: number;
+  cost_usd?: { reported?: number; estimated?: number; complete?: boolean };
+  unknown_stages?: number;
+}
+
+/** The structured approval projection `docs/task-run.md` describes as `displayed_plan`. */
+export interface DisplayedPlan {
+  revision?: number;
+  hash?: string;
+  token?: string;
+  acceptance_criteria?: string[];
+  constraints?: string[];
+  permission_boundaries?: string[];
+}
+
+export interface StatusView {
+  schema?: number;
+  status: string;
+  done: boolean;
+  phase?: string | null;
+  next_stage?: string | null;
+  iteration?: number | null;
+  turn?: number | null;
+  workflow?: string | null;
+  task?: string;
+  stop_reason?: string | null;
+  pause_category?: string | null;
+  pause_category_label?: string | null;
+  next_command?: string | null;
+  needs?: Needs | null;
+  displayed_plan?: DisplayedPlan | null;
+  progress?: Progress | null;
+  usage?: Usage | null;
+  evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
+  recovery?: Record<string, unknown> | null;
+  current_task?: { id?: string; objective?: string } | null;
+}
+
+/** The envelope `autocode --status` prints: the view sits under `"view"`. */
+export function readStatusPayload(raw: string): StatusView {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("--status did not return JSON");
+  }
+  const view = (parsed as Record<string, unknown>)?.view;
+  if (!view || typeof view !== "object") throw new Error("--status did not return a status view");
+  return view as StatusView;
+}
+
+export interface RegistryRun {
+  id: string;
+  workspace: string;
+  runDir: string;
+  taskId: string | null;
+  availability: string;
+  status?: string | null;
+  phase?: string | null;
+  nextStage?: string | null;
+  diagnostic?: string | null;
+}
+
+export interface RegistryList {
+  storageRoot?: string;
+  runs: RegistryRun[];
+  diagnostics: string[];
+}
+
+/** `autocode registry list --json`, with the pointer fields a run list needs. */
+export function readRegistryList(raw: string): RegistryList {
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  const rows = Array.isArray(parsed.runs) ? (parsed.runs as Record<string, unknown>[]) : [];
+  return {
+    storageRoot: typeof parsed.storage_root === "string" ? parsed.storage_root : undefined,
+    runs: rows.map((row) => {
+      const nested = (row.diagnostic ?? {}) as Record<string, unknown>;
+      return {
+        id: String(row.id ?? ""),
+        workspace: String(row.workspace ?? ""),
+        runDir: String(row.run_dir ?? ""),
+        taskId: typeof row.task_id === "string" ? row.task_id : null,
+        availability: String(row.availability ?? "unknown"),
+        // An available record carries its current summary under `diagnostic`, not beside it;
+        // a stale one carries only a `message` there. `docs/registry-api.md` names the fields
+        // but not where they sit, so read either placement and never invent one.
+        status: firstString(row.status, nested.status),
+        phase: firstString(row.phase, nested.phase),
+        nextStage: firstString(row.next_stage, nested.next_stage),
+        diagnostic: nestedString(row.diagnostic, "message"),
+      };
+    }),
+    diagnostics: Array.isArray(parsed.diagnostics) ? parsed.diagnostics.map(String) : [],
+  };
+}
+
+/** The first value that is a non-empty string. */
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
+/** A string field of a nested object, or null when the shape is not that. */
+function nestedString(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object") return null;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" ? field : null;
+}
+
+/** The one line a person reads, falling back to the status code when `progress` is absent. */
+export function progressLine(view: StatusView): string {
+  return view.progress?.line || view.progress?.headline || view.status;
+}
+
+/** Plain-language description of what the run is waiting for, from the view alone. */
+export function needsSummary(view: StatusView): string {
+  const need = view.needs;
+  if (!need) return "nothing; the run is complete";
+  if (view.progress?.needs_you) return view.progress.needs_you;
+  switch (need.kind) {
+    case "approve_plan":
+      return "approval of the plan AutoCode displayed";
+    case "answer":
+      return `${need.questions?.length ?? 0} question(s)`;
+    case "review":
+      return `review of ${need.criteria?.length ?? 0} acceptance criteria`;
+    case "planning_budget":
+      return `a decision on more plan-review calls${need.reason ? `: ${need.reason}` : ""}`;
+    case "continue":
+      return "nothing; the run can simply proceed";
+    case "retry_job":
+      return "inspection of a stopped workflow job";
+    case "recover_source":
+      return "inspection of an attempt with no saved source identity";
+    case "dependency":
+      return "a producer run to deliver";
+    default:
+      return need.reason ? `${need.kind}: ${need.reason}` : need.kind;
+  }
+}
+
+/** A short label for a stopped run's cause, so a person can tell whose decision it is. */
+export function pauseLabel(view: StatusView): string | null {
+  if (!view.pause_category) return null;
+  return view.pause_category_label || view.pause_category;
+}
+
+/**
+ * The token an approval is bound to, when the run is asking for one.
+ *
+ * `docs/task-run.md` requires automation to bind the token to `needs.token` and
+ * to read the structured plan rather than infer approval from prose. A plan
+ * revised while a panel sat open carries a different token, so an approval
+ * taken then would approve a plan nobody read.
+ */
+export function approvalToken(view: StatusView): string | null {
+  const need = view.needs;
+  if (!need || (need.kind !== "approve_plan" && need.kind !== "review")) return null;
+  return need.token ?? null;
+}
+
+/** Whether `displayed_plan` is the plan the current token asks to approve. */
+export function planForApproval(view: StatusView): DisplayedPlan | null {
+  const plan = view.displayed_plan;
+  if (!plan?.token) return null;
+  const asked = approvalToken(view);
+  return asked !== null && plan.token === asked ? plan : null;
+}
+
+/** Cost so far, in the words the view supports: unknown cost is not zero. */
+export function usageLine(view: StatusView): string | null {
+  const usage = view.usage;
+  if (!usage) return null;
+  const cost = usage.cost_usd;
+  const parts: string[] = [];
+  if (typeof usage.tokens === "number") parts.push(`${usage.tokens.toLocaleString()} tokens`);
+  if (cost) {
+    const value = cost.reported ?? cost.estimated;
+    if (typeof value === "number") parts.push(`$${value.toFixed(2)}${cost.complete ? "" : " (partial)"}`);
+    else if (typeof usage.stages === "number" && usage.active_stage) parts.push("cost not yet reported");
+  }
+  if (typeof usage.unknown_stages === "number" && usage.unknown_stages > 0) {
+    parts.push(`${usage.unknown_stages} stage(s) unknown`);
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
