@@ -41,8 +41,10 @@ def report_for(stage, data, common, config, run_check, requirements):
     code = None
     if stage == "terra":
         attempt = 1 + sum(row["stage"] == "terra" for row in previous)
+        # "completion_rework_unowned_check" (scenarios/catalog/rework-same-failure): every attempt applies the
+        # solution, and the check still fails on a file the task may not change.
         broken = (
-            (attempt == 1 and not validation_only)
+            (attempt == 1 and not validation_only and fault != "completion_rework_unowned_check")
             or (fault in ("completion_rework_recurring", "completion_rework_exhausted") and attempt == 2)
             or fault == "completion_rework_exhausted"
         )

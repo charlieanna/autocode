@@ -304,6 +304,10 @@ PR template asks for an entry here; a change without one is incomplete.
   diagnosis). `scenarios/test_escalation.py` runs both and checks that a `--builder-strong-model` the tool does not
   list refuses the new run before any model call. The scripted provider gains the two faults
   (`harness/escalation_provider.py`) and the oracle helper `escalation_checks`; no runtime change (#612).
+- A scenario catalog case for #611's rework loop, with an oracle, a reference and broken variants.
+  `rework-same-failure` has a correct greeting repair whose required suite also fails a release test the task may
+  not change: the run must stop after the second identical failure, naming the check, with no paid diagnosis or
+  third Builder attempt, and its status view's `cost` must show the spend under the $5 cap; it passes today.
 - The scenario harness runs a fake OpenCode build inside the Linux bubblewrap boundary (#709).
   `scenarios/test_contained_opencode.py` runs `greenfield-greeting-cli` on the fake OpenCode client, with the
   harness's scripted model behind it and `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1`, so its Builder, Tester and
@@ -1082,6 +1086,18 @@ PR template asks for an entry here; a change without one is incomplete.
   leaving the next climbed attempt, its failed check and its cost out while the cost said complete. The correction
   task the review assigns (`REWORK`) now sends that work back as the retry policy's charge does, so the row reads
   `failed_again` with every climbed attempt and its cost (#612).
+- A milestone-budget stop before a repair's Builder launched could not be resumed as it advised. The repair's
+  recovery packet bound the milestone budget with the run's other settings, so
+  `--resume-paused --max-milestone-seconds M` stopped at `PAUSED_STALE_HANDOFF` ("Recovery packet: current source,
+  task, settings, contract or scope changed before admission") instead of launching the attempt, such as the
+  stronger attempt a known correction chose. The packet now leaves the milestone budget out, as it already left out
+  the iteration limit, the active-time budget and the cost cap: those decide whether an attempt may launch, not
+  what it acts on. AutoResolver's one-time extension of a default milestone budget changes the same setting and no
+  longer counts as a settings change either. A binding saved before this change, on a packet, a repair admission,
+  a novelty hold, a retry grant or a retained diagnosis, still holds while the run's settings are unchanged, and
+  stops holding when the milestone budget changes. One recorded after the upgrade leaves the budget out, even for a
+  packet saved before it: the repair admission written when the Resolver's plan finishes lets that repair launch
+  after a milestone budget change (#611).
 
 ## [0.7.1] — 2026-10-09
 

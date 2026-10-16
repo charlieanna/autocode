@@ -1,0 +1,23 @@
+title = "A rework loop that reproduces the same failing check stops with its diagnosis before spending its budget"
+category = "feature"
+# Issue #611's first acceptance case, after the recorded bug-fix run (RELIABILITY.md, 2026-10-01) whose correct fix
+# kept AutoResolver's rework loop spending until the budget ran out. Here the greeting repair is right from the first
+# Builder attempt, but the suite the brief requires also holds the release owner's test_release.py, which fails until
+# VERSION, a file the brief forbids changing, is bumped. The scripted run (fault "completion_rework_unowned_check",
+# harness/completion_rework_provider.py) applies the reference on every Builder attempt, so the Tester fails the same
+# check twice with nothing new to try. The right ending is a stop (`expected = "stop"`) that names the check and says
+# there was no progress, with the greeting fixed, nothing else changed, and the status view's cost showing the spend
+# under the $5 cap.
+# The bump (0.9.0 to 0.10.0) changes VERSION's size: the fake copies an overlay file with its modification time, and
+# under git's core.checkStat=minimal a same-size change in the same second would not show as changed.
+
+[run]
+expected = "stop"
+requires_stages = ["terra", "sol", "astra_review"]
+timeout_minutes = 5
+max_steps = 24
+
+[fake]
+check = "python3 -m unittest"
+fault = "completion_rework_unowned_check"
+flags = ["--max-cost-usd", "5"]
