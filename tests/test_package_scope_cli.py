@@ -3,8 +3,9 @@
 Every stage runs on the offline fixture provider. The run is started with --package: its suite is
 detected in that package and runs from its directory, only that package's tests are protected, and a
 Builder write outside the package is a runner finding that keeps the run from completing, in a bug fix
-and in a build that owes no regression proof. What a run shows is read through its public status view
-(--status); only the launch record, which the view does not show, is read from the saved state.
+and in a build that owes no regression proof. The findings and the run's outcome are read through its
+public status view (--status), not the ledger's private fields; the launch record, which the view does
+not show, is read from the saved state.
 """
 
 from __future__ import annotations
