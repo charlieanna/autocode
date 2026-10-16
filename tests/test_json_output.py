@@ -302,16 +302,16 @@ class JsonActionCliTests(unittest.TestCase):
                 (support.Paused, f"Registry registration failed for {self.run_dir}: unreachable"),
             ),
         ):
-            with (
-                self.subTest(expected[0].__name__),
-                failure,
-                self.cli("--run-dir", str(self.run_dir), *flags, "--json") as (stdout, stderr),
-                self.assertRaises((ValueError, RuntimeError)) as caught,
-            ):
-                runner.main()
-            self.assertEqual(expected, (type(caught.exception), str(caught.exception)))
-            self.assertEqual("", stdout.getvalue())
-            self.assertNotIn('{"error"', stderr.getvalue())
+            with self.subTest(expected[0].__name__):
+                with (
+                    failure,
+                    self.cli("--run-dir", str(self.run_dir), *flags, "--json") as (stdout, stderr),
+                    self.assertRaises((ValueError, RuntimeError)) as caught,
+                ):
+                    runner.main()
+                self.assertEqual(expected, (type(caught.exception), str(caught.exception)))
+                self.assertEqual("", stdout.getvalue())
+                self.assertNotIn('{"error"', stderr.getvalue())
 
     def test_a_run_stopped_inside_the_build_loop_prints_its_saved_payload_with_the_result(self):
         self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
