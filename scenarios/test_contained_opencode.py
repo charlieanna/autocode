@@ -8,8 +8,11 @@ sibling ``codex``. With AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1 the client reports
 OpenCode 1.18.33 and answers the runner's model-free conformance checks through the boundary shell.
 Run setup, each launch's conformance checks and the kernel shell are the production ones, and the run
 is not given --allow-uncontained-tools, so a host without the boundary would refuse it. As in the CLI
-test, the scripted model's own edits and checks run outside the boundary: this proves the contained
-launch path and the public status view, not OpenCode's own tool dispatch.
+test, AUTOCODE_FIXTURE_SHELL_ESCAPE makes the Builder write a path outside the project through the shell
+its launch was given, and that write must be blocked; the Builder, Tester and Completion Reviewer
+records in the state the harness saves as evidence must each name the boundary. The scripted model's
+own edits and checks run outside the boundary: this proves the contained launch path, the stage records
+and the public status view, not OpenCode's own tool dispatch.
 
 Whether this host has the boundary is asked of `autocode doctor --json`, whose ``containment`` check
 is the one run setup makes. Without a working bubblewrap the test skips, except in CI on Linux, where
@@ -56,7 +59,23 @@ OPENCODE_FLAGS = (
     "openai/gpt-6-astra",
 )
 # The OpenCode stages that launch contained: the Builder, the Tester and the Completion Reviewer.
+# Each one's stage record must name the boundary.
 CONTAINED_STAGES = ("terra", "sol", "astra_review")
+
+
+def planted_commands(run_dir):
+    """The planted write's bash tool events, from the Builder's recorded OpenCode events."""
+    events = [
+        json.loads(line)
+        for path in sorted(run_dir.glob("iterations/*/builder-*.jsonl"))
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
+    return [
+        event["part"]["state"]
+        for event in events
+        if event.get("type") == "tool_use" and event["part"].get("callID") == "call_planted_escape"
+    ]
 
 
 class ContainedOpenCodeScenarioTests(unittest.TestCase):
@@ -114,7 +133,10 @@ class ContainedOpenCodeScenarioTests(unittest.TestCase):
             max_steps=None,
             timeout_minutes=10,
         )
-        result = run.run_one(catalog.load(SCENARIO), args, extra_flags=OPENCODE_FLAGS, extra_env=self.env)
+        # The Builder writes this through its launch's shell (tools/fake_opencode.py): outside the project.
+        escape = self.root / "planted-escape"
+        env = {**self.env, "AUTOCODE_FIXTURE_SHELL_ESCAPE": str(escape)}
+        result = run.run_one(catalog.load(SCENARIO), args, extra_flags=OPENCODE_FLAGS, extra_env=env)
         diagnostic = json.dumps(result, indent=2)
         self.assertEqual(verdict.PASS, result["verdict"], diagnostic)
         self.assertEqual("TASK_COMPLETE", result["runner_status"], diagnostic)
@@ -123,6 +145,24 @@ class ContainedOpenCodeScenarioTests(unittest.TestCase):
             self.assertIn(stage, result["metrics"]["model_stage_names"], diagnostic)
 
         project = Path(result["evidence"]) / "project"
+        self.assertFalse(escape.is_relative_to(project))
+        self.assertFalse(escape.exists(), "the Builder's planted write outside the project landed")
+        planted = planted_commands(Path(result["run_dir"]))
+        self.assertTrue(planted, "the Builder never ran the planted write")
+        for command in planted:
+            self.assertNotEqual(0, command["metadata"]["exit"], command)
+            self.assertRegex(command["output"], "Read-only file system|Permission denied|No such file or directory")
+        # Each contained stage's own records, from the state the harness saved as evidence (run.run_one).
+        state = json.loads((Path(result["evidence"]) / "state.json").read_text())
+        launched = [record for record in state["stages"] if record["stage"] in CONTAINED_STAGES]
+        self.assertEqual(set(CONTAINED_STAGES), {record["stage"] for record in launched})
+        for record in launched:
+            boundary = record.get("tool_containment")
+            self.assertIsInstance(boundary, dict, f"{record['stage']} launched uncontained")
+            self.assertEqual("bubblewrap", boundary["backend"], record["stage"])
+            self.assertEqual(found["backend_version"], boundary["backend_version"], record["stage"])
+            self.assertNotIn("uncontained_tools", record)
+
         status = self.cli(
             ["--workspace", str(project), "--run-dir", result["run_dir"], "--status", "--json"], timeout=60
         )

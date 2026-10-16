@@ -1573,12 +1573,14 @@ the boundary, so this does not replace `NativeToolTests` either.
 The scenario harness has the same flow as a scenario: `scenarios/test_contained_opencode.py`
 runs `greenfield-greeting-cli` with the scripted model behind the fake OpenCode client, with
 no `--allow-uncontained-tools`, so its Builder, Tester and Completion Reviewer launch inside
-bubblewrap. It checks that the scenario's oracle passes, that the run completes, and that
-`--status --json` says `tool_containment: "contained"` and names `bubblewrap` and the
-version `autocode doctor` reports. It asks `autocode doctor --json` whether this host has the
-boundary. Without it, the test skips locally and fails in CI on Linux. The suite job installs
-bubblewrap before it runs the scenario harness, so there it runs. The container backend
-(`docker` or `podman`) and a fake scenario under it are still open.
+bubblewrap. It checks that the scenario's oracle passes and the run completes; that those
+three stage records name `bubblewrap` and the version `autocode doctor` reports; that a
+Builder shell write planted outside the project is blocked; and that `--status --json` says
+`tool_containment: "contained"` and names the same backend. It asks `autocode doctor --json`
+whether this host has the boundary. Without it, the test skips locally and fails in CI on
+Linux. The suite job installs bubblewrap before it runs the scenario harness, so there it
+runs. The container backend (`docker` or `podman`) and a fake scenario under it are still
+open.
 
 A pull request runs this job when it changes any Python file that flow loads, or a stage
 report schema in `tools/autocode-schemas/`. `tools/ci_scope.py` works the Python files out

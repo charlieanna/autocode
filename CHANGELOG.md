@@ -300,11 +300,12 @@ PR template asks for an entry here; a change without one is incomplete.
 - The scenario harness runs a fake OpenCode build inside the Linux bubblewrap boundary (#709).
   `scenarios/test_contained_opencode.py` runs `greenfield-greeting-cli` on the fake OpenCode client, with the
   harness's scripted model behind it and `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1`, so its Builder, Tester and
-  Completion Reviewer launch contained. It checks that the scenario's oracle passes, that the run completes, and
-  that `--status --json` says `tool_containment: "contained"` and names `bubblewrap` and the version
-  `autocode doctor` reports. The test asks `autocode doctor --json` whether the boundary is available. Without
-  it, the test skips, except in CI on Linux, where it fails; the suite job installs bubblewrap before the scenario
-  harness runs. Only tests change.
+  Completion Reviewer launch contained. It checks that the scenario's oracle passes and the run completes, that
+  each of those three stage records names `bubblewrap` and the version `autocode doctor` reports, that a Builder
+  shell write planted outside the project is blocked, and that `--status --json` says `tool_containment:
+  "contained"` and names the same backend. The test asks `autocode doctor --json` whether the boundary is
+  available. Without it, the test skips, except in CI on Linux, where it fails; the suite job installs bubblewrap
+  before the scenario harness runs. Only tests change.
 
 ### Changed
 
