@@ -1328,6 +1328,28 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("user_cli", self.state.get("completion_actor"))
         self.assertEqual(task_id, self.state["final_decision"].get("task_id"))
 
+    def test_accept_completion_stamps_open_escalations_and_builder_retries_passed(self):
+        """#612: --accept-completion stamps open escalations and Builder retries passed."""
+        import autocode_route_ladder as route_ladder
+        import autocode_run_view as run_view
+
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.validation()
+        self.state["reasoning_escalations"] = [{"role": "sol", "trigger": "validation_rework"}]
+        self.state["builder_retry_decisions"] = [
+            {"action": "retry"},
+            {"action": "escalate"},
+        ]
+        self.assertEqual({"passed": 0, "paused": 0, "open": 3}, route_ladder.outcome_summary(self.state))
+        runner.accept_completion(self.state, self.root)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+        self.assertEqual("passed", self.state["reasoning_escalations"][0].get("outcome"))
+        self.assertEqual("passed", self.state["builder_retry_decisions"][0].get("outcome"))
+        self.assertEqual("passed", self.state["builder_retry_decisions"][1].get("outcome"))
+        self.assertEqual({"passed": 3, "paused": 0, "open": 0}, route_ladder.outcome_summary(self.state))
+        self.assertEqual({"passed": 3, "paused": 0, "open": 0}, run_view.view(self.state)["escalation_outcomes"])
+
     def test_human_only_pending_validation_closes_only_after_current_review(self):
         self.approve(human=True)
         current = self.validation()

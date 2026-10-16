@@ -86,8 +86,8 @@ The row judges each escalation by its own work, so read a row's `outcome` for ho
 escalation ended; when its struggle has ended, its stamp agrees. A stamp is the
 struggle's, though: a climb a later climb replaced takes the struggle's end too while
 its row reads `failed_again`, and so does an ordinary retry, which has no row. Before
-the struggle ends the stamp is `open` while the row may already read `passed`, and a
-run completed with `--accept-completion` leaves its stamps `open`.
+the struggle ends the stamp is `open` while the row may already read `passed`;
+completing the run or accepting completion via `--accept-completion` stamps open entries `passed`.
 The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
 are on no ladder: they keep their configured route, and a verifier that keeps
 struggling pauses the run instead. The Builder instead gets its
