@@ -2538,7 +2538,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/03c1f3b9e065909ef28682a97db65c855f47294c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2ab86f81aa46ad183d6a36ca56b7e3aa2d095068/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2862,17 +2862,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/03c1f3b9e065909ef28682a97db65c855f47294c/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/2ab86f81aa46ad183d6a36ca56b7e3aa2d095068/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/03c1f3b9e065909ef28682a97db65c855f47294c/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/2ab86f81aa46ad183d6a36ca56b7e3aa2d095068/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/03c1f3b9e065909ef28682a97db65c855f47294c/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/2ab86f81aa46ad183d6a36ca56b7e3aa2d095068/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3876,11 +3876,45 @@ isolation). They run in this boundary read-only, and their shell also cannot
 read the run store, <code>.autocode/runs</code>: not this run's <code>state.json</code>, events or
 receipts, and no other run's files. Only this run's <code>planning/</code> artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
-its run context from its handoff (#1250). Before the provider starts, each such
-launch shows through the actual native shell that a file in its run directory
-cannot be read, and records the denial as <code>private_reads</code> in its
-<code>tool_containment</code> record and conformance proof. A boundary that no longer
-enforces it pauses as <code>PAUSED_TOOL_CONTAINMENT</code>. On macOS such a launch also
+its run context from its handoff (#1250). Nor can it read these <code>.autocode</code>
+stores, which hold other runs or what they keep: <code>archive</code> (runs archived from
+task worktrees), <code>arena</code> (<code>autocode arena</code> attempts and their runs), <code>builders</code>
+(parallel Builder workspaces and their runs), <code>bundles</code> (<code>autocode bundle</code>
+archives), <code>issues</code> (<code>autocode issue</code> worktrees and their runs), <code>programs</code>,
+<code>pull-reviews</code> (<code>autocode review-pr</code> checkouts and their runs), <code>registry</code> (the
+run registry), <code>replay</code> (replay recordings), <code>task-flows</code>, <code>verification</code>
+(<code>autocode verify</code> checkouts and reports) and <code>worktrees</code> (task and
+program worktrees). The list is not every place a run can be kept: a run kept
+elsewhere in the workspace (an <code>--out</code> or <code>--arena</code> directory outside these
+stores, or another <code>.autocode</code> directory) is not denied. Each store that exists
+when the launch is prepared is denied. The launch creates none of them: the only
+thing it adds to the workspace is its own <code>.autocode/tool-containment-&lt;hex&gt;/</code>
+control directory, as every contained launch does. New contents of a denied store
+stay unreadable, but a store first made after the launch's profile was written is
+not covered. Every check before the provider starts computes the denial again, up
+to the held launch's seal just before the provider is released, so a store made
+before that last check pauses the launch as <code>PAUSED_TOOL_CONTAINMENT</code>. Such a
+store usually comes from ordinary activity, for example another AutoCode command
+in the same checkout making <code>.autocode/issues</code> for the first time, so this pause
+is not a sandbox or setup problem: the stop reason names the new store, and a
+plain <code>--resume-paused</code> prepares the boundary again with it denied. One made
+after that last check, such as once the provider has started, causes no pause and
+can be read by the stage until it ends; a later planning launch denies it. A
+store path that is a symlink, even a dangling one, or that is not a directory
+cannot be denied, so every native planning launch in that workspace pauses as
+<code>PAUSED_TOOL_CONTAINMENT</code> before its provider starts, naming the path: replace it
+with a real directory, or remove it, then <code>--resume-paused</code>.
+Everything else in <code>.autocode</code> stays as readable as the rest of the workspace:
+the launch's own control directory and scratch, project settings,
+retained design inputs, capture bundles, the shared <code>evidence</code> and <code>output</code>
+areas, other launches' <code>tool-containment-*</code> control directories, conversation
+records and AutoCode's other internal files.
+Before the provider starts, each such launch shows through the actual native
+shell that a file in its run directory and in each denied store cannot be
+read, and records the denial as <code>private_reads</code> in its <code>tool_containment</code> record
+and conformance proof. A boundary that no longer enforces any one of these
+denials pauses as <code>PAUSED_TOOL_CONTAINMENT</code>.
+On macOS such a launch also
 pauses that way, naming the path, when a path in its Seatbelt profile holds a
 control character such as a tab or newline: the re-check before launch accepts
 no such path.
@@ -3906,8 +3940,9 @@ inside an empty read-only root that holds only:</p>
 <li>the stage's own scratch, writable. A reader's verification copy is one read-only
   mount inside it;</li>
 <li>for a native visual run's planning stage, an empty read-only <code>tmpfs</code> over
-  <code>.autocode/runs</code>, with only that run's <code>planning/</code> mounted read-only inside it
-  (Seatbelt denies reading the same paths).</li>
+  <code>.autocode/runs</code>, with only that run's <code>planning/</code> mounted read-only inside it,
+  and one over each existing private store listed above (Seatbelt denies reading
+  the same paths).</li>
 </ul>
 <p>There is no home directory, <code>/tmp</code>, <code>/run</code> or <code>/var</code>, so a write anywhere else fails
 (<code>Read-only file system</code>, or <code>No such file or directory</code> where nothing is mounted)
