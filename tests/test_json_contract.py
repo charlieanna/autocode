@@ -9,12 +9,13 @@ auth or rate-limit pause (your_environment / model_or_provider).
 At each stop the test runs `--status`, a plain relaunch, the action the status view offers there
 (resume, answer, approve the plan, approve the review; as displayed, tokens from its environment
 assignments), that action with stale tokens, `wait`, `runs` and `events`, and a usage error; at the
-first, also a refusal before the run loads and settings a saved run cannot take. Each status payload
-on stdout must validate against docs/schemas/status-view.schema.json, and the lone `{"result": ...}`
-printed before the run loads against its `properties.result`; each `events` line must validate
-against run-event.schema.json, and `wait --json` and `runs --json`, which print their own shapes,
-must agree with the status view. Every exit code must be the one docs/cli.md's exit-code table gives
-that outcome.
+first, also a refusal before the run loads and settings a saved run cannot take (the saved payload
+with the refusal as `result`, then `autocode: ...` on stderr). Each status payload on stdout must
+validate against docs/schemas/status-view.schema.json, and the lone `{"result": ...}` printed before
+the run loads against its `properties.result`; each `events` line must validate against
+run-event.schema.json, and `wait --json` and `runs --json`, which print their own shapes, must agree
+with the status view. Every exit code must be the one docs/cli.md's exit-code table gives that
+outcome.
 """
 
 import json
@@ -95,10 +96,12 @@ class JsonContractTests(unittest.TestCase):
         refused = self.exits("refused", self.autocode(*on_run, "--feedback", " ", "--json"))
         self.assertEqual({"result"}, set(refused))
         self.assertEqual("input_rejected", refused["result"]["error"]["code"])
-        # A setting the saved run cannot take is refused by an error message: nothing on stdout.
+        # A setting the saved run cannot take: the saved payload with the refusal, then `autocode: ...` as before.
         for setting in (("--single-model", "gpt-5.6-sol"), ("--spec-first",)):
             refused = self.autocode(*on_run, *setting, "--json")
-            self.assertEqual((self.codes["refused"], ""), (refused.returncode, refused.stdout), refused.stderr[-3000:])
+            error = self.run_payload("refused", refused)["result"]["error"]
+            self.assertEqual("input_rejected", error["code"])
+            self.assertTrue(error["message"].startswith(f"{setting[0]} "), error["message"])
             self.assertIn(f"autocode: {setting[0]} ", refused.stderr)
 
         reached = []
