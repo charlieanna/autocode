@@ -703,10 +703,13 @@ serially), `inherited`, `attempts`, `cost` and `outcome`:
   next escalation of either kind (its next climb, the Builder's stronger attempt). The running one is
   included (`active`); dry runs and the runner's own stages are not attempts. A climb lasts for the
   rest of the run, so a later milestone's attempts on the climbed rung count until one of those ends
-  it. A validation judged an escalation's work when one of its attempts produced it, or, for a role
-  that does not validate (the Builder), when that role's last attempt before it is one of its
-  attempts; a later milestone's validation, or one of work on a route the Builder was moved back to,
-  is not its work.
+  it. A stronger attempt's attempts are this run's own Builder records: a parallel Builder's records
+  the parent holds (`worker_milestone`) are its worker's, whose own stronger attempt is recorded only
+  in its worker run. A validation judged an escalation's work when one of its attempts produced it,
+  or, for the Builder, whose work another role validates, when the Builder's last attempt before it
+  is one of its attempts. No other role is judged by another role's validation: a Tester PASS of the
+  Builder's work is not the work of a Completion Reviewer's or Resolver's climb. A later milestone's
+  validation, or one of work on a route the role was moved to, is not its work.
 - `cost` prices those attempts as `cost` prices a stage: `usd` (reported plus estimated),
   `reported_usd`, `estimated_usd`, `unpriced_attempts`, `unrouted_attempts` and `complete`. An attempt
   with no usage record is unpriced, never zero: `usd` is then a floor (`complete` false), or null when
@@ -725,10 +728,15 @@ serially), `inherited`, `attempts`, `cost` and `outcome`:
   it, the first that applies: the first decisive record after it (`validation`: a validation of its
   work passed; `later_escalation`: the role climbed again, the milestone made another stronger
   attempt, or the Builder made its stronger attempt after climbing, or climbed after it, from this
-  escalation's attempt), the outcome the runner stamped on it (`recorded`: a validation PASS, or the
-  Builder's retry-limit pause), the latest validation of its work failing or blocked (`validation`),
-  else the run's status now (`run_status`: complete is `passed`, running is `running`, any pause, wait
-  or stop is `paused`). It is a projection of saved records, so it can change as the run continues.
+  escalation's attempt), the runner's `paused` stamp (`recorded`: the Builder's retry-limit pause),
+  the latest validation of its work failing or blocked (`validation`), the runner's `passed` stamp
+  (`recorded`) only when every attempt of its role since it, until the role's next escalation, ran on
+  the route it climbed to and there was at least one, else the run's status now (`run_status`:
+  complete is `passed`, running is `running`, any pause, wait or stop is `paused`). The runner stamps
+  every open escalation `passed` at any validation PASS, whoever's work passed, so that stamp is not
+  taken over a failure of its own work, once a person or the Builder's retry policy moved the role to
+  another route, or when the role ran nothing since. It is a projection of saved records, so it can
+  change as the run continues.
 
 A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
 does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.

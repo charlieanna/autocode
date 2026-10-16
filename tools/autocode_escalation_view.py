@@ -11,14 +11,17 @@ Two escalations are recorded today, and this module only reads them:
   ordinary retries were spent (`builder_retry_decisions` with action `escalate`; its `failure` is the
   output path of the attempt that failed, whose stage record names the task). A parallel Builder
   that left that attempt to the parent run (action `defer`, adopted by the parent) is marked on the
-  parent's row; the attempt is listed once the parent makes it.
+  parent's row; the attempt is listed once the parent makes it. Every stronger attempt listed is one
+  this run made, so a parallel Builder's records the parent holds (`worker_milestone`) are never its
+  attempts: a worker's own stronger attempt is recorded only in its worker run.
 
 An escalation's attempts are its role's stage records launched on the route it climbed to (dry runs
 and the runner's own stages left out), from the escalation until the first of: a validation of its
 work that passed (that attempt included), or the role's next escalation of either kind (its next
 climb, the Builder's stronger attempt); a running attempt counts. A validation judged its work when
-its own attempt is one of them, or, for a role that does not validate (the Builder), when the role's
-last attempt before it is one of them. Each is priced as the view's `cost` prices a stage
+its own attempt is one of them, or, for the Builder, whose work another role validates, when the
+Builder's last attempt before it is one of them; no other role is judged by another role's
+validation. Each is priced as the view's `cost` prices a stage
 (autocode_usage.stage_rows at the dated table of autocode_prices): reported, else estimated, else
 unpriced, never zero. A stage record of the role in that span with no launch route (saved before stage
 records kept one, 2026-10-01) cannot be shown to have run on the route it climbed to: it is counted
@@ -34,9 +37,14 @@ How it ended (`outcome`), from the first of these that applies (`outcome_basis` 
   attempt for the same milestone) or of the other kind made from one of its attempts (the Builder's
   stronger attempt after its climb, or its climb after the stronger attempt) (`failed_again`, basis
   `later_escalation`);
-- the outcome the runner stamped on it (autocode_route_ladder.record_outcome): `passed` at a
-  validation PASS, `paused` at the Builder retry-limit pause (basis `recorded`);
+- the runner's `paused` stamp (autocode_route_ladder.record_outcome at the Builder retry-limit
+  pause; basis `recorded`);
 - the latest validation of its work failed or was blocked (`failed_again`, `validation`);
+- the runner's `passed` stamp, only when every attempt of its role since it (until the role's next
+  escalation) ran on the route it climbed to, and there was at least one (basis `recorded`). The
+  runner stamps every open escalation `passed` at any validation PASS, whoever's work passed, so the
+  stamp is not taken once the role ran on another route (a person or the Builder's retry policy moved
+  it) or ran nothing since;
 - the run's status now: complete is `passed`, running is `running`, anything else (a pause, a wait
   for a person, a stop) is `paused` (basis `run_status`).
 
@@ -262,14 +270,16 @@ def _validations(state: RunState, attempts) -> list[tuple[dt.datetime, str | Non
 
 
 def _judged(escalation, validations, index) -> list[tuple[dt.datetime, str | None]]:
-    """(when, verdict) of each validation of the escalation's work: one an attempt of it produced, or, for a role
-    that does not validate (the Builder), one run after the role's last attempt, when that is an attempt of it. A
-    validation of another milestone, or of work on a route the role was moved to since, is not its work."""
+    """(when, verdict) of each validation of the escalation's work: one an attempt of it produced, or, for the
+    Builder, whose work another role validates (the Tester, a checkpoint), one run after the Builder's last attempt,
+    when that is an attempt of it. No other role is judged by another role's validation: a Tester PASS of the
+    Builder's work does not judge a Completion Reviewer's or a Resolver's climb. A validation of another milestone,
+    or of work on a route the role was moved to since, is not its work."""
     mine = {id(row) for row in escalation["mine"]}
     found = []
     for when, verdict, attempt in validations:
         if _role(attempt["record"]) != escalation["role"]:
-            attempt = _before(index, escalation["role"], when)
+            attempt = _before(index, "terra", when) if escalation["role"] == "terra" else None
         if attempt is not None and id(attempt) in mine:
             found.append((when, verdict))
     return found
@@ -305,11 +315,15 @@ def _outcome(state: RunState, escalation, later, judged) -> tuple[str, str, dt.d
         return "passed", "validation", passed, True
     if later is not None:
         return "failed_again", "later_escalation", later, False
-    if escalation["stamp"] in ("passed", "paused"):
-        return escalation["stamp"], "recorded", None, False
+    if escalation["stamp"] == "paused":
+        return "paused", "recorded", None, False
     verdicts = [verdict for when, verdict in judged if verdict in VERDICTS]
     if verdicts:
         return VERDICTS[verdicts[-1]], "validation", None, False
+    # record_outcome stamps every open escalation `passed` at any validation PASS, whoever's work passed: it is the
+    # escalation's only while its role ran nothing but its attempts since it.
+    if escalation["stamp"] == "passed" and escalation["only_mine"]:
+        return "passed", "recorded", None, False
     status = state.get("status") or ""
     return ("passed" if status in FINISHED else "running" if status in WORKING else "paused"), "run_status", None, False
 
@@ -366,10 +380,16 @@ def rows(state: RunState) -> list[dict]:
             route = _dict(escalation["struggled"].get("launch_route")) or escalation["initial"]
             escalation["from"] = _side(*_route(route))
         closed = _next(escalations, escalation, _same_role)
+        # A stronger attempt listed here is one this run made: a parallel Builder's records it holds
+        # (autocode_dispatch.account_workers) are its worker's attempts, whose own stronger attempt is not recorded here.
+        workers = escalation["kind"] == "stronger_attempt"
         span = [
             row
             for row in index.get(role, ([], []))[0]
-            if when is not None and row["when"] >= when and (closed is None or row["when"] < closed)
+            if when is not None
+            and row["when"] >= when
+            and (closed is None or row["when"] < closed)
+            and not (workers and "worker_milestone" in row["record"])
         ]
         # A record saved before stage records kept their launch route may or may not be on the climbed route.
         escalation["unrouted"] = [row for row in span if not isinstance(row["record"].get("launch_route"), dict)]
@@ -380,6 +400,7 @@ def rows(state: RunState) -> list[dict]:
             and _route(row["record"]["launch_route"]) == _route(escalation["to"])
         ]
         escalation["mine_records"] = {id(row["record"]) for row in escalation["mine"]}
+        escalation["only_mine"] = bool(span) and len(escalation["mine"]) == len(span)
     found = []
     for escalation in escalations:
         when, role, mine = escalation["when"], escalation["role"], escalation["mine"]
