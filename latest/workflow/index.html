@@ -2328,7 +2328,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6efd78654fe7a442b47df4fd8669d0fd47d26bd8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/32dc74ef16d005e7440341a077ee78007558c161/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2944,7 +2944,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/6efd78654fe7a442b47df4fd8669d0fd47d26bd8/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/32dc74ef16d005e7440341a077ee78007558c161/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3208,6 +3208,17 @@ still the plan loaded from it. A review of an unchanged plan records the new rev
 records, so that plan's goal hash differs from the file's; any other change is named. The approval
 token locks the revision on the screen, as always. <code>--goal-file</code> revises a saved run; it does not
 start a new one.</p>
+<p>When the run completes, its evidence report (<code>evidence.md</code>, and so the pull request body
+<code>autocode-issue pr</code> writes around it) gives the approved plan's goal hash, the one <code>--check</code> prints
+for a file holding exactly that plan. When the approved plan came from a plan file, the report also
+names the file, its goal hash and the plan revision it was loaded as, and says how the two differ:
+the approved plan is the file's plan unchanged (the two goal hashes are equal), differs from it only
+in the runner's records of the plan's review, or differs from it in the parts it names. A plan
+approved, changed and approved again after the load is the later approval's plan, so the report
+names no file for it. For example:</p>
+<pre><code class="language-text">Plan goal hash: 3f1c… (what `autocode plan --check FILE` prints for a file holding exactly this plan).
+Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision 2; the approved plan differs from that file's plan only in the runner's records of the plan's review.
+</code></pre>
 <h2 id="task-chat-message-intent">Task chat message intent<a class="headerlink" href="#task-chat-message-intent" title="Permanent link">&para;</a></h2>
 <p>Task chat uses deterministic, context-first rules; it makes no model call to
 guess a destructive action. Each saved message includes its kind and rule
