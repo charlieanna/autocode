@@ -17,6 +17,11 @@ the independent handoff protocol.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import re
 
 try:
@@ -109,13 +114,13 @@ def cue_sentences(text):
     return [part for part in sentences(text) if CUE.search(part)]
 
 
-def _task_sources(state):
+def _task_sources(state: RunState):
     task = state.get("task") or ""
     human = task_user_texts(task)
     return human if human is not None else [task]
 
 
-def source_texts(state):
+def source_texts(state: RunState):
     """Human task sources, brief feedback and answers a source_quote may cite."""
     texts = _task_sources(state)
     texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
@@ -123,7 +128,7 @@ def source_texts(state):
     return [text for text in texts if text]
 
 
-def new_workflow_turn(state):
+def new_workflow_turn(state: RunState):
     """A receipted follow-up changing jobs; same-kind revisions retain their obligations."""
     turns = state.get("turns") or []
     turn = turns[-1] if turns else {}
@@ -145,7 +150,7 @@ def new_workflow_turn(state):
     return turn if event and event in (state.get("user_events") or []) else None
 
 
-def scan_texts(state):
+def scan_texts(state: RunState):
     """source_texts minus delegated answers: a model default is quotable, never owed."""
     turn = new_workflow_turn(state)
     feedback = state.get("brief_feedback") or []

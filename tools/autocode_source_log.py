@@ -15,10 +15,16 @@ drops the source, exactly as positional derivation did.
 
 States saved before the log existed have no source_log key and fall back to
 positional derivation, so contracts sealed before this change verify as before.
-Imports nothing from AutoCode beyond the shared helpers.
+Imports nothing from AutoCode beyond the shared helpers; RunState is imported for
+type checking only.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 import hashlib
 
@@ -27,7 +33,7 @@ try:
 except ImportError:
     import autocode_conversation as conversation
 
-KEY = "source_log"
+KEY: Final = "source_log"
 
 
 def _record(ident, kind, text):
@@ -44,13 +50,13 @@ def task_records(task):
     ]
 
 
-def seed(state):
+def seed(state: RunState):
     """Record the run's initial task texts once. Never rewrites an existing log."""
     if KEY not in state:
         state[KEY] = task_records(state.get("task") or "")
 
 
-def save_feedback(state, event):
+def save_feedback(state: RunState, event):
     """The one boundary that saves a brief-feedback event: both ledgers, then the log.
 
     goals.feedback, goals.apply_intervention_feedback and follow_up.accept all call
@@ -63,7 +69,7 @@ def save_feedback(state, event):
     state[KEY].append(_record("feedback:" + event["id"], kind, event["text"]))
 
 
-def save_answer(state, question_id, event):
+def save_answer(state: RunState, question_id, event):
     """The one boundary that saves a question answer: the ledger, then the log.
 
     Only a user's own answer is a brief source: delegated defaults, permission
@@ -77,12 +83,12 @@ def save_answer(state, question_id, event):
     state[KEY].append(_record("answer:" + question_id, "user_answer", event["text"]))
 
 
-def records(state):
+def records(state: RunState):
     log = state.get(KEY)
     return log if isinstance(log, list) else None
 
 
-def sources(state):
+def sources(state: RunState):
     """The live sources from the log, or None when the run predates it.
 
     The last record for an id wins, mirroring the answer ledger's replacement."""

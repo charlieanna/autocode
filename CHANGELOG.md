@@ -319,6 +319,16 @@ PR template asks for an entry here; a change without one is incomplete.
   AutoReview unit (`units/autoreview`), the completion gate (`autocode_completion`) and checkpoint restore
   (`autocode_checkpoint_cli`) take the typed `RunState`, so the untyped-`state` ratchet drops from 451 to 374 and mypy
   checks those 77 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- Visual capture verification (`autocode_visual_evidence`), the human source log (`autocode_source_log`), the replay
+  view (`autocode_replay_view`), recovery-note retirement (`autocode_recovery_context`), progressive completion
+  (`autocode_progressive_completion`), planning clarification (`autocode_planning_clarification`), launch inputs
+  (`autocode_launch_inputs`), job model routing (`autocode_job_route`), design intake (`autocode_design_intake`), code
+  checkpoints (`autocode_code_checkpoints`), the pause authority steps (`autocode_action_authority`), the verification
+  plan (`autocode_verification_plan`), source tracing (`autocode_source_trace`), risk evidence
+  (`autocode_risk_evidence`), retained work (`autocode_retained_work`), requirement cues (`autocode_requirement_cues`),
+  `prune-run` (`autocode_prune_run`), dependency waits (`autocode_dependency`) and milestone carry-forward
+  (`autocode_carryforward`) take the typed `RunState`, so the untyped-`state` ratchet drops from 374 to 287 and mypy
+  checks those 87 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 

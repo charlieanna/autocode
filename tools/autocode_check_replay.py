@@ -327,7 +327,7 @@ def replay(
     try:
         risk, refuted = (
             risk_evidence.replay(
-                approved_state or {},
+                cast("RunState", approved_state or {}),
                 workspace,
                 out,
                 scratch_run,
