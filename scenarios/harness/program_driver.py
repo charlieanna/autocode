@@ -177,6 +177,7 @@ class ProgramDriver:
         max_steps: int,
         timeout_seconds: int,
         explicit_answers=(),
+        round_trip_plans: bool = False,
     ):
         self.scenario, self.project, self.root = scenario, project, root
         self.flags, self.autocode = list(flags), autocode
@@ -191,6 +192,7 @@ class ProgramDriver:
             max_steps=max_steps,
             timeout_seconds=timeout_seconds,
             explicit_answers=explicit_answers,
+            round_trip_plans=round_trip_plans,
         )
         self.env, self.steps, self.answers = self.plan.env, self.plan.steps, self.plan.answers
         self.approvals = self.plan.approvals
@@ -476,6 +478,7 @@ class ProgramDriver:
                 max_steps=self.max_steps,
                 timeout_seconds=self.deadline - time.monotonic(),
                 explicit_answers=self.explicit_answers,
+                round_trip_plans=self.plan.round_trip_plans,
             )
             # One budget and one record of answers and approvals.
             child.steps, child.answers, child.approvals = self.steps, self.answers, self.approvals
@@ -643,6 +646,8 @@ class ProgramDriver:
             "changes": [dict(record) for record in self.changes],
             "revisions": [dict(record) for record in self.revisions],
             "answers": self.answers,
+            # Every gate the harness passed, the plan run's and each workstream run's (harness.plan_round_trip).
+            "approvals": list(self.approvals),
             "cli_calls": [step["kind"] for step in self.steps],
             "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in self.steps],
             # Every model stage of the plan run and of every workstream run, for [run] requires_stages.
