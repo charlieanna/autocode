@@ -1,14 +1,14 @@
 # Native Windows
 
-AutoCode supports Windows through WSL today ([install](install.md#windows-through-wsl)).
-This page tracks native Windows support ([#698](https://github.com/charlieanna/autocode/issues/698)):
-what has been audited, what is fixed, and what is still open. Until the acceptance
-below is met, use WSL.
+AutoCode supports Windows through WSL ([install](install.md#windows-through-wsl)).
+Native Windows support is not planned: [#698](https://github.com/charlieanna/autocode/issues/698)
+was closed on 2026-10-16 and WSL stays the supported path. This page records what was
+audited, what is fixed and what is still open, for whoever takes native support up again.
 
 OpenCode and Codex run natively on Windows, so the gaps are in AutoCode's own
 locking, file and process handling, not in the engines.
 
-## Acceptance
+## Acceptance (if native support is taken up again)
 
 - `autocode doctor` and one fake scenario pass on the Windows CI runner.
 - [Install](install.md) then drops the WSL-only line and names the supported shells

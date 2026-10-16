@@ -415,6 +415,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Native Windows support is no longer planned; WSL stays the supported Windows path. [Install](docs/install.md) says
+  so, and [Native Windows](docs/windows.md) keeps the audit and the open work for whoever takes it up again (#698).
+
 - The Builder retry policy now weighs each failure's evidence against the milestone's earlier failures. A failure
   with the same failing checks, criteria, open findings and changed files as an earlier one skips the remaining
   ordinary retries for the stronger attempt, or pauses once that is spent, and the stop says it repeated. A failure
