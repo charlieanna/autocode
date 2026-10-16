@@ -1785,9 +1785,8 @@ def verify(boundary):
                 raise ValueError("Missing private run-store read denial")
             # Computed again now: a store made since the profile was rendered is only in the current denial.
             current = private_run_reads(workspace, reads["run_dir"])
-            if boundary.get("allow_write") is not False or not _enforces_private_reads(
-                host, profile.read_bytes(), reads
-            ):
+            pinned = profile.read_bytes()
+            if boundary.get("allow_write") is not False or not _enforces_private_reads(host, pinned, reads):
                 raise ValueError("Profile does not enforce the exact recorded private run-store denial")
             proof = json.loads(Path(boundary["conformance"]).read_text()).get("private_reads")
             if (
@@ -1801,16 +1800,20 @@ def verify(boundary):
             ):
                 raise ValueError("Missing native private run-state read conformance")
             if reads != current:
-                # The record is the denial the profile enforces and the actual shell proved, which named
-                # every store that existed when the boundary was prepared, the run store holding this
-                # run among them. A store only in the current denial was made since; when that is the
-                # whole difference, the pause names it and its remedy. Any other difference, such as a
-                # weakened record, is the plain refusal below.
+                # The pause names the stores only in the current denial, with their remedy, when they are
+                # the whole difference and this boundary really leaves each one readable: the pinned
+                # profile denies none of them, and none is the run store, which holds this run and so
+                # existed when the boundary was prepared. A proof that matches the record does not show
+                # the record is prepare()'s, since both can be pinned again together. For a boundary as
+                # prepare() pinned it, whose record named every store that existed then, such a store was
+                # made since. Any other difference, such as a record without a store the profile still
+                # denies, is the plain refusal below.
                 appeared = [path for path in current["denied"] if path not in reads["denied"]]
                 if (
                     appeared
                     and str(Path(current["run_dir"]).parent) not in appeared
                     and reads == {**current, "denied": [p for p in current["denied"] if p not in appeared]}
+                    and not any(_enforces_private_reads(host, pinned, {**reads, "denied": [p]}) for p in appeared)
                 ):
                     raise _stores_made_since(appeared)
                 raise ValueError("The recorded private run-store denial is not the current one")

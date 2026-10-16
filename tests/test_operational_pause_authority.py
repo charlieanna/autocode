@@ -641,8 +641,9 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
 
     def test_an_answer_or_approval_with_resume_dispatches_nothing_at_an_operational_pause(self):
         # Neither clears a human gate there, so #586's dispatch is never reached: each is refused when it is
-        # checked, sent with the token AutoResolver showed for the operational request.
-        approval_refusal = "Goal approval requires a current AutoResolver-issued plan request"
+        # checked, sent with the token AutoResolver showed for the operational request. An approval is refused
+        # first, before recovery runs, because the run is not waiting for one (#1385's preflight).
+        approval_refusal = "Goal approval refused: Approve only the current displayed draft token"
         cases = [*((status, True) for status in STATUSES), *((status, False) for status in SAMPLE)]
         for status, answered in cases:
             with self.subTest(status=status, answered=answered):
