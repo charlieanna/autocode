@@ -25,6 +25,7 @@ import copy
 import sys
 
 try:
+    from . import autocode_acceptance_tests as acceptance
     from . import autocode_answer_output as answer_output
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_conversation_policy as conversation_policy
@@ -49,6 +50,7 @@ try:
     from . import autopilot
     from .autocode_action_resolver import OPERATIONAL_NOT_ANSWER
 except ImportError:
+    import autocode_acceptance_tests as acceptance
     import autocode_answer_output as answer_output
     import autocode_approval_provenance as approval_provenance
     import autocode_conversation_policy as conversation_policy
@@ -353,6 +355,7 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 # closing the finding with --close-finding accepts nothing (#711). A refusal discards the
                 # candidate, completion included.
                 package_writes.refuse(candidate, workspace)
+                acceptance.refuse(candidate, workspace, run_dir=run_dir)
             if args.close_finding:
                 finding_close.close(
                     candidate,
