@@ -2028,6 +2028,10 @@ class ApprovalProvenanceTests(unittest.TestCase):
             ("another pause resumed", [self.row("resume", "user_cli", "PAUSED_TIME_LIMIT", command=command)]),
             ("a resume naming no pause", [self.row("resume", command=command)]),
             ("a plan row naming the pause", [self.row("plan", "user_cli", "PAUSED_COST_LIMIT")]),
+            (
+                "the pause resumed by no person",
+                [{**self.row("resume", "workflow_policy", "PAUSED_COST_LIMIT"), "provenance": None}],
+            ),
         ):
             with self.subTest(name):
                 self.assertEqual([said], self.failures(self.record(rows, [acknowledged])))

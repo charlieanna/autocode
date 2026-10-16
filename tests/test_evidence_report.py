@@ -632,7 +632,11 @@ class ApprovalReportTests(unittest.TestCase):
         first, m1 = self.child("m1", {**public_view(), "approvals": approvals})
         second, m2 = self.child("m2", {**public_view(), "approvals": approvals[2:3]})
         for kind, left_out in (
-            ("program", "The program agreement (`autocode program approve`) records no approver, so it is not listed."),
+            (
+                "program",
+                "The program agreement (`autocode program approve`) records no approver, so it is not listed, and "
+                "neither are the approvals of a plan run it was derived from (`autocode program derive`).",
+            ),
             ("components", "Approvals of the architecture this run was built from are not listed."),
         ):
             with self.subTest(kind=kind):

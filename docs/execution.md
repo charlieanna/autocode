@@ -686,7 +686,8 @@ approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
 ([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A completed
 program's or components run's report lists its child runs' approvals, each with the child it
 came from, in the same way; the program agreement (`autocode program approve`) records no
-approver and is not among them ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
+approver and is not among them, and neither are the approvals of a plan run the program was
+derived from ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
 
 The scenario harness checks this record from outside on each task run a scenario completes,
 including a program's or a components run's own task runs. It reads `approvals` from that

@@ -333,8 +333,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - A completed program's or components run's evidence report now lists its child runs' approvals (#722, seventh
   part). Each row is copied from that child's own report with the child's id added as `child`, child by child, and
   `evidence.md` shows them in an Approvals table with a Child column. It also says what is left out: a program
-  agreement (`autocode program approve`) records no approver, and a components run does not list approvals of its
-  architecture. A child whose report lists no approvals, written before AutoCode listed them, is named in the
+  agreement (`autocode program approve`) records no approver, a program does not list approvals of a plan run it was
+  derived from (`autocode program derive`), and a components run does not list approvals of its architecture. A child whose report lists no approvals, written before AutoCode listed them, is named in the
   report's not-verified list. When no child's report lists any, the report is unchanged. The scenario harness's
   `approval provenance: RUN` check now also matches each budget pause a scenario's person acknowledged (`[fake]
   acknowledge`) to the `resume` row naming that pause, as it matches plan approvals by token and review approvals

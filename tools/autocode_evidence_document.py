@@ -28,9 +28,11 @@ APPROVER_UNVERIFIED = (
     "held and a name given with --as is the person's own claim"
 )
 # The reports that list their child runs' approvals, each row naming its ``child`` (autocode_evidence_aggregate),
-# and what each says it leaves out: the decisions of its own that record no approver (#722).
+# and what each says it leaves out: the decisions of its own that record no approver, and the approvals of the run
+# it was planned in, which that run's own report lists (#722).
 COORDINATOR_APPROVALS_LEFT_OUT = {
-    "program": "The program agreement (`autocode program approve`) records no approver, so it is not listed.",
+    "program": "The program agreement (`autocode program approve`) records no approver, so it is not listed, and "
+    "neither are the approvals of a plan run it was derived from (`autocode program derive`).",
     "components": "Approvals of the architecture this run was built from are not listed.",
 }
 DIGEST = re.compile(r"[0-9a-f]{64}")

@@ -48,8 +48,10 @@ def child_approvals(children, reports):
 
     (None, []) when no child report lists approvals (each was written before AutoCode listed them): the report then
     has no ``approvals``, as before. A child whose report lists none among others that do is named, so the report
-    never takes it to have recorded none. The rows are copied as the child report has them; the binding covers
-    them through each child report's digest.
+    never takes it to have recorded none. The rows are copied as the child report has them when this report is
+    written. As with the copied criteria and findings, nothing later compares them with the child reports: the binding
+    names each child report's digests, and this report's own anchor (its JSON and Markdown digests) authenticates the
+    rows.
     """
     listed = [(child["id"], report["document"]) for child, report in zip(children, reports, strict=False)]
     if not any("approvals" in facts for _, facts in listed):

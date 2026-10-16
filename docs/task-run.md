@@ -364,8 +364,10 @@ for later integration checks or runtime smoke.
 An aggregate also lists, under `approvals`, the approvals each child's own report lists
 (#722): child by child, in its `children` order, each row as that report has it plus `child`,
 the child's id. Its Markdown shows them as an Approvals table with a Child column, and says
-what it leaves out: a program agreement (`autocode program approve`) records no approver, and
-a components run does not list approvals of the architecture it was built from. A child whose
+what it leaves out: a program agreement (`autocode program approve`) records no approver, a
+program does not list approvals of a plan run it was derived from (`autocode program derive`),
+and a components run does not list approvals of the architecture it was built from. Those runs'
+own reports list them. A child whose
 report lists no approvals, because it was written before AutoCode listed them, is named in the
 aggregate's not-verified list rather than taken to have recorded none. When no child's report
 lists approvals, the aggregate has no `approvals` and no such section, as before.
