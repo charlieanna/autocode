@@ -1,5 +1,6 @@
 """Public checkpoint CLI tests with real Git and owned temporary run fixtures."""
 
+import contextlib
 import copy
 import hashlib
 import io
@@ -338,6 +339,24 @@ class CodeCheckpoints(unittest.TestCase):
         self.assertEqual([{"attempt": "old"}], restored["automatic_timeout_recoveries"])
         self.assertEqual(self.state["resolver"]["budget_extensions"], restored["resolver"]["budget_extensions"])
         self.assertNotIn("human_escalations", restored["resolver"])
+
+    def test_checkpoint_cli_accepts_json_flag(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = operation.cli(
+                [
+                    "--workspace",
+                    str(self.workspace),
+                    "--run-dir",
+                    str(self.run),
+                    "--compare",
+                    self.ident,
+                    "--json",
+                ]
+            )
+        self.assertEqual(0, code)
+        payload = json.loads(out.getvalue())
+        self.assertEqual(self.ident, payload["checkpoint_id"])
 
 
 class RealCheckpointFlow(unittest.TestCase):

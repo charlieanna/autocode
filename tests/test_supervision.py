@@ -366,6 +366,13 @@ signal.pause()
             stderr=subprocess.PIPE,
             text=True,
         ) as child:
+            root = processes.ProcessTree(child.pid, lambda rows: None).capture_root()
+            admitted = child.supervision["provider"]
+            self.assertTrue(processes.matches(admitted, root))
+            self.assertEqual(admitted["group"], root["group"])
+            if sys.platform == "linux":
+                self.assertEqual(child.pid, admitted["session"])
+                self.assertNotIn("session", root)
             output, error = child.communicate("the prompt", timeout=20)
             row = json.loads(output)
             self.assertIsInstance(child, subprocess.Popen)

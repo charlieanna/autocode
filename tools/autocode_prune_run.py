@@ -23,7 +23,9 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 import argparse
+import json
 import shutil
+import sys
 from pathlib import Path
 
 try:
@@ -151,6 +153,7 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="autocode prune-run", description=__doc__)
     result.add_argument("run", help="run directory whose settled evidence bytes to prune")
     result.add_argument("--yes", action="store_true", help="delete the listed set (without it, only list)")
+    result.add_argument("--json", action="store_true", help="print the result as JSON")
     return result
 
 
@@ -168,9 +171,34 @@ def cli(argv=None):
             if isinstance(state.get("active_stage"), dict)
             else "unknown"
         )
-        print(f"Refused: stage {stage} is active; its capture still validates its copy")
+        msg = f"Refused: stage {stage} is active; its capture still validates its copy"
+        if args.json:
+            print(json.dumps({"error": {"code": "stage_active", "message": msg}}), file=sys.stderr)
+        else:
+            print(msg)
         return 2
     plan = candidates(state, run)
+    if args.json:
+        if not args.yes:
+            payload = {
+                "run": str(run),
+                "keep": plan["keep"],
+                "delete": plan["delete"],
+                "freed_bytes": plan["freed_bytes"],
+                "pruned": False,
+            }
+            print(json.dumps(payload, indent=2))
+            return 0
+        freed = prune(plan)
+        payload = {
+            "run": str(run),
+            "keep": plan["keep"],
+            "delete": plan["delete"],
+            "freed_bytes": freed,
+            "pruned": True,
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
     for item in plan["keep"]:
         print(f"keep    {item['bytes']:>12} B  {item['path']}  ({item['reason']})")
     for item in plan["delete"]:

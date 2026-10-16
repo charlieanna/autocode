@@ -101,6 +101,57 @@ class PlanCommandTests(unittest.TestCase):
         self.assertEqual((0, ""), (code, err))
         self.assertEqual(f"{path}: goal hash {goal}; the plan exported from revision 2\n", out)
 
+    def test_export_check_render_under_json(self):
+        saved_run(self.root)
+        path = self.root / "plans" / "greet.md"
+        code, out, err = self.plan("--export", str(path), "--workspace", str(self.root), "--json")
+        self.assertEqual((0, ""), (code, err))
+        goal = util.digest(BODY)
+        exported = json.loads(out)
+        self.assertEqual(str(path), exported["path"])
+        self.assertEqual(2, exported["revision"])
+        self.assertFalse(exported["approved"])
+        self.assertEqual(goal, exported["goal_hash"])
+        self.assertEqual(goal, exported["written_goal_hash"])
+        self.assertFalse(exported["masked"])
+
+        code, out, err = self.plan("--check", str(path), "--json")
+        self.assertEqual((0, ""), (code, err))
+        checked = json.loads(out)
+        self.assertEqual(str(path), checked["path"])
+        self.assertEqual(goal, checked["goal_hash"])
+        self.assertEqual(goal, checked["exported_hash"])
+        self.assertEqual(2, checked["revision"])
+        self.assertTrue(checked["matches"])
+        self.assertIsNone(checked["stale_line"])
+
+        code, out, err = self.plan("--render", str(path), "--json")
+        self.assertEqual((0, ""), (code, err))
+        rendered = json.loads(out)
+        self.assertEqual(str(path), rendered["path"])
+        self.assertEqual(goal, rendered["goal_hash"])
+
+    def test_check_stale_text_under_json(self):
+        saved_run(self.root)
+        path = self.root / "plans" / "greet.md"
+        self.assertEqual(0, self.plan("--export", str(path), "--workspace", str(self.root))[0])
+        exported = path.read_text()
+        path.write_text(exported.replace('"Localization"', '"Localization and time zones"', 1))
+        code, out, err = self.plan("--check", str(path), "--json")
+        self.assertEqual(2, code)
+        self.assertEqual("", out)
+        error = json.loads(err)
+        self.assertEqual("stale_plan_text", error["error"]["code"])
+
+    def test_export_missing_plan_under_json(self):
+        saved_run(self.root, goal_contract={})
+        path = self.root / "plan.md"
+        code, out, err = self.plan("--export", str(path), "--workspace", str(self.root), "--json")
+        self.assertEqual(2, code)
+        self.assertEqual("", out)
+        error = json.loads(err)
+        self.assertEqual("plan_error", error["error"]["code"])
+
     def test_export_masks_a_secret_from_the_environment_and_says_the_goal_hash_differs(self):
         saved_run(self.root)
         path = self.root / "plan.md"

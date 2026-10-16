@@ -1,8 +1,8 @@
 """Run configuration: CLI arguments to the settings a run persists.
 
 Extracted from autocode.py (AGENTS.md architecture rules 1-3). This module
-never imports the CLI (autocode) or the controller (autopilot); the cycle
-members it needs (planning, milestones), the controller, the selected
+never imports the CLI (autocode) or the controller (autopilot); the
+modules it needs (planning, milestones), the controller, the selected
 provider facade (opencode, defaulting to the builtin OpenCode module) and
 migrate's state-writing helpers (write_json, now) arrive as call-time
 arguments, so the bindings autocode.py holds — including the provider it
