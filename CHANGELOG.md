@@ -63,6 +63,16 @@ PR template asks for an entry here; a change without one is incomplete.
   identity. Reports written before this change keep no field and render unchanged, so they still authenticate;
   such a report gains the section only when AutoCode saves the completed run again. The evidence report schema
   stays version 1. A required approver (#707) is still to come.
+- A project can name who may approve (#722, fourth part): `require-approver` in `.autocode/config.toml` (or
+  `[tool.autocode]`) lists one or more Git email addresses. A run started with it refuses a plan approval
+  (`--approve-goal`, or yes in the terminal conversation) or an artifact acceptance (`--approve-review`,
+  `autocode review`, TaskRun, or y at the review prompt) whose approving checkout's Git `user.email` is not listed,
+  compared without regard to case, before anything is approved: exit 2 (the conversation stops at the same
+  question) with a message naming the required and the actual identity, and the run stays at the same stop. An
+  `--as` name never counts. Goal edits, resumes, workflow-policy approvals and `--accept-completion` are not checked.
+  The run saves the list when it starts (`settings.require_approver`), so a changed file never alters a run in
+  progress; the key has no flag, and `autocode doctor` shows it with its source. Without the setting nothing
+  changes. Git identity is what the checkout configures: this is a team convention, not authentication.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and

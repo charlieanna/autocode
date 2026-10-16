@@ -621,9 +621,10 @@ On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`, `--
 the resume; the name is saved beside the Git identity as the person's own claim. With a resume
 it is saved only when the resume releases a pause, as above.
 
-None of this is verified, and none of it grants or refuses anything: Git identity is
-whatever the checkout configures, and `--as` is taken at the person's word. The token checks
-and each pause's own rules remain the authority. `--status` lists every approval, goal edit and
+None of this is verified, and none of it grants anything: Git identity is whatever the
+checkout configures, and `--as` is taken at the person's word. The token checks and each
+pause's own rules remain the authority; the one refusal is a project's required approver,
+below. `--status` lists every approval, goal edit and
 resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
 the completion summary lists the same records just before its cost line. A record saved before
 AutoCode kept it shows no provenance. A build, bug-fix or design run that recorded none, such as
@@ -646,8 +647,35 @@ recorded, a workflow-policy approval says no person made it, and a run with none
 `None recorded`. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
 approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
-([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A required
-approver (#707) is not covered yet.
+([Issues](issues.md#what-it-does)), the pull request body lists the approvals too.
+
+#### Required approver
+
+A team that wants only named people to approve can list their Git email addresses as
+`require-approver` in its [project settings](cli.md#project-settings):
+
+```toml
+require-approver = ["lead@example.com", "deputy@example.com"]
+```
+
+A run started with that setting refuses a plan approval (`--approve-goal`, or `yes` in the
+terminal conversation) or an artifact acceptance (`--approve-review`, `autocode review`, a
+`TaskRun` approval, or `y` at the conversation's review prompt) whose recorded Git
+`user.email` is not on the list, compared without regard to case. The refusal comes before
+anything is approved: the command exits 2 (the conversation stops at the same question) with
+a message naming the required addresses and the checkout's actual Git identity, nothing it
+carried is saved, and the run stays at the same stop for a listed approver. An `--as` name is
+a claim and never counts. A goal edit installs a draft that still needs a listed approver's
+approval, a resume releases a pause rather than approving anything, and a small bug fix
+approved under the workflow policy has no person to check, so none of those is refused.
+`--accept-completion` is not checked.
+
+The run saves the list when it starts (`settings.require_approver` in `state.json`), as it
+saves every project setting: a changed or deleted file never alters a run in progress, a run
+started before the setting existed lets anyone approve, and no flag sets or overrides it.
+Without the setting anyone may approve, as before. The Git identity is whatever the approving
+checkout configures, so this keeps approvals to the people a team named; it is not
+authentication.
 
 ## Timeouts and watchdog
 

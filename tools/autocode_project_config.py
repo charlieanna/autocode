@@ -7,7 +7,9 @@ sub-tables belong to other tooling); config.toml wins a key both set. AutoCode's
 committed and reviewed like any other.
 
 Keys are the flag names without the leading dashes (KEYS): ``engine``, ``test-command``, the role
-model and reasoning-effort flags, and the budgets. A flag on the command line wins over the file,
+model and reasoning-effort flags, and the budgets. One key has no flag (FILE_ONLY): ``require-approver``,
+the Git email addresses allowed to approve the run's plan and reviews (autocode_required_approver), which
+the person at the terminal therefore cannot type away. A flag on the command line wins over the file,
 and also over any file key it cannot be combined with (ITERATIONS, ROLE_MODELS); the file wins over the built-in
 default. No environment variable sets these keys. Only a new run reads the file: a saved run keeps
 the settings it started with, recorded in the run, so changing the file never alters a run in
@@ -16,7 +18,7 @@ progress.
 Two settings stay out of a project's reach (USER_ONLY): the provider, which runs a command the user
 installed, is chosen by --provider, AUTOCODE_PROVIDER or default_provider in the user's
 ~/.config/autocode/config.toml (autocode_providers); and --task-preflight is the operator's
-prerequisite manifest. A file that names either, or a key not in KEYS, is refused before a run
+prerequisite manifest. A file that names either, or a key in neither KEYS nor FILE_ONLY, is refused before a run
 starts, as is a value its flag would refuse. ``engine = "claude"`` is allowed: it selects the
 built-in Claude Code provider, which runs AutoCode's fixed argv, as ``engine = "codex"`` does;
 ``provider`` stays user-only because it runs a command you installed.
@@ -32,9 +34,11 @@ from pathlib import Path
 try:
     from . import autocode_project_memory as project_memory
     from . import autocode_project_memory_interface as memory_interface
+    from . import autocode_required_approver as required_approver
 except ImportError:
     import autocode_project_memory as project_memory
     import autocode_project_memory_interface as memory_interface
+    import autocode_required_approver as required_approver
 
 ENGINE = ("engine",)
 MODELS = (
@@ -79,6 +83,8 @@ BUDGETS = (
     "max-parallel-builders",
 )
 KEYS = (*ENGINE, *MODELS, *EFFORTS, *COMMANDS, *BUDGETS)
+# Settings only a project file gives, with no flag: a team's rule a new run saves (autocode_required_approver).
+FILE_ONLY = (required_approver.KEY,)
 
 _PROVIDER = (
     "the provider runs a command you installed, so a project cannot choose it: use --provider, "
@@ -137,8 +143,10 @@ def _checked(table, source: str) -> dict[str, tuple[object, str]]:
     for key in table:
         if key in USER_ONLY:
             raise ValueError(f"{source}: {key} cannot be set by a project; {USER_ONLY[key]}")
-        if key not in KEYS:
-            raise ValueError(f"{source}: unknown setting {key!r}; a project file sets only {', '.join(KEYS)}")
+        if key not in KEYS and key not in FILE_ONLY:
+            raise ValueError(
+                f"{source}: unknown setting {key!r}; a project file sets only {', '.join((*KEYS, *FILE_ONLY))}"
+            )
     return {key: (value, source) for key, value in table.items()}
 
 
@@ -163,7 +171,7 @@ def for_new_run(parser, args, explicit) -> set[str]:
         by_source.setdefault(source, []).append(key)
     for source, keys in by_source.items():
         print(f"Project settings from {source}: {', '.join(keys)}", file=sys.stderr)
-    return {parser._option_string_actions["--" + key].dest for key in applied}
+    return {parser._option_string_actions["--" + key].dest for key in applied if key not in FILE_ONLY}
 
 
 def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str, str]:
@@ -190,6 +198,10 @@ def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str,
         dropped.add("single_model")
     applied = {}
     for key, (value, source) in settings.items():
+        if key == required_approver.KEY:  # no flag to drop it: autocode_configure saves it with a new run
+            setattr(args, required_approver.SETTING, required_approver.checked(value, source))
+            applied[key] = source
+            continue
         action = actions["--" + key]
         if action.dest in dropped:
             continue
