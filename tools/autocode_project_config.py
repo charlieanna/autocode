@@ -7,10 +7,11 @@ sub-tables belong to other tooling); config.toml wins a key both set. AutoCode's
 committed and reviewed like any other.
 
 Keys are the flag names without the leading dashes (KEYS): ``engine``, ``test-command``, the role model and
-reasoning-effort flags, and the budgets. One key has no flag (FILE_ONLY): ``require-approver``, the Git email
-addresses allowed to approve the run's plan and reviews and to accept its completion
-(autocode_required_approver), so no command line sets or replaces it; a replay (--replay-recording) never takes
-it. A flag on the command line wins over the file, and also over any file key it cannot be combined with
+reasoning-effort flags, and the budgets. Two keys have no flag (FILE_ONLY), so no command line sets or replaces
+them: ``require-approver``, the Git email addresses allowed to approve the run's plan and reviews and to accept
+its completion (autocode_required_approver), which a replay (--replay-recording) never takes; and ``serve``, the
+command that runs the project's development server (autocode_dev_server_config), which in pyproject.toml can be
+only a plain string. A flag on the command line wins over the file, and also over any file key it cannot be combined with
 (ITERATIONS, ROLE_MODELS); the file wins over the built-in default. No environment variable sets these keys.
 Only a new run reads the file (one started by --ui-run with no typed task is one): a saved run keeps the
 settings it started with, recorded in the run, so changing the file never alters a run in progress.
@@ -32,10 +33,12 @@ import tomllib
 from pathlib import Path
 
 try:
+    from . import autocode_dev_server_config as dev_server_config
     from . import autocode_project_memory as project_memory
     from . import autocode_project_memory_interface as memory_interface
     from . import autocode_required_approver as required_approver
 except ImportError:
+    import autocode_dev_server_config as dev_server_config
     import autocode_project_memory as project_memory
     import autocode_project_memory_interface as memory_interface
     import autocode_required_approver as required_approver
@@ -83,8 +86,9 @@ BUDGETS = (
     "max-parallel-builders",
 )
 KEYS = (*ENGINE, *MODELS, *EFFORTS, *COMMANDS, *BUDGETS)
-# Settings only a project file gives, with no flag: a team's rule a new run saves (autocode_required_approver).
-FILE_ONLY = (required_approver.KEY,)
+# Settings only a project file gives, with no flag: a team's rule a new run saves (autocode_required_approver),
+# and the command that serves its app (autocode_dev_server_config).
+FILE_ONLY = (required_approver.KEY, dev_server_config.KEY)
 
 _PROVIDER = (
     "the provider runs a command you installed, so a project cannot choose it: use --provider, "
@@ -206,6 +210,10 @@ def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str,
             if not getattr(args, "replay_recording", None):
                 setattr(args, required_approver.SETTING, addresses)
                 applied[key] = source
+            continue
+        if key == dev_server_config.KEY:  # no flag; autocode_configure saves it with a new run
+            setattr(args, dev_server_config.SETTING, dev_server_config.checked(value, source))
+            applied[key] = source
             continue
         action = actions["--" + key]
         if action.dest in dropped:

@@ -1231,6 +1231,14 @@ work. `unattributed` lists steps whose milestone is not in the plan. It is
 attribution, not proof: it says where to look, not that the changes satisfy the
 criterion. It is `null` until a plan is approved.
 
+`status()["dev_server"]` is the run's development server
+([Development server](cli.md#development-server)): `configured` says whether the
+run saved a `serve` command, `status` is `off`, `starting`, `running`, `stopped`,
+`exited`, `failed` or `lost`, and `url` is set only while it is `running`. The
+status command inspects it on every call; a direct `run_view.view()` without that
+inspection leaves it `null`. Starting and stopping the server is
+`autocode serve`, not a TaskRun method, and it never changes the run.
+
 ### Conversation task provenance
 
 New dashboard attachments, including saved legacy conversations, carry a canonical

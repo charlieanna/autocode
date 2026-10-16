@@ -126,6 +126,7 @@ def view(
     controller=None,
     run_dir=None,
     workspace=None,
+    dev_server=None,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
@@ -187,6 +188,8 @@ def view(
         "code_checkpoints": code_checkpoints.project(state),
         # Which saved checkpoints built each approved criterion's milestones (#730): attribution, not proof.
         "changes_by_criterion": criterion_changes.attribute((plan or {}).get("body"), state.get("code_checkpoints")),
+        # The run's development server as the caller inspected it (autocode_dev_server.inspect, #730).
+        "dev_server": deepcopy(dev_server),
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
         "iteration": state.get("iteration"),

@@ -122,9 +122,17 @@ class RunViewTests(unittest.TestCase):
                 "controller",
                 "planning_depth",
                 "changes_by_criterion",
+                "dev_server",
             },
             set(run_view.view({"status": "RUNNING"})),
         )
+
+    def test_dev_server_is_the_callers_inspection_copied(self):
+        self.assertIsNone(run_view.view({"status": "RUNNING"})["dev_server"])
+        inspected = {"configured": True, "status": "running", "url": "http://127.0.0.1:4100/"}
+        shown = run_view.view({"status": "RUNNING"}, dev_server=inspected)
+        inspected["status"] = "stopped"
+        self.assertEqual("running", shown["dev_server"]["status"])
 
     def test_verification_obligation_is_additive_read_only_projection(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["verification_obligation"])

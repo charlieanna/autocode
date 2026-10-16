@@ -25,6 +25,7 @@ from pathlib import Path
 try:
     from . import autocode_controller_owner as controller_owner
     from . import autocode_conversation as conversation_protocol
+    from . import autocode_dev_server as dev_server
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_progress_view as progress_view
     from . import autocode_stop_explanations as stop_explanations
@@ -33,6 +34,7 @@ try:
 except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_conversation as conversation_protocol
+    import autocode_dev_server as dev_server
     import autocode_job_report_recovery as job_report_recovery
     import autocode_progress_view as progress_view
     import autocode_stop_explanations as stop_explanations
@@ -150,6 +152,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         design_input_preview=design_input_preview,
         run_dir=run_dir,
         workspace=workspace,
+        dev_server=dev_server.inspect(run_dir, state.get("settings")),
     )
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
     if inspected is not None:

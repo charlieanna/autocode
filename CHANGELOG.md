@@ -25,6 +25,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode serve start|stop|status` runs a saved run's development server from its `serve` command (#730): in the
+  foreground on a free loopback port, under the same process supervision as a test command and without the
+  environment's credentials, until Ctrl-C or `autocode serve stop`. `autocode --status` shows it as
+  `view.dev_server` (whether configured, its status and its address while it runs); its record is
+  `dev-server.json` in the run directory, never `state.json`.
+- A project can name the command that runs its development server (#730): `serve` in `.autocode/config.toml`, a
+  command string with `{port}` where the port goes, or a `[serve]` table that also names `ready-path` and
+  `ready-seconds` (`pyproject.toml` takes only the string). A new run saves it with its settings, and
+  `autocode doctor` lists it with the other project settings. A value without `{port}`, an unknown field or a
+  ready path that is not a server path stops a new run, naming the file.
 - `autocode --status --json` shows the run's planning-depth decisions under `planning_depth`: whether the request
   was judged clear and Requirements skipped, the plan's size and the review allowance it set, and whether the Plan
   Reviewer approved the draft at its first review. Before, these were only in `state.json` (#697).
