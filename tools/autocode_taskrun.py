@@ -354,6 +354,13 @@ class TaskRun:
         """Return the displayed brief a person must read before approving its token."""
         return self._invoke("show goal", "--show-goal").stdout
 
+    def export_plan(self, path) -> str:
+        """Write the run's current plan (shown for approval, or approved) to ``path`` as a plan file.
+
+        `autocode plan --export`; returns the line it printed. It reads the run and changes nothing in it.
+        """
+        return self._invoke("export plan", "plan", "--export", str(Path(path).absolute())).stdout.strip()
+
     def advance(self) -> dict:
         """Relaunch the run; it works until it completes or stops for input."""
         self._invoke("advance", "--no-chat", *self.options, advancing=True)

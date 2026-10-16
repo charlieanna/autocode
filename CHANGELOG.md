@@ -307,6 +307,20 @@ PR template asks for an entry here; a change without one is incomplete.
   delivered files alone. A pull request that changes `tools/autocode_regression.py` or
   `tools/autocode_build_loop.py` now also runs `tests.test_package_scope_cli`: the regression proof records a
   launch's files outside the package and runs the package check before each review, and the build loop calls it.
+- `autocode-issue plan ISSUE` puts the plan an issue's run is waiting to have approved in a pull request, so a
+  team reviews what will be built before anything is built. It exports the plan as `autocode plan --export` writes
+  it and commits it as `plans/issue-N.md` (`--path` for another place) on branch `autocode/issue-N-<title>-plan`,
+  made from the run's base commit, without touching any checkout or the run, and writes the pull request's body.
+  `--open` pushes the branch and opens a draft pull request (`--base`, `--ready` as for `pr`). Run again after the
+  plan changes while that pull request is open, it commits the new plan on top, so the same pull request shows the
+  change; it never replaces commits it did not make (a plan branch deleted here is made again at its last plan
+  commit). Merging approves nothing: once `plan --open` has opened the plan pull request, `autocode-issue status` at
+  the approval stop prints its URL and the `autocode --goal-file` command that loads the merged file into the run,
+  until the run's plan moves past the one it carried. A merged plan pull request is never reused, even when its
+  branch was deleted with it: `plan` fetches the base branch first, and a plan that changed after the merge goes in
+  a new pull request, on `-plan-2`, made from the base branch that holds the merged file.
+  `TaskRun.export_plan(path)` is the task-run interface's way to write the plan file. `docs/workflow.md` describes
+  the team workflow. Starting a new run from the merged file is not available yet (#720).
 
 ### Changed
 
@@ -1024,6 +1038,16 @@ PR template asks for an entry here; a change without one is incomplete.
   run's first checkpoint). The text, the closing `autocode: …` on stderr, exit code 2 and the saved run are
   unchanged. A native visual run already saved such a refusal as a `PAUSED_INVALID_OUTPUT` pause and still
   does (#714).
+- Pull request CI ran the `linux-tool-containment` job, which runs the contained fake OpenCode flow under
+  bubblewrap, only when one of four named files changed. A pull request that broke the flow through another
+  file it loads, such as the status view (`autocode_run_view.py`) or the containment setup check
+  (`autocode_containment_policy.py`), skipped the job, and the break first showed on master. `tools/ci_scope.py`
+  now works out the Python files from `tests/test_contained_fake_cli.py` itself. It follows their import
+  statements and the scripts they start or copy by file name, so the list stays right as imports change. A
+  change to the stage report schemas in `tools/autocode-schemas/` runs the job too. That covers most Python
+  files in `tools/` outside the dashboard, so most pull requests that change runtime code now run this job too,
+  on its own runner beside the suite job. A missing test module fails CI's job selection instead of skipping
+  the job (#709).
 - With the Builder's retry policy off (a reviewer routing mode, or `builder_retry` disabled), the status view's
   `escalations` row for a Builder climb read `passed` once the Tester passed a climbed attempt, even after the
   Completion Reviewer sent that work back: nothing charged the review, so the climb's attempts stopped at that PASS,
