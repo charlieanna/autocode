@@ -1,5 +1,6 @@
 """Pure policy checks and real kernel/tool boundary conformance (macOS Seatbelt or Linux bubblewrap)."""
 
+import ast
 import hashlib
 import json
 import os
@@ -342,33 +343,110 @@ class PolicyTests(unittest.TestCase):
                 )
 
     @staticmethod
-    def pinned_planning_boundary(root):
-        """A planning boundary as verify() reads it up to its private-read check, with no sandbox run.
+    def autocode_children(module):
+        """The names a tools/ module's code joins directly under a .autocode directory.
 
-        prepare()'s layout and pinned bytes, but an unrendered profile, so verify() refuses it even
-        when no store has changed.
+        Read from its syntax tree, so comments, docstrings and help text do not count: a string such
+        as ".autocode/worktrees" or Path(".autocode/arena"), or a name joined onto X / ".autocode",
+        Path(".autocode") or keep_out_of_git(X), which returns X/.autocode.
+        """
+
+        def is_autocode(node):
+            if isinstance(node, ast.BinOp):
+                return (
+                    isinstance(node.op, ast.Div)
+                    and isinstance(node.right, ast.Constant)
+                    and node.right.value == ".autocode"
+                )
+            if not isinstance(node, ast.Call) or node.keywords:
+                return False
+            called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+            values = [argument.value if isinstance(argument, ast.Constant) else None for argument in node.args]
+            return (called, values) == ("Path", [".autocode"]) or (called == "keep_out_of_git" and len(values) == 1)
+
+        names = set()
+        for node in ast.walk(ast.parse((ROOT / "tools" / f"{module}.py").read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith(".autocode/"):
+                names.add(node.value.split("/")[1])
+            elif (
+                isinstance(node, ast.BinOp)
+                and isinstance(node.op, ast.Div)
+                and isinstance(node.right, ast.Constant)
+                and isinstance(node.right.value, str)
+                and is_autocode(node.left)
+            ):
+                names.add(node.right.value.split("/")[0])
+        return names
+
+    def test_each_private_store_is_the_directory_its_owners_make(self):
+        # #1250: PRIVATE_STORES copies the names of directories other modules make under .autocode.
+        # Each entry is bound here to the modules that make it, so a store renamed there fails this
+        # test instead of leaving the new directory readable to a native planning shell. Only
+        # autocode_issue names its store as a constant; the others build the path inline, so their
+        # code is read for it.
+        import autocode_issue
+
+        owners = {
+            "archive": ("autocode_worktrees",),  # clean-worktrees keeps a removed task worktree's runs
+            "arena": ("autocode_arena",),
+            "builders": ("autocode_dispatch",),
+            "bundles": ("autocode_bundle",),
+            "issues": ("autocode_issue",),
+            "programs": ("autocode_program",),
+            "pull-reviews": ("autocode_review_pr",),
+            "registry": ("autocode_registry",),
+            "replay": ("autocode_replay_cli", "autocode_replay_checks"),
+            "task-flows": ("autocode_tasks",),
+            "verification": ("autocode_verify_task",),
+            "worktrees": ("autocode_workspaces", "autocode_checkpoint_cli", "autocode_program"),
+        }
+        self.assertEqual(sorted(owners), sorted(containment.PRIVATE_STORES))
+        self.assertEqual(Path(".autocode", "issues"), autocode_issue.STORE)
+        for name, modules in owners.items():
+            for module in modules:
+                with self.subTest(store=name, owner=module):
+                    self.assertIn(
+                        name,
+                        self.autocode_children(module),
+                        f"{module} no longer makes .autocode/{name}: update PRIVATE_STORES and this test",
+                    )
+
+    @staticmethod
+    def pinned_planning_boundary(root):
+        """A planning boundary as prepare() pins it, with no sandbox run.
+
+        prepare()'s layout, a profile rendered for the recorded denial and a conformance proof naming
+        that denial, each pinned by its hash, so verify() passes until the denial changes.
         """
         host = containment.backend()
         run = root / ".autocode/runs/own"
         run.mkdir(parents=True)
         control = root / ".autocode" / ("tool-containment-" + "b" * 32)
-        (control / "scratch").mkdir(parents=True)
+        scratch = control / "scratch"
+        scratch.mkdir(parents=True)
+        reads = containment.private_run_reads(root, run)
+        if host == containment.SEATBELT:
+            profile = containment._render_policy(root, scratch, private_reads=reads).encode()
+        else:
+            arguments, _ = containment.bubblewrap_arguments(root, scratch, private_reads=reads)
+            profile = ("\0".join(arguments) + "\0").encode()
+        proof = {"private_reads": {**reads, "tool": "bash", "exit": 0, "command": "! /bin/cat sentinel"}}
         boundary = {
             "version": 1,
             "backend": host,
             "native_version": containment.SUPPORTED_VERSION,
             "workspace": str(root),
-            "scratch": str(control / "scratch"),
+            "scratch": str(scratch),
             "allow_write": False,
-            "private_reads": containment.private_run_reads(root, run),
+            "private_reads": reads,
         }
-        for name, file in (
-            ("profile", containment.POLICY_FILES[host]),
-            ("shell", "shell"),
-            ("conformance", "conformance.json"),
+        for name, file, data in (
+            ("profile", containment.POLICY_FILES[host], profile),
+            ("shell", "shell", b"#!/bin/sh\n"),
+            ("conformance", "conformance.json", json.dumps(proof).encode()),
         ):
-            (control / file).write_text("{}")
-            boundary[name], boundary[name + "_sha256"] = str(control / file), hashlib.sha256(b"{}").hexdigest()
+            (control / file).write_bytes(data)
+            boundary[name], boundary[name + "_sha256"] = str(control / file), hashlib.sha256(data).hexdigest()
         return boundary
 
     @staticmethod
@@ -421,9 +499,12 @@ class PolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             boundary = self.pinned_planning_boundary(root)
-            # Any other refusal keeps its reason and its explanation.
+            containment.verify(boundary)
+            # Any other refusal keeps its reason and its explanation: here a record without the run
+            # store, which holds this run and so was not made after the boundary was prepared.
+            weakened = {**boundary, "private_reads": {**boundary["private_reads"], "denied": []}}
             with self.assertRaises(util.Paused) as caught:
-                containment.verify(boundary)
+                containment.verify(weakened)
             self.assertEqual("Private run-state read denial changed; no provider launched", str(caught.exception))
             other = stop_explanations.explain("PAUSED_TOOL_CONTAINMENT", stop_reason=str(caught.exception))
             self.assertEqual(stop_explanations.TABLE["PAUSED_TOOL_CONTAINMENT"][0], other["what_it_means"])
@@ -1954,11 +2035,12 @@ class KernelTests(unittest.TestCase):
             {**boundary, "private_reads": containment.private_run_reads(self.workspace, runs / "sibling")},
             {**boundary, "allow_write": True},
         ):
-            with (
-                self.subTest(changed=changed),
-                self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"),
-            ):
-                containment.verify(changed)
+            with self.subTest(changed=changed):
+                with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed") as caught:
+                    containment.verify(changed)
+                # The run store holds this run, so it existed when the boundary was prepared: a record
+                # that leaves it out is weakened, and the refusal does not blame a newly made store.
+                self.assertNotIn("made after", str(caught.exception))
         # Profile bytes that let the shell read this run's state.json, even when pinned again, are refused.
         profile = Path(boundary["profile"])
         original = profile.read_bytes()
@@ -2052,11 +2134,22 @@ class KernelTests(unittest.TestCase):
         # So is a conformance proof without the actual-shell denial.
         proof = Path(boundary["conformance"])
         retained = json.loads(proof.read_text())
-        del retained["private_reads"]
-        proof.write_text(json.dumps(retained))
+        proof.write_text(json.dumps({key: value for key, value in retained.items() if key != "private_reads"}))
         repinned = {**boundary, "conformance_sha256": hashlib.sha256(proof.read_bytes()).hexdigest()}
         with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
             containment.verify(repinned)
+        # A record without the run store is weakened even when the proof is pinned again to match it:
+        # that store holds this run, so it was not made after the boundary was prepared.
+        weakened = {**reads, "denied": []}
+        proof.write_text(json.dumps({**retained, "private_reads": {**retained["private_reads"], **weakened}}))
+        repinned = {
+            **boundary,
+            "private_reads": weakened,
+            "conformance_sha256": hashlib.sha256(proof.read_bytes()).hexdigest(),
+        }
+        with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed") as caught:
+            containment.verify(repinned)
+        self.assertNotIn("made after", str(caught.exception))
 
     def test_native_planning_boundary_verification_requires_each_private_store(self):
         # #1250: each existing private store is its own denial. A profile pinned again without any
@@ -2110,11 +2203,24 @@ class KernelTests(unittest.TestCase):
             (self.workspace / ".autocode" / f"tool-containment-{number:032x}").mkdir()
         self.assertEqual(reads, containment.private_run_reads(self.workspace, self.run_dir))
         containment.verify(boundary)
+        # A record that leaves out a store which existed when the boundary was prepared is weakened:
+        # the conformance proof names that store, so the refusal does not say it was made since.
+        issues = str(self.workspace / ".autocode" / "issues")
+        dropped = {**boundary, "private_reads": {**reads, "denied": [p for p in reads["denied"] if p != issues]}}
+        with self.assertRaises(util.Paused) as caught:
+            containment.verify(dropped)
+        self.assertEqual(
+            ("PAUSED_TOOL_CONTAINMENT", containment.DENIAL_CHANGED), (caught.exception.status, str(caught.exception))
+        )
         # A private store first made after the profile was rendered is not covered by it, so
-        # verify() refuses the launch.
+        # verify() refuses the launch, naming that store and only that one.
         (late / "0123").mkdir(parents=True)
-        with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
+        with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed") as caught:
             containment.verify(boundary)
+        self.assertIn(f"the private .autocode store {late} was made after", str(caught.exception))
+        with self.assertRaises(util.Paused) as caught:
+            containment.verify(dropped)
+        self.assertEqual(containment.DENIAL_CHANGED, str(caught.exception))
         with self.assertRaises(util.Paused) as caught:
             provider_launch.verify_containment({"tool_containment": boundary})
         self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
