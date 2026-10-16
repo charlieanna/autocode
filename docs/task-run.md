@@ -294,9 +294,9 @@ commands and their exit codes, artifact paths and hashes, roles/models and
 attempt durations, reported usage, regression proof and remaining gaps. The report of a build,
 bug-fix or design run (the run's `workflow`, or none for a run saved before workflow
 recognition) also has `approvals`: the status view's `approvals` rows when the report was
-written (who approved each plan and review, edited the plan or resumed a pause, with its
-recorded provenance, never verified), shown in the Markdown as an Approvals table after the
-intended outcome, or as `None recorded` for a run with none
+written (who approved each plan and review, accepted completion, edited the plan or resumed a
+pause, with its recorded provenance, never verified), shown in the Markdown as an Approvals
+table after the intended outcome, or as `None recorded` for a run with none
 ([Who approved](execution.md#who-approved)). Review and discuss reports, which have no approval
 step, have no `approvals` field and no such section, even when the status view lists a resume.
 Neither do verification, program and component reports, nor reports written before AutoCode
@@ -774,11 +774,12 @@ was approved. A coordinating layer such as
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
-`approvals` lists every plan and review approval, goal edit and pause-releasing resume the
-run recorded, oldest first (#722): `kind` (`plan`, `review`, `edit` or `resume`), `at`,
-`actor` (`user_cli` for a person, `workflow_policy` for a small bug fix approved under the
-workflow policy), `contract_token` (the plan token approved, or the draft an edit installed;
-null for a review or a resume), `criterion` (the accepted criterion, null otherwise),
+`approvals` lists every plan and review approval, completion acceptance, goal edit and
+pause-releasing resume the run recorded, oldest first (#722): `kind` (`plan`, `review`,
+`completion` for `--accept-completion`, `edit` or `resume`), `at`, `actor` (`user_cli` for a
+person, `workflow_policy` for a small bug fix approved under the workflow policy),
+`contract_token` (the plan token approved, or the draft an edit installed; null for a review,
+a completion acceptance or a resume), `criterion` (the accepted criterion, null otherwise),
 `pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
 one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
 `git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and

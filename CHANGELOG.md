@@ -71,16 +71,16 @@ PR template asks for an entry here; a change without one is incomplete.
   user.email`, for the run's saved workspace in AutoCode's own environment, is not listed, compared without regard
   to case, before anything is approved: exit 2 (the conversation stops at the same question) with a message naming
   the required and the actual identity, and the run stays at the same stop. An `--as` name never counts. Goal
-  edits, resumes, workflow-policy approvals and `--accept-completion` are not checked. The run saves the list when
-  it starts (`settings.require_approver`), so a changed file never alters a run in progress; the key has no flag,
-  and `autocode doctor` shows it with its source. Without the setting nothing changes. It guards against an
-  approval under the wrong configured Git identity, not against someone who deliberately sets a listed address
-  (Git's environment variables or a repository-local `user.email` change what is checked): it is not
-  authentication. A replay (`autocode replay`, `--replay-recording`) never takes it, `autocode program` and
-  `autocode components` child runs read it from their own worktree (so only a committed file reaches them), and
-  `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task now reads the project
-  settings, all of them, as every other new run does (it read none before), so a project `engine` other than
-  `codex` refuses it, as it already did with a typed task.
+  edits, resumes and workflow-policy approvals are not checked; `--accept-completion` is, since the fifth part
+  below. The run saves the list when it starts (`settings.require_approver`), so a changed file never alters a run
+  in progress; the key has no flag, and `autocode doctor` shows it with its source. Without the setting nothing
+  changes. It guards against an approval under the wrong configured Git identity, not against someone who
+  deliberately sets a listed address (Git's environment variables or a repository-local `user.email` change what is
+  checked): it is not authentication. A replay (`autocode replay`, `--replay-recording`) never takes it,
+  `autocode program` and `autocode components` child runs read it from their own worktree (so only a committed file
+  reaches them), and `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task
+  now reads the project settings, all of them, as every other new run does (it read none before), so a project
+  `engine` other than `codex` refuses it, as it already did with a typed task.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -253,6 +253,15 @@ PR template asks for an entry here; a change without one is incomplete.
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
 
+- Accepting completion records who accepted it, and a required approver covers it (#722, fifth part):
+  `--accept-completion` saves the workspace's Git `user.name` and `user.email`, the host name and the command's
+  option names on the event it records, and takes `--as NAME`. `--status` lists it in `approvals` (kind
+  `completion`), and the completion summary, the evidence report and so the `autocode-issue pr` body show it as
+  "Completion accepted"; a report that lists one says so in its Approvals introduction, and every earlier report
+  renders unchanged. A run started with `require-approver` refuses `--accept-completion` from a Git `user.email`
+  it does not list, as it refuses a plan approval: exit 2, nothing saved, and the run stays at its pause. A
+  completion accepted before this change is listed with no recorded acceptor. `--as NAME` now also goes with
+  `--goal-file`, which already recorded who loaded the plan as a goal edit.
 - A completed run's evidence report, and so the pull request body `autocode-issue pr` builds from `evidence.md`,
   gives the approved plan's goal hash (what `autocode plan --check FILE` prints for a file holding exactly that
   plan). When the approved plan was loaded with `--goal-file`, it also names the file, its goal hash and the plan

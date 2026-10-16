@@ -228,7 +228,7 @@ not approve a plan or start a model.
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
 | `--goal-file PATH` | Load a plan file (`autocode plan --export`, reviewed and edited in a pull request) into a saved run as its next draft revision, as `--edit-goal` loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its text no longer matches its front matter, it still holds text the export masked as credential-shaped, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, `git status` in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it, and the completed run's evidence report (and the PR body built from it) cites the file, its goal hash and the approved plan's. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). It does not start a new run. See [Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request). |
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
-| `--as NAME` | With `--approve-goal`, `--approve-review`, `--edit-goal` or a resume (`--resume-paused`, or `autocode resume` at a pause) on a shared machine: the name of the person approving, editing or resuming, saved beside the Git identity as their claim, never verified ([Who approved](execution.md#who-approved)). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. `--status`, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the `autocode-issue pr` body) list it with the rest of the record. A project's `require-approver` checks the Git identity, never this name ([Required approver](execution.md#required-approver)). |
+| `--as NAME` | With `--approve-goal`, `--approve-review`, `--accept-completion`, `--edit-goal`, `--goal-file` or a resume (`--resume-paused`, or `autocode resume` at a pause) on a shared machine: the name of the person approving, accepting completion, editing or resuming, saved beside the Git identity as their claim, never verified ([Who approved](execution.md#who-approved)). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. `--status`, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the `autocode-issue pr` body) list it with the rest of the record. A project's `require-approver` checks the Git identity, never this name ([Required approver](execution.md#required-approver)). |
 | `--reject-review C1 --review-token '…' --review-note TEXT` | Reject the current reviewed artifact for criterion `C1`, retaining the nonempty note as feedback for a fresh plan and approval. Uses the same artifact freshness checks as approval. |
 | `--investigator-model MODEL`, `--investigator-reasoning-effort LEVEL` | Pin the stuck-stage Investigator's model for this run (default, at high: Claude Opus 5.5 in `kilocode` runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A `provider/model` id runs it through OpenCode. See [Workflow](workflow.md#when-a-stage-stops-making-progress). |
 | `--utility-model MODEL`, `--utility-reasoning-effort LEVEL` | New runs only: run the stages that only classify or reformat (today the Job recognizer, `recognize_workflow`) on a cheaper model. The route keeps the Plan Reviewer's engine, provider and reasoning effort and replaces only the model. Never used for a stage that writes code or judges evidence. Without it every stage keeps its own route. Refused on a saved run. See [Models](models.md#the-utility-route). |
@@ -413,16 +413,17 @@ flag takes; a switch takes `true` or `false`.
 | Approvals (no flag) | `require-approver` |
 
 `require-approver` is the one key with no flag: one plain Git email address, or a list of
-them, allowed to approve the run's plan and reviews, such as `require-approver =
-["lead@example.com", "deputy@example.com"]`. A run started with it refuses a plan approval or
-an artifact acceptance when `git -C WORKSPACE config --get user.email`, for the run's saved
-workspace in AutoCode's own environment, is not listed (compared without regard to case),
-before anything is approved, and stays at the same stop; an `--as` name never counts. Without
-it anyone may approve. No flag sets or overrides it. It guards against an approval under the
-wrong configured Git identity, not against someone who deliberately sets a listed address
-(Git's environment variables or a repository-local `user.email` change what is checked): it
-is not authentication. A replay never takes it, and `autocode program` and `autocode
-components` child runs read it from their own worktree, so only a committed file reaches them
+them, allowed to approve the run's plan and reviews and to accept its completion, such as
+`require-approver = ["lead@example.com", "deputy@example.com"]`. A run started with it refuses
+a plan approval, an artifact acceptance or `--accept-completion` when
+`git -C WORKSPACE config --get user.email`, for the run's saved workspace in AutoCode's own
+environment, is not listed (compared without regard to case), before anything is approved, and
+stays at the same stop; an `--as` name never counts. Without it anyone may approve. No flag
+sets or overrides it. It guards against an approval under the wrong configured Git identity,
+not against someone who deliberately sets a listed address (Git's environment variables or a
+repository-local `user.email` change what is checked): it is not authentication. A replay
+never takes it, and `autocode program` and `autocode components` child runs read it from their
+own worktree, so only a committed file reaches them
 ([Required approver](execution.md#required-approver)).
 
 A flag on the command line wins over the file, and over any file key it cannot be
@@ -475,7 +476,7 @@ sharing, the versioned schema and the two-run behavior.
 | `--bind-dependency PATH`, `--receive-dependency PATH` | Register an authorized prerequisite or receive its verified delivery manifest; neither approves the plan. |
 | `--resolver-message TEXT` | Corrective information accompanying an operational Resolver response. |
 | `--reconcile-review CRITERION=ANSWER` | Bind an authenticated legacy acceptance to current validated evidence without granting a new approval. |
-| `--accept-completion` | Accept completion only after the runner verifies every gate, when the model completion report cannot be produced. |
+| `--accept-completion` | Accept completion only after the runner verifies every gate, when the model completion report cannot be produced. Records who accepted it, as an approval does ([Who approved](execution.md#who-approved)), and a project's `require-approver` checks it ([Required approver](execution.md#required-approver)). |
 | `--evidence-provenance fake\|live\|unknown` | Disclose the run's model-evidence origin; saved with a new run. |
 | `--context-soft-tokens N`, `--rotate-after-input-tokens N` | Context-compaction and checkpointed session-rotation thresholds; `0` disables rotation. |
 | `--tool-output-mode raw\|conservative` | Display mode for AutoCode capture/file-read tools; saved across resume. |

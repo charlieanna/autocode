@@ -361,6 +361,7 @@ APPROVAL_DECISIONS = {
     "review": "Review of {criterion} approved",
     "edit": "Edited plan {contract_token} saved",
     "resume": "Resumed from {pause_status}",
+    "completion": "Completion accepted",
 }
 
 
@@ -390,10 +391,16 @@ def _approval_lines(document):
     them, so an older report's Markdown still renders byte for byte from its JSON, or a review or discussion's."""
     if "approvals" not in document:
         return []
+    # Only a report that lists a completion acceptance names it here: every report written before AutoCode listed
+    # one keeps its sentence, so its Markdown still renders byte for byte from its JSON.
+    accepted = any(row["kind"] == "completion" for row in document["approvals"])
     lines = [
         "## Approvals",
         "",
-        "Who approved the plan and each review, edited the plan or resumed the run from a pause, oldest first.",
+        "Who approved the plan and each review, edited the plan, resumed the run from a pause or accepted its "
+        "completion, oldest first."
+        if accepted
+        else "Who approved the plan and each review, edited the plan or resumed the run from a pause, oldest first.",
         "None of it is verified: the Git identity is what the checkout's Git configuration held, and a name given "
         "with `--as` is the person's own claim.",
         "",

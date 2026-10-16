@@ -61,11 +61,8 @@ and `evidence.md` live in the run directory. They report what AutoCode recorded:
 - each acceptance criterion with its result and evidence
 - for bug fixes, the runner's fail-before/pass-after regression proof
 - the review findings and their status
-- the approved plan's goal hash, and when the plan was loaded with `--goal-file`, that
-  file's path and goal hash and how the approved plan differs from it
-  ([Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request))
-- for a build, bug fix or design, who approved the plan and each review, edited the plan or
-  resumed a pause, with the Git identity, host, command and any `--as` name recorded for each,
+- for a build, bug fix or design, who approved the plan and each review, accepted completion,
+  edited the plan or resumed a pause, with the Git identity, host, command and any `--as` name recorded for each,
   none of it verified ([Who approved](execution.md#who-approved)). A report written before
   AutoCode listed approvals has no such section, and neither does a pull request body built
   from it, until AutoCode saves the completed run again; reading its status does not.
