@@ -103,7 +103,7 @@ class ScopeTests(unittest.TestCase):
         self.assertNotIn("scenarios", self.enabled("tools/fake_codex.py"))
 
     def test_files_the_contained_flow_never_reads_leave_the_linux_job_off(self):
-        # Runtime modules the flow neither imports nor starts by name, the frozen dashboard,
+        # Runtime modules the flow neither imports nor starts by name, the dashboard,
         # the scenario runner, a fixture and a prompt.
         for path in (
             "tools/autocode_doctor.py",

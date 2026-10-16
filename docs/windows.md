@@ -77,8 +77,7 @@ They no longer need `fcntl` to load, but some of their calls still fail on Windo
   child that inherited the descriptor keeps the lock; whether a `msvcrt` lock survives
   that way is unverified. It matters only once providers can run natively (below).
 
-The frozen dashboard (`tools/dashboard/`) still imports `fcntl` in five modules; it
-changes only for bug fixes.
+The dashboard (`tools/dashboard/`) still imports `fcntl` in five modules.
 
 ### Open: needs a decision
 
