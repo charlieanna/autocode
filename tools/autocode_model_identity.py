@@ -17,10 +17,12 @@ def identity(model):
     parts = model.split("/")
     if len(parts) > 2:
         parts = parts[-2:]
-    elif model.startswith("openai/gpt-"):
-        # Native Codex and OpenCode spell the same exact GPT tier differently.
-        parts = parts[-1:]
-    return "/".join(parts).strip().lower()
+    name = "/".join(parts)
+    if name.startswith("openai/gpt-"):
+        # Native Codex and OpenCode spell the same exact GPT tier differently, and a gateway
+        # in front of that login does not make it a different model.
+        name = name.removeprefix("openai/")
+    return name.strip().lower()
 
 
 def family(model):

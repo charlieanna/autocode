@@ -65,6 +65,16 @@ class VerifierIndependenceTests(unittest.TestCase):
         self.assertIsNone(independence.clash(gateway, GLM))
         self.assertIsNone(independence.clash("openai/gpt-6-sol", "openai/gpt-6-luna"))
         self.assertFalse(independence.shares("custom/gpt-6-sol", "gpt-6-sol"))
+        # A gateway in front of the OpenAI login is that GPT tier, in either spelling.
+        routed = "kilo/openai/gpt-6-sol"
+        self.assertEqual(f"identical model {routed}", independence.clash(routed, "openai/gpt-6-sol"))
+        self.assertTrue(independence.shares(routed, "gpt-6-sol"))
+        self.assertFalse(independence.shares(routed, "openai/gpt-6-luna"))
+        # The Kilo Gateway's MiMo route and the Xiaomi Token Plan's are one family, not one spelling.
+        self.assertEqual(
+            f"same family mimo (kilo/xiaomi/mimo-v2.6-pro / {MIMO})",
+            independence.clash("kilo/xiaomi/mimo-v2.6-pro", MIMO),
+        )
 
 
 if __name__ == "__main__":
