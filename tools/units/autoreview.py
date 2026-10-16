@@ -3,6 +3,8 @@ workflow's Reviewer stage (autocode_review_job), the design workflow's
 Architect stage (autocode_design_job) and a spec-first run's acceptance tests
 (autocode_acceptance_tests_job)."""
 
+from __future__ import annotations
+
 try:
     from .. import autocode_prompts as prompts
 except ImportError:
@@ -12,6 +14,10 @@ except ImportError:
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from ..autocode_run_state import RunState
 
 try:
     from .. import autocode_acceptance_tests_job as acceptance_tests_job
@@ -67,7 +73,7 @@ def architect_route(roles):
     return capped_route(roles.get("plan_reviewer") or roles["astra"], ARCHITECT_MAX_EFFORT)
 
 
-def verification_commands(state):
+def verification_commands(state: RunState):
     """The same approved command set shown to the Validator and independently replayed."""
     try:
         from .. import autocode_progressive_state as progressive_state
@@ -78,7 +84,7 @@ def verification_commands(state):
     return plan.approved_commands(state, progressive_context=progressive_state.context(state))
 
 
-def prepare(state, stage, state_path, schema_dir):
+def prepare(state: RunState, stage, state_path, schema_dir):
     if stage == design_intake.STAGE:
         state["phase"] = "DISCOVERING"
         role = next(name for name in ("requirements", "glm", "astra") if name in state["settings"]["roles"])
@@ -177,7 +183,7 @@ def prepare(state, stage, state_path, schema_dir):
             prompt=prompt,
             metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4},
         )
-    if stage == "sol" and state.get("current_task", {}).get("milestone_ids"):
+    if stage == "sol" and cast(dict, state.get("current_task", {})).get("milestone_ids"):
         request.schema["properties"]["milestone_results"] = {
             "type": "array",
             "items": goals.obj(
@@ -193,7 +199,7 @@ def prepare(state, stage, state_path, schema_dir):
     return request
 
 
-def job_request(state, job, role, route):
+def job_request(state: RunState, job, role, route):
     prompt, metrics = job.prompt(
         state,
         autoplanner.workspace_inventory(state["workspace"], state["task"]),
@@ -205,7 +211,7 @@ def job_request(state, job, role, route):
     return ModelRequest(role, route, prompt, metrics, schema, True)
 
 
-def apply_job(stage, state, value, record, workspace, *, run_dir=None):
+def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None):
     """Autopilot hands a job stage's validated report here; the job decides how the run continues."""
     evidence_dir = Path(record.get("output") or workspace).parent
     if stage == design_intake.STAGE:
@@ -255,7 +261,7 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
     )
 
 
-def send_back_plan(state, body, changes, record):
+def send_back_plan(state: RunState, body, changes, record):
     """A spec-first case the runner saw already pass goes back to plan review relabelled guard: (#1200).
 
     The runner builds the draft (no model writes its wording); the Plan Reviewer reviews it and the user
@@ -270,7 +276,7 @@ def send_back_plan(state, body, changes, record):
     autoplanner.start(state)
 
 
-def completion_review(state, snapshot):
+def completion_review(state: RunState, snapshot):
     """The Completion Owner said CONTINUE although everything it must check already passes.
 
     The first time for this artifact it is sent back once with SEND_BACK_NOTE (it

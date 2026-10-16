@@ -12,7 +12,8 @@ model or authorizes another attempt, and neither leaves a question open. One con
 
 The request's advice, the response's acknowledgement and stop reason, AutoResolver's evaluation of the
 information (autocode_operational_information), the status view's needs.action and the recovery card all name
-it. A plain resume holds there. Reads saved state; imports only autocode_quota_route.
+it. A plain resume holds there. Reads saved state; at runtime imports only autocode_quota_route and
+autocode_run_status. RunState is imported for type checking only.
 
 When the control asks a refused member's question again, ``ask_again`` (called by autocode_run_actions)
 appends a ``builder_route_question`` user event (actor, at, milestone_id), its only write. Nothing reads it but
@@ -21,6 +22,11 @@ answered.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_quota_route as quota_route
@@ -34,7 +40,7 @@ def _dict(value):
     return value if isinstance(value, dict) else {}
 
 
-def current(state, origin):
+def current(state: RunState, origin):
     """(row, worker) for the stopped member of this exact BUILDING batch that ``origin`` names, or None."""
     worker = _dict(_dict(origin).get("quota_worker"))
     batch = _dict(state.get("orchestration_batch"))
@@ -53,7 +59,7 @@ def current(state, origin):
     return None
 
 
-def _answered_proposal(state):
+def _answered_proposal(state: RunState):
     resolver = _dict(state.get("resolver"))
     frontier = _dict(resolver.get("human_response_frontier"))
     rid = frontier.get("request_id")
@@ -61,7 +67,7 @@ def _answered_proposal(state):
     return frontier, entry, _dict(_dict(entry.get("identity")).get("proposal"))
 
 
-def answered(state):
+def answered(state: RunState):
     """(row, worker) for the member whose model-stop request a person answered, while no question is open.
 
     The answered request is the one autocode_resolver_human saved as the response frontier; the run is
@@ -82,7 +88,7 @@ def answered(state):
     return current(state, origin)
 
 
-def action(state):
+def action(state: RunState):
     """The one command that continues from an answered member's model stop, or None."""
     found = answered(state)
     return f"--resume-paused --retry-builder {found[0]['milestone_id']}" if found else None
@@ -109,7 +115,7 @@ def reason(found):
     )
 
 
-def next_step(state):
+def next_step(state: RunState):
     """One sentence naming the command that continues from an answered member's model stop, or None."""
     found = answered(state)
     if not found:
@@ -142,7 +148,7 @@ def advice(worker):
     )
 
 
-def card(state, milestone):
+def card(state: RunState, milestone):
     """(label, effect) of the recovery card's action for an answered member's model stop, or None."""
     found = answered(state)
     if not found or found[0]["milestone_id"] != milestone:
@@ -164,7 +170,7 @@ def card(state, milestone):
     )
 
 
-def ask_again(state, error, *, at):
+def ask_again(state: RunState, error, *, at):
     """Set the run at a refused member's stop that its --retry-builder collected again (``error``).
 
     The person's request is the event that makes the request AutoResolver asks next new.
@@ -180,7 +186,7 @@ def ask_again(state, error, *, at):
     run_status.pause(state, error.status, str(error))
 
 
-def restore(state, error, *, detail=True):
+def restore(state: RunState, error, *, detail=True):
     """``error`` as the answered member's own stop, so AutoResolver asks its route-terra question again.
 
     Its reason is the stop the request first reported, followed by ``error``'s own reason when

@@ -312,6 +312,13 @@ PR template asks for an entry here; a change without one is incomplete.
   (`autocode_replay_checks`), the risk obligations (`autocode_risk_obligations`) and the parallel Builder quota
   handoff (`autocode_worker_quota`) take the typed `RunState`, so the untyped-`state` ratchet drops from 545 to 451
   and mypy checks those 94 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The recovery allowance limits (`autocode_recovery_limits`), a parallel Builder member's model stop
+  (`autocode_member_stop`), Builder failure classification (`autocode_builder_failure`), the CLI's saved-run actions
+  (`autocode_run_actions`), the progress view (`autocode_progress_view`), design coverage (`autocode_design_coverage`),
+  the controller owner (`autocode_controller_owner`), bug-investigation questions (`autocode_bug_questions`), the
+  AutoReview unit (`units/autoreview`), the completion gate (`autocode_completion`) and checkpoint restore
+  (`autocode_checkpoint_cli`) take the typed `RunState`, so the untyped-`state` ratchet drops from 451 to 374 and mypy
+  checks those 77 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 

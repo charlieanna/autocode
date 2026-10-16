@@ -13,6 +13,10 @@ except ImportError:
 
 import copy
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_design_manifest as manifest
@@ -39,7 +43,7 @@ RESULT = manifest.obj(
 )
 
 
-def extend_schema(schema, state, stage):
+def extend_schema(schema, state: RunState, stage):
     record = state.get("settings", {}).get("design_manifest")
     if not visual.reference_hash(state.get("settings", {})) or stage not in ("sol", "astra_checkpoint"):
         return schema
@@ -67,7 +71,7 @@ def extend_schema(schema, state, stage):
     return schema
 
 
-def report_refs(state, report, *, stage=None):
+def report_refs(state: RunState, report, *, stage=None):
     """Pin design evidence from a report. Non-design stages may omit it.
 
     Independent sol/checkpoint reports must account for every case (enforced at
@@ -147,14 +151,14 @@ def report_refs(state, report, *, stage=None):
     return list(dict.fromkeys(refs))
 
 
-def gaps(state):
+def gaps(state: RunState):
     """Saved coverage only; status does not claim current visual acceptance."""
     if not state.get("settings", {}).get("design_manifest"):
         return []
     return _gaps(state, reusable_results(state))
 
 
-def _gaps(state, reusable):
+def _gaps(state: RunState, reusable):
     record = state.get("settings", {}).get("design_manifest")
     if not record:
         return []
@@ -167,7 +171,7 @@ def _gaps(state, reusable):
     return [case["id"] for case in record["body"]["cases"] if case["id"] not in passed]
 
 
-def reusable_results(state):
+def reusable_results(state: RunState):
     if not state.get("design_input_changes"):
         return []
     record = (state.get("settings") or {}).get("design_manifest") or {}
@@ -198,7 +202,7 @@ def reusable_results(state):
     return list(rows.values())
 
 
-def ready(state):
+def ready(state: RunState):
     if not visual.reference_hash(state.get("settings", {})):
         return True
     try:
@@ -212,7 +216,7 @@ def ready(state):
         return False
 
 
-def projection(state):
+def projection(state: RunState):
     record = state.get("settings", {}).get("design_manifest")
     if not record:
         intake = state.get("design_intake")

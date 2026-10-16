@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -98,7 +98,7 @@ UNSETTLED = (
 )
 
 
-def held_request(state, stage) -> dict:
+def held_request(state: RunState, stage) -> dict:
     """The request a recovery dispatch of ``stage`` is admitted against: the Resolver's or the
     diagnosis request, or the repair plan or direct assignment that owns the current task."""
     if stage == "astra_resolve":
@@ -120,14 +120,14 @@ def held_request(state, stage) -> dict:
     return {}
 
 
-def scoped_retry(state) -> str | None:
+def scoped_retry(state: RunState) -> str | None:
     """``SCOPED_RETRY`` while a novelty hold on the next stage waits for one, with nothing to reconcile first."""
     if not held_request(state, state.get("next_stage")).get("novelty_hold"):
         return None
     return None if any(state.get(key) for key in UNSETTLED) else SCOPED_RETRY
 
 
-def _no_progress_reasons(state, cause):
+def _no_progress_reasons(state: RunState, cause):
     """Texts that may give the runner's reason for a PAUSED_NO_PROGRESS hold, newest first."""
     yield cause
     yield state.get("stop_reason")
@@ -147,12 +147,12 @@ def _no_progress_reasons(state, cause):
         yield (proposal.get("request") or {}).get("discovered")
 
 
-def _no_progress_count_and_limit(state):
+def _no_progress_count_and_limit(state: RunState):
     limit = ((state.get("settings") or {}).get("limits") or {}).get("no_progress_batches", 3)
     return state.get("no_progress_batches", 0), limit
 
 
-def no_progress_bound_holds(state, cause=None) -> bool:
+def no_progress_bound_holds(state: RunState, cause=None) -> bool:
     """True when the unchanged-batch limit, not another hold, paused this run as PAUSED_NO_PROGRESS.
 
     Other holds share the status (a recovery novelty hold, owned workers to reconcile) and name their
@@ -170,14 +170,14 @@ def no_progress_bound_holds(state, cause=None) -> bool:
     return False
 
 
-def no_progress_advice(state) -> str:
+def no_progress_advice(state: RunState) -> str:
     """The command that acknowledges a pause no_progress_bound_holds attributes to the limit."""
     count, limit = _no_progress_count_and_limit(state)
     saved = NO_PROGRESS_SAVED.format(limit=limit) if limit > 0 and count < limit else ""
     return NO_PROGRESS_ADVICE.format(count=count, saved=saved)
 
 
-def advice(*, allow_grant, pause_status=None, attempt=None, state=None, cause=None):
+def advice(*, allow_grant, pause_status=None, attempt=None, state: RunState | None = None, cause=None):
     """The recovery-exhaustion next step. Never names a command the CLI will refuse.
 
     A PAUSED_NO_PROGRESS stop names its bound only with ``state`` whose limit caused it
@@ -186,7 +186,7 @@ def advice(*, allow_grant, pause_status=None, attempt=None, state=None, cause=No
     if allow_grant:
         return GRANT_ADVICE
     if pause_status == "PAUSED_NO_PROGRESS" and no_progress_bound_holds(state or {}, cause):
-        text = no_progress_advice(state)
+        text = no_progress_advice(cast("RunState", state))
         return text if not attempt else f"{text} {abandon_advice(attempt)}"
     if pause_status in BOUND_ADVICE:
         text = BOUND_ADVICE[pause_status]
@@ -197,7 +197,7 @@ def advice(*, allow_grant, pause_status=None, attempt=None, state=None, cause=No
     return INFORM_ADVICE
 
 
-def stop_reason(state, count, maximum, *, allow_grant=True):
+def stop_reason(state: RunState, count, maximum, *, allow_grant=True):
     context = state.get("recovery_context") or {}
     if (
         context.get("denied_operation")
