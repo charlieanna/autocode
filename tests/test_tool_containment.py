@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -75,16 +76,24 @@ class PolicyTests(unittest.TestCase):
             (runs / "own/planning").mkdir(parents=True)
             scratch.mkdir(parents=True)
             reads = containment.private_run_reads(root, runs / "own")
+            stores = [str(root / ".autocode" / name) for name in containment.PRIVATE_STORES]
             self.assertEqual(
-                {"run_dir": str(runs / "own"), "denied": [str(runs)], "readable": [str(runs / "own/planning")]}, reads
+                {
+                    "run_dir": str(runs / "own"),
+                    "denied": [str(runs), *stores],
+                    "readable": [str(runs / "own/planning")],
+                },
+                reads,
             )
             rule = (
                 f'(deny file-read* (require-all (subpath "{runs}") (require-not (subpath "{runs / "own/planning"}"))))'
             )
+            others = [f'(deny file-read* (require-all (subpath "{store}")))' for store in stores]
             ordinary = containment._render_policy(root, scratch).splitlines()
             profile = containment._render_policy(root, scratch, private_reads=reads)
-            # The same profile with one more denial, after every read allowance (the last match wins).
-            self.assertEqual([*ordinary[:-1], rule, ordinary[-1]], profile.splitlines())
+            # The same profile with one more denial per private area, after every read allowance
+            # (the last match wins).
+            self.assertEqual([*ordinary[:-1], rule, *others, ordinary[-1]], profile.splitlines())
             self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, profile.encode(), reads))
             self.assertFalse(
                 containment._enforces_private_reads(containment.SEATBELT, "\n".join(ordinary).encode(), reads)
@@ -226,6 +235,84 @@ class PolicyTests(unittest.TestCase):
             ):
                 with self.subTest(run=run), self.assertRaises(ValueError):
                     containment.private_run_reads(root, run)
+
+    def test_planning_profile_denies_each_other_private_area_and_its_recheck_requires_each(self):
+        # #1250: besides the run store, a planning shell reads no private store (parallel Builder
+        # workspaces, programs, task flows, task worktrees, archived runs, bundles, the registry,
+        # replay recordings) and no other launch's control directory. Each is its own denial rule,
+        # and the re-check refuses a profile without any one of them.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            private, runs = root / ".autocode", root / ".autocode/runs"
+            (runs / "own/planning").mkdir(parents=True)
+            own = private / ("tool-containment-" + "a" * 32)
+            (own / "scratch").mkdir(parents=True)
+            launches = [private / ("tool-containment-" + digit * 32) for digit in "07"]
+            for path in launches:
+                path.mkdir()
+            (private / "builders").mkdir()  # A store is denied whether or not it exists yet.
+            # This launch's needs and the areas outside the denial: retained design inputs, capture
+            # bundles, the shared evidence area, project settings and a name that is not a launch's.
+            needed = [own, own / "scratch", runs / "own/planning"]
+            for name in ("design-inputs-planning-v2", "captures", "evidence", "tool-containment-fixture"):
+                (private / name).mkdir()
+                needed.append(private / name)
+            (private / "config.toml").write_text("")
+            needed.append(private / "config.toml")
+            reads = containment.private_run_reads(root, runs / "own", control=own)
+            stores = [private / name for name in containment.PRIVATE_STORES]
+            self.assertEqual(
+                ["archive", "builders", "bundles", "programs", "registry", "replay", "task-flows", "worktrees"],
+                [path.name for path in stores],
+            )
+            self.assertEqual([str(path) for path in (runs, *stores, *launches)], reads["denied"])
+            self.assertEqual([str(runs / "own/planning")], reads["readable"])
+            for path in needed:
+                with self.subTest(readable=path.name):
+                    denied = [d for d in reads["denied"] if path.is_relative_to(d)]
+                    self.assertTrue(not denied or any(path.is_relative_to(r) for r in reads["readable"]), denied)
+            # Without its own control directory named, a launch's own would be denied like another's.
+            self.assertIn(str(own), containment.private_run_reads(root, runs / "own")["denied"])
+            profile = containment._render_policy(root, own / "scratch", private_reads=reads)
+            rules = containment._private_read_rules(reads)
+            self.assertEqual(len(reads["denied"]), len(rules))
+            self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, profile.encode(), reads))
+            for path, rule in zip([*stores, *launches], rules[1:], strict=True):
+                with self.subTest(denied=path.name):
+                    self.assertEqual(f'(deny file-read* (require-all (subpath "{path}")))', rule)
+                    self.assertIn("\n" + rule + "\n", profile)
+                    self.assertFalse(
+                        containment._enforces_private_reads(
+                            containment.SEATBELT, profile.replace(rule + "\n", "").encode(), reads
+                        )
+                    )
+                    # Before a later allowance it is no longer the last match, so it is refused too.
+                    allow = f'(allow file-read* (subpath "{path}"))\n'
+                    self.assertFalse(
+                        containment._enforces_private_reads(containment.SEATBELT, (profile + allow).encode(), reads)
+                    )
+                    # A write grant over it lets the shell move its contents to a readable path.
+                    write = f'(version 1) (allow file-write* (subpath "{path}"))\n'
+                    self.assertFalse(
+                        containment._enforces_private_reads(
+                            containment.SEATBELT, profile.replace("(version 1)\n", write, 1).encode(), reads
+                        )
+                    )
+        # A private area that is a symlink or a file, or a symlink named as a launch, is refused:
+        # bubblewrap could not hide it under a tmpfs.
+        for name in ("a store that is a symlink", "a store that is a file", "a launch that is a symlink"):
+            with self.subTest(refused=name), tempfile.TemporaryDirectory() as directory:
+                private = Path(directory).resolve() / ".autocode"
+                (private / "runs/own").mkdir(parents=True)
+                (private / "elsewhere").mkdir()
+                if name == "a store that is a symlink":
+                    (private / "programs").symlink_to(private / "elsewhere", target_is_directory=True)
+                elif name == "a store that is a file":
+                    (private / "worktrees").write_text("")
+                else:
+                    (private / ("tool-containment-" + "9" * 32)).symlink_to(private / "elsewhere")
+                with self.assertRaises(ValueError):
+                    containment.private_run_reads(private.parent, private / "runs/own")
 
     def test_unsupported_platform_is_explicit_prelaunch_failure(self):
         for name in ("linux", "freebsd"):
@@ -454,7 +541,9 @@ class BubblewrapArgumentTests(unittest.TestCase):
         self.assertLess(hidden, shown)
         self.assertLess(shown, masked)
         self.assertNotIn(str(runs / "sibling/.env"), arguments)  # Masking it would create its name in the tmpfs.
-        self.assertEqual(["--remount-ro", str(runs), "--remount-ro", "/"], arguments[-4:])
+        # Each private area is sealed in turn (the run store first), then the root.
+        seals = [value for path in reads["denied"] for value in ("--remount-ro", path)]
+        self.assertEqual([*seals, "--remount-ro", "/"], arguments[-len(seals) - 2 :])
         self.assertEqual([str(self.scratch)], [target for flag, _, target in mounts if flag == "--bind"])
         self.assertIn(("--ro-bind", str(self.root), str(self.root)), mounts)
         self.assertEqual([], watched)
@@ -528,11 +617,12 @@ class BubblewrapArgumentTests(unittest.TestCase):
                         enforced, containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(bound), reads)
                     )
         # The tmpfs stays, but it is not sealed read-only after it: the seal requirement alone refuses it.
-        seal = ["--remount-ro", str(runs)]
-        self.assertEqual(seal, arguments[-4:-2])
+        seal, first = ["--remount-ro", str(runs)], len(arguments) - len(seals) - 2
+        self.assertEqual(seal, arguments[first : first + 2])
+        without = [*arguments[:first], *arguments[first + 2 :]]
         for name, unsealed in {
-            "the seal dropped": [*arguments[:-4], *arguments[-2:]],
-            "the seal moved before the tmpfs": [*arguments[:hidden], *seal, *arguments[hidden:-4], *arguments[-2:]],
+            "the seal dropped": without,
+            "the seal moved before the tmpfs": [*without[:hidden], *seal, *without[hidden:]],
         }.items():
             with self.subTest(name=name):
                 self.assertEqual(["--tmpfs", str(runs)], unsealed[unsealed.index("--tmpfs") :][:2])
@@ -546,6 +636,56 @@ class BubblewrapArgumentTests(unittest.TestCase):
         self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(writable_ws), reads))
         with self.assertRaisesRegex(ValueError, "read-only shell"):
             containment.bubblewrap_arguments(self.root, self.scratch, allow_write=True, private_reads=reads)
+
+    def test_planning_reader_hides_each_other_private_area_and_its_recheck_requires_each(self):
+        # #1250: each private store and each other launch's control directory is its own sealed
+        # tmpfs, like the run store; this launch's scratch stays its only writable mount.
+        private, own = self.root / ".autocode", self.root / ".autocode/runs/own"
+        (own / "planning").mkdir(parents=True)
+        stores = [private / name for name in containment.PRIVATE_STORES]
+        for path in stores:
+            path.mkdir()
+        (private / "builders/batch/1").mkdir(parents=True)
+        (private / "builders/batch/1/.env").write_text("WORKER=secret\n")
+        launches = [private / ("tool-containment-" + digit * 32) for digit in "07"]
+        for path in launches:
+            (path / "scratch").mkdir(parents=True)
+        (private / "captures").mkdir()
+        reads = containment.private_run_reads(self.root, own, control=self.scratch.parent)
+        self.assertEqual([str(path) for path in (private / "runs", *stores, *launches)], reads["denied"])
+        arguments, mounts, watched = self.mounts(private_reads=reads)
+
+        def encoded(values):
+            return b"".join(os.fsencode(value) + b"\0" for value in values)
+
+        def at(flag, path):
+            return [i for i, value in enumerate(arguments) if value == flag and arguments[i + 1] == str(path)]
+
+        self.assertTrue(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(arguments), reads))
+        self.assertEqual([str(self.scratch)], [target for flag, _, target in mounts if flag == "--bind"])
+        self.assertNotIn(str(private / "builders/batch/1/.env"), arguments)  # Not masked inside a tmpfs.
+        self.assertEqual([], watched)
+        for path in (self.scratch.parent, private / "captures", own / "planning"):
+            self.assertEqual([], at("--tmpfs", path))
+        for path in [*stores, *launches]:
+            with self.subTest(denied=path.name):
+                (hidden,), (sealed,) = at("--tmpfs", path), at("--remount-ro", path)
+                self.assertLess(hidden, sealed)
+                # Without its tmpfs and seal, or with only the seal dropped, the re-check refuses it.
+                unhidden = [
+                    value for i, value in enumerate(arguments) if i not in (hidden, hidden + 1, sealed, sealed + 1)
+                ]
+                unsealed = [value for i, value in enumerate(arguments) if i not in (sealed, sealed + 1)]
+                for changed in (unhidden, unsealed):
+                    self.assertFalse(
+                        containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(changed), reads)
+                    )
+                # A bind that shows it again elsewhere, or covers it after the tmpfs, is refused too.
+                for bind in (["--ro-bind", str(path), str(self.scratch / "peek")], ["--ro-bind", str(path), str(path)]):
+                    tampered = [*arguments[:-2], *bind, *arguments[-2:]]
+                    self.assertFalse(
+                        containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(tampered), reads)
+                    )
 
     def test_directories_holding_a_nested_protected_path_are_bound_onto_themselves(self):
         nested = self.root / "vendor/autocode/tools"
@@ -852,24 +992,39 @@ class KernelReceiptTests(unittest.TestCase):
         self.assertFalse((self.control / "conformance.json").exists())
 
     def private_run(self):
-        """A planning run whose prepared boundary carries the private-read denial (#1250), and its sentinel."""
+        """A planning run whose prepared boundary carries the private-read denial (#1250), and its sentinels.
+
+        The first is in the run's own directory, then one in each private store (prepare() makes
+        each store). Another launch's control directory is denied too, but holds no sentinel.
+        """
         run = self.workspace / ".autocode/runs/own"
         (run / "planning").mkdir(parents=True)
         (run / "state.json").write_text('{"private":"own run state"}\n')
-        self.boundary["private_reads"] = containment.private_run_reads(self.workspace, run)
-        return run, run / (self.control.name + "-private-read-sentinel")
+        stores = [self.workspace / ".autocode" / name for name in containment.PRIVATE_STORES]
+        for store in stores:
+            store.mkdir()
+        self.other = self.workspace / ".autocode" / ("tool-containment-" + "0" * 32)
+        self.other.mkdir()
+        self.boundary["private_reads"] = containment.private_run_reads(self.workspace, run, control=self.control)
+        name = self.control.name + "-private-read-sentinel"
+        return run, [place / name for place in (run, *stores)]
 
     def test_private_read_probe_reads_a_sentinel_in_this_runs_own_directory(self):
-        run, sentinel = self.private_run()
+        run, sentinels = self.private_run()
         seen = []
 
         def observe(params, response):
-            seen.append(sentinel.read_text())  # It exists while the actual bash is asked to read it.
+            seen.append([path.read_text() for path in sentinels])  # Each exists while the bash is asked to read it.
             return response
 
         self.configure(request={"private_run": str(run)}, private=observe)
         planning = str(run / "planning")
-        command = "! /bin/cat " + shlex.quote(str(sentinel)) + " && /bin/ls " + shlex.quote(planning) + " > /dev/null"
+        command = (
+            " && ".join("! /bin/cat " + shlex.quote(str(path)) for path in sentinels)
+            + " && /bin/ls "
+            + shlex.quote(planning)
+            + " > /dev/null"
+        )
         self.assertEqual(
             {
                 **self.boundary["private_reads"],
@@ -881,44 +1036,72 @@ class KernelReceiptTests(unittest.TestCase):
             },
             json.loads((self.control / "conformance.json").read_text())["private_reads"],
         )
-        self.assertRegex(seen[0], r"^[0-9a-f]{32}\n$")
-        self.assertFalse(sentinel.exists())
+        self.assertRegex(seen[0][0], r"^[0-9a-f]{32}\n$")
+        self.assertEqual([seen[0][0]] * len(sentinels), seen[0])
+        self.assertEqual(
+            [str(path.parent) for path in sentinels[1:]],
+            [
+                path
+                for path in self.boundary["private_reads"]["denied"]
+                if Path(path).name in containment.PRIVATE_STORES
+            ],
+        )
+        # Another launch's control directory is denied, but this launch writes nothing in it.
+        self.assertIn(str(self.other), self.boundary["private_reads"]["denied"])
+        self.assertNotIn(str(self.other), command)
+        self.assertEqual([], list(self.other.iterdir()))
+        self.assertEqual([False] * len(sentinels), [path.exists() for path in sentinels])
 
     def test_private_read_probe_refuses_any_sign_that_the_bash_read_run_state(self):
         real_run = subprocess.run  # configure() patches subprocess.run.
 
-        def uncontained(params, sentinel):
+        def uncontained(params, sentinels):
             ran = real_run(["/bin/sh", "-c", params["command"]], capture_output=True, text=True, timeout=10)
             return ran.returncode, ran.stdout + ran.stderr
 
-        def rewritten(params, sentinel):
-            sentinel.write_text("changed\n")
-            return 0, "Permission denied"
+        def rewritten(index):
+            def answer(params, sentinels):
+                sentinels[index].write_text("changed\n")
+                return 0, "Permission denied"
+
+            return answer
 
         cases = {
             "an uncontained shell reads it": uncontained,
-            "the token appears beside a denial": lambda params, sentinel: (
+            "the token appears beside a denial": lambda params, sentinels: (
                 0,
-                "Permission denied\n" + sentinel.read_text(),
+                "Permission denied\n" + sentinels[0].read_text(),
             ),
-            "no denial is reported": lambda params, sentinel: (0, ""),
-            "the denial does not exit 0": lambda params, sentinel: (1, "Permission denied"),
-            "the sentinel is changed": rewritten,
+            "no denial is reported": lambda params, sentinels: (0, ""),
+            "the denial does not exit 0": lambda params, sentinels: (1, "Permission denied"),
+            "the sentinel is changed": rewritten(0),
+            # Each store's sentinel is checked as well as the run's own.
+            **{
+                f"the {name} sentinel is changed": rewritten(i + 1) for i, name in enumerate(containment.PRIVATE_STORES)
+            },
         }
         for name, answer in cases.items():
             with self.subTest(name=name):
                 self.setUp()
-                run, sentinel = self.private_run()
+                run, sentinels = self.private_run()
 
-                def private(params, response, answer=answer, sentinel=sentinel):
-                    exit, output = answer(params, sentinel)
+                def private(params, response, answer=answer, sentinels=sentinels):
+                    exit, output = answer(params, sentinels)
                     return {**response, "result": {"metadata": {"exit": exit}, "output": output}}
 
                 with self.assertRaisesRegex(RuntimeError, "did not deny reading private run state"):
                     self.configure(request={"private_run": str(run)}, private=private)
-                self.assertFalse(sentinel.exists())
+                self.assertEqual([False] * len(sentinels), [path.exists() for path in sentinels])
                 self.assertEqual(0, self.verification_calls)
                 self.assertFalse((self.control / "conformance.json").exists())
+        # A private store removed since prepare() made it refuses before any probe is asked.
+        self.setUp()
+        run, sentinels = self.private_run()
+        sentinels[-1].parent.rmdir()
+        with self.assertRaisesRegex(RuntimeError, "private store for the read-denial sentinel is missing"):
+            self.configure(request={"private_run": str(run)}, private=lambda params, response: self.fail(params))
+        self.assertEqual([False] * len(sentinels), [path.exists() for path in sentinels])
+        self.assertFalse((self.control / "conformance.json").exists())
 
 
 class AvailabilityTests(unittest.TestCase):
@@ -1321,6 +1504,52 @@ class KernelTests(unittest.TestCase):
                 subprocess.run([*git, *args], check=True)
         return runs, private, artifact
 
+    def private_areas(self):
+        """Private files in the other private .autocode areas, and the .autocode files a planner needs (#1250).
+
+        The private ones: a parallel Builder workspace's run, an archived task-worktree run, a run
+        bundle, a program's state, the run registry, a replay recording, a task flow's state, a task
+        worktree's run, and evidence in setUp's launch's scratch (another launch's control directory).
+        The needed ones stay readable: a retained planning design input, a capture bundle and project
+        settings.
+        """
+        private = self.workspace / ".autocode"
+        areas = {
+            private / "builders/0a1b/1/.autocode/runs/builder-0a1b-1/state.json": '{"private":"builder run"}\n',
+            private / "archive/task-old/runs/20261001-old/state.json": '{"private":"archived run"}\n',
+            private / "bundles/20261002-done.tar.gz": '{"private":"bundled run"}\n',
+            private / "programs/key/state.json": '{"private":"program state"}\n',
+            private / "registry/registry.json": '{"private":"run registry"}\n',
+            private / "replay/recording/recording.json": '{"private":"replay recording"}\n',
+            private / "task-flows/key/state.json": '{"private":"task flow state"}\n',
+            private / "worktrees/task-1/.autocode/runs/20261003-other/state.json": '{"private":"worktree run"}\n',
+            Path(self.boundary["scratch"]) / "evidence.json": '{"private":"other launch evidence"}\n',
+        }
+        needed = {
+            private / "design-inputs-planning-v2/abc/inventory-manifest.json": '{"design":"retained input"}\n',
+            private / "captures/20261004-capture/manifest.json": '{"capture":"bundle"}\n',
+            private / "config.toml": 'note = "project settings"\n',
+        }
+        for path, text in {**areas, **needed}.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return areas, needed
+
+    @staticmethod
+    def without_denial(original, reads, denied):
+        """Profile bytes without one private-read denial: its Seatbelt rule, or its bwrap tmpfs and seal."""
+        if NATIVE == containment.SEATBELT:
+            rule = containment._private_read_rules(reads)[reads["denied"].index(denied)]
+            return original.replace(rule.encode() + b"\n", b"")
+        values = original.split(b"\0")[:-1]
+        drop = {
+            i + offset
+            for i, value in enumerate(values[:-1])
+            if value in (b"--tmpfs", b"--remount-ro") and values[i + 1] == os.fsencode(denied)
+            for offset in (0, 1)
+        }
+        return b"".join(value + b"\0" for i, value in enumerate(values) if i not in drop)
+
     def native_planning_boundary(self):
         """configure() for the request a native-isolated planning launch makes (#1250).
 
@@ -1417,10 +1646,17 @@ class KernelTests(unittest.TestCase):
         return boundary
 
     def test_native_planning_shell_cannot_read_private_run_state(self):
-        # #1250: own, sibling and custom-named runs' state is unreadable through every route tried;
-        # source, the verification copy and this run's planning/ artifacts stay readable.
+        # #1250: own, sibling and custom-named runs' state is unreadable through every route tried,
+        # and so is every other private .autocode area (parallel Builder workspaces, programs, task
+        # flows, task worktrees, archived and bundled runs, the registry, replay recordings and other
+        # launches' control directories); source, the verification copy, this run's planning/
+        # artifacts, this launch's own control directory and the .autocode files a planner is handed
+        # stay readable.
         runs, private, artifact = self.planning_run_store()
-        before = {path: path.read_bytes() for path in [*private, artifact]}
+        areas, needed = self.private_areas()
+        private = {**private, **areas}
+        before = {path: path.read_bytes() for path in [*private, *needed, artifact]}
+        other_launch = Path(self.boundary["profile"]).parent
         boundary = self.native_planning_boundary()
         scratch = Path(boundary["scratch"])
         for number, path in enumerate(private):
@@ -1440,6 +1676,23 @@ class KernelTests(unittest.TestCase):
         listing = self.run_shell("ls -aR .autocode/runs; grep -rh private .autocode/runs", boundary)
         for name in ("20261014-sibling-run", "custom-name", "state.json", "events.jsonl", '"private"'):
             self.assertNotIn(name, listing.stdout + listing.stderr)
+        stores = [self.workspace / ".autocode" / name for name in containment.PRIVATE_STORES]
+        for path in [*stores, other_launch]:
+            with self.subTest(listing=path.name):
+                # Relative, so the names below cannot match the workspace's own path in a header or error.
+                relative = os.path.relpath(path, self.workspace)
+                listing = self.run_shell(
+                    shlex.join(["ls", "-aR", relative]) + "; grep -rh private " + relative, boundary
+                )
+                for name in ("state.json", "registry.json", "recording.json", ".tar.gz", "scratch", '"private"'):
+                    self.assertNotIn(name, listing.stdout + listing.stderr)
+        for path, text in needed.items():
+            with self.subTest(needed=path.name):
+                read = self.run_shell(shlex.join(["cat", str(path)]), boundary)
+                self.assertEqual((0, text), (read.returncode, read.stdout), read.stderr)
+        own = self.run_shell(shlex.join(["ls", str(scratch.parent)]), boundary)
+        self.assertEqual(0, own.returncode, own.stderr)
+        self.assertLessEqual({Path(boundary["profile"]).name, "scratch", "shell"}, set(own.stdout.split()))
         self.assertEqual("VALUE = 42\n", self.run_shell("cat source.py", boundary).stdout)
         read = self.run_shell(shlex.join(["cat", str(artifact)]), boundary)
         self.assertEqual((0, '{"predecessor":"approved plan"}\n'), (read.returncode, read.stdout), read.stderr)
@@ -1447,23 +1700,38 @@ class KernelTests(unittest.TestCase):
         copy = scratch / "verification" / "source.py"
         self.assertEqual("VALUE = 42\n", self.run_shell(shlex.join(["cat", str(copy)]), boundary).stdout)
         self.assertEqual(0, self.run_shell(": > " + shlex.quote(str(scratch / "note")), boundary).returncode)
-        for path in (self.run_dir / "state.json", artifact, runs / "planted-run"):
+        for path in (self.run_dir / "state.json", artifact, runs / "planted-run", *areas, *needed):
             self.assert_denied(": > " + shlex.quote(str(path)), boundary)
         self.assertEqual(before, {path: path.read_bytes() for path in before})
         self.assertFalse((runs / "planted-run").exists())
-        # The manifest names the denial, the actual-shell proof is retained, and its sentinel is gone.
-        reads = {"run_dir": str(self.run_dir), "denied": [str(runs)], "readable": [str(artifact.parent)]}
+        # The manifest names the denial, the actual-shell proof is retained, and its sentinels are gone:
+        # one in this run's directory and one in each private store, none in another launch's.
+        reads = {
+            "run_dir": str(self.run_dir),
+            "denied": [str(path) for path in (runs, *stores, other_launch)],
+            "readable": [str(artifact.parent)],
+        }
         self.assertEqual(reads, boundary["private_reads"])
         proof = json.loads(Path(boundary["conformance"]).read_text())["private_reads"]
         self.assertEqual(
             {**reads, "listed": [str(artifact.parent)], "exit": 0}, {k: proof[k] for k in (*reads, "listed", "exit")}
         )
-        self.assertEqual([], [path.name for path in self.run_dir.iterdir() if "sentinel" in path.name])
+        sentinel = Path(boundary["profile"]).parent.name + "-private-read-sentinel"
+        self.assertEqual(
+            [shlex.quote(str(path / sentinel)) for path in (self.run_dir, *stores)],
+            re.findall(r"! /bin/cat (\S+)", proof["command"]),
+        )
+        for path in (self.run_dir, *stores, other_launch):
+            self.assertEqual([], [item.name for item in path.rglob("*") if "sentinel" in item.name])
         containment.verify(boundary)
 
     def test_native_planning_boundary_verification_refuses_a_weakened_denial(self):
         runs, _, _ = self.planning_run_store()
+        stores = [self.workspace / ".autocode" / name for name in containment.PRIVATE_STORES]
+        self.assertEqual([False] * len(stores), [path.exists() for path in stores])
         boundary = self.native_planning_boundary()
+        # The launch made each missing private store, so bubblewrap has a mount point for its tmpfs.
+        self.assertEqual([True] * len(stores), [path.is_dir() for path in stores])
         reads = boundary["private_reads"]
         (runs / "sibling").mkdir()
         for changed in (
@@ -1492,7 +1760,6 @@ class KernelTests(unittest.TestCase):
             }
         else:
             values = original.split(b"\0")[:-1]
-            hidden = values.index(b"--tmpfs")
 
             def arguments(changed):
                 return b"".join(value + b"\0" for value in changed)
@@ -1504,7 +1771,7 @@ class KernelTests(unittest.TestCase):
             (self.home / "elsewhere").mkdir()
             (self.home / "elsewhere/link").symlink_to(self.run_dir, target_is_directory=True)
             weakened = {
-                "without the tmpfs": (arguments(values[:hidden] + values[hidden + 2 : -4] + values[-2:]), state),
+                "without the tmpfs": (self.without_denial(original, reads, str(runs)), state),
                 "the workspace bound elsewhere": (
                     bound(self.workspace, scratch / "mirror"),
                     scratch / "mirror" / state.relative_to(self.workspace),
@@ -1576,6 +1843,52 @@ class KernelTests(unittest.TestCase):
         repinned = {**boundary, "conformance_sha256": hashlib.sha256(proof.read_bytes()).hexdigest()}
         with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
             containment.verify(repinned)
+
+    def test_native_planning_boundary_verification_requires_each_other_private_area(self):
+        # #1250: each private store and each other launch's control directory is its own denial. A
+        # profile pinned again without any one of them lets the actual shell read that area, and
+        # verify() refuses it, so the launch pauses as PAUSED_TOOL_CONTAINMENT.
+        import autocode_provider_launch as provider_launch
+        import autocode_util as util
+
+        self.planning_run_store()
+        areas, _ = self.private_areas()
+        boundary = self.native_planning_boundary()
+        reads = boundary["private_reads"]
+        self.assertEqual(1 + len(containment.PRIVATE_STORES) + 1, len(reads["denied"]))
+        profile = Path(boundary["profile"])
+        original = profile.read_bytes()
+        profile.chmod(0o600)
+        for denied in reads["denied"][1:]:
+            (shown,) = [path for path in areas if path.is_relative_to(denied)]
+            with self.subTest(denied=Path(denied).name):
+                changed = self.without_denial(original, reads, denied)
+                self.assertNotEqual(original, changed)
+                self.assertNotIn('"private"', self.run_shell(shlex.join(["cat", str(shown)]), boundary).stdout)
+                profile.write_bytes(changed)
+                repinned = {**boundary, "profile_sha256": hashlib.sha256(changed).hexdigest()}
+                self.assertEqual(areas[shown], self.run_shell(shlex.join(["cat", str(shown)]), repinned).stdout)
+                with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
+                    containment.verify(repinned)
+                with self.assertRaises(util.Paused) as caught:
+                    provider_launch.verify_containment({"tool_containment": repinned})
+                self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
+                profile.write_bytes(original)
+        containment.verify(boundary)
+        # A store's contents made after the profile was rendered are hidden like the rest: here
+        # another task starts its worktree while this planning stage runs.
+        later = self.workspace / ".autocode/worktrees/task-2/.autocode/runs/20261016-new/state.json"
+        later.parent.mkdir(parents=True)
+        later.write_text('{"private":"later task state"}\n')
+        result = self.run_shell(shlex.join(["cat", str(later)]), boundary)
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn('"private"', result.stdout + result.stderr)
+        containment.verify(boundary)
+        # Another launch's control directory made since then is not covered by the pinned profile,
+        # so verify() refuses the launch.
+        (self.workspace / ".autocode" / ("tool-containment-" + "e" * 32)).mkdir()
+        with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
+            containment.verify(boundary)
 
 
 @unittest.skipUnless(

@@ -1334,11 +1334,24 @@ isolation). They run in this boundary read-only, and their shell also cannot
 read the run store, `.autocode/runs`: not this run's `state.json`, events or
 receipts, and no other run's files. Only this run's `planning/` artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
-its run context from its handoff (#1250). Before the provider starts, each such
-launch shows through the actual native shell that a file in its run directory
-cannot be read, and records the denial as `private_reads` in its
-`tool_containment` record and conformance proof. A boundary that no longer
-enforces it pauses as `PAUSED_TOOL_CONTAINMENT`. On macOS such a launch also
+its run context from its handoff (#1250). Nor can it read the other places under
+`.autocode` where AutoCode keeps runs and launches: `builders` (parallel Builder
+workspaces and their runs), `archive` (runs archived from task worktrees),
+`bundles` (`autocode bundle` archives), `programs`, `registry` (the run
+registry), `replay` (replay recordings), `task-flows`, `worktrees` (task and
+program worktrees) and every other launch's `tool-containment-*` control
+directory. The launch creates any of those stores that does not exist yet, so one
+made while the stage runs (another task's worktree, a new bundle) stays
+unreadable too. Its own control directory and scratch, and the rest of
+`.autocode` (project settings, retained design inputs, capture bundles, the shared
+`evidence` and `output` areas), stay as readable as the rest of the workspace.
+Before the provider starts, each such launch shows through the actual native
+shell that a file in its run directory and in each of those stores cannot be
+read, and records the denial as `private_reads` in its `tool_containment` record
+and conformance proof. A boundary that no longer enforces any one of these
+denials pauses as `PAUSED_TOOL_CONTAINMENT`, and so does a launch for which
+another launch's control directory appeared after its profile was written.
+On macOS such a launch also
 pauses that way, naming the path, when a path in its Seatbelt profile holds a
 control character such as a tab or newline: the re-check before launch accepts
 no such path.
@@ -1366,8 +1379,9 @@ inside an empty read-only root that holds only:
 - the stage's own scratch, writable. A reader's verification copy is one read-only
   mount inside it;
 - for a native visual run's planning stage, an empty read-only `tmpfs` over
-  `.autocode/runs`, with only that run's `planning/` mounted read-only inside it
-  (Seatbelt denies reading the same paths).
+  `.autocode/runs`, with only that run's `planning/` mounted read-only inside it,
+  and one over each other private store and each other launch's control directory
+  listed above (Seatbelt denies reading the same paths).
 
 There is no home directory, `/tmp`, `/run` or `/var`, so a write anywhere else fails
 (`Read-only file system`, or `No such file or directory` where nothing is mounted)
