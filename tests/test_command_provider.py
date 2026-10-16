@@ -1193,6 +1193,150 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Saved external role transport identity is missing for investigator"):
             self.transport.entry(settings, "investigator")
 
+    def test_autoresolver_prepare_answer_wires_analyst_transport_identity(self):
+        import copy
+        from units import autoresolver
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        state = {"workspace": str(self.workspace), "task": "A discuss task", "settings": settings, "history": []}
+        autoresolver.prepare_answer(state)
+        self.assertIn("role:analyst", state["settings"]["transport_identities"])
+        self.assertEqual("kilocode", state["settings"]["transport_identities"]["role:analyst"]["provider"])
+
+    def test_autoresolver_prepare_investigation_wires_investigator_transport_identity(self):
+        import copy
+        from units import autoresolver
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        state = {"workspace": str(self.workspace), "task": "A bug task", "settings": settings, "history": []}
+        autoresolver.prepare_investigation(state)
+        self.assertIn("role:investigator", state["settings"]["transport_identities"])
+        self.assertEqual("kilocode", state["settings"]["transport_identities"]["role:investigator"]["provider"])
+
+    def test_autoreview_prepare_acceptance_tester_wires_transport_identity(self):
+        import copy
+        from units import autoreview
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "sol=kilocode", "--sol-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        state = {"workspace": str(self.workspace), "task": "A task", "settings": settings, "history": []}
+        autoreview.prepare(state, "write_acceptance_tests", None, None)
+        self.assertIn("role:acceptance_tester", state["settings"]["transport_identities"])
+        self.assertEqual("kilocode", state["settings"]["transport_identities"]["role:acceptance_tester"]["provider"])
+
+    def test_autoreview_prepare_architect_wires_transport_identity(self):
+        import copy
+        from units import autoreview
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        state = {"workspace": str(self.workspace), "task": "A design task", "settings": settings, "history": []}
+        autoreview.prepare(state, "review_design", None, None)
+        self.assertIn("role:architect", state["settings"]["transport_identities"])
+        self.assertEqual("kilocode", state["settings"]["transport_identities"]["role:architect"]["provider"])
+
+    def test_utility_route_configure_wires_utility_transport_identity(self):
+        import argparse
+        import copy
+        import autocode_utility_route as utility_route
+
+        self.cli_configure(
+            [*self.args(), "--role-transport", "plan_reviewer=kilocode", "--plan-reviewer-model", "anthropic/fixture-claude"]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+        args = argparse.Namespace(utility_model="fixture/util", utility_reasoning_effort=None)
+        utility_route.configure(settings, args, started=False)
+        self.assertIn("role:utility", settings["transport_identities"])
+        self.assertEqual("kilocode", settings["transport_identities"]["role:utility"]["provider"])
+
+    def test_external_plan_reviewer_and_tester_across_all_five_paths(self):
+        import copy
+        from pathlib import Path
+        import autocode_review_job as review_job
+        import autocode_stuck_job as stuck_job
+        from units import autoresolver, autoreview
+
+        self.cli_configure(
+            [
+                *self.args(),
+                "--role-transport",
+                "plan_reviewer=kilocode",
+                "--plan-reviewer-model",
+                "anthropic/fixture-claude",
+                "--role-transport",
+                "sol=kilocode",
+                "--sol-model",
+                "anthropic/fixture-claude",
+            ]
+        )
+        settings = copy.deepcopy(self.observed[-1])
+
+        # 1. Bug-fix path: produces investigator derived from plan_reviewer
+        state_bug = {
+            "workspace": str(self.workspace),
+            "task": "A bug fix",
+            "settings": copy.deepcopy(settings),
+            "history": [],
+        }
+        autoresolver.prepare_investigation(state_bug)
+        adapter_bug = self.transport.adapter(state_bug["settings"], "investigator", self.open, self.workspace)
+        self.assertIs(self.external, adapter_bug)
+
+        # 2. Discuss path: produces analyst derived from plan_reviewer
+        state_discuss = {
+            "workspace": str(self.workspace),
+            "task": "A discuss task",
+            "settings": copy.deepcopy(settings),
+            "history": [],
+        }
+        autoresolver.prepare_answer(state_discuss)
+        adapter_discuss = self.transport.adapter(state_discuss["settings"], "analyst", self.open, self.workspace)
+        self.assertIs(self.external, adapter_discuss)
+
+        # 3. Design path: produces architect derived from plan_reviewer
+        state_design = {
+            "workspace": str(self.workspace),
+            "task": "A design task",
+            "settings": copy.deepcopy(settings),
+            "history": [],
+        }
+        autoreview.prepare(state_design, "review_design", None, None)
+        adapter_design = self.transport.adapter(state_design["settings"], "architect", self.open, self.workspace)
+        self.assertIs(self.external, adapter_design)
+
+        # 4. Code-review path: runs on sol (Tester)
+        state_review = {
+            "workspace": str(self.workspace),
+            "task": "A review task",
+            "settings": copy.deepcopy(settings),
+            "history": [],
+        }
+        autoreview.prepare(state_review, review_job.STAGE, None, None)
+        adapter_review = self.transport.adapter(state_review["settings"], "sol", self.open, self.workspace)
+        self.assertIs(self.external, adapter_review)
+
+        # 5. Stuck-investigator path: produces stuck_investigator derived from plan_reviewer
+        state_stuck = {
+            "workspace": str(self.workspace),
+            "task": "A task",
+            "settings": copy.deepcopy(settings),
+            "history": [],
+            "stuck_investigation": {"stage": "terra", "status": "PAUSED", "reason": "No progress"},
+        }
+        autoresolver.prepare_stuck(state_stuck, Path(self.workspace) / "state.json")
+        adapter_stuck = self.transport.adapter(state_stuck["settings"], stuck_job.ROUTE, self.open, self.workspace)
+        self.assertIs(self.external, adapter_stuck)
+
 
 if __name__ == "__main__":
     unittest.main()
