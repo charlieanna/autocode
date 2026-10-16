@@ -186,6 +186,16 @@ an output-limit stop automatically. Ambiguous or interrupted output remains unce
 The cap-setting rules are in `tools/autocode_output_cap.py`; they do not alter configured
 command providers' environment or token limits.
 
+For an isolated native run paused before plan approval, an OpenCode authentication
+failure can also be set aside explicitly with the displayed `--abandon-stage`
+attempt. This requires a collected nonzero exit containing only one terminal
+401/403 `APIError`, no response or report, and the original stopped supervisor,
+unchanged source, settings and runtime. Other uncertain output remains refused.
+The command preserves the failed attempt and pauses without launching a model.
+Refresh the provider credential before `--resume-paused`; resume retains the
+same models, review gates and time limits. An older run cannot adopt a changed
+runtime to gain this recovery operation.
+
 ### Environment variables agents see
 
 Every provider process, and every test command the runner executes itself, gets

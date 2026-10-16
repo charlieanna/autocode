@@ -370,6 +370,139 @@ class NativeAbandonConstructorTests(unittest.TestCase):
         self.state.update(status="PAUSED_OUTPUT_CAP", active_stage=self.record)
         util.atomic_json(self.state_path, self.state)
 
+    def authentication_rejection(self):
+        error = {
+            "type": "error",
+            "timestamp": 1,
+            "sessionID": "controlled-session",
+            "error": {
+                "name": "APIError",
+                "data": {"message": "Invalid API Key", "statusCode": 401, "isRetryable": False},
+            },
+        }
+        Path(self.record["events"]).write_text(json.dumps(error) + "\n")
+        self.record.update(timed_out=False, exit_code=1)
+        self.receipt["cause"] = "provider_stopped"
+        util.atomic_json(Path(self.metadata["receipt"]), self.receipt)
+        self.state.update(status="PAUSED_PROVIDER_UNCERTAIN", active_stage=self.record)
+        util.atomic_json(self.state_path, self.state)
+
+    def test_public_authentication_rejection_retains_history_and_same_stage_resume(self):
+        self.authentication_rejection()
+        before = deepcopy(self.state)
+        events = Path(self.record["events"]).read_bytes()
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            view = self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"])
+        self.assertEqual("plan_revise", view["next_stage"])
+        self.assertEqual(before["settings"], self.state["settings"])
+        self.assertEqual(before["planning"], self.state["planning"])
+        self.assertEqual(before["total_seconds"], self.state["total_seconds"])
+        self.assertEqual(events, Path(self.record["events"]).read_bytes())
+        rejected = self.state["stages"][-1]
+        self.assertTrue(rejected["rejected"])
+        self.assertEqual(1, rejected["exit_code"])
+        self.assertFalse(rejected["timed_out"])
+        self.assertIn("authentication", rejected["rejection_reason"])
+        self.assertFalse(Path(rejected["output"]).exists())
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            self.driver.resume_paused()
+
+    def test_authentication_rejection_refuses_mixed_forged_and_incomplete_transport(self):
+        self.authentication_rejection()
+        events = Path(self.record["events"])
+        original = json.loads(events.read_bytes())
+        alternatives = {
+            "model text before error": json.dumps({"type": "text", "part": {"text": "done"}})
+            + "\n"
+            + json.dumps(original),
+            "model turn after error": json.dumps(original) + '\n{"type":"step_finish"}',
+            "incomplete": json.dumps(original)[:-2],
+            "duplicate status": json.dumps(original).replace(
+                '"statusCode": 401', '"statusCode": 500, "statusCode": 401'
+            ),
+            "invalid utf8": b"\xff",
+            "oversize": b" " * 65537,
+            "excessive nesting": b"[" * 1200 + b"0" + b"]" * 1200,
+        }
+        for name, value in (
+            ("server error", {"statusCode": 500}),
+            ("quota", {"statusCode": 429}),
+            ("string code", {"statusCode": "401"}),
+            ("boolean code", {"statusCode": True}),
+            ("retryable", {"isRetryable": True}),
+            ("usage", {"usage": {"output_tokens": 1}}),
+        ):
+            altered = deepcopy(original)
+            altered["error"]["data"].update(value)
+            alternatives[name] = json.dumps(altered)
+        for name, value in (("foreign session", "another-session"), ("empty session", "")):
+            alternatives[name] = json.dumps({**original, "sessionID": value})
+        for name, value in alternatives.items():
+            events.write_bytes(value.encode() if isinstance(value, str) else value)
+            before = self.journal_bytes()
+            with self.subTest(case=name), patch.object(taskrun, "run_process", side_effect=self.public_cli):
+                with self.assertRaises(taskrun.TaskRunError):
+                    self.driver.abandon_stage("001/plan-revise-01")
+            self.assertEqual(before, self.journal_bytes())
+            self.assertFalse(Path(self.prepared_body["record_identity"]["after_ref"]).exists())
+
+    def test_authentication_rejection_refuses_retained_reports_and_deadline_receipt(self):
+        self.authentication_rejection()
+        output = Path(self.record["output"])
+        for path in (output, output.with_suffix(".reported.json"), output.with_suffix(".response.txt")):
+            path.write_text("retained response is not error-only\n")
+            before = self.journal_bytes()
+            with self.subTest(path=path.name), patch.object(taskrun, "run_process", side_effect=self.public_cli):
+                with self.assertRaises(taskrun.TaskRunError):
+                    self.driver.abandon_stage("001/plan-revise-01")
+            self.assertEqual(before, self.journal_bytes())
+            path.unlink()
+        self.receipt["cause"] = "stage_deadline"
+        util.atomic_json(Path(self.metadata["receipt"]), self.receipt)
+        before = self.journal_bytes()
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            with self.assertRaises(taskrun.TaskRunError):
+                self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual(before, self.journal_bytes())
+
+    def test_authentication_rejection_pins_exact_error_bytes_before_publication(self):
+        self.authentication_rejection()
+        events = Path(self.record["events"])
+        original = recovery.authentication_rejection
+
+        def replaced(raw, **options):
+            accepted = original(raw, **options)
+            changed = json.loads(raw)
+            changed["error"]["data"]["statusCode"] = 403
+            events.write_text(json.dumps(changed) + "\n")
+            return accepted
+
+        before = self.journal_bytes()
+        with (
+            patch.object(taskrun, "run_process", side_effect=self.public_cli),
+            patch.object(recovery, "authentication_rejection", side_effect=replaced),
+        ):
+            with self.assertRaises(taskrun.TaskRunError):
+                self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual(before, self.journal_bytes())
+
+    def test_authentication_recovery_keeps_runtime_and_live_owner_guards(self):
+        self.authentication_rejection()
+        before = self.journal_bytes()
+        with (
+            patch.object(taskrun, "run_process", side_effect=self.public_cli),
+            patch.object(protection.history, "runtime_files", return_value={"changed": "runtime"}),
+        ):
+            with self.assertRaises(taskrun.TaskRunError):
+                self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual(before, self.journal_bytes())
+        self.matching_live = [self.metadata["owner"]]
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            with self.assertRaises(taskrun.TaskRunError):
+                self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual(before, self.journal_bytes())
+
     def test_public_collected_length_abandon_preserves_original_caps_and_rejected_tail(self):
         self.collected_length()
         before = deepcopy(self.state)
