@@ -38,9 +38,9 @@ changed tools/ module (autocode_review_job.py -> test_review_job*), the tests
 that import it directly, the tests that mention a changed resource by name,
 explicit resource/public-CLI consumers, and always test_architecture. Suite
 machinery changes select the gate's own controls and small public contracts.
-It does not follow imports transitively: most of
-tools/ is one import cycle, so that would select almost every test. A break
-that crosses modules is caught by the full run on master.
+It does not follow imports transitively, which
+would select almost every test. A break that crosses modules is caught by the
+full run on master.
 
 Those rules cannot see a test that drives the CLI as a separate process: it
 imports scenarios.harness, not the tools/ module it exercises, so a change to

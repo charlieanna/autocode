@@ -3,7 +3,7 @@ atomic JSON files, workspace and run locks, source snapshots and the small JSON
 Schema subset used by reports.
 
 The bottom layer (AGENTS.md): it imports nothing from AutoCode, so any module can
-use it without joining the import cycle through autocode.py.
+use it without creating an import cycle.
 """
 
 from __future__ import annotations

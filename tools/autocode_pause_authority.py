@@ -22,7 +22,7 @@ why a correction may not restart planning past the pause holding the run.
 
 Domain layer: it reads saved state only and at runtime imports nothing but autocode_goals (the
 request keys) and autocode_provider_refusal (its status name); never the runner, autopilot or a
-module in the import cycle. RunState is imported for type checking only.
+module that imports them. RunState is imported for type checking only.
 """
 
 from __future__ import annotations

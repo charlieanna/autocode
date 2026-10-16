@@ -447,6 +447,12 @@ PR template asks for an entry here; a change without one is incomplete.
   revisions (`autocode_design_revision`), the CLI's edit step (`autocode_action_edits`) and a UI run's accepted plan
   (`autocode_ui`) take the typed `RunState`, so the untyped-`state` ratchet drops from 201 to 110 and mypy checks those
   85 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- No module in `tools/` is in an import cycle any more. Which role and engine run a stage (`autocode_stage_roles`), the
+  planning cycle (`autocode_planning_cycle`) and the units' `ModelRequest` type (`units/model_request`) moved unchanged
+  out of the planning unit (`units/autoplanner`) and `units/common`, which re-export them under their old names. That
+  took the last six modules out of the cycle: the goal lifecycle, reviewer routing (`autocode_workflow`), the planning
+  unit and its `autocode_planning` shim, `units/common` and the stage context. `tests/test_architecture.py` now fails
+  when any module joins a cycle. Structure only: no behaviour, prompt, output or `state.json` change (#695).
 - Under a milestone budget you set (`--max-milestone-seconds N`), a climbed Builder attempt (the milestone's
   stronger attempt or a climb on the Builder's effort ladder) is timed before it launches, from the last Builder
   attempt's duration held to the stage time limit. When the milestone's counted time plus that projection would
