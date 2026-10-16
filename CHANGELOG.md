@@ -590,8 +590,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - Native Windows (#698): the last thirteen runtime modules that imported `fcntl` at load (the checkout, registry,
   intervention, milestone-request, usage, worktree and conversation locks among them) now lock through
   `autocode_util.lock_file` / `unlock_file`, so the CLI loads without `fcntl`. On Linux and macOS each lock is the
-  same exclusive `flock`, blocking or not, with the same busy error. The registry and intervention locks unlock only
-  a lock they took, so on Windows a timed-out wait still reports busy. `tests/test_windows_portability.py` now
+  same exclusive `flock`, blocking or not, with the same busy error. The registry, intervention and conversation locks
+  unlock only a lock they took, so on Windows a timed-out or interrupted wait keeps its own error. `tests/test_windows_portability.py` now
   allows no module-level POSIX-only import and loads the CLI with `fcntl` unimportable. On Windows the CLI still
   stops loading at `autocode_junit`'s POSIX-only open flags; [Native Windows](docs/windows.md) records that and
   the POSIX-only calls the thirteen modules still make.

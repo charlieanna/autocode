@@ -672,9 +672,13 @@ def _file_lock(path: Path):
     fd = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         util.lock_file(fd, blocking=True)
-        yield
+        # Unlock only a lock this handle took: msvcrt refuses the rest, and its refusal would
+        # replace whatever interrupted the wait (#698).
+        try:
+            yield
+        finally:
+            util.unlock_file(fd)
     finally:
-        util.unlock_file(fd)
         os.close(fd)
 
 

@@ -25,8 +25,8 @@ the job summary and never fails the workflow. Make it required once it is green.
 `tests/test_windows_portability.py` runs on Linux and fails when a runtime module
 gains a module-level import of a POSIX-only module (`fcntl`, `termios`, `pwd`, `grp`,
 `resource`, `pty` and similar), because one such import stops `autocode` from starting
-on Windows before any platform check runs. Its list of known exceptions has been empty
-since 2026-10-16. It also loads the CLI and the thirteen modules that used to import
+on Windows before any platform check runs. It allows no exceptions: the last ones were
+removed on 2026-10-16. It also loads the CLI and the thirteen modules that used to import
 `fcntl` in a fresh interpreter where `import fcntl` fails, so an import through another
 module is caught too.
 

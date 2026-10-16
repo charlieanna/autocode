@@ -2,10 +2,10 @@
 
 Python on Windows has no fcntl, termios, pwd, grp, resource or pty, so one such import at
 module level stops `autocode` itself from starting there, before any platform check can
-run. KNOWN below held that debt; it has been empty since 2026-10-16. A new module-level
-import fails this test: take the lock through `autocode_util.lock_file` / `unlock_file`,
-or import the POSIX module inside the POSIX-only branch. The frozen dashboard is out of
-scope.
+run. The last such imports, thirteen file locks, were removed on 2026-10-16, so any
+module-level import now fails this test: take the lock through `autocode_util.lock_file` /
+`unlock_file`, or import the POSIX module inside the POSIX-only branch. The frozen dashboard
+is out of scope.
 """
 
 import ast
@@ -17,9 +17,6 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
 POSIX_ONLY = frozenset({"fcntl", "termios", "pwd", "grp", "resource", "pty", "tty", "posix", "syslog", "crypt"})
-
-# 2026-10-16: the last thirteen, all file locks, moved to autocode_util.lock_file (#698).
-KNOWN: dict[str, set[str]] = {}
 
 # Modules that must load with fcntl unimportable, as on native Windows: the CLI, which
 # `autocode --version` and `doctor` load, and the thirteen that imported fcntl at load until
@@ -87,13 +84,11 @@ def posix_only_imports():
 
 class LoadTimeImportTests(unittest.TestCase):
     def test_no_new_module_imports_a_posix_only_module_at_load(self):
-        found = posix_only_imports()
-        added = {name: names for name, names in found.items() if not names <= KNOWN.get(name, set())}
         self.assertEqual(
-            {}, added, "these modules stop `autocode` loading on native Windows; use autocode_util.lock_file"
+            {},
+            posix_only_imports(),
+            "these modules stop `autocode` loading on native Windows; use autocode_util.lock_file",
         )
-        fixed = sorted(set(KNOWN) - set(found))
-        self.assertEqual([], fixed, "progress: take these modules off KNOWN in this test and docs/windows.md")
 
     def test_the_cli_and_the_former_fcntl_modules_load_without_fcntl(self):
         """The scan above reads each file; this loads them, with everything they import."""
