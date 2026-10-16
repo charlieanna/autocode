@@ -140,6 +140,25 @@ class NativeAbandonPublicTests(NativeAbandonFixture, unittest.TestCase):
         self.assertEqual(settings, self.state["settings"])
         self.assertEqual(341.5, self.state["total_seconds"])
 
+    def test_public_abandon_unparsed_launch_retains_evidence_without_dispatch(self):
+        self.state.update(status="PAUSED_INVALID_OUTPUT")
+        self.state["active_stage"].update(
+            engine="opencode", timed_out=False, exit_code=0, rejected=True
+        )
+        original = self.events.read_bytes()
+        settings = deepcopy(self.state["settings"])
+        with (
+            patch.object(taskrun, "run_process", side_effect=self.public_cli),
+            patch.object(runner, "run_role", side_effect=AssertionError("abandonment dispatched a provider")),
+        ):
+            view = self.task.abandon_stage("001/plan-review-01")
+        self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"])
+        self.assertEqual("plan_review", view["next_stage"])
+        self.assertEqual(original, self.events.read_bytes())
+        self.assertEqual(settings, self.state["settings"])
+        self.assertEqual(341.5, self.state["total_seconds"])
+        self.assertIn("unparsed", self.state["stages"][-1]["rejection_reason"])
+
     def test_public_abandon_refuses_wrong_attempt_postapproval_and_uncertain_exit(self):
         for changed in ("selected", "approved", "exit", "pid", "interrupted", "unaccounted", "stage"):
             with self.subTest(changed=changed):

@@ -461,7 +461,10 @@ class PlanningCalls:
         record.update(rejected=True, rejection_reason=str(error))
         if not any(row.get("output") == record.get("output") for row in state.get("stages", [])):
             state.setdefault("stages", []).append(deepcopy(record))
-        state.pop("active_stage", None)
+        if closed:
+            state.pop("active_stage", None)
+        else:
+            state["active_stage"] = deepcopy(record)
         stage = record.get("original_stage") or record.get("stage")
         if (
             stage in self.repairable

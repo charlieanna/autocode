@@ -727,6 +727,7 @@ class NativeProtection:
         _require(not processes.live_processes(originals), "original native root/keeper/descendants remain live")
         length_hash = None
         authentication = state.get("status") == "PAUSED_PROVIDER_UNCERTAIN"
+        unparsed = state.get("status") == "PAUSED_INVALID_OUTPUT"
         absent_auth_reports = []
         if authentication:
             _require(
@@ -751,6 +752,24 @@ class NativeProtection:
             _require(
                 not any(path.exists() or path.is_symlink() for path in absent_auth_reports),
                 "authentication rejection has a response or report; explicit uncertain reconciliation is still required",
+            )
+        if unparsed:
+            _require(
+                receipt.get("cause") in ("provider_stopped", "controller_finished")
+                and record.get("engine") == "opencode"
+                and record.get("timed_out") is False
+                and not record.get("report_only")
+                and not self._safe(record["output"]).exists()
+                and not record.get("supervision_errors"),
+                "unparsed launch contradicts its original collected supervisor",
+            )
+            output = self._safe(record["output"])
+            absent_auth_reports = [output, output.with_suffix(".reported.json"), output.with_suffix(".response.txt")]
+            if record.get("reported_output"):
+                absent_auth_reports.append(self._safe(record["reported_output"]))
+            _require(
+                not any(path.exists() or path.is_symlink() for path in absent_auth_reports),
+                "unparsed launch has a response or report; explicit uncertain reconciliation is still required",
             )
         if state.get("status") == output_cap.STATUS:
             _require(
@@ -807,7 +826,9 @@ class NativeProtection:
         self._pins(pins)
         _require(
             not any(path.exists() or path.is_symlink() for path in absent_auth_reports),
-            "authentication response appeared while reconciling the error-only stop",
+            "report appeared while reconciling the unparsed launch"
+            if unparsed
+            else "authentication response appeared while reconciling the error-only stop",
         )
         _require(snapshot == self._fresh_snapshot(rows), "source changed while reconciling the timeout")
         retained.update(rejected=True, abandoned=True)
