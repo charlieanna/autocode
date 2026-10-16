@@ -43,6 +43,7 @@ def drive(scenario, args, out, project, flags, env, decisions=None):
         fixture_root=out,
         max_steps=args.max_steps or scenario.max_steps,
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
+        round_trip_plans=True,
     )
     if decisions is not None:
         decisions.update(answers=driver.answers, approvals=driver.approvals)

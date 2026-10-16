@@ -116,11 +116,12 @@ provider-reported and known spend in USD against the run's cap, each `null` when
 unknown and never zero; `null` as a whole for an interrupted attempt or a view
 without one) and `pause_origin` (the pause an AutoResolver request for a person
 stems from, such as `PAUSED_COST_LIMIT` behind `WAITING_FOR_USER`, so the stop
-class names it)), `steps.jsonl`, the final `state.json`, and the delivered
+class names it)), `steps.jsonl`, the final `state.json`, `plan-files/` (each
+plan the harness exported before approving it, below), and the delivered
 `project/`, kept for inspection.
 
-Besides the scenario's own oracle, two checks read AutoCode's public status, and
-both appear in `checks`. `canonical evidence: RUN` authenticates the `evidence.json`
+Besides the scenario's own oracle, three checks use AutoCode's public commands and
+status, and each appears in `checks`. `canonical evidence: RUN` authenticates the `evidence.json`
 and `evidence.md` pair of each task run that completed, and of a program or
 components run that completed as a whole. `approval provenance: RUN` (#722) reads
 `approvals` in the final `--status --json` view of each task run that completed:
@@ -141,6 +142,34 @@ requires:
   [conformance](#conformance) client alike) to be listed. The runs of a program
   or components scenario share one `approvals` list, so they are checked for
   provenance only.
+
+`plan round trip` (#720) checks that a plan file reproduces its plan's goal hash
+([Reviewing a plan in a pull request](../docs/workflow.md#reviewing-a-plan-in-a-pull-request)).
+At each plan approval a run reaches (the scenario's one run, a program's plan run
+and each workstream run, a components run's architecture run, and the
+[conformance](#conformance) client's run alike), the harness first exports the
+plan with `autocode plan --export plan-files/NN.md --json`, then reads the file
+back with `autocode plan --check FILE --json`. That is the reader
+`autocode --goal-file` loads a file with, and the goal hash it prints is the one
+`--goal-file` records. The harness does not load the file: loading installs a new
+plan revision, and the harness approves the plan it was shown. The approval's row in
+`approvals` keeps both commands' output as `plan_file`, with the seconds they took
+(about 4 s per approval on the fake provider). The check requires:
+
+- both commands to succeed, and the file to read back with the goal hash it was
+  written with, which must be the goal hash of the run's plan;
+- the run directory to be as it was before them, file by file (size and
+  modification time);
+- when the final status view reports that plan approved, its
+  `approved_contract.goal_hash` to be the exported one.
+
+A masked export fails the check: its file does not reproduce the plan's goal hash,
+and `--goal-file` refuses a masked file. The export reports `masked` whenever the
+file's goal hash differs from the run's, so the flag cannot show that only
+credential-shaped text changed; a mask that took plan text for a credential reports
+it too. The two calls are no steps: neither the step budget nor `cli_calls` counts
+them, but the time budget bounds them. A run that reaches no plan approval gets no
+such check.
 
 Like any oracle check, a failed one makes the verdict `FALSE_COMPLETE` when
 AutoCode reported the scenario complete (for a program or components scenario,

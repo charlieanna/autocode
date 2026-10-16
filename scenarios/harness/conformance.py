@@ -36,6 +36,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import plan_round_trip
 from .attack_lifecycle import ProviderBarrier
 from .driver import (
     DriveError,
@@ -240,9 +241,13 @@ class ConformanceDriver(Driver):
     def record_approvals(self, need: dict, words: list[str]) -> None:
         """Each plan and review approval in ``words`` is a gate passed for the person. Record it in
         ``approvals`` (result.json; harness.approval_provenance matches it to the view's rows) as
-        ``Driver.serve`` records the ones it serves, with the token the need names."""
+        ``Driver.serve`` records the ones it serves, with the token the need names. Before a plan
+        approval, a catalog run exports the plan and reads the file back (harness.plan_round_trip)."""
         if "--approve-goal" in words:
-            self.approvals.append({"gate": "approve_plan", "token": need.get("token")})
+            gate = {"gate": "approve_plan", "token": need.get("token")}
+            if self.round_trip_plans and self.run_dir:
+                gate["plan_file"] = plan_round_trip.take(self)
+            self.approvals.append(gate)
         for index, flag in enumerate(words[:-1]):
             if flag == "--approve-review":
                 self.approvals.append({"gate": "review", "criterion": words[index + 1], "token": need.get("token")})
@@ -387,9 +392,9 @@ class ConformanceDriver(Driver):
         except psutil.NoSuchProcess:
             raise ConformanceGap("the controller the view names as running has exited") from None
 
-    def call(self, kind, *extra, task=None, action=False, record=True, subcommand=None):
+    def call(self, kind, *extra, task=None, action=False, record=True, subcommand=None, bare=False):
         if subcommand is None:
-            return super().call(kind, *extra, task=task, action=action, record=record)
+            return super().call(kind, *extra, task=task, action=action, record=record, bare=bare)
         # A subcommand takes its words first; the run is named the same way.
         saved = self.autocode
         self.autocode = [*saved, *subcommand.split()]
