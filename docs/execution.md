@@ -1410,11 +1410,45 @@ isolation). They run in this boundary read-only, and their shell also cannot
 read the run store, `.autocode/runs`: not this run's `state.json`, events or
 receipts, and no other run's files. Only this run's `planning/` artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
-its run context from its handoff (#1250). Before the provider starts, each such
-launch shows through the actual native shell that a file in its run directory
-cannot be read, and records the denial as `private_reads` in its
-`tool_containment` record and conformance proof. A boundary that no longer
-enforces it pauses as `PAUSED_TOOL_CONTAINMENT`. On macOS such a launch also
+its run context from its handoff (#1250). Nor can it read these `.autocode`
+stores, which hold other runs or what they keep: `archive` (runs archived from
+task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
+(parallel Builder workspaces and their runs), `bundles` (`autocode bundle`
+archives), `issues` (`autocode issue` worktrees and their runs), `programs`,
+`pull-reviews` (`autocode review-pr` checkouts and their runs), `registry` (the
+run registry), `replay` (replay recordings), `task-flows`, `verification`
+(`autocode verify` checkouts and reports) and `worktrees` (task and
+program worktrees). The list is not every place a run can be kept: a run kept
+elsewhere in the workspace (an `--out` or `--arena` directory outside these
+stores, or another `.autocode` directory) is not denied. Each store that exists
+when the launch is prepared is denied. The launch creates none of them: the only
+thing it adds to the workspace is its own `.autocode/tool-containment-<hex>/`
+control directory, as every contained launch does. New contents of a denied store
+stay unreadable, but a store first made after the launch's profile was written is
+not covered. Every check before the provider starts computes the denial again, up
+to the held launch's seal just before the provider is released, so a store made
+before that last check pauses the launch as `PAUSED_TOOL_CONTAINMENT`. Such a
+store usually comes from ordinary activity, for example another AutoCode command
+in the same checkout making `.autocode/issues` for the first time, so this pause
+is not a sandbox or setup problem: the stop reason names the new store, and a
+plain `--resume-paused` prepares the boundary again with it denied. One made
+after that last check, such as once the provider has started, causes no pause and
+can be read by the stage until it ends; a later planning launch denies it. A
+store path that is a symlink, even a dangling one, or that is not a directory
+cannot be denied, so every native planning launch in that workspace pauses as
+`PAUSED_TOOL_CONTAINMENT` before its provider starts, naming the path: replace it
+with a real directory, or remove it, then `--resume-paused`.
+Everything else in `.autocode` stays as readable as the rest of the workspace:
+the launch's own control directory and scratch, project settings,
+retained design inputs, capture bundles, the shared `evidence` and `output`
+areas, other launches' `tool-containment-*` control directories, conversation
+records and AutoCode's other internal files.
+Before the provider starts, each such launch shows through the actual native
+shell that a file in its run directory and in each denied store cannot be
+read, and records the denial as `private_reads` in its `tool_containment` record
+and conformance proof. A boundary that no longer enforces any one of these
+denials pauses as `PAUSED_TOOL_CONTAINMENT`.
+On macOS such a launch also
 pauses that way, naming the path, when a path in its Seatbelt profile holds a
 control character such as a tab or newline: the re-check before launch accepts
 no such path.
@@ -1442,8 +1476,9 @@ inside an empty read-only root that holds only:
 - the stage's own scratch, writable. A reader's verification copy is one read-only
   mount inside it;
 - for a native visual run's planning stage, an empty read-only `tmpfs` over
-  `.autocode/runs`, with only that run's `planning/` mounted read-only inside it
-  (Seatbelt denies reading the same paths).
+  `.autocode/runs`, with only that run's `planning/` mounted read-only inside it,
+  and one over each existing private store listed above (Seatbelt denies reading
+  the same paths).
 
 There is no home directory, `/tmp`, `/run` or `/var`, so a write anywhere else fails
 (`Read-only file system`, or `No such file or directory` where nothing is mounted)

@@ -38,6 +38,47 @@ class StopExplanationTests(unittest.TestCase):
         self.assertIn("existing run budgets", text["what_the_command_does"])
         self.assertIn("--resume-paused", text["what_the_command_does"])
 
+    def test_a_private_store_containment_stop_is_not_explained_as_a_missing_sandbox(self):
+        # #1250: these reasons come from autocode_tool_containment (tests/test_tool_containment.py
+        # checks the real ones); every other PAUSED_TOOL_CONTAINMENT reason keeps the table's text.
+        table = stop_explanations.TABLE["PAUSED_TOOL_CONTAINMENT"]
+        appeared = (
+            "Native tool boundary changed before launch: Private run-state read denial changed; no provider "
+            "launched: the private .autocode store /w/.autocode/issues was made after this launch's boundary was "
+            "prepared, so that boundary does not deny reading it. A plain --resume-paused prepares the boundary "
+            "again with it denied"
+        )
+        symlinked = (
+            "Native tool boundary was not established: Planning tool containment cannot deny reading the private "
+            ".autocode store /w/.autocode/issues, which is a symlink; replace it with a real directory, or remove "
+            "it, then --resume-paused"
+        )
+        for reason, means, does in (
+            (appeared, "appeared after this planning launch's tool boundary was prepared", "--resume-paused prepares"),
+            (symlinked, "is a symlink or not a directory", "Replace the path the stop reason names"),
+        ):
+            with self.subTest(reason=reason):
+                text = stop_explanations.explain("PAUSED_TOOL_CONTAINMENT", stop_reason=reason)
+                self.assertIn(means, text["what_it_means"])
+                self.assertTrue(text["what_the_command_does"].startswith(does), text)
+                self.assertNotIn(table[0], text["explanation"])
+                self.assertNotIn(table[1], text["explanation"])
+        for reason in (
+            "",
+            "Native tool boundary was not established: strict tool containment requires macOS sandbox-exec or "
+            "Linux bubblewrap; this machine is linux. Restore the qualified native setup; native role isolation "
+            "requires its kernel tool boundary",
+            "Native tool boundary changed before launch: Private run-state read denial changed; no provider launched",
+        ):
+            with self.subTest(reason=reason):
+                text = stop_explanations.explain("PAUSED_TOOL_CONTAINMENT", stop_reason=reason)
+                self.assertEqual(table, (text["what_it_means"], text["what_the_command_does"]))
+        # Another status is never given the store's explanation.
+        self.assertEqual(
+            stop_explanations.TABLE["PAUSED_TOOL"][0],
+            stop_explanations.explain("PAUSED_TOOL", stop_reason=appeared)["what_it_means"],
+        )
+
     def test_every_pause_state_in_the_table_has_three_parts(self):
         self.assertGreater(len(stop_explanations.TABLE), 50)
         for status, entry in stop_explanations.TABLE.items():

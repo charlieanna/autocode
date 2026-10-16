@@ -6,6 +6,7 @@ must separately verify its released root, supervisor and unchanged source.
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,57 @@ except ImportError:
 def require(value, reason):
     if not value:
         raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native planning abandonment: " + reason)
+
+
+def authentication_rejection(raw, *, expected_session=None):
+    """Recognize one error-only native OpenCode 401/403, never a model/tool report.
+
+    These bytes grant no authority. The original journal owner must bind their
+    exact hash to its sealed, stopped readonly launch before using this result.
+    """
+
+    def unique(pairs):
+        value = dict(pairs)
+        if len(value) != len(pairs):
+            raise ValueError("Duplicate authentication event fields")
+        return value
+
+    def invalid_constant(_value):
+        raise ValueError("Non-JSON authentication event")
+
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= 65536:
+        return False
+    try:
+        row = json.loads(raw.decode("utf-8"), object_pairs_hook=unique, parse_constant=invalid_constant)
+    except (UnicodeError, ValueError, RecursionError):
+        return False
+    if not isinstance(row, dict) or set(row) != {"type", "timestamp", "sessionID", "error"}:
+        return False
+    session, error = row["sessionID"], row["error"]
+    if (
+        row["type"] != "error"
+        or type(row["timestamp"]) is not int
+        or row["timestamp"] <= 0
+        or not isinstance(session, str)
+        or not 0 < len(session) <= 200
+        or not session.isascii()
+        or any(char.isspace() or not char.isprintable() for char in session)
+        or (expected_session is not None and session != expected_session)
+        or not isinstance(error, dict)
+        or set(error) != {"name", "data"}
+        or error["name"] != "APIError"
+    ):
+        return False
+    data = error["data"]
+    return (
+        isinstance(data, dict)
+        and not set(data) - {"message", "statusCode", "isRetryable", "responseHeaders", "responseBody", "metadata"}
+        and type(data.get("statusCode")) is int
+        and data["statusCode"] in (401, 403)
+        and data.get("isRetryable") is False
+        and isinstance(data.get("message"), str)
+        and bool(data["message"].strip())
+    )
 
 
 def only_abandon(argv):
@@ -81,7 +133,8 @@ def request(state: RunState, selected, stages):
     goal = state.get("goal_contract") or {}
     repair = repair_launch(state, record)
     require(
-        state.get("status") in ("PAUSED_PROVIDER_TIMEOUT", output_cap.STATUS, "PAUSED_PROCESS_CLEANUP")
+        state.get("status")
+        in ("PAUSED_PROVIDER_TIMEOUT", output_cap.STATUS, "PAUSED_PROCESS_CLEANUP", "PAUSED_PROVIDER_UNCERTAIN")
         and state.get("settings", {}).get("planning_flow") == "v2"
         and state.get("current_task") is None
         and goal.get("approval_status") != "approved"
@@ -91,8 +144,8 @@ def request(state: RunState, selected, stages):
             state.get(k)
             for k in ("parent_run", "parent_batch", "orchestration_batch", "orchestration_history", "progressive")
         ),
-        "only an original preapproval planning timeout or collected output limit, or a stopped launch of its "
-        "pending report repair, is supported",
+        "only an original preapproval planning timeout or collected output limit, an error-only authentication "
+        "rejection, or a stopped launch of its pending report repair, is supported",
     )
     require(isinstance(record, dict) and record, "missing active planning stop")
     assert isinstance(record, dict)  # require above refused anything else
@@ -117,7 +170,17 @@ def request(state: RunState, selected, stages):
         and not any(record.get(k) for k in ("interrupted", "dry_run", "rejected", "abandoned", "cleanup_error")),
         "uncertain, unaccounted or already rejected attempt",
     )
-    if state.get("status") == output_cap.STATUS:
+    if state.get("status") == "PAUSED_PROVIDER_UNCERTAIN":
+        require(
+            not repair
+            and record.get("engine") == "opencode"
+            and record.get("timed_out") is False
+            and record["exit_code"] > 0
+            and not record.get("supervision_errors"),
+            "authentication rejection needs an original collected nonzero exit, not a report repair launch; "
+            "the owner must verify its error-only bytes",
+        )
+    elif state.get("status") == output_cap.STATUS:
         require(
             record.get("engine") == "opencode"
             and record.get("timed_out") is False
@@ -185,6 +248,7 @@ def abandoned(state: RunState, record, selected, *, at):
     rejected = deepcopy(record)
     collected_length = state.get("status") == output_cap.STATUS
     cancelled = state.get("status") == "PAUSED_PROCESS_CLEANUP"
+    authentication = state.get("status") == "PAUSED_PROVIDER_UNCERTAIN"
     repair = record.get("report_only") is True
     # An original stage keeps its texts; a repair names itself instead.
     original, kind = ("", "native report repair") if repair else ("original ", "native planning")
@@ -195,7 +259,9 @@ def abandoned(state: RunState, record, selected, *, at):
         abandoned=True,
         rejected=True,
         rejection_reason=(
-            f"Operator abandoned {original}collected {kind} output limit; incomplete response retained"
+            "Operator abandoned original authentication-rejected native planning request; no response adopted"
+            if authentication
+            else f"Operator abandoned {original}collected {kind} output limit; incomplete response retained"
             if collected_length
             else f"Operator abandoned {original}cancelled {kind} launch; no response adopted"
             if cancelled
@@ -217,7 +283,9 @@ def abandoned(state: RunState, record, selected, *, at):
         "events": record["events"],
         "source_snapshot": record["after_ref"],
         "instruction": (
-            f"{title} output limit abandoned after authenticated collected stop; incomplete report is not successful evidence."
+            "Original native authentication rejection retained after verified error-only stop; refresh credentials before explicit resume. No report is successful evidence."
+            if authentication
+            else f"{title} output limit abandoned after authenticated collected stop; incomplete report is not successful evidence."
             if collected_length
             else f"{title} held launch cancelled after verified stop; no report is successful evidence."
             if cancelled
@@ -228,7 +296,9 @@ def abandoned(state: RunState, record, selected, *, at):
         candidate,
         "PAUSED_STAGE_ABANDONED",
         (
-            f"{stop_title} output limit retained. Resume explicitly; no agent launched."
+            "Original native authentication rejection retained. Refresh credentials before explicit resume; no agent launched."
+            if authentication
+            else f"{stop_title} output limit retained. Resume explicitly; no agent launched."
             if collected_length
             else f"{held} retained. Resume explicitly; no agent launched."
             if cancelled

@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / "dashboard"), str(TOOLS)]
 import autocode_registry as registry
+import autocode_tool_containment as containment
 from agent_console import Console, Handler, LoopbackHTTPServer
 from autocode_workspaces import create as create_worktree
 from autocode_worktrees import deliver
@@ -157,6 +158,18 @@ class PermanentDeleteTests(unittest.TestCase):
         )
         self.assertTrue((self.project / "keep.txt").exists())
         self.assertTrue((self.project / ".autocode/runs/selected/output.txt").exists())
+
+    @unittest.skipIf(containment.sandbox_problem(), "requires a real kernel sandbox")
+    def test_managed_worktree_can_be_deleted_after_a_native_planning_boundary(self):
+        # #1250: a native planning launch in the task worktree leaves no empty .autocode store
+        # (such as .autocode/worktrees) that would read as nested workspaces.
+        self.managed()
+        containment.prepare(self.workspace, private_run=self.run)
+        preview = self.preview(include_worktree=True, include_branch=True)
+        self.assertTrue(preview["can_include_worktree"], preview)
+        receipt = self.delete(preview)
+        self.assertEqual("deleted", receipt["status"], receipt)
+        self.assertFalse(self.workspace.exists())
 
     def delivered(self):
         metadata = self.managed()
