@@ -10,11 +10,16 @@ keeping a copy of it, and remembers the real stdout. The one object written ther
 - for any other return once the run has loaded (loaded()), such as an operational pause raised in the
   build loop or a stop an intervention asked for, the saved run's payload plus ``result`` (finish());
 - before the run loads, such as a refusal of the arguments, ``{"result": ...}`` alone (finish());
-- for a setting configure refuses (a saved run cannot take ``--single-model`` or ``--spec-first``), the
-  saved run's payload plus ``result``, or ``{"result": ...}`` alone before a run has a checkpoint
-  (refused()). The invocation still ends by raising, as cli()'s ``autocode: ...`` on stderr.
+- for a setting runner.configure refuses as run_setup.load_locked loads the run (run_setup.SettingRefused,
+  such as ``--single-model`` or ``--spec-first`` on a saved run, or ``--single-model`` with a per-role
+  model flag), the saved run's payload plus ``result``, or ``{"result": ...}`` alone before a run has a
+  checkpoint (refused()). The invocation still ends by raising, as cli()'s ``autocode: ...`` on stderr,
+  and the refused setting is not saved. On the native planning path run_locked catches that refusal
+  first and saves it as a PAUSED_INVALID_OUTPUT pause, which finish() prints like any other, with
+  ``error`` null.
 
-Any other invocation that ends by raising (cli()'s ``autocode: ...``) or with a parser error never
+Any other invocation that ends by raising (cli()'s ``autocode: ...``), including a containment_policy
+refusal (``--allow-uncontained-tools``, a plain ValueError, not covered yet), or with a parser error never
 reaches finish() and prints nothing on stdout.
 
 ``result`` holds the exit code, whether the action was saved, the text a person would have read on

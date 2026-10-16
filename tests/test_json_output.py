@@ -194,7 +194,7 @@ class JsonActionCliTests(unittest.TestCase):
 
     def test_a_setting_the_saved_run_cannot_take_prints_its_payload_with_the_refusal(self):
         """configure's refusal still ends the invocation as ``autocode: ...`` on stderr, exit 2; under --json
-        stdout carries the saved run's payload with that refusal as ``result``, and the run is unchanged."""
+        stdout carries the saved run's payload with that refusal as ``result``; the refused setting is not saved."""
         saved = (self.run_dir / "state.json").read_bytes()
         on_run = ("--run-dir", str(self.run_dir))
         for setting in (("--single-model", "gpt-x"), ("--spec-first",)):
@@ -221,6 +221,35 @@ class JsonActionCliTests(unittest.TestCase):
         self.assertEqual(
             {"result": {"exit_code": 2, "saved": False, "message": "", "error": error}}, json.loads(stdout)
         )
+        # Without --in-place the task worktree and branch are made before configure refuses: result.message
+        # carries what the invocation printed about them, and the worktree stays.
+        refusal, stdout, _ = self.raised(*(arg for arg in new_run if arg != "--in-place"))
+        result = json.loads(stdout)["result"]
+        self.assertEqual((2, False), (result["exit_code"], result["saved"]))
+        self.assertEqual({"code": "input_rejected", "message": refusal}, result["error"])
+        created, branch, starting = result["message"].splitlines()
+        self.assertTrue(created.startswith("Task worktree: "), created)
+        worktree = Path(created.removeprefix("Task worktree: "))
+        self.assertEqual(self.root / ".autocode/worktrees", worktree.parent)
+        self.assertTrue(worktree.is_dir(), worktree)
+        self.assertEqual(f"Branch: autocode/{worktree.name}", branch)
+        self.assertEqual("Starting from committed HEAD; the original checkout is unchanged.", starting)
+
+    def test_any_other_error_after_the_run_loads_still_prints_nothing_on_stdout(self):
+        """main reports only a setting configure refuses (run_setup.SettingRefused). Any other error cli() prints as
+        ``autocode: ...``, such as containment_policy's refusal (a plain ValueError) or a RuntimeError, still
+        leaves stdout empty under --json, though the run has loaded."""
+        for error in (ValueError("refused by the containment policy"), RuntimeError("failed after loading")):
+            with (
+                self.subTest(type(error).__name__),
+                patch.object(runner.run_setup.containment_policy, "configure", side_effect=error),
+                self.cli("--run-dir", str(self.run_dir), "--json") as (stdout, stderr),
+                self.assertRaises(type(error)) as caught,
+            ):
+                runner.main()
+            self.assertIs(error, caught.exception)
+            self.assertEqual("", stdout.getvalue())
+            self.assertNotIn('{"error"', stderr.getvalue())
 
     def test_a_run_stopped_inside_the_build_loop_prints_its_saved_payload_with_the_result(self):
         self.assertEqual(0, self.invoke("--approve-goal", self.token)[0])
