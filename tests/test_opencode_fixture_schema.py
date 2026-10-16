@@ -132,13 +132,16 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
                 self.env["AUTOCODE_FIXTURE_QUALIFIED_OPENCODE"] = "1"
             for schema in ("[]", "{} trailing text", "{} trailing text" + boundary, "[]" + boundary):
                 with self.subTest(schema=schema, qualified=qualified):
+                    # The schema starts its own line after a lead-in, as a rendered contract's does, so
+                    # "{} trailing text" is decoded and refused for the text after it, not for a missing "\n{".
                     result = self.invoke(
-                        "\nOPENCODE OUTPUT CONTRACT\n"
+                        "\nOPENCODE OUTPUT CONTRACT\nReturn JSON:\n"
                         + schema
                         + "\nCURRENT HANDOFF DATA\n"
                         + json.dumps({"execution_engine": "opencode", "stage": "astra_review"})
                     )
                     self.assertNotEqual(0, result.returncode)
+                    self.assertIn("fake_opencode: invalid current output schema", result.stderr)
                     self.assertNotIn("delegate must not launch", result.stderr)
 
     def test_a_contained_launch_relays_its_contract_only_from_the_qualified_fixture(self):
