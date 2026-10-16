@@ -38,7 +38,7 @@ class CompletionReworkCLI(unittest.TestCase):
             Path(artifacts).mkdir(parents=True, exist_ok=True)
             self.root = Path(tempfile.mkdtemp(prefix="rework-cli-", dir=artifacts)).resolve()
         else:
-            scratch = tempfile.TemporaryDirectory(prefix="rework-cli-", dir=results)
+            scratch = tempfile.TemporaryDirectory(prefix="rework-cli-", dir=results, ignore_cleanup_errors=True)
             self.addCleanup(scratch.cleanup)
             self.root = Path(scratch.name).resolve()
         self.scenario = catalog.load("completion-rework-direct")

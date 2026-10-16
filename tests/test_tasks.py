@@ -148,6 +148,15 @@ class TaskFlows(unittest.TestCase):
         self.assertEqual(["app", "docs"], [lane["id"] for lane in result["lanes"]])
         self.assertFalse((self.root / ".autocode").exists())
 
+    def test_dry_run_accepts_json_flag(self):
+        path = self.manifest(self.sample())
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(0, tasks.cli([str(path), "--workspace", str(self.root), "--dry-run", "--json"]))
+        result = json.loads(output.getvalue())
+        self.assertEqual("RUNNING", result["status"])
+        self.assertEqual(["app", "docs"], [lane["id"] for lane in result["lanes"]])
+
     def test_rejects_forward_or_cross_lane_ui_handoffs(self):
         value = self.sample()
         value["lanes"][0]["tasks"][1]["ui_from"] = "build"

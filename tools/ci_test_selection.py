@@ -79,7 +79,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (("tools/autocode_milestone",), ("tests.test_subprocess",)),
     (("tools/autocode_report", "tools/autocode_cmd_only_report"), ("tests.test_report_delivery_cli",)),
-    (("tools/autocode_planning", "tools/units/autoplanner"), ("tests.test_planning_cycle_cli",)),
+    # autocode_planning also matches autocode_planning_cycle; stage_roles and model_request left the planning unit (#695).
+    (
+        (
+            "tools/autocode_planning",
+            "tools/units/autoplanner",
+            "tools/autocode_stage_roles",
+            "tools/units/model_request",
+        ),
+        ("tests.test_planning_cycle_cli",),
+    ),
     (("tools/autocode_provider_auth",), ("tests.test_provider_auth_cli",)),
     (("tools/autocode_task_preflight", "tools/autocode_preflight"), ("tests.test_preflight_worker_cli",)),
     # --package's launch checks (resume, --test-root, committed files) are in autocode_run_setup.resolve,

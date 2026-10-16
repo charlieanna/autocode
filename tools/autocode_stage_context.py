@@ -33,6 +33,7 @@ try:
     from . import autocode_milestone_replan as replan
     from . import autocode_package_writes as package_writes
     from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_stage_roles as stage_roles
     from . import autocode_support as support
     from . import autocode_visual_evidence as visual
     from .autocode_util import criteria_definition
@@ -41,6 +42,7 @@ except ImportError:
     import autocode_milestone_replan as replan
     import autocode_package_writes as package_writes
     import autocode_protected_oracles as protected_oracles
+    import autocode_stage_roles as stage_roles
     import autocode_support as support
     import autocode_visual_evidence as visual
     from autocode_util import criteria_definition
@@ -55,10 +57,6 @@ def context_packet(state: RunState, stage, state_path):
         from . import autocode_workflow as workflow
     except ImportError:
         import autocode_workflow as workflow
-    try:
-        from . import autocode_planning as planning
-    except ImportError:
-        import autocode_planning as planning
     criteria = state.get("acceptance_criteria", [])
     base = {
         "task": state["task"],
@@ -87,7 +85,7 @@ def context_packet(state: RunState, stage, state_path):
         git_head=current["head"],
         current_task=state.get("current_task"),
         execution_limits=state["settings"].get("limits", {}),
-        execution_engine=planning.engine_for(state["settings"], planning.role_for(state, stage)),
+        execution_engine=stage_roles.engine_for(state["settings"], stage_roles.role_for(state, stage)),
     )
     if stage == "terra":
         base["builder_artifact_policy"] = {

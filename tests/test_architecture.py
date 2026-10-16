@@ -19,17 +19,12 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 # 2026-10-04: the scenario verdicts (scenario_verdicts) and the token cost helpers (token_cost) moved
 # out of the two live-trial pairs, which freed all four. The milestone scope (autocode_milestone_scope)
 # moved out of autocode_milestones, which freed milestones and the findings ledger.
+# 2026-10-16: which role and engine run a stage (autocode_stage_roles), the planning cycle
+# (autocode_planning_cycle) and the model request type (units/model_request) moved out of the planning
+# unit and units.common, which freed the last six: the goal lifecycle, workflow, the planning unit, its
+# compatibility shim, units.common and the stage context (#695). No module is in an import cycle now.
 # Taking a module out of the cycles is progress (remove it here); adding one fails.
-TANGLED = frozenset(
-    {
-        "autocode_goal_lifecycle",
-        "autocode_planning",
-        "autocode_stage_context",
-        "autocode_workflow",
-        "units.autoplanner",
-        "units.common",
-    }
-)
+TANGLED: frozenset[str] = frozenset()
 
 # Line counts on 2026-09-28, after merging master at 24617cc and moving subcommand dispatch out of
 # autocode.py. Lower these when a module shrinks.
@@ -78,6 +73,9 @@ MAX_FUNCTION_LINES = {("autocode_run_actions.py", "handle"): 9, ("autocode_args.
 # the dashboard/*, fixture (fake_*, autopilot_testkit, blackbox_build_provider, provider_conformance,
 # live_diagnosis_trial) and program/task-record entries write their own records' status fields, not
 # run status, and stay. Taking a module off the list is progress; a new writer outside it fails.
+# 2026-10-16: autocode_planning_cycle holds the planning unit's start(), moved unchanged with its one status
+# write to take the planning unit out of the import cycle (#695); units.autoplanner still writes status in
+# rerun_requirements. No write was added; it is still one to migrate.
 STATUS_WRITERS = frozenset(
     {
         "autocode",
@@ -107,6 +105,7 @@ STATUS_WRITERS = frozenset(
         "autocode_milestones",
         "autocode_operational_information",
         "autocode_planning_clarification",
+        "autocode_planning_cycle",
         "autocode_preflight_unittest",
         "autocode_program",
         "autocode_program_children",

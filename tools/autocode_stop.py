@@ -18,7 +18,7 @@ before applying the batch passes released=True: nothing is held then.
 
 This module sits below the controllers: it imports only autocode_util,
 autocode_interventions, autocode_goals and autocode_pause_authority, never the
-runner, autopilot, or any module in the import cycle. The state writer and clock
+runner, autopilot, or a module that imports them. The state writer and clock
 are passed in.
 """
 

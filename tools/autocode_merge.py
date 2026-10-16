@@ -94,6 +94,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--into", default=None, help="Branch to merge into (default: the base branch the run started from)"
     )
+    result.add_argument("--json", action="store_true", help="Format output as JSON")
     result.add_argument(
         "worktree",
         nargs="?",
@@ -126,5 +127,14 @@ def cli(argv) -> int:
     except (OSError, ValueError, json.JSONDecodeError) as error:
         arguments.error(str(error))
     ok, message = merge(project, tree, into=args.into)
+    if args.json:
+        payload = {
+            "project": str(project),
+            "worktree": str(tree),
+            "ok": ok,
+            "message": message,
+        }
+        print(json.dumps(payload, indent=2))
+        return 0 if ok else 1
     print(message)
     return 0 if ok else 1

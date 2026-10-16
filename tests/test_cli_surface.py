@@ -160,6 +160,26 @@ class CliSurfaceTests(unittest.TestCase):
                     .unit,
                 )
 
+    def test_docs_cli_subcommand_exit_codes_table_lists_subcommands(self):
+        doc = (ROOT / "docs" / "cli.md").read_text()
+        self.assertIn("### Subcommand exit codes", doc)
+        table_section = doc.split("### Subcommand exit codes", 1)[1].split("\n## ", 1)[0]
+        expected_subcommands = [
+            "`autocode plan`",
+            "`autocode prune-run`",
+            "`autocode merge`",
+            "`autocode clean-worktrees`",
+            "`autocode checkpoint`",
+            "`autocode tasks`",
+            "`autocode wait`",
+            "`autocode doctor`",
+            "`autocode models`",
+            "`autocode verify`",
+        ]
+        for cmd in expected_subcommands:
+            with self.subTest(command=cmd):
+                self.assertIn(cmd, table_section)
+
 
 if __name__ == "__main__":
     unittest.main()
