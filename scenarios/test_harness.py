@@ -1997,11 +1997,23 @@ class ApprovalProvenanceTests(unittest.TestCase):
             ("nothing listed", [], [plan], f"the harness approved plan {self.token}, which no plan row lists"),
             ("another plan", [self.row()], [{**plan, "token": "r3:b"}], "approved plan r3:b"),
             ("no review row", [self.row()], [plan, review], "the review of C1, which no review row lists"),
+            ("another criterion", [self.row(), self.row("review")], [plan, {**review, "criterion": "C2"}], "of C2"),
             ("only the policy's", [policy], [plan], "which no plan row lists"),
         ):
             with self.subTest(name):
                 (failure,) = self.failures(self.record(rows, gates))
                 self.assertIn(said, failure)
+
+    def test_the_run_record_carries_the_harness_s_approvals_to_the_check(self):
+        """run.run_record hands the gates the harness passed to the check; without them nothing is matched."""
+        gates = [{"gate": "approve_plan", "token": self.token}]
+        view = {"status": "TASK_COMPLETE", "approvals": []}
+        driver = argparse.Namespace(
+            run_dir=Path("r1"), view=lambda: view, answers=[], approvals=gates, steps=[], turn_marks=[]
+        )
+        record = run.run_record(driver, {"stages": []})
+        self.assertEqual(gates, record.get("approvals"))
+        self.assertEqual([f"the harness approved plan {self.token}, which no plan row lists"], self.failures(record))
 
     def test_only_a_completed_executed_run_is_judged(self):
         bad = [{**self.row(), "provenance": None}]
@@ -2029,11 +2041,16 @@ class ApprovalProvenanceTests(unittest.TestCase):
             },
             "architecture_view": {"status": "TASK_COMPLETE", "approvals": good},
         }
-        for record, expected in (
-            (program, [("approval provenance: program plan", True), ("approval provenance: M1", False)]),
-            (components, [("approval provenance: architecture", True), ("approval provenance: api", False)]),
+        # A plan or architecture run that has not completed is not judged, whatever its rows.
+        waiting = {"status": "AWAITING_GOAL_APPROVAL", "approvals": bad}
+        workstream, component = ("approval provenance: M1", False), ("approval provenance: api", False)
+        for name, record, expected in (
+            ("program", program, [("approval provenance: program plan", True), workstream]),
+            ("plan waiting", {**program, "plan": {"view": waiting}}, [workstream]),
+            ("components", components, [("approval provenance: architecture", True), component]),
+            ("architecture waiting", {**components, "architecture_view": waiting}, [component]),
         ):
-            with self.subTest(next(iter(expected))[0]):
+            with self.subTest(name):
                 self.assertEqual(expected, [(row.name, row.ok) for row in approval_provenance.checks(record)])
 
     def test_every_executed_run_s_oracle_result_holds_the_check(self):

@@ -221,6 +221,7 @@ class ConformanceDriver(Driver):
         advancing = any(flag in words for flag in ADVANCING)
         extra = [word for word in words if word != "--no-chat"]
         self.note(view, "took", shlex.join(words), source)
+        self.record_approvals(view["needs"], words)
         saved = dict(self.env)
         self.env.update(env)
         try:
@@ -235,6 +236,16 @@ class ConformanceDriver(Driver):
             keys = ("status", "next_stage", "iteration", "phase")
             if not after["done"] and all(after[key] == view[key] for key in keys) and after["needs"] == view["needs"]:
                 raise ConformanceGap(f"taking {shlex.join(words)!r} made no progress at {view['status']!r}")
+
+    def record_approvals(self, need: dict, words: list[str]) -> None:
+        """Each plan and review approval in ``words`` is a gate passed for the person. Record it in
+        ``approvals`` (result.json; harness.approval_provenance matches it to the view's rows) as
+        ``Driver.serve`` records the ones it serves, with the token the need names."""
+        if "--approve-goal" in words:
+            self.approvals.append({"gate": "approve_plan", "token": need.get("token")})
+        for index, flag in enumerate(words[:-1]):
+            if flag == "--approve-review":
+                self.approvals.append({"gate": "review", "criterion": words[index + 1], "token": need.get("token")})
 
     def watched(self, kind: str, extra: list[str]) -> None:
         """One advancing call, watched for the next moment the person acts at."""

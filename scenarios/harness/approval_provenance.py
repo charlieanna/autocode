@@ -2,15 +2,18 @@
 
 AutoCode records who made each plan and review approval, completion acceptance, goal
 edit and pause-releasing resume, and `--status --json` lists them under ``approvals``
-(docs/task-run.md, "Status view"). For every completed run the harness drove, each row a
-person made (``actor`` ``user_cli``) must carry the provenance of the person at the
-terminal: the Git identity every scenario project configures for them
+(docs/task-run.md, "Status view"). For every completed task run the harness drove,
+including a program's plan and workstream runs and a components run's architecture and
+component runs, each row a person made (``actor`` ``user_cli``) must carry the provenance
+of the person at the terminal: the Git identity every scenario project configures for them
 (``project.PERSON_NAME``, ``project.PERSON_EMAIL``), this machine's host name, and the
 command as ``autocode`` with option names only (and the ``resume`` command word), never
 their values. A row approved under the workflow policy names no person and must carry no
-provenance. Each plan and review approval the harness gave a task run itself
-(``Driver.approvals``) must be listed among them, so a view that lists nothing cannot
-pass for a run that was approved.
+provenance. In a scenario of one task run, each plan and review approval the harness gave
+it (``Driver.approvals``, which the conformance client records too) must be listed among
+them, so a view that lists nothing cannot pass for a run that was approved. The runs of a
+program or components scenario are checked for provenance only: one list holds the gates
+the harness gave all of them, so none is matched to a row.
 
 Only the status view the harness already read is used; nothing from tools/ is imported.
 """
