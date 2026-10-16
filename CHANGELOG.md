@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Opt-in blind tests via `--blind-tests` execute acceptance tests written by the Tester in a separate candidate
+  scratch tree without exposing test implementations or file paths to the Builder's workspace or prompt (#702).
+
 - `docs/cli.md` now includes a dedicated subcommand exit-code reference table documenting exit codes 0, 1, and 2
   across all subcommands, and `tests/test_cli_surface.py` tests that documented inventory (#714).
 

@@ -583,6 +583,24 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         self.assertEqual("passes", seen["results"]["C0"])
         self.assertTrue({seen["results"][cid] for cid in CASES} <= {"fails", "cannot load"}, seen["results"])
 
+    def test_blind_tests_cli_runs_tester_isolates_workspace_and_completes(self):
+        # With --blind-tests, Tester writes tests before Builder, but files are archived and isolated
+        guard = {"C0": "guard: test_receive_adds_units"}
+        self.scenario = dataclasses.replace(self.scenario, fake_criteria={**guard, **CASES})
+        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--blind-tests")
+        self.assertTrue(view["done"], self.details(view))
+        order = self.stage_order(run)
+        self.assertIn("acceptance-tests", order)
+        self.assertLess(order.index("acceptance-tests"), order.index("builder"), order)
+        seen = view["acceptance_tests"]
+        self.assertTrue(seen["blind"])
+        self.assertEqual(["tests/test_stock.py"], seen["files"])
+        self.assertEqual(sorted(["C0", *CASES]), sorted(seen["case_ids"]))
+        prompts = sorted(
+            Path(run.run_dir).glob("iterations/*/builder-*.prompt.md"), key=lambda path: path.stat().st_mtime
+        )
+        self.assertNotIn("The tests for the cases above are already written", prompts[0].read_text())
+
     def test_a_case_that_already_works_goes_back_to_plan_review_as_a_guard(self):
         self.scenario = dataclasses.replace(
             self.scenario, fake_criteria={"C0": "test: test_receive_adds_units", **CASES}
