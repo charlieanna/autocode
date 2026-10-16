@@ -66,7 +66,7 @@ def local_file(root, value):
     return path
 
 
-def verify(state, capture_ref, capture_sha256=None, *, case=None, current=None):
+def verify(state: RunState, capture_ref, capture_sha256=None, *, case=None, current=None):
     """Return the validated bundle and evidence files, never a visual PASS."""
     try:
         return _verify(state, capture_ref, capture_sha256, case=case, current=current)
@@ -74,7 +74,7 @@ def verify(state, capture_ref, capture_sha256=None, *, case=None, current=None):
         raise ValueError(f"Invalid or incomplete implementation capture manifest: {error}") from error
 
 
-def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None):
+def _verify(state: RunState, capture_ref, capture_sha256=None, *, case=None, current=None):
     root = Path(state["workspace"]).resolve()
     path = local_file(root, capture_ref)
     # Default live verification still opens only symlink-checked actual inputs.
@@ -248,7 +248,7 @@ def bundle_file(settings, workspace, path):
         return False
 
 
-def context(state, current, *, required_case_ids=None):
+def context(state: RunState, current, *, required_case_ids=None):
     """Select current bundles explicitly; historical captures stay on disk."""
     reference = reference_hash(state.get("settings", {}))
     if reference is None:
@@ -294,7 +294,7 @@ def context(state, current, *, required_case_ids=None):
     }
 
 
-def native_refs(state, report):
+def native_refs(state: RunState, report):
     """Native Figma runs without an exported inventory still need bound captures."""
     if not state.get("settings", {}).get("figma_file") or state["settings"].get("design_manifest"):
         return []
@@ -334,7 +334,7 @@ def native_refs(state, report):
     return list(dict.fromkeys(refs))
 
 
-def require_current_image_citations(state, report, candidates, references=()):
+def require_current_image_citations(state: RunState, report, candidates, references=()):
     allowed = set(candidates) | set(references)
     for result in report.get("criterion_results", []):
         if result.get("status") != "PASS":

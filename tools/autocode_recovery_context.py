@@ -19,10 +19,16 @@ The budget pause names the latest counted recovery (a timeout reason or a
 provider-startup failure), or says the cause is unknown. An abandon instruction
 is not a counted recovery.
 
-This module imports nothing from AutoCode.
+This module imports nothing from AutoCode at run time; RunState is imported
+for type checking only.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 from pathlib import Path
 
@@ -44,7 +50,7 @@ def _attempt_id(record) -> str | None:
     return f"{iteration:03d}/{Path(output).stem}"
 
 
-def _archive(state, reason: str) -> None:
+def _archive(state: RunState, reason: str) -> None:
     context = state.pop("recovery_context", None)
     if not context:
         return
@@ -53,7 +59,7 @@ def _archive(state, reason: str) -> None:
     state.setdefault("recovery_context_archive", []).append({"reason": reason, "recovery_context": context})
 
 
-def stage_saved(state, record) -> None:
+def stage_saved(state: RunState, record) -> None:
     """Retire ``recovery_context`` when the saved attempt is a different one."""
     context = state.get("recovery_context")
     if not isinstance(context, dict) or not context:
@@ -65,14 +71,14 @@ def stage_saved(state, record) -> None:
     _archive(state, "A later stage saved")
 
 
-def revision_approved(state) -> None:
+def revision_approved(state: RunState) -> None:
     """An approved contract revision retires whatever recovery note was current."""
     if not state.get("recovery_context"):
         return
     _archive(state, "A new contract revision was approved")
 
 
-def _timeout_reason(state, attempt_id) -> str | None:
+def _timeout_reason(state: RunState, attempt_id) -> str | None:
     history = state.get("automatic_timeout_recoveries") or []
     for recovery in reversed(history):
         if not isinstance(recovery, dict):
@@ -85,7 +91,7 @@ def _timeout_reason(state, attempt_id) -> str | None:
     return None
 
 
-def exhaustion_cause(state) -> str:
+def exhaustion_cause(state: RunState) -> str:
     """The recovery that spent the automatic-recovery budget, or an unknown cause.
 
     ``stop_reason`` quotes this as ``Last cause``. An abandoned attempt's

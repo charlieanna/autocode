@@ -35,6 +35,11 @@ the ordinary criteria, findings, full-flow, independent-review or human gates.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import json
 import re
 from pathlib import Path
@@ -104,7 +109,7 @@ def _receipt(receipt, check, token, source, *, current):
             raise ValueError("execution evidence absent from receipt")
 
 
-def _checkpoint(state, identity):
+def _checkpoint(state: RunState, identity):
     envelope = artifacts.verify(state.get("run_dir"), identity)
     proof = envelope["report"]
     if envelope["kind"] != "checkpoint" or type(proof.get("version")) is not int or proof["version"] != 1:
@@ -120,11 +125,11 @@ def _checkpoint(state, identity):
     return envelope, proof
 
 
-def _approved_contract(state, token):
+def _approved_contract(state: RunState, token):
     """Resolve authority from the actual sealed approval, never a grant assertion."""
     if type(token) is not str or not token:
         return None
-    current = state["goal_contract"]
+    current = cast(dict, state["goal_contract"])
     if contracts.token(current) == token and contracts.approved(state):
         return current
     history = state.get("contract_history")
@@ -144,7 +149,7 @@ def _approved_contract(state, token):
     return None
 
 
-def _retirement_contract(state, grant):
+def _retirement_contract(state: RunState, grant):
     fields = {"kind", "check_id", "check_hash", "removes", "contract_token", "visible_removal", "artifact"}
     if type(grant) is not dict or set(grant) != fields or grant["kind"] != "product_change":
         raise ValueError("retirement requires an exact approval-bound product-change grant")
@@ -168,7 +173,7 @@ def _retirement_contract(state, grant):
     return contract
 
 
-def _retirements(state, record, identities, obligations):
+def _retirements(state: RunState, record, identities, obligations):
     grants = record.get("retirements", [])
     if type(grants) is not list:
         raise ValueError("retirements must be explicit approval-bound grants")
@@ -205,7 +210,7 @@ def _retirements(state, record, identities, obligations):
     return retired
 
 
-def ready(state, current):
+def ready(state: RunState, current):
     """Additional predicate; ordinary absence is True, invalid progressive proof False."""
     try:
         body = (state.get("goal_contract") or {}).get("body") or {}
@@ -260,7 +265,7 @@ def ready(state, current):
             or envelope["predecessor_identity"] != active["artifact"]["sha256"]
         ):
             return False
-        required = record.get("required_checks")
+        required = cast(list, record.get("required_checks"))
         identities = _checks(required)
         if proof.get("required_checks") != required or verification_plan.product_checks(body, required):
             return False
@@ -272,7 +277,8 @@ def ready(state, current):
             return False
         slices = []
         obligations = [
-            (check, state["goal_contract"]) for check in record["initial_plan"]["proposal"]["slices"][0]["checks"]
+            (check, cast(dict, state["goal_contract"]))
+            for check in record["initial_plan"]["proposal"]["slices"][0]["checks"]
         ]
         for entry in history:
             _, past = _checkpoint(state, entry["artifact"])
@@ -310,7 +316,7 @@ def ready(state, current):
                         "delegation": archive["delegation"],
                     },
                 }
-                verified = ledger.require_active(archived_state)
+                verified = ledger.require_active(cast("RunState", archived_state))
                 checks = verified["definition"]["checks"]
                 obligations.extend((check, old) for check in checks)
                 obligations.extend((check, old) for check in verification_plan.product_checks(old["body"], checks))

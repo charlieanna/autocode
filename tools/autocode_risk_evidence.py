@@ -8,6 +8,11 @@ pinned transcripts and recomputes their protocol verdicts.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 import re
@@ -73,7 +78,7 @@ _CHECK_KEYS = frozenset(
 MAX_TRANSCRIPT_BYTES = 1024 * 1024
 
 
-def _identity(state):
+def _identity(state: RunState):
     contract = state.get("goal_contract") or {}
     wrapper = (contract.get("body") or {}).get(obligations.KEY) or {}
     return (
@@ -109,7 +114,15 @@ def evidence_pins(result):
 
 
 def replay(
-    state, workspace, out, scratch_run, *, timeout, source_revision, progressive_context=None, all_observations=False
+    state: RunState,
+    workspace,
+    out,
+    scratch_run,
+    *,
+    timeout,
+    source_revision,
+    progressive_context=None,
+    all_observations=False,
 ):
     cases = obligations.observations(state, progressive_context=progressive_context, all_observations=all_observations)
     if not cases:
@@ -212,7 +225,7 @@ def replay(
     return result
 
 
-def failure_reason(state):
+def failure_reason(state: RunState):
     """The saved validation's failed lifecycle observation, in words, or None."""
     result = ((state.get("validation") or {}).get("check_replay") or {}).get("risk_acceptance")
     if not isinstance(result, dict) or result.get("verdict") != FAIL:
@@ -223,7 +236,7 @@ def failure_reason(state):
     )
 
 
-def ready(state, current_revision):
+def ready(state: RunState, current_revision):
     try:
         cases = obligations.observations(state, all_observations=True)
         if not cases:
