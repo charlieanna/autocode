@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_provider_launch as provider_launch
 from providers import opencode
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
@@ -124,16 +125,37 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
 
     def test_malformed_current_schema_does_not_launch_delegate(self):
         self.delegate.write_text("raise AssertionError('delegate must not launch')\n")
-        for schema in ("[]", "{} trailing text"):
-            with self.subTest(schema=schema):
-                result = self.invoke(
-                    "\nOPENCODE OUTPUT CONTRACT\n"
-                    + schema
-                    + "\nCURRENT HANDOFF DATA\n"
-                    + json.dumps({"execution_engine": "opencode", "stage": "astra_review"})
-                )
-                self.assertNotEqual(0, result.returncode)
-                self.assertNotIn("delegate must not launch", result.stderr)
+        boundary = "\n\nNATIVE TOOL BOUNDARY: commands run in a kernel-constrained subprocess."
+        # The qualified fixture (#709) reads the contract up to a contained launch's boundary, no further.
+        for qualified in (False, True):
+            if qualified:
+                self.env["AUTOCODE_FIXTURE_QUALIFIED_OPENCODE"] = "1"
+            for schema in ("[]", "{} trailing text", "{} trailing text" + boundary, "[]" + boundary):
+                with self.subTest(schema=schema, qualified=qualified):
+                    result = self.invoke(
+                        "\nOPENCODE OUTPUT CONTRACT\n"
+                        + schema
+                        + "\nCURRENT HANDOFF DATA\n"
+                        + json.dumps({"execution_engine": "opencode", "stage": "astra_review"})
+                    )
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertNotIn("delegate must not launch", result.stderr)
+
+    def test_a_contained_launch_relays_its_contract_only_from_the_qualified_fixture(self):
+        # A contained launch follows the contract with the boundary instructions (#709).
+        prompt = provider_launch.containment_prompt(
+            self.rendered({"execution_engine": "opencode", "stage": "astra_review"}, SOURCE_VERDICT_SCHEMA),
+            {"tool_containment": {"scratch": str(self.root / "scratch")}},
+            stage="astra_review",
+        )
+        self.assertIn("\nNATIVE TOOL BOUNDARY:", prompt.rsplit("\nOPENCODE OUTPUT CONTRACT\n", 1)[1])
+        unqualified = self.invoke(prompt)  # The default fixture, as before.
+        self.assertNotEqual(0, unqualified.returncode)
+        self.assertIn("fake_opencode: invalid current output schema", unqualified.stderr)
+        self.env["AUTOCODE_FIXTURE_QUALIFIED_OPENCODE"] = "1"
+        report = self.report(self.invoke(prompt))
+        self.assertEqual(SOURCE_VERDICT_SCHEMA, report["schema"])
+        self.assertEqual(prompt, report["prompt"])
 
 
 if __name__ == "__main__":

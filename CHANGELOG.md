@@ -253,6 +253,16 @@ PR template asks for an entry here; a change without one is incomplete.
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
 
+- A fake OpenCode run through the CLI can launch its Builder, Tester and Completion Reviewer inside the real
+  Linux bubblewrap boundary (#709). With `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1` the test fixture reports
+  OpenCode 1.18.33 and answers the runner's model-free conformance checks through the boundary shell. The new
+  `tests/test_contained_fake_cli.py` checks that such a run finishes and that `--status --json` names `bubblewrap`
+  and its version in `tool_containment_backend`. It also checks that a Builder shell write planted outside the
+  workspace is blocked, while an uncontained control shows the same write lands. The `linux-tool-containment` CI
+  job runs it without skips, and changes to the fixture select that job. The fixture's own edits and checks still
+  run outside the boundary, so OpenCode's tool dispatch stays with the opt-in `NativeToolTests`. Without the
+  variable the fixture is unchanged.
+
 ### Changed
 
 - Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the

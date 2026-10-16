@@ -1517,6 +1517,15 @@ boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-
 `NativeToolTests` (`AUTOCODE_NATIVE_CONTAINMENT_TEST=1`, OpenCode 1.18.33 on `PATH`)
 do, on either backend. The full scenario suite continues to run on Ubuntu.
 
+The `linux-tool-containment` job also runs `ContainedFakeOpenCodeFlow` from
+`tests/test_contained_fake_cli.py` without skips. It drives a fake OpenCode run through
+the CLI whose Builder, Tester and Completion Reviewer launch inside the real bubblewrap
+boundary. It checks that the run finishes, that `--status --json` names the backend, and
+that a Builder shell write planted outside the workspace is blocked; an uncontained
+control shows the same write lands. The fake client's own edits and checks run outside
+the boundary, so this does not replace `NativeToolTests` either. The container backend
+(`docker` or `podman`) and a fake scenario under each backend are still open.
+
 ## Secret redaction
 
 Evidence is meant to be shared: pull request bodies, exported reports, bug
