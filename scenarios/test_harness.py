@@ -318,6 +318,8 @@ class DriverFlagTests(unittest.TestCase):
             "--workflow=build",
             "--terra-model",
             "claude-haiku",
+            "--package",
+            "packages/greet/",
         ]
         done = subprocess.CompletedProcess([], 0, "", "")
         with tempfile.TemporaryDirectory() as root, patch("harness.driver.run_cli", return_value=done) as launch:
@@ -327,7 +329,8 @@ class DriverFlagTests(unittest.TestCase):
             driver.call("resume", "--resume-paused")
         first, then = (call.args[0] for call in launch.call_args_list)
         self.assertEqual(flags, first[first.index("--no-chat") + 1 :])
-        # The CLI refuses --builder-strong-model and --workflow on a saved run, so a resume never repeats them.
+        # The CLI refuses --builder-strong-model, --workflow and --package on a saved run, so a resume never
+        # repeats them.
         self.assertEqual(
             ["--provider", "claude", "--terra-model", "claude-haiku", "--resume-paused"],
             then[then.index("--no-chat") + 1 :],
@@ -1795,6 +1798,11 @@ CONTROL_SUMMARIES = {
         "broken/refusal-writes-store": "5/6 checks; failing: hidden_tests_pass",
         "broken/vacuous-refusal-tests": "5/6 checks; failing: new_command_tests_fail_on_original_code",
     },
+    "feature-monorepo-package": {
+        "seed": "4/7 checks; failing: hidden_tests_pass, new_tests_fail_on_original_code, readme_documents_option",
+        "reference": "7/7 checks",
+        "broken/edits-farewell-package": "6/7 checks; failing: nothing_changed_outside_the_package",
+    },
 }
 
 
@@ -2030,6 +2038,62 @@ class RunChecksTests(unittest.TestCase):
             c for c in oracle.run_checks(run_record, workflow="bugfix", max_model_stages=5) if c.name == "stage_budget"
         ]
         self.assertFalse(check.ok)
+
+
+class MonorepoPackageOracleTests(unittest.TestCase):
+    """feature-monorepo-package judges the run's own report of changes outside its package (#711): every one
+    named in an open blocking runner finding, none invented, and nothing to judge in a run without --package."""
+
+    FINDING = "Files outside the package packages/greet/ changed: "
+
+    def score(self, overlay, findings, package="packages/greet"):
+        from harness.project import materialize
+
+        scenario = catalog.load("feature-monorepo-package")
+        with tempfile.TemporaryDirectory(prefix="monorepo-oracle-test-") as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.dir / overlay)
+            record = {
+                "status": "RESOLVER_PENDING",
+                "view": {"workflow": "build", "package": package, "evidence": {"findings": findings}},
+                "stages": ["astra_challenge", "terra", "sol", "astra_review"],
+                "steps": [{"kind": "approve-plan", "exit": 0}],
+            }
+            result = verdict.evaluate(scenario, project, record)
+        self.assertEqual("", result.error)
+        return {check.name: check for check in result.checks}
+
+    def finding(self, text, status="open"):
+        return {"id": "F-1", "source": "runner", "status": status, "blocking": True, "finding": self.FINDING + text}
+
+    def other_runner_finding(self, text):
+        # The run's other runner finding (autocode_risk_findings) is not the package check's report.
+        return {**self.finding(""), "finding": "Runner lifecycle replay failed after " + text}
+
+    def test_every_change_outside_the_package_must_be_named_in_the_open_blocking_package_finding(self):
+        both = "packages/farewell/farewell.py (modified), packages/farewell/test_farewell_formal.py (added). Restore"
+        one = "packages/farewell/farewell.py (modified). Restore"
+        for findings, ok in (
+            ([self.finding(both)], True),
+            ([self.finding(one)], False),
+            ([self.finding(both, status="closed")], False),
+            ([{**self.finding(both), "source": "reviewer"}], False),
+            ([{**self.finding(both), "blocking": False}], False),
+            ([self.other_runner_finding(both)], False),
+            ([], False),
+        ):
+            with self.subTest(findings=findings):
+                checks = self.score("broken/edits-farewell-package", findings)
+                self.assertEqual(ok, checks["outside_changes_reported"].ok, checks["outside_changes_reported"])
+                self.assertFalse(checks["nothing_changed_outside_the_package"].ok)
+
+    def test_a_report_with_nothing_outside_is_invented_and_a_run_without_the_package_is_not_judged(self):
+        checks = self.score("reference", [self.finding("README.md (modified). Restore")])
+        self.assertFalse(checks["outside_changes_reported"].ok)
+        self.assertTrue(self.score("reference", [])["outside_changes_reported"].ok)
+        other = [self.other_runner_finding("packages/greet/greet.py (modified)")]
+        self.assertTrue(self.score("reference", other)["outside_changes_reported"].ok)
+        # A live profile is not started with --package: only the delivered files are judged.
+        self.assertNotIn("outside_changes_reported", self.score("broken/edits-farewell-package", [], package=None))
 
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
@@ -4537,6 +4601,22 @@ class FakeRunTests(unittest.TestCase):
     def test_parallel_diamond_broken_variant_is_caught(self):
         result = self.run_fake("broken/missing-edge", "parallel-diamond")
         self.assertNotEqual(verdict.PASS, result["verdict"], result["summary"])
+
+    def test_a_package_run_completes_a_change_inside_its_package(self):
+        """#711: started with --package packages/greet/ ([fake] flags, never repeated on the saved run), the
+        reference completes, and the status view reports nothing outside the package."""
+        result = self.run_fake("reference", "feature-monorepo-package")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
+
+    def test_a_package_run_reports_a_write_to_the_other_package_and_stops(self):
+        """#711: the broken variant also edits packages/farewell/. The runner names both files in an open
+        blocking finding and the run stops without completing; before #1415 it completed (FALSE_COMPLETE)."""
+        result = self.run_fake("broken/edits-farewell-package", "feature-monorepo-package")
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        failing = [row["name"] for row in result["checks"] if not row["ok"]]
+        self.assertEqual(["nothing_changed_outside_the_package"], failing, result["checks"])
+        self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
 
     def test_a_review_runs_only_the_reviewer_and_leaves_the_tree_alone(self):
         result = self.run_fake("reference", "review-clean-pr")

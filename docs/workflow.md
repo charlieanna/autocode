@@ -679,6 +679,12 @@ What the package changes:
   also leaves a change outside the package `UNVERIFIED`, because the package
   suite never ran it.
 
+The `feature-monorepo-package` scenario
+([scenarios/README.md, Catalog](../scenarios/README.md#catalog)) runs a build in
+one package of a two-package repository with `--package` and the scripted
+model. Its reference completes; its broken variant, which also edits the other
+package, stops with each of those files named in the open `runner` finding.
+
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
 package. A `--test-command` in exactly that form for the run's own package, with
@@ -738,7 +744,6 @@ Not covered yet (#711):
   with the suite detected at the repository root.
 - Diff coverage and the mutation report, which never change a verdict, are not
   narrowed to a package's commands and may be skipped.
-- The `scenarios/` catalog has no two-package scenario yet.
 
 ## Reviews, discussions and designs: findings and claims shown by running code
 
