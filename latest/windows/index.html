@@ -445,10 +445,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#open-module-level-fcntl-imports" class="md-nav__link">
+  <a href="#open-autocode_junit-at-load" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Open: module-level fcntl imports
+        Open: autocode_junit at load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#open-posix-only-calls-in-those-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open: POSIX-only calls in those modules
       
     </span>
   </a>
@@ -1937,10 +1948,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#open-module-level-fcntl-imports" class="md-nav__link">
+  <a href="#open-autocode_junit-at-load" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Open: module-level fcntl imports
+        Open: autocode_junit at load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#open-posix-only-calls-in-those-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open: POSIX-only calls in those modules
       
     </span>
   </a>
@@ -2027,7 +2049,10 @@ the job summary and never fails the workflow. Make it required once it is green.
 <p><code>tests/test_windows_portability.py</code> runs on Linux and fails when a runtime module
 gains a module-level import of a POSIX-only module (<code>fcntl</code>, <code>termios</code>, <code>pwd</code>, <code>grp</code>,
 <code>resource</code>, <code>pty</code> and similar), because one such import stops <code>autocode</code> from starting
-on Windows before any platform check runs. Its list is the debt below.</p>
+on Windows before any platform check runs. It allows no exceptions: the last ones were
+removed on 2026-10-16. It also loads the CLI and the thirteen modules that used to import
+<code>fcntl</code> in a fresh interpreter where <code>import fcntl</code> fails, so an import through another
+module is caught too.</p>
 <h2 id="audit-2026-10-15">Audit (2026-10-15)<a class="headerlink" href="#audit-2026-10-15" title="Permanent link">&para;</a></h2>
 <p>Scope as proposed in #698: <code>autocode_util</code> (locks, snapshots, JSON files), the
 provider launchers in <code>tools/providers/</code>, and the activity watchdog. Process
@@ -2057,20 +2082,43 @@ supervision is included because it decides the fake-scenario acceptance.</p>
 <td>Syncing the directory after the rename opens it with <code>os.open</code>, which Windows refuses (<code>PermissionError</code>): every JSON state write failed.</td>
 <td>Skip the directory sync on Windows. The file's data is still synced before the rename.</td>
 </tr>
+<tr>
+<td>Thirteen runtime modules (below)</td>
+<td>Module-level <code>import fcntl</code> and direct <code>fcntl.flock</code> calls: loading any of them failed, and the CLI loads nine of them at start.</td>
+<td>They lock through <code>autocode_util.lock_file</code> / <code>unlock_file</code>, with <code>blocking=True</code> where they waited before. On POSIX each takes the same exclusive <code>flock</code>, blocking or not, raises the same <code>BlockingIOError</code> when busy and unlocks at the same points. <code>autocode_registry</code> and <code>autocode_interventions</code> now unlock only a lock they took: <code>msvcrt</code> refuses to unlock a range its handle never locked, which would have replaced their "busy" error after a timed-out wait.</td>
+</tr>
 </tbody>
 </table>
-<h3 id="open-module-level-fcntl-imports">Open: module-level <code>fcntl</code> imports<a class="headerlink" href="#open-module-level-fcntl-imports" title="Permanent link">&para;</a></h3>
-<p>These runtime modules still <code>import fcntl</code> at load and lock with <code>fcntl.flock</code>
-directly. Each is a mechanical move to <code>autocode_util.lock_file</code> / <code>unlock_file</code>
-(<code>blocking=True</code> where they wait today). <code>tests/test_registry.py</code> and
-<code>tests/test_interventions.py</code> patch <code>registry.fcntl</code> and <code>interventions.fcntl</code>, so
-those tests move with them.</p>
-<p><code>autocode_checkout_lock</code>, <code>autocode_checkpoint_cli</code>, <code>autocode_controller_owner</code>,
-<code>autocode_conversation</code>, <code>autocode_conversation_session</code>, <code>autocode_dependencies</code>,
-<code>autocode_interventions</code>, <code>autocode_milestones</code>, <code>autocode_registry</code>,
-<code>autocode_usage</code>, <code>autocode_workspaces</code>, <code>autocode_worktrees</code>,
-<code>opencode_stage_router</code>.</p>
-<p>The frozen dashboard (<code>tools/dashboard/</code>) has five more; it changes only for bug fixes.</p>
+<p>The thirteen modules: <code>autocode_checkout_lock</code>, <code>autocode_checkpoint_cli</code>,
+<code>autocode_controller_owner</code>, <code>autocode_conversation</code>, <code>autocode_conversation_session</code>,
+<code>autocode_dependencies</code>, <code>autocode_interventions</code>, <code>autocode_milestones</code>,
+<code>autocode_registry</code>, <code>autocode_usage</code>, <code>autocode_workspaces</code>, <code>autocode_worktrees</code>,
+<code>opencode_stage_router</code> (2026-10-16).</p>
+<h3 id="open-autocode_junit-at-load">Open: <code>autocode_junit</code> at load<a class="headerlink" href="#open-autocode_junit-at-load" title="Permanent link">&para;</a></h3>
+<p><code>autocode_junit</code> computes <code>os.O_DIRECTORY | os.O_NOFOLLOW</code> and <code>os.O_NOFOLLOW |
+os.O_NONBLOCK</code> at module level. Windows has none of those flags, so loading the CLI
+raises <code>AttributeError</code> there. This is the next load failure now that <code>fcntl</code> is gone:
+found on Linux by removing <code>os.O_DIRECTORY</code> and <code>os.O_NOFOLLOW</code> before loading the CLI,
+not yet seen on the Windows runner. The import check above does not catch it. The module
+walks to a JUnit report one directory at a time with <code>dir_fd</code> and refuses links, which
+Windows does not support either, so it needs a Windows way to read the report safely,
+not only a default for the missing flags.</p>
+<h3 id="open-posix-only-calls-in-those-modules">Open: POSIX-only calls in those modules<a class="headerlink" href="#open-posix-only-calls-in-those-modules" title="Permanent link">&para;</a></h3>
+<p>They no longer need <code>fcntl</code> to load, but some of their calls still fail on Windows:</p>
+<ul>
+<li><code>os.O_DIRECTORY</code> and <code>os.O_NOFOLLOW</code>, which Windows lacks, raise <code>AttributeError</code>:
+  <code>autocode_workspaces.keep_out_of_git</code> upgrading an existing <code>.autocode/.gitignore</code>,
+  <code>autocode_controller_owner</code> reading its receipt and probing its lock, and
+  <code>autocode_conversation_session</code> locking the selected folder before it creates a
+  project there. That last one locks the folder itself, which Windows cannot open with
+  <code>os.open</code>, so it needs a lock file on Windows.</li>
+<li><code>autocode_checkout_lock.exclusive</code> closes its handle without unlocking so that a
+  surviving provider child keeps the checkout locked. That relies on <code>flock</code>, where a
+  child that inherited the descriptor keeps the lock; whether a <code>msvcrt</code> lock survives
+  that way is unverified. It matters only once providers can run natively (below).</li>
+</ul>
+<p>The frozen dashboard (<code>tools/dashboard/</code>) still imports <code>fcntl</code> in five modules; it
+changes only for bug fixes.</p>
 <h3 id="open-needs-a-decision">Open: needs a decision<a class="headerlink" href="#open-needs-a-decision" title="Permanent link">&para;</a></h3>
 <p><strong>Supervised provider launches.</strong> Task-stage providers, fake ones included, run under
 the Linux kernel boundary in <a href="../providers/#provider-process-ownership">provider process ownership</a>:
@@ -2094,6 +2142,11 @@ whether it qualifies, before it is built.</p>
 </ul>
 <h3 id="to-verify-on-the-windows-runner">To verify on the Windows runner<a class="headerlink" href="#to-verify-on-the-windows-runner" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Several of the thirteen modules release a lock by closing its file rather than
+  unlocking it (<code>autocode_checkpoint_cli</code>, <code>autocode_workspaces.creating</code>,
+  <code>autocode_worktrees</code>, <code>autocode_dependencies</code>, <code>opencode_stage_router</code>). Windows
+  releases a <code>msvcrt</code> lock when its handle closes, but documents the timing as
+  depending on system resources, so a lock taken again at once may briefly be busy.</li>
 <li><code>autocode_util.snapshot</code> records <code>executable:</code> from <code>st_mode &amp; 0o111</code>. Windows
   derives those bits from the file extension, so a snapshot taken on Windows differs
   from one of the same tree on Linux. Snapshots are compared on one host, so this
