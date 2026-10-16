@@ -2348,7 +2348,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/9494b17d102729803821245ba4df5cdad177b0a6/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/e8a3809feff8cfeffa2075a2a054e75c4d0fc078/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2405,7 +2405,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode tasks</code></td>
-<td>Run a multi-lane task flow file.</td>
+<td>Run a multi-lane task flow file; accepts <code>--json</code>.</td>
 </tr>
 <tr>
 <td><code>autocode components</code></td>
@@ -2433,10 +2433,10 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT</code></td>
-<td>Compare retained code or restore it by the exact inspected token (see <a href="../task-run/#saved-code-checkpoints">Saved code checkpoints</a>).</td>
+<td>Compare retained code or restore it by the exact inspected token; accepts <code>--json</code> (see <a href="../task-run/#saved-code-checkpoints">Saved code checkpoints</a>).</td>
 </tr>
 <tr>
-<td><code>autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH]</code></td>
+<td><code>autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH] [--json]</code></td>
 <td>Merge a delivered task worktree into its base branch (see <a href="../task-lanes/#when-a-task-finishes">Task lanes</a>).</td>
 </tr>
 <tr>
@@ -2468,11 +2468,11 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <td>Clear only the learned project record; keep explicit configuration, saved runs and evidence. See <a href="../project-memory/">Project memory</a>.</td>
 </tr>
 <tr>
-<td><code>autocode clean-worktrees [--yes]</code></td>
+<td><code>autocode clean-worktrees [--yes] [--json]</code></td>
 <td>List, then with <code>--yes</code> remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see <a href="../task-lanes/#when-a-task-finishes">Task lanes</a>).</td>
 </tr>
 <tr>
-<td><code>autocode prune-run RUN [--yes]</code></td>
+<td><code>autocode prune-run RUN [--yes] [--json]</code></td>
 <td>List, then with <code>--yes</code> delete a run's settled evidence bytes: finished verification-copy trees (<code>tool-containment-*/scratch</code>) and settled job-source stores (<code>&lt;attempt&gt;.source/</code>). Manifests, receipts and hashes are retained, so what was there stays provable; <code>state.json</code> is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown.</td>
 </tr>
 <tr>
@@ -2508,8 +2508,8 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <td>One saved run's recorded events as a JSON-lines stream: how it got to where <code>--status</code> says it stands, one event per line, printed exactly as the run wrote it. These are the run's own records — its approvals, answers, contract and configuration changes, routing decisions and self-taken recoveries — not a provider's transcript. <code>--follow</code> keeps printing new events until the run ends the stream, and the status view contract is what ends it: a completed run exits 0, a run that needs a person exits 2 after naming that person's command on stderr, and <code>--timeout SECONDS</code> bounds the wait. Stdout is always JSON lines, so <code>--json</code> does not apply; the envelope is <a href="../schemas/run-event.schema.json">run-event.schema.json</a>, whose <code>kind</code> is an open vocabulary a consumer must tolerate. Read-only, and like <code>runs</code> it inspects no supervised process: a stage hung mid-flight keeps the stream open, so ask <code>autocode --run-dir RUN --status</code> whether it is alive.</td>
 </tr>
 <tr>
-<td><code>autocode plan --export PATH [--run-dir RUN]</code> / <code>autocode plan --check PATH</code> / <code>autocode plan --render PATH</code></td>
-<td>Write a saved run's current plan (shown for approval or approved) as a Markdown file to review in a pull request: a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body) and the revision it came from, then the plan as text generated from it. Never the approval token; credential-shaped text is masked as in <code>bundle</code>, and the export then says the file's goal hash differs from the run's. <code>--check</code> reads such a file and prints its goal hash, and exits 2 when the file cannot be read or its text no longer matches its front matter. <code>--render</code> regenerates that text after the front matter was edited. Reads the checkpoint like <code>events</code>: no run lock, nothing recorded, nothing launched; only the named file is written. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
+<td><code>autocode plan --export PATH [--run-dir RUN] [--json]</code> / <code>autocode plan --check PATH [--json]</code> / <code>autocode plan --render PATH [--json]</code></td>
+<td>Write a saved run's current plan (shown for approval or approved) as a Markdown file to review in a pull request: a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body) and the revision it came from, then the plan as text generated from it. Never the approval token; credential-shaped text is masked as in <code>bundle</code>, and the export then says the file's goal hash differs from the run's. <code>--check</code> reads such a file and prints its goal hash, and exits 2 when the file cannot be read or its text no longer matches its front matter. <code>--render</code> regenerates that text after the front matter was edited. Reads the checkpoint like <code>events</code>: no run lock, nothing recorded, nothing launched; only the named file is written. <code>--json</code> formats results or error endings as structured JSON. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
 </tr>
 <tr>
 <td><code>autocode wait [--run-dir RUN] [--timeout S]</code></td>
@@ -2548,7 +2548,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/9494b17d102729803821245ba4df5cdad177b0a6/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/e8a3809feff8cfeffa2075a2a054e75c4d0fc078/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3114,7 +3114,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/9494b17d102729803821245ba4df5cdad177b0a6/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/e8a3809feff8cfeffa2075a2a054e75c4d0fc078/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3540,8 +3540,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode clean-worktrees</code></td>
-<td><code>--workspace</code>, <code>--yes</code></td>
-<td>Select the project; remove eligible completed worktrees only with <code>--yes</code>.</td>
+<td><code>--workspace</code>, <code>--yes</code>, <code>--json</code></td>
+<td>Select the project; remove eligible completed worktrees only with <code>--yes</code>; optionally format output as JSON.</td>
 </tr>
 <tr>
 <td><code>autocode bundle</code></td>
@@ -3550,17 +3550,17 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode prune-run</code></td>
-<td><code>--yes</code></td>
-<td>Delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists.</td>
+<td><code>--yes</code>, <code>--json</code></td>
+<td>Delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON.</td>
 </tr>
 <tr>
 <td><code>autocode merge</code></td>
-<td><code>--workspace</code>, <code>--into</code></td>
-<td>Select the project and target branch for a delivered task worktree.</td>
+<td><code>--workspace</code>, <code>--into</code>, <code>--json</code></td>
+<td>Select the project and target branch for a delivered task worktree; optionally format result as JSON.</td>
 </tr>
 <tr>
 <td><code>autocode checkpoint</code></td>
-<td><code>--workspace</code>, <code>--run-dir</code>, <code>--compare</code>, <code>--restore</code>, <code>--expected-token</code>, <code>--request-id</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--compare</code>, <code>--restore</code>, <code>--expected-token</code>, <code>--request-id</code>, <code>--json</code></td>
 <td>Compare or restore retained code. Restore requires its exact inspected token; the request ID identifies the action.</td>
 </tr>
 <tr>
@@ -3575,7 +3575,7 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode tasks</code></td>
-<td><code>--workspace</code>, <code>--max-parallel</code>, <code>--dry-run</code></td>
+<td><code>--workspace</code>, <code>--max-parallel</code>, <code>--dry-run</code>, <code>--json</code></td>
 <td>Project, concurrent lanes and a read-only manifest preview.</td>
 </tr>
 <tr>
@@ -3590,8 +3590,8 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 </tr>
 <tr>
 <td><code>autocode plan</code></td>
-<td><code>--export</code>, <code>--check</code>, <code>--render</code>, <code>--workspace</code>, <code>--run-dir</code></td>
-<td>Exactly one of: write the run's plan to this file, read a plan file and print its goal hash, regenerate a plan file's text from its front matter. With <code>--export</code>, the project whose saved run to export and the run itself (otherwise the workspace's only run).</td>
+<td><code>--export</code>, <code>--check</code>, <code>--render</code>, <code>--workspace</code>, <code>--run-dir</code>, <code>--json</code></td>
+<td>Exactly one of: write the run's plan to this file, read a plan file and print its goal hash, regenerate a plan file's text from its front matter. With <code>--export</code>, the project whose saved run to export and the run itself (otherwise the workspace's only run). <code>--json</code> outputs structured JSON payloads.</td>
 </tr>
 <tr>
 <td><code>autocode wait</code></td>
@@ -3776,7 +3776,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/9494b17d102729803821245ba4df5cdad177b0a6/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/e8a3809feff8cfeffa2075a2a054e75c4d0fc078/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
