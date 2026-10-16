@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import datetime as dt
 import json
@@ -244,7 +249,7 @@ def run_stage(name, model, text, workspace, run_dir, schema=None, dry_run=False,
     return output, report
 
 
-def seed_accepted_plan(state, source_dir, run_dir):
+def seed_accepted_plan(state: RunState, source_dir, run_dir):
     source_dir = source_dir.resolve()
     prior = json.loads((source_dir / "state.json").read_text())
     finalizer = prior.get("reports", {}).get("plan_finalizer", {})

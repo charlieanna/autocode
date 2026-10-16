@@ -1,5 +1,12 @@
 """Native request receipts and input context, with explicit incomplete coverage."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 import math
@@ -271,7 +278,7 @@ def read(path):
     return {**measurement(rows), "accounting": result}
 
 
-def saved_metrics(state, key):
+def saved_metrics(state: RunState, key):
     stages = state.get("stages")
     rows = []
     for record in stages if isinstance(stages, list) else []:
@@ -281,7 +288,7 @@ def saved_metrics(state, key):
     return rows
 
 
-def view(state):
+def view(state: RunState):
     rows = saved_metrics(state, "request_context")
     known = [row for row in rows if row and type(row.get("peak_input_tokens")) is int and row["peak_input_tokens"] >= 0]
     return {

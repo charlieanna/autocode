@@ -15,6 +15,13 @@ or a pending failure recovery, or that is the newest of its kind is kept, with
 the referencing strings shown. Run state is never modified.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import shutil
 from pathlib import Path
@@ -53,7 +60,7 @@ def _bytes(path):
     return total
 
 
-def _blocking_references(state, directory):
+def _blocking_references(state: RunState, directory):
     """State strings naming files inside the directory: someone may still read those bytes.
 
     The manifest (verification-copy.json) and the tree root (a captured cwd)
@@ -72,12 +79,12 @@ def _blocking_references(state, directory):
     return found
 
 
-def _finished(state):
+def _finished(state: RunState):
     """A finished run (TASK_COMPLETE, or a durable stop applied) never restores or captures again."""
     return state.get("status") == "TASK_COMPLETE" or stop.applied_stop(state) is not None
 
 
-def _pending_for(state, stem):
+def _pending_for(state: RunState, stem):
     """Whether any live/pending state still names this attempt (its restore or capture may run)."""
     for field in PENDING_FIELDS:
         for text in _strings(state.get(field)):
@@ -86,17 +93,17 @@ def _pending_for(state, stem):
     return ""
 
 
-def candidates(state, run_dir):
+def candidates(state: RunState, run_dir):
     """Classify every retained evidence directory: what is deletable, what is kept, and why."""
     run = Path(run_dir)
-    rows = {"verification-copy": [], "source-store": []}
+    rows: dict = {"verification-copy": [], "source-store": []}
     for directory in sorted(run.glob("tool-containment-*")):
         if directory.is_dir() and not directory.is_symlink():
             rows["verification-copy"].append(directory)
     for directory in sorted(run.glob("iterations/*/*.source")):
         if directory.is_dir() and not directory.is_symlink():
             rows["source-store"].append(directory)
-    plan = {"delete": [], "keep": []}
+    plan: dict = {"delete": [], "keep": []}
     for kind in KINDS:
         newest = max(rows[kind], key=lambda path: path.stat().st_mtime, default=None)
         for directory in rows[kind]:

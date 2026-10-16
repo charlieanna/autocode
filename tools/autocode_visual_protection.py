@@ -34,6 +34,7 @@ try:
     from . import autocode_native_cancellation as cancellation
     from . import autocode_native_capture_policy as capture_policy
     from . import autocode_native_check_runtime as check_runtime
+    from . import autocode_native_linux_check as linux_check
     from . import autocode_native_locators as native_locators
     from . import autocode_native_stage_recovery as stage_recovery
     from . import autocode_output_cap as output_cap
@@ -60,6 +61,7 @@ except ImportError:
     import autocode_native_cancellation as cancellation
     import autocode_native_capture_policy as capture_policy
     import autocode_native_check_runtime as check_runtime
+    import autocode_native_linux_check as linux_check
     import autocode_native_locators as native_locators
     import autocode_native_stage_recovery as stage_recovery
     import autocode_output_cap as output_cap
@@ -734,9 +736,10 @@ class NativeProtection:
                 and record.get("accounted") is True
                 and record.get("timed_out") is False
                 and record.get("exit_code") == 0
+                # A report-only launch qualifies only as the counted launch of the pending repair.
+                and (not record.get("report_only") or stage_recovery.repair_launch(state, record))
                 and not any(
-                    record.get(key)
-                    for key in ("report_only", "dry_run", "rejected", "abandoned", "interrupted", "supervision_errors")
+                    record.get(key) for key in ("dry_run", "rejected", "abandoned", "interrupted", "supervision_errors")
                 ),
                 "output limit is not an original collected planning stop",
             )
@@ -1214,7 +1217,9 @@ class NativeProtection:
         )
 
     def _planning_input_pins(self, binding, record):
-        if binding["task"] is not None or record.get("stage") not in roles.ALL_PLANNING_STAGES:
+        # A report-only repair binds the same planning inputs as the stage it repairs.
+        stage = str(record.get("stage") or "").removesuffix("_report_repair")
+        if binding["task"] is not None or stage not in roles.ALL_PLANNING_STAGES:
             return {}
         pins = design_manifest.planning_input_pins(binding["settings"], role=record_route(record))
         for name in pins:
@@ -1974,13 +1979,16 @@ class NativeProtection:
             "unsupported interpreter dependency authority",
         )
         binaries = [
-            Path("/usr/bin/sandbox-exec"),
+            linux_check.kernel.executable() if sys.platform == "linux" else Path("/usr/bin/sandbox-exec"),
             Path("/bin/bash"),
-            Path("/usr/bin/git"),
             Path(sys.executable).resolve(),
         ]
+        if sys.platform != "linux":
+            binaries.append(Path("/usr/bin/git"))
         if native is not None:
             binaries.append(Path(native["executable"]))
+        if sys.platform == "linux":
+            binaries.append(Path("/bin/sh"))
         _require(
             boundary["executables"] == {str(p): util.file_hash(p) for p in binaries}, "native check executable changed"
         )
@@ -2001,7 +2009,10 @@ class NativeProtection:
         else:
             _require(boundary["setup"], "final check requires a sealed copy")
         profile = self._safe(boundary["profile"], file=True)
-        _require(profile.parent == control and profile.suffix == ".sb", "foreign check policy path")
+        _require(
+            profile.parent == control and profile.suffix == (".json" if sys.platform == "linux" else ".sb"),
+            "foreign check policy path",
+        )
         output = self._safe(boundary["output"])
         _require(output.is_relative_to(self.run) and output.suffix == ".log", "foreign check output slot")
         _require(
@@ -2009,6 +2020,14 @@ class NativeProtection:
             and all(self._safe(name).parent == scratch / "writable" for name in boundary["result_slots"]),
             "foreign structured result slot",
         )
+        if sys.platform == "linux":
+            try:
+                linux_check.verify(boundary, body, runtime=runtime)
+            except (ValueError, OSError) as error:
+                raise util.Paused(
+                    "PAUSED_VISUAL_EVIDENCE", "Native check kernel policy changed or widened: " + str(error)
+                ) from error
+            return
         writable = tree / ".git" if boundary["setup"] else scratch / "writable"
         expected = containment._render_policy(
             self.workspace,

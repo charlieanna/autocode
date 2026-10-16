@@ -4,6 +4,13 @@ The interface supplies checkpoint reading and source snapshots. The inspection
 does not run a check, change a saved report or grant completion authority.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import stat
 from pathlib import Path
 from subprocess import SubprocessError
@@ -33,7 +40,7 @@ BOUND_FIELDS = (
 )
 
 
-def identity(state):
+def identity(state: RunState):
     return digest({key: state.get(key) for key in BOUND_FIELDS})
 
 
@@ -54,12 +61,12 @@ def pins_match(pins, workspace):
     return True
 
 
-def inspect(state, workspace, *, snapshot, read_state, accepted_human_ids=(), initial_snapshot=None):
+def inspect(state: RunState, workspace, *, snapshot, read_state, accepted_human_ids=(), initial_snapshot=None):
     if not state.get("validation"):
         return project(state)
     try:
         before = initial_snapshot if initial_snapshot is not None else snapshot(workspace)
-        pins = state["validation"].get("evidence_hashes")
+        pins = cast(dict, state["validation"]).get("evidence_hashes")
         intact = pins_match(pins, workspace)
         after = snapshot(workspace)
         latest = read_state()

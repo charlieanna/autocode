@@ -10,6 +10,11 @@ concerns, are new information and never add up to a repeated-failure pause.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import json
 import re
 from pathlib import Path
@@ -59,7 +64,7 @@ def signature(stage_record, error, probe):
     )
 
 
-def _interrupted(state, stage_record, entry):
+def _interrupted(state: RunState, stage_record, entry):
     """Whether this stage had any other outcome after the entry's last failure.
 
     Rows appended to ``stages`` since that failure (successes, archived timeouts,
@@ -112,7 +117,7 @@ def _probe(record):
     return result
 
 
-def record(state, stage_record, error, at):
+def record(state: RunState, stage_record, error, at):
     """Count each completed attempt at most once in the authoritative state."""
     selected = identity(stage_record, error)
     if selected is None:
@@ -151,7 +156,7 @@ def record(state, stage_record, error, at):
     return entry
 
 
-def repeated(state, stage_record):
+def repeated(state: RunState, stage_record):
     failure_key = stage_record.get("failure_key")
     entry = (state.get("failure_history") or {}).get(failure_key)
     if entry and stalled(entry):

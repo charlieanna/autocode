@@ -23,6 +23,11 @@ imports nothing from the runner.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -50,7 +55,7 @@ def event_thread_id(jsonl: Path) -> str | None:
     return None
 
 
-def session_for(state, pending, route_role=None) -> str | None:
+def session_for(state: RunState, pending, route_role=None) -> str | None:
     """The original attempt's session thread, when a format-only correction run on ``route_role``
     (the route the correction launches on; the original's own when not given) applies."""
     original = pending.get("original") or {}
@@ -67,7 +72,7 @@ def session_for(state, pending, route_role=None) -> str | None:
     return event_thread_id(Path(original["events"]))
 
 
-def same_route(state, original, route_role=None) -> bool:
+def same_route(state: RunState, original, route_role=None) -> bool:
     """Whether the correction, run on ``route_role``'s saved route, would use the route (engine,
     provider, model, effort) that started the session. A Plan Reviewer attempt that ran on its one-use
     fallback (autocode_reviewer_fallback) recorded another role's route, which the correction never
@@ -90,7 +95,7 @@ def prompt(error: str) -> str:
     )
 
 
-def execute(runtime, state, run_dir, workspace) -> bool:
+def execute(runtime, state: RunState, run_dir, workspace) -> bool:
     """Run the one correction turn; True when it ran at all. Any failure falls back to the full repair."""
     pending = state.get("pending_report_repair") or {}
     original = pending.get("original") or {}
@@ -101,7 +106,7 @@ def execute(runtime, state, run_dir, workspace) -> bool:
     if not thread:
         return False
     pending["correction_attempted"] = True  # one shot per rejection, surviving restarts
-    state.update(phase="REPORT_REPAIR")
+    state.update({"phase": "REPORT_REPAIR"})
     runtime.write_json(run_dir / "state.json", state)
     value, record = runtime.run_role(
         role=role,

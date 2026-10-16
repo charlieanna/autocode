@@ -791,6 +791,9 @@ def project_settings(workspace: Path) -> tuple[Check, list[dict]]:
         for key in project_config.KEYS:
             value = getattr(args, actions["--" + key].dest) if key in applied else None
             rows.append({"key": key, "value": value, "source": applied.get(key, "built-in default")})
+        for key in project_config.FILE_ONLY:  # no flag; the value apply saved on args (require-approver)
+            value = getattr(args, key.replace("-", "_")) if key in applied else None
+            rows.append({"key": key, "value": value, "source": applied.get(key, "built-in default")})
     except ValueError as error:
         check = Check("project settings", MISSING, str(error), "correct the file: a new run refuses it")
     engine = next((row for row in rows if row["key"] == "engine" and row["value"] == "claude"), None)

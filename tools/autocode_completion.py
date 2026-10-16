@@ -7,6 +7,10 @@ autocode_support, which those modules use, no longer imports them for it. See AG
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_brief_evidence as brief_evidence
@@ -30,7 +34,7 @@ except ImportError:
 REFUSED = "Completion rejected: missing, stale, failed or unverified independent evidence"
 
 
-def ledger_rejection(state) -> str:
+def ledger_rejection(state: RunState) -> str:
     """Why the findings ledger blocks completion, naming the first open blocking findings."""
     return (
         "Completion rejected: the findings ledger still lists open blocking findings; "
@@ -38,7 +42,7 @@ def ledger_rejection(state) -> str:
     )
 
 
-def rejection(state) -> str:
+def rejection(state: RunState) -> str:
     """Why COMPLETE was refused, naming the criteria the latest validation did not pass.
 
     A live ladder-20 run (Claude models, 2026-09-30) reached the plain refusal twice: the last
@@ -81,7 +85,7 @@ def rejection(state) -> str:
     )
 
 
-def stale_validation(state, current):
+def stale_validation(state: RunState, current):
     """How the saved validation belongs to another source, goal revision or task than the current one, or None.
 
     Issue #302: after an operator edited a paused run's source, --accept-completion gave only the generic
@@ -102,7 +106,7 @@ def stale_validation(state, current):
     return None
 
 
-def completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+def completion_ready(state: RunState, decision, current, *, require_human_reviews=True, require_independent=True):
     if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
         return False
     # Design coverage is an independent-validation obligation (sol / checkpoint).
@@ -130,7 +134,7 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
         state, decision, current, require_human_reviews=require_human_reviews, require_independent=require_independent
     ):
         return False
-    sol = state.get("validation", {})
+    sol = cast(dict, state.get("validation", {}))
     pins = sol.get("evidence_hashes", {})
     if not pins:
         return False
@@ -143,7 +147,9 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
     return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
 
 
-def logical_completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+def logical_completion_ready(
+    state: RunState, decision, current, *, require_human_reviews=True, require_independent=True
+):
     """Shared semantic eligibility; this never claims physical or current proof.
 
     Ordinary completion additionally keeps all protected/progressive/current
@@ -154,11 +160,11 @@ def logical_completion_ready(state, decision, current, *, require_human_reviews=
     if (
         require_independent
         and state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled")
-        and state.get("validation", {}).get("reviewer_role") != "sol"
+        and cast(dict, state.get("validation", {})).get("reviewer_role") != "sol"
     ):
         return False
     if require_independent and state.get("settings", {}).get("workflow", {}).get("mode") == "glm_final_audit_v2":
-        review = state.get("validation", {})
+        review = cast(dict, state.get("validation", {}))
         if review.get("reviewer_role") != "astra" or review.get("final_audit") is not True:
             return False
     if state.get("version", 2) >= 3:
@@ -170,14 +176,14 @@ def logical_completion_ready(state, decision, current, *, require_human_reviews=
             goals.execution_guard(state, decision)
         except Paused:
             return False
-        contract = state["goal_contract"]
-        validation = state.get("validation", {})
+        contract = cast(dict, state["goal_contract"])
+        validation = cast(dict, state.get("validation", {}))
         human_ids = [c["id"] for c in contract["body"]["acceptance_criteria"] if c["human_review"]]
         human_only_gap = bool(human_ids) and goals.human_only_pending_validation(state, validation, human_ids[0])
         if (
             validation.get("contract_revision") != contract["revision"]
             or validation.get("contract_hash") != contract["hash"]
-            or (state.get("current_task") and validation.get("task_id") != state["current_task"]["id"])
+            or (state.get("current_task") and validation.get("task_id") != cast(dict, state["current_task"])["id"])
             or (require_human_reviews and goals.missing_human_reviews(state))
             or any(f.get("blocking", True) for f in validation.get("findings", []))
             or any(f.get("blocking", True) for f in decision.get("findings", []))
@@ -193,7 +199,7 @@ def logical_completion_ready(state, decision, current, *, require_human_reviews=
                 or not flow.get("summary", "").strip()
             ):
                 return False
-    sol = state.get("validation", {})
+    sol = cast(dict, state.get("validation", {}))
     if decision.get("status") not in ("COMPLETE", "TASK_COMPLETE"):
         return False
     if state.get("findings_ledger"):
@@ -224,7 +230,7 @@ def logical_completion_ready(state, decision, current, *, require_human_reviews=
     return not any(f["severity"] in ("critical", "high") for f in sol.get("findings", []))
 
 
-def artifact_review_request(state, decision, current):
+def artifact_review_request(state: RunState, decision, current):
     """Offer human acceptance when a conservative owner asks to validate only that gap.
 
     The probe tests the existing completion gate; it never changes the saved report,
@@ -247,7 +253,9 @@ def artifact_review_request(state, decision, current):
     replay = validation.get("check_replay") or {}
     if replay.get("verdict") != "PASS" or replay.get("source_revision") != current["revision"]:
         return None
-    human = {row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"] if row["human_review"]}
+    human = {
+        row["id"] for row in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"] if row["human_review"]
+    }
     # The owner may correctly leave human acceptance unverified. Keep that report
     # unchanged, while checking every technical guard through the normal gate.
     probe = {

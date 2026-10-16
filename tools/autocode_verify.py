@@ -1990,12 +1990,12 @@ def scratch_run(
     native_scope = None
     ownership_uncertain = False
     if native_execution is not None:
+        if review_mutation or review_mutation_deadline is not None:
+            raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native readonly checks cannot run review mutations")
         if type(native_execution) is not native_checks.NativeCheckExecution:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
         if preparation.active():
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native checks cannot share scheduled preparation ownership")
-        if review_mutation:
-            raise ValueError("Native checks cannot run a review mutation")
         native_scope = native_execution.copy(
             workspace,
             run_dir,

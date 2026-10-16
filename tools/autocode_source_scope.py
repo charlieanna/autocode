@@ -6,6 +6,13 @@ No Builder report, current-task suggestion, or ambient workspace file grants
 additional source scope.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_contract_identity as contracts
     from . import autocode_source_snapshot as source
@@ -20,15 +27,15 @@ def declared_paths(body):
     return source.literal_paths([path for row in rows for path in row.get("affected_paths", [])])
 
 
-def paths(state):
+def paths(state: RunState):
     try:
         authorized = contracts.approved(state)
     except (KeyError, TypeError, AttributeError):
         authorized = False
     if not authorized:
         return []
-    return declared_paths(state["goal_contract"]["body"])
+    return declared_paths(cast(dict, state["goal_contract"])["body"])
 
 
-def snapshot(workspace, state, *, base_snapshot=None):
+def snapshot(workspace, state: RunState, *, base_snapshot=None):
     return source.snapshot(workspace, paths=paths(state), base_snapshot=base_snapshot)

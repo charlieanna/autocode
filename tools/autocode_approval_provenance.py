@@ -19,11 +19,14 @@ run is saved with its own in ``pause_acknowledgements``. Each provenance holds:
 
 Nothing here is verified. Git identity is whatever the checkout configures and a
 ``--as`` name is the person's own claim; both are recorded for audit and never
-grant or refuse authority. The approval checks remain the token checks.
+grant authority. The approval checks remain the token checks. The one refusal is a
+project's ``require-approver`` (autocode_required_approver): ``stamp`` refuses a
+person's plan approval or artifact acceptance whose recorded Git email is not one the
+run was started to accept, before anything is stamped.
 
-Bottom layer: imports nothing from AutoCode, so the CLI steps, the terminal
-conversation, the build loop, the status view and the completion summary can all
-use it.
+Bottom layer: imports nothing from AutoCode but that rule, which imports nothing, so
+the CLI steps, the terminal conversation, the build loop, the status view and the
+completion summary can all use it.
 """
 
 from __future__ import annotations
@@ -32,6 +35,11 @@ import socket
 import subprocess
 from copy import deepcopy
 from typing import TYPE_CHECKING
+
+try:
+    from . import autocode_required_approver as required_approver
+except ImportError:
+    import autocode_required_approver as required_approver
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -140,9 +148,12 @@ def stamp(saved: RunState, candidate: RunState, called: dict, *, record=capture)
     an edit saved before AutoCode recorded editors keeps none. Its provenance sits
     beside the contract's seal (task_id, revision, body), so the hash and token stay
     as they were. Returns how many records were stamped.
+
+    Raises required_approver.Refused, stamping nothing, when the run's require-approver
+    does not allow the Git identity recorded for a new approval; an edit alone is not one.
     """
     before = saved.get("user_events") or []
-    fresh = [
+    approvals = [
         event
         for event in candidate.get("user_events") or []
         if isinstance(event, dict)
@@ -151,6 +162,7 @@ def stamp(saved: RunState, candidate: RunState, called: dict, *, record=capture)
         and "provenance" not in event
         and event not in before
     ]
+    fresh = list(approvals)
     contract, before_contract = candidate.get("goal_contract"), saved.get("goal_contract")
     if (
         isinstance(contract, dict)
@@ -161,15 +173,26 @@ def stamp(saved: RunState, candidate: RunState, called: dict, *, record=capture)
         fresh.append(contract)
     if fresh:
         provenance = record(candidate.get("workspace"), called)
+        if approvals:
+            required_approver.enforce(candidate, provenance)
         for event in fresh:
             event["provenance"] = deepcopy(provenance)
     return len(fresh)
 
 
-def decide(decision, saved: RunState, candidate: RunState, argv, *, record=capture) -> None:
-    """Apply one terminal-conversation ``decision`` to ``candidate``, then ``stamp`` the approvals it made."""
+def decide(decision, saved: RunState, candidate: RunState, argv, *, record=capture) -> bool:
+    """Apply one terminal-conversation ``decision`` to ``candidate``, then ``stamp`` the approvals it made.
+
+    False, after printing why, when the run's require-approver refuses the approver: the conversation
+    then commits nothing and stops at the same question.
+    """
     decision(candidate)
-    stamp(saved, candidate, invocation(argv), record=record)
+    try:
+        stamp(saved, candidate, invocation(argv), record=record)
+    except required_approver.Refused as refused:
+        print(refused)
+        return False
+    return True
 
 
 def acknowledge(state: RunState, pause_status: str | None, called: dict, *, at: str, record=capture) -> bool:

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import json
 from pathlib import Path
@@ -21,7 +26,7 @@ def _trace(report):
     return value if isinstance(value, dict) else source_trace.DEFAULT_TRACE
 
 
-def rebind_context(tape, state, context, dispatch):
+def rebind_context(tape, state: RunState, context, dispatch):
     """Replace only review execution provenance, preserving every scope field.
 
     Original absolute paths are never opened. Their pins must identify exactly

@@ -192,7 +192,7 @@ def replay(
                 raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
         test_quality.require_behavioral_tests(workspace, [check["command"] for check in selected_checks])
         return recorded_checks.replay(selected_checks, approved_state, workspace, record)
-    selected = source_scope.paths(approved_state or {})
+    selected = source_scope.paths(cast("RunState", approved_state or {}))
     if selected:
         scratch_run = partial(scratch_run, source_paths=selected)
         if execution_identity:
@@ -207,7 +207,9 @@ def replay(
     stem = Path(record.get("output") or "validation").stem
     out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
     out.mkdir(parents=True, exist_ok=False)
-    protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
+    protected = protected_oracles.replay(
+        cast("RunState", approved_state or {}), workspace, out, scratch_run, timeout=timeout
+    )
     checks, prescribed = executable_checks(checks, approved_state, required_commands, progressive_context)
     test_quality.require_behavioral_tests(workspace, [check["command"] for check in checks])
     state = approved_state or {}
@@ -315,7 +317,7 @@ def replay(
             {**seen[key], "reported_exit_code": check.get("exit_code"), "evidence_ref": check.get("evidence_ref")}
         )
     brief = brief_evidence.replay(
-        approved_state or {},
+        cast("RunState", approved_state or {}),
         workspace,
         out,
         scratch_run,
@@ -327,7 +329,7 @@ def replay(
     try:
         risk, refuted = (
             risk_evidence.replay(
-                approved_state or {},
+                cast("RunState", approved_state or {}),
                 workspace,
                 out,
                 scratch_run,

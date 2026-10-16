@@ -11,6 +11,11 @@ Reads only the human source records autocode_brief_obligations derives from run 
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import re
 
 try:
@@ -84,7 +89,7 @@ def claims(sources, declarations):
     return rows
 
 
-def view(state):
+def view(state: RunState):
     """``evidence.unverified_risk_claims`` for the status view; [] when the request makes no such promise."""
     try:
         sources = human.sources(state)

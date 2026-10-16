@@ -236,7 +236,12 @@ criteria, weakens tests, grants permissions or extends budgets beyond that one a
 Permission, scope, goal, criteria and spend pauses go straight to you, and so does a pause a
 guard re-raises on resume before any stage runs, or the outcome of a retry you authorized
 with `--retry-failed-stage`. Only full Autopilot runs investigate; a
-single-unit invocation (`--unit`) stops at its own boundary. `--diagnose-failed-stage`
+single-unit invocation (`--unit`) stops at its own boundary. A native visual run
+(`VISUAL_REVIEW_PROFILE=`), whose scope cannot run the Investigator, never sends a stalled
+stage to it, so that pause keeps its original reason and spends no investigation. A Builder
+failure that needs classification still queues the Investigator there; native authority
+refuses it, and the run pauses `PAUSED_BUILDER_CLASSIFICATION` at the Builder with that
+classification spent, as before. `--diagnose-failed-stage`
 below remains the operator's explicit, policy-ledgered alternative for a Builder.
 
 ## Joint requirements planning and review
@@ -818,7 +823,8 @@ out, because the proof accepts it with only a note. When no criterion is marked 
 (or in a design job) it says that nothing shows a check would fail without the change. Approval saves
 `READY_TO_EXECUTE`; the next ordinary invocation begins execution. The approval records who gave it:
 the Git identity, host and command, plus an optional `--as NAME` on a shared machine
-([Who approved](execution.md#who-approved)). User-input commands
+([Who approved](execution.md#who-approved)). A project can name the Git identities allowed to
+approve; any other approver is refused at the same stop ([Required approver](execution.md#required-approver)). User-input commands
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.
 

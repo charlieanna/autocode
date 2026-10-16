@@ -1,17 +1,25 @@
-"""A role's climb on its effort ladder is priced against the person's cost cap before its attempt launches (#611).
+"""A climbed attempt is checked against the person's cost cap and active-time budget before it launches (#611).
 
 autocode_escalation climbs a struggling role one rung on its effort ladder and records the climb in
 `reasoning_escalations`; the role's next request is the first attempt on the climbed rung. The serial build
 loop calls guard() before every model launch. While that first attempt has not launched, guard() projects it
-from the role's last attempt: its recorded tokens at the climbed model's dated price (autocode_cost.crossing).
-When the spend so far plus that projection would pass `--max-cost-usd`, the run pauses PAUSED_COST_LIMIT
-before the attempt starts and names the rung and the arithmetic, instead of climbing and stopping at the cap
-afterwards. The climb stays saved, so resuming with a cap of at least the one the stop names lets that attempt
-run. The Builder retry policy's stronger attempt has the same check (autocode_builder_policy.guard).
+from the role's last attempt and checks it against the run's budgets (within_budgets):
 
-No cap, no earlier attempt on the role, a model without a rate or an attempt without token counts never pause
-here, as an unpriced stage never trips the cap. Once the climbed attempt has launched, the stage-boundary
-check governs the spend. A parallel Builder sees only its own spend, so it leaves the check to the serial run.
+- the cost cap (`--max-cost-usd`): the last attempt's recorded tokens at the climbed model's dated price
+  (autocode_cost.crossing). Past the cap, the run pauses PAUSED_COST_LIMIT.
+- the active-time budget (`--max-seconds`, when you set it): the last attempt's recorded duration, never more
+  than the stage time limit that would stop it (time_crossing). Past the budget, the run pauses PAUSED_TIME_LIMIT.
+
+Each stop names the rung and the arithmetic, instead of climbing and stopping at the budget afterwards. The
+climb stays saved, so resuming with a cap or budget of at least the one the stop names lets that attempt run.
+The Builder retry policy's stronger attempt has the same checks (autocode_builder_policy.guard calls
+within_budgets). When both budgets would be crossed, the cost stop comes first.
+
+No cap or budget, no earlier attempt on the role, a model without a rate or an attempt without token counts or
+a duration never pause here, as an unpriced stage never trips the cap. A runner-default or delegated active-time
+budget is not projected: the stage-boundary check and AutoResolver's one-time extension govern it, as before.
+Once the climbed attempt has launched, the stage-boundary checks govern it. A parallel Builder sees only its own
+spend and time, so it leaves the checks to the serial run.
 
 Pure over saved state but for the pause it raises; imports only autocode_cost, autocode_roles and autocode_util.
 """
@@ -19,6 +27,7 @@ Pure over saved state but for the pause it raises; imports only autocode_cost, a
 from __future__ import annotations
 
 import datetime as dt
+import math
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -47,6 +56,101 @@ def _when(value):
     except ValueError:
         return None
     return moment if moment is not None and moment.tzinfo is not None else None
+
+
+def _seconds(value):
+    """A saved count of seconds, or None when it is not a finite nonnegative number."""
+    return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+
+
+def budget_seconds(settings):
+    """The run's active-time budget in seconds when you set it (`--max-seconds N`), else None.
+
+    None for no budget (absent or 0), and for the runner's default or a budget delegated to AutoResolver
+    (`--autoresolver-managed-limits`): AutoResolver may extend those once at the stage boundary, so a
+    projection must not pause the run for you before that boundary is reached.
+    """
+    settings = settings if isinstance(settings, dict) else {}
+    limits = settings.get("limits") if isinstance(settings.get("limits"), dict) else {}
+    origins = settings.get("budget_origins") if isinstance(settings.get("budget_origins"), dict) else {}
+    value = _seconds(limits.get("max_seconds"))
+    return value if value and origins.get("max_seconds") == "user_explicit" else None
+
+
+def projected_seconds(settings, record):
+    """The active time one more attempt is projected to take, from `record`, a finished attempt of the same job:
+    {"seconds", "held"}, its recorded duration, held to the stage time limit (`held` is that limit, or None)
+    when it ran longer, since that limit stops an attempt. None when the record has no duration. A higher
+    effort can run longer than the attempt it follows, so this is an estimate, not a bound."""
+    duration = _seconds(record.get("duration_seconds")) if isinstance(record, dict) else None
+    if duration is None:
+        return None
+    limits = settings.get("limits") if isinstance(settings, dict) else None
+    stage_limit = _seconds(limits.get("stage_timeout_seconds")) if isinstance(limits, dict) else None
+    if stage_limit and duration > stage_limit:
+        return {"seconds": stage_limit, "held": stage_limit}
+    return {"seconds": duration, "held": None}
+
+
+def time_crossing(state: RunState, record):
+    """The arithmetic when one more attempt, projected from `record` (projected_seconds), would take the run's
+    active time past the budget you set: {"projected", "held", "used", "total", "budget"}, or None when there is
+    no such budget, no projection, or the attempt fits within the budget."""
+    settings = state.get("settings") if isinstance(state, dict) else None
+    limit = budget_seconds(settings)
+    projected = projected_seconds(settings, record) if limit is not None else None
+    if projected is None:
+        return None
+    used = _seconds(state.get("active_seconds")) or 0
+    total = used + projected["seconds"]
+    if total <= limit:
+        return None
+    return {"projected": projected["seconds"], "held": projected["held"], "used": used, "total": total, "budget": limit}
+
+
+def _shown(seconds):
+    """1,250 s; a fraction to one place (0.4 s), so a fake run's short attempts are not all shown as 0 s."""
+    return f"{seconds:,.1f}".rstrip("0").rstrip(".") + " s"
+
+
+# The stop reason when time_crossing() refuses a climbed attempt, beside autocode_cost.CLIMB_OVER_CAP.
+CLIMB_OVER_TIME = (
+    "{attempt} ({route}) did not launch: projected at {projected} of active time, {basis}'s duration{held}, it "
+    "would take the run's active time from {used} to {total}, past the {budget} active-time budget you set. "
+    "AutoCode never raises a budget you set; resume with --max-seconds {needed} or more (0 for no limit) to make "
+    "this attempt"
+)
+
+
+def time_stop(over, *, attempt, basis, model, effort=None):
+    """The stop reason for a climbed attempt that `over` (time_crossing) refused, worded like
+    autocode_cost.climb_stop: the attempt, its route, the projection and its basis, the active time so far, the
+    total, the budget and the budget to resume with, rounded up to a whole second so that it admits the attempt."""
+    return CLIMB_OVER_TIME.format(
+        attempt=attempt,
+        route=f"{model} at {effort} effort" if effort else model,
+        basis=basis,
+        held=f", held to the {_shown(over['held'])} stage time limit" if over.get("held") else "",
+        **{key: _shown(over[key]) for key in ("projected", "used", "total", "budget")},
+        needed=math.ceil(over["total"]),
+    )
+
+
+def within_budgets(state: RunState, last, *, attempt, basis, model, effort=None) -> None:
+    """Pause before a climbed attempt on `model` launches when its projection from `last`, the job's last
+    finished attempt, would take the spend past the cost cap (PAUSED_COST_LIMIT) or the active time past the
+    budget you set (PAUSED_TIME_LIMIT). `attempt` names the climbed attempt and `basis` the attempt it is
+    projected from, as in the stop reason."""
+    over = cost.crossing(state, model, last)
+    if over:
+        raise util.Paused(
+            "PAUSED_COST_LIMIT", cost.climb_stop(over, attempt=attempt, basis=basis, model=model, effort=effort)
+        )
+    late = time_crossing(state, last)
+    if late:
+        raise util.Paused(
+            "PAUSED_TIME_LIMIT", time_stop(late, attempt=attempt, basis=basis, model=model, effort=effort)
+        )
 
 
 def pending(state: RunState, role):
@@ -88,8 +192,8 @@ def pending(state: RunState, role):
 
 
 def guard(state: RunState, stage, role) -> None:
-    """Pause PAUSED_COST_LIMIT before `stage` launches on `role`'s climbed rung when the attempt's projected cost
-    would take the spend past the cap, naming the job, the rung and the arithmetic."""
+    """Pause before `stage` launches on `role`'s climbed rung when the attempt is projected past the cost cap or
+    the active-time budget (within_budgets), naming the job, the rung and the arithmetic."""
     if state.get("parent_run"):
         return
     climb = pending(state, role)
@@ -97,16 +201,12 @@ def guard(state: RunState, stage, role) -> None:
         return
     event, last = climb
     model, effort = _route(state["settings"]["roles"][role])
-    over = cost.crossing(state, model, last)
-    if over:
-        rung = (event.get("selected") or {}).get("profile") or "its next rung"
-        raise util.Paused(
-            "PAUSED_COST_LIMIT",
-            cost.climb_stop(
-                over,
-                attempt=f"The {roles.screen_name(stage, state)}'s climb to {rung}",
-                basis=f"the last {roles.screen_name(last.get('stage'), state)} attempt",
-                model=model,
-                effort=effort,
-            ),
-        )
+    rung = (event.get("selected") or {}).get("profile") or "its next rung"
+    within_budgets(
+        state,
+        last,
+        attempt=f"The {roles.screen_name(stage, state)}'s climb to {rung}",
+        basis=f"the last {roles.screen_name(last.get('stage'), state)} attempt",
+        model=model,
+        effort=effort,
+    )

@@ -4,6 +4,13 @@ Reuse unlocks scheduling only. Original validation keeps its original lineage
 and cannot satisfy the new contract's final integration/completion gate.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -60,10 +67,10 @@ def intact(pins):
     return bool(pins) and all(Path(path).is_file() and s.file_hash(path) == digest for path, digest in pins.items())
 
 
-def capture(state, row, current):
+def capture(state: RunState, row, current):
     """Capture at actual acceptance; never reconstruct trust from legacy reports."""
     try:
-        contract = state["goal_contract"]
+        contract = cast(dict, state["goal_contract"])
         milestone = next(m for m in contract["body"]["milestones"] if m["id"] == row["id"])
         if row.get("milestone_ids") or row.get("accepted_batch") or row.get("carried_from"):
             raise ValueError("Batch or previously carried milestone requires fresh validation")
@@ -88,7 +95,7 @@ def capture(state, row, current):
             for record in state.get("stages", [])
             if not record.get("runner_owned") and record.get("task_id") in task_ids
         ]
-        validation = state["validation"]
+        validation = cast(dict, state["validation"])
         if task_ids != {record.get("task_id") for record in records}:
             raise ValueError("Stage history missing for a milestone task")
         if not records or validation["output"] not in {record.get("output") for record in records}:
@@ -178,7 +185,7 @@ def reviewable(findings, milestones):
     return held
 
 
-def carry(state, current):
+def carry(state: RunState, current):
     """Run only after explicit approval; never transplant a current validation."""
     try:
         from . import autocode_goals as goals
@@ -186,12 +193,13 @@ def carry(state, current):
         import autocode_goals as goals
     if not goals.approved(state):
         return []
-    target = state["goal_contract"]
+    target = cast(dict, state["goal_contract"])
     if any(row["to_contract_hash"] == target["hash"] for row in state.get("milestone_carry_forward", [])):
         return []
+    carried: list
     candidates, outcomes, carried = {}, [], []
     milestones = {row["id"]: row for row in target["body"]["milestones"]}
-    previous = next(
+    previous: dict = next(
         (old for old in reversed(state.get("contract_history", [])) if old["revision"] == target["revision"] - 1), {}
     )
     held = reviewable(state.get("findings_ledger"), milestones)
@@ -237,7 +245,7 @@ def carry(state, current):
     # changed prerequisites invalidate the downstream candidate transitively.
     # A held milestone (reviewable) is revalidated, but its dependents are still
     # carried: current_ids counts them once it is accepted again.
-    waiting = set()
+    waiting: set = set()
     while candidates:
         ready = [mid for mid in candidates if set(milestones[mid]["depends_on"]) <= set(carried) | waiting]
         if not ready:
@@ -279,13 +287,13 @@ def carry(state, current):
     return carried
 
 
-def current_ids(state, accepted):
+def current_ids(state: RunState, accepted):
     """Recheck carried prerequisites after subsequent source/evidence changes.
 
     A carried milestone that the run reviewed again and accepted on fresh validation under this
     contract (milestones.accept, after a validate task, REWORK or drift repair) no longer rests on
     its manifest, which that acceptance drops: it counts like any other acceptance."""
-    contract_hash = state.get("goal_contract", {}).get("hash")
+    contract_hash = cast(dict, state.get("goal_contract", {})).get("hash")
     rows = [
         row
         for row in state.get("milestone_progress", {}).values()
@@ -311,16 +319,16 @@ def current_ids(state, accepted):
         accepted = updated
 
 
-def before_assignment(state, spec, decision):
+def before_assignment(state: RunState, spec, decision):
     """Avoid redundant rebuilding, while allowing explicit evidence-backed repair."""
-    key = f"{state['goal_contract']['hash']}:{spec['milestone_id']}"
+    key = f"{cast(dict, state['goal_contract'])['hash']}:{spec['milestone_id']}"
     row = state.get("milestone_progress", {}).get(key)
     if not row or not row.get("carried_from") or not row.get("accepted") or spec["kind"] != "implement":
         return
     accepted = {
         item["id"]
         for item in state["milestone_progress"].values()
-        if item.get("accepted") and item.get("contract_hash") == state["goal_contract"]["hash"]
+        if item.get("accepted") and item.get("contract_hash") == cast(dict, state["goal_contract"])["hash"]
     }
     if spec["milestone_id"] in current_ids(state, accepted) and decision["status"] != "REWORK":
         raise ValueError("Milestone already carried forward; select unfinished work or validation")

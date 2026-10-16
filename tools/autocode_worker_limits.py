@@ -7,6 +7,11 @@ future bounds and their ownership, never routes, recorded deadlines or accountin
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 from contextlib import ExitStack
 from pathlib import Path
@@ -36,7 +41,7 @@ def updated_settings(child, parent):
     return result
 
 
-def assign_selected(state, run_dir, rows, *, persist):
+def assign_selected(state: RunState, run_dir, rows, *, persist):
     """Bind settings to all selected stopped children before the parent records its retry.
 
     Admission has already checked approval, worker liveness and saved results.

@@ -41,7 +41,8 @@ Every recorded provider dispatch must match the current stage, occurrence,
 model route, session continuation and source. Plan approvals and answers also
 must match the current public request. Replay displays the new plan and uses
 fresh tokens from that run. It never invents an answer or adopts an old token
-after a mismatch.
+after a mismatch. A project's `require-approver` does not apply: no person approves
+in a replay ([Required approver](execution.md#required-approver)).
 
 Replay stops with `REPLAY_REFUSED` when a payload is missing, changed or outside
 the supported format, or when the current controller asks for an unrecorded

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import json
 from pathlib import Path
@@ -19,7 +24,7 @@ except ImportError:
 TARGET = "input:verified_dependency_delivery"
 
 
-def capture(state, run_dir):
+def capture(state: RunState, run_dir):
     """Revalidate only an already-authorized delivery copied into this run."""
     wait = state.get("dependency_wait") or {}
     if wait.get("status") != "delivered":

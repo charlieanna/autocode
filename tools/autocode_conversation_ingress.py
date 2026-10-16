@@ -8,6 +8,11 @@ Build actions append their separate audit record to the existing user_events.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from pathlib import Path
 
 try:
@@ -20,7 +25,7 @@ except ImportError:
     import autocode_workspaces as workspaces
 
 
-def ingest(state, run_dir, workspace, source, *, existing_run=False, core_session=False):
+def ingest(state: RunState, run_dir, workspace, source, *, existing_run=False, core_session=False):
     """Link exactly one staged receipt; a repeated identical link is harmless."""
     if core_session and (source is None or existing_run):
         raise protocol.ConversationProtocolError(
@@ -77,7 +82,7 @@ def ingest(state, run_dir, workspace, source, *, existing_run=False, core_sessio
     return True
 
 
-def require_expected_goal(state, expected, *, token_for, is_approved):
+def require_expected_goal(state: RunState, expected, *, token_for, is_approved):
     """Reject a stale dashboard Build request without changing any state."""
     if expected is None:
         return
@@ -93,14 +98,14 @@ def require_expected_goal(state, expected, *, token_for, is_approved):
     except (KeyError, TypeError, ValueError):
         current = False
     if state.get("settings", {}).get("joint_planning"):
-        current = current and state.get("planning", {}).get("final_token") == expected
+        current = current and cast(dict, state.get("planning", {})).get("final_token") == expected
     if not current:
         raise ValueError(
             "The approved plan changed or is incomplete. Reload the task and approve its current plan before building."
         )
 
 
-def record_build_start(state, expected, *, token_for, is_approved):
+def record_build_start(state: RunState, expected, *, token_for, is_approved):
     """Audit an explicit Build separately from approval, once per approved token."""
     require_expected_goal(state, expected, token_for=token_for, is_approved=is_approved)
     if expected is None:

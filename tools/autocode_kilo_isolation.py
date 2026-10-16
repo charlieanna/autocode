@@ -13,16 +13,18 @@ import json
 import shlex
 import stat
 import subprocess
+import sys
 import time
 import uuid
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_kilo_linux_boundary as linux_boundary
     from . import autocode_kilo_native as rules
     from . import autocode_kilo_source_relay as relay
     from . import autocode_native_conformance as observations
@@ -34,6 +36,7 @@ try:
     from . import autocode_util as util
     from . import autocode_visual_profile as files
 except ImportError:
+    import autocode_kilo_linux_boundary as linux_boundary
     import autocode_kilo_native as rules
     import autocode_kilo_source_relay as relay
     import autocode_native_conformance as observations
@@ -67,9 +70,13 @@ MUTABLE_DIRECTORIES = {"XDG_DATA_HOME": "data", "XDG_CACHE_HOME": "cache", "XDG_
 BUILD_KIND = "ACTUAL_ORIGINAL_FULL_SDK_BUILD_AND_ORIGINAL_SMOKES_PROVISIONAL_CLOSED"
 RECONCILED_BUILD_KIND = "ACTUAL_ORIGINAL_FULL_SDK_BUILD_AND_SMOKES_READONLY_RECONCILED_CLOSED"
 TIMEZONE_FILES = (
-    "/private/var/db/timezone/zoneinfo/UTC",
-    "/private/var/db/timezone/zoneinfo/posixrules",
-    "/private/var/db/timezone/icutz/icutz44l.dat",
+    ("/usr/share/zoneinfo/Etc/UTC",)
+    if sys.platform == "linux"
+    else (
+        "/private/var/db/timezone/zoneinfo/UTC",
+        "/private/var/db/timezone/zoneinfo/posixrules",
+        "/private/var/db/timezone/icutz/icutz44l.dat",
+    )
 )
 
 
@@ -240,6 +247,29 @@ def _relocate_client_runtime(boundary, environment):
 def _inherited_shell_body(raw, profile):
     """Retain the prepared safe environment; apply no second Seatbelt profile."""
     lines = raw.decode("utf-8", errors="strict").splitlines()
+    if Path(profile).suffix == ".bwrap":
+        guard = 'if [ "$#" -ne 2 ] || [ "$1" != "-c" ]; then exit 126; fi'
+        suffix = ' -c "$2" 3< ' + shlex.quote(str(profile))
+        _require(
+            len(lines) == 3
+            and lines[:2] == ["#!/bin/sh -p", guard]
+            and lines[2].startswith("exec ")
+            and lines[2].endswith(suffix),
+            "prepared Linux shell shape changed",
+        )
+        argv = shlex.split(lines[2][5 : -len(suffix)])
+        _require(
+            argv[:2] == ["/usr/bin/env", "-i"] and argv.count(containment.BWRAP) == 1,
+            "prepared Linux shell environment changed",
+        )
+        index = argv.index(containment.BWRAP)
+        _require(
+            argv[index:] == [containment.BWRAP, "--args", "3", "/bin/bash", "--noprofile", "--norc"],
+            "prepared Linux shell invocation changed",
+        )
+        return (
+            "#!/bin/sh -p\n" + guard + "\nexec " + shlex.join(argv[:index] + argv[index + 3 :]) + ' -c "$2"\n'
+        ).encode()
     guard = 'if [ "$#" -ne 2 ] || [ "$1" != "-c" ]; then exit 126; fi'
     _require(
         len(lines) == 3
@@ -448,7 +478,7 @@ class KiloRoleIsolation:
 
     verify_boundary = staticmethod(lambda boundary: verify_boundary(boundary))
 
-    def __init__(self, state, workspace, run_dir, route_role, *, profile, native):
+    def __init__(self, state: RunState, workspace, run_dir, route_role, *, profile, native):
         selected = rules.selected(profile, state["settings"], route_role)
         _require(selected is not None and route_role in rules.ROLES, "missing explicit Kilo reviewer")
         self._binding, self._identity = selected
@@ -784,8 +814,17 @@ class KiloRoleIsolation:
         )
 
     def _prepare_derivation_policy(self):
-        profile = self._prepared["target"] / "derivation.sb"
-        _write(profile, self._derivation_policy_text().encode(), self._prepared["files"])
+        profile = self._prepared["target"] / ("derivation.json" if sys.platform == "linux" else "derivation.sb")
+        if sys.platform == "linux":
+            target, sdk = self._prepared["target"], self._prepared["sdk"]
+            scratch = Path(self._prepared["environment"]["TMPDIR"])
+            value = linux_boundary.policy(
+                profile, kind="derivation", read_paths=[sdk, target], write_paths=[scratch], cwd=target
+            )
+            program = linux_boundary.write(profile, value)
+            self._prepared["files"].update({str(path): util.file_hash(path) for path in (profile, program)})
+        else:
+            _write(profile, self._derivation_policy_text().encode(), self._prepared["files"])
 
     def _pure(self, entry, arguments, raw):
         """Actual SDK conversion/byte parsing, isolated from network and auth."""
@@ -793,17 +832,22 @@ class KiloRoleIsolation:
         derivation = self._hooks["derivation"]
         compiler = files._owned(sdk, derivation["runtime"])
         helper = files._owned(sdk, entry)
-        profile = target / "derivation.sb"
+        profile = target / ("derivation.json" if sys.platform == "linux" else "derivation.sb")
+        if sys.platform == "linux":
+            linux_boundary.verify(profile)
+            prefix = linux_boundary.prefix(profile)
+        else:
+            _require(profile.read_text() == self._derivation_policy_text(), "original sealed pure SDK policy changed")
+            prefix = ["/usr/bin/sandbox-exec", "-f", str(profile)]
         _require(
-            profile.read_text() == self._derivation_policy_text()
-            and util.file_hash(profile) == self._prepared["files"].get(str(profile)),
+            util.file_hash(profile) == self._prepared["files"].get(str(profile)),
             "original sealed pure SDK policy changed",
         )
         deadline = self._source._deadline
         _require(deadline is not None and time.monotonic() < deadline, "missing original source deadline")
         receipt = Path(self._prepared["environment"]["TMPDIR"]) / ("derive-" + uuid.uuid4().hex + ".json")
         result = _run(
-            ["/usr/bin/sandbox-exec", "-f", str(profile), str(compiler), str(helper), *arguments],
+            [*prefix, str(compiler), str(helper), *arguments],
             environment=self._prepared["environment"],
             cwd=target,
             timeout=min(30, deadline - time.monotonic()),
@@ -930,8 +974,13 @@ class KiloRoleIsolation:
             "images": images,
         }
 
+    def _direct(self, command):
+        if sys.platform == "linux":
+            return linux_boundary.unwrap(command, self._prepared["target"] / "client.json")
+        return command[3:] if command[:2] == ["/usr/bin/sandbox-exec", "-f"] else command
+
     def _observe(self, command, environment, actual):
-        direct = command[3:] if command[:2] == ["/usr/bin/sandbox-exec", "-f"] else command
+        direct = self._direct(command)
         translated = {key: value for key, value in environment.items() if key != CONFIG}
         translated["OPENCODE_CONFIG_CONTENT"] = environment[CONFIG]
         value = observations.observe(direct, translated, direct[0], actual)
@@ -953,9 +1002,12 @@ class KiloRoleIsolation:
             "executable_sha256": self._executable_hash,
             "config_sha256": hashlib.sha256(environment[CONFIG].encode()).hexdigest(),
             "plugin_sha256": util.file_hash(plugin),
-            "client_profile_sha256": util.file_hash(target / "client.sb"),
+            "client_profile_sha256": util.file_hash(
+                target / ("client.json" if sys.platform == "linux" else "client.sb")
+            ),
             "source_channel_sha256": util.digest(self._source.child_channel()),
             "source_hooks": self._binding["source_hooks"],
+            **({"kernel_backend": "linux-bwrap-pid1-v1"} if sys.platform == "linux" else {}),
         }
 
     def _client_probe(self, command, child):
@@ -982,7 +1034,7 @@ class KiloRoleIsolation:
         receipt = target / "client-conformance-call.json"
         try:
             _run(
-                [*command[:4], "debug", "agent", self._prepared["agent"]],
+                [*command[: len(command) - len(self._direct(command)) + 1], "debug", "agent", self._prepared["agent"]],
                 environment=environment,
                 cwd=self._root,
                 timeout=max(0.001, deadline - time.monotonic()),
@@ -1026,7 +1078,7 @@ class KiloRoleIsolation:
         config = json.loads(child[CONFIG])
         config["shell"] = boundary["shell"]
         child[CONFIG], child["SHELL"] = json.dumps(config), boundary["shell"]
-        policy_path = target / "client.sb"
+        policy_path = target / ("client.json" if sys.platform == "linux" else "client.sb")
         prompt = (
             self._image_preparation.prompt_path
             if self._image_preparation is not None and hasattr(self._image_preparation, "prompt_path")
@@ -1042,8 +1094,35 @@ class KiloRoleIsolation:
             prompt,
             os_readonly_inputs=self._prepared["os_readonly_inputs"],
         )
-        _write(policy_path, policy.encode(), self._prepared["files"])
-        prefix = ["/usr/bin/sandbox-exec", "-f", str(policy_path)]
+        if sys.platform == "linux":
+            _require(
+                not containment._secret_files(self._root, Path(boundary["profile"]).parent.name),
+                "Linux native Kilo refuses visible credential-named source inputs",
+            )
+            reads = [
+                self._root,
+                target,
+                Path(boundary["profile"]).parent,
+                self._source.socket_path,
+                *request["read_roots"],
+                Path(boundary["scratch"]) / "verification",
+            ]
+            if prompt is not None:
+                reads.append(Path(prompt))
+            value = linux_boundary.policy(
+                policy_path,
+                kind="client",
+                read_paths=reads,
+                write_paths=[runtime.parent],
+                hidden_paths=[self._root / ".autocode"],
+                cwd=self._root,
+            )
+            program = linux_boundary.write(policy_path, value)
+            self._prepared["files"].update({str(path): util.file_hash(path) for path in (policy_path, program)})
+            prefix = linux_boundary.prefix(policy_path)
+        else:
+            _write(policy_path, policy.encode(), self._prepared["files"])
+            prefix = ["/usr/bin/sandbox-exec", "-f", str(policy_path)]
         version = _run(
             [*prefix, command[0], "--version"],
             environment=child,
@@ -1260,13 +1339,15 @@ class KiloRoleIsolation:
         _require(self._descriptor is not None and writer_execution is None, "missing readonly original Kilo owner")
         self._check(state)
         verify_boundary(boundary)
+        prepared = cast(dict, self._prepared)
+        source = cast(relay.KiloSourceRelay, self._source)
         _require(
-            self._source.require_client_conformance() == boundary["client_conformance"],
+            source.require_client_conformance() == boundary["client_conformance"],
             "original compiled-client conformance changed",
         )
-        descriptor = self._descriptor
+        descriptor = cast(dict, self._descriptor)
         _require(
-            command == self._prepared["command"]
+            command == prepared["command"]
             and boundary.get("native_role_isolation") == descriptor
             and native_locators.descriptor_matches(
                 environment.get("AUTOCODE_NATIVE_ROLE_ISOLATION", "null"), descriptor
@@ -1274,7 +1355,7 @@ class KiloRoleIsolation:
             "final Kilo owner locators or command changed",
         )
         _require(
-            json.loads(environment.get("AUTOCODE_KILO_SOURCE_RELAY", "null")) == self._source.child_channel(),
+            json.loads(environment.get("AUTOCODE_KILO_SOURCE_RELAY", "null")) == source.child_channel(),
             "original parent Unix source channel changed",
         )
         _require(
@@ -1325,6 +1406,12 @@ def verify_boundary(boundary):
         "missing exact readonly Kilo whole-client boundary",
     )
     root = Path(boundary["workspace"]).resolve()
+    if boundary.get("platform") == "linux":
+        _require(
+            sys.platform == "linux" and boundary.get("backend") == containment.BUBBLEWRAP,
+            "Linux Kilo boundary is not on its supported original backend",
+        )
+        linux_boundary.verify(boundary["client_profile"])
     for key in ("profile", "shell", "conformance", "client_profile"):
         path = files._owned(root, boundary[key])
         _require(
@@ -1396,14 +1483,28 @@ def verify_boundary(boundary):
             == {"path": boundary["verification_copy"], "sha256": boundary["verification_copy_sha256"]},
             "protected Kilo verification copy proof changed",
         )
-        policy = Path(boundary["client_profile"]).read_text()
-        _require(
-            all(
-                "(deny file-write* (literal " + json.dumps(path, ensure_ascii=False) + "))" in policy
-                for path in _verification_protected_paths(boundary)
-            ),
-            "installed Kilo profile omitted protected verification inputs",
-        )
+        if boundary.get("platform") == "linux":
+            policy = linux_boundary.verify(boundary["client_profile"])
+            tree = Path(boundary["scratch"]) / "verification"
+            protected = _verification_protected_paths(boundary)
+            arguments = policy["arguments"]
+            mounts = [arguments[i : i + 3] for i, value in enumerate(arguments) if value in ("--bind", "--ro-bind")]
+            _require(
+                policy["kind"] == "client"
+                and policy["inputs"]["write_paths"] == [boundary["scratch"]]
+                and ["--ro-bind", str(tree), str(tree)] in mounts
+                and all(Path(path).is_relative_to(tree) for path in protected),
+                "installed Kilo profile omitted protected verification inputs",
+            )
+        else:
+            policy = Path(boundary["client_profile"]).read_text()
+            _require(
+                all(
+                    "(deny file-write* (literal " + json.dumps(path, ensure_ascii=False) + "))" in policy
+                    for path in _verification_protected_paths(boundary)
+                ),
+                "installed Kilo profile omitted protected verification inputs",
+            )
         try:
             from . import autocode_verification_copy as copies
         except ImportError:

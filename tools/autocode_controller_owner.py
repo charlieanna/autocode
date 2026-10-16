@@ -18,6 +18,10 @@ import stat
 import uuid
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_checkout_lock as checkout_lock
@@ -150,7 +154,7 @@ def _free_lock(path):
             fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
-def _worker_ownership(state, run_dir):
+def _worker_ownership(state: RunState, run_dir):
     """Distinguish positively live workers from absent or uninspectable ownership."""
     records = []
     for record in (state.get("active_stage"), state.get("active_runner_check")):
@@ -179,7 +183,7 @@ def _worker_ownership(state, run_dir):
     return ("unknown", "Provider ownership cannot be verified absent") if uncertain else ("absent", None)
 
 
-def inspect(state, run_dir, workspace, *, run_locked=False, checkout_locked=False):
+def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_locked=False):
     """Fresh read-only controller inspection; no saved status substitutes for it."""
     result = {
         "kind": "unknown",
@@ -245,7 +249,7 @@ def inspect(state, run_dir, workspace, *, run_locked=False, checkout_locked=Fals
         return result
 
 
-def project(state, inspection):
+def project(state: RunState, inspection):
     """A status projection only; callers explicitly persist at writer boundaries."""
     if (
         state.get("status") != "RUNNING"
@@ -273,19 +277,19 @@ def project(state, inspection):
     return shown
 
 
-def reconcile(state, run_dir, workspace, persist, *, checkout_locked=False):
+def reconcile(state: RunState, run_dir, workspace, persist, *, checkout_locked=False):
     """Called only by an advancing CLI holding its existing run lock."""
     observed = inspect(state, run_dir, workspace, run_locked=True, checkout_locked=checkout_locked)
     shown = project(state, observed)
     if shown is not state:
-        state.clear()
+        cast(dict, state).clear()
         state.update(shown)
         state["paused_at"] = now()
         persist(Path(run_dir) / "state.json", state)
     return observed
 
 
-def checkpoint(path, state):
+def checkpoint(path, state: RunState):
     """Refresh only the current locked invocation after a durable state save."""
     if Path(path).name != "state.json":
         return
@@ -295,7 +299,7 @@ def checkpoint(path, state):
 
 
 class Owner:
-    def __init__(self, state, run_dir, persist):
+    def __init__(self, state: RunState, run_dir, persist):
         self.state, self.run_dir, self.persist = state, Path(run_dir), persist
         pid = os.getpid()
         row = processes.process_table({pid}).get(pid)
@@ -321,7 +325,7 @@ class Owner:
         util.atomic_json(self.run_dir / "controller-owners" / (self.receipt["id"] + ".json"), self.receipt)
         util.atomic_json(self.run_dir / FILE, self.receipt)
 
-    def checkpoint(self, state):
+    def checkpoint(self, state: RunState):
         rows = state.get("stages") or []
         self.receipt.update(
             checkpoint=util.digest(state), last_checkpoint_at=now(), last_stage=rows[-1].get("stage") if rows else None

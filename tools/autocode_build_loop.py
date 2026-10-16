@@ -277,7 +277,8 @@ def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=F
         if current.get("status") != "RUNNING":
             # Saving adjudicated a queued resolver request (published or deferred it): launch nothing.
             return runner.orchestrator.SKIP
-        # A role's climb on its effort ladder is priced against the money cap before it launches (#611).
+        # A role's climb on its effort ladder is checked before it launches (#611): priced against the money cap
+        # (PAUSED_COST_LIMIT), then timed against an active-time budget you set (PAUSED_TIME_LIMIT).
         climb_cap.guard(current, stage, route_role)
         schema_value = request.schema
         schema_path = run_dir / "schemas" / f"v3-{stage}.json"
@@ -385,6 +386,10 @@ def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=F
                 ),
                 after=after_code_stage,
                 investigate=not args.unit,
+                # Native authority never admits the Investigator: sending a stage pause to it would
+                # only spend its identity and bury the original reason under a refusal. A Builder
+                # failure request it refuses is still restored to its own pause.
+                queue=getattr(runner, "native_calls", None) is None,
             )
     except runner.orchestrator.LoopExit as stopped:
         return stopped.code
