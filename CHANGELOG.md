@@ -1001,6 +1001,14 @@ PR template asks for an entry here; a change without one is incomplete.
   run's first checkpoint). The text, the closing `autocode: …` on stderr, exit code 2 and the saved run are
   unchanged. A native visual run already saved such a refusal as a `PAUSED_INVALID_OUTPUT` pause and still
   does (#714).
+- Pull request CI ran the `linux-tool-containment` job, which runs the contained fake OpenCode flow under
+  bubblewrap, only when one of four named files changed. A pull request that broke the flow through another
+  file it loads, such as the status view (`autocode_run_view.py`) or the containment setup check
+  (`autocode_containment_policy.py`), skipped the job, and the break first showed on master. `tools/ci_scope.py`
+  now works out the files from `tests/test_contained_fake_cli.py` itself. It follows every import and every
+  script started or copied by file name, so the list stays right as imports change. That covers most of
+  `tools/` (436 of 546 Python files today), so most pull requests that change runtime code now run this job too.
+  A missing test module fails CI's job selection instead of skipping the job (#709).
 
 ## [0.7.1] — 2026-10-09
 
