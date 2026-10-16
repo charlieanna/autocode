@@ -699,7 +699,8 @@ decision names), the route it climbed `from` and `to` (`model`, `reasoning_effor
 serially), `inherited`, `attempts`, `cost` and `outcome`:
 
 - `attempts` are the role's stage records launched on the route it climbed to, from the escalation
-  until the first of: a validation of its work that passed (that attempt included), or the role's
+  until the first of: a validation of its work that passed (that attempt included), unless the
+  Builder's retry policy then charged one of its attempts as a failure (see `outcome`), or the role's
   next escalation of either kind (its next climb, the Builder's stronger attempt). The running one is
   included (`active`); dry runs and the runner's own stages are not attempts. A climb lasts for the
   rest of the run, so a later milestone's attempts on the climbed rung count until one of those ends

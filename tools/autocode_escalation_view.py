@@ -17,10 +17,11 @@ Two escalations are recorded today, and this module only reads them:
 
 An escalation's attempts are its role's stage records launched on the route it climbed to (dry runs
 and the runner's own stages left out), from the escalation until the first of: a validation of its
-work that passed (that attempt included), or the role's next escalation of either kind (its next
-climb, the Builder's stronger attempt); a running attempt counts. A validation judged its work when
-its own attempt is one of them, or, for the Builder, whose work another role validates, when the
-Builder's last attempt before it is one of them; no other role is judged by another role's
+work that passed (that attempt included), unless the Builder's retry policy then charged one of its
+attempts as a failure (see the outcome below), or the role's next escalation of either kind (its
+next climb, the Builder's stronger attempt); a running attempt counts. A validation judged its work
+when its own attempt is one of them, or, for the Builder, whose work another role validates, when
+the Builder's last attempt before it is one of them; no other role is judged by another role's
 validation. That attempt must also be for the escalation's own milestone: every assignment, a rework
 included, is a new task, so a task's milestone is its contract hash and milestone ids (the run's
 current and archived tasks), and an attempt whose task is of another milestone than the attempt the
