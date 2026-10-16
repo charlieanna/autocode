@@ -2094,7 +2094,7 @@
 
 
 <h1 id="programs-large-requirements-as-parallel-workstreams">Programs: large requirements as parallel workstreams<a class="headerlink" href="#programs-large-requirements-as-parallel-workstreams" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2d50e25247710f62d15853bd0652071e20c2e08c/README.md">← Back to README</a></p>
 <p>One bounded run cannot absorb a requirement that spans many components. A <strong>program</strong>
 splits it into workstreams with explicit dependencies and literal ownership. The
 program manifest is the program's <strong>agreement</strong>: you approve it by exact token before
@@ -2819,7 +2819,7 @@ journey does not prove.</p>
 <p>Each new run of the final check is proven against the integration head it starts from:
 before it starts, the program writes that head as the <code>base_commit</code> of the integration
 worktree's <code>.autocode/task-workspace.json</code>, which the run reads once
-(<a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/docs/bugs/2026-10-06-final-check-proof-base.md">bug note</a>). The program's own delivery checks
+(<a href="https://github.com/charlieanna/autocode/blob/2d50e25247710f62d15853bd0652071e20c2e08c/docs/bugs/2026-10-06-final-check-proof-base.md">bug note</a>). The program's own delivery checks
 keep the head the first run on its current record started from; a new integration
 worktree record renews it, including isolation of a retired final check at the accepted
 frontier. Without that replacement, they still cover commits made on the branch since.
@@ -2940,7 +2940,7 @@ with the fake Codex provider.
 <code>approve</code> and <code>run</code> with real child runs under the scripted model: a walking skeleton,
 two parallel workstreams, an accepted interface change request that re-checks the
 producer and both consumers, and the final check by journey
-(<a href="https://github.com/charlieanna/autocode/blob/9913e484038384aaef2631e65dbf90a1f6cf7a7b/scenarios/README.md#programs">scenarios/README.md, Programs</a>):</p>
+(<a href="https://github.com/charlieanna/autocode/blob/2d50e25247710f62d15853bd0652071e20c2e08c/scenarios/README.md#programs">scenarios/README.md, Programs</a>):</p>
 <pre><code class="language-sh">.venv/bin/python scenarios/run.py run program-notes-cli --fake
 </code></pre>
 <p><code>program-adaptive-learning</code> adds shared exact hint-rule inheritance in engine and
