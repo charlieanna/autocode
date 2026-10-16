@@ -2204,7 +2204,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/653661ef966b2c8e99539237a99a5a0fdbcf0790/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9184475c74afe5cada3279dd7adfcf3ac2d8f144/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2474,7 +2474,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/653661ef966b2c8e99539237a99a5a0fdbcf0790/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/9184475c74afe5cada3279dd7adfcf3ac2d8f144/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -2948,23 +2948,23 @@ has that basis, and <code>spent_usd</code> is null when no stage is known at all
 so its <code>estimated</code> can differ from <code>cost.estimated_usd</code>.</p>
 <p><code>escalation_outcomes</code> counts the run's escalations and Builder retries by the outcome the runner
 stamped on them (<code>passed</code>, <code>paused</code>, <code>open</code>; <code>tools/autocode_route_ladder.py</code>). The runner stamps
-every one still open <code>passed</code> when the run completes on work a validation passed, or when the
-Completion Reviewer or Resolver assigns the next task while the last validation passed, and <code>paused</code>
-at the Builder's retry-limit pause. At that assignment it leaves the Builder's own (its climbs, its
-retries and its stronger attempt) open when the work was sent back after that validation's attempt
-started (a retry-policy charge or a correction task anywhere in the run; <code>escalations</code> takes the same
-two as a failure after a PASS of the escalation's own milestone), or when that attempt's start is not
-in the run's records, so a send-back cannot be ruled out. A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a
-climb a later climb replaced reads <code>passed</code> there and <code>failed_again</code> as a row, and before the struggle
-ends a stamp is <code>open</code> while its row may read <code>passed</code>. <code>--accept-completion</code> stamps nothing. Read a
-row's <code>outcome</code> for how one escalation ended. <code>escalations</code> lists each escalation the run made, oldest
-first (<code>tools/autocode_escalation_view.py</code>, #612): a role's climb on its effort ladder (<code>kind</code>
-<code>effort_climb</code>) and the Builder's stronger attempt (<code>stronger_attempt</code>; see
-<a href="../models/#builder-retry-policy">Models</a>). Each row has the route <code>role</code> that moved, the <code>stage</code> that
-struggled and its <code>job</code> as the screen names it (from the role when the stage is not known; null, never
-a code name, when neither names a job), <code>at</code>, <code>trigger</code> (<code>validation_rework</code>, <code>rejected_output</code>,
-<code>no_progress</code> or <code>abandoned_attempt</code> for a climb, <code>execution_failure</code> for the stronger attempt),
-<code>detail</code>, <code>struggle_id</code>, <code>task_id</code> (for the stronger attempt, the task of the failed attempt its
+every one still open <code>passed</code> when the run completes on work a validation passed (including when
+completion is accepted via <code>--accept-completion</code>), or when the Completion Reviewer or Resolver assigns
+the next task while the last validation passed, and <code>paused</code> at the Builder's retry-limit pause. At that
+assignment it leaves the Builder's own (its climbs, its retries and its stronger attempt) open when the
+work was sent back after that validation's attempt started (a retry-policy charge or a correction task
+anywhere in the run; <code>escalations</code> takes the same two as a failure after a PASS of the escalation's own
+milestone), or when that attempt's start is not in the run's records, so a send-back cannot be ruled out.
+A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a climb a
+later climb replaced reads <code>passed</code> there and <code>failed_again</code> as a row, and before the struggle ends a
+stamp is <code>open</code> while its row may read <code>passed</code>. Read a row's <code>outcome</code> for how one escalation ended.
+<code>escalations</code> lists each escalation the run made, oldest first (<code>tools/autocode_escalation_view.py</code>, #612):
+a role's climb on its effort ladder (<code>kind</code> <code>effort_climb</code>) and the Builder's stronger attempt
+(<code>stronger_attempt</code>; see <a href="../models/#builder-retry-policy">Models</a>). Each row has the route <code>role</code> that moved,
+the <code>stage</code> that struggled and its <code>job</code> as the screen names it (from the role when the stage is not
+known; null, never a code name, when neither names a job), <code>at</code>, <code>trigger</code> (<code>validation_rework</code>,
+<code>rejected_output</code>, <code>no_progress</code> or <code>abandoned_attempt</code> for a climb, <code>execution_failure</code> for the stronger
+attempt), <code>detail</code>, <code>struggle_id</code>, <code>task_id</code> (for the stronger attempt, the task of the failed attempt its
 decision names), the route it climbed <code>from</code> and <code>to</code> (<code>model</code>, <code>reasoning_effort</code>, <code>profile</code>),
 <code>deferred_by_parallel_builder</code> (a parallel Builder left the stronger attempt to this run, which made it
 serially), <code>inherited</code>, <code>attempts</code>, <code>cost</code> and <code>outcome</code>:</p>
