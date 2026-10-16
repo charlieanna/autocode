@@ -58,7 +58,9 @@ def export_payload(run_dir: Path, workspace: Path, path: Path) -> dict:
     if not masked:
         msg = f"{line}; goal hash {goal}"
     else:
-        msg = f"{line} with credential-shaped text masked, so its goal hash {written} differs from the run's plan, {goal}"
+        msg = (
+            f"{line} with credential-shaped text masked, so its goal hash {written} differs from the run's plan, {goal}"
+        )
     return {
         "path": str(path),
         "revision": contract["revision"],
@@ -93,13 +95,10 @@ def check_payload(path: Path) -> tuple[int, dict]:
             "error": {"code": "stale_plan_text", "message": msg},
         }
     same = plan.goal_hash == plan.exported_hash
-    msg = (
-        f"{path}: goal hash {plan.goal_hash}; "
-        + (
-            f"the plan exported from revision {plan.revision}"
-            if same
-            else f"differs from revision {plan.revision} as exported, goal hash {plan.exported_hash}"
-        )
+    msg = f"{path}: goal hash {plan.goal_hash}; " + (
+        f"the plan exported from revision {plan.revision}"
+        if same
+        else f"differs from revision {plan.revision} as exported, goal hash {plan.exported_hash}"
     )
     return 0, {
         "path": str(path),

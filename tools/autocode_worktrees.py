@@ -292,9 +292,7 @@ def cli(argv) -> int:
     if not trees:
         if args.json:
             print(
-                json.dumps(
-                    {"project": str(project), "parent": str(parent), "worktrees": [], "failed": False}, indent=2
-                )
+                json.dumps({"project": str(project), "parent": str(parent), "worktrees": [], "failed": False}, indent=2)
             )
         else:
             print(f"No task worktrees under {parent}.")
@@ -315,9 +313,7 @@ def cli(argv) -> int:
         removable, reason = assess(project, tree, branch, registered)
         if not removable:
             if args.json:
-                json_worktrees.append(
-                    {"worktree": str(tree), "action": "keep", "reason": reason, "branch": branch}
-                )
+                json_worktrees.append({"worktree": str(tree), "action": "keep", "reason": reason, "branch": branch})
             else:
                 print(f"keep    {tree}: {reason}")
         elif not args.yes:

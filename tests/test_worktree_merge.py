@@ -87,6 +87,7 @@ class WorktreeMergeTests(unittest.TestCase):
         import contextlib
         import io
         import json
+
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = merge_mod.cli(["--workspace", str(self.project), str(tree), "--json"])
@@ -104,6 +105,7 @@ class WorktreeMergeTests(unittest.TestCase):
         import contextlib
         import io
         import json
+
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = merge_mod.cli(["--workspace", str(self.project), str(tree), "--json"])
