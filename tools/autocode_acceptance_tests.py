@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+import argparse
 import hashlib
 from pathlib import Path
 
@@ -38,11 +39,39 @@ except ImportError:
 
 STAGE = "write_acceptance_tests"
 KEY: Final = "acceptance_tests"
+SETTING_BLIND: Final = "blind_tests"
 BUILD_STAGES = ("terra", "orchestrator")
 
 
+def is_blind(state: RunState) -> bool:
+    return bool((state.get("settings") or {}).get(SETTING_BLIND))
+
+
 def enabled(state: RunState) -> bool:
-    return bool((state.get("settings") or {}).get("spec_first"))
+    settings = state.get("settings") or {}
+    return bool(settings.get("spec_first") or settings.get(SETTING_BLIND))
+
+
+def add_argument(parser) -> None:
+    parser.add_argument(
+        "--blind-tests",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Run Tester acceptance tests blindly (#702): tests are archived under the run directory and removed "
+        "from the workspace so the Builder never sees them, then evaluated on candidate scratch trees; off by default",
+    )
+
+
+def new_run_setting(requested, joint: bool) -> bool:
+    """Off unless asked for; requires joint planning so acceptance tests can be written for approved cases."""
+    if requested is True and not joint:
+        raise ValueError("--blind-tests needs joint planning")
+    return requested is True
+
+
+def resume_refused(saved_settings: dict, requested) -> bool:
+    """A saved run keeps its choice; repeating its own choice is harmless, no flag changes nothing."""
+    return requested is not None and bool(requested) != bool(saved_settings.get(SETTING_BLIND))
 
 
 def _cases(state: RunState, *, all_due: bool = False) -> list[dict]:

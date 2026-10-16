@@ -42,6 +42,49 @@ def approved(cases=CASES, **extra):
     }
 
 
+class BlindTestsConfigTests(unittest.TestCase):
+    def test_add_argument_registers_blind_tests_flag(self):
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        acceptance.add_argument(parser)
+        parsed = parser.parse_args(["--blind-tests"])
+        self.assertTrue(parsed.blind_tests)
+        parsed_no = parser.parse_args(["--no-blind-tests"])
+        self.assertFalse(parsed_no.blind_tests)
+
+    def test_new_run_setting_enforces_joint_planning(self):
+        self.assertTrue(acceptance.new_run_setting(True, joint=True))
+        self.assertFalse(acceptance.new_run_setting(False, joint=False))
+        self.assertFalse(acceptance.new_run_setting(None, joint=True))
+        with self.assertRaisesRegex(ValueError, "--blind-tests needs joint planning"):
+            acceptance.new_run_setting(True, joint=False)
+
+    def test_resume_refused_detects_mismatch(self):
+        self.assertTrue(acceptance.resume_refused({"blind_tests": True}, False))
+        self.assertTrue(acceptance.resume_refused({"blind_tests": False}, True))
+        self.assertFalse(acceptance.resume_refused({"blind_tests": True}, True))
+        self.assertFalse(acceptance.resume_refused({"blind_tests": True}, None))
+        self.assertFalse(acceptance.resume_refused({}, None))
+
+    def test_cli_build_parser_recognizes_blind_tests(self):
+        import autocode_args
+
+        parser = autocode_args.build_parser(None, autocode_args.DEFAULT_ROLE_MODELS)
+        args = parser.parse_args(["--task", "do something", "--blind-tests"])
+        self.assertTrue(args.blind_tests)
+        args_no = parser.parse_args(["--task", "do something", "--no-blind-tests"])
+        self.assertFalse(args_no.blind_tests)
+
+    def test_is_blind_and_enabled(self):
+        self.assertTrue(acceptance.is_blind({"settings": {"blind_tests": True}}))
+        self.assertFalse(acceptance.is_blind({"settings": {"spec_first": True}}))
+        self.assertFalse(acceptance.is_blind({"settings": {}}))
+        self.assertTrue(acceptance.enabled({"settings": {"blind_tests": True}}))
+        self.assertTrue(acceptance.enabled({"settings": {"spec_first": True}}))
+        self.assertFalse(acceptance.enabled({"settings": {}}))
+
+
 class RouteTests(unittest.TestCase):
     def test_a_build_with_unwritten_cases_goes_to_the_tester_once(self):
         state = approved()
