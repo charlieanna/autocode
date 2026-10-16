@@ -10,7 +10,8 @@ violated promise, what the fixed protocol does and the pinned receipts. The ordi
 carries it: the completion gate refuses while it is open, the Completion Reviewer and Resolver see
 it in ``open_findings``, and a correction task assigns it to the Builder (``actionable_findings``).
 
-Only this module writes or closes ``runner`` findings, and only from the runner's own replay: a
+Only this module writes or closes ``runner`` findings that carry an ``observation_hash`` (a package
+run's other ``runner`` finding is autocode_package_writes'), and only from the runner's own replay: a
 later replay that passes that observation on a source it has not failed on closes it. A race can be
 missed, so a PASS on a source listed in the row's ``failed_revisions`` closes nothing. An approved
 contract that no longer holds the observation retracts it. No model report can resolve or retract
@@ -186,7 +187,7 @@ def blocking_summary(state: RunState, limit=3):
         shown
         + more
         + (
-            ". A runner finding closes only when the runner's own observation passes on a "
+            ". A runner finding closes only when the runner's own check passes on a "
             "new source: request REWORK so the Builder can correct it"
             if runner
             else ""

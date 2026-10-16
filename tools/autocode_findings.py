@@ -42,7 +42,8 @@ except ImportError:
     import autocode_review_gate as review_gate
     import autocode_util as s
 
-# "runner": a failed runner lifecycle observation; only autocode_risk_findings opens or closes one.
+# "runner": the runner's own check, which only its module opens or closes: a failed lifecycle observation
+# (autocode_risk_findings) or a package run's change outside its package (autocode_package_writes).
 SOURCES = ("sol", "astra", "runner")
 SEVERITIES = ("critical", "high", "medium", "low")
 DISPOSITIONS = ("resolved", "retracted")

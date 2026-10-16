@@ -1,8 +1,9 @@
-"""A bug fix in one package of a two-package repository, through the public CLI (#711).
+"""A task in one package of a two-package repository, through the public CLI (#711).
 
 Every stage runs on the offline fixture provider. The run is started with --package: its suite is
 detected in that package and runs from its directory, only that package's tests are protected, and a
-Builder write to the other package keeps the run from completing.
+Builder write outside the package is a runner finding that keeps the run from completing, in a bug fix
+and in a build that owes no regression proof.
 """
 
 from __future__ import annotations
@@ -83,10 +84,26 @@ class PackageRunCLI(unittest.TestCase):
         replay = final["validation"]["check_replay"]["protected_tests"]
         self.assertEqual(("PASS", [f"{GREET}/test_greet.py"]), (replay["verdict"], replay["changed_tests"]))
 
+    def outside_finding(self, final, result):
+        """The completion gate refused the Completion Reviewer's COMPLETE on the runner's one open package finding."""
+        self.assertNotEqual("TASK_COMPLETE", final["status"], result.stdout + result.stderr)
+        rows = [row for row in final["findings_ledger"] if row.get("package") == GREET]
+        self.assertEqual(1, len(rows), final["findings_ledger"])
+        row = rows[0]
+        self.assertEqual(("runner", "open", True), (row["source"], row["status"], row["blocking"]))
+        self.assertIn(
+            "Completion rejected: the findings ledger still lists open blocking findings", final["stop_reason"]
+        )
+        self.assertIn(row["id"], final["stop_reason"])
+        self.assertIn("Files outside the package packages/greet/ changed", final["stop_reason"])
+        return row
+
     def test_a_builder_write_to_the_other_package_keeps_the_run_from_completing(self):
         self.builder_writes({**FIX, f"{OTHER}/other.py": "def answer():\n    return 41 + 1\n"})
         _, final, result = self.run_to_end(2)
-        self.assertNotEqual("TASK_COMPLETE", final["status"], result.stdout)
+        row = self.outside_finding(final, result)
+        self.assertEqual({f"{OTHER}/other.py": "modified"}, row["paths"])
+        # The proof still says its suite never ran the other package.
         proof = final["regression_proof"]
         self.assertEqual("UNVERIFIED", proof["verdict"])
         self.assertIn(
@@ -94,7 +111,33 @@ class PackageRunCLI(unittest.TestCase):
             "packages/other/other.py",
             proof["unverified"],
         )
-        self.assertIn("no passing regression proof", final["stop_reason"])
+
+    def test_a_run_that_owes_no_proof_reports_each_change_outside_the_package(self):
+        # A build whose criteria name no test owes no regression proof, so nothing else judges its diff.
+        self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"
+        self.builder_writes(
+            {
+                **FIX,
+                f"{OTHER}/other.py": "def answer():\n    return 41 + 1\n",
+                f"{OTHER}/notes.md": "A file the other package did not have\n",
+                "README.md": "# Two packages, edited from the greeting package's task\n",
+            }
+        )
+        _, final, result = self.run_to_end(2)
+        self.assertIsNone(final.get("regression_proof"))
+        row = self.outside_finding(final, result)
+        expected = {"README.md": "modified", f"{OTHER}/notes.md": "added", f"{OTHER}/other.py": "modified"}
+        self.assertEqual(expected, row["paths"])
+        for path in expected:
+            self.assertIn(path, row["finding"])
+
+    def test_a_run_that_owes_no_proof_completes_when_every_change_is_in_the_package(self):
+        self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"
+        self.builder_writes(FIX)
+        _, final, result = self.run_to_end(0)
+        self.assertEqual("TASK_COMPLETE", final["status"], result.stdout + result.stderr)
+        self.assertIsNone(final.get("regression_proof"))
+        self.assertEqual([], [row for row in final.get("findings_ledger") or [] if row.get("source") == "runner"])
 
     def test_the_package_is_checked_and_fixed_when_the_run_starts(self):
         for package, message in (

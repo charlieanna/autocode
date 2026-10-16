@@ -9,7 +9,7 @@
   "tests.test_capacity_scenario": "Two real CLI capacity-recovery catalog runs plus oracle controls; 32.431 s locally on macOS, 2026-10-13",
   "tests.test_resolver_recommendation_cli": "Seven real CLI Resolver correction and approval controls; initial six-case qualification took 33.211 s locally on macOS, 2026-10-13",
   "tests.test_terminal_review_cli": "Four real CLI human-review controls (31.211 s locally on macOS), 2026-10-13",
-  "tests.test_package_scope_cli": "Real CLI fake-provider runs with --package in a two-package repository: two to completion or refusal, and the launch checks (57-111 s for the module locally, loaded Linux cloud container), 2026-10-15",
+  "tests.test_package_scope_cli": "Real CLI fake-provider runs with --package in a two-package repository: four to completion or refusal, and the launch checks (57-111 s for the module locally, loaded Linux cloud container, 2026-10-15; about 90 s with four runs, 2026-10-16)",
   "tests.test_lazy_validator_refusal": "Two full fake CLI runs of greenfield-todo-cli (~25 s locally), 2026-10-12",
   "tests.test_investigator_route": "Public TaskRun Investigator quota/reroute and completion controls; whole10 measured53.582s in development qualification.",
   "tests.test_build_blackbox": "106 s in CI (Ubuntu, one module at a time), 2026-09-29",

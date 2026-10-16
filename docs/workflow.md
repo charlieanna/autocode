@@ -621,9 +621,24 @@ What the package changes:
   command unless `--test-command` gives one, so a large repository does not bind
   thousands of unrelated tests. The replay of the package suite is read in the
   package as the same suite is read at the root.
+- The package is the Builder's write scope, and its handoff says so
+  (`write_scope`). Before each Tester and Completion Reviewer, in every package
+  run, whether or not it owes a regression proof, the runner compares the
+  candidate with the run's base. A file added, modified or deleted outside the
+  package (another package, a file at the repository root, a shared lockfile or
+  workspace file; a rename counts on both sides) opens one blocking finding with
+  source `runner` that names each path and what happened to it. AutoCode's own
+  `.autocode/` files, bytecode and the runner's dependency links are not
+  changes, as for the regression proof. The completion gate and a milestone's
+  acceptance refuse while the finding is open; every stage sees it in
+  `open_findings`, and a correction task is assigned it. Only the runner closes
+  it, when a later check finds no change outside the package; no reviewer report
+  can, and closing it with `--close-finding` accepts nothing: the next check
+  opens a new one while the change is there. A task that must change files
+  outside the package, such as a root lockfile, needs a run without `--package`.
 - A runner regression proof (a bug fix, or a plan whose criteria name tests)
-  leaves a change outside the package `UNVERIFIED`, because the package suite
-  never ran it. The run cannot complete with such a change.
+  also leaves a change outside the package `UNVERIFIED`, because the package
+  suite never ran it.
 
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
@@ -651,8 +666,9 @@ baseline cache, as at the root.
 
 Not covered yet (#711):
 
-- The package does not limit what the Builder may write, and a run that owes no
-  runner regression proof does not check for changes outside the package.
+- Nothing limits what the Builder writes while it works: a change outside the
+  package is found when the candidate is checked before review, not refused when
+  it is written.
 - Detection in the package does not read pytest configuration in parent
   directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
   `conftest.py`), so a package that relies on it is detected as unittest. Give

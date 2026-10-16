@@ -255,6 +255,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- In a `--package` run, a change outside the package is a blocking finding (#711): before each Tester and
+  Completion Reviewer, the runner compares the candidate with the run's base, and any file added, modified or
+  deleted outside the package (a rename counts on both sides; AutoCode's `.autocode/` files, bytecode and the
+  runner's dependency links do not) opens one finding with source `runner` naming each path. The completion gate
+  refuses while it is open, and only a later check that finds no such change closes it. Before, a run that owed no
+  regression proof (a build whose criteria name no test) completed with the change. The Builder's handoff now
+  states the write scope (`write_scope`). Nothing limits the Builder's writes while it works.
 - Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the
   last Builder attempt's tokens at the stronger model's rate. When the spend so far plus that projection would pass
   the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt starts, naming the model and effort, the tokens,

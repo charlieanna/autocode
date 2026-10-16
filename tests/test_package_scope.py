@@ -118,6 +118,25 @@ class PackageNames(unittest.TestCase):
                 self.assertFalse(package_scope.contains(web, path))
         self.assertEqual([admin], package_scope.outside(web, [admin, "packages/web/test_web.py"]))
 
+    def test_a_change_outside_the_package_is_any_changed_path_not_strictly_inside_it(self):
+        changes = {
+            f"{GREET}/greet.py": "modified",
+            f"{GREET}/sub/new.py": "added",
+            f"{OTHER}/other.py": "deleted",
+            "packages/greeter/x.py": "added",
+            GREET: "added",
+            "README.md": "modified",
+        }
+        outside = {
+            GREET: "added",
+            "README.md": "modified",
+            "packages/greeter/x.py": "added",
+            f"{OTHER}/other.py": "deleted",
+        }
+        self.assertEqual(outside, package_scope.changes_outside(GREET, changes))
+        self.assertEqual(sorted(outside), list(package_scope.changes_outside(GREET, changes)))
+        self.assertEqual({}, package_scope.changes_outside(GREET, {f"{GREET}/greet.py": "deleted"}))
+
     def test_proving_tests_are_narrowed_inside_the_package(self):
         command = package_scope.command(GREET, f"{sys.executable} -m unittest -v test_greet.py")
         narrowed = proof_stability.narrow(
@@ -158,6 +177,29 @@ class PackageSuite(unittest.TestCase):
         self.assertEqual(SEED_TESTS, sorted(receipt["results"]["passed"]))
         # The other package's tests are not this package's suite.
         self.assertFalse([test for test in receipt["results"]["passed"] if "other" in test])
+
+    def test_the_candidate_changes_outside_the_package_count_each_side_of_a_rename_and_no_autocode_file(self):
+        root = self.project.root
+        (root / OTHER / "other.py").rename(root / GREET / "other.py")  # into the package: its old path is outside
+        (root / GREET / "greet.py").rename(root / "greet.py")  # out of it: its new path is outside
+        (root / OTHER / "test_other.py").unlink()
+        self.project.write(
+            {
+                ".autocode/runs/run/state.json": "{}\n",
+                ".autocode-ui/session.json": "{}\n",
+                f"{GREET}/__pycache__/greet.cpython-313.pyc": "bytecode",
+            }
+        )
+        (root / "node_modules").symlink_to(root / OTHER, target_is_directory=True)  # the runner's dependency link
+        changes = verify.changed_files(root, self.project.base)
+        self.assertEqual(
+            {"greet.py": "added", f"{OTHER}/other.py": "deleted", f"{OTHER}/test_other.py": "deleted"},
+            package_scope.changes_outside(GREET, changes),
+        )
+        self.assertEqual(
+            {f"{GREET}/greet.py": "deleted", f"{GREET}/other.py": "added"},
+            {path: change for path, change in changes.items() if package_scope.contains(GREET, path)},
+        )
 
     def test_a_package_that_is_missing_or_a_symlink_has_no_suite(self):
         self.assertIsNone(verify.detect_framework(self.project.root, python=sys.executable, package="packages/none"))

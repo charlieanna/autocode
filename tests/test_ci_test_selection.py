@@ -61,10 +61,18 @@ class DynamicDependenciesTests(unittest.TestCase):
                 self.assertIn("tests.test_completion_status", kept)
 
     def test_package_launch_wiring_selects_the_package_cli_consumer(self):
-        # --package is checked at launch in autocode_run_setup.resolve; only the slow CLI module drives it (#711).
-        for path in ("tools/autocode_package_scope.py", "tools/autocode_run_setup.py"):
+        # --package is checked at launch in autocode_run_setup.resolve, and a change outside the package stops
+        # the run at completion (autocode_package_writes); only the slow CLI module drives both (#711).
+        for path in (
+            "tools/autocode_package_scope.py",
+            "tools/autocode_package_writes.py",
+            "tools/autocode_run_setup.py",
+        ):
             with self.subTest(path=path):
                 self.assertIn("tests.test_package_scope_cli", dependencies.dependencies(path))
+        self.assertIn(
+            "tests.test_package_writes", dependencies.dependencies("tools/prompts/fragments/package-scope/builder.md")
+        )
 
     def test_unknown_runtime_and_repository_data_select_actual_fake_flows(self):
         for path in ("tools/new_runtime_rule.json", "new_runtime_rule.json", "tools/new_runtime_rule.py"):

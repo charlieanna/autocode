@@ -8,7 +8,8 @@
   the command that ran, from the repository root, in every scratch copy;
 - the protected-test inventory keeps only the package's tests, and their replay reads the saved
   package command's per-test results inside the package (``recognize``);
-- the regression proof leaves a change outside the package unverified.
+- the regression proof leaves a change outside the package unverified, and in every package run a
+  change outside it is a runner finding (``changes_outside``, read by autocode_package_writes).
 
 An explicit ``--test-command`` still runs from the repository root, exactly as given. Written as
 ``cd PATH && RUNNER`` for the run's own package, the proof reads it with that runner inside the
@@ -197,6 +198,18 @@ def inside(package, paths) -> list[str]:
 def outside(package, paths) -> list[str]:
     """Paths not inside the package, sorted."""
     return test_roots.outside(package, paths)
+
+
+def changes_outside(package, changes) -> dict[str, str]:
+    """The changes not inside the package, by path, in path order.
+
+    ``changes`` maps each changed path to ``added``, ``modified`` or ``deleted``, as
+    autocode_verify.changed_files reports a candidate: AutoCode's run state, bytecode and the
+    runner's dependency links are already left out, and a rename is a deleted and an added path, so a
+    rename into or out of the package leaves its outside side here. A file at the package path itself
+    is outside it.
+    """
+    return {path: changes[path] for path in outside(package, changes)}
 
 
 class PackageFramework(Framework):

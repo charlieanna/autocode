@@ -26,6 +26,7 @@ from pathlib import Path
 try:
     from . import autocode_design_manifest as design_manifest
     from . import autocode_milestone_replan as replan
+    from . import autocode_package_writes as package_writes
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_support as support
     from . import autocode_visual_evidence as visual
@@ -33,6 +34,7 @@ try:
 except ImportError:
     import autocode_design_manifest as design_manifest
     import autocode_milestone_replan as replan
+    import autocode_package_writes as package_writes
     import autocode_protected_oracles as protected_oracles
     import autocode_support as support
     import autocode_visual_evidence as visual
@@ -88,6 +90,10 @@ def context_packet(state, stage, state_path):
             or str(Path(state_path).parent / "evidence"),
             "instruction": prompts.get("fragments/stage-context/context-packet-04.md"),
         }
+        # A package run's Builder may change only files inside the package (#711).
+        write_scope = package_writes.context(state["settings"])
+        if write_scope:
+            base["write_scope"] = write_scope
     protected = protected_oracles.context(
         state["settings"], (state.get("current_task") or {}).get("affected_paths", [])
     )

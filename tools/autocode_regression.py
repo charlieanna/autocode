@@ -68,6 +68,7 @@ try:
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_mutation_check as mutation_check
     from . import autocode_package_scope as package_scope
+    from . import autocode_package_writes as package_writes
     from . import autocode_regression_selection as selection
     from . import autocode_runner_check as runner_check
     from . import autocode_status as status
@@ -85,6 +86,7 @@ except ImportError:
     import autocode_launch_inputs as launch_inputs
     import autocode_mutation_check as mutation_check
     import autocode_package_scope as package_scope
+    import autocode_package_writes as package_writes
     import autocode_regression_selection as selection
     import autocode_runner_check as runner_check
     import autocode_status as status
@@ -1011,9 +1013,20 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
 
 
 def before_review(state: RunState, stage, workspace, run_dir):
-    """Refresh proof before independent validation or completion review in either dispatch path."""
+    """Refresh proof before independent validation or completion review in either dispatch path.
+
+    A package run's candidate is first checked for changes outside its package, whether or not a proof
+    is owed: they are a runner finding (autocode_package_writes)."""
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     runner_check.clear(state, run_dir, status.persist)
+    in_package = stage in package_writes.STAGES and package_scope.of(state.get("settings"))
+    if in_package and (base := base_commit(state, workspace)):
+        package_writes.reconcile(
+            state,
+            verify.changed_files(workspace, base, source_paths=source_scope.paths(state)),
+            source_scope.snapshot(workspace, state)["revision"],
+            base,
+        )
     # Due-now scope even for astra_review: it also reviews each milestone before advancing, where a later
     # milestone's unbuilt tests would fail the proof and the owner note would demand REWORK. Final
     # completion still needs every case, enforced by complete(all_due=True).
