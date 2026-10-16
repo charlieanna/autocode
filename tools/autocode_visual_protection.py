@@ -3246,7 +3246,10 @@ class NativeProtection:
             ),
             "initial planning authority needs the original successful v2 final native stage",
         )
-        _rows, original, stopped = self._finished_for(history.record_identity(record))
+        launch_record = dict(record)
+        if is_repair:
+            launch_record.pop("applied_original_events", None)
+        _rows, original, stopped = self._finished_for(history.record_identity(launch_record))
         _require(
             original["body"]["grants"] == []
             and original["body"]["binding"]["source"] == snapshot == stopped["body"]["after"]
