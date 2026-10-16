@@ -10,16 +10,16 @@ keeping a copy of it, and remembers the real stdout. The one object written ther
 - for any other return once the run has loaded (loaded()), such as an operational pause raised in the
   build loop or a stop an intervention asked for, the saved run's payload plus ``result`` (finish());
 - before the run loads, such as a refusal of the arguments, ``{"result": ...}`` alone (finish());
-- for a setting runner.configure refuses as run_setup.load_locked loads the run (run_setup.SettingRefused,
-  such as ``--single-model`` or ``--spec-first`` on a saved run, or ``--single-model`` with a per-role
-  model flag), the saved run's payload plus ``result``, or ``{"result": ...}`` alone before a run has a
-  checkpoint (refused()). The invocation still ends by raising, as cli()'s ``autocode: ...`` on stderr,
-  and the refused setting is not saved. On the native planning path run_locked catches that refusal
-  first and saves it as a PAUSED_INVALID_OUTPUT pause, which finish() prints like any other, with
-  ``error`` null.
+- for a setting runner.configure or containment_policy refuses as run_setup.load_locked loads the run
+  (run_setup.SettingRefused, such as ``--single-model`` or ``--spec-first`` on a saved run,
+  ``--single-model`` with a per-role model flag, ``--allow-uncontained-tools`` where it does not apply,
+  or a built-in OpenCode run without it where the kernel tool boundary is unavailable), the saved run's
+  payload plus ``result``, or ``{"result": ...}`` alone before a run has a checkpoint (refused()). The
+  invocation still ends by raising, as cli()'s ``autocode: ...`` on stderr, and the refused setting is
+  not saved. On the native planning path run_locked catches that refusal first and saves it as a
+  PAUSED_INVALID_OUTPUT pause, which finish() prints like any other, with ``error`` null.
 
-Any other invocation that ends by raising (cli()'s ``autocode: ...``), including a containment_policy
-refusal (``--allow-uncontained-tools``, a plain ValueError, not covered yet), or with a parser error never
+Any other invocation that ends by raising (cli()'s ``autocode: ...``) or with a parser error never
 reaches finish() and prints nothing on stdout.
 
 ``result`` holds the exit code, whether the action was saved, the text a person would have read on
@@ -133,8 +133,9 @@ def finish(code):
 
 
 def refused(message) -> None:
-    """configure refused a setting with ``message`` and the invocation ends by raising it: an invocation under
-    --json that printed no object prints the saved run's payload with that refusal as ``result``."""
+    """A setting was refused with ``message`` as the run loaded (run_setup.SettingRefused), and the invocation
+    ends by raising it: an invocation under --json that printed no object prints the saved run's payload with
+    that refusal as ``result``."""
     if _active is None or _active["emitted"]:
         return
     payload = _saved()  # first, so its status hints (the cost line) come before the error line on stderr
