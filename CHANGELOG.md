@@ -11,6 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Stamp open reasoning escalations and Builder retries as `passed` when completion is accepted via `--accept-completion` (#612).
 - Filter each role's escalation ladder only against its own tool's model list under `--role-transport`, preserving effort ladders for roles running on other tools (#1426).
 
 ### Added
@@ -388,6 +389,16 @@ PR template asks for an entry here; a change without one is incomplete.
   add about 4 s per plan approval on the fake provider. Each plan approval's row in `approvals` keeps their output
   as `plan_file`, and the record a program or components scenario is judged on now carries `approvals` too. A
   failure makes the verdict `FALSE_COMPLETE` when the scenario completed, and `HONEST_BLOCKER` when it stopped.
+- The scenario harness's `approval provenance: RUN` check now matches the gates it gave a program's or components
+  run's task runs to each run's own `--status --json` approvals (#722, eighth part). Before, one `approvals` list
+  held the gates of all of them, so their runs were checked for provenance only and a plan approval listed in no
+  run, or only in another workstream's, still passed. Now each gate the harness gives one of those runs (the
+  program's plan run, each workstream run, a components run's architecture run) names that run's `run_dir` in
+  `result.json`'s `approvals`, and must be listed among that run's own rows: otherwise the check fails, named for
+  the run, as in `approval provenance: T` with `the harness approved plan r2:..., which no plan row lists`. A
+  program's plan run is now judged once its plan is approved, since the program never relaunches it and it never
+  completes. A components run's `auto_approve` rows name no run. A passing check now ends by naming the gates it
+  matched, for a scenario of one run too; nothing else changes there.
 
 ### Changed
 

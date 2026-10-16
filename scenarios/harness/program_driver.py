@@ -40,7 +40,7 @@ import time
 from pathlib import Path
 
 from . import evidence_reports
-from .driver import DriveError, Driver, leaves_for_person, metrics
+from .driver import DriveError, Driver, attribute, leaves_for_person, metrics
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 
 # Program statuses the driver leaves as they are: done, or waiting for what only a person decides.
@@ -339,6 +339,7 @@ class ProgramDriver:
                 raise DriveError("the plan was approved but its status view reports no approved_contract")
         finally:
             self.plan_steps, self.plan_answers = len(self.steps), len(self.answers)
+            attribute(self.approvals, self.plan.run_dir)  # every gate so far was the plan run's
         return ""
 
     def show(self) -> str:
@@ -480,13 +481,17 @@ class ProgramDriver:
                 explicit_answers=self.explicit_answers,
                 round_trip_plans=self.plan.round_trip_plans,
             )
-            # One budget and one record of answers and approvals.
+            # One budget and one record of answers and approvals; each gate served here names this run.
             child.steps, child.answers, child.approvals = self.steps, self.answers, self.approvals
             view = child.view()
             need = view.get("needs")
             if view["done"] or not need or need["kind"] == "continue" or leaves_for_person(need):
                 continue
-            child.serve(need)
+            given = len(self.approvals)
+            try:
+                child.serve(need)
+            finally:
+                attribute(self.approvals[given:], row["run_dir"])
             served = True
         return served
 
@@ -646,7 +651,8 @@ class ProgramDriver:
             "changes": [dict(record) for record in self.changes],
             "revisions": [dict(record) for record in self.revisions],
             "answers": self.answers,
-            # Every gate the harness passed, the plan run's and each workstream run's (harness.plan_round_trip).
+            # Every gate the harness passed, the plan run's and each workstream run's (harness.plan_round_trip);
+            # each one given to a task run names its run_dir (harness.approval_provenance).
             "approvals": list(self.approvals),
             "cli_calls": [step["kind"] for step in self.steps],
             "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in self.steps],
