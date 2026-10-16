@@ -669,23 +669,28 @@ What the package changes:
     hold. Every new package run records what is there when its base is taken
     (none, in a new task worktree). While such a path is still a Git
     repository, it and everything under it are left out, so a later change
-    inside it is not seen. Once it is deleted, or is no longer a Git
-    repository (replaced by a file, or its `.git` removed), the finding names
-    it apart from the Builder's changes and tells the Builder not to delete,
-    move or reset anything there: the person restores it. A package run saved
-    before this record existed has none, so its check leaves out every nested
-    Git repository and submodule work it finds outside the package rather
-    than report the person's own as the Builder's;
+    inside it is not seen. An untracked repository that is later removed
+    entirely was the person's own and names no change of the candidate: it
+    does not hold the run. A deleted submodule, or a path that is no longer a
+    Git repository (replaced by a file, or its `.git` removed), is named
+    apart from the Builder's changes, and the finding tells the Builder not
+    to delete, move or reset anything there: the person restores it. A
+    package run saved before this record existed has none, so its check
+    leaves out every nested Git repository and submodule work it finds
+    outside the package rather than report the person's own as the Builder's;
   - the files the runner wrote for this run, while they are as the runner
     wrote them: a bug fix's diagnosis note under `docs/bugs/` (compared with
-    the investigation the run saved, whether or not it reproduced the bug)
-    and a review's or design review's report (its saved hash). Once changed,
-    the finding names them apart and tells the Builder to put back what the
-    runner wrote, not to delete them;
-  - a design check's blockers file and what an earlier, finished turn of the
-    run left (a discussion's note, a design's documents, the other files the
-    turn changed), which the run records by path only: they are left out by
-    path, so an edit to one is not seen.
+    the investigation the run saved, whether or not it reproduced the bug),
+    a review's or design review's report (its saved hash) and a design
+    check's blockers file (its saved hash). Once changed, the finding names
+    them apart and tells the Builder to put back what the runner wrote, not
+    to delete them. A check of the same design that later passes removes the
+    blockers file an earlier, stopped check wrote, so no stale one is left
+    behind;
+  - what an earlier, finished turn of the run left (a discussion's note, a
+    design's documents, the other files the turn changed), and a blockers
+    file a run saved before it recorded the hash, are recorded by path only:
+    they are left out by path, so an edit to one is not seen.
 
   The regression proof's list of changes outside the package leaves out the
   same paths, apart from the person's Git work that is no longer as it was.

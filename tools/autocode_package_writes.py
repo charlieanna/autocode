@@ -17,6 +17,10 @@ user who closes it with --close-finding accepts nothing: --accept-completion run
 (``refuse``) after its own guards and refuses while the change is there, and the next check before
 review opens a new finding.
 
+A design check of this run that passes removes the blockers file an earlier, stopped check wrote
+(autocode_design_check_job.apply), so no stale one is left outside the package to exempt or to blame
+on the Builder.
+
 What counts is what changed_files reports: a file added, modified (its content or its mode) or
 deleted, a rename being both. It leaves out AutoCode's run state, bytecode, the runner's dependency
 links and an untracked file Git ignores (unless the approved plan declares its path). Outside the
@@ -24,18 +28,21 @@ package, the check also sorts out what is not the Builder's change:
 
 - what the checkout held at launch that the run's base cannot hold: an untracked Git repository or a
   submodule's uncommitted work (``at_launch``). Left out, with everything under it, while it is still
-  a Git repository; once it is deleted or no longer one, the finding names it separately and tells
-  the Builder to leave it to the person, never to delete or reset anything there. A run saved before
-  this record existed has none: its check leaves out every nested repository and submodule work it
+  a Git repository. An untracked one (held as ``added``) that the person later removes entirely names
+  no change of the candidate at all, so it does not hold the run; a deleted submodule (held as
+  ``modified``) and a path that is no longer a Git repository are named separately, and the finding
+  tells the Builder to leave them to the person, never to delete or reset anything there. A run saved
+  before this record existed has none: its check leaves out every nested repository and submodule work it
   finds outside the package, since it cannot tell whether the checkout held it at launch.
 - the files the runner wrote for this run whose content it recorded: the bug-fix workflow's
   diagnosis note (exempt only while it is what autocode_bug_job.apply wrote: a reproduced one while
   autocode_bug_job.diagnosis_artifact identifies it unchanged, one that did not reproduce while its
-  content is the saved investigation's note) and a review's or design review's report (exempt only
-  while it matches its saved ``report_sha256``).
+  content is the saved investigation's note), a review's or design review's report (exempt only
+  while it matches its saved ``report_sha256``) and a design check's blockers file (exempt only
+  while it matches its saved ``blockers_sha256``).
   Once changed, the finding names it separately: put back what the runner wrote, do not delete it.
-- the files the runner wrote that it recorded only by path: a design check's blockers
-  (autocode_design_check_job) and what an earlier, finished turn of the run left (autocode_follow_up's
+- the files the runner wrote that it recorded only by path: a design check's blockers file saved
+  before the hash was kept, and what an earlier, finished turn of the run left (autocode_follow_up's
   ``previous.wrote``). Left out by path, so an edit to one is not seen.
 
 The regression proof's list of changes outside the package leaves out the same paths (``exempt``,
@@ -52,7 +59,8 @@ when nothing is there; read here); and findings_ledger rows with source ``runner
 (the run's package), ``paths`` ({path: added, modified or deleted}), ``runner_files`` ({path:
 change}), ``held`` ({path: deleted or no longer a Git repository}) and ``source_revision`` (the
 source the check last found them on), fields read only here. It also reads ``investigation``,
-``review``, ``design_review``, ``design_check.blockers``, ``turns[].previous.wrote`` and, for the
+``review``, ``design_review``, ``design_check.blockers`` and ``design_check.blockers_sha256``,
+``turns[].previous.wrote`` and, for the
 Investigator's handoff, ``settings.protected_tests``.
 """
 
@@ -89,8 +97,13 @@ SOURCE = "runner"
 # The dispatches the candidate is judged before: the Tester and the Completion Reviewer (the checkpoint
 # stage is either, autocode_roles). The Builder's own dispatch is not one; its handoff names the scope.
 STAGES = ("sol", "astra_checkpoint", "astra_review")
-# The runner-written files whose content the run recorded: (state key, path field, hash field).
-REPORTS = (("review", "report_path", "report_sha256"), ("design_review", "report_path", "report_sha256"))
+# The runner-written files whose content the run recorded: (state key, path field, hash field). The
+# design check's blockers joined with #711's hash; rows saved without one stay path-only (``_by_path``).
+REPORTS = (
+    ("review", "report_path", "report_sha256"),
+    ("design_review", "report_path", "report_sha256"),
+    ("design_check", "blockers", "blockers_sha256"),
+)
 
 
 def context(settings, stage="terra") -> dict | None:
@@ -145,16 +158,22 @@ def _held(state: RunState, workspace, outside) -> tuple[list[str], dict[str, str
     record names that is no longer there as it was: {path: deleted or no longer a Git repository}).
 
     A run saved without the record leaves out every nested repository or submodule work among the
-    changes outside the package (``outside``): it cannot tell whether the checkout held it at launch."""
+    changes outside the package (``outside``): it cannot tell whether the checkout held it at launch.
+    A record held as ``added`` (an untracked repository, which the base cannot hold) whose path is now
+    gone entirely names no change of the candidate at all: the person removed their own work, and the
+    run does not hold its absence against completion. One held as ``modified`` (a submodule, whose
+    gitlink the base does hold) is still named when deleted."""
     if "package_outside_at_launch" not in state:
         return [path for path in outside if repository(workspace, path)], {}
     kept, gone = [], {}
-    for path in state.get("package_outside_at_launch") or {}:
+    for path, held_at_launch in (state.get("package_outside_at_launch") or {}).items():
         if repository(workspace, path):
             kept.append(path)
-        else:
-            there = os.path.lexists(Path(workspace, path.rstrip("/")))
-            gone[path] = "no longer a Git repository" if there else "deleted"
+            continue
+        there = os.path.lexists(Path(workspace, path.rstrip("/")))
+        if not there and held_at_launch == "added":
+            continue
+        gone[path] = "no longer a Git repository" if there else "deleted"
     return kept, gone
 
 

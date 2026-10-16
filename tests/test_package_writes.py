@@ -377,12 +377,13 @@ class RunnerFiles(unittest.TestCase):
                 "report_path": "review/findings.json",
                 "report_sha256": hashlib.sha256(report.read_bytes()).hexdigest(),
             },
+            # A blockers file a run saved before it recorded the hash: path only.
             design_check={"blockers": "docs/design/blockers.json"},
             # An earlier turn's report and what else it wrote (autocode_follow_up).
             turns=[{"previous": {"wrote": ["review/findings.json", "docs/design/plan.md"]}}],
         )
         self.assertEqual([], self.check())
-        # Only path is recorded for these two: an edit to them is not seen (docs/workflow.md says so).
+        # Recorded by path only, an edit to them is not seen.
         self.project.write({"docs/design/blockers.json": '{"edited": true}\n', "docs/design/plan.md": "# Edited\n"})
         self.assertEqual([], self.check())
         # The report's saved hash is: an edited report is reported, as the runner's file.
@@ -393,6 +394,27 @@ class RunnerFiles(unittest.TestCase):
         self.project.write({"README.md": "# edited\n"})
         (row,) = self.check()
         self.assertEqual({"README.md": "modified"}, row["paths"])
+
+    def test_a_design_check_blockers_file_with_a_saved_hash_is_compared_like_a_report(self):
+        path = "docs/design/design.blockers.json"
+        blockers = self.project.root / path
+        blockers.parent.mkdir(parents=True)
+        blockers.write_text('{"conflicts": [{"design_says": "s"}]}\n')
+        self.state.update(
+            design_check={
+                "blockers": path,
+                "blockers_sha256": hashlib.sha256(blockers.read_bytes()).hexdigest(),
+            }
+        )
+        self.assertEqual([], self.check())
+        blockers.write_text('{"conflicts": [], "edited": true}\n')
+        (row,) = self.check()
+        self.assertEqual(({}, {path: "added"}, {}), (row["paths"], row["runner_files"], row["held"]))
+        self.assertIn(f"The runner wrote {path} for this run, and it changed since", row["finding"])
+        # Put back, it is the runner's again and the finding closes.
+        blockers.write_text('{"conflicts": [{"design_says": "s"}]}\n')
+        self.assertEqual([], [row for row in self.check() if row["status"] == "open"])
+        self.assertEqual("resolved", row["status"])
 
 
 class Launch(unittest.TestCase):
@@ -477,6 +499,19 @@ class Launch(unittest.TestCase):
                 self.assertNotIn("remove an added file", row["finding"])
                 self.assertNotIn("vendored/x.txt", row["finding"])
                 self.assertNotIn("vendored/new.py", row["finding"])
+
+    def test_the_persons_untracked_repository_deleted_entirely_does_not_hold_the_run(self):
+        # The launch record says the checkout held vendored/ as added: the base cannot hold it, and
+        # once the person removes it entirely nothing of it is left to hold against the candidate (#711).
+        root = self.checkout()
+        state = self.launched(root)
+        shutil.rmtree(root / "vendored")
+        self.assertEqual([], self.check(state, root))
+        self.assertEqual([], state.get("findings_ledger") or [])
+        (root / "README.md").write_text("# edited\n")
+        (row,) = self.check(state, root)
+        self.assertEqual(({"README.md": "modified"}, {}), (row["paths"], row["held"]))
+        self.assertNotIn("vendored", row["finding"])
 
     def test_a_run_saved_without_the_launch_record_never_reports_a_nested_repository(self):
         # A package run started before the record existed: it cannot tell what the checkout held at launch.
