@@ -261,8 +261,8 @@ class LaunchContainment(unittest.TestCase):
         instructions, handoff = updated.split("\nCURRENT HANDOFF DATA\n")
         self.assertIn("PRIVATE RUN STATE", instructions)
         self.assertIn("not a blocker", instructions)
-        # It names the other private areas a planning shell cannot read either (#1250).
-        for area in ("parallel Builder workspaces", "task worktrees", "other launches' control directories"):
+        # It names the other private stores a planning shell cannot read either (#1250).
+        for area in ("parallel Builder workspaces", "task worktrees", "pull request reviews", "arena attempts"):
             self.assertIn(area, instructions)
         # It supersedes the planning prompt's own instruction to read state_file.
         superseded = "state_file is context to read"

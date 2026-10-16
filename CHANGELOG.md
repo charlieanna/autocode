@@ -363,13 +363,15 @@ PR template asks for an entry here; a change without one is incomplete.
   other run's files. On Seatbelt and bubblewrap the shell now reads only its own run's `planning/` artifacts in
   `.autocode/runs`. Each launch proves this through the actual native shell, records it as `private_reads`, and
   pauses as `PAUSED_TOOL_CONTAINMENT` if the boundary stops enforcing it (#1250).
-- That planning shell also can no longer read the other places under `.autocode` where AutoCode keeps runs and
-  launches: parallel Builder workspaces (`builders`), `programs`, `task-flows`, task worktrees (`worktrees`),
-  archived and bundled runs (`archive`, `bundles`), the run `registry`, `replay` recordings, and other launches'
-  `tool-containment-*` control directories. Its own scratch, project settings, retained design inputs and capture
-  bundles stay readable. Each denial is in `private_reads`, the native-shell proof covers each store, and a profile
-  missing any one of them, or another launch's control directory that appeared after the profile was written,
-  pauses as `PAUSED_TOOL_CONTAINMENT` (#1250).
+- That planning shell also can no longer read these `.autocode` stores, which hold other runs or what they keep:
+  archived and bundled runs (`archive`, `bundles`), `autocode arena` attempts (`arena`), parallel Builder workspaces
+  (`builders`), `autocode issue` worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`),
+  the run `registry`, `replay` recordings, `task-flows`, `autocode verify-task` checkouts (`verification`) and task
+  worktrees (`worktrees`). A store is denied when it exists as the launch is prepared; none is created. Other
+  `.autocode` directories, including other launches' `tool-containment-*` control directories, stay readable, as do
+  its own scratch, project settings, retained design inputs and capture bundles. Each denial is in `private_reads`,
+  the native-shell proof covers each store, and a profile missing any one of them, or a store first made after the
+  profile was written, pauses as `PAUSED_TOOL_CONTAINMENT` before the provider starts (#1250).
 
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion

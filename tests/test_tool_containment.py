@@ -76,24 +76,17 @@ class PolicyTests(unittest.TestCase):
             (runs / "own/planning").mkdir(parents=True)
             scratch.mkdir(parents=True)
             reads = containment.private_run_reads(root, runs / "own")
-            stores = [str(root / ".autocode" / name) for name in containment.PRIVATE_STORES]
+            # No private store exists here, so the run store is the only denial.
             self.assertEqual(
-                {
-                    "run_dir": str(runs / "own"),
-                    "denied": [str(runs), *stores],
-                    "readable": [str(runs / "own/planning")],
-                },
-                reads,
+                {"run_dir": str(runs / "own"), "denied": [str(runs)], "readable": [str(runs / "own/planning")]}, reads
             )
             rule = (
                 f'(deny file-read* (require-all (subpath "{runs}") (require-not (subpath "{runs / "own/planning"}"))))'
             )
-            others = [f'(deny file-read* (require-all (subpath "{store}")))' for store in stores]
             ordinary = containment._render_policy(root, scratch).splitlines()
             profile = containment._render_policy(root, scratch, private_reads=reads)
-            # The same profile with one more denial per private area, after every read allowance
-            # (the last match wins).
-            self.assertEqual([*ordinary[:-1], rule, *others, ordinary[-1]], profile.splitlines())
+            # The same profile with one more denial, after every read allowance (the last match wins).
+            self.assertEqual([*ordinary[:-1], rule, ordinary[-1]], profile.splitlines())
             self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, profile.encode(), reads))
             self.assertFalse(
                 containment._enforces_private_reads(containment.SEATBELT, "\n".join(ordinary).encode(), reads)
@@ -236,48 +229,66 @@ class PolicyTests(unittest.TestCase):
                 with self.subTest(run=run), self.assertRaises(ValueError):
                     containment.private_run_reads(root, run)
 
-    def test_planning_profile_denies_each_other_private_area_and_its_recheck_requires_each(self):
-        # #1250: besides the run store, a planning shell reads no private store (parallel Builder
-        # workspaces, programs, task flows, task worktrees, archived runs, bundles, the registry,
-        # replay recordings) and no other launch's control directory. Each is its own denial rule,
-        # and the re-check refuses a profile without any one of them.
+    def test_planning_profile_denies_each_existing_private_store_and_its_recheck_requires_each(self):
+        # #1250: besides the run store, a planning shell reads no private store that exists (archived
+        # runs, arena attempts, parallel Builder workspaces, bundles, issue worktrees, programs, pull
+        # request reviews, the registry, replay recordings, task flows, verify-task checkouts, task
+        # worktrees). Each is its own denial rule, and the re-check refuses a profile without any one.
+        self.assertEqual(
+            (
+                "archive",
+                "arena",
+                "builders",
+                "bundles",
+                "issues",
+                "programs",
+                "pull-reviews",
+                "registry",
+                "replay",
+                "task-flows",
+                "verification",
+                "worktrees",
+            ),
+            containment.PRIVATE_STORES,
+        )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             private, runs = root / ".autocode", root / ".autocode/runs"
             (runs / "own/planning").mkdir(parents=True)
             own = private / ("tool-containment-" + "a" * 32)
             (own / "scratch").mkdir(parents=True)
-            launches = [private / ("tool-containment-" + digit * 32) for digit in "07"]
-            for path in launches:
+            # One store has never been made in this workspace: it is neither denied nor created.
+            missing = private / "verification"
+            stores = [private / name for name in containment.PRIVATE_STORES if private / name != missing]
+            for path in stores:
                 path.mkdir()
-            (private / "builders").mkdir()  # A store is denied whether or not it exists yet.
             # This launch's needs and the areas outside the denial: retained design inputs, capture
-            # bundles, the shared evidence area, project settings and a name that is not a launch's.
+            # bundles, the shared evidence area, project settings and launches' control directories.
             needed = [own, own / "scratch", runs / "own/planning"]
-            for name in ("design-inputs-planning-v2", "captures", "evidence", "tool-containment-fixture"):
+            for name in ("design-inputs-planning-v2", "captures", "evidence", "tool-containment-" + "0" * 32):
                 (private / name).mkdir()
                 needed.append(private / name)
             (private / "config.toml").write_text("")
             needed.append(private / "config.toml")
-            reads = containment.private_run_reads(root, runs / "own", control=own)
-            stores = [private / name for name in containment.PRIVATE_STORES]
-            self.assertEqual(
-                ["archive", "builders", "bundles", "programs", "registry", "replay", "task-flows", "worktrees"],
-                [path.name for path in stores],
-            )
-            self.assertEqual([str(path) for path in (runs, *stores, *launches)], reads["denied"])
+            listed = sorted(private.iterdir())
+            reads = containment.private_run_reads(root, runs / "own")
+            self.assertEqual(listed, sorted(private.iterdir()))
+            self.assertEqual([str(path) for path in (runs, *stores)], reads["denied"])
             self.assertEqual([str(runs / "own/planning")], reads["readable"])
             for path in needed:
                 with self.subTest(readable=path.name):
                     denied = [d for d in reads["denied"] if path.is_relative_to(d)]
                     self.assertTrue(not denied or any(path.is_relative_to(r) for r in reads["readable"]), denied)
-            # Without its own control directory named, a launch's own would be denied like another's.
-            self.assertIn(str(own), containment.private_run_reads(root, runs / "own")["denied"])
+            # Launches' control directories pile up (nothing removes them), but the denial, and so the
+            # mounts, rules, handoff and environment built from it, does not grow with them.
+            for number in range(300):
+                (private / f"tool-containment-{number:032x}").mkdir(exist_ok=True)
+            self.assertEqual(reads, containment.private_run_reads(root, runs / "own"))
             profile = containment._render_policy(root, own / "scratch", private_reads=reads)
             rules = containment._private_read_rules(reads)
             self.assertEqual(len(reads["denied"]), len(rules))
             self.assertTrue(containment._enforces_private_reads(containment.SEATBELT, profile.encode(), reads))
-            for path, rule in zip([*stores, *launches], rules[1:], strict=True):
+            for path, rule in zip(stores, rules[1:], strict=True):
                 with self.subTest(denied=path.name):
                     self.assertEqual(f'(deny file-read* (require-all (subpath "{path}")))', rule)
                     self.assertIn("\n" + rule + "\n", profile)
@@ -298,19 +309,22 @@ class PolicyTests(unittest.TestCase):
                             containment.SEATBELT, profile.replace("(version 1)\n", write, 1).encode(), reads
                         )
                     )
-        # A private area that is a symlink or a file, or a symlink named as a launch, is refused:
-        # bubblewrap could not hide it under a tmpfs.
-        for name in ("a store that is a symlink", "a store that is a file", "a launch that is a symlink"):
+            self.assertFalse(missing.exists())
+            # Once the missing store exists, the denial names it: verify() then refuses a profile
+            # rendered before it appeared.
+            missing.mkdir()
+            every = [str(path) for path in (runs, *(private / name for name in containment.PRIVATE_STORES))]
+            self.assertEqual(every, containment.private_run_reads(root, runs / "own")["denied"])
+        # A private store that is a symlink or a file is refused: bubblewrap could not hide it under a tmpfs.
+        for name in ("a store that is a symlink", "a store that is a file"):
             with self.subTest(refused=name), tempfile.TemporaryDirectory() as directory:
                 private = Path(directory).resolve() / ".autocode"
                 (private / "runs/own").mkdir(parents=True)
                 (private / "elsewhere").mkdir()
                 if name == "a store that is a symlink":
-                    (private / "programs").symlink_to(private / "elsewhere", target_is_directory=True)
-                elif name == "a store that is a file":
-                    (private / "worktrees").write_text("")
+                    (private / "pull-reviews").symlink_to(private / "elsewhere", target_is_directory=True)
                 else:
-                    (private / ("tool-containment-" + "9" * 32)).symlink_to(private / "elsewhere")
+                    (private / "worktrees").write_text("")
                 with self.assertRaises(ValueError):
                     containment.private_run_reads(private.parent, private / "runs/own")
 
@@ -637,9 +651,9 @@ class BubblewrapArgumentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "read-only shell"):
             containment.bubblewrap_arguments(self.root, self.scratch, allow_write=True, private_reads=reads)
 
-    def test_planning_reader_hides_each_other_private_area_and_its_recheck_requires_each(self):
-        # #1250: each private store and each other launch's control directory is its own sealed
-        # tmpfs, like the run store; this launch's scratch stays its only writable mount.
+    def test_planning_reader_hides_each_private_store_and_its_recheck_requires_each(self):
+        # #1250: each existing private store is its own sealed tmpfs, like the run store; this
+        # launch's scratch stays its only writable mount. A launch's control directory is not hidden.
         private, own = self.root / ".autocode", self.root / ".autocode/runs/own"
         (own / "planning").mkdir(parents=True)
         stores = [private / name for name in containment.PRIVATE_STORES]
@@ -647,12 +661,11 @@ class BubblewrapArgumentTests(unittest.TestCase):
             path.mkdir()
         (private / "builders/batch/1").mkdir(parents=True)
         (private / "builders/batch/1/.env").write_text("WORKER=secret\n")
-        launches = [private / ("tool-containment-" + digit * 32) for digit in "07"]
-        for path in launches:
-            (path / "scratch").mkdir(parents=True)
+        launch = private / ("tool-containment-" + "0" * 32)
+        (launch / "scratch").mkdir(parents=True)
         (private / "captures").mkdir()
-        reads = containment.private_run_reads(self.root, own, control=self.scratch.parent)
-        self.assertEqual([str(path) for path in (private / "runs", *stores, *launches)], reads["denied"])
+        reads = containment.private_run_reads(self.root, own)
+        self.assertEqual([str(path) for path in (private / "runs", *stores)], reads["denied"])
         arguments, mounts, watched = self.mounts(private_reads=reads)
 
         def encoded(values):
@@ -665,9 +678,9 @@ class BubblewrapArgumentTests(unittest.TestCase):
         self.assertEqual([str(self.scratch)], [target for flag, _, target in mounts if flag == "--bind"])
         self.assertNotIn(str(private / "builders/batch/1/.env"), arguments)  # Not masked inside a tmpfs.
         self.assertEqual([], watched)
-        for path in (self.scratch.parent, private / "captures", own / "planning"):
+        for path in (self.scratch.parent, launch, private / "captures", own / "planning"):
             self.assertEqual([], at("--tmpfs", path))
-        for path in [*stores, *launches]:
+        for path in stores:
             with self.subTest(denied=path.name):
                 (hidden,), (sealed,) = at("--tmpfs", path), at("--remount-ro", path)
                 self.assertLess(hidden, sealed)
@@ -991,21 +1004,25 @@ class KernelReceiptTests(unittest.TestCase):
         self.assertEqual("untouched\n", outside.read_text())
         self.assertFalse((self.control / "conformance.json").exists())
 
+    # Every private store but the last exists in private_run()'s workspace.
+    EXISTING_STORES = containment.PRIVATE_STORES[:-1]
+
     def private_run(self):
         """A planning run whose prepared boundary carries the private-read denial (#1250), and its sentinels.
 
-        The first is in the run's own directory, then one in each private store (prepare() makes
-        each store). Another launch's control directory is denied too, but holds no sentinel.
+        The first is in the run's own directory, then one in each private store that exists. The
+        missing store and another launch's control directory are not denied and hold no sentinel.
         """
         run = self.workspace / ".autocode/runs/own"
         (run / "planning").mkdir(parents=True)
         (run / "state.json").write_text('{"private":"own run state"}\n')
-        stores = [self.workspace / ".autocode" / name for name in containment.PRIVATE_STORES]
+        stores = [self.workspace / ".autocode" / name for name in self.EXISTING_STORES]
         for store in stores:
             store.mkdir()
+        self.missing = self.workspace / ".autocode" / containment.PRIVATE_STORES[-1]
         self.other = self.workspace / ".autocode" / ("tool-containment-" + "0" * 32)
         self.other.mkdir()
-        self.boundary["private_reads"] = containment.private_run_reads(self.workspace, run, control=self.control)
+        self.boundary["private_reads"] = containment.private_run_reads(self.workspace, run)
         name = self.control.name + "-private-read-sentinel"
         return run, [place / name for place in (run, *stores)]
 
@@ -1046,9 +1063,12 @@ class KernelReceiptTests(unittest.TestCase):
                 if Path(path).name in containment.PRIVATE_STORES
             ],
         )
-        # Another launch's control directory is denied, but this launch writes nothing in it.
-        self.assertIn(str(self.other), self.boundary["private_reads"]["denied"])
-        self.assertNotIn(str(self.other), command)
+        # A missing store and another launch's control directory are not denied, and this launch
+        # creates or writes nothing in either.
+        for path in (self.missing, self.other):
+            self.assertNotIn(str(path), self.boundary["private_reads"]["denied"])
+            self.assertNotIn(str(path), command)
+        self.assertFalse(self.missing.exists())
         self.assertEqual([], list(self.other.iterdir()))
         self.assertEqual([False] * len(sentinels), [path.exists() for path in sentinels])
 
@@ -1076,9 +1096,7 @@ class KernelReceiptTests(unittest.TestCase):
             "the denial does not exit 0": lambda params, sentinels: (1, "Permission denied"),
             "the sentinel is changed": rewritten(0),
             # Each store's sentinel is checked as well as the run's own.
-            **{
-                f"the {name} sentinel is changed": rewritten(i + 1) for i, name in enumerate(containment.PRIVATE_STORES)
-            },
+            **{f"the {name} sentinel is changed": rewritten(i + 1) for i, name in enumerate(self.EXISTING_STORES)},
         }
         for name, answer in cases.items():
             with self.subTest(name=name):
@@ -1094,7 +1112,7 @@ class KernelReceiptTests(unittest.TestCase):
                 self.assertEqual([False] * len(sentinels), [path.exists() for path in sentinels])
                 self.assertEqual(0, self.verification_calls)
                 self.assertFalse((self.control / "conformance.json").exists())
-        # A private store removed since prepare() made it refuses before any probe is asked.
+        # A private store removed since the denial was computed refuses before any probe is asked.
         self.setUp()
         run, sentinels = self.private_run()
         sentinels[-1].parent.rmdir()
@@ -1505,25 +1523,34 @@ class KernelTests(unittest.TestCase):
         return runs, private, artifact
 
     def private_areas(self):
-        """Private files in the other private .autocode areas, and the .autocode files a planner needs (#1250).
+        """A private file in each private .autocode store, and the .autocode files a planner needs (#1250).
 
-        The private ones: a parallel Builder workspace's run, an archived task-worktree run, a run
-        bundle, a program's state, the run registry, a replay recording, a task flow's state, a task
-        worktree's run, and evidence in setUp's launch's scratch (another launch's control directory).
-        The needed ones stay readable: a retained planning design input, a capture bundle and project
-        settings.
+        The private ones: an archived task-worktree run, an arena attempt's run, a parallel Builder
+        workspace's run, a run bundle, an issue worktree's run, a program's state, a pull request
+        review's run, the run registry, a replay recording, a task flow's state, a verify-task
+        checkout's run and a task worktree's run. The needed ones stay readable: a retained planning
+        design input, a capture bundle and project settings.
         """
         private = self.workspace / ".autocode"
         areas = {
-            private / "builders/0a1b/1/.autocode/runs/builder-0a1b-1/state.json": '{"private":"builder run"}\n',
             private / "archive/task-old/runs/20261001-old/state.json": '{"private":"archived run"}\n',
+            private / "arena/attempts/a1/workspace/.autocode/runs/20261005-arena/state.json": (
+                '{"private":"arena run"}\n'
+            ),
+            private / "builders/0a1b/1/.autocode/runs/builder-0a1b-1/state.json": '{"private":"builder run"}\n',
             private / "bundles/20261002-done.tar.gz": '{"private":"bundled run"}\n',
+            private / "issues/owner-repo-7/.autocode/runs/20261006-issue/state.json": '{"private":"issue run"}\n',
             private / "programs/key/state.json": '{"private":"program state"}\n',
+            private / "pull-reviews/owner-repo-1-0123456789ab/workspace/.autocode/runs/20261016-review/state.json": (
+                '{"private":"pull review run"}\n'
+            ),
             private / "registry/registry.json": '{"private":"run registry"}\n',
             private / "replay/recording/recording.json": '{"private":"replay recording"}\n',
             private / "task-flows/key/state.json": '{"private":"task flow state"}\n',
+            private / "verification/0123/independent-review/.autocode/runs/20261007-check/state.json": (
+                '{"private":"verify-task run"}\n'
+            ),
             private / "worktrees/task-1/.autocode/runs/20261003-other/state.json": '{"private":"worktree run"}\n',
-            Path(self.boundary["scratch"]) / "evidence.json": '{"private":"other launch evidence"}\n',
         }
         needed = {
             private / "design-inputs-planning-v2/abc/inventory-manifest.json": '{"design":"retained input"}\n',
@@ -1647,16 +1674,15 @@ class KernelTests(unittest.TestCase):
 
     def test_native_planning_shell_cannot_read_private_run_state(self):
         # #1250: own, sibling and custom-named runs' state is unreadable through every route tried,
-        # and so is every other private .autocode area (parallel Builder workspaces, programs, task
-        # flows, task worktrees, archived and bundled runs, the registry, replay recordings and other
-        # launches' control directories); source, the verification copy, this run's planning/
-        # artifacts, this launch's own control directory and the .autocode files a planner is handed
-        # stay readable.
+        # and so is every private .autocode store (archived runs, arena attempts, parallel Builder
+        # workspaces, bundles, issue worktrees, programs, pull request reviews, the registry, replay
+        # recordings, task flows, verify-task checkouts and task worktrees); source, the
+        # verification copy, this run's planning/ artifacts, this launch's own control directory and
+        # the .autocode files a planner is handed stay readable.
         runs, private, artifact = self.planning_run_store()
         areas, needed = self.private_areas()
         private = {**private, **areas}
         before = {path: path.read_bytes() for path in [*private, *needed, artifact]}
-        other_launch = Path(self.boundary["profile"]).parent
         boundary = self.native_planning_boundary()
         scratch = Path(boundary["scratch"])
         for number, path in enumerate(private):
@@ -1677,7 +1703,7 @@ class KernelTests(unittest.TestCase):
         for name in ("20261014-sibling-run", "custom-name", "state.json", "events.jsonl", '"private"'):
             self.assertNotIn(name, listing.stdout + listing.stderr)
         stores = [self.workspace / ".autocode" / name for name in containment.PRIVATE_STORES]
-        for path in [*stores, other_launch]:
+        for path in stores:
             with self.subTest(listing=path.name):
                 # Relative, so the names below cannot match the workspace's own path in a header or error.
                 relative = os.path.relpath(path, self.workspace)
@@ -1705,10 +1731,10 @@ class KernelTests(unittest.TestCase):
         self.assertEqual(before, {path: path.read_bytes() for path in before})
         self.assertFalse((runs / "planted-run").exists())
         # The manifest names the denial, the actual-shell proof is retained, and its sentinels are gone:
-        # one in this run's directory and one in each private store, none in another launch's.
+        # one in this run's directory and one in each private store.
         reads = {
             "run_dir": str(self.run_dir),
-            "denied": [str(path) for path in (runs, *stores, other_launch)],
+            "denied": [str(path) for path in (runs, *stores)],
             "readable": [str(artifact.parent)],
         }
         self.assertEqual(reads, boundary["private_reads"])
@@ -1721,18 +1747,23 @@ class KernelTests(unittest.TestCase):
             [shlex.quote(str(path / sentinel)) for path in (self.run_dir, *stores)],
             re.findall(r"! /bin/cat (\S+)", proof["command"]),
         )
-        for path in (self.run_dir, *stores, other_launch):
+        for path in (self.run_dir, *stores):
             self.assertEqual([], [item.name for item in path.rglob("*") if "sentinel" in item.name])
         containment.verify(boundary)
 
     def test_native_planning_boundary_verification_refuses_a_weakened_denial(self):
         runs, _, _ = self.planning_run_store()
-        stores = [self.workspace / ".autocode" / name for name in containment.PRIVATE_STORES]
+        private = self.workspace / ".autocode"
+        stores = [private / name for name in containment.PRIVATE_STORES]
         self.assertEqual([False] * len(stores), [path.exists() for path in stores])
+        listed = set(private.iterdir())
         boundary = self.native_planning_boundary()
-        # The launch made each missing private store, so bubblewrap has a mount point for its tmpfs.
-        self.assertEqual([True] * len(stores), [path.is_dir() for path in stores])
+        # The launch adds only its own control directory to .autocode and creates no missing private
+        # store: the dashboard refuses to delete a task worktree holding even an empty .autocode/worktrees.
+        self.assertEqual({Path(boundary["profile"]).parent}, set(private.iterdir()) - listed)
+        self.assertEqual([False] * len(stores), [path.exists() for path in stores])
         reads = boundary["private_reads"]
+        self.assertEqual([str(runs)], reads["denied"])
         (runs / "sibling").mkdir()
         for changed in (
             {**boundary, "private_reads": {**reads, "denied": []}},
@@ -1844,18 +1875,24 @@ class KernelTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
             containment.verify(repinned)
 
-    def test_native_planning_boundary_verification_requires_each_other_private_area(self):
-        # #1250: each private store and each other launch's control directory is its own denial. A
-        # profile pinned again without any one of them lets the actual shell read that area, and
-        # verify() refuses it, so the launch pauses as PAUSED_TOOL_CONTAINMENT.
+    def test_native_planning_boundary_verification_requires_each_private_store(self):
+        # #1250: each existing private store is its own denial. A profile pinned again without any
+        # one of them lets the actual shell read that store, and verify() refuses it, so the launch
+        # pauses as PAUSED_TOOL_CONTAINMENT.
         import autocode_provider_launch as provider_launch
         import autocode_util as util
 
         self.planning_run_store()
         areas, _ = self.private_areas()
+        # One store has not been made yet when this launch is prepared.
+        late = self.workspace / ".autocode" / "verification"
+        shutil.rmtree(late)
+        areas = {path: text for path, text in areas.items() if not path.is_relative_to(late)}
         boundary = self.native_planning_boundary()
         reads = boundary["private_reads"]
-        self.assertEqual(1 + len(containment.PRIVATE_STORES) + 1, len(reads["denied"]))
+        self.assertEqual(len(containment.PRIVATE_STORES), len(reads["denied"]))
+        self.assertNotIn(str(late), reads["denied"])
+        self.assertFalse(late.exists())
         profile = Path(boundary["profile"])
         original = profile.read_bytes()
         profile.chmod(0o600)
@@ -1884,11 +1921,20 @@ class KernelTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertNotIn('"private"', result.stdout + result.stderr)
         containment.verify(boundary)
-        # Another launch's control directory made since then is not covered by the pinned profile,
-        # so verify() refuses the launch.
-        (self.workspace / ".autocode" / ("tool-containment-" + "e" * 32)).mkdir()
+        # Other launches' control directories are not part of the denial, so however many appear
+        # it neither grows nor goes stale.
+        for number in range(50):
+            (self.workspace / ".autocode" / f"tool-containment-{number:032x}").mkdir()
+        self.assertEqual(reads, containment.private_run_reads(self.workspace, self.run_dir))
+        containment.verify(boundary)
+        # A private store first made after the profile was rendered is not covered by it, so
+        # verify() refuses the launch.
+        (late / "0123").mkdir(parents=True)
         with self.assertRaisesRegex(RuntimeError, "Private run-state read denial changed"):
             containment.verify(boundary)
+        with self.assertRaises(util.Paused) as caught:
+            provider_launch.verify_containment({"tool_containment": boundary})
+        self.assertEqual("PAUSED_TOOL_CONTAINMENT", caught.exception.status)
 
 
 @unittest.skipUnless(

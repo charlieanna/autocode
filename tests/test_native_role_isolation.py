@@ -303,9 +303,7 @@ class IsolationTests(unittest.TestCase):
         self.actual["name"] = agent
         sibling = self.root / ".autocode" / "runs" / "sibling"
         sibling.mkdir()
-        for number, run in enumerate((None, sibling)):
-            # Computed as each profile is rendered: an earlier subtest's control directory is denied too.
-            reads = None if run is None else containment.private_run_reads(self.root, run)
+        for number, reads in enumerate((None, containment.private_run_reads(self.root, sibling))):
             with self.subTest(reads=reads), self.assertRaisesRegex(ValueError, "private run-state read denial"):
                 self.finalize_fixture(self.owner(), private_reads=reads, control_name=str(number) * 32)
         owner = self.owner()

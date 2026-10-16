@@ -59,12 +59,28 @@ LINUX_SYSTEM_FILES = (
 )
 # prepare() names each launch's control directory uuid4().hex; nothing else matches.
 CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
-# The .autocode directories, besides the run store, where AutoCode keeps other runs, programs and
-# task flows, or the workspaces, archives and indexes that hold them (#1250): archived task-worktree
-# runs, parallel Builder workspaces, run bundles, program state, the run registry, replay
-# recordings, task-flow state and task or program worktrees. A native planning shell reads none
-# of them (private_run_reads()).
-PRIVATE_STORES = ("archive", "builders", "bundles", "programs", "registry", "replay", "task-flows", "worktrees")
+# .autocode directories, besides the run store, where AutoCode keeps other runs, programs and task
+# flows, or the workspaces, archives and indexes that hold them (#1250): archived task-worktree
+# runs, `autocode arena` attempts, parallel Builder workspaces, run bundles, `autocode issue`
+# worktrees, program state, `autocode review-pr` checkouts, the run registry, replay recordings,
+# task-flow state, `autocode verify-task` checkouts and task or program worktrees. A native
+# planning shell reads none of those that exist when its launch is prepared (private_run_reads()).
+# Not every .autocode directory is listed: other launches' control directories and the rest stay
+# readable.
+PRIVATE_STORES = (
+    "archive",
+    "arena",
+    "builders",
+    "bundles",
+    "issues",
+    "programs",
+    "pull-reviews",
+    "registry",
+    "replay",
+    "task-flows",
+    "verification",
+    "worktrees",
+)
 # The Seatbelt profile denies reading these names anywhere; bubblewrap masks them.
 SECRET_NAME = re.compile(r"\.env(\..*)?|auth\.json|id_rsa|id_ed25519")
 DENIAL_TEXT = re.compile(r"Operation not permitted|Permission denied|Read-only file system")
@@ -275,36 +291,34 @@ def _policy_inputs(read_roots, protected_paths):
     }
 
 
-def private_run_reads(workspace, run_dir, *, control=None):
+def private_run_reads(workspace, run_dir):
     """The private-read denial for a readonly planning shell of the run at ``run_dir`` (#1250).
 
     Unreadable, in this order: the workspace's whole run store (``.autocode/runs``: this run's
-    state, events and receipts, and every sibling run, whatever its name); each PRIVATE_STORES
-    directory, whether or not it exists yet (prepare() creates the missing ones); and every other
-    launch's control directory in ``.autocode`` (its policy, shell, conformance proof and scratch).
-    ``control`` is this launch's own control directory, which is never denied. Only this run's
-    ``planning/`` directory, the immutable predecessor artifacts and deltas the planner is handed,
-    is read back in. A readable path is only an exception to this denial, never a grant: the rest
-    of ``.autocode`` (project settings, retained design inputs, capture bundles, the shared evidence
-    and output areas) and the workspace keep their ordinary read-only authority.
+    state, events and receipts, and every sibling run, whatever its name), then each PRIVATE_STORES
+    directory that exists now. Only this run's ``planning/`` directory, the immutable predecessor
+    artifacts and deltas the planner is handed, is read back in. A readable path is only an
+    exception to this denial, never a grant: the rest of ``.autocode`` (project settings, retained
+    design inputs, capture bundles, the shared evidence and output areas, launches' control
+    directories) and the workspace keep their ordinary read-only authority.
 
-    The other launches are the control directories present now. verify() computes this again
-    before launch, so a control directory made after the profile was rendered refuses the launch.
+    A missing store is not created, so the boundary leaves nothing new in the workspace. verify()
+    computes this again before launch, so a store made after the profile was rendered refuses the
+    launch. Each entry is one mount and one rule, so the list stays this short however many runs
+    and launches the workspace has held.
     """
     root = _path(workspace)
     private = root / ".autocode"
     store, run = private / "runs", _path(run_dir)  # _path refuses symlinked authority paths.
     if run.parent != store or not run.is_dir():
         raise ValueError("A private-read denial needs an existing run directly inside workspace/.autocode/runs")
-    own = None if control is None else _path(control)
-    stores = [_path(private / name) for name in PRIVATE_STORES]
-    launches = [_path(path) for path in sorted(private.iterdir()) if CONTROL_NAME.fullmatch(path.name) and path != own]
-    if any(path.exists() and not path.is_dir() for path in (*stores, *launches)):
+    stores = [path for path in (_path(private / name) for name in PRIVATE_STORES) if path.exists()]
+    if any(not path.is_dir() for path in stores):
         # bubblewrap hides each one under a tmpfs, which needs a directory to mount on.
-        raise ValueError("A private-read denial needs each private .autocode area to be a directory")
+        raise ValueError("A private-read denial needs each private .autocode store to be a directory")
     return {
         "run_dir": str(run),
-        "denied": [str(path) for path in (store, *stores, *launches)],
+        "denied": [str(path) for path in (store, *stores)],
         "readable": [str(_path(run / "planning"))],
     }
 
@@ -856,7 +870,7 @@ def prepare(
     ``links`` are toolchain symlinks to show inside a bubblewrap boundary; Seatbelt
     already lets the shell read symlink metadata, so it ignores them. ``private_run``,
     a readonly planning stage's run directory, makes the run store unreadable except
-    that run's planning/ artifacts, and the other private .autocode areas unreadable
+    that run's planning/ artifacts, and each existing private store unreadable
     (private_run_reads(), #1250); the manifest records the denial as ``private_reads``.
     """
     _reject_loopback_request(loopback_checks, loopback_authority)
@@ -871,7 +885,6 @@ def prepare(
         raise ValueError("Read-only stages cannot receive a writer footprint")
     if private_run is not None and allow_write:
         raise ValueError("Only a read-only shell takes the private run-store read denial")
-    # This launch's own control directory does not exist yet, so it is never among those denied.
     private_reads = private_run_reads(root, private_run) if private_run is not None else None
     if footprint is not None and host != SEATBELT:
         # bubblewrap binds the whole workspace writable; it cannot enforce a literal footprint.
@@ -884,12 +897,6 @@ def prepare(
     if parent.is_symlink():
         raise ValueError("Tool containment refuses a symlinked .autocode directory")
     parent.mkdir(exist_ok=True)
-    if private_reads is not None:
-        # A missing private store becomes an empty directory: bubblewrap's tmpfs needs a mount
-        # point, and a store made during the stage (another task's worktree, a bundle) is then
-        # hidden like one that existed before it (#1250).
-        for name in PRIVATE_STORES:
-            (parent / name).mkdir(exist_ok=True)
     control = parent / ("tool-containment-" + uuid.uuid4().hex)
     control.mkdir(mode=0o700)
     scratch = control / "scratch"
@@ -1212,10 +1219,9 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
 
     def private_read_probe(target):
         # A parent-created sentinel in the planning run's own directory stands for its state, and
-        # one in each private store (PRIVATE_STORES) for what that store holds: the actual native
+        # one in each private store the denial names for what that store holds: the actual native
         # bash must fail to read every one, and must list the run's planning/ artifacts when they
-        # exist. Their random content never appears in the retained output. No sentinel is put
-        # in another launch's control directory, which is that launch's authority.
+        # exist. Their random content never appears in the retained output.
         reads = target["private_reads"]
         name = Path(target["profile"]).parent.name + "-private-read-sentinel"
         places = [
@@ -1659,11 +1665,11 @@ def verify(boundary):
     if "private_reads" in boundary:
         try:
             reads = boundary["private_reads"]
-            # Computed again now: a private store or another launch's control directory missing
-            # from the recorded denial (one made since the profile was rendered) refuses the launch.
+            # Computed again now: a private store missing from the recorded denial (one made since
+            # the profile was rendered) refuses the launch.
             if (
                 not isinstance(reads, dict)
-                or reads != private_run_reads(workspace, reads["run_dir"], control=control)
+                or reads != private_run_reads(workspace, reads["run_dir"])
                 or boundary.get("allow_write") is not False
                 or not _enforces_private_reads(host, profile.read_bytes(), reads)
             ):

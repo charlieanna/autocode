@@ -1334,23 +1334,32 @@ isolation). They run in this boundary read-only, and their shell also cannot
 read the run store, `.autocode/runs`: not this run's `state.json`, events or
 receipts, and no other run's files. Only this run's `planning/` artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
-its run context from its handoff (#1250). Nor can it read the other places under
-`.autocode` where AutoCode keeps runs and launches: `builders` (parallel Builder
-workspaces and their runs), `archive` (runs archived from task worktrees),
-`bundles` (`autocode bundle` archives), `programs`, `registry` (the run
-registry), `replay` (replay recordings), `task-flows`, `worktrees` (task and
-program worktrees) and every other launch's `tool-containment-*` control
-directory. The launch creates any of those stores that does not exist yet, so one
-made while the stage runs (another task's worktree, a new bundle) stays
-unreadable too. Its own control directory and scratch, and the rest of
-`.autocode` (project settings, retained design inputs, capture bundles, the shared
-`evidence` and `output` areas), stay as readable as the rest of the workspace.
+its run context from its handoff (#1250). Nor can it read these `.autocode`
+stores, which hold other runs or what they keep: `archive` (runs archived from
+task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
+(parallel Builder workspaces and their runs), `bundles` (`autocode bundle`
+archives), `issues` (`autocode issue` worktrees and their runs), `programs`,
+`pull-reviews` (`autocode review-pr` checkouts and their runs), `registry` (the
+run registry), `replay` (replay recordings), `task-flows`, `verification`
+(`autocode verify-task` checkouts and their runs) and `worktrees` (task and
+program worktrees). The list is not every place a run can be kept: a run kept
+elsewhere in the workspace (an `--out` or `--arena` directory outside these
+stores, or another `.autocode` directory) is not denied. Each store that exists
+when the launch is prepared is denied; the launch creates none, so it leaves
+nothing new in the workspace. New contents of a denied store stay unreadable, but
+a store first made after the launch's profile was written is not covered: before
+the provider starts, the launch pauses as `PAUSED_TOOL_CONTAINMENT`; once it has
+started, the stage can read that store until it ends, and a later planning launch
+denies it. Everything else in `.autocode` stays as readable as the rest of the
+workspace: the launch's own control directory and scratch, project settings,
+retained design inputs, capture bundles, the shared `evidence` and `output`
+areas, other launches' `tool-containment-*` control directories, conversation
+records and AutoCode's other internal files.
 Before the provider starts, each such launch shows through the actual native
-shell that a file in its run directory and in each of those stores cannot be
+shell that a file in its run directory and in each denied store cannot be
 read, and records the denial as `private_reads` in its `tool_containment` record
 and conformance proof. A boundary that no longer enforces any one of these
-denials pauses as `PAUSED_TOOL_CONTAINMENT`, and so does a launch for which
-another launch's control directory appeared after its profile was written.
+denials pauses as `PAUSED_TOOL_CONTAINMENT`.
 On macOS such a launch also
 pauses that way, naming the path, when a path in its Seatbelt profile holds a
 control character such as a tab or newline: the re-check before launch accepts
@@ -1380,8 +1389,8 @@ inside an empty read-only root that holds only:
   mount inside it;
 - for a native visual run's planning stage, an empty read-only `tmpfs` over
   `.autocode/runs`, with only that run's `planning/` mounted read-only inside it,
-  and one over each other private store and each other launch's control directory
-  listed above (Seatbelt denies reading the same paths).
+  and one over each existing private store listed above (Seatbelt denies reading
+  the same paths).
 
 There is no home directory, `/tmp`, `/run` or `/var`, so a write anywhere else fails
 (`Read-only file system`, or `No such file or directory` where nothing is mounted)
