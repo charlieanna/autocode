@@ -85,6 +85,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # --package's launch checks (resume, --test-root, committed files) are in autocode_run_setup.resolve,
     # and its out-of-package finding (autocode_package_writes) stops a run only through the CLI flow, as
     # does its --accept-completion refusal (the autocode_action_decisions step, reading autocode_run_base).
+    # The build loop takes a busy checkout's launch record and runs the check before each review dispatch.
     (
         (
             "tools/autocode_package_scope",
@@ -92,6 +93,7 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_run_setup",
             "tools/autocode_action_decisions",
             "tools/autocode_run_base",
+            "tools/autocode_build_loop",
         ),
         ("tests.test_package_scope_cli",),
     ),

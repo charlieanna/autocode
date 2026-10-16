@@ -290,6 +290,16 @@ PR template asks for an entry here; a change without one is incomplete.
   after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
   work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
   judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- The scenario catalog has a two-package scenario, `feature-monorepo-package` (#711). Its seed is a repository with
+  `packages/greet/` and `packages/farewell/`, and the task adds an option to the greeting package only. The scripted
+  run is started with `--package packages/greet/`: the reference completes, and `broken/edits-farewell-package`,
+  which also edits the other package, must stop with both files named in an open blocking `runner` finding (the
+  oracle reads it from the status view). Run against AutoCode from before #1415, that variant completes and is
+  judged `FALSE_COMPLETE`. The harness no longer repeats `--package` on calls to the saved run, which the CLI
+  refuses. A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the
+  delivered files alone. A pull request that changes `tools/autocode_build_loop.py` now also runs
+  `tests.test_package_scope_cli`, since the build loop takes a busy checkout's launch record and runs the package
+  check before review.
 
 ### Changed
 
