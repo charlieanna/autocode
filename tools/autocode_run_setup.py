@@ -437,6 +437,10 @@ def resumed_pause(state: RunState) -> str | None:
     return status if run_finder.resume_acknowledges(status) or status in run_finder.WAITS_FOR_AN_EDIT else None
 
 
+class SettingRefused(ValueError):
+    """configure refused a setting this invocation gave; cli() prints it as ``autocode: ...`` (#714)."""
+
+
 def load_locked(runner, args, parser, state: RunState, state_path, run_dir, workspace):
     """Under the run lock: reread, configure, register and migrate the run; return its state."""
     support.assert_no_legacy_process(run_dir, workspace)
@@ -475,7 +479,9 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
     try:
         settings = runner.configure(args, copy.deepcopy(state) if recovering_report else state)
     except ValueError as error:
-        raise ValueError(runner.status_command.rejection_message(runner, state, workspace, run_dir, error)) from None
+        raise SettingRefused(
+            runner.status_command.rejection_message(runner, state, workspace, run_dir, error)
+        ) from None
     if recovering_report:
         if settings != state.get("settings"):
             parser.error("Provider configuration or limits changed; report recovery requires unchanged saved settings")
