@@ -24,6 +24,7 @@ try:
     from . import autocode_native_role_isolation as isolation
     from . import autocode_native_stage_recovery as stage_recovery
     from . import autocode_report_repair_queue as report_repair_queue
+    from . import autocode_roles as roles
     from . import autocode_run_status as run_status
     from . import autocode_util as util
     from . import autocode_visual_evidence as evidence
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_native_role_isolation as isolation
     import autocode_native_stage_recovery as stage_recovery
     import autocode_report_repair_queue as report_repair_queue
+    import autocode_roles as roles
     import autocode_run_status as run_status
     import autocode_util as util
     import autocode_visual_evidence as evidence  # noqa: F401 - preserve existing import behavior
@@ -170,10 +172,12 @@ class PlanningCalls:
         """Archive (never delete) a pending repair whose role's saved route has since changed.
 
         The repair may run only on its original route, so once a resume changes that role's
-        model or effort it can never launch. The stage then runs again as a fresh attempt on
-        the new route, as a resume after a rejected native planning report did before repairs
-        existed; that attempt is charged as one, and its rejected report gets its own bounded
-        repair. Returns the message shown, or None when the route is unchanged.
+        model or effort it can never launch, even when none of its attempts was used. The stage
+        then runs again as a fresh attempt on the new route, as a resume after a rejected native
+        planning report did before repairs existed; that attempt is charged as one, and its
+        rejected report gets its own bounded repair. Restoring the old route later does not
+        bring the archived repair back. Returns the message shown, or None when the route is
+        unchanged.
         """
         pending = state.get("pending_report_repair")
         original = pending.get("original") if isinstance(pending, dict) else None
@@ -193,10 +197,11 @@ class PlanningCalls:
         if before == after:
             return None
         stage = original["stage"]
+        name = roles.screen_name(stage, state)
         message = (
-            f"Archived the pending {stage} report repair: it runs only on its original {role} route, which changed "
-            f"from {before.get('model')} ({before.get('reasoning_effort')}) to {after['model']} "
-            f"({after['reasoning_effort']}). A fresh {stage} attempt runs on the new route."
+            f"Archived the pending {name} report repair because the {name} route changed from "
+            f"{before.get('model')} ({before.get('reasoning_effort')}) to {after['model']} "
+            f"({after['reasoning_effort']}), so the {name} stage will run again as a fresh attempt on the new route."
         )
         at = util.now()
         state.setdefault("report_repair_archive", []).append(

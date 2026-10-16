@@ -485,7 +485,17 @@ class ResumeThatChangesTheRepairedRoute(NativeRepairFixture):
             admitted.append(deepcopy(state))
             return 0
 
+        # Each state save the native parent sink makes, with the state on disk just before it.
+        sink_write, saved_before, self.sink_saves = self.calls.sink.write, len(self.saved), []
+
+        def through_sink(path, value, **options):
+            if Path(path) == self.path:
+                self.sink_saves.append((self.disk(), deepcopy(value)))
+            return sink_write(path, value, **options)
+
         with (
+            patch.object(self.calls.sink, "write", side_effect=through_sink),
+            patch.object(runner, "write_json", side_effect=AssertionError("ordinary writer used")),
             patch.object(runner.run_actions, "handle", side_effect=resume_step),
             patch.object(runner.build_loop, "run", side_effect=build),
             patch.object(runner.run_setup.registry, "register_run"),
@@ -503,10 +513,26 @@ class ResumeThatChangesTheRepairedRoute(NativeRepairFixture):
                 native=self.calls,
                 checkout_owned=True,
             )
+        # Every state save of the resume went through the native parent sink, never the ordinary writer.
+        through_sink = [value for _disk, value in self.sink_saves]
+        self.assertTrue(self.saved[saved_before:] == through_sink, "a state save bypassed the native parent sink")
         return code, admitted
 
     def assert_fresh_attempt(self, code, admitted, attempts, route, paused):
         saved = self.disk()
+        message = (
+            "Archived the pending Plan Reviewer report repair because the Plan Reviewer route changed from "
+            f"{ROUTE['model']} ({ROUTE['reasoning_effort']}) to {route['model']} ({route['reasoning_effort']}), "
+            "so the Plan Reviewer stage will run again as a fresh attempt on the new route."
+        )
+        # The native parent sink saved the archive: the one save that took the pending repair off disk.
+        archived_by = [
+            value
+            for disk, value in self.sink_saves
+            if "pending_report_repair" in disk and "pending_report_repair" not in value
+        ]
+        self.assertEqual(1, len(archived_by))
+        self.assertEqual(message, archived_by[0]["reconciliation_notes"][-1]["reason"])
         # Admitted past native setup: the resume step keeps the pause until the later resume steps clear it.
         self.assertEqual((0, paused), (code, saved["status"]), saved.get("stop_reason"))
         self.assertEqual(1, len(admitted))

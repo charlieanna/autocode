@@ -79,6 +79,18 @@ moved or deleted). If the fresh attempt's report is rejected, it gets its own
 bounded repair. A fresh Plan Reviewer call is still charged to the review
 allowance.
 
+**Warning: a new model or effort for the repaired stage's role discards its
+repair.** The resume archives the pending repair even when none of its attempts
+has run, and the fresh attempt that follows is charged like any other stage
+attempt. A rejected Plan Reviewer report that used the last of the two-review
+allowance is exactly the case the repair is for: at `PAUSED_REQUESTED`,
+`autocode resume --plan-reviewer-reasoning-effort low` archives the repair that
+would have cost no review call, and the fresh `plan_review` can stop at
+`PAUSED_PLANNING_BUDGET` before it launches. Resuming again with the old model
+or effort does not bring the archived repair back. To keep the repair, resume
+without changing that role's model or effort, and change it only after the
+repair has run.
+
 The final review (`plan_finalize`) is not repaired yet: its repaired report
 would need its own native reviewed-plan publication before approval, which this
 scope does not provide. A rejected final review, an attempt whose launch did not

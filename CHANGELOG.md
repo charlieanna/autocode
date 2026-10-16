@@ -387,7 +387,11 @@ PR template asks for an entry here; a change without one is incomplete.
   and model, through the run's native writer, instead of pausing at once with `PAUSED_INVALID_OUTPUT`. A resume does
   not renew a queued repair's attempts, `--retry-report` stays refused, and the planning review allowance is not
   charged for a repair. A resume that gives that stage's role a new model or reasoning effort archives the pending
-  repair and runs the stage again as a fresh attempt on the new route, as before. A repair launch that stops
+  repair and runs the stage again as a fresh attempt on the new route, as before. Warning: that resume discards the
+  repair even when none of its attempts has run, the fresh attempt is charged (with the two-review allowance spent,
+  `autocode resume --plan-reviewer-reasoning-effort low` can stop the fresh Plan Reviewer at
+  `PAUSED_PLANNING_BUDGET`), and restoring the old model later does not bring the repair back; to keep the repair,
+  resume without changing that role's model or effort. A repair launch that stops
   (timeout, output limit, cleanup) is closed with `--abandon-stage`, as an original planning stop is. A native run
   no longer sends a stage pause to an Investigator it cannot run, so that pause keeps its reason and spends no
   investigation; a Builder failure classification still pauses as before. The final plan review is not repaired
