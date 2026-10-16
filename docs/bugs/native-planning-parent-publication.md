@@ -65,7 +65,12 @@ planning inputs as the stage it repairs, and is refused if the contract,
 source, pinned evidence, planning inputs or saved route changed. It is not charged
 to the planning review allowance, which is neither refunded nor renewed.
 `autocode resume` continues a queued repair without renewing its attempt count;
-`--retry-report` and `--retry-format` stay refused. When the attempts are spent,
+`--retry-report` stays refused. A repair runs only on its original route, so a
+resume that gives the repaired stage's role a new model or reasoning effort (for
+example `--plan-reviewer-model`) moves the pending repair to
+`report_repair_archive` once setup has saved the new route (no file is moved or
+deleted), and the stage runs again as a fresh attempt on the new route, as such
+a resume did before this change. When the attempts are spent,
 the run pauses `PAUSED_INVALID_OUTPUT` with every attempt retained. A plain
 resume from that pause runs the stage again as a fresh attempt, as a resume
 after a rejected native planning report did before this change. It first moves

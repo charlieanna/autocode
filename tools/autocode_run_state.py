@@ -336,7 +336,8 @@ class RunState(TypedDict, total=False):
     stuck_investigations: list  # the investigation history
     # autocode_report_repair_queue.queue writes it for a rejected completed report (autocode.reject_completed_stage,
     # native PlanningCalls.reject), stage_recovery for truncated reviews and missing executed-event evidence;
-    # execute_report_repair runs it, repaired_result and the resume and recovery archives consume it;
+    # execute_report_repair runs it, repaired_result, the resume and recovery archives and native
+    # PlanningCalls.archive_rerouted_repair (its route changed) consume it;
     # stuck_job holds and restores it around an investigation.
     pending_report_repair: dict
     uncertain_artifacts: list  # attempts whose cleanup is unverified

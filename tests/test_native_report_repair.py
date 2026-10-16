@@ -294,12 +294,11 @@ class AdmissionOfExactlyThatRepair(NativeRepairFixture):
             self.calls.role_isolation(self.state, "plan_reviewer")
         isolation.assert_called_once()
 
-    def test_plain_resume_is_admitted_and_retry_controls_stay_refused(self):
+    def test_plain_resume_is_admitted_and_retry_report_stays_refused(self):
         self.queue()
         self.calls.require_supported_action(SimpleNamespace(run_dir=self.run), self.state)
-        for flag in ("retry_report", "retry_format"):
-            with self.subTest(flag), self.assertRaisesRegex(util.Paused, "native scope beyond first approval"):
-                self.calls.require_supported_action(SimpleNamespace(run_dir=self.run, **{flag: "001/x"}), self.state)
+        with self.assertRaisesRegex(util.Paused, "native scope beyond first approval"):
+            self.calls.require_supported_action(SimpleNamespace(run_dir=self.run, retry_report="001/x"), self.state)
         self.state["pending_report_repair"]["original"]["stage"] = "plan_finalize"
         self.state["next_stage"] = "plan_finalize"
         with self.assertRaisesRegex(util.Paused, "only its own bounded report-only repair"):
@@ -437,6 +436,106 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
         with self.assertRaises(util.Paused):
             self.calls.guard(self.state, "plan", report_only=True, allow_write=False)
         self.calls.guard(self.state, "plan", allow_write=False)
+
+
+class ResumeThatChangesTheRepairedRoute(NativeRepairFixture):
+    """`autocode resume` with a new model or effort for the role whose report is being repaired.
+
+    The repair runs only on its original route, so a changed route archives it and the stage runs
+    again as a fresh attempt on the new route, as a resume after a rejected native report did before
+    repairs existed. The real CLI parser, run_setup.run_locked, load_locked, configure and the resume
+    step run; registration, containment setup and the model catalogue are stubbed, and the build loop
+    is replaced by the native admission of the launch it would make next.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.state["settings"].update(
+            engine="opencode", provider="opencode", joint_planning=True, transport_identity={"controlled": True}
+        )
+        for role in ("astra", "terra", "sol", "completion", "requirements"):
+            self.state["settings"]["roles"].setdefault(role, dict(ROUTE, model="controlled/" + role))
+        self.state["sessions"] = {}
+
+    def resume(self, *flags):
+        util.atomic_json(self.path, self.state)
+        argv = ["--run-dir", str(self.run), "--resume-paused", *flags]
+        args, parser = runner.cli_args.parse(None, argv, runner.opencode.DEFAULT_MODELS)
+        args._native_action_argv = tuple(argv)
+        self.calls.require_supported_action(args, self.state)  # native_invocation.run, before setup
+        admitted = []
+
+        def resume_step(view, args, parser, state, *rest):
+            decided = SimpleNamespace(gate=None, retained_report=None, information_admitted=False)
+            return recovery_actions.resume(view, args, parser, state, *rest, decided)
+
+        def build(view, args, state, *_rest, **_options):
+            self.calls.guard(state)  # before_code_stage: the native admission of the next launch
+            admitted.append(deepcopy(state))
+            return 0
+
+        with (
+            patch.object(runner.run_actions, "handle", side_effect=resume_step),
+            patch.object(runner.build_loop, "run", side_effect=build),
+            patch.object(runner.run_setup.registry, "register_run"),
+            patch.object(runner.run_setup.containment_policy, "configure"),
+            patch.object(runner.run_setup.quota_route, "model_problem", return_value=None),
+        ):
+            code = runner.run_setup.run_locked(
+                invocation.runner_view(runner, self.calls),
+                args,
+                parser,
+                self.state,
+                self.path,
+                self.run,
+                self.root,
+                native=self.calls,
+                checkout_owned=True,
+            )
+        return code, admitted
+
+    def assert_fresh_attempt(self, code, admitted, attempts, route, paused):
+        saved = self.disk()
+        # Admitted past native setup: the resume step keeps the pause until the later resume steps clear it.
+        self.assertEqual((0, paused), (code, saved["status"]), saved.get("stop_reason"))
+        self.assertEqual(1, len(admitted))
+        self.assertNotIn("pending_report_repair", saved)
+        self.assertEqual(("plan_review", route), (saved["next_stage"], saved["settings"]["roles"]["plan_reviewer"]))
+        archived = saved["report_repair_archive"][-1]
+        self.assertEqual("The repaired stage's route changed", archived["reason"])
+        self.assertEqual(
+            (attempts, dict(ROUTE)), (archived["repair"]["attempts"], archived["repair"]["original"]["launch_route"])
+        )
+        self.assertTrue(all(Path(row["output"]).is_file() for row in saved["stages"]))
+        # The stage runs again as a fresh attempt; no repair of the archived one can launch.
+        with self.assertRaises(util.Paused):
+            self.calls.guard(saved, "plan_review", report_only=True, allow_write=False)
+
+    def test_new_model_after_the_spent_repairs_runs_the_stage_afresh_on_it(self):
+        self.queue()["attempts"] = 2
+        with self.assertRaises(util.Paused):
+            self.calls.reject(self.state, self.record(repair=True, name="r2"), ValueError("still invalid"), closed=True)
+        self.assertEqual("PAUSED_INVALID_OUTPUT", self.disk()["status"])
+        code, admitted = self.resume("--plan-reviewer-model", "openai/other-reviewer")
+        self.assert_fresh_attempt(
+            code, admitted, 2, dict(ROUTE, model="openai/other-reviewer"), "PAUSED_INVALID_OUTPUT"
+        )
+
+    def test_new_effort_at_a_pause_before_the_repair_runs_the_stage_afresh_on_it(self):
+        self.queue()
+        runner.run_status.pause(self.state, "PAUSED_REQUESTED", "Pause requested; previous stage saved")
+        code, admitted = self.resume("--plan-reviewer-reasoning-effort", "low")
+        self.assert_fresh_attempt(code, admitted, 0, dict(ROUTE, reasoning_effort="low"), "PAUSED_REQUESTED")
+
+    def test_another_role_changed_keeps_the_pending_repair(self):
+        self.queue()["attempts"] = 1
+        runner.run_status.pause(self.state, "PAUSED_REQUESTED", "Pause requested; previous stage saved")
+        code, admitted = self.resume("--requirements-model", "openai/other-requirements")
+        saved = self.disk()
+        self.assertEqual((0, 1), (code, saved["pending_report_repair"]["attempts"]))
+        self.assertNotIn("report_repair_archive", saved)
+        self.assertEqual("openai/other-requirements", saved["settings"]["roles"]["requirements"]["model"])
+        self.assertEqual(1, len(admitted))
 
 
 class AutomaticRecoveriesStayOrdinaryOnly(NativeRepairFixture):

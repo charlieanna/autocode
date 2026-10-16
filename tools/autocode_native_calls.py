@@ -166,6 +166,49 @@ class PlanningCalls:
             )
         return True
 
+    def archive_rerouted_repair(self, state: RunState):
+        """Archive (never delete) a pending repair whose role's saved route has since changed.
+
+        The repair may run only on its original route, so once a resume changes that role's
+        model or effort it can never launch. The stage then runs again as a fresh attempt on
+        the new route, as a resume after a rejected native planning report did before repairs
+        existed; that attempt is charged as one, and its rejected report gets its own bounded
+        repair. Returns the message shown, or None when the route is unchanged.
+        """
+        pending = state.get("pending_report_repair")
+        original = pending.get("original") if isinstance(pending, dict) else None
+        role = self.repair_route(state)
+        route = (state.get("settings") or {}).get("roles", {}).get(role)
+        if (
+            not isinstance(original, dict)
+            or not isinstance(route, dict)
+            or not isinstance(original.get("launch_route"), dict)
+            or state.get("active_stage")
+            or original.get("stage") != state.get("next_stage")
+            or original.get("stage") not in self.repairable
+        ):
+            return None
+        before = original["launch_route"]
+        after = {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
+        if before == after:
+            return None
+        stage = original["stage"]
+        message = (
+            f"Archived the pending {stage} report repair: it runs only on its original {role} route, which changed "
+            f"from {before.get('model')} ({before.get('reasoning_effort')}) to {after['model']} "
+            f"({after['reasoning_effort']}). A fresh {stage} attempt runs on the new route."
+        )
+        at = util.now()
+        state.setdefault("report_repair_archive", []).append(
+            {"at": at, "reason": "The repaired stage's route changed", "repair": state.pop("pending_report_repair")}
+        )
+        state.setdefault("reconciliation_notes", []).append(
+            {"at": at, "stage": stage, "iteration": original.get("iteration"), "reason": message}
+        )
+        self.sink.write(self.run_dir / "state.json", state)
+        print(message, flush=True)
+        return message
+
     @staticmethod
     def repair_route(state: RunState):
         """The saved route role of the pending repair's original attempt, or None."""
@@ -295,6 +338,9 @@ class PlanningCalls:
             raise util.Paused(
                 "PAUSED_VISUAL_EVIDENCE", "Original native worker reconciliation is not implemented by Scope 3"
             )
+        if state.get("pending_report_repair"):
+            # After setup has saved a changed route, the repair can never run: the stage runs afresh.
+            self.archive_rerouted_repair(state)
         if state.get("pending_report_repair"):
             self.repair_pending(state, state.get("next_stage"))  # Only a plain resume of the bounded repair.
         if state.get("current_task") is not None:
