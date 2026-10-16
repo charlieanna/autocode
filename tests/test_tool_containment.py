@@ -144,6 +144,20 @@ class PolicyTests(unittest.TestCase):
                 + '(deny file-write* (literal "/dev/null") (allow file-read* (subpath "/")))\n',
                 # A top-level form that is not a version, allow or deny rule.
                 "an allow inside a later non-rule form": profile + '(require-all (allow file-read* (subpath "/")))\n',
+                # Each of the next write grants is refused by one check of _write_allow_is_confined()
+                # alone. A write grant names write operations only (here it adds a read over scratch).
+                # Its filters are literal or subpath only: a regex can match the store without naming
+                # it, and this one matches every path. Its path neither holds the store nor lies inside
+                # it: inside, the shell can move the run's own state into its readable planning/.
+                "an earlier write grant mixed with a read": profile.replace(
+                    "(version 1)\n", f'(version 1) (allow file-write* file-read* (subpath "{scratch / "nested"}"))\n', 1
+                ),
+                "an earlier regex write grant": profile.replace(
+                    "(version 1)\n", '(version 1) (allow file-write* (regex "/.*"))\n', 1
+                ),
+                "an earlier write grant inside the store": profile.replace(
+                    "(version 1)\n", f'(version 1) (allow file-write* (subpath "{runs / "own"}"))\n', 1
+                ),
             }.items():
                 with self.subTest(name=name):
                     self.assertNotEqual(profile, weakened)
@@ -471,14 +485,48 @@ class BubblewrapArgumentTests(unittest.TestCase):
             # in this verifier (#1250), so it cannot be judged here and is refused outright.
             ["--ro-bind", "/proc/self/cwd", str(self.scratch / "proc")],
             ["--ro-bind", "/dev/fd/3", str(self.scratch / "fd")],
-            # A writable bind of the store, or of a directory holding it, lets the shell rename
-            # the store out from under the tmpfs and read it in the next sandbox (#1250).
-            ["--bind", str(self.root), str(self.root)],
-            ["--bind", str(runs / "sibling"), str(runs / "sibling")],
         ):
             tampered = [*arguments[:-2], *shown_again, *arguments[-2:]]
             with self.subTest(shown_again=shown_again):
                 self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(tampered), reads))
+        # The /proc and /dev/fd refusal alone: realpath leaves these sources as written, so the
+        # canonical check admits them. Bare /proc reaches every host process's cwd and root, and a
+        # pid with no process now (so realpath cannot resolve it) may have one when bwrap opens it.
+        for source in ("/proc", "/proc/2147483647/cwd"):
+            linked = [*arguments[:-2], "--ro-bind", source, str(self.scratch / "link"), *arguments[-2:]]
+            with self.subTest(magic_link=source):
+                self.assertEqual(source, os.path.realpath(source))
+                self.assertFalse(containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(linked), reads))
+        # On Linux /dev/fd is a link to /proc/self/fd, so the canonical check refuses its entries
+        # too. On a host where it is not a link, realpath leaves them as written: model that host.
+        real = os.path.realpath
+
+        def unlinked(path):
+            return path if path == "/dev/fd" or path.startswith("/dev/fd/") else real(path)
+
+        with patch("os.path.realpath", unlinked):
+            for source in ("/dev/fd", "/dev/fd/3"):
+                linked = [*arguments[:-2], "--ro-bind", source, str(self.scratch / "link"), *arguments[-2:]]
+                with self.subTest(magic_link=source, host="/dev/fd not a link"):
+                    self.assertEqual(source, os.path.realpath(source))
+                    self.assertFalse(
+                        containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(linked), reads)
+                    )
+        # A writable bind of the store, or of a directory holding it, lets the shell rename the
+        # store out from under the tmpfs and read it in the next sandbox (#1250). Each bind below
+        # passes every other check, as its read-only form shows: a self-bind of an ancestor before
+        # the tmpfs, and one of this run's own planning/ after it. Only the writable-bind check
+        # refuses the writable form.
+        for name, (position, source) in {
+            "holding the store": (hidden, str(self.root / ".autocode")),
+            "inside the store": (len(arguments) - 2, str(own / "planning")),
+        }.items():
+            for flag, enforced in (("--ro-bind", True), ("--bind", False)):
+                bound = [*arguments[:position], flag, source, source, *arguments[position:]]
+                with self.subTest(self_bind=name, flag=flag):
+                    self.assertIs(
+                        enforced, containment._enforces_private_reads(containment.BUBBLEWRAP, encoded(bound), reads)
+                    )
         # The tmpfs stays, but it is not sealed read-only after it: the seal requirement alone refuses it.
         seal = ["--remount-ro", str(runs)]
         self.assertEqual(seal, arguments[-4:-2])
