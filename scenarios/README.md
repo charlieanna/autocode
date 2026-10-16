@@ -163,11 +163,13 @@ plan revision, and the harness approves the plan it was shown. The approval's ro
 - when the final status view reports that plan approved, its
   `approved_contract.goal_hash` to be the exported one.
 
-A plan holding credential-shaped text is masked on export, so its file's goal hash
-differs from the run's by design; the file must then read back as it was written,
-and the check says it was masked. The two calls are no steps: neither the step
-budget nor `cli_calls` counts them, but the time budget bounds them. A run that
-reaches no plan approval gets no such check.
+A masked export fails the check: its file does not reproduce the plan's goal hash,
+and `--goal-file` refuses a masked file. The export reports `masked` whenever the
+file's goal hash differs from the run's, so the flag cannot show that only
+credential-shaped text changed; a mask that took plan text for a credential reports
+it too. The two calls are no steps: neither the step budget nor `cli_calls` counts
+them, but the time budget bounds them. A run that reaches no plan approval gets no
+such check.
 
 Like any oracle check, a failed one makes the verdict `FALSE_COMPLETE` when
 AutoCode reported the scenario complete (for a program or components scenario,

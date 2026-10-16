@@ -350,10 +350,10 @@ class Driver:
         task: str | None = None,
         action: bool = False,
         record: bool = True,
-        subcommand: bool = False,
+        bare: bool = False,
     ) -> subprocess.CompletedProcess:
         """One CLI invocation. Actions must exit 0; launches may also exit 2 (stopped for input).
-        A ``subcommand`` call is `autocode` followed by ``extra`` alone (``plan --check FILE``), and its
+        A ``bare`` call is `autocode` followed by ``extra`` alone (``plan --check FILE``), and its
         exit code is the caller's to judge."""
         if record and len(self.steps) >= self.max_steps:
             raise DriveError(f"step budget used up after {len(self.steps)} CLI calls")
@@ -365,7 +365,7 @@ class Driver:
         flags = saved_run_flags(self.flags) if self.run_dir else self.flags
         cmd = (
             [*self.autocode, *extra]
-            if subcommand
+            if bare
             else [
                 *self.autocode,
                 *([task] if task else []),
@@ -419,7 +419,7 @@ class Driver:
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
         if proc.returncode < 0:
             raise InterruptedDrive(f"{kind} exited on signal {-proc.returncode}; delivery and usage remain ungraded")
-        if usage_error or (not subcommand and proc.returncode not in ((0,) if action else (0, 2))):
+        if usage_error or (not bare and proc.returncode not in ((0,) if action else (0, 2))):
             raise DriveError(f"{kind} exited {proc.returncode}: {(proc.stderr or proc.stdout).strip()[-500:]}")
         return proc
 

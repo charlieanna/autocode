@@ -2138,12 +2138,6 @@ class PlanRoundTripTests(unittest.TestCase):
         self.assertTrue(check.ok, check.detail)
         self.assertIn("1 plan(s) exported at the approval stop and read back by `autocode plan --check`", check.detail)
         self.assertIn(f"revision 2 goal hash {self.goal}, approved", check.detail)
-        # A plan with credential-shaped text is masked on export: its file differs from the run's plan by design,
-        # and must read back as it was written.
-        masked = self.trip({"written_goal_hash": "d" * 64, "masked": True}, {"goal_hash": "d" * 64, "matches": False})
-        (check,) = self.judged([masked], approved=self.goal)
-        self.assertTrue(check.ok, check.detail)
-        self.assertIn(f"masked on export, so the file's goal hash {'d' * 64} differs by design", check.detail)
 
     def test_a_round_trip_that_does_not_reproduce_the_goal_hash_fails(self):
         other = "e" * 64
@@ -2158,10 +2152,13 @@ class PlanRoundTripTests(unittest.TestCase):
             ),
             ("read back otherwise", self.trip(check={"goal_hash": other}), None, f"as goal hash {other}, not the"),
             (
-                "written otherwise",
-                self.trip({"written_goal_hash": other}, {"goal_hash": other}),
+                # What the CLI reports for any file written with another goal hash: `autocode plan --export` sets
+                # `masked` whenever the hashes differ, so a mask that took plan text for a credential (the
+                # `risk-<sha>` ids #1307 fixed) looks exactly like this, and `--goal-file` refuses the file.
+                "masked on export",
+                self.trip({"written_goal_hash": other, "masked": True}, {"goal_hash": other, "matches": False}),
                 None,
-                f"reads back as goal hash {other}, not the run's plan's {self.goal}",
+                f"reads back as goal hash {other}, not the run's plan's {self.goal} (the export reported text masked",
             ),
             ("front matter otherwise", self.trip(check={"matches": False}), None, "not the run's plan's"),
             ("another revision", self.trip(check={"revision": 1}), None, "names revision 1, not the exported 2"),
@@ -2185,6 +2182,45 @@ class PlanRoundTripTests(unittest.TestCase):
         # A run that stopped after the approval is judged on what was exported all the same.
         (check,) = self.judged([self.trip(changed=["state.json"])], view={"status": "PAUSED_BUDGET"})
         self.assertFalse(check.ok)
+
+    def test_a_components_scenario_judges_its_architecture_run_s_plan(self):
+        """run.run_components judges the plan file round trip of the architecture run's plan approval, which
+        components_driver's architecture Driver records, beside the --auto-approve rows of the components calls."""
+        root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        scenario = argparse.Namespace(
+            oracle=lambda: lambda project, scenario: [verdict.Check("delivered", True)], expected="complete"
+        )
+        for name, trip, outcome in (
+            ("reproduced", self.trip(), verdict.PASS),
+            ("run changed", self.trip(changed=["state.json"]), verdict.FALSE_COMPLETE),
+        ):
+            with self.subTest(name):
+                out = root / name
+                out.mkdir()
+                architecture = Mock(
+                    run_dir=out / "architecture-run",
+                    answers=[],
+                    approvals=[
+                        {"gate": "approve_plan", "token": self.token, "plan_file": trip},
+                        {"gate": run.components_driver.AUTO_APPROVE_GATE, "call": "components"},
+                    ],
+                    steps=[],
+                )
+                # Not complete, so neither its evidence report nor its provenance is checked: the round trip alone.
+                architecture.view.return_value = {"approved_contract": {"token": self.token, "goal_hash": self.goal}}
+
+                def drive(scenario, args, out, project, flags, env, decisions, architecture=architecture):
+                    decisions.update(answers=architecture.answers, approvals=architecture.approvals)
+                    return architecture, out / "product", {"exit_code": 0, "components": {}}, []
+
+                with patch.object(run.components_driver, "drive", drive):
+                    result = run.run_components(
+                        scenario, argparse.Namespace(local_docker=False), out, {}, out / "project", [], {}
+                    )
+                self.assertEqual(outcome, result["verdict"], result["summary"])
+                (check,) = [check for check in result["checks"] if check["name"] == "plan round trip"]
+                self.assertEqual(outcome == verdict.PASS, check["ok"], check["detail"])
+                self.assertIn(f"goal hash {self.goal}, approved" if check["ok"] else "changed the run", check["detail"])
 
     def plan_cli(self, root: Path, export=None):
         """Stands in for `autocode`: `plan --export` (``export`` changes what it does), `plan --check`, approval."""

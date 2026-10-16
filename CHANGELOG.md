@@ -335,11 +335,11 @@ PR template asks for an entry here; a change without one is incomplete.
   with `autocode plan --export` to `plan-files/NN.md` in the evidence directory and reads the file back with
   `autocode plan --check`, the reader `--goal-file` uses. The `plan round trip` check in `result.json` requires the
   file to read back with the run plan's goal hash, the run directory to be unchanged by the two commands, and the
-  approved plan's goal hash in the final `--status --json` to be the exported one. A plan masked on export for
-  credential-shaped text differs by design and must read back as written. The two calls are no steps; they add
+  approved plan's goal hash in the final `--status --json` to be the exported one. A masked export fails: its file
+  does not reproduce the goal hash, and `--goal-file` refuses it. The two calls are no steps; they add
   about 4 s per plan approval on the fake provider. Each plan approval's row in `approvals` keeps their output as
-  `plan_file`, and a program's run record now carries `approvals` too. A failure makes the verdict `FALSE_COMPLETE`
-  when the scenario completed, and `HONEST_BLOCKER` when it stopped.
+  `plan_file`, and the record a program or components scenario is judged on now carries `approvals` too. A failure
+  makes the verdict `FALSE_COMPLETE` when the scenario completed, and `HONEST_BLOCKER` when it stopped.
 
 ### Changed
 

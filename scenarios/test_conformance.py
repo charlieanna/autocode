@@ -104,21 +104,54 @@ class ClientDecisionTests(unittest.TestCase):
 
     def test_a_catalog_run_exports_each_plan_before_the_client_approves_it(self):
         """#720: as Driver.serve does, the plan is exported and read back first (harness.plan_round_trip), and
-        what happened is in that approval's row."""
+        what happened is in that approval's row. Only `autocode` is stood in for: the client's own ``call``
+        (which also runs `autocode intervention submit`) carries the plan commands to the CLI."""
         self.client.round_trip_plans = True
-        trip = {"file": "plan-files/01.md"}
-        with mock.patch.object(self.client, "call") as call:
+        self.client.run_dir.mkdir(parents=True)
+        (self.client.run_dir / "state.json").write_text("{}")
+        goal, commands = "f" * 64, []
 
-            def exported(client):
-                self.assertEqual(0, call.call_count, "the plan is exported before it is approved")
-                return trip
+        def cli(command, **_):
+            args = list(command[1:])
+            commands.append(args)
+            if args[:2] == ["plan", "--export"]:
+                Path(args[2]).write_text("---\n")
+                payload = {"revision": 2, "goal_hash": goal, "written_goal_hash": goal, "masked": False}
+            elif args[:2] == ["plan", "--check"]:
+                payload = {"goal_hash": goal, "exported_hash": goal, "revision": 2, "matches": True}
+            else:
+                payload = {}
+            return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
 
-            with mock.patch.object(conformance.plan_round_trip, "take", side_effect=exported) as take:
-                self.client.take(view(token="r2:abc"), ["--approve-goal", "-"], {}, "next_command")
-                self.client.take(view("answer"), ["--answer", "Q1=Use UTC"], {}, "next_command")
-        take.assert_called_once_with(self.client)
-        self.assertEqual(2, call.call_count)
-        self.assertEqual([{"gate": "approve_plan", "token": "r2:abc", "plan_file": trip}], self.client.approvals)
+        with mock.patch("harness.driver.run_cli", cli):
+            self.client.take(view(token="r2:abc"), ["--approve-goal", "-"], {}, "next_command")
+            self.client.take(view("answer"), ["--answer", "Q1=Use UTC"], {}, "next_command")
+        path = self.client.root / "plan-files" / "01.md"
+        where = ["--workspace", str(self.client.project), "--run-dir", str(self.client.run_dir)]
+        self.assertEqual(
+            [
+                ["plan", "--export", str(path), *where, "--json"],
+                ["plan", "--check", str(path), "--json"],
+                [*where, "--approve-goal", "-"],
+                [*where, "--answer", "Q1=Use UTC"],
+            ],
+            commands,
+        )
+        (gate,) = self.client.approvals
+        self.assertEqual(("approve_plan", "r2:abc"), (gate["gate"], gate["token"]))
+        self.assertEqual(
+            (str(path), 0, goal, 0, goal, []),
+            (
+                gate["plan_file"]["file"],
+                gate["plan_file"]["export"]["exit"],
+                gate["plan_file"]["export"]["goal_hash"],
+                gate["plan_file"]["check"]["exit"],
+                gate["plan_file"]["check"]["goal_hash"],
+                gate["plan_file"]["run_changed"],
+            ),
+        )
+        # The export and the check are no steps; the two decisions are.
+        self.assertEqual(["approve_plan", "answer"], [step["kind"] for step in self.client.steps])
 
     def test_an_operational_request_continues_only_through_a_named_retry(self):
         operational = view(
@@ -302,6 +335,10 @@ class LifecycleScenarioTests(unittest.TestCase):
         self.assertGreaterEqual(len(taken), 2)
         (provenance,) = [check for check in result["checks"] if check["name"] == "approval provenance: task"]
         self.assertTrue(provenance["ok"], provenance["detail"])
+        # #720: the client exported each of those plans and read the file back before approving it.
+        (trip,) = [check for check in result["checks"] if check["name"] == "plan round trip"]
+        self.assertTrue(trip["ok"], trip["detail"])
+        self.assertIn(f"{len(taken)} plan(s) exported at the approval stop", trip["detail"])
 
 
 if __name__ == "__main__":

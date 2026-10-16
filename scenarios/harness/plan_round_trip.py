@@ -15,9 +15,10 @@ once the plan on show changed.
 
 ``checks`` judges what ``take`` recorded in the approval row (``plan_file``): the file reads back with the
 goal hash of the run's plan, as the export reported it, and, once the run reports that plan approved, the
-approved plan's goal hash in its status view (``approved_contract``) is that same hash. A plan holding
-credential-shaped text is masked on export, so its file's goal hash differs from the run's by design
-(docs/workflow.md); the file must then read back as written, and the check says it was masked.
+approved plan's goal hash in its status view (``approved_contract``) is that same hash. A masked export
+fails: its file does not reproduce the plan's goal hash, and `--goal-file` refuses a masked file. The
+export's ``masked`` is no evidence that only credential-shaped text changed: it is set whenever the file's
+goal hash differs from the run's, so a mask that took plan text for a credential reports it too.
 
 Only `autocode` commands and the status view the harness already read are used; nothing from tools/ is
 imported.
@@ -50,13 +51,11 @@ def take(driver) -> dict:
     before = listing(run_dir)
     where = ["--workspace", str(driver.project), "--run-dir", str(run_dir)]
     exported = outcome(
-        driver.call("plan-export", "plan", "--export", str(path), *where, "--json", record=False, subcommand=True)
+        driver.call("plan-export", "plan", "--export", str(path), *where, "--json", record=False, bare=True)
     )
     checked = None
     if exported["exit"] == 0:
-        checked = outcome(
-            driver.call("plan-check", "plan", "--check", str(path), "--json", record=False, subcommand=True)
-        )
+        checked = outcome(driver.call("plan-check", "plan", "--check", str(path), "--json", record=False, bare=True))
     after = listing(run_dir)
     return {
         "file": str(path),
@@ -109,8 +108,12 @@ def problems(trip: dict, approved_hash: str | None = None) -> list[str]:
         found.append(
             f"the file reads back as goal hash {checked.get('goal_hash')}, not the {written} it was written with"
         )
-    elif not exported.get("masked") and (checked.get("goal_hash") != goal or not checked.get("matches")):
-        found.append(f"the file reads back as goal hash {checked.get('goal_hash')}, not the run's plan's {goal}")
+    elif checked.get("goal_hash") != goal or not checked.get("matches"):
+        # A masked export is no exception: `masked` only says the file's goal hash differs from the run's.
+        masked = " (the export reported text masked as credential-shaped)" if exported.get("masked") else ""
+        found.append(
+            f"the file reads back as goal hash {checked.get('goal_hash')}, not the run's plan's {goal}{masked}"
+        )
     elif checked.get("revision") != exported.get("revision"):
         found.append(f"the file names revision {checked.get('revision')}, not the exported {exported.get('revision')}")
     if trip.get("run_changed"):
@@ -144,11 +147,6 @@ def approved_hashes(run: dict) -> dict:
 def described(gate: dict, approved_hash: str | None) -> str:
     exported = (gate.get("plan_file") or {}).get("export") or {}
     text = f"revision {exported.get('revision')} goal hash {exported.get('goal_hash')}"
-    if exported.get("masked"):
-        text += (
-            f" (credential-shaped text masked on export, so the file's goal hash {exported.get('written_goal_hash')}"
-            " differs by design)"
-        )
     return text + (", approved" if approved_hash is not None else "")
 
 

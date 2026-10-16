@@ -433,6 +433,9 @@ def run_components(scenario, args, out, result, project, flags, env):
         provider_evidence=verdict.evidence_reports.declared(flags),
         architecture_view=driver.view(),
         architecture_run_dir=str(driver.run_dir),
+        # The architecture run's plan approval row holds its plan file round trip, which plan_round_trip
+        # judges; approval_provenance matches no gate to a components scenario's rows.
+        approvals=approvals_of(driver),
     )
     oracle = verdict.evaluate(scenario, target, record)
     status = "TASK_COMPLETE" if summary.get("exit_code") == 0 else "PAUSED_LOCAL_SMOKE"

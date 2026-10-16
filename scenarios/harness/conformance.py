@@ -392,9 +392,9 @@ class ConformanceDriver(Driver):
         except psutil.NoSuchProcess:
             raise ConformanceGap("the controller the view names as running has exited") from None
 
-    def call(self, kind, *extra, task=None, action=False, record=True, subcommand=None):
+    def call(self, kind, *extra, task=None, action=False, record=True, subcommand=None, bare=False):
         if subcommand is None:
-            return super().call(kind, *extra, task=task, action=action, record=record)
+            return super().call(kind, *extra, task=task, action=action, record=record, bare=bare)
         # A subcommand takes its words first; the run is named the same way.
         saved = self.autocode
         self.autocode = [*saved, *subcommand.split()]
