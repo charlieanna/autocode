@@ -2204,7 +2204,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bfee43a9ab2cedcb6682b7a18fdfb857a9cfa01f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/71e4f06d9c6ac4810ba2dc11dae3354e6e4b8472/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2474,12 +2474,22 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/bfee43a9ab2cedcb6682b7a18fdfb857a9cfa01f/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/71e4f06d9c6ac4810ba2dc11dae3354e6e4b8472/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
-attempt durations, reported usage, regression proof and remaining gaps. When the
-proof's mutation check left survivors, <code>regression_proof.mutation_survivors</code> lists
+attempt durations, reported usage, regression proof and remaining gaps. The report of a build,
+bug-fix or design run (the run's <code>workflow</code>, or none for a run saved before workflow
+recognition) also has <code>approvals</code>: the status view's <code>approvals</code> rows when the report was
+written (who approved each plan and review, edited the plan or resumed a pause, with its
+recorded provenance, never verified), shown in the Markdown as an Approvals table after the
+intended outcome, or as <code>None recorded</code> for a run with none
+(<a href="../execution/#who-approved">Who approved</a>). Review and discuss reports, which have no approval
+step, have no <code>approvals</code> field and no such section, even when the status view lists a resume.
+Neither do verification, program and component reports, nor reports written before AutoCode
+listed approvals, so older pairs still authenticate. An older build, bug-fix or design report
+gains the section when AutoCode saves the completed run again; reading its status does not.
+When the proof's mutation check left survivors, <code>regression_proof.mutation_survivors</code> lists
 them per test case, keyed like <code>case_tests</code>, and the Markdown names each one under
 the regression proof; they are reported, not gaps. Review-only mutation reports
 are kept separately in <code>workflow_result.mutation_check</code>, with survivors keyed

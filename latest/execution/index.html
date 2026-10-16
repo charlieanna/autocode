@@ -2504,7 +2504,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bfee43a9ab2cedcb6682b7a18fdfb857a9cfa01f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/71e4f06d9c6ac4810ba2dc11dae3354e6e4b8472/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2828,17 +2828,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/bfee43a9ab2cedcb6682b7a18fdfb857a9cfa01f/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/71e4f06d9c6ac4810ba2dc11dae3354e6e4b8472/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/bfee43a9ab2cedcb6682b7a18fdfb857a9cfa01f/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/71e4f06d9c6ac4810ba2dc11dae3354e6e4b8472/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/bfee43a9ab2cedcb6682b7a18fdfb857a9cfa01f/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/71e4f06d9c6ac4810ba2dc11dae3354e6e4b8472/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3055,8 +3055,27 @@ whatever the checkout configures, and <code>--as</code> is taken at the person's
 and each pause's own rules remain the authority. <code>--status</code> lists every approval, goal edit and
 resume with its provenance under <code>approvals</code> (<a href="../task-run/#status-view">Status view</a>), and
 the completion summary lists the same records just before its cost line. A record saved before
-AutoCode kept it shows no provenance. The evidence report and the pull request body built from
-it (#692), and a required approver (#707), are not covered yet.</p>
+AutoCode kept it shows no provenance. A build, bug-fix or design run that recorded none, such as
+one saved before AutoCode kept approval events, a design review or a bug that did not reproduce,
+says <code>Approvals: none recorded</code> there instead of leaving the section out. A review or discuss run
+never asks for an approval: its one stage completes the run without a plan. Its summary has no
+such line, but still lists any record the run saved, such as a resume from a pause.</p>
+<p>The evidence report of a completed build, bug-fix or design run lists the same records under
+<code>approvals</code> in <code>evidence.json</code> and as an Approvals table in <code>evidence.md</code>, just after the
+intended outcome (<a href="../task-run/#canonical-completion-evidence">Canonical completion evidence</a>).
+A review or discuss report has neither, not even a resume, because those workflows have no
+approval step and <code>autocode review-pr --post</code> publishes a review's report on someone else's pull
+request (<a href="../issues/#reviewing-a-pull-request">Issues</a>). A report written before AutoCode listed
+approvals has no such section either, until AutoCode saves the completed run again; reading its
+status does not. Each row gives the time, what was decided (the plan token approved, the criterion
+accepted, the draft an edit saved, or the pause a resume released), the Git identity, host,
+command and any <code>--as</code> name, marked as a claim. A record saved without provenance says it was not
+recorded, a workflow-policy approval says no person made it, and a run with none says
+<code>None recorded</code>. When the table names an approver, the report's "Not verified" list adds that
+approver identity is recorded as given; it also counts any records saved without a recorded
+approver. Because <code>autocode-issue pr</code> wraps that <code>evidence.md</code> exactly
+(<a href="../issues/#what-it-does">Issues</a>), the pull request body lists the approvals too. A required
+approver (#707) is not covered yet.</p>
 <h2 id="timeouts-and-watchdog">Timeouts and watchdog<a class="headerlink" href="#timeouts-and-watchdog" title="Permanent link">&para;</a></h2>
 <p>Iteration, active-time, per-stage, cost (<a href="#money-cap">Money cap</a>) and no-progress limits still pause
 with a checkpoint. They never cause completion. New runs distinguish inactivity,
@@ -3750,6 +3769,19 @@ a successful runner preflight establishes that the model's shell can execute it.
 client or its plugin hooks. Planning, report-only repair and configured custom
 providers are outside this kernel-containment claim; they retain the native
 permissions and snapshot checks described in <a href="../providers/">Providers</a>.
+The exception is the planning stages of a native visual run (native role
+isolation). They run in this boundary read-only, and their shell also cannot
+read the run store, <code>.autocode/runs</code>: not this run's <code>state.json</code>, events or
+receipts, and no other run's files. Only this run's <code>planning/</code> artifacts (the
+predecessor plan and its delta) stay readable there; the stage gets the rest of
+its run context from its handoff (#1250). Before the provider starts, each such
+launch shows through the actual native shell that a file in its run directory
+cannot be read, and records the denial as <code>private_reads</code> in its
+<code>tool_containment</code> record and conformance proof. A boundary that no longer
+enforces it pauses as <code>PAUSED_TOOL_CONTAINMENT</code>. On macOS such a launch also
+pauses that way, naming the path, when a path in its Seatbelt profile holds a
+control character such as a tab or newline: the re-check before launch accepts
+no such path.
 The runner does not pass blanket auto-approval. Contract permission text is a role instruction,
 not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
 responsible for individual tool permissions; custom MCP/connector write permissions
@@ -3770,7 +3802,10 @@ inside an empty read-only root that holds only:</p>
   A writable directory that holds one of these further down is mounted onto itself,
   so the Builder can write in it but cannot rename it to recreate the protected name;</li>
 <li>the stage's own scratch, writable. A reader's verification copy is one read-only
-  mount inside it.</li>
+  mount inside it;</li>
+<li>for a native visual run's planning stage, an empty read-only <code>tmpfs</code> over
+  <code>.autocode/runs</code>, with only that run's <code>planning/</code> mounted read-only inside it
+  (Seatbelt denies reading the same paths).</li>
 </ul>
 <p>There is no home directory, <code>/tmp</code>, <code>/run</code> or <code>/var</code>, so a write anywhere else fails
 (<code>Read-only file system</code>, or <code>No such file or directory</code> where nothing is mounted)
