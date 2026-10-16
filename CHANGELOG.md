@@ -15,8 +15,10 @@ PR template asks for an entry here; a change without one is incomplete.
   stronger attempt, as rows of the status view's new `escalations` field (`--status --json`) and one line each on
   stderr after the cost line. A row names the job and stage it was for, the route it climbed from and to, its
   escalated attempts and what they cost at the dated price table (an attempt with no usage record is unpriced,
-  never zero), and how it ended: `passed`, `failed_again`, `paused` or `running`, with what decided it. It is read
-  from the records the run already keeps; no run-state key is added (#612).
+  never zero, and so is an escalation a checkpoint continuation inherited, whose attempts ran before the restore),
+  and how it ended: `passed`, `failed_again`, `paused` or `running`, with what decided it. Only a validation of
+  the escalation's own work counts as its pass. It is read from the records the run already keeps; no run-state
+  key is added (#612).
 - `tests/test_json_output.py` holds `--status` and `--json` to the status-view schema and exit-code table on a
   saved auth pause (`your_environment`) and rate-limit pause (`model_or_provider`), matching the AutoCode
   iteration/time-limit coverage already there. The fake person-pause contract test still does not reach those

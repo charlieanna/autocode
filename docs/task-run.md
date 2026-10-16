@@ -690,28 +690,38 @@ stamped on them (`passed`, `paused`, `open`). `escalations` lists each escalatio
 first (`tools/autocode_escalation_view.py`, #612): a role's climb on its effort ladder (`kind`
 `effort_climb`) and the Builder's stronger attempt (`stronger_attempt`; see
 [Models](models.md#builder-retry-policy)). Each row has the route `role` that moved, the `stage` that
-struggled and its `job` as the screen names it, `at`, `trigger` (`validation_rework`,
-`rejected_output`, `no_progress` or `abandoned_attempt` for a climb, `execution_failure` for the
-stronger attempt), `detail`, `struggle_id`, `task_id`, the route it climbed `from` and `to` (`model`,
-`reasoning_effort`, `profile`), `deferred_by_parallel_builder` (a parallel Builder left the stronger
-attempt to this run, which made it serially), `attempts`, `cost` and `outcome`:
+struggled and its `job` as the screen names it (from the role when no stage record is known), `at`,
+`trigger` (`validation_rework`, `rejected_output`, `no_progress` or `abandoned_attempt` for a climb,
+`execution_failure` for the stronger attempt), `detail`, `struggle_id`, `task_id` (for the stronger
+attempt, the task of the failed attempt its decision names), the route it climbed `from` and `to`
+(`model`, `reasoning_effort`, `profile`), `deferred_by_parallel_builder` (a parallel Builder left the
+stronger attempt to this run, which made it serially), `inherited`, `attempts`, `cost` and `outcome`:
 
 - `attempts` are the role's stage records launched on the route it climbed to, from the escalation
-  until the first of: a validation after it that passed (that attempt included), or the role
-  escalating again the same way (its next climb, the Builder's next stronger attempt). The running
-  one is included (`active`). A climb lasts for the rest of the run, so a later milestone's attempts
-  on the climbed rung count until one of those ends it.
+  until the first of: a validation of its work that passed (that attempt included), or the role's
+  next escalation of either kind (its next climb, the Builder's stronger attempt). The running one is
+  included (`active`). A climb lasts for the rest of the run, so a later milestone's attempts on the
+  climbed rung count until one of those ends it. A validation judged an escalation's work when one of
+  its attempts produced it, or, for a role that does not validate (the Builder), when that role's last
+  attempt before it is one of its attempts; a later milestone's validation, or one of work on a route
+  the Builder was moved back to, is not its work.
 - `cost` prices those attempts as `cost` prices a stage: `usd` (reported plus estimated),
   `reported_usd`, `estimated_usd`, `unpriced_attempts` and `complete`. An attempt with no usage record
   is unpriced, never zero: `usd` is then a floor (`complete` false), or null when no attempt is priced.
   An escalation whose attempt never launched (a cost-cap or time-budget stop before it) cost `0`.
+- `inherited` is true for an escalation made before this run was created: in a checkpoint
+  continuation (`autocode checkpoint --restore`), one the restored run made. Its attempts there are not
+  in this run's stage records, so its `cost` is unknown, never zero: `usd` is null (a floor of its
+  attempts since the restore, when it has any) and `complete` false. What that run spent is in `cost`'s
+  `inherited_usd`.
 - `outcome` is `passed`, `failed_again`, `paused` or `running`, and `outcome_basis` says what decided
   it, the first that applies: the first decisive record after it (`validation`: a validation of its
-  work passed; `later_escalation`: the role climbed again, or the milestone made another stronger
-  attempt), the outcome the runner stamped on it (`recorded`: a validation PASS, or the Builder's
-  retry-limit pause), the latest validation after its attempt failing or blocked (`validation`), else
-  the run's status now (`run_status`: complete is `passed`, running is `running`, any pause, wait or
-  stop is `paused`). It is a projection of saved records, so it can change as the run continues.
+  work passed; `later_escalation`: the role climbed again, the milestone made another stronger
+  attempt, or the Builder made its stronger attempt after climbing, or climbed after it, from this
+  escalation's attempt), the outcome the runner stamped on it (`recorded`: a validation PASS, or the
+  Builder's retry-limit pause), the latest validation of its work failing or blocked (`validation`),
+  else the run's status now (`run_status`: complete is `passed`, running is `running`, any pause, wait
+  or stop is `paused`). It is a projection of saved records, so it can change as the run continues.
 
 A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
 does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.

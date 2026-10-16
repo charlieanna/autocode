@@ -194,16 +194,22 @@ class ClimbCapBlackbox(unittest.TestCase):
     def test_status_shows_the_climb_with_its_stage_routes_cost_and_how_it_ended(self):
         """#612: the Tester's climb is listed in the view (`--status --json`) and in words on stderr: the job and
         stage it was for, the route it climbed from and to, what the climbed attempt cost and how it ended."""
+        schema = json.loads((TOOLS.parent / "docs/schemas/status-view.schema.json").read_text())
+
+        def shown():
+            """`--status --json`, checked against the status-view schema."""
+            result = self.invoke("autocode", ["--run-dir", str(self.run), "--status", "--json"])
+            payload = json.loads(result.stdout)
+            util.validate_schema(payload, schema)
+            return result, payload["view"]
+
         self.climb()
         # Before the climbed attempt launches, the climb has no attempt, has cost nothing and the run goes on.
-        [row] = self.status()["view"]["escalations"]
+        [row] = shown()[1]["escalations"]
         self.assertEqual(([], 0.0, "running"), (row["attempts"], row["cost"]["usd"], row["outcome"]))
         # The climbed attempt runs, and the Tester's check fails again.
         self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
-        shown = self.invoke("autocode", ["--run-dir", str(self.run), "--status", "--json"])
-        payload = json.loads(shown.stdout)
-        util.validate_schema(payload, json.loads((TOOLS.parent / "docs/schemas/status-view.schema.json").read_text()))
-        view = payload["view"]
+        printed, view = shown()
         [row] = view["escalations"]
         self.assertEqual(
             ("effort_climb", "sol", "sol", "Tester", "validation_rework"),
@@ -233,7 +239,7 @@ class ClimbCapBlackbox(unittest.TestCase):
             f"  Tester: GPT-6 Sol High → GPT-6 Sol XHigh after validation rework; 1 attempt, {cost.usd(spent)}; "
             "failed again.",
         ):
-            self.assertIn(line, shown.stderr.splitlines())
+            self.assertIn(line, printed.stderr.splitlines())
 
     def advance_clock(self, stage, seconds):
         """The fake clock. The fixture's stages take a fraction of a real second and --max-seconds counts whole
