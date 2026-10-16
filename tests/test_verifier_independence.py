@@ -53,6 +53,19 @@ class VerifierIndependenceTests(unittest.TestCase):
         self.assertFalse(independence.may_share("custom/gpt-6-sol", "gpt-6-sol"))
         self.assertFalse(independence.may_share(GLM, None))
 
+    def test_one_model_reached_through_a_gateway_is_still_one_model(self):
+        # The Kilo Gateway and a direct login run the same weights, so neither may check the
+        # other's work; a leading segment that *is* the vendor keeps two models distinct.
+        gateway = "kilo/anthropic/claude-opus-5.5"
+        self.assertEqual(f"identical model {gateway}", independence.clash(gateway, "anthropic/claude-opus-5.5"))
+        self.assertEqual(
+            ["Builder/Tester: identical model " + gateway],
+            independence.violations(settings(terra=gateway, sol="anthropic/claude-opus-5.5")),
+        )
+        self.assertIsNone(independence.clash(gateway, GLM))
+        self.assertIsNone(independence.clash("openai/gpt-6-sol", "openai/gpt-6-luna"))
+        self.assertFalse(independence.shares("custom/gpt-6-sol", "gpt-6-sol"))
+
 
 if __name__ == "__main__":
     unittest.main()

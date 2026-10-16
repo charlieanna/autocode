@@ -41,6 +41,7 @@ try:
     from . import autocode_quota_route as quota_route
     from . import autocode_requirements_review as requirements_review
     from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as role_names
     from . import autocode_route_ladder as route_ladder
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_requirements_review as requirements_review
     import autocode_retired_token_budget as retired_token_budget
+    import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as role_names
     import autocode_route_ladder as route_ladder
@@ -399,6 +401,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
             role_transport.check_subscription_routes(settings, opencode, Path(state["workspace"]))
         if joint:
             configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
+        # A saved run re-records only the routes a flag just moved, as `budget_origins` does below.
+        role_route.moved(args, settings)
         if getattr(args, "planning_v2", False):
             settings["planning_flow"] = "v2"
         if getattr(args, "unlimited_iterations", False):
@@ -644,6 +648,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         )
         if problem:
             raise ValueError(problem)
+    # Why each role of this new run has the route it does (autocode_role_route). Recorded here,
+    # after every role exists; a saved run re-records only the routes it re-chooses (role_route.moved).
+    settings["route_origins"] = role_route.origins(args, settings["roles"], models, single_model)
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args
