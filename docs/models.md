@@ -125,6 +125,8 @@ overwrites an explicit custom model/provider route. Under a [money cap](executio
 that request is priced before it launches, from the role's last attempt's tokens at the
 climbed route's rate; when that projection would take the spend past the cap, the run
 pauses `PAUSED_COST_LIMIT`, naming the rung and the arithmetic, instead of launching it.
+Under an [active-time budget you set](execution.md#timeouts-and-watchdog) it is timed the same
+way, from the role's last attempt's duration, and pauses `PAUSED_TIME_LIMIT` instead.
 
 > **Note on role names.** The CLI flags keep the older tier names — `--astra-model`
 > (the per-task Planner, and the route the Resolver starts from; see above),
@@ -169,6 +171,8 @@ classification off too: such a failure pauses as `PAUSED_BUILDER_CLASSIFICATION`
 Under a [money cap](execution.md#money-cap) the stronger attempt is priced before it launches,
 from the last Builder attempt's tokens at the stronger model's rate; when that projection would take
 the spend past the cap, the run pauses `PAUSED_COST_LIMIT` with the arithmetic instead of launching it.
+Under an [active-time budget you set](execution.md#timeouts-and-watchdog) it is timed from the last
+Builder attempt's duration, and pauses `PAUSED_TIME_LIMIT` when it would take the run past that budget.
 Explicit model pins and custom providers are never overridden. Existing saved runs
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses

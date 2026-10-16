@@ -278,6 +278,15 @@ PR template asks for an entry here; a change without one is incomplete.
   past the cap, the run pauses `PAUSED_COST_LIMIT` before the attempt, naming the job and the rung ("The Tester's
   climb to GPT-6 Sol XHigh"), the projection, the spend, the total and the cap to resume with, instead of launching
   it and stopping at the cap afterwards. Without a cap, a price or token counts nothing changes (#611).
+- Under an active-time budget you set (`--max-seconds N`), the same climbs (the Builder's stronger attempt and a
+  role's climb on its effort ladder) are timed before the climbed attempt launches: the role's last attempt's
+  recorded duration, never more than the stage time limit. When the active time so far plus that projection would
+  pass the budget, the run pauses `PAUSED_TIME_LIMIT` before the attempt, naming the climb, the projection, the
+  active time so far, the total and the budget to resume with; `--resume-paused --max-seconds M` with `M` at least
+  that total launches exactly that attempt. When both the cost cap and the budget would be crossed, the cost stop
+  comes first. The new-run default budget and one delegated with `--autoresolver-managed-limits` are not
+  projected, since AutoResolver may extend them once at the stage boundary; without a budget you set, or a
+  recorded duration, nothing changes (#611).
 - The name `claude` always selects the built-in provider; a user `~/.config/autocode/providers/claude.toml` is
   ignored and doctor names it. A run started with the old example pauses `PAUSED_TRANSPORT_CHANGED` at its next
   stage; resume it with `--accept-transport-change` (#717).

@@ -716,11 +716,30 @@ tool execution and total stage runtime:
 | `--max-idle-seconds` | `300` | Stop a provider with no new recognized activity while no tool is running. |
 | `--max-tool-seconds` | `1800` | Stop a tool that exceeds its fixed deadline, including a quiet test command. Output and repeated starts do not extend this deadline. |
 | `--max-stage-seconds` | `3600` | Hard cap for the entire stage, enforced even while activity continues. |
-| `--max-seconds` | `43200` | Total active provider time for the run, checked at stage boundaries. |
+| `--max-seconds` | `43200` | Total active provider time for the run (its model attempts' durations added together), checked at stage boundaries and, when you set it, before an attempt on a stronger route (below). |
 
 Each flag accepts `0` to disable that limit. The iteration ceiling has no new-run
 default; the two time limits above bound a run's spend instead, and Resolver may
 double each once (see [Budget ownership](#budget-ownership-and-human-escalation)).
+An active-time budget you set with `--max-seconds N` is also checked before an attempt on a stronger
+route, the same climbs the [money cap](#money-cap) prices: a milestone's Builder escalating to its
+stronger model, and a role climbing a rung of its effort ladder. The first attempt on the climbed
+route is timed from the role's last attempt's recorded duration, never more than the stage time
+limit that would stop it. If the active time so far plus that projection would pass the budget, the
+run stops with `PAUSED_TIME_LIMIT` before the attempt starts, and the stop names the climb, the
+projection, the active time so far, the total and the budget to resume with, for example `The
+Tester's climb to GPT-6 Sol XHigh (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of
+active time, the last Tester attempt's duration, it would take the run's active time from 650 s to
+1,250 s, past the 1,000 s active-time budget you set ... resume with --max-seconds 1250 or more`.
+Resuming with `--max-seconds M` of at least that total launches that same attempt, since the climb
+stays saved. A smaller `M` above the active time so far is accepted and saved as your answer to the pause,
+but the run pauses again before the same attempt, and the new stop names `M` as the budget. Like
+the cost projection it is an estimate, not a bound: a higher effort can run longer than the attempt
+it follows. The new-run default and a budget delegated with `--autoresolver-managed-limits` are not
+projected, because Resolver may extend them once at the stage boundary; for them, and when the last
+attempt has no recorded duration, only the stage-boundary check applies, as before. When a climb would cross both
+the cost cap and this budget, the cost stop comes first. Once the climbed attempt has launched, the
+stage-boundary check governs it, and a parallel Builder leaves this check to the serial run.
 Runs created before these defaults keep the limits they saved. Saved stage limits are preserved,
 including an existing five-minute cap or an explicit zero; use
 `--max-stage-seconds 0` to deliberately remove a saved hard cap. Saved runs gain
@@ -818,7 +837,8 @@ caps what a run may spend, in USD. A run has no cap unless you set one, and `0` 
   the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
   stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
   serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
-  before it launches, and the stage-boundary check governs it.
+  before it launches, and the stage-boundary check governs it. The same attempt is also checked against an
+  active-time budget you set, after this check ([Timeouts and watchdog](#timeouts-and-watchdog)).
 - **How it continues.** Only you decide: `autocode resume --max-cost-usd M` (or `--resume-paused
   --max-cost-usd M`) with `M` above the spend, or `0` for no cap. After a stop before an attempt on a
   stronger route, `M` must be at least the cap that stop names, or the run pauses again before the attempt.
