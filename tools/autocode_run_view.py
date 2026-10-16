@@ -211,9 +211,9 @@ def view(
         "usage": autocode_usage.summary(state),
         # Spend against the person's money cap at the dated price table (autocode_cost, #721).
         "cost": cost.view(state),
-        # How the run's route escalations resolved (autocode_route_ladder): a
-        # validation PASS passed the retried work, a retry-limit pause ended it,
-        # and an open one is still unresolved.
+        # How the struggles behind the run's escalations and Builder retries ended, as the runner
+        # stamped them (autocode_route_ladder): `passed` once the run completed on work a validation
+        # passed or moved on from it, `paused` at a retry-limit pause, `open` while unresolved.
         "escalation_outcomes": route_ladder.outcome_summary(state),
         # Each escalation (a role's effort climb, the Builder's stronger attempt) with the role and stage it was
         # for, the route it climbed from and to, what its escalated attempts cost and how it ended

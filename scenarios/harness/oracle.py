@@ -283,13 +283,17 @@ def escalation_checks(
     attempts: int,
     outcome: str,
     basis: str,
+    stamped: dict[str, int],
 ) -> list[Check]:
     """Checks on the one escalation a run made, from the final status view's ``escalations`` (docs/task-run.md:
     the rows ``autocode --status --json`` prints, #612): its ``kind``, ``role`` and screen ``job``, the routes it
     ``climbed`` from and to as (model, reasoning effort), its escalated ``attempts``, each finished and priced,
-    their cost in all, and how it ended (``outcome``, ``basis``). Empty in ``check`` mode (``run`` is None)."""
+    their cost in all, and how it ended (``outcome``, ``basis``); then the runner's own stamps on it and on the
+    Builder's retries, as the view's ``escalation_outcomes`` counts them (``stamped``), which must agree with that
+    row. Empty in ``check`` mode (``run`` is None)."""
     if run is None:
         return []
+    stamps = (run.get("view") or {}).get("escalation_outcomes")
     rows = (run.get("view") or {}).get("escalations")
     row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
     sides = [row.get(side) if isinstance(row.get(side), dict) else {} for side in ("from", "to")]
@@ -322,6 +326,7 @@ def escalation_checks(
             (row.get("outcome"), row.get("outcome_basis")) == (outcome, basis),
             f"{row.get('outcome')!r} ({row.get('outcome_basis')!r}), wanted {outcome!r} ({basis!r})",
         ),
+        Check("runner_stamps_agree", stamps == stamped, f"escalation_outcomes {stamps}, wanted {stamped}"),
     ]
 
 

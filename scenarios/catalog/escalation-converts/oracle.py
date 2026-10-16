@@ -3,8 +3,8 @@
 In check mode (``run is None``) only the product is scored, with completion-rework-direct's checks, so the
 controls reject the seed and the broken overlay and accept the reference. With a run it also reads the
 status view's ``escalations`` (the rows ``autocode --status --json`` prints): the Builder escalated once,
-from its starting route to the stronger one, that one attempt is listed with what it cost, and it passed;
-then no Builder attempt followed, and the run completed.
+from its starting route to the stronger one, that one attempt is listed with what it cost, and it passed, as the
+runner's own stamps in ``escalation_outcomes`` say too; then no Builder attempt followed, and the run completed.
 """
 
 from harness import catalog
@@ -15,6 +15,9 @@ from harness.oracle import Check, escalation_checks
 CLIMBED = (("gpt-5.6-terra", "medium"), ("gpt-6-sol", "xhigh"))
 # The Builder's attempts: the first, its one ordinary retry, then the stronger attempt.
 BUILDS = 3
+# The runner's own stamps (the view's escalation_outcomes): the ordinary retry and the stronger attempt, both
+# `passed` once the run completed on the stronger attempt's work, as its row reads.
+STAMPED = {"passed": 2, "paused": 0, "open": 0}
 
 
 def product_checks(project):
@@ -35,6 +38,7 @@ def check(project, scenario, run=None):
         attempts=1,
         outcome="passed",
         basis="validation",
+        stamped=STAMPED,
     )
     builds = (run.get("model_stages") or []).count("terra")
     checks.append(Check("no_builder_attempt_after_the_stronger_one", builds == BUILDS, f"{builds} Builder attempts"))

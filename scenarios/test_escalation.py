@@ -60,6 +60,8 @@ class EscalationScenarioTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", result["runner_status"])
         [row] = view["escalations"]
         self.assertEqual(("passed", "validation"), (row["outcome"], row["outcome_basis"]))
+        # The runner's own stamps agree with the row: the ordinary retry and the stronger attempt passed.
+        self.assertEqual({"passed": 2, "paused": 0, "open": 0}, view["escalation_outcomes"])
         self.assertIn("Escalations: 1 (1 passed).", said)
         self.assertRegex(said, "  " + CLIMB.replace("$", r"\$") + r"[0-9.]+; passed\.")
 
@@ -68,6 +70,7 @@ class EscalationScenarioTests(unittest.TestCase):
         self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", result["runner_status"])
         [row] = view["escalations"]
         self.assertEqual(("paused", "recorded"), (row["outcome"], row["outcome_basis"]))
+        self.assertEqual({"passed": 0, "paused": 2, "open": 0}, view["escalation_outcomes"])
         self.assertIn("Investigator (paused): greet.py still guards only the argument count", view["stop_reason"])
         self.assertEqual("resume", view["needs"]["kind"], view["needs"])
         self.assertIn("Escalations: 1 (1 paused).", said)

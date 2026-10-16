@@ -69,18 +69,24 @@ settings, with rungs removed that its provider does not offer: the provider's
 published list, and the model list a new run reads for its routes before its
 first model call ([Builder retry policy](#builder-retry-policy) covers the stronger
 attempt). Each
-escalation later records how it ended — a validation PASS `passed`, a
-retry-limit pause `paused` — and `autocode --status` summarizes that as
-`escalation_outcomes`. It also lists each escalation as a row of `escalations`
-(a climb, or the Builder's stronger attempt): the job and stage it was for, the
-route it climbed from and to, what its escalated attempts cost, and whether the
-work then passed, failed again, paused or is still running, with one line each on
-stderr ([status view](task-run.md#status-view)). Read a row's `outcome` rather than
-`escalation_outcomes` for how an escalation ended: that count is the runner's own
-stamp. The runner stamps every open escalation `passed` where the Completion Reviewer
-or Resolver assigns the next task while the last validation passed, whoever's work
-passed (even the Builder's stronger attempt, before that attempt runs), and a run that
-completes on a PASS leaves them `open`. The row judges each escalation by its own work.
+escalation, and each ordinary Builder retry, later records how its struggle ended,
+and `autocode --status` counts those stamps as `escalation_outcomes`. The runner
+stamps every one still open `passed` when the run completes on work a validation
+passed, or when the Completion Reviewer or Resolver assigns the next task while the
+last validation passed, and `paused` at the Builder's retry-limit pause. At that
+assignment it leaves the Builder's own open when the work was sent back since that
+validation, by a retry-policy charge or a correction task: the work failed, and a
+stronger attempt the charge just made has not run yet. `autocode --status` also lists
+each escalation as a row of `escalations` (a climb, or the Builder's stronger
+attempt): the job and stage it was for, the route it climbed from and to, what its
+escalated attempts cost, and whether the work then passed, failed again, paused or is
+still running, with one line each on stderr ([status view](task-run.md#status-view)).
+The row judges each escalation by its own work, so read a row's `outcome` for how one
+escalation ended; when its struggle has ended, its stamp agrees. A stamp is the
+struggle's, though: a climb a later climb replaced takes the struggle's end too while
+its row reads `failed_again`, and so does an ordinary retry, which has no row. Before
+the struggle ends the stamp is `open` while the row may already read `passed`, and a
+run completed with `--accept-completion` leaves its stamps `open`.
 The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
 are on no ladder: they keep their configured route, and a verifier that keeps
 struggling pauses the run instead. The Builder instead gets its
@@ -91,11 +97,12 @@ Builder on `openai/gpt-6-sol` (with GLM checkers), it climbs Sol Medium → High
 Two scripted scenarios check these rows end to end, through `autocode --status --json`
 ([catalog](../scenarios/README.md#catalog)). In `escalation-converts` the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
-Sol XHigh, one attempt with its cost, `passed`, and the run completes. In `escalation-ladder-end`
-that attempt fails too: the row reads `paused`, and the run pauses at `PAUSED_BUILDER_RETRY_LIMIT`
-with the stuck-stage Investigator's diagnosis in its stop reason. `scenarios/test_escalation.py`
-also checks that a `--builder-strong-model` the tool does not list refuses the new run before any
-model call.
+Sol XHigh, one attempt with its cost, `passed`, and the run completes; `escalation_outcomes`
+stamps that attempt and the ordinary retry before it `passed` too. In `escalation-ladder-end`
+that attempt fails too: the row reads `paused`, as both stamps do, and the run pauses at
+`PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's diagnosis in its stop reason.
+`scenarios/test_escalation.py` also checks that a `--builder-strong-model` the tool does not
+list refuses the new run before any model call.
 
 The Resolver runs on a route of its own, `resolver`. It starts as a copy of the `astra`
 route, which the per-task Planner (`astra_plan`) runs on; `autocode models` lists that
