@@ -62,19 +62,23 @@ LINUX_SYSTEM_FILES = (
 # prepare() names each launch's control directory uuid4().hex; nothing else matches.
 CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
 # .autocode directories, besides the run store, where AutoCode keeps other runs, programs and task
-# flows, or the workspaces, archives and indexes that hold them (#1250): archived task-worktree
-# runs, `autocode arena` attempts, parallel Builder workspaces, run bundles, `autocode issue`
-# worktrees, program state, `autocode review-pr` checkouts, the run registry, replay recordings,
-# task-flow state, `autocode verify` checkouts and reports, and task or program worktrees. A native
-# planning shell reads none of those that exist when its launch is prepared (private_run_reads()).
-# Not every .autocode directory is listed: other launches' control directories and the rest stay
-# readable. The modules that make these directories own their names; tests/test_tool_containment.py
-# binds each entry to them.
+# flows, or the workspaces, archives, conversation records and indexes that hold them (#1250):
+# archived task-worktree runs, `autocode arena` attempts, parallel Builder workspaces, run bundles,
+# requirements conversation handoffs, conversation start markers, bug investigation workspaces,
+# `autocode issue` worktrees, program state, `autocode review-pr` checkouts, the run registry,
+# replay recordings, task-flow state, `autocode verify` checkouts and reports, and task or program
+# worktrees. A native planning shell reads none of those that exist when its launch is prepared
+# (private_run_reads()). Not every .autocode directory is listed: other launches' control directories
+# and the rest stay readable. The modules that make these directories own their names;
+# tests/test_tool_containment.py binds each entry to them.
 PRIVATE_STORES = (
     "archive",
     "arena",
     "builders",
     "bundles",
+    "conversation-handoffs",
+    "conversation-starts",
+    "investigation",
     "issues",
     "programs",
     "pull-reviews",

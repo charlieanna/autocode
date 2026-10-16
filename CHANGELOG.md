@@ -455,21 +455,22 @@ PR template asks for an entry here; a change without one is incomplete.
   other run's files. On Seatbelt and bubblewrap the shell now reads only its own run's `planning/` artifacts in
   `.autocode/runs`. Each launch proves this through the actual native shell, records it as `private_reads`, and
   pauses as `PAUSED_TOOL_CONTAINMENT` if the boundary stops enforcing it (#1250).
-- That planning shell also can no longer read these `.autocode` stores, which hold other runs or what they keep:
-  archived and bundled runs (`archive`, `bundles`), `autocode arena` attempts (`arena`), parallel Builder workspaces
-  (`builders`), `autocode issue` worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`),
-  the run `registry`, `replay` recordings, `task-flows`, `autocode verify` checkouts and reports (`verification`)
-  and task worktrees (`worktrees`). A store is denied when it exists as the launch is prepared; none is created.
-  Other `.autocode` directories, including other launches' `tool-containment-*` control directories, stay readable,
-  as do its own scratch, project settings, retained design inputs and capture bundles. Each denial is in
-  `private_reads`, the native-shell proof covers each store, and a profile missing any one of them pauses as
-  `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store first made after the profile was written,
-  up to the launch's last check just before the provider is released: every check before then computes the denial
-  again, including native preparation and the held launch's seal. That pause names the new store, and a plain
-  `--resume-paused` prepares the boundary again with it denied. A store made after that last check, such as one made
-  once the provider has started, causes no pause and stays readable to that stage until it ends; a later planning
-  launch denies it. A store path that is a symlink, even a dangling one, or not a directory cannot be denied, so
-  each native planning launch in that workspace pauses as `PAUSED_TOOL_CONTAINMENT`, naming the path: replace it
+- That planning shell also can no longer read these `.autocode` stores, which hold other runs, conversation
+  records, investigation workspaces or what they keep: archived and bundled runs (`archive`, `bundles`), `autocode arena`
+  attempts (`arena`), parallel Builder workspaces (`builders`), requirements conversation handoffs (`conversation-handoffs`),
+  conversation start markers (`conversation-starts`), bug investigation workspaces (`investigation`), `autocode issue`
+  worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`), the run `registry`, `replay`
+  recordings, `task-flows`, `autocode verify` checkouts and reports (`verification`) and task worktrees (`worktrees`).
+  A store is denied when it exists as the launch is prepared; none is created. Other `.autocode` directories, including
+  other launches' `tool-containment-*` control directories, stay readable, as do its own scratch, project settings,
+  retained design inputs and capture bundles. Each denial is in `private_reads`, the native-shell proof covers each store,
+  and a profile missing any one of them pauses as `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store
+  first made after the profile was written, up to the launch's last check just before the provider is released: every
+  check before then computes the denial again, including native preparation and the held launch's seal. That pause names
+  the new store, and a plain `--resume-paused` prepares the boundary again with it denied. A store made after that last
+  check, such as one made once the provider has started, causes no pause and stays readable to that stage until it ends;
+  a later planning launch denies it. A store path that is a symlink, even a dangling one, or not a directory cannot be
+  denied, so each native planning launch in that workspace pauses as `PAUSED_TOOL_CONTAINMENT`, naming the path: replace it
   with a real directory, or remove it, then `--resume-paused` (#1250).
 
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
