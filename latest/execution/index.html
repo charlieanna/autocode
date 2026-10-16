@@ -2538,7 +2538,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/4163e52a3abe01d3bb9d3f3af3c41f6d1b4a623d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1b5ea0dd6a2e9e7095cd1c4e9e99c2af93bb1cfa/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2764,11 +2764,12 @@ the projection, the milestone's time so far, the total and the budget to resume 
 active time, the last Builder attempt's duration, it would take this milestone's active time from
 650 s to 1,250 s, past the 1,000 s milestone budget you set ... resume with --max-milestone-seconds
 1250 or more</code>. The climb stays saved, so <code>--resume-paused --max-milestone-seconds M</code> with <code>M</code> at
-least that total launches that same attempt; that resume also restarts the milestone's count, as
-it always does. Reasserting the saved budget alone does not acknowledge this pause; any other
-<code>M</code>, or <code>0</code> for no limit, does, and the attempt is then checked against <code>M</code> from the restarted
-count. Only the Builder is checked against this budget, since it gates writer launches; a Tester or
-Completion Reviewer climb is not. The new-run default and a budget delegated with
+least that total launches that same attempt, including one a repair's recovery packet holds (see
+<a href="#evidence-bound-repair">Evidence-bound repair</a>); that resume also restarts the milestone's
+count, as it always does. Reasserting the saved budget alone does not acknowledge this pause; any
+other <code>M</code>, or <code>0</code> for no limit, does, and the attempt is then checked against <code>M</code> from the
+restarted count. Only the Builder is checked against this budget, since it gates writer launches;
+a Tester or Completion Reviewer climb is not. The new-run default and a budget delegated with
 <code>--autoresolver-managed-limits</code> are not projected and keep only the check at the writer launch, as
 do a progressive run's slice budget and a last attempt without a recorded duration. So does a
 budget given while turning checkpoints on for a saved run, in the same command
@@ -2893,17 +2894,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/4163e52a3abe01d3bb9d3f3af3c41f6d1b4a623d/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/1b5ea0dd6a2e9e7095cd1c4e9e99c2af93bb1cfa/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/4163e52a3abe01d3bb9d3f3af3c41f6d1b4a623d/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/1b5ea0dd6a2e9e7095cd1c4e9e99c2af93bb1cfa/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/4163e52a3abe01d3bb9d3f3af3c41f6d1b4a623d/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/1b5ea0dd6a2e9e7095cd1c4e9e99c2af93bb1cfa/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3149,7 +3150,7 @@ including a program's or a components run's own task runs. It reads <code>approv
 run's final <code>--status --json</code>, and each row a person made must name the scenario's person, the
 host and a command of option names only. In a scenario of one run, each plan and review
 approval the harness gave must also be listed; a program's or a components run's task runs are
-checked for provenance only (<a href="https://github.com/charlieanna/autocode/blob/4163e52a3abe01d3bb9d3f3af3c41f6d1b4a623d/scenarios/README.md">scenarios/README.md</a>).</p>
+checked for provenance only (<a href="https://github.com/charlieanna/autocode/blob/1b5ea0dd6a2e9e7095cd1c4e9e99c2af93bb1cfa/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3669,6 +3670,21 @@ new attempt. A supported known correction still receives the ordinary retry or
 escalation decision, assignment checks, fresh independent validation and the
 Completion gate. Unsupported changes remain unknown rather than being treated as
 proven progress.</p>
+<p>A recovery packet is bound to the run's settings, but not to its launch ceilings: the iteration
+limit, the active-time budget, the cost cap and the milestone budget. They decide whether an
+attempt may launch, not what it acts on, so resuming with a new one, as a budget stop advises,
+or AutoResolver's one-time extension of a default one, keeps the packet and the repair it holds,
+and buys no novelty. Other settings changes, such as another model or stage time limit, still
+make the repair a stale handoff (<code>PAUSED_STALE_HANDOFF</code>). Bindings recorded before #611, on a
+packet, a repair admission, a novelty hold, a retry grant or a retained diagnosis, hashed the
+milestone budget too. Each still holds while the run's settings are unchanged, and stops holding
+when the milestone budget changes. A binding recorded after the upgrade leaves the budget out, even
+for a packet saved before it: once the Resolver's plan for that packet finishes, the repair
+admission written then lets its repair launch after a milestone budget change.</p>
+<p>The <code>rework-same-failure</code> scenario (scenarios/README.md) shows the hold on a correct repair: the
+required suite keeps failing on a file the task may not change, so after the second identical
+failure the run stops at <code>RESOLVER_PENDING</code> naming that check, with no paid diagnosis or third
+Builder attempt, and the status view's <code>cost</code> shows the spend under the cost cap (#611).</p>
 <p>An attempt that automatic recovery archived because it ended without a completed
 turn (a provider timeout, capacity or startup failure, or a denied path) returned
 no report, so relaunching it repeats no experiment; that recovery route's own
