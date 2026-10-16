@@ -27,8 +27,10 @@ package, the check also sorts out what is not the Builder's change:
   this record existed has none: its check leaves out every nested repository and submodule work it
   finds outside the package, since it cannot tell whether the checkout held it at launch.
 - the files the runner wrote for this run whose content it recorded: the bug-fix workflow's
-  diagnosis note (exempt only while autocode_bug_job.diagnosis_artifact identifies it unchanged) and
-  a review's or design review's report (exempt only while it matches its saved ``report_sha256``).
+  diagnosis note (exempt only while it is what autocode_bug_job.apply wrote: a reproduced one while
+  autocode_bug_job.diagnosis_artifact identifies it unchanged, one that did not reproduce while its
+  content is the saved investigation's note) and a review's or design review's report (exempt only
+  while it matches its saved ``report_sha256``).
   Once changed, the finding names it separately: put back what the runner wrote, do not delete it.
 - the files the runner wrote that it recorded only by path: a design check's blockers
   (autocode_design_check_job) and what an earlier, finished turn of the run left (autocode_follow_up's
@@ -53,6 +55,7 @@ fields read only here. It also reads ``investigation``, ``review``, ``design_rev
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -141,14 +144,33 @@ def _held(state: RunState, workspace, outside) -> tuple[list[str], dict[str, str
     return kept, gone
 
 
+def _note_unchanged(state: RunState, workspace, note) -> bool:
+    """Whether the bug-fix workflow's diagnosis note at ``note`` is what autocode_bug_job.apply wrote.
+
+    A reproduced one is identified by autocode_bug_job.diagnosis_artifact (its pinned report and
+    content). One that did not reproduce has nothing to pin (autocode_bug_job.check refuses its probe),
+    yet apply wrote it and the investigation stays in state across --follow-up turns: it is unchanged
+    while it is a regular, non-executable file whose parsed content is the saved investigation's note,
+    proven by nothing."""
+    found = state.get("investigation") or {}
+    if found.get("outcome") == "reproduced":
+        return (bug_job.diagnosis_artifact(state, workspace) or {}).get("path") == note
+    target = Path(workspace, note)
+    try:
+        if target.is_symlink() or not target.is_file() or target.stat().st_mode & 0o111:
+            return False
+        return json.loads(target.read_bytes()) == {**bug_job.note(found), "proven_by": ""}
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
 def _runner_files(state: RunState, workspace) -> tuple[set[str], set[str]]:
     """(the runner-written files whose content the run recorded, those of them that are unchanged)."""
     recorded, unchanged = set(), set()
     note = (state.get("investigation") or {}).get("note_path")
     if isinstance(note, str) and note.strip():
         recorded.add(note)
-        # Only the unchanged runner note is identified (its pinned report and content).
-        if (bug_job.diagnosis_artifact(state, workspace) or {}).get("path") == note:
+        if _note_unchanged(state, workspace, note):
             unchanged.add(note)
     for key, path_field, hash_field in REPORTS:
         row = state.get(key)

@@ -658,11 +658,11 @@ What the package changes:
     Git repository and submodule work it finds outside the package rather
     than report the person's own as the Builder's;
   - the files the runner wrote for this run, while they are as the runner
-    wrote them: a bug fix's diagnosis note under `docs/bugs/` (the same
-    unchanged runner note the reviewers are shown) and a review's or design
-    review's report (its saved hash). Once changed, the finding names them
-    apart and tells the Builder to put back what the runner wrote, not to
-    delete them;
+    wrote them: a bug fix's diagnosis note under `docs/bugs/` (compared with
+    the investigation the run saved, whether or not it reproduced the bug)
+    and a review's or design review's report (its saved hash). Once changed,
+    the finding names them apart and tells the Builder to put back what the
+    runner wrote, not to delete them;
   - a design check's blockers file and what an earlier, finished turn of the
     run left (a discussion's note, a design's documents, the other files the
     turn changed), which the run records by path only: they are left out by

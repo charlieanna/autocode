@@ -18,9 +18,11 @@ from pathlib import Path
 import autocode_bug_job as bug_job
 import autocode_completion as completion
 import autocode_findings as findings_ledger
+import autocode_follow_up as follow_up
 import autocode_package_writes as package_writes
 import autocode_regression as regression
 import autocode_util as util
+import autocode_workflows as workflows
 from autocode_contract_identity import token
 
 from tests.test_bug_job import diagnosis
@@ -314,6 +316,32 @@ class RunnerFiles(unittest.TestCase):
         self.assertNotIn("remove an added file", row["finding"])
         # Put back, it is the runner's again and the finding closes.
         note.write_text(json.dumps({**bug_job.note(diagnosis()), "proven_by": ""}, indent=2) + "\n")
+        self.assertEqual([], [row for row in self.check() if row["status"] == "open"])
+        self.assertEqual("resolved", row["status"])
+
+    def test_the_note_of_an_investigation_that_did_not_reproduce_is_compared_by_its_content(self):
+        """Such a note has no proof for diagnosis_artifact to identify. Its turn completes; a follow-up build
+        keeps the investigation, owes no proof and is still checked before the Tester."""
+        self.state = {"base_commit": self.project.base, "settings": {"package": GREET}, "workflow": {"kind": "bugfix"}}
+        package_writes.at_launch(self.state, self.project.root)
+        report = diagnosis("not_reproduced", questions=[])
+        output = self.run_dir / "bug-investigation-01.json"
+        output.write_text(json.dumps(report))
+        bug_job.apply(self.state, report, {"changed_files": [], "output": str(output)}, self.project.root)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+        follow_up.accept(self.state, "Add a None guard to greet anyway", self.project.root, "2026-10-16T00:00:00+00:00")
+        workflows.apply(self.state, {"workflow": "build", "reason": "", "signals": []}, {})
+        self.assertFalse(regression.required(self.state))
+        self.assertEqual([], self.check())
+        self.assertIsNone(package_writes.refuse(self.state, self.project.root))
+        # An edit to it is seen, as the runner's file, and putting it back closes the finding.
+        path = report["note_path"]
+        note = self.project.root / path
+        written = note.read_text()
+        note.write_text(json.dumps({**json.loads(written), "conclusion": "the Builder's own"}, indent=2) + "\n")
+        (row,) = self.check()
+        self.assertEqual(({}, {path: "added"}), (row["paths"], row["runner_files"]))
+        note.write_text(written)
         self.assertEqual([], [row for row in self.check() if row["status"] == "open"])
         self.assertEqual("resolved", row["status"])
 
