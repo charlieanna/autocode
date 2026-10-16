@@ -2350,7 +2350,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9c0f91c1f483578976589fed55a7ef0cb9d43100/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2966,7 +2966,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/610c8a0cbe5e0b264e730a44eab6ec25dad093ad/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/9c0f91c1f483578976589fed55a7ef0cb9d43100/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3024,6 +3024,11 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
 - A runner regression proof (a bug fix, or a plan whose criteria name tests)
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
+<p>The <code>feature-monorepo-package</code> scenario
+(<a href="https://github.com/charlieanna/autocode/blob/9c0f91c1f483578976589fed55a7ef0cb9d43100/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+one package of a two-package repository with <code>--package</code> and the scripted
+model. Its reference completes; its broken variant, which also edits the other
+package, stops with each of those files named in the open <code>runner</code> finding.</p>
 <p>An explicit <code>--test-command</code> or <code>--regression-command</code> still runs from the
 repository root, exactly as given; write <code>cd packages/api &amp;&amp; …</code> to run it in the
 package. A <code>--test-command</code> in exactly that form for the run's own package, with
@@ -3080,7 +3085,6 @@ baseline cache, as at the root.</p>
   with the suite detected at the repository root.</li>
 <li>Diff coverage and the mutation report, which never change a verdict, are not
   narrowed to a package's commands and may be skipped.</li>
-<li>The <code>scenarios/</code> catalog has no two-package scenario yet.</li>
 </ul>
 <h2 id="reviews-discussions-and-designs-findings-and-claims-shown-by-running-code">Reviews, discussions and designs: findings and claims shown by running code<a class="headerlink" href="#reviews-discussions-and-designs-findings-and-claims-shown-by-running-code" title="Permanent link">&para;</a></h2>
 <p>The review and discuss workflows produce findings and answers, not code. The
