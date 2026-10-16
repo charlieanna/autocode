@@ -1575,8 +1575,7 @@ the CLI whose Builder, Tester and Completion Reviewer launch inside the real bub
 boundary. It checks that the run finishes, that `--status --json` names the backend, and
 that a Builder shell write planted outside the workspace is blocked; an uncontained
 control shows the same write lands. The fake client's own edits and checks run outside
-the boundary, so this does not replace `NativeToolTests` either. The container backend
-(`docker` or `podman`) and a fake scenario under each backend are still open.
+the boundary, so this does not replace `NativeToolTests` either.
 
 A pull request runs this job when it changes any Python file that flow loads, or a stage
 report schema in `tools/autocode-schemas/`. `tools/ci_scope.py` works the Python files out
@@ -1586,6 +1585,23 @@ fake clients and the runtime's own workers. That is most of `tools/`, so a chang
 status view or the containment setup check runs the job without anyone adding it to a list.
 It does not follow a module loaded by a name built at run time through `importlib`, such as
 a subcommand from the subcommand table. Prompt changes do not select the job.
+
+The scenario harness runs the same contained flow as a scenario, in the suite job rather
+than in `linux-tool-containment`: `scenarios/test_contained_opencode.py` runs
+`greenfield-greeting-cli` with the scripted model behind the fake OpenCode client, with no
+`--allow-uncontained-tools`, so its Builder, Tester and Completion Reviewer launch inside
+bubblewrap. It checks that the scenario's oracle passes and the run completes; that every
+record of those three stages names `bubblewrap` and the version `autocode doctor` reports;
+that a Builder shell write planted outside the project is blocked; and that `--status --json`
+says `tool_containment: "contained"` and names the same backend. It asks
+`autocode doctor --json` whether this host has the boundary. Without a working bubblewrap,
+the test skips locally and fails in CI on Linux. Any other problem doctor reports, such as
+the fake client no longer reporting the qualified OpenCode version, fails it everywhere. The
+suite job installs bubblewrap before its scenario harness step. On a pull request that step
+runs the case when the case itself, the shared harness (`scenarios/harness/`,
+`scenarios/run.py`) or the fake OpenCode client changes (`SCENARIO_FIXTURES` in
+`tools/run_suite.py`); master runs it every time. The container backend (`docker` or
+`podman`) and a fake scenario under it are still open.
 
 ## Secret redaction
 

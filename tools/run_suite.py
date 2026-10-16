@@ -61,8 +61,9 @@ about three quarters of the suite's time.
 --scenario-harness runs scenarios/ instead: test_harness.py, the other test
 modules there (adversarial attacks, native runs, human stops), and registered
 catalog CLI checks, each test in its own interpreter. With --changed it selects
-changed scenario modules/catalogs and lifecycle consumers; shared harness
-changes still run every scenario module. Master runs all of them (#1088).
+changed scenario modules/catalogs, lifecycle consumers and the modules that copy
+a changed tools/ script (SCENARIO_FIXTURES); shared harness changes still run
+every scenario module. Master runs all of them (#1088).
 
 Exit code is 0 only when every non-excluded test passes (or is itself
 skipped by its own test-level skip guard) and every exclusion entry matched
@@ -291,6 +292,9 @@ def split_module(module: str) -> list[str]:
 
 
 SHARED_SCENARIO_PATHS = ("scenarios/harness/", "scenarios/run.py", "scenarios/__init__.py")
+# A tools/ script a scenario module copies by file name and runs, which no import names, and that
+# module. ci_scope turns the scenario harness step on for these paths too.
+SCENARIO_FIXTURES = {"tools/fake_opencode.py": "scenarios.test_contained_opencode"}
 LIFECYCLE_TOKENS = (
     "process",
     "session",
@@ -353,6 +357,8 @@ def scenario_selection(changed: list[str] | None, slow: dict[str, str]) -> tuple
             selected.add("scenarios.test_adversarial_lifecycle")
         if path == "scenarios/adversarial.py":
             selected.add("scenarios.test_adversarial_runner")
+        if path in SCENARIO_FIXTURES:
+            selected.add(SCENARIO_FIXTURES[path])
     return [module for module in modules if module in selected], [
         module for module in modules if module not in selected
     ]
