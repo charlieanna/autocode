@@ -1,20 +1,28 @@
-"""A project's require-approver: the setting's values, the refusal, where provenance enforces it, and how a new run
-takes it from the project file (#722).
+"""A project's require-approver: the setting's values, the refusal, where provenance enforces it, how a new run
+takes it from the project file, and how the terminal conversation stops at a refusal (#722).
 
 The public CLI runs are in test_required_approver_cli.
 """
 
 import contextlib
 import io
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode as runner
 import autocode_approval_provenance as provenance
 import autocode_args
 import autocode_doctor as doctor
+import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_required_approver as required_approver
+from goal_fixtures import body
 from providers import opencode
+
+from . import test_goals
 
 ANA = {"git_user_name": "Ana Example", "git_user_email": "ana@example.test", "host": "desk-7", "claimed_as": None}
 SOURCE = "/w/.autocode/config.toml"
@@ -47,6 +55,33 @@ class SettingTests(unittest.TestCase):
             self.assertIn(f"{SOURCE}: require-approver", str(refused.exception))
         with self.assertRaises(ValueError):
             required_approver.checked("a@" + "b" * required_approver.ADDRESS_LIMIT, SOURCE)
+
+    def test_only_a_plain_address_passes(self):
+        """One @ between a non-empty local part and domain, with no name, list, comment or quoting around it."""
+        for value in (
+            "<lee@x>",
+            "Lee<lee@x>",
+            "lee@x>",
+            '"Lee"<lee@x>',
+            '"lee"@x',
+            "mailto:lee@x",
+            "lee@x,dee@y",
+            "lee@x,",
+            "lee@x;",
+            "(Lee)lee@x",
+            "lee@[x]",
+            "le\\e@x",
+            "@x",
+            "lee@",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError) as refused:
+                    required_approver.checked(value, SOURCE)
+                self.assertIn("is not a plain email address", str(refused.exception))
+        self.assertEqual(
+            ["o'neil+ci@example.test", "root@localhost"],
+            required_approver.checked(["o'neil+ci@example.test", "root@localhost"], SOURCE),
+        )
 
     def test_a_run_without_the_setting_lets_anyone_approve(self):
         for state in ({}, {"settings": {}}, {"settings": {required_approver.SETTING: []}}):
@@ -166,7 +201,24 @@ class ProjectFileTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as stop:
             autocode_args.parse(None, ["Build it", "--workspace", str(self.root)], opencode.DEFAULT_MODELS)
         self.assertEqual(2, stop.exception.code)
-        self.assertIn(f"{self.config}: require-approver 'Lee Lead' is not an email address", stderr.getvalue())
+        self.assertIn(f"{self.config}: require-approver 'Lee Lead' is not a plain email address", stderr.getvalue())
+
+    def test_a_new_run_from_a_design_handoff_with_no_typed_task_takes_the_list(self):
+        """--ui-run alone starts a new run; its task comes from the handoff only after parsing (autocode_run_setup)."""
+        self.config.write_text('require-approver = ["lead@example.test"]\n')
+        args, stderr = self.parse("--ui-run", str(self.root / ".autocode-ui" / "runs" / "accepted"))
+        self.assertIsNone(args.task)
+        self.assertEqual(["lead@example.test"], getattr(args, "require_approver", None))
+        self.assertIn("require-approver", stderr)
+
+    def test_a_replay_never_takes_the_list_nor_says_it_did(self):
+        """A replay re-applies its recording's decisions with no person approving, and keeps its recording's settings."""
+        self.config.write_text('engine = "codex"\nrequire-approver = ["lead@example.test"]\n')
+        recording = str(self.root / ".autocode" / "replay" / "recording" / "recording.json")
+        args, stderr = self.parse("Build it", "--replay-recording", recording)
+        self.assertIsNone(getattr(args, "require_approver", None))
+        self.assertIn(f"Project settings from {self.config}: engine\n", stderr)
+        self.assertNotIn("require-approver", stderr)
 
     def test_doctor_shows_who_may_approve_and_where_it_was_set(self):
         rows = {row["key"]: (row["value"], row["source"]) for row in doctor.project_settings(self.root)[1]}
@@ -176,6 +228,87 @@ class ProjectFileTests(unittest.TestCase):
         rows = {row["key"]: (row["value"], row["source"]) for row in found}
         self.assertEqual((["lead@example.test"], str(self.config)), rows["require-approver"])
         self.assertEqual(doctor.OK, check.status)
+
+
+class TerminalConversationTests(unittest.TestCase):
+    """chat_checkpoint, the terminal conversation, stops at a refused approval and reports that nothing changed: a
+    refused plan approval returns False, and with two artifact criteria a refusal of the first asks nothing about the
+    second."""
+
+    setUp = test_goals.GoalTests.setUp
+    validation = test_goals.GoalTests.validation
+    decision = test_goals.GoalTests.decision
+
+    def identify(self, email):
+        """The Git identity of the run's workspace, in the fixture repository's own config."""
+        subprocess.run(["git", "-C", str(self.root), "config", "user.email", email], check=True)
+
+    def converse(self, *replies):
+        """Run one conversation turn with these replies; a prompt beyond them reads end of input."""
+        prompts = []
+
+        def reply(prompt):
+            prompts.append(prompt)
+            if len(prompts) > len(replies):
+                raise EOFError
+            return replies[len(prompts) - 1]
+
+        with (
+            patch("builtins.input", side_effect=reply),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            result = runner.chat_checkpoint(self.state)
+        return result, prompts, out.getvalue()
+
+    def test_a_refusal_stops_at_the_same_question_with_two_human_review_criteria(self):
+        self.state["settings"][required_approver.SETTING] = ["lead@example.test"]
+        draft = body(human=True)
+        draft["acceptance_criteria"].append(
+            {
+                "id": "C2",
+                "criterion": "The greeting reads naturally",
+                "verification_method": "A person reads the greeting",
+                "human_review": True,
+            }
+        )
+        draft["milestones"][0]["acceptance_criteria"].append("C2")
+        lifecycle.install_draft(self.state, draft, origin="test")
+        lifecycle.human.evaluate(self.state)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+
+        self.identify("ana@example.test")
+        approved, prompts, out = self.converse("yes")
+        self.assertFalse(approved)  # the caller then saves the run and stops; True would carry on as approved
+        self.assertEqual(1, len(prompts))
+        self.assertIn("Approval refused", out)
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        self.assertFalse(goals.approved(self.state))
+        self.identify("lead@example.test")
+        approved, _, _ = self.converse("yes")
+        self.assertTrue(approved)
+        self.assertTrue(goals.approved(self.state))
+
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.validation()
+            runner.apply_result(
+                self.state, "astra_review", self.decision("COMPLETE"), {"output": "review"}, self.root, self.run
+            )
+        lifecycle.human.evaluate(self.state)  # publish the artifact review, as the runner's writer boundary does
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        self.assertEqual(["C1", "C2"], goals.missing_human_reviews(self.state))
+        self.identify("ana@example.test")
+        approved, prompts, out = self.converse("y", "y")
+        self.assertFalse(approved)
+        # Refused at C1, the conversation asks nothing about C2.
+        self.assertEqual(["Approve artifact criterion C1 after reviewing its evidence? [y/N]: "], prompts)
+        self.assertEqual(1, out.count("Approval refused"))
+        self.assertEqual(["C1", "C2"], goals.missing_human_reviews(self.state))
+        self.identify("lead@example.test")
+        approved, prompts, _ = self.converse("y", "y")
+        self.assertTrue(approved)
+        self.assertEqual(2, len(prompts))
+        self.assertEqual([], goals.missing_human_reviews(self.state))
 
 
 if __name__ == "__main__":

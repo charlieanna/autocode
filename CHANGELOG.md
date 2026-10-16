@@ -38,8 +38,8 @@ PR template asks for an entry here; a change without one is incomplete.
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
   (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
   claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
-  its cost line. Nothing is verified and approval authority is unchanged. The evidence report and pull request body
-  (#692) and a required approver (#707) are still to come.
+  its cost line. Nothing is verified and recording grants no approval authority. The evidence report and pull
+  request body (#692) and a required approver followed as the third and fourth parts below.
 - Goal edits and resumes record who made them (#722, second part): `--edit-goal` saves the workspace's Git
   `user.name` and `user.email`, the host name and the command's option names on the draft revision it
   installs, and an explicit resume (`--resume-paused` or `autocode resume`) that takes the run out of its
@@ -48,8 +48,8 @@ PR template asks for an entry here; a change without one is incomplete.
   `pause-requested` file is still in place. `--as NAME` now also goes with `--edit-goal` and a resume (with a
   resume it is saved only when the resume releases a pause). `--status` lists them in `approvals` (kinds `edit`
   and `resume`; each row gains `pause_status`) and the completion summary names them. Nothing is verified and
-  no authority changes. The evidence report and pull request body (#692) and a required approver (#707) are
-  still to come.
+  no authority changes. The evidence report and pull request body (#692) and a required approver followed as the
+  third and fourth parts below.
 - The evidence report and the pull request body list who approved (#722, third part): a completed build,
   bug-fix or design run's `evidence.json` gains an additive `approvals` list (the status view's rows: kind,
   time, actor, plan token, criterion or released pause, and the recorded Git identity, host, command and `--as`
@@ -62,17 +62,25 @@ PR template asks for an entry here; a change without one is incomplete.
   line; a review posted with `autocode review-pr --post` therefore carries no approval record or resumer's Git
   identity. Reports written before this change keep no field and render unchanged, so they still authenticate;
   such a report gains the section only when AutoCode saves the completed run again. The evidence report schema
-  stays version 1. A required approver (#707) is still to come.
+  stays version 1. The required approver is the fourth part below.
 - A project can name who may approve (#722, fourth part): `require-approver` in `.autocode/config.toml` (or
-  `[tool.autocode]`) lists one or more Git email addresses. A run started with it refuses a plan approval
-  (`--approve-goal`, or yes in the terminal conversation) or an artifact acceptance (`--approve-review`,
-  `autocode review`, TaskRun, or y at the review prompt) whose approving checkout's Git `user.email` is not listed,
-  compared without regard to case, before anything is approved: exit 2 (the conversation stops at the same
-  question) with a message naming the required and the actual identity, and the run stays at the same stop. An
-  `--as` name never counts. Goal edits, resumes, workflow-policy approvals and `--accept-completion` are not checked.
-  The run saves the list when it starts (`settings.require_approver`), so a changed file never alters a run in
-  progress; the key has no flag, and `autocode doctor` shows it with its source. Without the setting nothing
-  changes. Git identity is what the checkout configures: this is a team convention, not authentication.
+  `[tool.autocode]`) lists one or more plain Git email addresses (one `@`, no spaces, angle brackets, quotes,
+  parentheses, brackets, commas, semicolons, colons or backslashes; anything else stops a new run). A run started
+  with it refuses a plan approval (`--approve-goal`, or yes in the terminal conversation) or an artifact acceptance
+  (`--approve-review`, `autocode review`, TaskRun, or y at the review prompt) when `git -C WORKSPACE config --get
+  user.email`, for the run's saved workspace in AutoCode's own environment, is not listed, compared without regard
+  to case, before anything is approved: exit 2 (the conversation stops at the same question) with a message naming
+  the required and the actual identity, and the run stays at the same stop. An `--as` name never counts. Goal
+  edits, resumes, workflow-policy approvals and `--accept-completion` are not checked. The run saves the list when
+  it starts (`settings.require_approver`), so a changed file never alters a run in progress; the key has no flag,
+  and `autocode doctor` shows it with its source. Without the setting nothing changes. It guards against an
+  approval under the wrong configured Git identity, not against someone who deliberately sets a listed address
+  (Git's environment variables or a repository-local `user.email` change what is checked): it is not
+  authentication. A replay (`autocode replay`, `--replay-recording`) never takes it, `autocode program` and
+  `autocode components` child runs read it from their own worktree (so only a committed file reaches them), and
+  `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task now reads the project
+  settings, all of them, as every other new run does (it read none before), so a project `engine` other than
+  `codex` refuses it, as it already did with a typed task.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and

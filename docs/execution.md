@@ -658,24 +658,52 @@ A team that wants only named people to approve can list their Git email addresse
 require-approver = ["lead@example.com", "deputy@example.com"]
 ```
 
+Each entry is one plain address: a single `@` between a non-empty local part and domain, with
+no spaces, angle brackets, quotes, parentheses, square brackets, commas, semicolons, colons or
+backslashes. An entry such as `Lee`, `Lee <lee@example.com>`, `<lee@example.com>` or
+`mailto:lee@example.com` stops a new run before it starts, naming the file and the key.
+
 A run started with that setting refuses a plan approval (`--approve-goal`, or `yes` in the
 terminal conversation) or an artifact acceptance (`--approve-review`, `autocode review`, a
 `TaskRun` approval, or `y` at the conversation's review prompt) whose recorded Git
 `user.email` is not on the list, compared without regard to case. The refusal comes before
-anything is approved: the command exits 2 (the conversation stops at the same question) with
-a message naming the required addresses and the checkout's actual Git identity, nothing it
-carried is saved, and the run stays at the same stop for a listed approver. An `--as` name is
-a claim and never counts. A goal edit installs a draft that still needs a listed approver's
-approval, a resume releases a pause rather than approving anything, and a small bug fix
-approved under the workflow policy has no person to check, so none of those is refused.
-`--accept-completion` is not checked.
+anything is approved: the command exits 2 (the conversation stops at the same question,
+without asking about any further criterion) with a message naming the required addresses and
+the actual Git identity, nothing it carried is saved, and the run stays at the same stop for a
+listed approver. An `--as` name is a claim and never counts. A goal edit installs a draft that
+still needs a listed approver's approval, a resume releases a pause rather than approving
+anything, and a small bug fix approved under the workflow policy has no person to check, so
+none of those is refused. `--accept-completion` is not checked.
+
+The identity checked is the output of `git -C WORKSPACE config --get user.email`, where
+`WORKSPACE` is the run's saved workspace (its task worktree, or the checkout an `--in-place`
+run works in), run in AutoCode's own environment: that of the `autocode` command recording
+the approval (a `TaskRun` runs that command with its caller's environment, or the `env` it
+was given). Anything that changes what Git resolves there changes the identity: Git's
+environment variables (`GIT_CONFIG_COUNT` with `GIT_CONFIG_KEY_n` and `GIT_CONFIG_VALUE_n`,
+`GIT_CONFIG_GLOBAL`, `HOME`) or a repository-local `user.email` in the workspace. The setting
+guards against an approval made under the wrong configured identity, such as someone not on
+the list approving from a machine set up with their own address; it does not stop someone who
+deliberately sets a listed address. It is not authentication.
 
 The run saves the list when it starts (`settings.require_approver` in `state.json`), as it
 saves every project setting: a changed or deleted file never alters a run in progress, a run
-started before the setting existed lets anyone approve, and no flag sets or overrides it.
-Without the setting anyone may approve, as before. The Git identity is whatever the approving
-checkout configures, so this keeps approvals to the people a team named; it is not
-authentication.
+started before the setting existed lets anyone approve, and no flag sets or overrides it. A
+new run started from a design handoff (`autocode --ui-run HANDOFF`, with or without a typed
+task) takes it like any other. Without the setting anyone may approve, as before.
+
+Not covered:
+
+- A replay (`autocode replay`, [Replay](replay.md)) never takes the setting, and a new run
+  started with `--replay-recording` does not list it among the project settings it took. A
+  replay re-applies the recorded run's own plan and review decisions through `TaskRun`, with
+  no person approving, and keeps the recording's settings; checking those decisions against
+  whoever runs the replay would refuse every replay a listed approver did not run.
+- `autocode program` and `autocode components`. Each child run reads `require-approver` from
+  its own Git worktree, checked out at a commit, so only a committed `.autocode/config.toml`
+  (or `pyproject.toml`) reaches it: an uncommitted change to the file in the project checkout
+  does not. `autocode program approve`, which approves the program's agreement, is never
+  checked.
 
 ## Timeouts and watchdog
 

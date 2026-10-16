@@ -8,12 +8,12 @@ committed and reviewed like any other.
 
 Keys are the flag names without the leading dashes (KEYS): ``engine``, ``test-command``, the role
 model and reasoning-effort flags, and the budgets. One key has no flag (FILE_ONLY): ``require-approver``,
-the Git email addresses allowed to approve the run's plan and reviews (autocode_required_approver), which
-the person at the terminal therefore cannot type away. A flag on the command line wins over the file,
-and also over any file key it cannot be combined with (ITERATIONS, ROLE_MODELS); the file wins over the built-in
-default. No environment variable sets these keys. Only a new run reads the file: a saved run keeps
-the settings it started with, recorded in the run, so changing the file never alters a run in
-progress.
+the Git email addresses allowed to approve the run's plan and reviews (autocode_required_approver), so no
+command line sets or replaces it; a replay (--replay-recording) never takes it. A flag on the command line
+wins over the file, and also over any file key it cannot be combined with (ITERATIONS, ROLE_MODELS); the file
+wins over the built-in default. No environment variable sets these keys. Only a new run reads the file (one
+started by --ui-run with no typed task is one): a saved run keeps the settings it started with, recorded in the
+run, so changing the file never alters a run in progress.
 
 Two settings stay out of a project's reach (USER_ONLY): the provider, which runs a command the user
 installed, is chosen by --provider, AUTOCODE_PROVIDER or default_provider in the user's
@@ -153,8 +153,9 @@ def _checked(table, source: str) -> dict[str, tuple[object, str]]:
 def for_new_run(parser, args, explicit) -> set[str]:
     """autocode_args.parse: give a new run the project's settings for the flags its command line left
     unset, saying where they came from; return their destinations, which then count as typed (a
-    budget the team set is the user's, never a runner default). A saved run reads no file."""
-    if args.run_dir is not None or args.task is None:
+    budget the team set is the user's, never a runner default). A saved run reads no file. A --ui-run
+    with no typed task starts a new run too: autocode_run_setup takes its task from the accepted handoff."""
+    if args.run_dir is not None or (args.task is None and not getattr(args, "ui_run", None)):
         return set()
     # One input snapshot for this fresh run; saved runs return above without reading it.
     args._project_memory_input = memory_interface.load(args.workspace)
@@ -199,8 +200,12 @@ def apply(actions, args, explicit, workspace, *, memory_input=None) -> dict[str,
     applied = {}
     for key, (value, source) in settings.items():
         if key == required_approver.KEY:  # no flag to drop it: autocode_configure saves it with a new run
-            setattr(args, required_approver.SETTING, required_approver.checked(value, source))
-            applied[key] = source
+            addresses = required_approver.checked(value, source)
+            # A replay re-applies its recording's decisions through TaskRun, with no person approving
+            # (autocode_replay_cli), and keeps the recording's settings, so it never takes the list.
+            if not getattr(args, "replay_recording", None):
+                setattr(args, required_approver.SETTING, addresses)
+                applied[key] = source
             continue
         action = actions["--" + key]
         if action.dest in dropped:

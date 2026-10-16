@@ -412,13 +412,18 @@ flag takes; a switch takes `true` or `false`.
 | Budgets | `max-iterations`, `unlimited-iterations`, `max-seconds`, `max-cost-usd`, `max-stage-seconds`, `max-idle-seconds`, `max-tool-seconds`, `no-progress-limit`, `max-milestone-seconds`, `max-milestone-replans`, `max-milestone-stalled-reviews`, `max-findings-per-task`, `max-parallel-builders` |
 | Approvals (no flag) | `require-approver` |
 
-`require-approver` is the one key with no flag: one Git email address, or a list of them,
-allowed to approve the run's plan and reviews, such as `require-approver =
+`require-approver` is the one key with no flag: one plain Git email address, or a list of
+them, allowed to approve the run's plan and reviews, such as `require-approver =
 ["lead@example.com", "deputy@example.com"]`. A run started with it refuses a plan approval or
-an artifact acceptance whose approving checkout's Git `user.email` is not listed (compared
-without regard to case), before anything is approved, and stays at the same stop; an `--as`
-name never counts ([Required approver](execution.md#required-approver)). Without it anyone may
-approve. No flag sets or overrides it, so the person at the terminal cannot type it away.
+an artifact acceptance when `git -C WORKSPACE config --get user.email`, for the run's saved
+workspace in AutoCode's own environment, is not listed (compared without regard to case),
+before anything is approved, and stays at the same stop; an `--as` name never counts. Without
+it anyone may approve. No flag sets or overrides it. It guards against an approval under the
+wrong configured Git identity, not against someone who deliberately sets a listed address
+(Git's environment variables or a repository-local `user.email` change what is checked): it
+is not authentication. A replay never takes it, and `autocode program` and `autocode
+components` child runs read it from their own worktree, so only a committed file reaches them
+([Required approver](execution.md#required-approver)).
 
 A flag on the command line wins over the file, and over any file key it cannot be
 combined with: a typed `--single-model` drops the file's role models, a typed role
@@ -426,7 +431,8 @@ model drops its `single-model`, and a typed iteration ceiling drops its
 `max-iterations` and `unlimited-iterations`. The file wins over the built-in
 default; no environment variable sets these keys. A setting from the file counts
 as typed, so a budget the team set is never extended as a runner default. A new
-run prints which settings it took from which file. Only a new run reads the file:
+run prints which settings it took from which file. Only a new run reads the file,
+including one started from a design handoff with `--ui-run` and no typed task:
 a saved run keeps the settings it started with, so changing the file never alters
 a run in progress.
 
