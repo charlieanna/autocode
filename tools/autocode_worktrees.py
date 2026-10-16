@@ -30,6 +30,11 @@ Lower layer only: Git, files and ``autocode_workspaces``; never ``autocode``.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import contextlib
 import fcntl
@@ -94,7 +99,7 @@ def _task_branch(workspace, *, legacy=False):
     return data["branch"] if data and (data.get("kind") == "task" or legacy and "kind" not in data) else None
 
 
-def deliver(state, workspace) -> str:
+def deliver(state: RunState, workspace) -> str:
     """Commit a completed task worktree's source to its branch; the line to print, or ''."""
     branch = _task_branch(workspace) if state.get("status") == COMPLETE else None
     if not branch:

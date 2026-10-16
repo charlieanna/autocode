@@ -11,6 +11,11 @@ selects in main — keep applying.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import argparse
 import copy
 import json
@@ -137,7 +142,7 @@ def check_subscription(identity):
         )
 
 
-def configure(args, state, *, planning, milestones, autopilot, opencode=None):
+def configure(args, state: RunState, *, planning, milestones, autopilot, opencode=None):
     role_transport.guard(args, state)
     if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
         try:
@@ -779,7 +784,7 @@ def configure_codex_joint(settings, args, *, planning):
     settings.setdefault("transport_identities", {}).setdefault("codex", settings["transport_identity"])
 
 
-def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None, write_json, now):
+def migrate_opencode_roles(state: RunState, run_dir, workspace, *, planning, opencode=None, write_json, now):
     """Move old mixed-CLI runs to OpenCode at a recovered, locked boundary."""
     if opencode is None:
         opencode = autocode_opencode
@@ -833,6 +838,6 @@ def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None
     )
     write_json(backup, state)
     write_json(Path(run_dir) / "state.json", candidate)
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
     return True

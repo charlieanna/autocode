@@ -1,5 +1,12 @@
 """Recorded coverage and inspected evidence freshness, without completion authority."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from copy import deepcopy
 
 try:
@@ -16,7 +23,9 @@ def rows(value):
     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
 
 
-def project(state, *, current_revision=None, evidence_matches=None, inspection_error=None, accepted_human_ids=()):
+def project(
+    state: RunState, *, current_revision=None, evidence_matches=None, inspection_error=None, accepted_human_ids=()
+):
     """Describe recorded results; freshness requires caller-supplied actual inspection.
 
     The interface owns source snapshots and file reads. This projection never
@@ -55,7 +64,7 @@ def project(state, *, current_revision=None, evidence_matches=None, inspection_e
                 reasons = [
                     "The recorded report and its pinned evidence match the inspected source and plan. This is not completion approval."
                 ]
-    outcomes = {}
+    outcomes: dict = {}
     for row in rows(report.get("criterion_results")):
         outcomes.setdefault(str(row.get("id")), []).append(row)
     coverage = []

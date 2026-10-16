@@ -371,6 +371,26 @@ PR template asks for an entry here; a change without one is incomplete.
   (`autocode_accepted_source`) and the test contract fixtures (`goal_fixtures`) take the typed `RunState`, so the
   untyped-`state` ratchet drops from 287 to 201 and mypy checks those 86 function bodies. Type-only: no behaviour,
   output or `state.json` change (#695).
+- Operator prerequisites (`autocode_task_preflight`, `autocode_preflight_contract`), the first serial repair
+  assignment (`autocode_rework_policy`), saved-run replay (`autocode_replay_transport`, `autocode_replay_source_trace`),
+  requested Go test names (`autocode_native_test_names`), the approved source scope and contract approval
+  (`autocode_source_scope`, `autocode_contract_identity`), each stage's context packet and the units' model request
+  (`autocode_stage_context`, `units/common`, `units/autocode`), run setup and configuration (`autocode_run_setup`,
+  `autocode_configure`, `autocode_containment_policy`, `autocode_verification_config`, `autocode_base_patch`), the
+  isolated Builder and its retries (`autocode_builder_worker`, `autocode_builder_recovery`, `autocode_worker_limits`),
+  result and repaired-report application (`autocode_result_application`, `autocode_repaired_result`), recovery
+  (`autocode_validation_recovery`, `autocode_report_retry`, `autocode_recovery_progress`, `autocode_recovery_grants`,
+  `autocode_recovery_inputs`, `autocode_provider_recovery`, `autocode_budget_recovery`, `autocode_action_recovery`),
+  human review (`autocode_human_review_artifact`, `autocode_review_rejection`), the plan and its revisions
+  (`autocode_contract_revision`, `autocode_draft_assignment`, `autocode_program_guidance`, `autocode_planning_graph`,
+  `autocode_repair_provenance`, `autocode_base_examples`, `autocode_toolchain_requirements`), verification and visual
+  evidence (`autocode_verification_inspection`, `autocode_verification_view`, `autocode_visual_profile`,
+  `autocode_visual_acceptance`), request usage (`autocode_request_usage`), risk disclosure (`autocode_risk_disclosure`),
+  task worktrees (`autocode_worktrees`, `autocode_workspaces`), execution checkpoints (`autocode_checkpoints`),
+  joint-planning transports (`autocode_joint_transport`), failed-job source captures (`autocode_job_source`), design
+  revisions (`autocode_design_revision`), the CLI's edit step (`autocode_action_edits`) and a UI run's accepted plan
+  (`autocode_ui`) take the typed `RunState`, so the untyped-`state` ratchet drops from 201 to 110 and mypy checks those
+  85 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
