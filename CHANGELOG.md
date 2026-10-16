@@ -297,6 +297,13 @@ PR template asks for an entry here; a change without one is incomplete.
   after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
   work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
   judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- Fake scenarios for escalation outcomes, read black box through `autocode --status --json`: `escalation-converts`
+  (the Builder's stronger attempt fixes what its ordinary attempts could not; one `escalations` row with both routes,
+  one attempt and its cost, `passed`, and the run completes) and `escalation-ladder-end` (that attempt fails too; the
+  row reads `paused` and the run pauses at `PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's
+  diagnosis). `scenarios/test_escalation.py` runs both and checks that a `--builder-strong-model` the tool does not
+  list refuses the new run before any model call. The scripted provider gains the two faults
+  (`harness/escalation_provider.py`) and the oracle helper `escalation_checks`; no runtime change (#612).
 
 ### Changed
 

@@ -271,6 +271,58 @@ def run_checks(
     return checks
 
 
+def escalation_checks(
+    run: dict | None,
+    *,
+    kind: str,
+    role: str,
+    job: str,
+    climbed: tuple[tuple[str, str], tuple[str, str]],
+    attempts: int,
+    outcome: str,
+    basis: str,
+) -> list[Check]:
+    """Checks on the one escalation a run made, from the final status view's ``escalations`` (docs/task-run.md:
+    the rows ``autocode --status --json`` prints, #612): its ``kind``, ``role`` and screen ``job``, the routes it
+    ``climbed`` from and to as (model, reasoning effort), its escalated ``attempts``, each finished and priced,
+    their cost in all, and how it ended (``outcome``, ``basis``). Empty in ``check`` mode (``run`` is None)."""
+    if run is None:
+        return []
+    rows = (run.get("view") or {}).get("escalations")
+    row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
+    sides = [row.get(side) if isinstance(row.get(side), dict) else {} for side in ("from", "to")]
+    launched = [one for one in row.get("attempts") or [] if isinstance(one, dict)]
+    spent = [one.get("cost_usd") for one in launched]
+    cost = row.get("cost") if isinstance(row.get("cost"), dict) else {}
+    priced = all(isinstance(usd, (int, float)) and usd > 0 for usd in spent)
+    return [
+        Check(
+            "one_escalation",
+            (row.get("kind"), row.get("role"), row.get("job")) == (kind, role, job),
+            f"escalations: {rows}",
+        ),
+        Check(
+            "escalation_routes",
+            tuple((side.get("model"), side.get("reasoning_effort")) for side in sides) == climbed,
+            f"from {sides[0]} to {sides[1]}",
+        ),
+        Check(
+            "escalated_attempts_and_cost",
+            len(launched) == attempts
+            and all(one.get("active") is False for one in launched)
+            and priced
+            and cost.get("complete") is True
+            and cost.get("usd") == round(sum(spent), 6),
+            f"attempts {launched}; cost {cost}",
+        ),
+        Check(
+            "escalation_outcome",
+            (row.get("outcome"), row.get("outcome_basis")) == (outcome, basis),
+            f"{row.get('outcome')!r} ({row.get('outcome_basis')!r}), wanted {outcome!r} ({basis!r})",
+        ),
+    ]
+
+
 def program_checks(run: dict | None, scenario, *, journeys: dict[str, str] | None = None) -> list[Check]:
     """Checks on how a program ran (scenarios/README.md, "Programs"), from the record harness/program_driver.py
     passes to oracles; None in ``check`` mode, and then there is nothing to judge.
