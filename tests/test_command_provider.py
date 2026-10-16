@@ -987,6 +987,46 @@ class ExplicitRoleTransportTests(unittest.TestCase):
             set(before) - {"sol"}, next(routes for facade, routes, _ in groups if facade is self.open).keys()
         )
 
+    def test_role_ladder_isolation_preserves_other_tools_escalation_ladders(self):
+        import autocode_route_ladder as route_ladder
+        import model_catalogue
+
+        # OpenCode offers gpt-6-sol (which terra's ladder climbs) and gpt-6-astra (which resolver climbs).
+        # KiloCode offers only anthropic/fixture-claude.
+        self.open.available_models = lambda workspace: [
+            "zai-coding-plan/glm-5.3",
+            "xiaomi-token-plan-sgp/mimo",
+            "openai/gpt-6-sol",
+            "openai/gpt-6-astra",
+        ]
+        self.cli_configure(
+            [
+                *self.args(),
+                "--completion-model",
+                "openai/gpt-6-sol",
+                "--astra-model",
+                "openai/gpt-6-astra",
+                "--terra-model",
+                "zai-coding-plan/glm-5.3",
+                "--role-transport",
+                "sol=kilocode",
+                "--sol-model",
+                "anthropic/fixture-claude",
+            ]
+        )
+        import copy
+
+        settings = copy.deepcopy(self.observed[-1])
+        model_catalogue.choose(settings, self.open, self.workspace, interactive=False)
+
+        # sol on kilocode has its ladder filtered against kilocode (emptied because kilocode lacks gpt-6-sol).
+        self.assertEqual([], settings["route_ladders"]["effort"]["sol"])
+        # terra and resolver on opencode must NOT have their ladders wiped out by kilocode!
+        expected_terra = [list(rung) for rung in route_ladder.EFFORT_LADDERS["terra"]]
+        self.assertEqual(expected_terra, settings["route_ladders"]["effort"]["terra"])
+        expected_resolver = [list(rung) for rung in route_ladder.EFFORT_LADDERS["resolver"]]
+        self.assertEqual(expected_resolver, settings["route_ladders"]["effort"]["resolver"])
+
     def test_invalid_selection_cannot_fall_back_or_change_other_roles(self):
         for extras, reason in (
             (["--role-transport", "sol=missing", "--sol-model", "anthropic/fixture-claude"], "no provider config"),

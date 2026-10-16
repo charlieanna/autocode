@@ -9,6 +9,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- Filter each role's escalation ladder only against its own tool's model list under `--role-transport`, preserving effort ladders for roles running on other tools (#1426).
+
 ### Added
 
 - Opt-in blind tests via `--blind-tests` execute acceptance tests written by the Tester in a separate candidate
