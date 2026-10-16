@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 import argparse
+import json
 import os
 import sys
 import tempfile
@@ -36,8 +37,8 @@ except ImportError:
     import autocode_registry as registry
 
 
-def export(run_dir: Path, workspace: Path, path: Path) -> str:
-    """Write the run's current contract to ``path``; the line to print."""
+def export_payload(run_dir: Path, workspace: Path, path: Path) -> dict:
+    """Export the run's current contract to ``path`` and return the structured payload."""
     availability, payload = registry.read_checkpoint(run_dir / "state.json", workspace)
     if availability != "available":
         raise ValueError(str(payload.get("message") or availability))
@@ -53,34 +54,83 @@ def export(run_dir: Path, workspace: Path, path: Path) -> str:
     goal = plan_file.goal_hash(contract["body"])
     line = f"Wrote plan revision {contract['revision']} ({'approved' if approved else 'not approved'}) to {path}"
     written = plan_file.read(text).goal_hash
-    if written == goal:
-        return f"{line}; goal hash {goal}"
-    return f"{line} with credential-shaped text masked, so its goal hash {written} differs from the run's plan, {goal}"
+    masked = written != goal
+    if not masked:
+        msg = f"{line}; goal hash {goal}"
+    else:
+        msg = (
+            f"{line} with credential-shaped text masked, so its goal hash {written} differs from the run's plan, {goal}"
+        )
+    return {
+        "path": str(path),
+        "revision": contract["revision"],
+        "approved": approved,
+        "goal_hash": goal,
+        "written_goal_hash": written,
+        "masked": masked,
+        "message": msg,
+    }
+
+
+def export(run_dir: Path, workspace: Path, path: Path) -> str:
+    """Write the run's current contract to ``path``; the line to print."""
+    return export_payload(run_dir, workspace, path)["message"]
+
+
+def check_payload(path: Path) -> tuple[int, dict]:
+    """The exit code and payload for a plan file."""
+    plan = plan_file.read(read(path))
+    if plan.stale_line is not None:
+        msg = (
+            f"{path}: the text under the front matter no longer matches it (line {plan.stale_line}). "
+            f"The front matter is the plan: run `autocode plan --render {path}` to regenerate the text"
+        )
+        return 2, {
+            "path": str(path),
+            "goal_hash": plan.goal_hash,
+            "exported_hash": plan.exported_hash,
+            "revision": plan.revision,
+            "matches": False,
+            "stale_line": plan.stale_line,
+            "error": {"code": "stale_plan_text", "message": msg},
+        }
+    same = plan.goal_hash == plan.exported_hash
+    msg = f"{path}: goal hash {plan.goal_hash}; " + (
+        f"the plan exported from revision {plan.revision}"
+        if same
+        else f"differs from revision {plan.revision} as exported, goal hash {plan.exported_hash}"
+    )
+    return 0, {
+        "path": str(path),
+        "goal_hash": plan.goal_hash,
+        "exported_hash": plan.exported_hash,
+        "revision": plan.revision,
+        "matches": same,
+        "stale_line": None,
+        "message": msg,
+    }
 
 
 def check(path: Path) -> tuple[int, str]:
     """The exit code and line to print for a plan file."""
-    plan = plan_file.read(read(path))
-    if plan.stale_line is not None:
-        return 2, (
-            f"{path}: the text under the front matter no longer matches it (line {plan.stale_line}). "
-            f"The front matter is the plan: run `autocode plan --render {path}` to regenerate the text"
-        )
-    same = plan.goal_hash == plan.exported_hash
-    return 0, (
-        f"{path}: goal hash {plan.goal_hash}; "
-        + (
-            f"the plan exported from revision {plan.revision}"
-            if same
-            else f"differs from revision {plan.revision} as exported, goal hash {plan.exported_hash}"
-        )
-    )
+    code, payload = check_payload(path)
+    return code, payload["error"]["message"] if code != 0 else payload["message"]
+
+
+def render_payload(path: Path) -> dict:
+    """Regenerate ``path``'s text from its front matter and return the structured payload."""
+    text = plan_file.rendered(read(path))
+    write(path, text)
+    goal = plan_file.read(text).goal_hash
+    return {
+        "path": str(path),
+        "goal_hash": goal,
+        "message": f"Regenerated the text of {path} from its front matter; goal hash {goal}",
+    }
 
 
 def render(path: Path) -> str:
-    text = plan_file.rendered(read(path))
-    write(path, text)
-    return f"Regenerated the text of {path} from its front matter; goal hash {plan_file.read(text).goal_hash}"
+    return render_payload(path)["message"]
 
 
 def read(path: Path) -> str:
@@ -122,6 +172,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--run-dir", type=Path, help="with --export: this saved run; otherwise the workspace's only run"
     )
+    result.add_argument("--json", action="store_true", help="print the result as JSON")
     return result
 
 
@@ -133,16 +184,32 @@ def cli(argv: list[str] | None = None) -> int:
     try:
         if args.export is not None:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)
-            print(export(run_dir, workspace, args.export))
+            if args.json:
+                print(json.dumps(export_payload(run_dir, workspace, args.export), indent=2))
+            else:
+                print(export(run_dir, workspace, args.export))
             return 0
         if args.render is not None:
-            print(render(args.render))
+            if args.json:
+                print(json.dumps(render_payload(args.render), indent=2))
+            else:
+                print(render(args.render))
             return 0
+        if args.json:
+            code, payload = check_payload(args.check)
+            if code == 0:
+                print(json.dumps(payload, indent=2))
+            else:
+                print(json.dumps(payload, indent=2), file=sys.stderr)
+            return code
         code, line = check(args.check)
         print(line, file=sys.stdout if code == 0 else sys.stderr)
         return code
     except (OSError, ValueError) as error:
-        print(f"autocode plan: {error}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(json.dumps({"error": {"code": "plan_error", "message": str(error)}}), file=sys.stderr)
+        else:
+            print(f"autocode plan: {error}", file=sys.stderr)
         return 2
 
 
