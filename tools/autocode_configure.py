@@ -559,6 +559,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         **({"package": args.package} if getattr(args, "package", None) else {}),
         # Who may approve: the project's require-approver, fixed at launch (autocode_required_approver).
         **({"require_approver": args.require_approver} if getattr(args, "require_approver", None) else {}),
+        # The command that serves the app: the project's [serve], fixed at launch (autocode_dev_server_config).
+        **({"serve": args.serve} if getattr(args, "serve", None) else {}),
         "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
         "rotation_after_input_tokens": args.rotate_after_input_tokens
         if args.rotate_after_input_tokens is not None

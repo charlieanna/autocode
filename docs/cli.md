@@ -412,8 +412,9 @@ flag takes; a switch takes `true` or `false`.
 | Test command/report | `test-command`, `test-report` |
 | Budgets | `max-iterations`, `unlimited-iterations`, `max-seconds`, `max-cost-usd`, `max-stage-seconds`, `max-idle-seconds`, `max-tool-seconds`, `no-progress-limit`, `max-milestone-seconds`, `max-milestone-replans`, `max-milestone-stalled-reviews`, `max-findings-per-task`, `max-parallel-builders` |
 | Approvals (no flag) | `require-approver` |
+| Development server (no flag) | `serve` |
 
-`require-approver` is the one key with no flag: one plain Git email address, or a list of
+`require-approver` has no flag: one plain Git email address, or a list of
 them, allowed to approve the run's plan and reviews and to accept its completion, such as
 `require-approver = ["lead@example.com", "deputy@example.com"]`. A run started with it refuses
 a plan approval, an artifact acceptance or `--accept-completion` when
@@ -426,6 +427,21 @@ repository-local `user.email` change what is checked): it is not authentication.
 never takes it, and `autocode program` and `autocode components` child runs read it from their
 own worktree, so only a committed file reaches them
 ([Required approver](execution.md#required-approver)).
+
+`serve` has no flag either: the command that runs the project's development server, with
+`{port}` where the port goes. It is a string, or in `.autocode/config.toml` a table that also
+names the path that answers once the server is ready (`ready-path`, any answer below 400) and
+how long to wait for it (`ready-seconds`, 1 to 600, default 60); `pyproject.toml` takes only
+the string. A new run saves it with its settings, so an edit to the file, including one the
+Builder makes, never changes the command a run serves with. Every `{port}` is replaced with a
+free loopback port; any other text goes to the shell unchanged.
+
+```toml
+[serve]
+command = "npm run dev -- --host 127.0.0.1 --port {port}"
+ready-path = "/"
+ready-seconds = 90
+```
 
 A flag on the command line wins over the file, and over any file key it cannot be
 combined with: a typed `--single-model` drops the file's role models, a typed role

@@ -25,6 +25,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A project can name the command that runs its development server (#730): `serve` in `.autocode/config.toml`, a
+  command string with `{port}` where the port goes, or a `[serve]` table that also names `ready-path` and
+  `ready-seconds` (`pyproject.toml` takes only the string). A new run saves it with its settings, and
+  `autocode doctor` lists it with the other project settings. A value without `{port}`, an unknown field or a
+  ready path that is not a server path stops a new run, naming the file.
 - `autocode --status --json` shows the run's planning-depth decisions under `planning_depth`: whether the request
   was judged clear and Requirements skipped, the plan's size and the review allowance it set, and whether the Plan
   Reviewer approved the draft at its first review. Before, these were only in `state.json` (#697).
