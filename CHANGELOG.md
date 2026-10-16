@@ -306,6 +306,16 @@ PR template asks for an entry here; a change without one is incomplete.
   does. A program's plan and workstream runs and a components run's architecture and component runs are checked for
   provenance only. The `approval provenance: RUN` check sits beside `canonical evidence: RUN` in `result.json`. A
   failure makes the verdict `FALSE_COMPLETE` when the scenario completed, and `HONEST_BLOCKER` when it stopped.
+- The scenario catalog has a two-package scenario, `feature-monorepo-package` (#711). Its seed is a repository with
+  `packages/greet/` and `packages/farewell/`, and the task adds an option to the greeting package only. The scripted
+  run is started with `--package packages/greet/`: the reference completes, and `broken/edits-farewell-package`,
+  which also edits the other package, must stop with both files named in an open blocking `runner` finding (the
+  oracle reads it from the status view). Run against AutoCode from before #1415, that variant completes and is
+  judged `FALSE_COMPLETE`. The harness no longer repeats `--package` on calls to the saved run, which the CLI
+  refuses. A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the
+  delivered files alone. A pull request that changes `tools/autocode_regression.py` or
+  `tools/autocode_build_loop.py` now also runs `tests.test_package_scope_cli`: the regression proof records a
+  launch's files outside the package and runs the package check before each review, and the build loop calls it.
 - `autocode-issue plan ISSUE` puts the plan an issue's run is waiting to have approved in a pull request, so a
   team reviews what will be built before anything is built. It exports the plan as `autocode plan --export` writes
   it and commits it as `plans/issue-N.md` (`--path` for another place) on branch `autocode/issue-N-<title>-plan`,

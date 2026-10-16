@@ -197,8 +197,9 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
 
 
 # Flags only a new run takes (docs/cli.md): the public CLI refuses each on a saved run, even when it names the
-# saved value, so the driver passes them on the first call only. A profile may pass --builder-strong-model.
-NEW_RUN_FLAGS = ("--workflow", "--builder-strong-model")
+# saved value, so the driver passes them on the first call only. A profile may pass --builder-strong-model; a
+# scenario's [fake] flags may pass --package (feature-monorepo-package).
+NEW_RUN_FLAGS = ("--workflow", "--builder-strong-model", "--package")
 
 
 def saved_run_flags(flags: list[str]) -> list[str]:
