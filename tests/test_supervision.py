@@ -1289,7 +1289,9 @@ if sys.stdin.buffer.read(1) != b'X':
                 patch.object(keeper_module, "KeeperTree", Tree),
                 patch.object(keeper_module.processes, "process_table", return_value={os.getpid(): guardian}),
                 patch.object(
-                    keeper_module.processes, "live_processes", side_effect=lambda rows: [provider] if alive[0] else []
+                    keeper_module.processes,
+                    "live_processes",
+                    side_effect=lambda rows: [row for row in rows if row == guardian or row == provider and alive[0]],
                 ),
                 patch.object(keeper_module.util, "atomic_json", side_effect=atomic),
                 patch.object(keeper_module.threading, "Timer", Timer),
@@ -1419,7 +1421,9 @@ if sys.stdin.buffer.read(1) != b'X':
                 patch.object(keeper_module, "KeeperTree", Tree),
                 patch.object(keeper_module.processes, "process_table", return_value={os.getpid(): guardian}),
                 patch.object(
-                    keeper_module.processes, "live_processes", side_effect=lambda rows: [provider] if alive[0] else []
+                    keeper_module.processes,
+                    "live_processes",
+                    side_effect=lambda rows: [row for row in rows if row == guardian or row == provider and alive[0]],
                 ),
                 patch.object(keeper_module.select, "select", held_select),
             ):
@@ -1532,7 +1536,9 @@ if sys.stdin.buffer.read(1) != b'X':
                         patch.object(
                             keeper_module.processes,
                             "live_processes",
-                            side_effect=lambda rows: [provider] if alive[0] else [],
+                            side_effect=lambda rows: [
+                                row for row in rows if row == guardian or row == provider and alive[0]
+                            ],
                         ),
                     ):
                         thread = threading.Thread(target=run)

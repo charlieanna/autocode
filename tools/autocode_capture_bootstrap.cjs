@@ -47,22 +47,31 @@ async function main() {
     JSON.stringify(config.native_transport.cdp.socket) === JSON.stringify(control.ipc.fixture), 'foreign CDP capability');
   const base = fs.readFileSync(control.policy, 'utf8');
   requireFact(hash(base) === control.policy_sha256, 'original kernel policy changed');
+  const linux = process.platform === 'linux';
+  requireFact(linux || process.platform === 'darwin', 'unsupported native capture platform');
+  const linuxKernel = linux ? require('./autocode_native_capture_linux.cjs') : null;
   requireFact(Array.isArray(control.browser_arguments) && control.browser_arguments.every(a => typeof a === 'string') &&
     control.browser_arguments.includes('--remote-debugging-pipe') &&
     !control.browser_arguments.some(a => a.startsWith('--remote-debugging-port') || a === '--single-process'), 'invalid pipe browser arguments');
   // Bundle and all transitive runtime files are original exact-profile inputs.
   const {wsServer} = require(path.join(path.dirname(config.playwright_module), 'lib', 'utilsBundle.js'));
-  const history = {version: 1, root_pid: process.pid, browser_pid: null, fixture_pid: null,
-    policy_sha256: control.policy_sha256, mach_service: null, browser_exit: null, fixture_exit: null,
+  const history = {version: linux ? 2 : 1, root_pid: process.pid, browser_pid: null, fixture_pid: null,
+    policy_sha256: control.policy_sha256,
+    ...(linux ? {transport: linuxKernel.TRANSPORT} : {mach_service: null}), browser_exit: null, fixture_exit: null,
     connected: false, nonce: config.native_transport.nonce};
   let browser, fixture, bridge, ws;
   const close = () => { if (ws) ws.close(); if (bridge) bridge.destroy(); };
   try {
-    browser = spawn('/bin/sh', ['-c', BROWSER_EXEC, 'native-owned-browser', base,
-      config.executable, ...control.browser_arguments], {
+    const browserCommand = linux ? linuxKernel.command(control.policy, control.policy_sha256,
+      config.executable, control.browser_arguments, 'browser') : ['/bin/sh', ['-c', BROWSER_EXEC,
+      'native-owned-browser', base, config.executable, ...control.browser_arguments]];
+    browser = spawn(browserCommand[0], browserCommand[1], {
       cwd: process.cwd(), env: process.env, stdio: ['ignore', 'inherit', 'inherit', 'pipe', 'pipe']});
     requireFact(Number.isInteger(browser.pid) && browser.pid > 0, 'browser was not created');
-    history.browser_pid = browser.pid; history.mach_service = MACH + browser.pid;
+    // Linux records the actual outer bwrap branch roots; the original
+    // supervisor owns their namespace children too. It makes no Mach/PID claim.
+    history.browser_pid = browser.pid;
+    if (!linux) history.mach_service = MACH + browser.pid;
     const web = new wsServer({noServer: true, maxPayload: MAX, perMessageDeflate: false});
     const server = http.createServer((_request, response) => { response.writeHead(403); response.end(); });
     server.on('upgrade', (req, socket, head) => {
@@ -112,7 +121,10 @@ async function main() {
       if (code !== 0 || signal) reject(new Error('Owned browser failed: ' + JSON.stringify(history.browser_exit)));
       else resolve();
     }));
-    fixture = spawn('/usr/bin/sandbox-exec', ['-f', control.policy, process.execPath, control.fixture_script, request],
+    const fixtureCommand = linux ? linuxKernel.command(control.policy, control.policy_sha256,
+      process.execPath, [control.fixture_script, request], 'fixture') : ['/usr/bin/sandbox-exec',
+      ['-f', control.policy, process.execPath, control.fixture_script, request]];
+    fixture = spawn(fixtureCommand[0], fixtureCommand[1],
       {cwd: process.cwd(), env: process.env, stdio: descriptors});
     requireFact(Number.isInteger(fixture.pid) && fixture.pid > 0, 'fixture was not created');
     history.fixture_pid = fixture.pid;

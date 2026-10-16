@@ -547,6 +547,11 @@ def main(control, acknowledgement, external=None, checkout_lease=None):
                 save()
                 previous_inventory = inventory
             if not rows or not processes.live_processes([provider]):
+                # Kernel parent-death cleanup can stop the provider before the
+                # lifeline watcher is scheduled. Inspect the original owner's
+                # birth here so its loss cannot look like an ordinary exit.
+                if not processes.live_processes([metadata["owner"]]):
+                    trigger("owner_lost")
                 with reason_lock:
                     if not triggered.is_set():
                         reason[0] = "provider_stopped"

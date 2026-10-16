@@ -859,17 +859,22 @@ def approve(state: RunState, selected, *, initial_assignment_proof=None):
     state.update(candidate)
 
 
-def _approve(state: RunState, selected, *, initial_assignment_proof=None):
-    contract = cast(dict, state["goal_contract"])
+def approval_boundary_refusal(state: RunState):
+    """Read-only boundary check; approval still validates the contract, token and issued request."""
     # Resuming after an environment failure can reach the execution guard with
     # the same reviewed draft. Keep exact-token approval available in that pause.
-    if (
-        state["status"] not in ("AWAITING_GOAL_APPROVAL", "PAUSED_GOAL_UNAPPROVED")
-        or any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"))
-        or not sealed(contract)
-        or selected != token(contract)
-        or state.get("displayed_goal") != selected
+    if state.get("status") not in ("AWAITING_GOAL_APPROVAL", "PAUSED_GOAL_UNAPPROVED") or any(
+        state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair")
     ):
+        return "Approve only the current displayed draft token; show the goal again"
+    return None
+
+
+def _approve(state: RunState, selected, *, initial_assignment_proof=None):
+    if reason := approval_boundary_refusal(state):
+        raise ValueError(reason)
+    contract = cast(dict, state["goal_contract"])
+    if not sealed(contract) or selected != token(contract) or state.get("displayed_goal") != selected:
         raise ValueError("Approve only the current displayed draft token; show the goal again")
     validate_body(state, contract["body"], ready=True, allow_legacy=True, origin=contract.get("origin"))
     if contract["body"]["open_blocking_questions"] or state.get("pending_questions"):
