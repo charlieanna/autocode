@@ -75,7 +75,11 @@ retry-limit pause `paused` — and `autocode --status` summarizes that as
 (a climb, or the Builder's stronger attempt): the job and stage it was for, the
 route it climbed from and to, what its escalated attempts cost, and whether the
 work then passed, failed again, paused or is still running, with one line each on
-stderr ([status view](task-run.md#status-view)).
+stderr ([status view](task-run.md#status-view)). Read a row's `outcome` rather than
+`escalation_outcomes` for how an escalation ended: that count is the runner's own
+stamp, which it writes on every open escalation at any validation PASS, whoever's work
+passed (it can stamp the Builder's stronger attempt `passed` before that attempt runs),
+while the row judges each escalation by its own work.
 The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
 are on no ladder: they keep their configured route, and a verifier that keeps
 struggling pauses the run instead. The Builder instead gets its

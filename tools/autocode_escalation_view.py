@@ -17,44 +17,49 @@ Two escalations are recorded today, and this module only reads them:
 
 An escalation's attempts are its role's stage records launched on the route it climbed to (dry runs
 and the runner's own stages left out), from the escalation until the first of: a validation of its
-work that passed (that attempt included), unless the Builder's retry policy then charged one of its
-attempts as a failure (see the outcome below), or the role's next escalation of either kind (its
-next climb, the Builder's stronger attempt); a running attempt counts. A validation judged its work
-when its own attempt is one of them, or, for the Builder, whose work another role validates, when
-the Builder's last attempt before it is one of them; no other role is judged by another role's
-validation. That attempt, and for the Builder the validation's own attempt too, must also be for the
-escalation's own milestone: every assignment, a rework included, is a new task, so a task's milestone
-is its contract hash and milestone ids (the run's current and archived tasks), and an attempt whose
-task is of another milestone than the attempt the escalation was made from (a later milestone, or the
-same milestone of a replanned contract, whose first task may be a validate task that runs the Tester
-before any Builder attempt) is not its work; when either task is not known, they are not told apart.
-A charge (a retry, the stronger attempt or the retry-limit pause) names the record of the attempt
-that failed: the Builder's own, or the Tester's or Completion Reviewer's that sent its work back, whose
-work is the Builder's last attempt for that record's task, or, for a task with no Builder attempt (a
-validate task: unchanged work sent back to the Tester), the Builder's last attempt of that task's
-milestone before that record. Each attempt is priced as the view's `cost` prices a stage
-(autocode_usage.stage_rows at the dated table of autocode_prices): reported, else estimated, else
-unpriced, never zero. A stage record of the role in that span with no
-launch route (saved before stage records kept one, 2026-10-01) cannot be shown to have run on the
-route it climbed to: it is counted (`cost.unrouted_attempts`) but neither listed nor taken as its
-work, and its cost is unknown, never zero. An escalation made before the run was created was made in
-the run a checkpoint continuation restored (`inherited`): its attempts there are not in this run's
-records, so its cost is unknown, never zero.
+work that passed (that attempt included), unless one of its attempts was then charged as a failure
+(see the outcome below), or the role's next escalation of either kind (its next climb, the Builder's
+stronger attempt); a running attempt counts. A validation judged its work when its own attempt is
+one of them, or, for the Builder, whose work another role validates, when the Builder's last attempt
+before it is one of them; no other role is judged by another role's validation. That attempt, and
+for the Builder the validation's own attempt too, must also be for the escalation's own milestone:
+every assignment, a rework included, is a new task, so a task's milestone is its contract hash and
+milestone ids (the run's current and archived tasks), and an attempt whose task is of another
+milestone than the attempt the escalation was made from (a later milestone, or the same milestone of
+a replanned contract, whose first task may be a validate task that runs the Tester before any
+Builder attempt) is not its work; when either task is not known, they are not told apart. The
+Builder's retry policy's charge (a retry, the stronger attempt or the retry-limit pause) names the
+record of the attempt that failed: the Builder's own, or the Tester's or Completion Reviewer's that
+sent its work back, whose work is the Builder's last attempt for that record's task before the
+decision; when no Builder attempt of that task started before it (a validate task: unchanged work
+sent back to the Tester; a record that names no task), the Builder's last attempt of that task's
+milestone (of any, when it names none) before that record. A review that sends the work back assigns
+a correction task (an implement task whose decision is REWORK), which charges the Builder's last
+attempt of that task's milestone before it was assigned: with the retry policy off
+(settings.workflow set, or builder_retry disabled), nothing else records that a review sent passed
+work back. Each attempt is priced as the view's `cost` prices a stage (autocode_usage.stage_rows at
+the dated table of autocode_prices): reported, else estimated, else unpriced, never zero. A stage
+record of the role in that span with no launch route (saved before stage records kept one,
+2026-10-01) cannot be shown to have run on the route it climbed to: it is counted
+(`cost.unrouted_attempts`) but neither listed nor taken as its work, and its cost is unknown, never
+zero. An escalation made before the run was created was made in the run a checkpoint continuation
+restored (`inherited`): its attempts there are not in this run's records, so its cost is unknown,
+never zero.
 
 How it ended (`outcome`), from the first of these that applies (`outcome_basis` says which):
 
 - the first decisive record after it: a validation of its work that passed (`passed`, basis
-  `validation`), unless the Builder's retry policy then charged one of its attempts of its milestone
-  as a failure (a retry, the stronger attempt or the retry-limit pause; a review that sent the
-  passed work back is charged so), or a later escalation of the same lane (the role's next climb,
-  another stronger attempt for the same milestone) or of the other kind made from one of its
-  attempts (the Builder's stronger attempt after its climb, or its climb after the stronger attempt)
-  (`failed_again`, basis `later_escalation`);
+  `validation`), unless one of its attempts of its milestone was then charged as a failure (by the
+  Builder's retry policy: a retry, the stronger attempt or the retry-limit pause, as it charges a
+  review that sent the passed work back; or by that review's correction task), or a later escalation
+  of the same lane (the role's next climb, another stronger attempt for the same milestone) or of the
+  other kind made from one of its attempts (the Builder's stronger attempt after its climb, or its
+  climb after the stronger attempt) (`failed_again`, basis `later_escalation`);
 - the Builder's retry-limit pause (`paused`, basis `recorded`): the runner's `paused` stamp
   (autocode_route_ladder.record_outcome), or the `pause` decision that charged one of its attempts of
   its milestone, since the runner does not stamp an escalation it already stamped `passed`;
-- a validation of its work failed or was blocked (`failed_again`, `validation`), else the Builder's
-  retry policy charged one of its attempts of its milestone as a failure (`failed_again`, `recorded`);
+- a validation of its work failed or was blocked (`failed_again`, `validation`), else one of its
+  attempts of its milestone was charged as a failure (`failed_again`, `recorded`);
 - the runner's `passed` stamp, only for a role other than the Builder and only when every attempt of
   its role since it (until the role's next escalation) ran on the route it climbed to, and there was
   at least one (basis `recorded`). The runner stamps every open escalation `passed` at any validation
@@ -209,7 +214,9 @@ def _builder_failure(decision, attempts, milestones) -> tuple[dict | None, str |
     names the task; the Builder attempt is then the Builder's last for that task before the decision, so another
     milestone's attempts in a parallel batch are never taken for it. A validate task (the runner sends unchanged
     work back to the Tester as a new task, autopilot) has no Builder attempt of its own: the work its records
-    judged is the Builder's last attempt of that task's milestone before the record."""
+    judged is the Builder's last attempt of that task's milestone before the record. The same holds whenever no
+    Builder attempt of the record's task started before the decision, or the record names no task (of any milestone
+    then): that is the work the record judged."""
     failure = decision.get("failure")
     named = next(
         (row for row in attempts if isinstance(failure, str) and row["record"].get("output") == failure),
@@ -309,6 +316,26 @@ def _charges(state: RunState, attempts, milestones) -> list[tuple[dt.datetime, d
     return found
 
 
+def _sent_back(state: RunState, attempts, milestones) -> list[tuple[dt.datetime, dict, str]]:
+    """(when, the Builder attempt sent back, "rework") for each correction task a review assigned: an implement task
+    whose `decision` is REWORK (autocode_goal_lifecycle.assign_task records both, and `assigned_at`). The work it sends
+    back is the Builder's last attempt of that task's milestone before it was assigned. The retry policy charges such a
+    review when it is on (_charges); with it off (settings.workflow set, or builder_retry disabled), this is the only
+    record that work a validation passed was sent back."""
+    builders = [row for row in attempts if _role(row["record"]) == "terra"]
+    found = []
+    for task in [*_list(state.get("task_archive")), _dict(state.get("current_task"))]:
+        when = _when(task.get("assigned_at"))
+        if task.get("decision") != "REWORK" or task.get("kind") != "implement" or when is None:
+            continue
+        milestone = milestones.get(_text(task.get("id")))
+        alike = [row for row in builders if _alike(milestone, milestones.get(_text(row["record"].get("task_id"))))]
+        latest = _latest(alike, when)
+        if latest is not None:
+            found.append((when, latest["record"], "rework"))
+    return found
+
+
 def _attempts(state: RunState) -> list[dict]:
     """Each launched attempt with its price: the saved stage records (autocode_usage.stage_rows at the dated
     table, the basis of the view's `cost`), then the running stage, whose cost is not known yet."""
@@ -389,8 +416,9 @@ def _cost(attempts, known, inherited, unrouted) -> dict:
 
 def _outcome(state: RunState, escalation, later, judged, charged) -> tuple[str, str, dt.datetime | None, bool]:
     """(outcome, basis, end, inclusive): how the escalation ended and where its attempts stop. `charged` holds (when,
-    action) for each time the Builder's retry policy charged one of its attempts of its milestone as a failure: a PASS
-    before such a charge did not end it (a review sent that work back), so its attempts run on past that PASS."""
+    action) for each time one of its attempts of its milestone was charged as a failure, by the Builder's retry policy
+    or a review's correction task: a PASS before such a charge did not end it (a review sent that work back), so its
+    attempts run on past that PASS."""
     passed = next(
         (when for when, verdict in judged if verdict == "PASS" and not any(when < charge for charge, _ in charged)),
         None,
@@ -460,7 +488,7 @@ def rows(state: RunState) -> list[dict]:
     escalations = _recorded(state, attempts, milestones)
     validations = _validations(state, attempts)
     index = _by_role(attempts)
-    charges = _charges(state, attempts, milestones)
+    charges = _charges(state, attempts, milestones) + _sent_back(state, attempts, milestones)
     created = _when(state.get("created_at"))
     for escalation in escalations:
         when, role = escalation["when"], escalation["role"]
@@ -498,7 +526,7 @@ def rows(state: RunState) -> list[dict]:
         when, role, mine = escalation["when"], escalation["role"], escalation["mine"]
         later = _next(escalations, escalation, _ends)
         judged = _judged(escalation, validations, index, milestones)
-        # When, and how, the Builder's retry policy charged one of its attempts of its milestone as a failure.
+        # When, and how, one of its attempts of its milestone was charged as a failure (_charges, _sent_back).
         charged = [
             (at, action)
             for at, failed, action in charges
