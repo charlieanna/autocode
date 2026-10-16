@@ -2538,7 +2538,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/052b15b9291a549eeb50ef8ff8772339555bc53b/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/fc9d760afaec6811350d10d705cdf7d30e5ba0d3/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2893,17 +2893,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/052b15b9291a549eeb50ef8ff8772339555bc53b/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/fc9d760afaec6811350d10d705cdf7d30e5ba0d3/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/052b15b9291a549eeb50ef8ff8772339555bc53b/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/fc9d760afaec6811350d10d705cdf7d30e5ba0d3/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/052b15b9291a549eeb50ef8ff8772339555bc53b/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/fc9d760afaec6811350d10d705cdf7d30e5ba0d3/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3918,13 +3918,15 @@ read the run store, <code>.autocode/runs</code>: not this run's <code>state.json
 receipts, and no other run's files. Only this run's <code>planning/</code> artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
 its run context from its handoff (#1250). Nor can it read these <code>.autocode</code>
-stores, which hold other runs or what they keep: <code>archive</code> (runs archived from
+stores, which hold other runs, conversation records or what they keep: <code>archive</code> (runs archived from
 task worktrees), <code>arena</code> (<code>autocode arena</code> attempts and their runs), <code>builders</code>
 (parallel Builder workspaces and their runs), <code>bundles</code> (<code>autocode bundle</code>
-archives), <code>issues</code> (<code>autocode issue</code> worktrees and their runs), <code>programs</code>,
-<code>pull-reviews</code> (<code>autocode review-pr</code> checkouts and their runs), <code>registry</code> (the
-run registry), <code>replay</code> (replay recordings), <code>task-flows</code>, <code>verification</code>
-(<code>autocode verify</code> checkouts and reports) and <code>worktrees</code> (task and
+archives), <code>conversation-handoffs</code> (requirements conversation handoffs),
+<code>conversation-starts</code> (conversation start markers), <code>investigation</code> (bug
+investigation workspaces), <code>issues</code> (<code>autocode issue</code> worktrees and their runs),
+<code>programs</code>, <code>pull-reviews</code> (<code>autocode review-pr</code> checkouts and their runs),
+<code>registry</code> (the run registry), <code>replay</code> (replay recordings), <code>task-flows</code>,
+<code>verification</code> (<code>autocode verify</code> checkouts and reports) and <code>worktrees</code> (task and
 program worktrees). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an <code>--out</code> or <code>--arena</code> directory outside these
 stores, or another <code>.autocode</code> directory) is not denied. Each store that exists
@@ -3948,8 +3950,8 @@ with a real directory, or remove it, then <code>--resume-paused</code>.
 Everything else in <code>.autocode</code> stays as readable as the rest of the workspace:
 the launch's own control directory and scratch, project settings,
 retained design inputs, capture bundles, the shared <code>evidence</code> and <code>output</code>
-areas, other launches' <code>tool-containment-*</code> control directories, conversation
-records and AutoCode's other internal files.
+areas, other launches' <code>tool-containment-*</code> control directories, and AutoCode's
+other internal files.
 Before the provider starts, each such launch shows through the actual native
 shell that a file in its run directory and in each denied store cannot be
 read, and records the denial as <code>private_reads</code> in its <code>tool_containment</code> record
