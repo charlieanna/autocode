@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -27,6 +28,10 @@ from dashboard_work_summary import project as work_summary
 
 FIXTURE_NOW = "2026-09-22T12:41:00Z"
 FIXTURE_SOURCE = "browser-fixture-source"
+
+
+if TYPE_CHECKING:
+    from autocode_run_state import RunState
 
 
 def publish_human_request(state):
@@ -547,7 +552,7 @@ def scenario_states(workspace):
     return states
 
 
-def attach_plan_draft_fixture(workspace, run, state):
+def attach_plan_draft_fixture(workspace, run, state: "RunState"):
     """Fixture-only draft context; no model execution or goal approval."""
     import autocode_conversation as conversation_protocol
     import autocode_conversation_ingress as conversation_ingress

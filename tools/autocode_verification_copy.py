@@ -15,6 +15,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -146,7 +147,7 @@ def native_git_setup(scratch):
     The original native owner calls this again before seal, release and finish.
     """
     scratch = Path(scratch).absolute()
-    executable = Path("/Library/Developer/CommandLineTools/usr/bin/git")
+    executable = Path("/usr/bin/git" if sys.platform == "linux" else "/Library/Developer/CommandLineTools/usr/bin/git")
     if executable.resolve(strict=True) != executable or not executable.is_file():
         raise ValueError("Native Git setup requires the canonical installed executable")
     identity = executable.stat()

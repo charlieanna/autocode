@@ -353,13 +353,20 @@ class RealDockerTests(SampleRun, unittest.TestCase):
         root = Path(run.REPO) / ".scenario-runs"
         root.mkdir(exist_ok=True)
         result = self.run_sample(root, real=True)
+        local = result.get("components", {}).get("local_run")
+        if result["verdict"] != verdict.PASS:
+            # A stopped CLI can retain its local diagnostic before the harness
+            # publishes components. Surface that public receipt in CI too.
+            receipt = Path(result["evidence"]) / "components-local.json"
+            if receipt.is_file():
+                local = json.loads(receipt.read_text()).get("local_run")
         print(
             json.dumps(
                 {
                     "evidence": result["evidence"],
                     "verdict": result["verdict"],
                     "wall_seconds": result.get("wall_seconds"),
-                    "local": result.get("components", {}).get("local_run"),
+                    "local": local,
                 },
                 indent=2,
             )

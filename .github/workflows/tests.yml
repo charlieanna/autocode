@@ -104,6 +104,18 @@ jobs:
           npm install --global agent-browser@0.25.3
           agent-browser install --with-deps
 
+      - name: Prepare native Linux verification boundary
+        if: runner.os == 'Linux' && needs.scope.outputs.suite == 'true'
+        # Native readonly verification is exercised by the suite, so it needs
+        # the same kernel backend as linux-tool-containment on this disposable VM.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap libseccomp2
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          /usr/bin/bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc -- /bin/true
+
       - name: Install package and runtime dependencies
         # Evidence-bound reuse requires an isolated, source-bound editable install.
         run: |
@@ -284,7 +296,7 @@ jobs:
       - name: Install bubblewrap and allow unprivileged user namespaces
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap python3-venv
+          sudo apt-get install -y -q bubblewrap libseccomp2 python3-venv
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -320,6 +332,17 @@ jobs:
               "tests.test_tool_containment.BubblewrapKernelTests",
               "tests.test_toolchain.SelectedToolchainTests",
               "tests.test_elf_dependencies.LoaderFixtureTests",
+              "tests.test_native_linux_boundary.NativeLinuxKernelTests",
+              "tests.test_native_linux_check.NativeLinuxCheckTests",
+              "tests.test_native_check_execution.NativeCheckExecutionTests",
+              "tests.test_native_check_execution.FixedNativeGitSetupFactsTests",
+              "tests.test_native_check_execution.NativeCheckDeadlineTests",
+              "tests.test_native_check_execution.NativeCheckOwnerLossTests",
+              "tests.test_native_initial_callers.OriginalCheckFailureTests",
+              "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_pure_allows_threads_but_denies_process_fork_and_network",
+              "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_unix_relay_is_reachable_while_foreign_socket_and_host_network_are_absent",
+              "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_original_namespace_pid1_is_bound_but_its_forked_peer_is_refused",
+              "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_policy_filter_and_command_tampering_refuse",
           )
           suite = unittest.TestSuite()
           for name in names:
@@ -334,6 +357,7 @@ jobs:
           PYTHON
         env:
           PYTHONDONTWRITEBYTECODE: "1"
+          AUTOCODE_NATIVE_LINUX_BOUNDARY_TEST: "1"
 
   windows-fast-suite:
     needs: scope

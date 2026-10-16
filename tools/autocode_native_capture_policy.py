@@ -5,24 +5,22 @@ owner supplies approval; this object retains one real socket capability and the
 exact clean source/runtime/output boundary for its one acquisition.
 """
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .autocode_run_state import RunState
-
 import json
 import os
 import shutil
 import socket
 import stat
+import sys
 import time
 import uuid
 from copy import deepcopy
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 try:
     from . import autocode_capture_broker as broker
     from . import autocode_command_receipt as receipts
+    from . import autocode_native_linux_capture as linux_capture
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
     from . import autocode_visual_capture as capture
@@ -31,11 +29,16 @@ try:
 except ImportError:
     import autocode_capture_broker as broker
     import autocode_command_receipt as receipts
+    import autocode_native_linux_capture as linux_capture
     import autocode_tool_containment as containment
     import autocode_util as util
     import autocode_visual_capture as capture
     import autocode_visual_evidence as evidence
     import autocode_visual_profile as profiles
+
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 
 def require(value, reason):
@@ -156,6 +159,8 @@ BROWSER_ARGUMENTS = (
 
 def fixed_executable_pins():
     """Trusted OS trampoline and sandbox tool; no discovered executable input."""
+    if sys.platform == "linux":
+        return linux_capture.executable_pins()
     pins = {}
     for name in ("/bin/sh", "/usr/bin/sandbox-exec"):
         path = Path(name)
@@ -290,6 +295,10 @@ class CaptureBoundary:
             deadline=self.deadline,
             preview_origin=config.get("preview_origin"),
         )
+        if sys.platform == "linux":
+            # The trusted parent performs the one real listen. A contained
+            # Node adoption gets a no-op success, never authority to listen.
+            self.broker.socket.listen(1)
         self.ipc_sockets = []
         try:
             original_pair = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -311,11 +320,18 @@ class CaptureBoundary:
                 "autocode_visual_browser.cjs",
                 "autocode_native_capture_browser.cjs",
                 "autocode_capture_bootstrap.cjs",
+                "autocode_native_capture_linux.cjs",
             ):
                 path = Path(__file__).with_name(name).resolve()
                 self.pin_files[str(path)] = util.file_hash(path)
             self.log = self.run / ("capture-" + uuid.uuid4().hex + ".log")
-            self.policy_path = self.control / "capture.sb"
+            self.policy_path = self.control / ("capture.json" if sys.platform == "linux" else "capture.sb")
+            if sys.platform == "linux":
+                plan = linux_capture.write(
+                    self.scratch, self.runtime, inherited_fds=self.pass_fds, listener_fd=self.broker.identity["fd"]
+                )
+                for key in ("filter", "fixture_filter"):
+                    self.pin_files[plan[key]["path"]] = util.file_hash(plan[key]["path"])
             self.policy_path.write_text(self.policy())
             self.policy_path.chmod(0o400)
             self.pin_files[str(self.policy_path)] = util.file_hash(self.policy_path)
@@ -360,6 +376,12 @@ class CaptureBoundary:
         return value
 
     def policy(self):
+        if sys.platform == "linux":
+            return linux_capture.text(
+                linux_capture.policy(
+                    self.scratch, self.runtime, inherited_fds=self.pass_fds, listener_fd=self.broker.identity["fd"]
+                )
+            )
         text = containment._render_policy(
             self.workspace,
             self.scratch,
@@ -386,6 +408,11 @@ class CaptureBoundary:
     def require_current(self, *, live=True):
         if live:
             self.broker.require_current()
+            if sys.platform == "linux":
+                require(
+                    self.broker.socket.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) == 1,
+                    "original parent listener is no longer listening",
+                )
             require(
                 self.ipc == dict(zip(("bridge", "fixture"), map(socket_identity, self.ipc_sockets), strict=False)),
                 "original inherited CDP socketpair changed",
@@ -417,10 +444,14 @@ class CaptureBoundary:
             "nonce",
             "status",
         }
+        linux = sys.platform == "linux"
+        if linux:
+            keys = (keys - {"mach_service"}) | {"transport"}
         require(
             isinstance(actual, dict)
             and set(actual) == keys
-            and actual["version"] == 1
+            and actual["version"] == (2 if linux else 1)
+            and (not linux or actual["transport"] == linux_capture.TRANSPORT)
             and actual["status"] == "TRANSPORT_COMPLETE"
             and actual["connected"] is True
             and actual["nonce"] == self.broker.nonce
@@ -438,8 +469,11 @@ class CaptureBoundary:
         require(
             all(type(pid) is int and pid > 0 for pid in pids)
             and len(set(pids)) == 3
-            and actual["mach_service"]
-            == "org.chromium.Chromium.MachPortRendezvousServer." + str(actual["browser_pid"]),
+            and (
+                linux
+                or actual["mach_service"]
+                == "org.chromium.Chromium.MachPortRendezvousServer." + str(actual["browser_pid"])
+            ),
             "transport branch identity or exact service changed",
         )
         owned = [metadata["provider"], *terminal["processes"]]
@@ -535,6 +569,7 @@ def verify_boundary(workspace, run_dir, body):
         "autocode_visual_browser.cjs",
         "autocode_native_capture_browser.cjs",
         "autocode_capture_bootstrap.cjs",
+        "autocode_native_capture_linux.cjs",
     ):
         path = Path(__file__).with_name(name).resolve()
         pins[str(path)] = util.file_hash(path)
@@ -563,7 +598,7 @@ def verify_boundary(workspace, run_dir, body):
         config,
         scratch,
         runtime,
-        scratch.parent / "capture.sb",
+        scratch.parent / ("capture.json" if sys.platform == "linux" else "capture.sb"),
         ipc,
         boundary["listener"],
         nonce=request_body.get("native_transport", {}).get("nonce"),
@@ -578,7 +613,7 @@ def verify_boundary(workspace, run_dir, body):
         "parent capture request changed",
     )
     pins[str(request)] = util.file_hash(request)
-    policy = scratch.parent / "capture.sb"
+    policy = scratch.parent / ("capture.json" if sys.platform == "linux" else "capture.sb")
     text = containment._render_policy(
         root,
         scratch,
@@ -609,11 +644,19 @@ def verify_boundary(workspace, run_dir, body):
         config.get("preview_origin") is None or lease["address"][1] != 3000,
         "preview origin collides with original primary listener",
     )
-    text += browser_directories(runtime)
-    text += (
-        '(allow sysctl-read (sysctl-name "kern.osproductversion"))\n'
-        + f'(allow network-inbound (local tcp "localhost:{lease["address"][1]}"))\n(deny network-bind network-outbound)\n'
-    )
+    if sys.platform == "linux":
+        inherited = (lease["fd"], ipc["bridge"]["fd"], ipc["fixture"]["fd"])
+        plan = linux_capture.policy(scratch, runtime, inherited_fds=inherited, listener_fd=lease["fd"])
+        linux_capture.verify_program(plan)
+        for key in ("filter", "fixture_filter"):
+            pins[plan[key]["path"]] = util.file_hash(plan[key]["path"])
+        text = linux_capture.text(plan)
+    else:
+        text += browser_directories(runtime)
+        text += (
+            '(allow sysctl-read (sysctl-name "kern.osproductversion"))\n'
+            + f'(allow network-inbound (local tcp "localhost:{lease["address"][1]}"))\n(deny network-bind network-outbound)\n'
+        )
     require(policy.read_text() == text, "capture policy changed or widened")
     pins[str(policy)] = util.file_hash(policy)
     require(boundary["pins"] == pins, "capture runtime/engine/policy pins changed")

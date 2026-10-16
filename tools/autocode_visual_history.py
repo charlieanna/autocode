@@ -516,7 +516,15 @@ class NativeReviewHistory:
         boundary = proof["containment"]
         _require(
             boundary["version"] == 1
-            and boundary["platform"] == "darwin"
+            and (
+                boundary["platform"] == "darwin"
+                and boundary.get("backend") in (None, "seatbelt")
+                or boundary["platform"] == "linux"
+                and boundary.get("backend") == "bubblewrap"
+                and isinstance(boundary.get("backend_version"), str)
+                and re.fullmatch(r"bubblewrap [0-9]+(?:\.[0-9]+)+", boundary["backend_version"])
+                and Path(boundary["profile"]).name == "policy.bwrap"
+            )
             and boundary["native_version"] == visual_profile.VERSION
             and Path(boundary["workspace"]) == self.workspace
             and boundary["allow_write"] is False
@@ -537,7 +545,12 @@ class NativeReviewHistory:
             and conformance["native_version"] == visual_profile.VERSION
             and conformance["profile_sha256"] == boundary["profile_sha256"]
             and conformance["shell_sha256"] == boundary["shell_sha256"]
-            and re.search(r"Operation not permitted|Permission denied", conformance["output"]),
+            and (
+                boundary["platform"] != "linux"
+                or conformance.get("backend") == boundary["backend"]
+                and conformance.get("backend_version") == boundary["backend_version"]
+            )
+            and re.search(r"Operation not permitted|Permission denied|Read-only file system", conformance["output"]),
             "Original actual native denied-write conformance changed",
         )
         # profile.json sorts object keys, so its permission map cannot carry

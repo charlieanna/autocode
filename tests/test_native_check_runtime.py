@@ -14,6 +14,7 @@ from unittest.mock import patch
 import autocode_native_check_execution as execution
 import autocode_native_check_runtime as runtime
 import autocode_util as util
+import autocode_verify as verify
 import autocode_visual_protection as protection
 
 
@@ -34,6 +35,26 @@ def _sandbox_identity():
     """
     real = util.file_hash
     return patch.object(util, "file_hash", lambda path: "e" * 64 if Path(path) == _SANDBOX else real(path))
+
+
+class NativeScratchModeAdmissionTests(unittest.TestCase):
+    def test_review_mutation_inputs_refuse_before_any_native_or_ordinary_copy(self):
+        native = object.__new__(verify.native_checks.NativeCheckExecution)
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch.object(verify.native_checks.NativeCheckExecution, "copy") as copy,
+            patch.object(verify, "prepare_scratch_tree") as prepare,
+            patch.object(verify.preparation, "execute") as scheduled,
+            patch.object(verify.review_mutations, "run_scratch") as mutate,
+        ):
+            root = Path(temporary)
+            for options in ({"review_mutation": True}, {"review_mutation_deadline": 1.0}):
+                with self.subTest(options=options), self.assertRaises(util.Paused):
+                    verify.scratch_run(root, root / "never", native_execution=native, **options)
+            copy.assert_not_called()
+            prepare.assert_not_called()
+            scheduled.assert_not_called()
+            mutate.assert_not_called()
 
 
 class NativeCheckRuntimeTests(unittest.TestCase):
@@ -89,6 +110,7 @@ class NativeCheckRuntimeTests(unittest.TestCase):
         scratch = control / "scratch"
         scratch.mkdir(exist_ok=True)
         (scratch / "verification").mkdir(exist_ok=True)
+        (scratch / "writable").mkdir(exist_ok=True)
         target = execution.NativeCheckExecution.__new__(execution.NativeCheckExecution)
         target.workspace, target.run = self.workspace, self.run
         target.review_record = None
@@ -123,6 +145,20 @@ class NativeCheckRuntimeTests(unittest.TestCase):
 
     def test_original_check_policy_grants_exact_pinned_node_dependency_files(self):
         prepared, policy = self.render_check()
+        if sys.platform == "linux":
+            arguments = json.loads(policy)["arguments"]
+            mounts = [
+                tuple(arguments[i : i + 3]) for i, item in enumerate(arguments) if item in ("--ro-bind", "--bind")
+            ]
+            for name in self.files:
+                self.assertIn(("--ro-bind", name, name), mounts)
+                self.assertNotIn(("--bind", name, name), mounts)
+            self.assertNotIn(("--ro-bind", str(self.node.parent), str(self.node.parent)), mounts)
+            self.assertNotIn("--share-net", arguments)
+            filter_path = Path(json.loads(policy)["filter"]["path"])
+            self.assertEqual(filter_path.read_bytes(), execution.linux_check.kernel.seccomp_program())
+            self.assertEqual(prepared["command"][-1], "python3 test_app.py")
+            return
         for name in self.files:
             self.assertIn("(literal " + json.dumps(name) + ")", policy)
             self.assertNotIn("(subpath " + json.dumps(name) + ")", policy)
@@ -235,11 +271,18 @@ class NativeCheckRuntimeTests(unittest.TestCase):
         prepared, _policy = self.render_check()
         profile = Path(prepared["boundary"]["profile"])
         profile.chmod(0o600)
-        with profile.open("a") as stream:
-            stream.write("(allow file-read* (subpath " + json.dumps(str(self.node.parent)) + "))\n")
+        if sys.platform == "linux":
+            value = json.loads(profile.read_text())
+            value["arguments"][0:0] = ["--ro-bind", str(self.node.parent), str(self.node.parent)]
+            profile.write_text(execution.linux_check.text(value))
+        else:
+            with profile.open("a") as stream:
+                stream.write("(allow file-read* (subpath " + json.dumps(str(self.node.parent)) + "))\n")
         profile.chmod(0o400)
         prepared["boundary"]["profile_sha256"] = util.file_hash(profile)
-        with self.assertRaisesRegex(util.Paused, "kernel policy changed or widened"):
+        with self.assertRaisesRegex(
+            util.Paused, "original readonly policy" if sys.platform == "linux" else "kernel policy changed or widened"
+        ):
             self.verify_boundary(prepared)
 
     def test_git_setup_and_profiles_without_capture_runtime_keep_original_policy(self):
