@@ -118,6 +118,16 @@ class RegistryInterventionTests(unittest.TestCase):
         self.assertFalse(result["task_progress_known"])
         self.assertEqual("unknown", result["tasks"][0]["state"])
 
+    def test_task_detail_carries_the_runs_status_view(self):
+        self.status["view"] = {"status": "RUNNING", "dev_server": {"url": "http://127.0.0.1:8123/"}, "needs": []}
+        self.save("status.json", self.status)
+        view = self.console.task_view(self.workspace, self.run)
+        self.assertEqual(self.status["view"], view["status_view"])
+        self.assertNotIn("status_view", self.console.discover()[0])
+        self.console.status_cache.clear()
+        with patch.object(self.console, "_json_command", return_value=(None, {"message": "gone"})):
+            self.assertIsNone(self.console.task_view(self.workspace, self.run)["status_view"])
+
     def test_registry_only_discovery_dedupes_and_rejects_unregistered_run(self):
         self.assertEqual([self.workspace], self.console.workspaces)
         self.assertEqual([str(self.run)], [r["run"] for r in self.console.discover()])

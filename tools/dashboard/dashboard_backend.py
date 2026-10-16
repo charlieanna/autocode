@@ -441,11 +441,22 @@ class RegistryInterventionMixin:
         }
         if capable and (error or inspect_error):
             value["mode"] = "unavailable"
-        self.status_cache[key] = {"at": time.monotonic(), "value": value}
+        status_view = mapping(data).get("view") if not error else None
+        self.status_cache[key] = {
+            "at": time.monotonic(),
+            "value": value,
+            "status_view": status_view if isinstance(status_view, dict) else None,
+        }
         return value
 
     def view(self, workspace, run, s=None):
-        return {**super().view(workspace, run, s), "interventions": self._intervention_view(workspace, run)}
+        interventions = self._intervention_view(workspace, run)
+        return {
+            **super().view(workspace, run, s),
+            "interventions": interventions,
+            # The run's public status view (autocode --status), from the same cached call.
+            "status_view": mapping(self.status_cache.get(str(run))).get("status_view"),
+        }
 
     def _marker(self, run):
         marker = run / "pause-requested"
