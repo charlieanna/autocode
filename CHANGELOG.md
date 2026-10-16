@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `tests/test_json_output.py` holds `--status` and `--json` to the status-view schema and exit-code table on a
+  saved auth pause (`your_environment`) and rate-limit pause (`model_or_provider`), matching the AutoCode
+  iteration/time-limit coverage already there. The fake person-pause contract test still does not reach those
+  stops; `--quiet` remains open (#714).
+
 - The capacity-recovery scenario can inject its first failure before a live report-file provider retry; its oracle
   binds recovery and later clarification calls to public accounting, completing #1071 qualification.
 
@@ -33,8 +38,18 @@ PR template asks for an entry here; a change without one is incomplete.
   prompt) saves the workspace's Git `user.name` and `user.email`, the host name and the command's option names
   (never their values, so no token). `--as NAME` adds the approver's own name on a shared machine, recorded as a
   claim. `--status` lists them under the additive `approvals` field and the completion summary lists them before
-  its cost line. Nothing is verified and approval authority is unchanged. Goal edits, resumes, the evidence report
-  and pull request body, and a required approver are still to come.
+  its cost line. Nothing is verified and approval authority is unchanged. The evidence report and pull request body
+  (#692) and a required approver (#707) are still to come.
+- Goal edits and resumes record who made them (#722, second part): `--edit-goal` saves the workspace's Git
+  `user.name` and `user.email`, the host name and the command's option names on the draft revision it
+  installs, and an explicit resume (`--resume-paused` or `autocode resume`) that takes the run out of its
+  pause saves the same, with the pause it released, once the run passes the checks that could keep it there
+  and its next stage launches. A resume the pause's own rules refuse records nothing, such as one made while a
+  `pause-requested` file is still in place. `--as NAME` now also goes with `--edit-goal` and a resume (with a
+  resume it is saved only when the resume releases a pause). `--status` lists them in `approvals` (kinds `edit`
+  and `resume`; each row gains `pause_status`) and the completion summary names them. Nothing is verified and
+  no authority changes. The evidence report and pull request body (#692) and a required approver (#707) are
+  still to come.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -94,11 +109,25 @@ PR template asks for an entry here; a change without one is incomplete.
   `linux-tool-containment` CI job runs the kernel controls. Differences from Seatbelt are listed in
   [Linux bubblewrap boundary](docs/execution.md#linux-bubblewrap-boundary).
 - The provider conformance suite covers Claude Code (#717, #706).
+- `--package PATH` starts a run on one package of a monorepo (#711, first part): the suite is detected inside
+  that directory and runs from it (`cd PATH && SUITE`), only its tests are protected, and a change outside it
+  leaves the regression proof UNVERIFIED, which keeps a run that needs that proof from completing. The status
+  view gains `package`. An explicit `--test-command` still runs from the repository root. The package is fixed
+  at launch. Builder write scope and the two-package scenario are still to come.
 - The `claude-tiers` scenario profile is in `scenarios/harness/profiles.py` (#717, #694).
 - The status view gains `provider`: the provider the run's OpenCode-engine roles launch through (#717).
+- `autocode completion` completes the options of `autocode program`'s commands (`autocode program approve --`), and in fish `autocode program plan` no longer offers the options of the top-level `plan` command. `docs/schemas/status-view.schema.json` describes the status payload `--status` and `--json` print, and the exit codes in `docs/cli.md` are a table. `tests/test_json_contract.py` enforces the table on a fake run that stops only to wait on you: at a requested pause, a question, the plan approval and a human review, then completion. At each stop it runs the stop's offered command, with current and with stale tokens, and the other commands a script reads the run with. It validates each status payload the main command prints under `--json` or `--status` against the schema (a lone `{"result": …}` against its `properties.result`) and each `events` line against `run-event.schema.json`, and checks that `wait --json` and `runs --json` agree with the status view. The test does not reach stops for the environment, a provider or AutoCode (#714).
 - Trusted `--test-report junit:relative/file.xml` settings supply named proof from fresh, hash-pinned JUnit XML, with retained base-suite checks and a real Maven/JUnit catalog fixture (#696).
 
 - Searchable documentation site built from the existing guides, with five task-oriented entry points, canonical stage names, strict link checks, and latest/release-tag versions (#728).
+- `autocode --goal-file PATH` loads a plan file that `autocode plan --export` wrote, reviewed and edited in a
+  pull request, into a saved run as its next draft revision (#720). The file is refused, with the run left as
+  it was, when its text no longer matches its front matter, its runner records are not the run's, or a
+  planner's draft of the same plan would be sent back: a literal of the request it drops (with the planner's
+  message), a Go test the request names that no criterion proves, `git status` in a check, or a command the
+  shell cannot parse. The plan then goes through ordinary approval; the approval stop names the file and its
+  goal hash and says whether the plan to approve is still the plan loaded from it. Starting a new run from a
+  plan file is not part of this change.
 - A focused fake-provider regression kills the controller after a runner finding is durably saved, then verifies restart retains the finding and prior attempts until corrected source passes fresh lifecycle proof (#451).
 - `--spec-first` (opt-in, new runs): the run stops after Requirements on every handoff and shows what it
   understood; `plan` starts the Planner, anything else runs Requirements again with that answer. The scenario
@@ -205,6 +234,13 @@ PR template asks for an entry here; a change without one is incomplete.
   were already 10 seconds old when it was read; a wall-clock jump forgets every kept hash. Windows keeps none.
   Hashes and source revisions are unchanged. On a 100,000-file repository a repeated snapshot takes about 0.8 s
   of CPU instead of 3.5 s, and the first one in a process about 1.8 s (#711).
+- In every run, with or without `--package`, a check, probe or protected-test replay whose command is exactly
+  `cd DIR && RUNNER` (a plain relative directory; unittest, pytest, node:test or `go test`) runs with that
+  runner's per-test results read inside `DIR`, so a run of zero tests, only skipped tests or incomplete results
+  is refused as for the same runner at the root; it used to run as a plain shell command judged by its exit
+  code. A direct node:test command in that form always runs fresh, never from the baseline cache. Native visual
+  checks cannot run such a command: an approved check in that form now pauses with `PAUSED_VISUAL_EVIDENCE`
+  (#711).
 - Under a money cap (`--max-cost-usd`), a role's climb on its effort ladder (such as the Tester's GPT-6 Sol High →
   XHigh → Max after a failed validation) is priced before the climbed attempt launches, as the Builder's stronger
   attempt already was: the role's last attempt's tokens at the climbed route's rate. When that would take the spend
@@ -238,6 +274,24 @@ PR template asks for an entry here; a change without one is incomplete.
   follows a key held in a module constant, which brought `validation_only_rounds` into the contract. A
   `goal_contract`, `current_task` or `validation` saved as `null` reads as absent when a milestone's scope or a
   validation's freshness is worked out, instead of raising (#695).
+- The AutoResolver's modules (`autocode_resolver_recovery`, `autocode_resolver_human`, `autocode_resolver_runtime`
+  and `units/autoresolver`) take the typed `RunState`, so the untyped-`state` ratchet drops from 863 to 780 and mypy
+  checks those 81 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The progressive-planning record's writer (`autocode_progressive_state`) takes the typed `RunState`, so the
+  untyped-`state` ratchet drops from 780 to 742 and mypy checks those 38 function bodies. The 34 `state` parameters
+  in `autocode_program` stay untyped: they hold a program's own record, not a task run's. Type-only: no behaviour,
+  output or `state.json` change (#695).
+- The milestone gates (`autocode_milestones`), the planning unit (`units/autoplanner`) and the goal lifecycle
+  (`autocode_goal_lifecycle`) take the typed `RunState`, so the untyped-`state` ratchet drops from 742 to 680 and mypy
+  checks those 62 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The goal contract (`autocode_goals`) and the runner's regression proof (`autocode_regression`) take the typed
+  `RunState`, so the untyped-`state` ratchet drops from 680 to 628 and mypy checks those 52 function bodies.
+  Type-only: no behaviour, output or `state.json` change (#695).
+- The Builder retry policy (`autocode_builder_policy`), the parallel Builder dispatch (`autocode_dispatch`), stage
+  recovery (`autocode_stage_recovery`), the planning handoffs (`autocode_planning_artifacts`), the brief obligations
+  (`autocode_brief_obligations`) and the reviewer fallback (`autocode_reviewer_fallback`) take the typed `RunState`,
+  so the untyped-`state` ratchet drops from 628 to 545 and mypy checks those 83 function bodies. Type-only: no
+  behaviour, output or `state.json` change (#695).
 
 ### Removed
 
@@ -254,6 +308,28 @@ PR template asks for an entry here; a change without one is incomplete.
   with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
 
 ### Fixed
+
+- `--package` follow-ups (#711): a feature that adds the first Go module in the package, on a base with no Go
+  project, is no longer left UNVERIFIED, as at the root (#685). A `--test-command` written for the run's
+  package as `cd PACKAGE && RUNNER` (unittest, pytest, node:test or `go test`) is read with that runner inside
+  the package by the proof and the named-proof preflight, as the protected-test replay already read it. Before,
+  the proof read it with the runner detected in the package: unittest when pytest is configured only at the
+  repository root, and none in a package of a single root Go module, whose bug fix then passed on the exit code
+  without naming a test. A package run no longer takes the learned test command from project memory, and no
+  longer saves its own test command and framework there, where they became the default of every later run in
+  the repository.
+- Truncated command output counts a final write even when it races with the watcher cutting the file, preserving accurate dropped-byte totals (#1376).
+- Keyboard focus reveals the full focused details tab on narrow screens and keeps the focus ring separated from the selected tab boundary in both themes (#1375).
+
+- The native saved-profile refusal fixture supplies the JSON invocation adapter so it reaches its original pre-provider refusal assertion.
+- Accepting a replacement model for a parallel Builder consumes its routing question and leaves the parent paused for explicit resume, instead of stranding it in an unauthorized clarification (#1370).
+
+- The dashboard keeps a project in its project filter, Settings and the top New conversation scope when
+  that project's only task ran in a task worktree that has since been deleted; only the missing worktree
+  itself is hidden. Removing the project from an open worktree task's project details keeps the task open
+  with its Restore banner instead of returning to All work. Merging #809 into the Figma integration (#1325)
+  had broken both and failed the dashboard suite on master.
+- Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
 
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.
@@ -272,11 +348,43 @@ PR template asks for an entry here; a change without one is incomplete.
   each finding's `blocking` and `evidence` fields so clients can show what completion accepted. Completion
   eligibility is unchanged (#1167).
 
+- A scoped native Figma run (`VISUAL_SLICE_GATES=complete-cases-v1`) now takes the CONTINUE readiness shortcut:
+  when the Completion Reviewer says CONTINUE although every completion gate passes, the visual gate is checked
+  with the run's own scope authority, as terminal completion already was, and the reviewer is sent back once
+  instead of the gate always failing closed. Public `--status` stays lock-free and reports scoped visual
+  acceptance as `UNKNOWN` (with `completion_current` null) instead of a false `NOT_READY` denial when the
+  runner's CODE scope authority is not available (#1255).
 - Pull request CI selects affected fake tests and relevant heavy jobs against pinned event commits, with explicit prompt/CLI consumers and a stable required-check verdict. Master coverage and strict provider refusal remain unchanged.
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
+- Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
+  to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,
+  it was never probed when the built-in OpenCode ran the other roles, and its prepaid route could fail after paid
+  work. A tool that still has a model to probe has its login checked before the first request, and passes are kept
+  per tool, so a pass on one tool never counts for the same model on another. Runs that use one tool are probed
+  exactly as before, and their saved passes are still reused (#1287).
+- The Resolver now climbs its effort ladder: a Resolver report still rejected once report repair is spent, or
+  an uncertain Resolver attempt the operator abandons, moves the Resolver from GPT-6 Astra High to XHigh and
+  then Max with a fresh session, and records a `reasoning_escalations` event. The ladder was keyed to the
+  `astra` route, so the Resolver (which runs on its own `resolver` route) stayed on High, while the
+  per-task Planner on the `astra` route climbed GPT-6 Astra against the 2026-09-28 decision; it no longer
+  does. Saved runs read a ladder persisted under `astra` as the Resolver's, with no state migration. A
+  recovery packet bound before a climb still holds after it, so the climbed attempt meets the packet's usual
+  causal-progress check (`--retry-failed-stage` authorizes one attempt) instead of a stale handoff. Under
+  `--max-cost-usd`, a Resolver climb is priced before its attempt launches, as every climb is (#611, #1345).
+  `autocode models` and doctor now name the `astra` route "Resolver and per-task Planner", and the docs say
+  which runs take `--resolver-model` (OpenCode-engine runs) and which seed the Resolver from `--astra-model`.
 - Credential masking in exports (bundles, evidence reports, pull request bodies, plan files) no longer
   masks AutoCode's own `risk-<sha256>` declaration ids as `sk-` keys; every other `sk-` key is still
   masked (#720).
+
+- A repair of the Plan Reviewer's final plan report no longer includes the superseded first draft's whole
+  contract next to the revised draft under review. The final review itself never receives that contract, and the
+  extra copy helped a program workstream's third final-review repair pass the 256 KiB repair limit and pause at
+  `PAUSED_REPORT_REPAIR_INPUT`. The first draft's report keeps every other field in the repair, and its full text
+  stays at its saved path. The revised draft's full contract appears once; the repair's `protected_contract`
+  excerpt, taken from that same draft, still repeats its required behaviors, scope exclusions, constraints,
+  failure cases, acceptance criteria and permission boundaries. The limit and every report check are unchanged
+  (Refs #1337).
 
 - `--planning-v2`: feedback, an answer, a follow-up or a program's plan guidance that changes the Requirements
   handoff now begins a new planning cycle with the configured Plan Reviewer allowance, as on the default flow.
@@ -285,6 +393,7 @@ PR template asks for an entry here; a change without one is incomplete.
   retried Requirements report with nothing new from you, keeps the cycle and its spent reviews. A planning record
   saved before this change keeps its charges until your next input (#1252).
 
+- Under `--json`, a run stopped inside the build loop (`--pause-after-stage`, a time or iteration limit, a stop an intervention asked for) printed only `{"result": …}`, with no `run_dir`, `status` or `view`. It now prints the saved run's status payload with `result`. `tests/test_json_output.py` checks a requested pause and the iteration and time limits (#714).
 - Dashboard: the Plan pane shows the attached conversation draft that the task's draft selection picks, read-only
   with its draft label, Planner attribution, freshness and earlier drafts, instead of "No saved plan yet", "Plan
   not ready yet" or an older unreviewed revision (which stays under a disclosure). History's "Read draft in Plan"

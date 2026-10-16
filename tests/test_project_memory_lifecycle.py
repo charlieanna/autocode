@@ -468,6 +468,18 @@ class ProjectMemoryLifecycleTests(unittest.TestCase):
         self.assertEqual([], self.state["acceptance_criteria"])
         self.assertNotIn("goal_contract", self.state)
 
+    def test_a_package_run_leaves_the_project_suite_it_did_not_run_for_the_whole_repository(self):
+        # The record has no package key: a package's suite saved there would become the test command of
+        # every later run, of another package or of the whole repository (#711).
+        command = "cd packages/api && go test ./..."
+        self.state["settings"] = {"package": "packages/api", "regression": {"test_command": command}}
+        self.state["regression_proof"] = {"framework": {"name": "go"}, "commands": {"suite": command}}
+        store.write(self.root, record())  # learned by an earlier run of the whole repository
+        self.assertTrue(memory.publish(self.path, self.state))
+        self.assertEqual("written", self.state["project_memory"]["publication"]["status"])
+        kept = store.read(self.root)
+        self.assertEqual((record()["framework"], record()["test_command"]), (kept["framework"], kept["test_command"]))
+
     def test_recorded_generated_python_suites_get_only_a_portable_interpreter(self):
         for name, arguments in (
             ("unittest", ["discover", "-s", "tests", "-t", ".", "-v"]),

@@ -55,6 +55,17 @@ class ProjectMemoryInterfacesTests(unittest.TestCase):
             self.parse("Build it", "--test-command", "pytest tests/test_explicit.py")[0].test_command,
         )
 
+    def test_a_package_run_takes_no_learned_test_command(self):
+        # The learned command was a whole-repository suite; a package run detects its package's own (#711).
+        memory.write(self.root, record())
+        args, notice = self.parse("Build it", "--package", "packages/api")
+        self.assertIsNone(args.test_command)
+        self.assertNotIn("project.json", notice)
+        # The team's explicit project setting still applies, as the flag it stands for does.
+        (self.directory / "config.toml").write_text('test-command = "cd packages/api && go test ./..."\n')
+        args, _ = self.parse("Build it", "--package", "packages/api")
+        self.assertEqual("cd packages/api && go test ./...", args.test_command)
+
     def test_observed_route_never_selects_engine_provider_models_or_budgets(self):
         memory.write(self.root, record())
         args, _ = self.parse("Build it")

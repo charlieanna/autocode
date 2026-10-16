@@ -45,9 +45,15 @@ def requirements(component_id: str, spec: dict) -> list[dict]:
 
 
 def brief_of(data: dict) -> str:
-    """The component brief this stage was given: the task, or, in a requirements
-    report repair, the first source text (the task again)."""
-    return data.get("task") or next(iter(data.get("source_texts") or []), "") or ""
+    """Resolve the component brief from a full task, compact source reference,
+    or a requirements report repair's first source text."""
+    task = data.get("task") or next(iter(data.get("source_texts") or []), "") or ""
+    match = re.fullmatch(r"see source_inventory id (\S+)", task)
+    if match:
+        for row in data.get("source_inventory") or []:
+            if isinstance(row, dict) and row.get("id") == match.group(1) and row.get("text"):
+                return str(row["text"])
+    return task
 
 
 def ignored_statements(component_id: str, data: dict) -> list[str]:

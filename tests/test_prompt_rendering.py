@@ -355,11 +355,18 @@ class RenderedPromptTests(unittest.TestCase):
             or name == "execution/astra_discovery/v3"
         }
         self.assertTrue(cases)
-        expected = [{"id": "task:0", "kind": "task", "text": fixed_state()["task"]}]
+        task = fixed_state()["task"]
+        expected = [{"id": "task:0", "kind": "task", "text": task}]
         for name, text in cases.items():
             with self.subTest(case=name):
                 instruction, raw = text.split("\nCURRENT HANDOFF DATA\n", 1)
-                self.assertEqual(expected, json.loads(raw)["source_inventory"])
+                handoff = json.loads(raw)
+                self.assertEqual(expected, handoff["source_inventory"])
+                # Full brief once in source_inventory; instruction lists ids only (#1337).
+                self.assertEqual(1, text.count(task))
+                self.assertEqual("see source_inventory id task:0", handoff["task"])
+                self.assertIn("[task:0] kind=task", instruction)
+                self.assertNotIn(f"[task:0] {task}", instruction)
                 self.assertIn("SOURCE TRACE. Every acceptance criterion must name what it traces to", instruction)
                 self.assertIn('"sources": [{"source_id": ..., "quote": ...}]', instruction)
                 self.assertIn("the criteria must quote every sentence of every source", instruction)

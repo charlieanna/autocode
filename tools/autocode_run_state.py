@@ -171,6 +171,7 @@ KEYS: frozenset[str] = frozenset(
         "parent_batch",
         "parent_run",
         "pause",
+        "pause_acknowledgements",
         "pause_intent",
         "pause_requested",
         "paused_at",
@@ -309,7 +310,9 @@ class RunState(TypedDict, total=False):
     acceptance_criteria: list  # the approved criteria; written by goals
     acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
-    goal_contract: dict | None  # the approved contract; written by goals
+    # The approved contract; written by goals. A revision loaded with --goal-file also names that file in
+    # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop).
+    goal_contract: dict | None
     current_task: dict | None  # the task the Builder is on
     user_events: list  # goals writes answers/approvals; timeout receipts include operational_changes
     answers: dict  # question id -> answer text
@@ -351,6 +354,12 @@ class RunState(TypedDict, total=False):
     program_guidance: list  # a program's corrections of the displayed plan (autocode_program_guidance writes, units.autoplanner reads)
     last_decision: dict | None  # the latest plan decision
     contract_history: list  # prior contract revisions
+    # Who resumed the run out of each pause (#722): {at, pause_status, provenance}, appended by
+    # autocode_approval_provenance.acknowledge when, after an explicit resume, the build loop passes every check
+    # that could hold the run at that pause and launches work; read by its view (the status view's ``approvals``,
+    # the completion summary). Not user_events: every AutoResolver request binds those, and the deferred-approval
+    # bound counts them as the person's input.
+    pause_acknowledgements: list
 
     # --- orchestration / progressive ---
     orchestration_batch: dict | None  # a parallel Builder batch

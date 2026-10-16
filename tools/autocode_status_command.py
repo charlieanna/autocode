@@ -79,6 +79,9 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
         if state["status"] == "TASK_COMPLETE" or strict_visual or state.get("settings", {}).get("design_manifest")
         else None
     )
+    # Public --status stays lock-free. Scoped visual acceptance needs the runner's
+    # CODE scope authority (exclusive locks); without it, projection reports UNKNOWN
+    # and completion_current stays unknown rather than a false NOT_READY denial (#1255).
     visual_acceptance = (
         runner.visual_runtime.projection(state, current_snapshot=current)
         if (state.get("settings", {}).get("design_manifest") or strict_visual) and current
@@ -95,7 +98,9 @@ def render(runner, state, args, workspace, run_dir, *, design_input_preview=None
         except ValueError:
             completion_current = False
     if completion_current is True and (state.get("settings", {}).get("design_manifest") or strict_visual):
-        completion_current = runner.visual_runtime.completion_check(state, current_snapshot=current)["passed"]
+        visual_gate = runner.visual_runtime.completion_check(state, current_snapshot=current)
+        # None means scoped acceptance could not be judged without runner CODE.
+        completion_current = visual_gate["passed"]
     inspected = None
     if getattr(args, "inspect_evidence", False):
         contract = state.get("goal_contract") or {}

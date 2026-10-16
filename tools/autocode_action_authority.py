@@ -148,6 +148,7 @@ def settle(runner, args, parser, state, state_path, run_dir, workspace, decided)
             args.delegate,
             args.approve_goal,
             args.edit_goal,
+            args.goal_file,
             args.approve_review,
             args.reject_review,
             args.reconcile_review,

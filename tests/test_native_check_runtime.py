@@ -21,6 +21,21 @@ class _BeforeTarget(Exception):
     pass
 
 
+_SANDBOX = Path("/usr/bin/sandbox-exec")
+
+
+def _sandbox_identity():
+    """Pin Seatbelt's launcher by a controlled digest; these tests never run it.
+
+    The check boundary records and rechecks a hash of every launcher binary.
+    Linux has no /usr/bin/sandbox-exec to hash, and its bytes do not affect the
+    rendered policy, so every host uses the same digest for it. Other files
+    (including the profile and the pinned Node runtime) keep their real hash.
+    """
+    real = util.file_hash
+    return patch.object(util, "file_hash", lambda path: "e" * 64 if Path(path) == _SANDBOX else real(path))
+
+
 class NativeCheckRuntimeTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="native-check-runtime-unit-")
@@ -96,7 +111,7 @@ class NativeCheckRuntimeTests(unittest.TestCase):
         target.owner = SimpleNamespace(prepare_check=prepared)
         runtime = sys.modules.get("autocode_native_check_runtime")
         locator = patch.object(runtime, "LOGICAL_NODE", str(self.logical)) if runtime else nullcontext()
-        with locator, self.assertRaises(_BeforeTarget):
+        with locator, _sandbox_identity(), self.assertRaises(_BeforeTarget):
             target._execute(
                 "python3 test_app.py",
                 self.run / "check.log",
@@ -132,6 +147,7 @@ class NativeCheckRuntimeTests(unittest.TestCase):
         }
         with (
             patch.object(runtime, "LOGICAL_NODE", str(self.logical)),
+            _sandbox_identity(),
             patch.object(protection.source_snapshot, "inventory", return_value={}),
             patch.object(protection.copies, "execution", return_value=(Path(prepared["cwd"]), {})),
         ):

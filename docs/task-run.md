@@ -91,7 +91,7 @@ Use the existing provider and model flags for the run. Keep the controller
 checkout and its environment unchanged until the run has stopped. An installed
 controller is also safe when its package directory is outside the task worktree.
 
-Inputs fixed when a run starts, such as `--ui-run` and `--test-root`, belong in `start_options`
+Inputs fixed when a run starts, such as `--ui-run`, `--test-root` and `--package`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
 start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
 and reattachment use the saved settings. For scoped Python proof, use
@@ -507,7 +507,10 @@ detail; list polling does not hash every project checkout.
 
 Produced by `tools/autocode_run_view.py` from the saved state. Fields may be
 added; existing fields keep their names and meanings, and `schema` changes if a
-meaning must change.
+meaning must change. [schemas/status-view.schema.json](schemas/status-view.schema.json)
+describes the status payload `--status` and `--json` print, with this view under `view`:
+every field it requires is always present, and a consumer must ignore fields it
+does not know.
 
 `action()` is the same composition of `needs`, `pause_category` and `next_command`
 that `view()` returns those three fields from, without the evidence, usage and
@@ -751,17 +754,20 @@ was approved. A coordinating layer such as
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
-`approvals` lists every plan and review approval the run recorded, oldest first (#722):
-`kind` (`plan` or `review`), `at`, `actor` (`user_cli` for a person, `workflow_policy`
-for a small bug fix approved under the workflow policy), `contract_token` (the plan
-token approved, null for a review), `criterion` (the accepted criterion, null for a plan)
-and `provenance`: `git_user_name`, `git_user_email`, `host`, `command` (`autocode` and
+`approvals` lists every plan and review approval, goal edit and pause-releasing resume the
+run recorded, oldest first (#722): `kind` (`plan`, `review`, `edit` or `resume`), `at`,
+`actor` (`user_cli` for a person, `workflow_policy` for a small bug fix approved under the
+workflow policy), `contract_token` (the plan token approved, or the draft an edit installed;
+null for a review or a resume), `criterion` (the accepted criterion, null otherwise),
+`pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
+one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
+`git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and
 the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
 null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
-null for an approval saved before AutoCode recorded it and for a workflow-policy approval.
-It is a history: an approval stays listed after a newer plan or a rejection replaces it, so
-read what is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`.
-It is empty until the first approval.
+null for a record saved before AutoCode kept it and for a workflow-policy approval. It is a
+history: an approval stays listed after a newer plan or a rejection replaces it, so read what
+is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`. It is empty
+until the first record.
 
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `provider` names the provider those OpenCode-engine routes launch through
@@ -825,6 +831,10 @@ then. Launches without a boundary (planning, uncontained, configured providers, 
 are passed over, so after a run turns uncontained this still names the last boundary
 that applied; `tool_containment` says whether the run's stages are contained now. It
 is `null` until a stage launches contained.
+
+`package` is the repository directory a run started with `--package` works in,
+or `null` for a run of the whole repository; see
+[Monorepo packages](workflow.md#monorepo-packages).
 
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,

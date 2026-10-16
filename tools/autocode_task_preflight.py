@@ -27,6 +27,7 @@ from pathlib import Path
 try:
     from . import autocode_input_preflight as inputs
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_package_scope as package_scope
     from . import autocode_preflight_contract as contract
     from . import autocode_preflight_design as design
     from . import autocode_preflight_worker as workers
@@ -36,6 +37,7 @@ try:
 except ImportError:
     import autocode_input_preflight as inputs
     import autocode_launch_inputs as launch_inputs
+    import autocode_package_scope as package_scope
     import autocode_preflight_contract as contract
     import autocode_preflight_design as design
     import autocode_preflight_worker as workers
@@ -170,9 +172,17 @@ def _proof_commands(state, workspace, checks):
     commands = [options[key] for key in ("test_command", "regression_command") if options.get(key)]
     if not commands:
         return  # Future test source may determine the command; no invented default.
-    framework = verify.detect_framework(workspace, python=options.get("python") or verify.python_for(workspace))
+    # A test command written for the run's package as `cd PACKAGE && RUNNER` is judged with that runner,
+    # as the proof reads it (autocode_regression.prove); otherwise against the suite detected for the run.
+    framework = package_scope.own(state["settings"], options.get("test_command"), verify.command_framework)
+    framework = framework or verify.detect_framework(
+        workspace,
+        python=options.get("python") or verify.python_for(workspace),
+        **package_scope.detection(state["settings"]),
+    )
     for command in commands:
-        if not verify.expects_results(framework, command):
+        package, inner = package_scope.split(framework, command)  # a package's command reports from there
+        if not verify.expects_results(framework, inner, Path(workspace) / package if package else None):
             raise ValueError(
                 "Approved verification command cannot supply the named results required by this proof contract: "
                 + command

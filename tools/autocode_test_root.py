@@ -115,6 +115,65 @@ def read_policy(workspace: Path, path: Path) -> str:
     raise ValueError("Current policy resolves to a directory")
 
 
+def _blob(workspace, object_id: str) -> str:
+    result = subprocess.run(
+        ["git", "cat-file", "blob", object_id],
+        cwd=workspace,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode:
+        raise RuntimeError(f"git cat-file blob {object_id} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def pinned_policy(workspace, path, entries) -> str:
+    """Read one Git tree's policy with bounded relative pinned symlink resolution.
+
+    ``entries`` maps each path of the tree to its ``git ls-tree`` mode, type and object.
+    An absent policy is empty; an unsafe or unresolved existing link is not.
+    Directory links resolve too, without consulting the mutable checkout or host.
+    """
+    pending: list[str] = list(path.parts)
+    resolved: list[str] = []
+    links = 0
+    seen = set()
+    while pending:
+        part = pending.pop(0)
+        if part == ".":
+            continue
+        if part == "..":
+            if not resolved:
+                raise ValueError("Pinned policy escapes the repository")
+            resolved.pop()
+            continue
+        name = "/".join([*resolved, part])
+        entry = entries.get(name)
+        if entry is None:
+            if links:
+                raise ValueError("Pinned policy link target is absent from the base")
+            return ""
+        mode, kind, object_id = entry
+        if mode == "120000" and kind == "blob":
+            step = (name, tuple(pending))
+            if step in seen:
+                raise ValueError("Pinned policy link contains a loop")
+            seen.add(step)
+            links += 1
+            target = _blob(workspace, object_id)
+            if links > 32 or not target or target.startswith("/") or "\0" in target:
+                raise ValueError("Pinned policy link is external or exceeds the resolution limit")
+            pending = [part for part in target.split("/") if part] + (["."] if target.endswith("/") else []) + pending
+        elif mode == "040000" and kind == "tree":
+            resolved.append(part)
+        elif mode in ("100644", "100755") and kind == "blob" and not pending:
+            return _blob(workspace, object_id)
+        else:
+            raise ValueError("Pinned policy is not a regular file")
+    raise ValueError("Pinned policy resolves to a directory")
+
+
 def empty_on_base(workspace, base: str, root: str) -> bool:
     """True only when the pinned base holds nothing under root; Git errors are False."""
     try:

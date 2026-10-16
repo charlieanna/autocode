@@ -19,7 +19,7 @@ class RungTests(unittest.TestCase):
         self.assertIsNone(route_ladder.rung_index(ladder, "openai/gpt-6-sol", "low"))
 
     def test_next_rung_is_none_on_the_final_rung_and_off_any_ladder(self):
-        ladder = route_ladder.EFFORT_LADDERS["astra"]
+        ladder = route_ladder.EFFORT_LADDERS["resolver"]
         self.assertEqual(
             ("openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"),
             route_ladder.next_rung(ladder, "openai/gpt-6-astra", "high"),
@@ -57,20 +57,38 @@ class ServeabilityTests(unittest.TestCase):
     def test_served_ladders_drop_unserved_rungs_and_keep_unknown_catalogues(self):
         listed = ["openai/gpt-6-sol"]
         served = route_ladder.served_ladders(route_ladder.EFFORT_LADDERS, listed)
-        self.assertEqual((), served["astra"])
+        self.assertEqual((), served["resolver"])
         self.assertEqual(route_ladder.EFFORT_LADDERS["sol"], served["sol"])
         self.assertEqual(route_ladder.EFFORT_LADDERS, route_ladder.served_ladders(route_ladder.EFFORT_LADDERS, None))
 
     def test_a_new_run_persists_filtered_ladders_and_older_runs_fall_back(self):
         persisted = route_ladder.configure_ladders(["openai/gpt-6-sol"])
-        # Astra's rungs name a model the list omits: the persisted ladder
-        # empties out, and the reader drops the role entirely. Persisted rungs
-        # are lists, the shape state.json keeps.
-        self.assertEqual([], persisted["effort"]["astra"])
-        self.assertNotIn("astra", route_ladder.ladders({"route_ladders": persisted}))
+        # The Resolver's Astra rungs name a model the list omits: the persisted
+        # ladder empties out, and the reader drops the role entirely. Persisted
+        # rungs are lists, the shape state.json keeps.
+        self.assertEqual([], persisted["effort"]["resolver"])
+        self.assertNotIn("resolver", route_ladder.ladders({"route_ladders": persisted}))
         self.assertEqual(route_ladder.EFFORT_LADDERS["sol"], route_ladder.ladders({"route_ladders": persisted})["sol"])
         # Runs saved before route_ladders existed keep the static tables.
         self.assertEqual(route_ladder.EFFORT_LADDERS, route_ladder.ladders({}))
+
+    def test_a_ladder_saved_under_astra_is_read_as_the_resolvers(self):
+        """Before #1345 the Astra ladder was persisted under "astra", the per-task Planner's
+        route, while the Resolver runs on "resolver". The saved, serveability-filtered
+        ladder is read as the Resolver's at read time; state.json is not migrated."""
+        astra = [list(rung) for rung in route_ladder.EFFORT_LADDERS["resolver"]]
+        sol = [list(rung) for rung in route_ladder.EFFORT_LADDERS["sol"]]
+        saved = {"route_ladders": {"effort": {"astra": astra, "sol": sol}}}
+        read = route_ladder.ladders(saved)
+        self.assertEqual({"resolver", "sol"}, set(read))
+        self.assertEqual(route_ladder.EFFORT_LADDERS["resolver"], read["resolver"])
+        self.assertEqual({"effort": {"astra": astra, "sol": sol}}, saved["route_ladders"])
+        # A saved run whose provider served no Astra kept the ladder empty: no Resolver ladder.
+        emptied = route_ladder.ladders({"route_ladders": {"effort": {"astra": [], "sol": sol}}})
+        self.assertEqual({"sol"}, set(emptied))
+        # The static table has no "astra" key either, so a run saved before
+        # route_ladders existed climbs the Resolver and not the astra route.
+        self.assertNotIn("astra", route_ladder.EFFORT_LADDERS)
 
     def test_an_escalation_refuses_a_rung_the_provider_cannot_serve(self):
         state = {
@@ -166,7 +184,7 @@ class ServeTests(unittest.TestCase):
 
     def test_effort_rungs_the_provider_does_not_offer_are_removed(self):
         settings = route_ladder.serve(self.settings(), self.OFFERED - {"openai/gpt-6-astra"})
-        self.assertEqual([], settings["route_ladders"]["effort"]["astra"])
+        self.assertEqual([], settings["route_ladders"]["effort"]["resolver"])
         self.assertEqual(
             [list(rung) for rung in route_ladder.EFFORT_LADDERS["sol"]], settings["route_ladders"]["effort"]["sol"]
         )
