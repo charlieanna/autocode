@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 from copy import deepcopy
 from pathlib import Path
 
@@ -84,7 +89,7 @@ def _optional_dict(value):
     return value is None or isinstance(value, dict)
 
 
-def _projectable(state):
+def _projectable(state: RunState):
     """Keep corrupt replay inventories unavailable, never export a partial tape."""
     if not _dict_rows(state.get("stages", [])) or not _optional_dict(state.get("settings")):
         return False
@@ -117,7 +122,7 @@ def _projectable(state):
     return True
 
 
-def progress(state):
+def progress(state: RunState):
     settings = state.get("settings") or {}
     stages = state.get("stages", [])
     if not isinstance(settings, dict) or not _dict_rows(stages):
@@ -137,7 +142,7 @@ def progress(state):
         or authority.get("checks") not in ("fresh", "recorded")
     ):
         return None
-    rows = []
+    rows: list = []
     for row in stages:
         replay = row.get("replay")
         if replay is None:
@@ -160,7 +165,7 @@ def progress(state):
     }
 
 
-def _check_projection(state, records):
+def _check_projection(state: RunState, records):
     """Expose only owned receipt references/pins, never raw command output."""
     result = []
     validations = [entry.get("validation") or {} for entry in state.get("validation_archive") or []]
@@ -255,7 +260,7 @@ def _check_projection(state, records):
     return result
 
 
-def project(state, *, run_dir=None):
+def project(state: RunState, *, run_dir=None):
     """Expose no replay source when its inventories cannot be projected intact."""
     if not _projectable(state):
         return None
@@ -265,7 +270,7 @@ def project(state, *, run_dir=None):
         return None
 
 
-def _project(state, *, run_dir=None):
+def _project(state: RunState, *, run_dir=None):
     """Export names only from this run; caller owns immutable payload inspection."""
     run_dir = str(run_dir) if run_dir is not None else state.get("run_dir")
     records = [

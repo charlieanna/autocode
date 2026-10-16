@@ -330,6 +330,23 @@ PR template asks for an entry here; a change without one is incomplete.
   (`autocode_replay_checks`), the risk obligations (`autocode_risk_obligations`) and the parallel Builder quota
   handoff (`autocode_worker_quota`) take the typed `RunState`, so the untyped-`state` ratchet drops from 545 to 451
   and mypy checks those 94 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- The recovery allowance limits (`autocode_recovery_limits`), a parallel Builder member's model stop
+  (`autocode_member_stop`), Builder failure classification (`autocode_builder_failure`), the CLI's saved-run actions
+  (`autocode_run_actions`), the progress view (`autocode_progress_view`), design coverage (`autocode_design_coverage`),
+  the controller owner (`autocode_controller_owner`), bug-investigation questions (`autocode_bug_questions`), the
+  AutoReview unit (`units/autoreview`), the completion gate (`autocode_completion`) and checkpoint restore
+  (`autocode_checkpoint_cli`) take the typed `RunState`, so the untyped-`state` ratchet drops from 451 to 374 and mypy
+  checks those 77 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- Visual capture verification (`autocode_visual_evidence`), the human source log (`autocode_source_log`), the replay
+  view (`autocode_replay_view`), recovery-note retirement (`autocode_recovery_context`), progressive completion
+  (`autocode_progressive_completion`), planning clarification (`autocode_planning_clarification`), launch inputs
+  (`autocode_launch_inputs`), job model routing (`autocode_job_route`), design intake (`autocode_design_intake`), code
+  checkpoints (`autocode_code_checkpoints`), the pause authority steps (`autocode_action_authority`), the verification
+  plan (`autocode_verification_plan`), source tracing (`autocode_source_trace`), risk evidence
+  (`autocode_risk_evidence`), retained work (`autocode_retained_work`), requirement cues (`autocode_requirement_cues`),
+  `prune-run` (`autocode_prune_run`), dependency waits (`autocode_dependency`) and milestone carry-forward
+  (`autocode_carryforward`) take the typed `RunState`, so the untyped-`state` ratchet drops from 374 to 287 and mypy
+  checks those 87 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
 
 ### Removed
 
@@ -347,6 +364,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ineligible plan approvals are rejected before stage reconciliation, preserving the stopped checkpoint and retained report. Verified conversation-action replays remain idempotent.
 - `--package` follow-ups (#711): a feature that adds the first Go module in the package, on a base with no Go
   project, is no longer left UNVERIFIED, as at the root (#685). A `--test-command` written for the run's
   package as `cd PACKAGE && RUNNER` (unittest, pytest, node:test or `go test`) is read with that runner inside
@@ -368,6 +386,14 @@ PR template asks for an entry here; a change without one is incomplete.
   with its Restore banner instead of returning to All work. Merging #809 into the Figma integration (#1325)
   had broken both and failed the dashboard suite on master.
 - Keeper admission rejects missing timing declarations without crashing; the nested-cleanup clock fixture supplies the current timing contract (#1366).
+- Native Figma verification now confines read-only checks, captures and scoped writes on Linux with
+  bubblewrap and seccomp, preserving original-owner admission and fresh proof requirements. The
+  installed wheel includes the required capture/image resources; platform fixtures no longer
+  change unrelated process discovery while simulating macOS.
+- Native launch authentication retains kernel process identity when the wall clock shifts, and
+  original owner loss stays explicit even when provider exit beats the lifeline watcher.
+- Mobile artifact tabs reveal the whole focused tab and keep its focus indicator clear of
+  the selected border in both light and dark themes. Native modules remain importable on Windows.
 
 - macOS runs providers again under portable supervision with one stderr notice, as the owner chose
   in #1195; #1265 had made macOS refuse every provider launch (`PAUSED_PROCESS_CLEANUP`), fake runs included.

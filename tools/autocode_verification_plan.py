@@ -7,6 +7,13 @@ and the exit-expectation helper. refuse_new_plan asks /bin/sh, the replay's
 shell, to parse a new plan's commands (sh -n), which runs none of them.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 try:
     from . import autocode_prompts as prompts
 except ImportError:
@@ -252,7 +259,7 @@ def commands(method):
     return [text] if executable(text) and not any(p.search(bare) for p in (PROSE, SENTENCE, NOTE)) else []
 
 
-def approved_commands(state, *, progressive_context=None):
+def approved_commands(state: RunState, *, progressive_context=None):
     """Select ordinary checks or the authoritative, normalized cumulative checklist.
 
     The caller supplies progressive_state.context(state); proposals and tentative
@@ -282,7 +289,7 @@ def approved_commands(state, *, progressive_context=None):
     return list(dict.fromkeys(command for method in methods for command in commands(method)))
 
 
-def launch_commands(state, *, progressive_context=None):
+def launch_commands(state: RunState, *, progressive_context=None):
     """All declared commands whose tools must work before a contained stage."""
     result = approved_commands(state, progressive_context=progressive_context)
     regression = state.get("settings", {}).get("regression") or {}
@@ -290,7 +297,7 @@ def launch_commands(state, *, progressive_context=None):
     return list(dict.fromkeys(result))
 
 
-def obligations(state, *, progressive_context=None):
+def obligations(state: RunState, *, progressive_context=None):
     """Project the plan before approval without inventing executable coverage.
 
     Selectors and natural-language claims are declarations, not collected test
@@ -399,7 +406,7 @@ def obligations(state, *, progressive_context=None):
     }
 
 
-def repetitions(state, *, progressive_context=None):
+def repetitions(state: RunState, *, progressive_context=None):
     """Explicit repeated invocations remain obligations, not cache duplicates."""
     body = (state.get("goal_contract") or {}).get("body") or {}
     task = state.get("current_task") or {}
@@ -413,7 +420,7 @@ def repetitions(state, *, progressive_context=None):
         methods += [row["method"] for row in progressive_context.get("required_checks", [])]
     else:
         methods += toolchain_requirements.initial_validation(state)
-    result = {}
+    result: dict = {}
     for method in methods:
         extracted = commands(method)
         # Count repeated snippets in one instruction, not the same command

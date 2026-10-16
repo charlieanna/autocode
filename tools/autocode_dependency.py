@@ -6,6 +6,11 @@ A CLI-authorized binding replaces one exact permission request, never plan appro
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import copy
 import hashlib
 import json
@@ -26,7 +31,7 @@ def contained(root, relative):
     return path
 
 
-def bind(state, spec, public):
+def bind(state: RunState, spec, public):
     if state.get("active_stage") or state.get("status") != "WAITING_FOR_USER":
         raise ValueError("Bind a dependency only at a stopped user boundary")
     if not public or public.get("scope") != "permission" or spec.get("request_token") != public.get("request_token"):
@@ -77,16 +82,18 @@ def bind(state, spec, public):
     state.pop("user_request", None)
     state["pending_questions"] = []
     state.update(
-        status="WAITING_FOR_DEPENDENCY",
-        phase="WAITING_FOR_DEPENDENCY",
-        stop_reason=f"Waiting for {wait['label']} to finish and pass independent review. No user action needed.",
+        {
+            "status": "WAITING_FOR_DEPENDENCY",
+            "phase": "WAITING_FOR_DEPENDENCY",
+            "stop_reason": f"Waiting for {wait['label']} to finish and pass independent review. No user action needed.",
+        }
     )
     state.setdefault("user_events", []).append(
         {"kind": "dependency_binding", "actor": "user_cli", **copy.deepcopy(wait)}
     )
 
 
-def ready(state, receipt_path):
+def ready(state: RunState, receipt_path):
     wait = state.get("dependency_wait") or {}
     if state.get("status") != "WAITING_FOR_DEPENDENCY" or wait.get("status") != "waiting":
         raise ValueError("No dependency is waiting for delivery")
@@ -161,11 +168,11 @@ def ready(state, receipt_path):
         "manifest": str(expected),
         "instruction": "The registered prerequisite finished and its pinned delivery is available. Verify this manifest and review receipts before importing only authorized files. Independent consumer integration validation is still required.",
     }
-    state.update(status="RUNNING", phase="EXECUTING", next_stage=wait["next_stage"])
+    state.update({"status": "RUNNING", "phase": "EXECUTING", "next_stage": wait["next_stage"]})
     state.pop("stop_reason", None)
 
 
-def apply(args, state, run_dir, public, save, source_revision):
+def apply(args, state: RunState, run_dir, public, save, source_revision):
     """Controller adapter: execute one locked CLI action, or keep a waiting run stopped."""
     if args.bind_dependency or args.receive_dependency:
         candidate = copy.deepcopy(state)
@@ -180,7 +187,7 @@ def apply(args, state, run_dir, public, save, source_revision):
             print("Input rejected: " + str(error))
             return 2
         save(run_dir / "state.json", candidate)
-        state.clear()
+        cast(dict, state).clear()
         state.update(candidate)
         print(
             "Dependency registered; waiting for verified delivery."
@@ -191,14 +198,14 @@ def apply(args, state, run_dir, public, save, source_revision):
     if state.get("status") == "WAITING_FOR_DEPENDENCY":
         if args.feedback is not None or args.edit_goal or args.goal_file:
             state["dependency_wait"]["status"] = "cancelled"
-            state.update(status="RUNNING", phase="EXECUTING")
+            state.update({"status": "RUNNING", "phase": "EXECUTING"})
             return None
         print(state["stop_reason"])
         return 2
     return None
 
 
-def export(state, current, completion_current):
+def export(state: RunState, current, completion_current):
     if (state.get("settings") or {}).get("replay_recording", {}).get("checks") == "recorded":
         return None
     """Expose only a runner-verified current completion through the status interface."""

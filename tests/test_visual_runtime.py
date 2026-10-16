@@ -173,8 +173,16 @@ class VisualRuntimeTests(unittest.TestCase):
         )
 
     def test_lifecycle_projected_criteria_use_full_approved_visual_binding(self):
+        for row in self.state["goal_contract"]["body"]["acceptance_criteria"]:
+            row["sources"] = [{"source_id": "task:0", "quote": "Build a greeting tool"}]
+        self.approve()
         approved = deepcopy(self.state["goal_contract"]["body"]["acceptance_criteria"])
-        for omitted in (("verification_method",), ("human_review",), ("verification_method", "human_review")):
+        for omitted in (
+            ("verification_method",),
+            ("human_review",),
+            ("sources",),
+            ("verification_method", "human_review", "sources"),
+        ):
             with self.subTest(omitted=omitted):
                 self.state["acceptance_criteria"] = [
                     {key: value for key, value in row.items() if key not in omitted} for row in approved
@@ -194,12 +202,17 @@ class VisualRuntimeTests(unittest.TestCase):
                 )
 
     def test_projected_criteria_still_reject_definition_or_present_metadata_tampering(self):
+        for row in self.state["goal_contract"]["body"]["acceptance_criteria"]:
+            row["sources"] = [{"source_id": "task:0", "quote": "Build a greeting tool"}]
+        self.approve()
         approved = deepcopy(self.state["goal_contract"]["body"]["acceptance_criteria"])
         projected = [{key: row[key] for key in ("id", "criterion")} for row in approved]
         changes = {
             "verification method": lambda rows: rows[0].update(verification_method="claim green"),
             "human review": lambda rows: rows[0].update(human_review=True),
             "human review type": lambda rows: rows[0].update(human_review=0),
+            "source trace": lambda rows: rows[0].update(sources=[{"source_id": "task:0", "quote": "altered"}]),
+            "source trace type": lambda rows: rows[0].update(sources={}),
             "criterion wording": lambda rows: rows[0].update(criterion="Claim acceptance"),
             "criterion id": lambda rows: rows[0].update(id="foreign"),
             "extra definition": lambda rows: rows[0].update(approved=True),

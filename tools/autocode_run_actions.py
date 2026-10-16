@@ -20,6 +20,10 @@ from __future__ import annotations
 import dataclasses
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 try:
     from . import autocode_action_authority as action_authority
@@ -89,16 +93,16 @@ class Decided:
     released: bool = False  # that authority released the held pause (autocode_stop)
 
 
-def next_command(state, issued, run_dir, workspace):
+def next_command(state: RunState, issued, run_dir, workspace):
     """One concrete operator command for the pause class holding this run.
 
     --grant-recovery is named only for PAUSED_TIMEOUT_RECOVERY: the CLI rejects
     it for every other pause class, so suggesting it anywhere else is a dead end
     (#301).
     """
-    origin = {}
+    origin: dict = {}
     if issued:
-        entry = state.get("resolver", {}).get("human_escalations", {}).get(issued.get("request_id"), {})
+        entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(issued.get("request_id"), {})
         origin = entry.get("identity", {}).get("proposal", {}).get("origin", {}) or {}
     pause = origin.get("pause_status") or state.get("status")
     where = f"--workspace {workspace} --run-dir {run_dir}"
@@ -114,7 +118,7 @@ def next_command(state, issued, run_dir, workspace):
     return f"Next command: autocode --resume-paused {where}"
 
 
-def stale_result(state, result, revision):
+def stale_result(state: RunState, result, revision):
     """True when a recovered result is bound to another contract, task or tree (#302)."""
     contract = state.get("goal_contract") or {}
     task = state.get("current_task") or {}
@@ -128,7 +132,7 @@ def stale_result(state, result, revision):
     )
 
 
-def discard_stale_recovered(state, run_dir, record):
+def discard_stale_recovered(state: RunState, run_dir, record):
     """Set aside stale recovered values and schedule one fresh attempt (#302)."""
     stage = record.get("original_stage") or str(record.get("stage", "")).removesuffix("_report_repair")
     originals = records.archive_rejected_stage(
@@ -138,7 +142,7 @@ def discard_stale_recovered(state, run_dir, record):
         "Recovered result is bound to another contract, task or source revision; stale values discarded",
     )
     state.setdefault("sessions", {}).pop(record.get("route_role", record.get("role")), None)
-    state.update(
+    cast(dict, state).update(
         status="RUNNING", phase="PLANNING" if planning.is_planning(state, stage) else "EXECUTING", next_stage=stage
     )
     state.pop("stop_reason", None)
@@ -147,7 +151,7 @@ def discard_stale_recovered(state, run_dir, record):
         Path(artifact).unlink(missing_ok=True)
 
 
-def honor_stops(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def honor_stops(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Stop for an applied or pending stop, and refuse a bound classification retry mixed with other actions."""
     # An applied durable stop is terminal: no recovery, user action, answer,
     # approval, feedback or resume may relaunch a stopped run or complete it.
@@ -196,7 +200,7 @@ def honor_stops(runner, args, parser, state, state_path, run_dir, workspace, dec
         runner.write_json(state_path, state)
 
 
-def prepare(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def prepare(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Migrate the saved run, apply this invocation's settings and queued input, then --retry-builder."""
     released, issued = decided.released, decided.issued
     if state.get("version", 2) < 3:
@@ -253,7 +257,7 @@ def prepare(runner, args, parser, state, state_path, run_dir, workspace, decided
         return 2
 
 
-def admit(runner, args, parser, state, state_path, run_dir, workspace, decided):
+def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace, decided):
     """Stop at a completed or waiting run; otherwise make the run ready for the build loop.
 
     It runs only when no user decision was given: action_decisions.apply stops for every one.
@@ -280,7 +284,7 @@ def admit(runner, args, parser, state, state_path, run_dir, workspace, decided):
         runner.recover_default_budget(state, run_dir, workspace, "planning_review_call_limit")
         or resolver_runtime.operational_boundary(runner, state, run_dir, workspace)
     ):
-        state.update(status="RUNNING", phase="PLANNING")
+        state.update({"status": "RUNNING", "phase": "PLANNING"})
         state.pop("stop_reason", None)
         runner.write_json(state_path, state)
     if state["status"] != "RUNNING":
@@ -299,7 +303,7 @@ def admit(runner, args, parser, state, state_path, run_dir, workspace, decided):
             return 2
         else:
             stop.acknowledge_pause(state, runner.now())  # never stamps a stop receipt
-            state.update(
+            cast(dict, state).update(
                 status="RUNNING",
                 phase="PLANNING"
                 if planning.is_planning(state, state["next_stage"])
@@ -338,6 +342,7 @@ def admit(runner, args, parser, state, state_path, run_dir, workspace, decided):
 # invocation, or None to go on; one that sets decided.dispatch sends the run straight to the build.
 STEPS = (
     honor_stops,  # an applied or pending stop, and a bound retry mixed with other actions
+    action_decisions.preflight,  # invalid approval cannot reconcile or migrate a stopped attempt
     action_edits.apply,  # a standalone edit: design revision, dependency, report recovery, repair handoff
     action_recovery.gate_failures,  # a classification or job failure, and its exact retry
     action_authority.settle,  # the held pause's own authority, before queued input applies
@@ -350,7 +355,7 @@ STEPS = (
 )
 
 
-def handle(runner, args, parser, state, state_path, run_dir, workspace):
+def handle(runner, args, parser, state: RunState, state_path, run_dir, workspace):
     """Apply this invocation's action to the saved run; return an exit code to stop, or None to build."""
     args._failure_retry_authorization = None  # Invocation-local; saved history is audit data, not credit.
     decided = action_authority.prepare_actions(runner, args, state, Decided)

@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_contract_identity as contract
@@ -206,7 +207,7 @@ class VisualProfileTests(unittest.TestCase):
         )
         # Platform selection only: no mocked authority callback or model receipt.
         self.host_platform = sys.platform
-        self.platform = patch.object(containment.sys, "platform", "darwin")
+        self.platform = patch.object(containment, "sys", SimpleNamespace(platform="darwin"))
         self.platform.start()
         self.addCleanup(self.platform.stop)
 

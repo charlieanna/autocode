@@ -22,8 +22,10 @@ from tests.test_native_check_execution import _ControlledNativeCheckFixture
 
 class NativeCaptureTests(_ControlledNativeCheckFixture, unittest.TestCase):
     def setUp(self):
-        if sys.platform != "darwin":
-            self.skipTest("Native Chromium containment requires Darwin")
+        if sys.platform not in ("darwin", "linux"):
+            self.skipTest("Native Chromium containment requires a supported kernel backend")
+        if sys.platform == "linux" and os.environ.get("AUTOCODE_NATIVE_LINUX_BOUNDARY_TEST") != "1":
+            self.skipTest("Explicit supported Linux kernel qualification is required")
         manifest = os.environ.get("AUTOCODE_NATIVE_CAPTURE_RUNTIME")
         if not manifest:
             self.skipTest("Explicit exact-file native Chromium runtime manifest is required")
@@ -139,7 +141,19 @@ exports.teardown=async()=>{if(server)await new Promise(resolve=>server.close(res
         prepared = next(r["body"] for r in rows if r["kind"] == "check-prepared")
         kernel = util.read_object(Path(prepared["boundary"]["scratch"]) / "writable/output/kernel.json")
         self.assertEqual(set(kernel), {"original-source", "private", "git", "original-write", "copy-write"})
-        self.assertTrue(all(value in ("EPERM", "EACCES") for value in kernel.values()), kernel)
+        if sys.platform == "linux":
+            self.assertEqual(
+                kernel,
+                {
+                    "original-source": "ENOENT",
+                    "private": "ENOENT",
+                    "git": "ENOENT",
+                    "original-write": "EROFS",
+                    "copy-write": "EROFS",
+                },
+            )
+        else:
+            self.assertTrue(all(value in ("EPERM", "EACCES") for value in kernel.values()), kernel)
         self.assertEqual(source_scope.snapshot(self.root, self.state), current)
         self.assertEqual(self.original_origin_path.read_bytes(), self.original_origin)
         self.assertEqual(sum(r["kind"] == "capture-published" for r in rows), 1)

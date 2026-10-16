@@ -58,7 +58,7 @@ class HeldEnvelopeTests(unittest.TestCase):
         self.assertEqual(child.pid, tree.capture_root()["pid"])
         util.atomic_json(self.seal, {"root": tree.capture_root(), "transport": facts})
 
-    def test_real_outer_barrier_target_use_one_child_and_seal_before_execution(self):
+    def run_held_target(self, *, clock_shift=False):
         with barriers.WriterBarrier(self.command, self.environment, payload_directory=self.root) as gate:
             inner, options = gate.launch(self.options())
             with supervision.launch(inner, receipt_path=self.root / "supervision.json", timeout=5, **options) as child:
@@ -66,12 +66,38 @@ class HeldEnvelopeTests(unittest.TestCase):
                 self.assertNotEqual(list(outer), inner)
                 self.assertNotEqual(inner, self.command)
                 gate.spawned(child)
-                code, expired = processes.wait_for_stage(
-                    child,
-                    5,
-                    lambda _: None,
-                    on_root=lambda tree, release: gate.release_after_seal(child, tree, self.seal_target, release),
-                )
+                with ExitStack() as changes:
+                    if clock_shift:
+                        original_identity = supervision._identity
+                        original_root = processes.ProcessTree.capture_root
+
+                        def shifted(row):
+                            return {**row, "birth_time": row["birth_time"] + 3600, "started": "shifted display"}
+
+                        changes.enter_context(
+                            patch.object(
+                                supervision,
+                                "_identity",
+                                side_effect=lambda pid: (
+                                    shifted(original_identity(pid)) if pid == child.pid else original_identity(pid)
+                                ),
+                            )
+                        )
+                        changes.enter_context(
+                            patch.object(
+                                processes.ProcessTree,
+                                "capture_root",
+                                lambda tree: (
+                                    shifted(original_root(tree)) if tree.pid == child.pid else original_root(tree)
+                                ),
+                            )
+                        )
+                    code, expired = processes.wait_for_stage(
+                        child,
+                        5,
+                        lambda _: None,
+                        on_root=lambda tree, release: gate.release_after_seal(child, tree, self.seal_target, release),
+                    )
                 self.assertEqual((0, False), (code, expired))
                 self.assertEqual(outer, tuple(child.args))
                 facts = json.loads(self.seal.read_text())["transport"]
@@ -87,11 +113,18 @@ class HeldEnvelopeTests(unittest.TestCase):
                 self.assertEqual(child.pid, result["sealed_pid"])
             self.assertEqual("stopped", child.supervision_result["phase"])
 
-    def refused_root(self, mutate):
+    def test_real_outer_barrier_target_use_one_child_and_seal_before_execution(self):
+        self.run_held_target()
+
+    def test_wall_clock_birth_drift_preserves_original_kernel_owner_and_target(self):
+        self.run_held_target(clock_shift=True)
+
+    def refused_root(self, mutate, *, reason=None):
         with barriers.WriterBarrier(self.command, self.environment, payload_directory=self.root) as gate:
             inner, options = gate.launch(self.options())
             child = None
-            with self.assertRaises((supervision.SupervisionError, barriers.BarrierError)):
+            expected = (supervision.SupervisionError, barriers.BarrierError)
+            with self.assertRaisesRegex(expected, reason) if reason else self.assertRaises(expected):
                 with supervision.launch(
                     inner, receipt_path=self.root / "supervision.json", timeout=5, **options
                 ) as child:
@@ -125,6 +158,36 @@ class HeldEnvelopeTests(unittest.TestCase):
             )
 
         self.refused_root(mutate)
+
+    def test_current_session_mismatch_refuses_before_seal_and_cleans_same_child(self):
+        def mutate(gate, child, tree, changes):
+            original = supervision._identity
+
+            def identity(pid):
+                actual = original(pid)
+                return {**actual, "session": actual["session"] + 1} if pid == child.pid else actual
+
+            changes.enter_context(patch.object(supervision, "_identity", side_effect=identity))
+
+        self.refused_root(mutate, reason="actual supervisor root birth or session differs")
+
+    def reject_current_identity_change(self, field):
+        def mutate(gate, child, tree, changes):
+            original = supervision._identity
+
+            def identity(pid):
+                actual = original(pid)
+                return {**actual, field: actual[field] + 1} if pid == child.pid else actual
+
+            changes.enter_context(patch.object(supervision, "_identity", side_effect=identity))
+
+        self.refused_root(mutate, reason="actual supervisor root birth or session differs")
+
+    def test_current_kernel_birth_change_still_refuses_same_child(self):
+        self.reject_current_identity_change("birth_identity")
+
+    def test_current_group_change_still_refuses_same_child(self):
+        self.reject_current_identity_change("group")
 
     def test_keeper_admission_drift_cleans_the_same_blocked_child(self):
         self.refused_root(lambda gate, child, tree, changes: child.supervision.update(nonce="foreign-keeper"))

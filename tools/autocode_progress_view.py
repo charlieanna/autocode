@@ -120,7 +120,7 @@ def progress(
     }
 
 
-def _earlier_request(state, contract):
+def _earlier_request(state: RunState, contract):
     """True when a --follow-up came after the saved plan was drafted: that plan, its tasks and
     its checks answer the previous request, not the one the run is on now."""
     turns = _rows(state.get("turns"))
@@ -134,7 +134,7 @@ def _earlier_request(state, contract):
     )
 
 
-def _tasks(state, body, accepted, done, running):
+def _tasks(state: RunState, body, accepted, done, running):
     milestones = _rows(body.get("milestones"))
     tracked = done or (_mapping(_mapping(state.get("settings")).get("milestone_checkpoints")).get("enabled") is True)
     task = _mapping(state.get("current_task"))
@@ -168,7 +168,7 @@ def _tasks(state, body, accepted, done, running):
     return {"known": bool(items) and tracked, "done": finished, "total": len(items), "label": label, "items": items}
 
 
-def _requirements(state, contract, body, reviewed, legacy):
+def _requirements(state: RunState, contract, body, reviewed, legacy):
     """Each criterion's newest PASS or FAIL across the Tester results under this contract.
 
     NOT_VERIFIED and a missing row say nothing new, so an earlier verdict stands. Only the
@@ -196,7 +196,7 @@ def _requirements(state, contract, body, reviewed, legacy):
     verdicts = {}
     for record in [*(row for row in history if same_contract(row)), *([current] if current else [])]:
         for row in _rows(record.get("criterion_results")):
-            outcome = str(row.get("status") or "").upper()
+            outcome: str | None = str(row.get("status") or "").upper()
             if outcome in ("PASS", "FAIL"):
                 verdicts[row.get("id")] = (outcome, record is current and not rebuilt)
     items = []
@@ -248,7 +248,7 @@ def _requirements(state, contract, body, reviewed, legacy):
     }
 
 
-def _rebuilt_since(state, validation):
+def _rebuilt_since(state: RunState, validation):
     """Whether a stage recorded after this validation saw different source than it checked.
 
     Stage records carry the source revision after the stage; a Builder that changed nothing,
@@ -272,7 +272,7 @@ def _rebuilt_since(state, validation):
     )
 
 
-def _problems(state, turns):
+def _problems(state: RunState, turns):
     """Open findings: the build ledger, and the counts a review or design workflow saves instead of it
     (only those its job wrote for the current request: not before the latest --follow-up)."""
     items = [
@@ -316,7 +316,7 @@ def _problems(state, turns):
     return {"open": total, "items": items, "reports": reports}
 
 
-def _asked(needs, state=None):
+def _asked(needs, state: RunState | None = None):
     kind = (needs or {}).get("kind")
     if (
         (state or {}).get("status") == "PAUSED_PROCESS_CLEANUP"
@@ -364,7 +364,7 @@ def _asked(needs, state=None):
     return "nothing needed from you"
 
 
-def _since_last_turn(state, record, turns):
+def _since_last_turn(state: RunState, record, turns):
     if not turns:
         return True
     started = next(

@@ -10,6 +10,11 @@ Shared virtualenvs and node_modules are outside this inventory.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
 import hashlib
 import json
 import os
@@ -248,7 +253,7 @@ def _entry(root, name, limit=None):
     return [hashlib.sha256(data).hexdigest(), mode]
 
 
-def record(state, workspace, run_dir):
+def record(state: RunState, workspace, run_dir):
     """Capture once for a new in-place run, before any provider or prerequisite."""
     workspace, store = Path(workspace), Path(run_dir) / STORE
     if store.is_symlink():
@@ -289,7 +294,7 @@ def record(state, workspace, run_dir):
         }
 
 
-def _manifest(state, store, checkout):
+def _manifest(state: RunState, store, checkout):
     try:
         data, _ = _read(store, "manifest.json", 8 * 1024 * 1024)
         expected = (state.get("launch_sources") or {}).get("manifest_sha256")
@@ -499,7 +504,7 @@ class Supply:
             _fresh(tree_anchor, tree)
 
 
-def supply(state, checkout, run_dir):
+def supply(state: RunState, checkout, run_dir):
     """Return the current in-place proof policy, or None for a separate task checkout."""
     checkout = Path(checkout)
     project = state.get("project_workspace")
@@ -527,6 +532,7 @@ def supply(state, checkout, run_dir):
                 + ". Start the fix again to prove it"
             )
         return Supply(checkout, store, {}, {}, errors, [])
+    selected: dict
     notes, selected = [], {}
     for kind in ("generated", "vendored"):
         recorded = manifest[kind]
@@ -580,7 +586,7 @@ def supply(state, checkout, run_dir):
     )
 
 
-def guard(state, workspace, run_dir):
+def guard(state: RunState, workspace, run_dir):
     """Recheck launch inputs before current or cached evidence grants authority."""
     if run_dir is None:
         if "launch_sources" in state:
@@ -592,7 +598,7 @@ def guard(state, workspace, run_dir):
     return inputs
 
 
-def runners(state, workspace, run_dir, scratch_run, execution_identity=None):
+def runners(state: RunState, workspace, run_dir, scratch_run, execution_identity=None):
     """Bind fresh launch-input policy to injected clean runners without a controller."""
     dependencies = state.get("project_workspace") or str(workspace)
 

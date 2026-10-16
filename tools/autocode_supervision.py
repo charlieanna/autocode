@@ -149,8 +149,18 @@ class _LaunchEnvelope:
                 type(tree) is processes.ProcessTree
                 and tree.pid == child.pid
                 # The admitted identity also records SID; the tree root carries only birth fields.
-                and tree.capture_root() == processes.identity(metadata["provider"]),
+                and processes.matches(metadata["provider"], tree.capture_root())
+                and tree.capture_root().get("group") == metadata["provider"].get("group"),
                 "actual supervisor root birth differs",
+            )
+            # Epoch/display birth times can move with the host clock (#1117).
+            # Keep original kernel birth, group and SID as independent checks.
+            actual = _identity(child.pid)
+            require(
+                processes.matches(metadata["provider"], actual)
+                and actual.get("group") == metadata["provider"].get("group")
+                and actual.get("session") == metadata["provider"].get("session"),
+                "actual supervisor root birth or session differs",
             )
         return {
             "version": 1,
