@@ -5,8 +5,8 @@ Drives the greenfield-todo-cli catalog scenario to the plan it asks a person to 
 names git status, plans a command the shell cannot parse, or whose text no longer matches its front
 matter is refused and the run is left as it was; the copy that drops the literal loads once it also asks a
 blocking question, and only as the invocation's one action. A reviewed copy becomes the next revision, goes
-through the Plan Reviewer and is approved with its own token, not the one shown before it was loaded. The pure
-checks are in test_goal_file.
+through the Plan Reviewer and is approved with its own token, not the one shown before it was loaded, and the
+completed run's evidence report cites it by path and goal hash. The pure checks are in test_goal_file.
 """
 
 from __future__ import annotations
@@ -196,6 +196,22 @@ class GoalFileCliTests(unittest.TestCase):
             ("approved", need["token"]), (approved["approval_status"], approved["approval_event"]["token"])
         )
         self.assertEqual([], goal_file.changed(body, approved["body"]))
+
+        # Step 4: the completed run's evidence report, which `autocode-issue pr` wraps into the PR body, cites the
+        # approved plan by goal hash and the file it was loaded from, and says how the two differ.
+        view = driver.until_stopped()
+        self.assertEqual("TASK_COMPLETE", view["status"], view["needs"])
+        cited = {"path": str(path.resolve()), "goal_hash": goal, "revision": revision, "changed": []}
+        self.assertEqual(cited, view["approved_contract"]["plan_file"])
+        approved_goal = plan_file.goal_hash(approved["body"])
+        self.assertEqual(approved_goal, view["approved_contract"]["goal_hash"])
+        report = (driver.run_dir / "evidence.md").read_text()
+        self.assertIn(f"\nPlan goal hash: {approved_goal} (what `autocode plan --check FILE` prints", report)
+        self.assertIn(
+            f"\nPlan file: `{path.resolve()}` (goal hash {goal}), loaded as plan revision {revision}; the approved "
+            "plan differs from that file's plan only in the runner's records of the plan's review.\n",
+            report,
+        )
 
 
 if __name__ == "__main__":
