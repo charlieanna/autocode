@@ -84,6 +84,29 @@ class DynamicDependenciesTests(unittest.TestCase):
             "tests.test_package_writes", dependencies.dependencies("tools/prompts/fragments/package-scope/builder.md")
         )
 
+    def test_the_package_investigator_wiring_selects_its_cli_consumer(self):
+        # A --package bug fix's Investigator is told the package (autocode_package_writes, through
+        # units.autoresolver, in the package-scope prompt fragment) and its diagnosis is checked by
+        # autocode_bug_job against autocode_package_scope's rules; only the CLI module drives them (#711).
+        for path in (
+            "tools/autocode_bug_job.py",
+            "tools/units/autoresolver.py",
+            "tools/autocode_package_writes.py",
+            "tools/autocode_package_scope.py",
+            "tools/prompts/fragments/package-scope/investigator.md",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("tests.test_package_investigator_cli", dependencies.dependencies(path))
+        self.assertNotIn(
+            "tests.test_package_investigator_cli", dependencies.dependencies("tools/autocode_bug_questions.py")
+        )
+        # Mapping a module takes away the fake flows an unmapped one selects; these two had them and keep them.
+        for path in ("tools/autocode_bug_job.py", "tools/units/autoresolver.py"):
+            with self.subTest(path=path):
+                self.assertLessEqual(
+                    {*dependencies.CORE_CONSUMERS, *dependencies.PUBLIC_FLOW_CONSUMERS}, dependencies.dependencies(path)
+                )
+
     def test_unknown_runtime_and_repository_data_select_actual_fake_flows(self):
         for path in ("tools/new_runtime_rule.json", "new_runtime_rule.json", "tools/new_runtime_rule.py"):
             with self.subTest(path=path):

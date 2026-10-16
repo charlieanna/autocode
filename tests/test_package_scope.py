@@ -119,6 +119,13 @@ class PackageNames(unittest.TestCase):
                 self.assertFalse(package_scope.contains(web, path))
         self.assertEqual([admin], package_scope.outside(web, [admin, "packages/web/test_web.py"]))
 
+    def test_a_report_may_name_the_package_directory_and_plain_paths_inside_it(self):
+        # The bug-fix Investigator's affected and test paths (autocode_bug_job.check, #711).
+        inside = ["packages/web", "packages/web/", "./packages/web/app.py", "packages/web/tests/"]
+        outside = ["packages/web-admin/app.py", "tests/test_app.py", "package.json"]
+        self.assertEqual(sorted(outside), package_scope.named_outside("packages/web", [*inside, *outside]))
+        self.assertEqual([], package_scope.named_outside("packages/web", inside))
+
     def test_a_change_outside_the_package_is_any_changed_path_not_strictly_inside_it(self):
         changes = {
             f"{GREET}/greet.py": "modified",
@@ -629,7 +636,12 @@ class PackageSuite(unittest.TestCase):
 
         note = "docs/bugs/blank-name.json"
         case = {"id": "blank", "given": "a blank name", "when": "greet runs", "then": "it is rejected"}
-        report = diagnosis(note_path=note, test_cases=[case])
+        report = diagnosis(
+            note_path=note,
+            test_cases=[case],
+            affected_paths=[f"{GREET}/greet.py"],
+            test_paths=[f"{GREET}/test_greet.py"],
+        )
         output = self.run_dir / "bug-investigation-01.json"
         output.write_text(json.dumps(report))
         state = bugfix_state(self.project)

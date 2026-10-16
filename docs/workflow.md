@@ -626,8 +626,22 @@ What the package changes:
   command unless `--test-command` gives one, so a large repository does not bind
   thousands of unrelated tests. The replay of the package suite is read in the
   package as the same suite is read at the root.
+- In a bug fix, the Investigator's handoff names the package
+  (`package_scope`) and, when the run has one, `suite`: the command the run
+  tests the package with (the suite detected there, or `--test-command`). A
+  reproduced diagnosis must name only files or directories inside the package in
+  `affected_paths` and `test_paths`. One that names anything else (another
+  package, a file at the repository root, a shared lockfile) is refused as
+  invalid output and takes the path of any refused report: the Investigator is
+  asked to repair it with the reason, and the run pauses rather than plan from a
+  report that still names such a path. The diagnosis note stays under
+  `docs/bugs/` at the repository root, where the runner writes it. A bug whose
+  fix is outside the package needs a run without `--package`: the Investigator
+  is told to name the file it would change there anyway, so its report is
+  refused and the run pauses rather than plan the fix.
 - The package is the Builder's write scope, and its handoff says so
-  (`write_scope`). No other stage is told the package. Before each Tester and
+  (`write_scope`). Apart from the Investigator, no other stage is told the
+  package. Before each Tester and
   Completion Reviewer dispatch, in every package run, whether or not it owes a
   regression proof, the runner compares the candidate with the run's base, as
   the regression proof reads it. The Code Reviewer, Designer and Design
@@ -686,7 +700,8 @@ model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open `runner` finding.
 `bugfix-monorepo-package` does the same for a bug fix: the Investigator runs
 first, the proof runs in the package, and the runner's diagnosis note under
-`docs/bugs/` is not counted as a change outside it. Its broken variant also
+`docs/bugs/` is not counted as a change outside it. Its scripted Investigator
+names only the package's files, as its handoff asks. Its broken variant also
 fixes the other package's copy of the bug and stops with that file named.
 
 An explicit `--test-command` or `--regression-command` still runs from the
@@ -718,12 +733,6 @@ Not covered yet (#711):
 - Nothing limits what the Builder writes while it works: a change outside the
   package is found when the candidate is checked before review, not refused when
   it is written.
-- The bug-fix Investigator is not told the package. Its handoff names neither
-  the package nor the suite detected there, so it learns the package only from
-  the request's words, and nothing checks its diagnosis against the package: a
-  report whose affected or test paths are in another package is accepted and
-  planned from. The Builder's handoff still names the package, and the check
-  before review reports any change outside it.
 - Detection in the package does not read pytest configuration in parent
   directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
   `conftest.py`), so a package that relies on it is detected as unittest. Give
