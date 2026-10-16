@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `docs/cli.md` now includes a dedicated subcommand exit-code reference table documenting exit codes 0, 1, and 2
+  across all subcommands, and `tests/test_cli_surface.py` tests that documented inventory (#714).
+
 - `autocode plan`, `autocode prune-run`, `autocode merge`, and `autocode clean-worktrees` now support `--json`
   output for structured machine-readable reporting of results and errors, and `autocode checkpoint` and
   `autocode tasks` accept `--json` for CLI caller consistency (#714).
