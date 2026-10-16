@@ -299,8 +299,9 @@ pause, with its recorded provenance, never verified), shown in the Markdown as a
 table after the intended outcome, or as `None recorded` for a run with none
 ([Who approved](execution.md#who-approved)). Review and discuss reports, which have no approval
 step, have no `approvals` field and no such section, even when the status view lists a resume.
-Neither do verification, program and component reports, nor reports written before AutoCode
-listed approvals, so older pairs still authenticate. An older build, bug-fix or design report
+Neither do verification reports, nor reports written before AutoCode listed approvals, so
+older pairs still authenticate. A program or components report lists its child runs' approvals
+(below). An older build, bug-fix or design report
 gains the section when AutoCode saves the completed run again; reading its status does not.
 A task report whose approved plan is in the status view also has `plan.goal_hash` and
 `plan.plan_file`, copied from `approved_contract` (#720); the Markdown says them after the
@@ -360,6 +361,16 @@ child deliveries; the aggregate reader does not claim fresh child verification.
 Aggregate completion timestamps and elapsed wall time remain unrecorded when the
 coordinator has no owned timing record. A child's completion time does not stand
 for later integration checks or runtime smoke.
+An aggregate also lists, under `approvals`, the approvals each child's own report lists
+(#722): child by child, in its `children` order, each row as that report has it plus `child`,
+the child's id. Its Markdown shows them as an Approvals table with a Child column, and says
+what it leaves out: a program agreement (`autocode program approve`) records no approver, a
+program does not list approvals of a plan run it was derived from (`autocode program derive`),
+and a components run does not list approvals of the architecture it was built from. Those runs'
+own reports list them. A child whose
+report lists no approvals, because it was written before AutoCode listed them, is named in the
+aggregate's not-verified list rather than taken to have recorded none. When no child's report
+lists approvals, the aggregate has no `approvals` and no such section, as before.
 For component `--run-local`, `--runtime-evidence-provenance fake|live|unknown`
 separately discloses the runtime smoke route. Its HTTP results and sanitized local
 receipt are included in the aggregate; simulated smoke does not prove real

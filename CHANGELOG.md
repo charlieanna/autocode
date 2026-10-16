@@ -360,6 +360,15 @@ PR template asks for an entry here; a change without one is incomplete.
   a new pull request, on `-plan-2`, made from the base branch that holds the merged file.
   `TaskRun.export_plan(path)` is the task-run interface's way to write the plan file. `docs/workflow.md` describes
   the team workflow. Starting a new run from the merged file is not available yet (#720).
+- A completed program's or components run's evidence report now lists its child runs' approvals (#722, seventh
+  part). Each row is copied from that child's own report with the child's id added as `child`, child by child, and
+  `evidence.md` shows them in an Approvals table with a Child column. It also says what is left out: a program
+  agreement (`autocode program approve`) records no approver, a program does not list approvals of a plan run it was
+  derived from (`autocode program derive`), and a components run does not list approvals of its architecture. A child whose report lists no approvals, written before AutoCode listed them, is named in the
+  report's not-verified list. When no child's report lists any, the report is unchanged. The scenario harness's
+  `approval provenance: RUN` check now also matches each budget pause a scenario's person acknowledged (`[fake]
+  acknowledge`) to the `resume` row naming that pause, as it matches plan approvals by token and review approvals
+  by criterion.
 - The scenario catalog has a bug fix in one package of a two-package repository, `bugfix-monorepo-package` (#711).
   Both `packages/invoices/` and `packages/search/` keep a copy of the same off-by-one pager; the report and the fix
   belong to the invoice package. The scripted run is started with `--package packages/invoices/`, goes through the

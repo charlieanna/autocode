@@ -1947,7 +1947,7 @@ class ApprovalProvenanceTests(unittest.TestCase):
 
     token = "r2:" + "a" * 64
 
-    def row(self, kind="plan", actor="user_cli", **provenance):
+    def row(self, kind="plan", actor="user_cli", pause_status=None, **provenance):
         recorded = {
             "git_user_name": PERSON_NAME,
             "git_user_email": PERSON_EMAIL,
@@ -1962,7 +1962,7 @@ class ApprovalProvenanceTests(unittest.TestCase):
             "actor": actor,
             "contract_token": self.token if kind == "plan" else None,
             "criterion": "C1" if kind == "review" else None,
-            "pause_status": None,
+            "pause_status": pause_status,
             "provenance": recorded,
         }
 
@@ -1975,11 +1975,14 @@ class ApprovalProvenanceTests(unittest.TestCase):
     def test_approvals_that_name_the_person_pass(self):
         policy = {**self.row(actor="workflow_policy"), "provenance": None}
         review = self.row("review", command="autocode --workspace --run-dir --approve-review --review-token")
-        resume = self.row("resume", command="autocode resume --run-dir --as", claimed_as="Ana")
+        resume = self.row(
+            "resume", "user_cli", "PAUSED_COST_LIMIT", command="autocode resume --run-dir --as", claimed_as="Ana"
+        )
         gates = [
             {"gate": "approve_plan", "token": self.token},
             {"gate": "review", "criterion": "C1", "token": "review-token"},
             {"gate": "planning_budget", "feedback": "more"},
+            {"gate": "acknowledge", "pause": "PAUSED_COST_LIMIT", "flags": ["--max-cost-usd", "100"]},
         ]
         (check,) = approval_provenance.checks(self.record([self.row(), review, resume, policy], gates))
         self.assertEqual("approval provenance: task", check.name)
@@ -2016,6 +2019,53 @@ class ApprovalProvenanceTests(unittest.TestCase):
             with self.subTest(name):
                 (failure,) = self.failures(self.record(rows, gates))
                 self.assertIn(said, failure)
+
+    def test_each_budget_pause_the_person_acknowledged_must_have_its_resume_row(self):
+        """[fake] acknowledge (Driver.acknowledge_pause) is matched to the resume row naming that pause."""
+        acknowledged = {"gate": "acknowledge", "pause": "PAUSED_COST_LIMIT", "flags": ["--max-cost-usd", "100"]}
+        command = "autocode --workspace --run-dir --resume-paused --max-cost-usd"
+        resumed = self.row("resume", "user_cli", "PAUSED_COST_LIMIT", command=command)
+        self.assertEqual([], self.failures(self.record([self.row(), resumed], [acknowledged])))
+        said = "the harness acknowledged PAUSED_COST_LIMIT, which no resume row lists"
+        for name, rows in (
+            ("nothing listed", []),
+            ("no resume row", [self.row()]),
+            ("another pause resumed", [self.row("resume", "user_cli", "PAUSED_TIME_LIMIT", command=command)]),
+            ("a resume naming no pause", [self.row("resume", command=command)]),
+            ("a plan row naming the pause", [self.row("plan", "user_cli", "PAUSED_COST_LIMIT")]),
+            (
+                "the pause resumed by no person",
+                [{**self.row("resume", "workflow_policy", "PAUSED_COST_LIMIT"), "provenance": None}],
+            ),
+        ):
+            with self.subTest(name):
+                self.assertEqual([said], self.failures(self.record(rows, [acknowledged])))
+
+    def test_the_driver_s_acknowledgement_reaches_the_check(self):
+        """Driver.acknowledge_pause records the gate run.run_record hands to the check, which then needs its row."""
+        driver = self.driver_at_a_cost_pause()
+        with patch.object(driver, "call"):
+            driver.acknowledge_pause("PAUSED_COST_LIMIT")
+        view = {"status": "TASK_COMPLETE", "approvals": []}
+        driver.view, driver.run_dir, driver.turn_marks = (lambda: view), Path("r1"), []
+        record = run.run_record(driver, {"stages": []})
+        self.assertEqual(
+            ["the harness acknowledged PAUSED_COST_LIMIT, which no resume row lists"], self.failures(record)
+        )
+        view["approvals"] = [self.row("resume", "user_cli", "PAUSED_COST_LIMIT", command="autocode --resume-paused")]
+        self.assertEqual([], self.failures(run.run_record(driver, {"stages": []})))
+
+    def driver_at_a_cost_pause(self):
+        return Driver(
+            Path.cwd(),
+            Path.cwd(),
+            ["--max-cost-usd", "0.1"],
+            {},
+            autocode=[],
+            max_steps=5,
+            timeout_seconds=60,
+            acknowledge=(("PAUSED_COST_LIMIT", ("--max-cost-usd", "100")),),
+        )
 
     def test_the_run_record_carries_the_harness_s_approvals_to_the_check(self):
         """run.run_record hands the gates the harness passed to the check; without them nothing is matched."""
