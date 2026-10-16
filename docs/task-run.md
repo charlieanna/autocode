@@ -718,7 +718,12 @@ serially), `inherited`, `attempts`, `cost` and `outcome`:
   task, a rework included, a new id, so an attempt's milestone is its task's contract hash and
   milestone ids (`current_task`, `task_archive`): an attempt whose task is of another milestone than
   the attempt the escalation was made from (a later milestone, or a replanned contract's) is not its
-  work. When either task is not recorded, they are not told apart.
+  work, and for the Builder neither is a validation whose own task is: a replanned contract's first
+  task may be a validate task, whose Tester runs before any Builder attempt. When either task is not
+  recorded, they are not told apart. A charge names the record of the attempt that failed: the
+  Builder's own, or the Tester's or Completion Reviewer's that sent its work back, whose work is the
+  Builder's last attempt for that record's task, or, for a validate task (unchanged work sent back to
+  the Tester, with no Builder attempt), the Builder's last attempt of that task's milestone before it.
 - `cost` prices those attempts as `cost` prices a stage: `usd` (reported plus estimated),
   `reported_usd`, `estimated_usd`, `unpriced_attempts`, `unrouted_attempts` and `complete`. An attempt
   with no usage record is unpriced, never zero: `usd` is then a floor (`complete` false), or null when
@@ -738,17 +743,21 @@ serially), `inherited`, `attempts`, `cost` and `outcome`:
   work passed, unless the Builder's retry policy then charged one of its attempts of its milestone as
   a failure, as it charges a review that sends passed work back; `later_escalation`: the role climbed
   again, the milestone made another stronger attempt, or the Builder made its stronger attempt after
-  climbing, or climbed after it, from this escalation's attempt), the runner's `paused` stamp
-  (`recorded`: the Builder's retry-limit pause), a validation of its work failing or blocked
-  (`validation`), else such a charge (`recorded`: a retry, the stronger attempt or the retry-limit
-  pause charged to one of its attempts of its milestone), the runner's `passed` stamp
-  (`recorded`) only when every attempt of its role since it, until the role's next escalation, ran on
-  the route it climbed to and there was at least one, else the run's status now (`run_status`:
-  complete is `passed`, running is `running`, any pause, wait or stop is `paused`). The runner stamps
-  every open escalation `passed` at any validation PASS, whoever's work passed, so that stamp is not
-  taken over a failure of its own work, once a person or the Builder's retry policy moved the role to
-  another route, or when the role ran nothing since. It is a projection of saved records, so it can
-  change as the run continues.
+  climbing, or climbed after it, from this escalation's attempt), the Builder's retry-limit pause
+  (`recorded`: the runner's `paused` stamp, or the `pause` decision that charged one of its attempts
+  of its milestone, since the runner does not stamp an escalation it already stamped `passed`), a
+  validation of its work failing or blocked (`validation`), else such a charge (`recorded`: a retry,
+  the stronger attempt or the retry-limit pause charged to one of its attempts of its milestone), the
+  runner's `passed` stamp (`recorded`), for a role other than the Builder, only when every attempt of
+  its role since it, until the role's next escalation, ran on the route it climbed to and there was
+  at least one, else the run's status now (`run_status`: complete is `passed`, running is `running`,
+  any pause, wait or stop is `paused`). The runner stamps every open escalation `passed` at any
+  validation PASS, whoever's work passed, so that stamp is not taken over a failure of its own work,
+  once a person or the Builder's retry policy moved the role to another route, or when the role ran
+  nothing since. Validations judge the Builder's work, and the runner stamps its stronger attempt
+  `passed` in the handler that made it, at the PASS the review just sent back, before that attempt
+  runs, so the Builder's stamp is never taken. It is a projection of saved records, so it can change
+  as the run continues.
 
 A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
 does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.
