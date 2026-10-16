@@ -8,11 +8,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_answer_output as answer_output
     from . import autocode_cost as cost
+    from . import autocode_escalation_view as escalation_view
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_answer_output as answer_output
     import autocode_cost as cost
+    import autocode_escalation_view as escalation_view
     import autocode_launch_inputs as launch_inputs
     import autocode_source_scope as source_scope
 
@@ -278,6 +280,8 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         print(hint, file=sys.stderr)
     if "cost" in public_view:
         print(cost.line(public_view["cost"]), file=sys.stderr)
+    for line in escalation_view.lines(public_view.get("escalations")):
+        print(line, file=sys.stderr)
 
 
 def reviewed_criteria(runner, state: "RunState"):

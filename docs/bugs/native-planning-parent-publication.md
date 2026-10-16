@@ -51,7 +51,7 @@ checks remain required.
 ## Rejected planning reports
 
 A native Requirements, Planner or Plan Reviewer stage (`requirements`, `plan`,
-`plan_review`, `plan_revise`) that finished but returned a report that fails
+`plan_review`, `plan_revise`, `plan_finalize`) that finished but returned a report that fails
 validation gets the ordinary bounded report-only repair: one more request on
 the same stage, saved route, model and effort, read-only, with the rejected
 response in its handoff, at most `report_repair.max_attempts` times. The
@@ -91,11 +91,13 @@ or effort does not bring the archived repair back. To keep the repair, resume
 without changing that role's model or effort, and change it only after the
 repair has run.
 
-The final review (`plan_finalize`) is not repaired yet: its repaired report
-would need its own native reviewed-plan publication before approval, which this
-scope does not provide. A rejected final review, an attempt whose launch did not
-close, and any non-report error keep the original `PAUSED_INVALID_OUTPUT`
-pause. A native run never sends a stage pause to the stuck-stage Investigator,
+The final review (`plan_finalize`) supports bounded report repair: its
+repaired report carries native reviewed-plan publication into the boundary
+candidate commit before approval. An unparsed OpenCode launch that left the
+launch unclosed at `PAUSED_INVALID_OUTPUT` supports operator abandonment via
+`--abandon-stage`, closing the unclosed launch record in the native journal
+while retaining the original unparsed output without dispatching an agent.
+A native run never sends a stage pause to the stuck-stage Investigator,
 which native authority cannot run, so that pause keeps its original reason and
 spends no investigation. After approval, a Builder failure that needs
 classification still queues the Investigator; native authority refuses it, and

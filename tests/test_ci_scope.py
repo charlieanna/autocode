@@ -67,6 +67,18 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue({"suite", "macos"} <= enabled)
                 self.assertFalse({"linux", "windows"} & enabled)
 
+    def test_contained_fake_cli_changes_keep_the_linux_job_that_runs_that_flow_without_skips(self):
+        for path in (
+            "tools/fake_opencode.py",
+            "tests/opencode_fixture_cli.py",
+            "tests/test_contained_fake_cli.py",
+            "tests/test_containment_policy_cli.py",
+        ):
+            with self.subTest(path=path):
+                enabled = self.enabled(path)
+                self.assertTrue({"suite", "linux"} <= enabled)
+                self.assertFalse({"macos", "windows"} & enabled)
+
     def test_container_changes_keep_real_teardown_job(self):
         self.assertIn("containers", self.enabled("tests/test_local_compose_scenario.py"))
         self.assertIn("containers", self.enabled("tools/autocode_compose_file.py"))

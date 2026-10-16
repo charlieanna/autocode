@@ -5,6 +5,8 @@ The client is the checked fake OpenCode (--version 1.18.31); the runner's own bo
 unchanged (opencode_fixture_cli native_boundary). On Linux CI the refusal names the platform instead.
 qualified_at_setup has only the run-setup check report a qualified host, so the first contained
 launch fails its boundary: the PAUSED_TOOL_CONTAINMENT path when OpenCode changes mid-run.
+tests/test_contained_fake_cli.py reuses this setup with the fake qualified (#709), so the same
+flow launches its stages contained under Linux bubblewrap.
 """
 
 import json

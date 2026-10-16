@@ -15,9 +15,11 @@ import autocode_evidence_document as document
 import autocode_evidence_export as export
 import autocode_evidence_provenance as provenance
 import autocode_interaction_timing as interaction_timing
+import autocode_plan_file as plan_file
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_util as util
+import goal_fixtures
 
 from scenarios.harness import evidence_reports
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
@@ -428,6 +430,52 @@ class ApprovalReportTests(unittest.TestCase):
         for row in rows:
             self.assertIn(row, body)
 
+    def test_a_completion_acceptance_is_listed_and_only_then_named_in_the_section(self):
+        state = approved_state()
+        before = document.render(value({**public_view(), "approvals": run_view.view(state)["approvals"]}))
+        # Every report written before AutoCode listed completion acceptances keeps its sentence byte for byte.
+        self.assertIn(
+            "\nWho approved the plan and each review, edited the plan or resumed the run from a pause, oldest first.\n",
+            before,
+        )
+        state["user_events"].append(
+            {
+                "kind": "completion_accept",
+                "actor": "user_cli",
+                "at": "2026-10-15T10:00:00+00:00",
+                "basis": "runner-verified gates; 2 completion-report attempts failed",
+                "provenance": {
+                    **APPROVER,
+                    "command": "autocode --run-dir --accept-completion --as",
+                    "claimed_as": "Di",
+                },
+            }
+        )
+        view = run_view.view(state)
+        export.publish(self.root, state, view, provenance.configured({}, "fake"))
+        report = export.read(
+            self.root,
+            state["evidence_export"],
+            expected_binding=export.binding(state, view["usage"]["accounting"]),
+            current=True,
+            include=True,
+        )
+        self.assertEqual("current", report["availability"], report["reasons"])
+        self.assertEqual("completion", report["document"]["approvals"][-1]["kind"])
+        markdown = report["markdown"]
+        self.assertIn(
+            "\nWho approved the plan and each review, edited the plan, resumed the run from a pause or accepted its "
+            "completion, oldest first.\n",
+            markdown,
+        )
+        self.assertIn(
+            "| 2026-10-15T09:00:00+00:00 | Review of C1 approved | Ana Example &lt;ana@example.test&gt; | desk-7 "
+            "| autocode --run-dir --approve-review --review-token | none given |\n"
+            "| 2026-10-15T10:00:00+00:00 | Completion accepted | Ana Example &lt;ana@example.test&gt; | desk-7 "
+            "| autocode --run-dir --accept-completion --as | Di (a claim, not verified) |\n",
+            markdown,
+        )
+
     def test_a_run_without_approvals_says_so_and_an_older_report_renders_unchanged(self):
         # A report built without the status view's approvals (one written before AutoCode listed them, or a
         # verification, program or component report) has no field and no section, so its pair still authenticates.
@@ -551,6 +599,221 @@ class ApprovalReportTests(unittest.TestCase):
                 self.assertIn(row, report["markdown"])
                 record = {"owner": "acme", "repo": "widgets", "number": 7, "run_dir": "run", "base_commit": "a" * 40}
                 self.assertIn(row, issue.pr_body(record, {}, " app.py | 1 +", evidence_markdown=report["markdown"]))
+
+
+PLAN_PATH = "/repo/plans/refunds.md"
+PLAN_REVIEW = {"stage": "astra_challenge", "events": "/run/a/plan-challenge-01.jsonl", "events_sha256": "1" * 64}
+GOAL_HASH_LINE = "Plan goal hash: {} (what `autocode plan --check FILE` prints for a file holding exactly this plan)."
+
+
+def plan_file_state(approved_body=None, *, cited=True):
+    """A completed run whose plan revision 2 was loaded from a plan file with --goal-file and whose approved
+    revision 3 is ``approved_body``: by default revision 2's plan as the Plan Reviewer sealed it anew, which
+    changes only its record of the review (#720). Without ``cited`` revision 2 was drafted, not loaded."""
+    loaded = goal_fixtures.body()
+    loaded["brief_acceptance"] = {"manifest": {}, "review": PLAN_REVIEW, "amendments": []}
+    if approved_body is None:
+        approved_body = copy.deepcopy(loaded)
+        approved_body["brief_acceptance"]["review"] = dict(PLAN_REVIEW, events="/run/a/plan-challenge-02.jsonl")
+    contract = {"task_id": "task", "revision": 3, "body": approved_body}
+    contract["hash"] = util.digest(contract)
+    approval = {
+        "kind": "goal_approval",
+        "actor": "user_cli",
+        "at": "2026-10-16T08:00:00+00:00",
+        "token": f"r3:{contract['hash']}",
+    }
+    contract.update(approval_status="approved", approval_event=approval, origin="astra_finalize")
+    draft = {"task_id": "task", "revision": 2, "hash": "2" * 64, "body": loaded, "approval_status": "draft"}
+    draft.update(approval_event=None, origin="user_cli_edit")
+    if cited:
+        draft["plan_file"] = {"path": PLAN_PATH, "goal_hash": plan_file.goal_hash(loaded)}
+    first = {
+        "task_id": "task",
+        "revision": 1,
+        "hash": "1" * 64,
+        "body": goal_fixtures.body(),
+        "approval_status": "draft",
+    }
+    return {
+        "status": "TASK_COMPLETE",
+        "workflow": {"kind": "build"},
+        "task_id": "task",
+        "base_commit": "base",
+        "contract_history": [first, draft],
+        "goal_contract": contract,
+        "user_events": [approval],
+    }
+
+
+class PlanFileCitationTests(unittest.TestCase):
+    """The approved plan's goal hash and the plan file it was loaded from, in the report and the PR body (#720)."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="evidence-plan-file-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def published(self, state):
+        """The status view and the authenticated report of the completed run ``state``."""
+        view = run_view.view(state)
+        root = Path(tempfile.mkdtemp(dir=self.root))
+        export.publish(root, state, view, provenance.configured({}, "fake"))
+        report = export.read(
+            root,
+            state["evidence_export"],
+            expected_binding=export.binding(state, view["usage"]["accounting"]),
+            current=True,
+            include=True,
+        )
+        self.assertEqual("current", report["availability"], report["reasons"])
+        return view, report
+
+    def checked(self, body, revision):
+        """What `autocode plan --check FILE` prints for an export of ``body`` at ``revision``."""
+        import autocode_plan_command as plan_command
+
+        path = self.root / f"check-{revision}.md"
+        path.write_text(plan_file.export(body, revision=revision, approved=False))
+        code, line = plan_command.check(path)
+        self.assertEqual(0, code, line)
+        return line
+
+    def test_the_report_and_pull_request_body_cite_the_plan_file_by_goal_hash(self):
+        import autocode_issue as issue
+
+        state = plan_file_state()
+        loaded, approved = state["contract_history"][1]["body"], state["goal_contract"]["body"]
+        goal, file_goal = plan_file.goal_hash(approved), plan_file.goal_hash(loaded)
+        self.assertNotEqual(goal, file_goal)
+        view, report = self.published(state)
+        self.assertEqual(goal, view["approved_contract"]["goal_hash"])
+        cited = {"path": PLAN_PATH, "goal_hash": file_goal, "revision": 2, "changed": []}
+        self.assertEqual(cited, view["approved_contract"]["plan_file"])
+        self.assertEqual(goal, report["document"]["plan"]["goal_hash"])
+        self.assertEqual(cited, report["document"]["plan"]["plan_file"])
+        lines = [
+            GOAL_HASH_LINE.format(goal),
+            f"Plan file: `{PLAN_PATH}` (goal hash {file_goal}), loaded as plan revision 2; the approved plan differs "
+            "from that file's plan only in the runner's records of the plan's review.",
+        ]
+        markdown = report["markdown"]
+        self.assertIn(f"Agreed plan: {view['approved_contract']['token']}. Completed: ", markdown)
+        self.assertIn("\n" + "\n".join(lines) + "\nElapsed wall time", markdown)
+        record = {"owner": "acme", "repo": "widgets", "number": 7, "run_dir": str(self.root), "base_commit": "a" * 40}
+        body = issue.pr_body(record, {}, " app.py | 1 +", evidence_markdown=markdown)
+        for line in lines:
+            self.assertIn(line, body)
+        # Each hash is the one `autocode plan --check` prints for a file holding that plan.
+        self.assertIn(f"goal hash {goal}; ", self.checked(approved, 3))
+        self.assertIn(f"goal hash {file_goal}; ", self.checked(loaded, 2))
+
+    def test_the_wording_follows_the_goal_hashes(self):
+        loaded = plan_file_state()["contract_history"][1]["body"]
+        edited = copy.deepcopy(loaded)
+        edited["constraints"].append("Keep refunds idempotent")
+        edited["milestones"][0]["objective"] = "Deliver the refund flow"
+        for approved, relation in (
+            (loaded, "is that file's plan, unchanged."),
+            (edited, "differs from that file's plan in constraints, milestones."),
+        ):
+            with self.subTest(relation=relation):
+                state = plan_file_state(copy.deepcopy(approved))
+                _, report = self.published(state)
+                self.assertIn(
+                    f"Plan file: `{PLAN_PATH}` (goal hash {plan_file.goal_hash(loaded)}), loaded as plan revision 2; "
+                    f"the approved plan {relation}\n",
+                    report["markdown"],
+                )
+
+    def test_a_plan_not_loaded_from_a_file_is_cited_by_goal_hash_alone(self):
+        state = plan_file_state(cited=False)
+        view, report = self.published(state)
+        goal = plan_file.goal_hash(state["goal_contract"]["body"])
+        self.assertIsNone(view["approved_contract"]["plan_file"])
+        self.assertEqual(
+            {"goal_hash": goal, "plan_file": None},
+            {key: report["document"]["plan"][key] for key in ("goal_hash", "plan_file")},
+        )
+        self.assertIn("\n" + GOAL_HASH_LINE.format(goal) + "\nElapsed wall time", report["markdown"])
+        self.assertNotIn("Plan file:", report["markdown"])
+
+    def test_an_approval_after_the_load_ends_the_citation(self):
+        # A plan drafted after an approval is that approval's plan, not the file's.
+        state = plan_file_state()
+        state["contract_history"][1].update(approval_status="approved", approval_event={"token": "r2:" + "2" * 64})
+        view, report = self.published(state)
+        self.assertIsNone(view["approved_contract"]["plan_file"])
+        self.assertNotIn("Plan file:", report["markdown"])
+
+    def test_a_malformed_plan_file_record_keeps_the_approved_plan_and_its_report(self):
+        cases = {
+            "path that is not text": lambda draft: draft["plan_file"].update(path=7),
+            "goal hash that is not a digest": lambda draft: draft["plan_file"].update(goal_hash="not-a-digest"),
+            "no goal hash": lambda draft: draft["plan_file"].pop("goal_hash"),
+            "revision that is not a number": lambda draft: draft.update(revision="2"),
+            "loaded revision without its plan": lambda draft: draft.pop("body"),
+        }
+        for name, damage in cases.items():
+            with self.subTest(name):
+                state = plan_file_state()
+                damage(state["contract_history"][1])
+                view, report = self.published(state)
+                self.assertEqual(state["goal_contract"]["body"], view["approved_contract"]["body"])
+                self.assertIsNone(view["approved_contract"]["plan_file"])
+                self.assertIsNone(report["document"]["plan"]["plan_file"])
+                self.assertIn(
+                    GOAL_HASH_LINE.format(plan_file.goal_hash(state["goal_contract"]["body"])), report["markdown"]
+                )
+                self.assertNotIn("Plan file:", report["markdown"])
+        # A view built elsewhere with a malformed citation gets none either, and nothing unbound to its plan.
+        goal = "c" * 64
+        for approved, expected in (
+            (
+                {"token": "r1:plan", "goal_hash": goal, "plan_file": {"path": PLAN_PATH}},
+                {"goal_hash": goal, "plan_file": None},
+            ),
+            ({"token": "r9:other", "goal_hash": goal, "plan_file": None}, {}),
+            ({"token": "r1:plan", "goal_hash": "short", "plan_file": None}, {}),
+        ):
+            with self.subTest(approved=approved):
+                plan = value({**public_view(), "approved_contract": approved})["plan"]
+                self.assertEqual(expected, {key: plan[key] for key in ("goal_hash", "plan_file") if key in plan})
+
+    def test_an_older_report_without_a_goal_hash_renders_unchanged_and_authenticates(self):
+        view = public_view()
+        older = value(view)
+        self.assertFalse({"goal_hash", "plan_file"} & set(older["plan"]))
+        view["approved_contract"] = {"token": "r1:plan", "goal_hash": "c" * 64, "plan_file": None}
+        newer = value(view)
+        rendered = document.render(newer)
+        self.assertEqual(rendered.replace(GOAL_HASH_LINE.format("c" * 64) + "\n", ""), document.render(older))
+        self.assertNotIn("Plan goal hash", document.render(older))
+        anchor = export.write(self.root, older)
+        self.assertEqual(
+            "current", export.read(self.root, anchor, expected_binding="binding", current=True)["availability"]
+        )
+
+    def test_a_malformed_goal_hash_is_refused(self):
+        cited = {"path": PLAN_PATH, "goal_hash": "c" * 64, "revision": 2, "changed": []}
+        for name, plan in {
+            "goal hash": {"goal_hash": "C" * 64, "plan_file": None},
+            "plan file's goal hash": {"goal_hash": "c" * 64, "plan_file": {**cited, "goal_hash": "c" * 63}},
+            "plan file without the plan's goal hash": {"plan_file": cited},
+            "plan file field the report does not define": {"goal_hash": "c" * 64, "plan_file": {**cited, "body": {}}},
+        }.items():
+            with self.subTest(name):
+                report = value()
+                report["plan"].update(plan)
+                with self.assertRaises(ValueError):
+                    document.validate(report)
+        report = value()
+        report["plan"].update(goal_hash="c" * 64, plan_file=cited)
+        document.validate(report)
+        # Masking never rewrites a goal hash: it authenticates the plan like the contract token does.
+        report["plan"]["goal_hash"] = "sk-" + "a" * 61
+        with self.assertRaisesRegex(ValueError, "authentication identifier"):
+            document.sanitize(report)
 
 
 class EvidenceFileTests(unittest.TestCase):
