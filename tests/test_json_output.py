@@ -125,20 +125,32 @@ class JsonActionCliTests(unittest.TestCase):
         self.invoke("--show-goal")  # publishes the plan request a person approves
         self.token = goals.token(self.state["goal_contract"])
 
-    def invoke(self, *args):
-        """autocode ARGS on the fixture run; (exit code, stdout, stderr)."""
-        argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run_dir), *args]
+    @contextlib.contextmanager
+    def cli(self, *args):
+        """autocode --workspace FIXTURE ARGS, in process and launching no agent; yields (stdout, stderr)."""
         with (
-            patch.object(sys, "argv", argv),
+            patch.object(sys, "argv", ["autocode", "--workspace", str(self.root), *args]),
             patch.object(support, "assert_no_legacy_process"),
             patch.object(support, "local_settings", return_value=self.local),
             patch.object(runner, "run_role", side_effect=AssertionError("No agent may launch")),
             contextlib.redirect_stdout(io.StringIO()) as stdout,
             contextlib.redirect_stderr(io.StringIO()) as stderr,
         ):
+            yield stdout, stderr
+
+    def invoke(self, *args):
+        """autocode ARGS on the fixture run; (exit code, stdout, stderr)."""
+        with self.cli("--run-dir", str(self.run_dir), *args) as (stdout, stderr):
             code = runner.main()
         self.state = support.read(self.run_dir / "state.json")
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def raised(self, *args):
+        """autocode ARGS, which main ends by raising the error cli() prints as ``autocode: ...`` (exit 2);
+        (that error's text, stdout, stderr)."""
+        with self.cli(*args) as (stdout, stderr), self.assertRaises(ValueError) as caught:
+            runner.main()
+        return str(caught.exception), stdout.getvalue(), stderr.getvalue()
 
     def test_an_action_prints_the_status_payload_with_its_result(self):
         code, stdout, stderr = self.invoke("--approve-goal", self.token, "--json")
@@ -178,6 +190,36 @@ class JsonActionCliTests(unittest.TestCase):
                 }
             },
             json.loads(stdout),
+        )
+
+    def test_a_setting_the_saved_run_cannot_take_prints_its_payload_with_the_refusal(self):
+        """configure's refusal still ends the invocation as ``autocode: ...`` on stderr, exit 2; under --json
+        stdout carries the saved run's payload with that refusal as ``result``, and the run is unchanged."""
+        saved = (self.run_dir / "state.json").read_bytes()
+        on_run = ("--run-dir", str(self.run_dir))
+        for setting in (("--single-model", "gpt-x"), ("--spec-first",)):
+            with self.subTest(setting=setting[0]):
+                refusal, stdout, stderr = self.raised(*on_run, *setting, "--json")
+                payload = json.loads(stdout)  # exactly one object
+                util.validate_schema(payload, SCHEMA)
+                self.assertEqual(
+                    (str(self.run_dir), "AWAITING_GOAL_APPROVAL"), (payload["run_dir"], payload["view"]["status"])
+                )
+                result = payload["result"]
+                self.assertEqual((2, False), (result["exit_code"], result["saved"]))
+                self.assertEqual({"code": "input_rejected", "message": refusal}, result["error"])
+                self.assertTrue(refusal.startswith(f"{setting[0]} "), refusal)
+                # main's last line, after the status hints; cli() then prints `autocode: ...`.
+                self.assertEqual({"error": result["error"]}, json.loads(stderr.strip().splitlines()[-1]))
+                self.assertEqual(saved, (self.run_dir / "state.json").read_bytes())
+                # Without --json nothing changes: the same error, and nothing on stdout.
+                self.assertEqual((refusal, ""), self.raised(*on_run, *setting)[:2])
+        # A new run refused before its first checkpoint is saved prints the result alone.
+        new_run = ("Make another tool", "--in-place", "--single-model", "gpt-x", "--sol-model", "y", "--json")
+        refusal, stdout, _ = self.raised(*new_run)
+        error = {"code": "input_rejected", "message": refusal}
+        self.assertEqual(
+            {"result": {"exit_code": 2, "saved": False, "message": "", "error": error}}, json.loads(stdout)
         )
 
     def test_a_run_stopped_inside_the_build_loop_prints_its_saved_payload_with_the_result(self):

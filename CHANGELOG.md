@@ -906,6 +906,11 @@ PR template asks for an entry here; a change without one is incomplete.
   run store, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after the boundary
   was prepared; the store-specific pause now needs a boundary that otherwise verifies against its proof. A test
   also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
+- Under `--json`, a setting the run cannot take (`--single-model` or `--spec-first` on a saved run, or
+  `--single-model` with a per-role model flag) printed nothing on stdout. It now prints the saved run's
+  status payload with `result`, whose `error.code` is `input_rejected` (`{"result": …}` alone before a new
+  run's first checkpoint). The invocation still ends with `autocode: …` on stderr and exits 2, and the run
+  is unchanged (#714).
 
 ## [0.7.1] — 2026-10-09
 

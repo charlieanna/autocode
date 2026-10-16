@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "autocode:schemas/status-view@2",
   "title": "Autocode status payload",
-  "description": "The one JSON object `autocode --run-dir RUN --status` prints, and the one `autocode ... --json` prints on stdout for a run that has loaded: a completed or paused run prints this payload; a user action, or any other invocation that loaded the run and returned without printing the payload itself, adds `result`. A refusal before the run loads prints only `{\"result\": ...}`: that object does not validate against this root, which requires the payload's fields; its `result` validates against `#/properties/result`. An invocation that ends with an error message instead (`autocode: ...` or argparse's usage text on stderr) prints nothing on stdout. The fields a program acts on are in `view`, the status view contract (docs/task-run.md#status-view): fields are added, never renamed or removed, and `view.schema` changes if a meaning must. Every field this schema requires is always present; unlisted fields are allowed and a consumer must ignore the ones it does not know. The keywords used here (type, enum, required, properties, items) are the subset tools/autocode_util.validate_schema checks, so the CLI's own acceptance test validates the status payloads against this file. Exit codes: docs/cli.md#exit-codes.",
+  "description": "The one JSON object `autocode --run-dir RUN --status` prints, and the one `autocode ... --json` prints on stdout for a run that has loaded: a completed or paused run prints this payload; a user action, or any other invocation that loaded the run and returned without printing the payload itself, adds `result`. A refusal before the run loads prints only `{\"result\": ...}`: that object does not validate against this root, which requires the payload's fields; its `result` validates against `#/properties/result`. A setting the run cannot take (such as `--single-model` on a saved run) adds `result` to the saved run's payload, or prints `{\"result\": ...}` alone before a new run's first checkpoint, and still ends with `autocode: ...` on stderr. Any other invocation that ends with an error message (`autocode: ...` or argparse's usage text on stderr) prints nothing on stdout. The fields a program acts on are in `view`, the status view contract (docs/task-run.md#status-view): fields are added, never renamed or removed, and `view.schema` changes if a meaning must. Every field this schema requires is always present; unlisted fields are allowed and a consumer must ignore the ones it does not know. The keywords used here (type, enum, required, properties, items) are the subset tools/autocode_util.validate_schema checks, so the CLI's own acceptance test validates the status payloads against this file. Exit codes: docs/cli.md#exit-codes.",
   "type": "object",
   "required": ["run_dir", "workspace", "status", "iteration", "stale", "next_action", "view"],
   "properties": {
@@ -114,7 +114,7 @@
     },
     "result": {
       "type": "object",
-      "description": "What the invocation did, under --json only: after a user action, after any other invocation that loaded the run without printing the payload itself, and alone for a refusal before the run loads.",
+      "description": "What the invocation did, under --json only: after a user action or a refused setting, after any other invocation that loaded the run without printing the payload itself, and alone for a refusal before the run loads or a setting refused before a new run's first checkpoint.",
       "required": ["exit_code", "saved", "message", "error"],
       "properties": {
         "exit_code": {"type": "integer", "enum": [0, 2], "description": "The process exit code (docs/cli.md#exit-codes)."},
@@ -122,7 +122,7 @@
         "message": {"type": "string", "description": "The text a person would have read on stdout."},
         "error": {
           "type": ["object", "null"],
-          "description": "Null unless the input was refused; also printed as `{\"error\": ...}` on the last line of stderr.",
+          "description": "Null unless the input was refused; also printed as `{\"error\": ...}` on its own line of stderr: the last one, except after a refused setting, where `autocode: ...` follows.",
           "required": ["code", "message"],
           "properties": {
             "code": {"type": "string", "enum": ["input_rejected"]},
