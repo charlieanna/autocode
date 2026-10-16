@@ -429,6 +429,26 @@ def dashboard_private_core_uses() -> dict[str, list[str]]:
     }
 
 
+def state_json_names(source: str) -> list[int]:
+    """Line numbers of each string literal naming exactly state.json."""
+    return sorted(
+        node.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and node.value == "state.json"
+    )
+
+
+def dashboard_state_json_readers() -> set[str]:
+    """Dashboard modules other than its one run-state reader that name state.json."""
+    return {
+        name
+        for name, path in source_modules().items()
+        if name.startswith("dashboard.")
+        and name != "dashboard.dashboard_run_state"
+        and state_json_names(path.read_text(encoding="utf-8"))
+    }
+
+
 class ArchitectureTests(unittest.TestCase):
     def test_source_inventory_includes_nested_runtime_and_excludes_fixtures(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -523,6 +543,17 @@ class ArchitectureTests(unittest.TestCase):
             ["3:autocode_status._persist", "4:protocol._atomic_json", "7:autocode_util._lock"],
             private_core_uses(source, core),
         )
+
+    def test_the_dashboard_reads_saved_run_state_in_one_module(self):
+        # New dashboard reads go through the status view (status_view); the run list's raw reads
+        # stay in dashboard_run_state until the view carries what it shows (#730).
+        self.assertEqual(
+            set(), dashboard_state_json_readers(), "read state.json through dashboard_run_state, or use status_view"
+        )
+
+    def test_the_state_json_name_scan_sees_the_literal(self):
+        source = 'run / "state.json"\nrun / "state.json.bak"\nopen("state.json")\n'
+        self.assertEqual([1, 3], state_json_names(source))
 
     def test_largest_modules_do_not_grow(self):
         for name, limit in MAX_LINES.items():

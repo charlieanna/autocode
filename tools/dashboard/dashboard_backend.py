@@ -18,10 +18,12 @@ except ImportError:
     from autocode_control_tokens import private_command
 
 try:
+    from . import dashboard_run_state as run_state
     from .dashboard_command_gate import WorkspaceCommandGate, command_workspace
     from .dashboard_monitor import process_table as monitor_process_table
     from .dashboard_monitor import snapshot as monitor_snapshot
 except ImportError:  # Support direct execution from this source directory.
+    import dashboard_run_state as run_state
     from dashboard_command_gate import WorkspaceCommandGate, command_workspace
     from dashboard_monitor import process_table as monitor_process_table
     from dashboard_monitor import snapshot as monitor_snapshot
@@ -280,11 +282,10 @@ class RegistryInterventionMixin:
         if not run:
             return None
         try:
-            state_path = run / "state.json"
+            state_path = run_state.path(run)
             if state_path.is_symlink() or state_path.resolve(strict=True).parent != run:
                 return None
-            data = json.loads(state_path.read_text())
-            saved_workspace = mapping(data).get("workspace")
+            saved_workspace = run_state.read(run).get("workspace")
             if (identity or saved_workspace is not None) and saved_workspace != str(workspace):
                 return None
         except (OSError, ValueError):
@@ -339,9 +340,7 @@ class RegistryInterventionMixin:
                     continue
                 seen.add(run)
                 try:
-                    state = json.loads((run / "state.json").read_text())
-                    if not isinstance(state, dict):
-                        raise ValueError("State is not an object")
+                    state = run_state.read(run)
                     view = super().view(workspace, run, state)
                     active = mapping(state.get("active_stage"))
                     if type(active.get("pid")) is int and not process_snapshot_loaded:
@@ -375,7 +374,7 @@ class RegistryInterventionMixin:
             error = {"message": "Unsupported saved runner intervention version."}
         if error:
             try:
-                saved = json.loads((run / "state.json").read_text())
+                saved = run_state.read(run)
                 if mapping(saved.get("intervention_capability")).get("supported"):
                     mode = "unavailable"
             except (OSError, ValueError):
