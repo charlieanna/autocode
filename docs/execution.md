@@ -258,10 +258,9 @@ active time, the last Builder attempt's duration, it would take this milestone's
 least that total launches that same attempt. Known limitation (#611): when the stronger attempt is
 the one a known-correction repair chose (an attested `recovery_change`, see
 [Evidence-bound repair](#evidence-bound-repair)), that resume changes the settings the repair's
-recovery packet is bound to, so the attempt stops at `PAUSED_STALE_HANDOFF` instead; the
-`milestone-budget-climb` scenario records it as a known failure. That resume also restarts the milestone's count, as
-it always does. Reasserting the saved budget alone does not acknowledge this pause; any other
-`M`, or `0` for no limit, does, and the attempt is then checked against `M` from the restarted
+recovery packet is bound to, so the attempt stops at `PAUSED_STALE_HANDOFF` instead. That resume
+also restarts the milestone's count, as it always does. Reasserting the saved budget alone does
+not acknowledge this pause; any other `M`, or `0` for no limit, does, and the attempt is then checked against `M` from the restarted
 count. Only the Builder is checked against this budget, since it gates writer launches; a Tester or
 Completion Reviewer climb is not. The new-run default and a budget delegated with
 `--autoresolver-managed-limits` are not projected and keep only the check at the writer launch, as
