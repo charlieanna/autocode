@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `docs/cli.md` now includes a dedicated subcommand exit-code reference table documenting exit codes 0, 1, and 2
+  across all subcommands, and `tests/test_cli_surface.py` tests that documented inventory (#714).
+
+- `autocode plan`, `autocode prune-run`, `autocode merge`, and `autocode clean-worktrees` now support `--json`
+  output for structured machine-readable reporting of results and errors, and `autocode checkpoint` and
+  `autocode tasks` accept `--json` for CLI caller consistency (#714).
+
 - `tests/test_json_output.py` holds `--status` and `--json` to the status-view schema and exit-code table on a
   saved auth pause (`your_environment`) and rate-limit pause (`model_or_provider`), matching the AutoCode
   iteration/time-limit coverage already there. The fake person-pause contract test still does not reach those
@@ -461,6 +468,12 @@ PR template asks for an entry here; a change without one is incomplete.
   revisions (`autocode_design_revision`), the CLI's edit step (`autocode_action_edits`) and a UI run's accepted plan
   (`autocode_ui`) take the typed `RunState`, so the untyped-`state` ratchet drops from 201 to 110 and mypy checks those
   85 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- No module in `tools/` is in an import cycle any more. Which role and engine run a stage (`autocode_stage_roles`), the
+  planning cycle (`autocode_planning_cycle`) and the units' `ModelRequest` type (`units/model_request`) moved unchanged
+  out of the planning unit (`units/autoplanner`) and `units/common`, which re-export them under their old names. That
+  took the last six modules out of the cycle: the goal lifecycle, reviewer routing (`autocode_workflow`), the planning
+  unit and its `autocode_planning` shim, `units/common` and the stage context. `tests/test_architecture.py` now fails
+  when any module joins a cycle. Structure only: no behaviour, prompt, output or `state.json` change (#695).
 - Under a milestone budget you set (`--max-milestone-seconds N`), a climbed Builder attempt (the milestone's
   stronger attempt or a climb on the Builder's effort ladder) is timed before it launches, from the last Builder
   attempt's duration held to the stage time limit. When the milestone's counted time plus that projection would
@@ -1015,6 +1028,22 @@ PR template asks for an entry here; a change without one is incomplete.
   run's first checkpoint). The text, the closing `autocode: …` on stderr, exit code 2 and the saved run are
   unchanged. A native visual run already saved such a refusal as a `PAUSED_INVALID_OUTPUT` pause and still
   does (#714).
+- Pull request CI ran the `linux-tool-containment` job, which runs the contained fake OpenCode flow under
+  bubblewrap, only when one of four named files changed. A pull request that broke the flow through another
+  file it loads, such as the status view (`autocode_run_view.py`) or the containment setup check
+  (`autocode_containment_policy.py`), skipped the job, and the break first showed on master. `tools/ci_scope.py`
+  now works out the Python files from `tests/test_contained_fake_cli.py` itself. It follows their import
+  statements and the scripts they start or copy by file name, so the list stays right as imports change. A
+  change to the stage report schemas in `tools/autocode-schemas/` runs the job too. That covers most Python
+  files in `tools/` outside the dashboard, so most pull requests that change runtime code now run this job too,
+  on its own runner beside the suite job. A missing test module fails CI's job selection instead of skipping
+  the job (#709).
+- With the Builder's retry policy off (a reviewer routing mode, or `builder_retry` disabled), the status view's
+  `escalations` row for a Builder climb read `passed` once the Tester passed a climbed attempt, even after the
+  Completion Reviewer sent that work back: nothing charged the review, so the climb's attempts stopped at that PASS,
+  leaving the next climbed attempt, its failed check and its cost out while the cost said complete. The correction
+  task the review assigns (`REWORK`) now sends that work back as the retry policy's charge does, so the row reads
+  `failed_again` with every climbed attempt and its cost (#612).
 
 ## [0.7.1] — 2026-10-09
 

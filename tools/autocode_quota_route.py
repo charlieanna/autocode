@@ -79,7 +79,7 @@ def flag(role: str) -> str:
 
 
 def engine(settings: dict, role: str) -> str:
-    """The session engine a role runs on (autoplanner.engine_for, without importing the cycle)."""
+    """The session engine a role runs on (autocode_stage_roles.engine_for, but accepting no settings)."""
     return ((settings or {}).get("roles") or {}).get(role, {}).get("engine", (settings or {}).get("engine", "codex"))
 
 
