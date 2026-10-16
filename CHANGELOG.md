@@ -13,6 +13,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Stamp open reasoning escalations and Builder retries as `passed` when completion is accepted via `--accept-completion` (#612).
 - Filter each role's escalation ladder only against its own tool's model list under `--role-transport`, preserving effort ladders for roles running on other tools (#1426).
+- A resume is listed among the run's approvals only once a role's climb on its effort ladder is admitted against
+  the cost cap, time limit and milestone budget; a resume that the climb's projection pauses again is no longer
+  recorded as releasing the pause, matching the Builder's stronger attempt (#611).
 
 ### Added
 

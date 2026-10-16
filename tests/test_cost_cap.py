@@ -143,6 +143,10 @@ class ClimbCapBlackbox(unittest.TestCase):
     def status(self):
         return json.loads(self.invoke("autocode", ["--run-dir", str(self.run), "--status"]).stdout)
 
+    def resumes(self):
+        """The pauses the status view's `approvals` lists a resume as releasing (#722)."""
+        return [row["pause_status"] for row in self.status()["view"]["approvals"] if row["kind"] == "resume"]
+
     def climb(self, *resolver_options, code=0):
         """The product's own check passes but the Tester's fails: the Completion Reviewer sends the work back, the
         Resolver asks for it to be checked again, and the Tester climbs its ladder, GPT-6 Sol High to XHigh."""
@@ -273,6 +277,8 @@ class ClimbCapBlackbox(unittest.TestCase):
         self.assertEqual(before, self.events(stage="sol"), "the climbed attempt must not launch past the budget")
         view = self.status()["view"]
         self.assertEqual("PAUSED_TIME_LIMIT", view["needs"].get("pause_origin"), view["needs"])
+        # The projection kept the run from building, so the resume released nothing and is not listed (#611).
+        self.assertEqual([], self.resumes())
         needed = math.ceil(used + took)
         for part in (
             "The Tester's climb to GPT-6 Sol XHigh (gpt-6-sol at xhigh effort) did not launch: projected at",
@@ -295,11 +301,13 @@ class ClimbCapBlackbox(unittest.TestCase):
         for part in (f"past the {needed - 1:,} s active-time budget you set", f"resume with --max-seconds {needed} or"):
             self.assertIn(part, view["stop_reason"])
         self.assertNotEqual(request, view["needs"].get("resolver_request_id"), "the resume must reach the new stop")
-        # The budget the stop names launches exactly that attempt, on the climbed rung.
+        self.assertEqual([], self.resumes(), "a resume the projected stop still holds records nothing")
+        # The budget the stop names launches exactly that attempt, on the climbed rung, and is the resume listed.
         self.invoke(
             "autoreview", ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-seconds", str(needed)]
         )
         self.assertEqual(len(before) + 1, len(self.events(stage="sol")))
+        self.assertEqual(["PAUSED_TIME_LIMIT"], self.resumes())
         launched = [row["launch_route"] for row in self.state()["stages"] if row["stage"] == "sol"]
         self.assertEqual(
             [("gpt-6-sol", "high"), ("gpt-6-sol", "xhigh")],
