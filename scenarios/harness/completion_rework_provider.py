@@ -48,6 +48,8 @@ def report_for(stage, data, common, config, run_check, requirements):
             or (fault in ("completion_rework_recurring", "completion_rework_exhausted") and attempt == 2)
             or fault == "completion_rework_exhausted"
         )
+        if "builder_broken" in config:
+            broken = config["builder_broken"]  # the caller decides (escalation_provider.py: by the Builder's route)
         # In a conversation only the brief's turn builds; a later turn's files are that turn's.
         built = tuple(config["turn_paths"][0]) if config.get("turn_paths") else ("",)
         paths = [path for path in config["paths"] if path.startswith(built)]

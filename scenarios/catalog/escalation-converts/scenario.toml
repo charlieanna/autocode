@@ -1,0 +1,18 @@
+title = "The Builder's stronger attempt fixes what its ordinary attempts could not"
+category = "feature"
+brief_from = "completion-rework-direct"
+# Issue #612: an escalation that converts. The greeting fix of completion-rework-direct. Every Builder attempt
+# on the route the Builder started on keeps the seed's defect (an empty name is greeted), so the Tester's real
+# check fails; the retry policy gives one ordinary retry, then moves the Builder to its stronger route, where
+# the scripted Builder applies the solution (harness/escalation_provider.py). The oracle reads the status
+# view's `escalations` row for that climb: its routes, its one attempt and what it cost, and that it passed.
+# Under a live profile the fault is not injected, so a run that never escalates fails those checks.
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+fault = "escalation_converts"
+
+[run]
+requires_stages = ["terra", "sol", "astra_review"]
+timeout_minutes = 10
+max_steps = 24
