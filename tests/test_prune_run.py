@@ -154,6 +154,37 @@ class PruneTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("Pruned", stdout.getvalue())
 
+    def test_cli_json_output_dry_run_and_pruned(self):
+        write(self.run, "state.json", json.dumps(self.state))
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = prune_run.cli([str(self.run), "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(stdout.getvalue())
+        self.assertFalse(data["pruned"])
+        self.assertEqual(str(self.run), data["run"])
+        self.assertGreater(data["freed_bytes"], 0)
+        self.assertEqual(2, len(data["delete"]))
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = prune_run.cli([str(self.run), "--yes", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(stdout.getvalue())
+        self.assertTrue(data["pruned"])
+        self.assertEqual(str(self.run), data["run"])
+        self.assertGreater(data["freed_bytes"], 0)
+
+    def test_cli_json_output_refused_when_stage_active(self):
+        write(self.run, "state.json", json.dumps({**self.state, "active_stage": {"stage": "terra"}}))
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = prune_run.cli([str(self.run), "--json"])
+        self.assertEqual(code, 2)
+        self.assertEqual("", stdout.getvalue())
+        err = json.loads(stderr.getvalue())
+        self.assertEqual("stage_active", err["error"]["code"])
+
 
 class FinishedRunTests(unittest.TestCase):
     """A finished run never restores: lingering recovery fields must not block (#1060)."""
