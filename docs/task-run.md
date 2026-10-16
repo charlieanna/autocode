@@ -690,25 +690,32 @@ stamped on them (`passed`, `paused`, `open`). `escalations` lists each escalatio
 first (`tools/autocode_escalation_view.py`, #612): a role's climb on its effort ladder (`kind`
 `effort_climb`) and the Builder's stronger attempt (`stronger_attempt`; see
 [Models](models.md#builder-retry-policy)). Each row has the route `role` that moved, the `stage` that
-struggled and its `job` as the screen names it (from the role when no stage record is known), `at`,
-`trigger` (`validation_rework`, `rejected_output`, `no_progress` or `abandoned_attempt` for a climb,
-`execution_failure` for the stronger attempt), `detail`, `struggle_id`, `task_id` (for the stronger
-attempt, the task of the failed attempt its decision names), the route it climbed `from` and `to`
-(`model`, `reasoning_effort`, `profile`), `deferred_by_parallel_builder` (a parallel Builder left the
-stronger attempt to this run, which made it serially), `inherited`, `attempts`, `cost` and `outcome`:
+struggled and its `job` as the screen names it (from the role when the stage is not known; null, never
+a code name, when neither names a job), `at`, `trigger` (`validation_rework`, `rejected_output`,
+`no_progress` or `abandoned_attempt` for a climb, `execution_failure` for the stronger attempt),
+`detail`, `struggle_id`, `task_id` (for the stronger attempt, the task of the failed attempt its
+decision names), the route it climbed `from` and `to` (`model`, `reasoning_effort`, `profile`),
+`deferred_by_parallel_builder` (a parallel Builder left the stronger attempt to this run, which made it
+serially), `inherited`, `attempts`, `cost` and `outcome`:
 
 - `attempts` are the role's stage records launched on the route it climbed to, from the escalation
   until the first of: a validation of its work that passed (that attempt included), or the role's
   next escalation of either kind (its next climb, the Builder's stronger attempt). The running one is
-  included (`active`). A climb lasts for the rest of the run, so a later milestone's attempts on the
-  climbed rung count until one of those ends it. A validation judged an escalation's work when one of
-  its attempts produced it, or, for a role that does not validate (the Builder), when that role's last
-  attempt before it is one of its attempts; a later milestone's validation, or one of work on a route
-  the Builder was moved back to, is not its work.
+  included (`active`); dry runs and the runner's own stages are not attempts. A climb lasts for the
+  rest of the run, so a later milestone's attempts on the climbed rung count until one of those ends
+  it. A validation judged an escalation's work when one of its attempts produced it, or, for a role
+  that does not validate (the Builder), when that role's last attempt before it is one of its
+  attempts; a later milestone's validation, or one of work on a route the Builder was moved back to,
+  is not its work.
 - `cost` prices those attempts as `cost` prices a stage: `usd` (reported plus estimated),
-  `reported_usd`, `estimated_usd`, `unpriced_attempts` and `complete`. An attempt with no usage record
-  is unpriced, never zero: `usd` is then a floor (`complete` false), or null when no attempt is priced.
-  An escalation whose attempt never launched (a cost-cap or time-budget stop before it) cost `0`.
+  `reported_usd`, `estimated_usd`, `unpriced_attempts`, `unrouted_attempts` and `complete`. An attempt
+  with no usage record is unpriced, never zero: `usd` is then a floor (`complete` false), or null when
+  no attempt is priced. A stage record saved without a launch route (before 2026-10-01) cannot be
+  shown to have run on the route it climbed to: the role's such records in that span are counted in
+  `unrouted_attempts`, not listed in `attempts`, and no validation of them decides the outcome; while
+  there are any, the cost is unknown the same way (`complete` false, `usd` null when no listed attempt
+  is priced). An escalation whose attempt never launched (a cost-cap or time-budget stop before it)
+  cost `0`.
 - `inherited` is true for an escalation made before this run was created: in a checkpoint
   continuation (`autocode checkpoint --restore`), one the restored run made. Its attempts there are not
   in this run's stage records, so its `cost` is unknown, never zero: `usd` is null (a floor of its

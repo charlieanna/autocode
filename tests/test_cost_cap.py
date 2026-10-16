@@ -228,7 +228,14 @@ class ClimbCapBlackbox(unittest.TestCase):
         # The fixture's 10 input and 10 output tokens at GPT-6 Sol's dated price.
         spent = round(prices.estimate("gpt-6-sol", {"input_tokens": 10, "output_tokens": 10}), 6)
         self.assertEqual(
-            {"usd": spent, "reported_usd": None, "estimated_usd": spent, "unpriced_attempts": 0, "complete": True},
+            {
+                "usd": spent,
+                "reported_usd": None,
+                "estimated_usd": spent,
+                "unpriced_attempts": 0,
+                "unrouted_attempts": 0,
+                "complete": True,
+            },
             row["cost"],
         )
         self.assertEqual(("failed_again", "validation"), (row["outcome"], row["outcome_basis"]))

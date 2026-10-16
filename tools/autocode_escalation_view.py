@@ -20,9 +20,12 @@ climb, the Builder's stronger attempt); a running attempt counts. A validation j
 its own attempt is one of them, or, for a role that does not validate (the Builder), when the role's
 last attempt before it is one of them. Each is priced as the view's `cost` prices a stage
 (autocode_usage.stage_rows at the dated table of autocode_prices): reported, else estimated, else
-unpriced, never zero. An escalation made before the run was created was made in the run a checkpoint
-continuation restored (`inherited`): its attempts there are not in this run's records, so its cost
-is unknown, never zero.
+unpriced, never zero. A stage record of the role in that span with no launch route (saved before stage
+records kept one, 2026-10-01) cannot be shown to have run on the route it climbed to: it is counted
+(`cost.unrouted_attempts`) but neither listed nor taken as its work, and its cost is unknown, never
+zero. An escalation made before the run was created was made in the run a checkpoint continuation
+restored (`inherited`): its attempts there are not in this run's records, so its cost is unknown,
+never zero.
 
 How it ended (`outcome`), from the first of these that applies (`outcome_basis` says which):
 
@@ -66,8 +69,9 @@ FINISHED = ("TASK_COMPLETE", "COMPLETE")
 WORKING = ("RUNNING", "DISCOVERING")
 # A validation verdict after an escalation, as that escalation's outcome.
 VERDICTS = {"PASS": "passed", "FAIL": "failed_again", "BLOCKED": "failed_again"}
-# Outcomes and triggers in words, for lines().
+# Each outcome in words for lines(): as one escalation's line ends, and as counted in the line above them.
 SAID = {"passed": "passed", "failed_again": "failed again", "paused": "the run paused", "running": "still running"}
+COUNTED = {"passed": "passed", "failed_again": "failed again", "paused": "paused", "running": "still running"}
 
 
 def _list(value) -> list:
@@ -129,15 +133,18 @@ def _before(index, role, when) -> dict | None:
 
 
 def _job(stage, role, state: RunState | None = None) -> str | None:
-    """The job as the screen names it (autocode_roles): the stage's, else the route role's. A route role is a stage
-    code name (terra, sol) or a job key (completion, resolver)."""
-    if isinstance(stage, str) and stage:
-        return roles.screen_name(stage, state)
-    if not isinstance(role, str) or not role:
-        return None
-    if roles.job_for_stage(role, state) is None and role in roles.SCREEN:
-        return roles.SCREEN[role]
-    return roles.screen_name(role, state)
+    """The job as the screen names it (autocode_roles): the stage's, else the route role's, else None, so a code
+    name no table knows is never shown. A route role is a stage code name (terra, sol) or a job key (completion,
+    resolver). Only the run's reviewer routing mode is passed on, so a damaged setting cannot raise there."""
+    mode = _dict(_dict(_dict(state).get("settings")).get("workflow")).get("mode")
+    routing = {"settings": {"workflow": {"mode": mode}}}
+    for name in (stage, role):
+        if not isinstance(name, str) or not name:
+            continue
+        job = roles.job_for_stage(name, routing) or (name if name in roles.SCREEN else None)
+        if job is not None:
+            return roles.SCREEN[job]
+    return None
 
 
 def _builder_failure(decision, attempts) -> tuple[dict | None, str | None]:
@@ -182,7 +189,7 @@ def _recorded(state: RunState, attempts) -> list[dict]:
                 "from": _side(before.get("model"), before.get("reasoning_effort"), before.get("profile")),
                 "to": _side(after.get("model"), after.get("reasoning_effort"), after.get("profile")),
                 "initial": None,
-                "stamp": event.get("outcome"),
+                "stamp": _text(event.get("outcome")),
                 "failed": None,
                 "task_id": None,
                 "deferred": False,
@@ -201,14 +208,14 @@ def _recorded(state: RunState, attempts) -> list[dict]:
                 # One stronger attempt per milestone; the next milestone's moves the Builder again.
                 "lane": ("stronger", decision.get("milestone_key")),
                 "at": decision.get("at"),
-                "trigger": f"{decision.get('failure_class') or 'execution'}_failure",
+                "trigger": f"{_text(decision.get('failure_class')) or 'execution'}_failure",
                 "detail": decision.get("reason"),
                 "struggle_id": None,
                 "from": None,
                 "to": _side(decision.get("selected_model"), decision.get("selected_effort")),
                 # The Builder's route when its milestone began, for a failed attempt that is not found.
                 "initial": _dict(_dict(lanes.get(_text(decision.get("milestone_key")))).get("initial_route")),
-                "stamp": decision.get("outcome"),
+                "stamp": _text(decision.get("outcome")),
                 "failed": failed,
                 "task_id": task,
                 # A parallel Builder left this attempt to the parent run, which made it serially.
@@ -239,13 +246,13 @@ def _attempts(state: RunState) -> list[dict]:
     return [row for row in found if row["when"] is not None]
 
 
-def _validations(state: RunState, attempts) -> list[tuple[dt.datetime, Any, dict]]:
+def _validations(state: RunState, attempts) -> list[tuple[dt.datetime, str | None, dict]]:
     """(when its attempt started, verdict, that attempt) for each saved validation that names the attempt that
-    produced it."""
+    produced it. A verdict that is not text is None, which decides nothing."""
     started = {row["record"]["output"]: row for row in attempts if isinstance(row["record"].get("output"), str)}
     saved = [state.get("validation"), *(row.get("validation") for row in _list(state.get("validation_archive")))]
     found = [
-        (started[validation["output"]]["when"], validation.get("verdict"), started[validation["output"]])
+        (started[validation["output"]]["when"], _text(validation.get("verdict")), started[validation["output"]])
         for validation in saved
         if isinstance(validation, dict)
         and isinstance(validation.get("output"), str)
@@ -254,7 +261,7 @@ def _validations(state: RunState, attempts) -> list[tuple[dt.datetime, Any, dict
     return sorted(found, key=lambda row: row[0])
 
 
-def _judged(escalation, validations, index) -> list[tuple[dt.datetime, Any]]:
+def _judged(escalation, validations, index) -> list[tuple[dt.datetime, str | None]]:
     """(when, verdict) of each validation of the escalation's work: one an attempt of it produced, or, for a role
     that does not validate (the Builder), one run after the role's last attempt, when that is an attempt of it. A
     validation of another milestone, or of work on a route the role was moved to since, is not its work."""
@@ -268,22 +275,25 @@ def _judged(escalation, validations, index) -> list[tuple[dt.datetime, Any]]:
     return found
 
 
-def _cost(attempts, known, inherited) -> dict:
+def _cost(attempts, known, inherited, unrouted) -> dict:
     """What the attempts cost: known USD (reported plus estimated), each basis, and whether every one is priced."""
     reported = [row["cost_usd"] for row in attempts if row["basis"] == "reported"]
     estimated = [row["cost_usd"] for row in attempts if row["basis"] == "estimated"]
     unpriced = sum(row["basis"] == "unknown" for row in attempts)
     # No attempt launched cost nothing; launched attempts none of which is priced cost an unknown amount, and so
-    # does an escalation made before a restored checkpoint, whose attempts there are not in this run's records.
-    nothing = (bool(attempts) or inherited) and not reported and not estimated
+    # does an escalation made before a restored checkpoint, whose attempts there are not in this run's records, or
+    # one whose role's records after it have no launch route, any of which may be its attempts.
+    nothing = (bool(attempts) or inherited or unrouted > 0) and not reported and not estimated
     return {
         "usd": None if not known or nothing else round(float(sum(reported) + sum(estimated)), 6),
         "reported_usd": round(float(sum(reported)), 6) if reported else None,
         "estimated_usd": round(float(sum(estimated)), 6) if estimated else None,
         "unpriced_attempts": unpriced,
+        "unrouted_attempts": unrouted,
         "complete": bool(known)
         and not inherited
         and unpriced == 0
+        and unrouted == 0
         and not any(row.get("partial") or row["basis"] == "running" for row in attempts),
     }
 
@@ -315,6 +325,11 @@ def _next(escalations, escalation, ends) -> dt.datetime | None:
         ),
         None,
     )
+
+
+def _until(attempts, end, inclusive) -> list[dict]:
+    """The attempts that started before `end` (or at it, when `inclusive`); all of them when there is no end."""
+    return [row for row in attempts if end is None or (row["when"] <= end if inclusive else row["when"] < end)]
 
 
 def _same_role(escalation, other) -> bool:
@@ -351,13 +366,18 @@ def rows(state: RunState) -> list[dict]:
             route = _dict(escalation["struggled"].get("launch_route")) or escalation["initial"]
             escalation["from"] = _side(*_route(route))
         closed = _next(escalations, escalation, _same_role)
-        escalation["mine"] = [
+        span = [
             row
             for row in index.get(role, ([], []))[0]
-            if when is not None
-            and row["when"] >= when
-            and (closed is None or row["when"] < closed)
-            and _route(row["record"].get("launch_route")) == _route(escalation["to"])
+            if when is not None and row["when"] >= when and (closed is None or row["when"] < closed)
+        ]
+        # A record saved before stage records kept their launch route may or may not be on the climbed route.
+        escalation["unrouted"] = [row for row in span if not isinstance(row["record"].get("launch_route"), dict)]
+        escalation["mine"] = [
+            row
+            for row in span
+            if isinstance(row["record"].get("launch_route"), dict)
+            and _route(row["record"]["launch_route"]) == _route(escalation["to"])
         ]
         escalation["mine_records"] = {id(row["record"]) for row in escalation["mine"]}
     found = []
@@ -366,7 +386,8 @@ def rows(state: RunState) -> list[dict]:
         later = _next(escalations, escalation, _ends)
         judged = _judged(escalation, validations, index)
         outcome, basis, end, inclusive = _outcome(state, escalation, later, judged)
-        launched = [row for row in mine if end is None or (row["when"] <= end if inclusive else row["when"] < end)]
+        launched = _until(mine, end, inclusive)
+        unrouted = len(_until(escalation["unrouted"], end, inclusive))
         struggled = escalation["struggled"]
         stage = _text(struggled.get("stage")) or (_text(launched[0]["record"].get("stage")) if launched else None)
         # Made before this run was created: in the run a checkpoint continuation restored, whose stage records
@@ -398,7 +419,7 @@ def rows(state: RunState) -> list[dict]:
                     }
                     for row in launched
                 ],
-                "cost": _cost(launched, when is not None, inherited),
+                "cost": _cost(launched, when is not None, inherited, unrouted),
                 "outcome": outcome,
                 "outcome_basis": basis,
             }
@@ -414,32 +435,48 @@ def _named(side) -> str:
     return f"{model} at {effort}" if effort else str(model)
 
 
+def _whole(value) -> int:
+    """A count from a row, or 0 when it is not a positive whole number."""
+    return value if type(value) is int and value > 0 else 0
+
+
+def _many(count, noun) -> str:
+    return f"{count} {noun}{'s' if count != 1 else ''}"
+
+
 def lines(escalations) -> list[str]:
     """What `--status` prints for a person about the run's escalations: a count by outcome, then one line
-    each (the job, the routes, the trigger, the attempts, their cost, the outcome). Empty when there are none."""
+    each (the job, the routes, the trigger, the attempts, their cost, the outcome). Empty when there are none.
+    A job is named only as autocode_roles names it, never by a code name."""
     escalations = [row for row in escalations if isinstance(row, dict)] if isinstance(escalations, list) else []
     if not escalations:
         return []
-    counts = {key: sum(row.get("outcome") == key for row in escalations) for key in SAID}
-    parts = ", ".join(f"{count} {SAID[key]}" for key, count in counts.items() if count)
-    text = [f"Escalations: {len(escalations)} ({parts})."]
+    outcomes = [_text(row.get("outcome")) for row in escalations]
+    counts = [f"{outcomes.count(key)} {said}" for key, said in COUNTED.items() if key in outcomes]
+    unknown = sum(outcome not in COUNTED for outcome in outcomes)
+    if unknown:
+        counts.append(f"{unknown} with an unknown outcome")
+    text = [f"Escalations: {len(escalations)} ({', '.join(counts)})."]
     for row in escalations:
         spend = _dict(row.get("cost"))
-        tries = len(row.get("attempts") or [])
-        attempts = f"{tries} attempt{'s' if tries != 1 else ''}" + (
-            " since the restored checkpoint" if row.get("inherited") else ""
-        )
-        if not tries:
-            paid = "made before the restored checkpoint, cost unknown" if row.get("inherited") else "not launched"
-        elif spend.get("usd") is None:
-            paid = f"{attempts}, cost unknown"
+        tries = len(row["attempts"]) if isinstance(row.get("attempts"), list) else 0
+        unrouted = _whole(spend.get("unrouted_attempts"))
+        usd = spend.get("usd") if type(spend.get("usd")) in (int, float) else None
+        launched = []
+        if tries:
+            restored = " since the restored checkpoint" if row.get("inherited") is True else ""
+            launched.append(_many(tries, "attempt") + restored)
+        if unrouted > 0:
+            launched.append(f"{_many(unrouted, 'attempt')} with no recorded route")
+        if launched:
+            floor = "" if spend.get("complete") is True else "at least "
+            paid = ", ".join([*launched, "cost unknown" if usd is None else floor + cost.usd(usd)])
+        elif row.get("inherited") is True:
+            paid = "made before the restored checkpoint, cost unknown"
         else:
-            floor = "" if spend.get("complete") else "at least "
-            paid = f"{attempts}, {floor}{cost.usd(spend['usd'])}"
-        trigger = str(row.get("trigger") or "an escalation").replace("_", " ")
-        job = row.get("job") or _job(row.get("stage"), row.get("role")) or "A role"
-        text.append(
-            f"  {job}: {_named(row.get('from'))} → {_named(row.get('to'))} after "
-            f"{trigger}; {paid}; {SAID.get(row.get('outcome'), row.get('outcome'))}."
-        )
+            paid = "not launched" if usd is not None else "attempts unknown, cost unknown"
+        trigger = (_text(row.get("trigger")) or "an unrecorded trigger").replace("_", " ")
+        job = _text(row.get("job")) or _job(row.get("stage"), row.get("role")) or "Unknown job"
+        outcome = SAID.get(_text(row.get("outcome")) or "", "outcome unknown")
+        text.append(f"  {job}: {_named(row.get('from'))} → {_named(row.get('to'))} after {trigger}; {paid}; {outcome}.")
     return text

@@ -11,14 +11,6 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
-- `autocode --status` shows each escalation a run made: a role's climb on its effort ladder and the Builder's
-  stronger attempt, as rows of the status view's new `escalations` field (`--status --json`) and one line each on
-  stderr after the cost line. A row names the job and stage it was for, the route it climbed from and to, its
-  escalated attempts and what they cost at the dated price table (an attempt with no usage record is unpriced,
-  never zero, and so is an escalation a checkpoint continuation inherited, whose attempts ran before the restore),
-  and how it ended: `passed`, `failed_again`, `paused` or `running`, with what decided it. Only a validation of
-  the escalation's own work counts as its pass. It is read from the records the run already keeps; no run-state
-  key is added (#612).
 - `tests/test_json_output.py` holds `--status` and `--json` to the status-view schema and exit-code table on a
   saved auth pause (`your_environment`) and rate-limit pause (`model_or_provider`), matching the AutoCode
   iteration/time-limit coverage already there. The fake person-pause contract test still does not reach those
@@ -260,6 +252,16 @@ PR template asks for an entry here; a change without one is incomplete.
   retained report only needs repair, the row points at its status instead of
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
+
+- `autocode --status` shows each escalation a run made: a role's climb on its effort ladder and the Builder's
+  stronger attempt, as rows of the status view's new `escalations` field (`--status --json`) and one line each on
+  stderr after the cost line. A row names the job and stage it was for, the route it climbed from and to, its
+  escalated attempts and what they cost at the dated price table, and how it ended: `passed`, `failed_again`,
+  `paused` or `running`, with what decided it. A cost that cannot be known is unknown, never zero: an attempt
+  with no usage record, an escalation a checkpoint continuation inherited (its attempts ran before the restore),
+  and the role's stage records saved before launch routes were recorded (2026-10-01), which cannot be shown to
+  be its attempts (`unrouted_attempts`). Only a validation of the escalation's own work counts as its pass. It
+  is read from the records the run already keeps; no run-state key is added (#612).
 
 ### Changed
 

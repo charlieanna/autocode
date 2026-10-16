@@ -76,6 +76,23 @@ def verdict(record, result):
     return {"output": record["output"], "verdict": result, "reviewer_role": "sol"}
 
 
+def unrouted(record):
+    """A stage record as a run saved it before stage records kept their launch route (2026-10-01)."""
+    return {key: value for key, value in record.items() if key != "launch_route"}
+
+
+def cost_of(usd, *, reported=None, estimated=None, unpriced=0, unrouted=0, complete=False):
+    """A row's `cost` as the view writes it."""
+    return {
+        "usd": usd,
+        "reported_usd": reported,
+        "estimated_usd": estimated,
+        "unpriced_attempts": unpriced,
+        "unrouted_attempts": unrouted,
+        "complete": complete,
+    }
+
+
 class NoEscalationTests(unittest.TestCase):
     def test_a_run_without_escalations_lists_none_and_prints_nothing(self):
         state = {"status": "TASK_COMPLETE", "stages": [attempt("sol", 1, HIGH)]}
@@ -103,6 +120,62 @@ class NoEscalationTests(unittest.TestCase):
         [row] = rows(state)
         self.assertEqual([], row["attempts"])
         self.assertEqual({"usd": None, "complete": False}, {key: row["cost"][key] for key in ("usd", "complete")})
+
+    def test_odd_typed_fields_in_saved_records_never_raise(self):
+        """Text fields that hold a list or a dict, and entries that are not records, are skipped or read as unknown;
+        the climb is still listed and printed."""
+        climbed = attempt("sol", 20, XHIGH)
+        checkpoint = attempt("astra_checkpoint", 1, HIGH, role="sol")  # its job depends on the routing setting
+        stronger = {"action": "escalate", "at": at(30), "failure": climbed["output"], "failure_class": ["execution"]}
+        damaged = {
+            "a list output in the validation": {"validation": {"output": [climbed["output"]], "verdict": "PASS"}},
+            "a dict output in the validation": {"validation": {"output": {"path": 1}, "verdict": "PASS"}},
+            "a list output in an archived validation": {
+                "validation_archive": [{"validation": {"output": [climbed["output"]], "verdict": "PASS"}}]
+            },
+            "a dict output in an archived validation": {
+                "validation_archive": [{"validation": {"output": {"path": 1}, "verdict": "FAIL"}}]
+            },
+            "a list verdict": {"validation": {"output": climbed["output"], "verdict": ["PASS"]}},
+            "a list output in a stage record": {
+                "stages": [{**climbed, "output": [climbed["output"]]}],
+                "validation": verdict(climbed, "PASS"),
+            },
+            "a list role and a dict task in a stage record": {
+                "stages": [climbed, {**climbed, "route_role": ["sol"], "task_id": {"id": 1}, "started_at": at(21)}]
+            },
+            "a list milestone key": {
+                "builder_retry_decisions": [
+                    {**stronger, "action": "defer", "milestone_key": {"M": 1}},
+                    {**stronger, "milestone_key": ["M1"]},
+                ],
+                "builder_retries": {"M1": {"initial_route": ["route"]}},
+            },
+            "a list outcome stamp": {"reasoning_escalations": [climb(10, HIGH, XHIGH, outcome=["passed"])]},
+            "routes that are not records": {"reasoning_escalations": [climb(10, ["high"], "xhigh")]},
+            "entries that are not records": {
+                "stages": [climbed, "junk", 3, None, ["junk"]],
+                "active_stage": ["junk"],
+                "validation": "junk",
+                "validation_archive": ["junk", {"validation": ["junk"]}],
+                "reasoning_escalations": [climb(10, HIGH, XHIGH), "junk", None],
+                "builder_retry_decisions": [None, "junk"],
+                "builder_retries": ["junk"],
+            },
+            "settings that are a list": {"settings": ["junk"], "stages": [checkpoint, climbed]},
+            "a reviewer routing setting that is a list": {"settings": {"workflow": ["junk"]}, "stages": [checkpoint]},
+        }
+        for name, extra in damaged.items():
+            with self.subTest(name):
+                state = {
+                    "status": "RUNNING",
+                    "stages": [attempt("sol", 1, HIGH), climbed],
+                    "reasoning_escalations": [climb(10, HIGH, XHIGH)],
+                    **extra,
+                }
+                found = escalation_view.rows(state)
+                self.assertIn("effort_climb", [row["kind"] for row in found])
+                self.assertEqual(len(found) + 1, len(escalation_view.lines(found)))
 
 
 class EffortClimbTests(unittest.TestCase):
@@ -139,7 +212,7 @@ class EffortClimbTests(unittest.TestCase):
         )
         self.assertEqual([at(20)], [row["started_at"] for row in row["attempts"]])
         self.assertEqual(
-            {"usd": SOL, "reported_usd": None, "estimated_usd": SOL, "unpriced_attempts": 0, "complete": True},
+            cost_of(SOL, estimated=SOL, complete=True),
             row["cost"],
         )
         self.assertEqual(
@@ -174,17 +247,99 @@ class EffortClimbTests(unittest.TestCase):
         self.assertEqual([SOL, doubled], [row["cost"]["usd"] for row in found])
         self.assertEqual("Escalations: 2 (1 passed, 1 failed again).", escalation_view.lines(found)[0])
 
-    def test_a_climb_whose_attempt_failed_its_validation_again(self):
-        climbed = attempt("sol", 20, XHIGH, iteration=2)
+    def test_a_climb_whose_attempt_failed_or_was_blocked_failed_again(self):
+        for result in ("FAIL", "BLOCKED"):
+            with self.subTest(result):
+                climbed = attempt("sol", 20, XHIGH, iteration=2)
+                state = {
+                    "status": "RUNNING",
+                    "stages": [attempt("sol", 1, HIGH), climbed],
+                    "reasoning_escalations": [climb(10, HIGH, XHIGH)],
+                    "validation": verdict(climbed, result),
+                }
+                [row] = rows(state)
+                self.assertEqual(("failed_again", "validation"), (row["outcome"], row["outcome_basis"]))
+                self.assertEqual(SOL, row["cost"]["usd"])
+
+    def test_a_validation_of_work_from_before_the_climb_is_not_its_outcome(self):
+        """The previous milestone's PASS and the FAIL that set the climb off judged work on the old rung."""
+        earlier, failed = attempt("sol", 1, HIGH), attempt("sol", 5, HIGH, iteration=2)
         state = {
-            "status": "RESOLVER_PENDING",
-            "stages": [attempt("sol", 1, HIGH), climbed],
+            "status": "RUNNING",
+            "stages": [earlier, failed],
             "reasoning_escalations": [climb(10, HIGH, XHIGH)],
+            "validation": verdict(failed, "FAIL"),
+            "validation_archive": [{"validation": verdict(earlier, "PASS")}],
+        }
+        [row] = rows(state)
+        self.assertEqual(("running", "run_status", []), (row["outcome"], row["outcome_basis"], row["attempts"]))
+
+    def test_an_attempt_on_another_route_after_the_climb_is_not_its_attempt(self):
+        """A person pinned the Tester back to its own route after the climb: that attempt, and its PASS, are not the
+        climb's."""
+        climbed, pinned = attempt("sol", 20, XHIGH), attempt("sol", 30, HIGH, iteration=2)
+        state = {
+            "status": "RUNNING",
+            "stages": [attempt("sol", 1, HIGH), climbed, pinned],
+            "reasoning_escalations": [climb(10, HIGH, XHIGH)],
+            "validation": verdict(pinned, "PASS"),
+        }
+        [row] = rows(state)
+        self.assertEqual([at(20)], [one["started_at"] for one in row["attempts"]])
+        self.assertEqual(("running", "run_status", SOL), (row["outcome"], row["outcome_basis"], row["cost"]["usd"]))
+
+    def test_dry_runs_and_the_runners_own_stages_are_not_attempts(self):
+        climbed = attempt("sol", 20, XHIGH)
+        for name, extra in {
+            "a dry run": {"stages": [climbed, attempt("sol", 30, XHIGH, dry_run=True)]},
+            "a running dry run": {"stages": [climbed], "active_stage": attempt("sol", 30, XHIGH, dry_run=True)},
+            "the runner's own stage": {"stages": [climbed, attempt("sol", 30, XHIGH, runner_owned=True)]},
+        }.items():
+            with self.subTest(name):
+                [row] = rows({"status": "RUNNING", "reasoning_escalations": [climb(10, HIGH, XHIGH)], **extra})
+                self.assertEqual([at(20)], [one["started_at"] for one in row["attempts"]])
+                self.assertEqual(cost_of(SOL, estimated=SOL, complete=True), row["cost"])
+
+    def test_a_partial_token_count_leaves_the_cost_a_floor(self):
+        climbed = attempt("sol", 20, XHIGH)
+        climbed["metrics"]["provider_tokens_partial"] = True
+        state = {"status": "RUNNING", "stages": [climbed], "reasoning_escalations": [climb(10, HIGH, XHIGH)]}
+        [row] = rows(state)
+        self.assertEqual(cost_of(SOL, estimated=SOL), row["cost"])
+        self.assertIn(f"1 attempt, at least {cost.usd(SOL)}; still running.", escalation_view.lines([row])[1])
+
+    def test_a_climb_on_a_run_saved_before_launch_routes_has_an_unknown_cost_never_zero(self):
+        """Climbs were recorded from 2026-09-22, launch routes on stage records from 2026-10-01. The Tester's record
+        after the climb cannot be shown to be on the climbed rung, so it is counted, not listed or judged, and the
+        cost is unknown rather than a complete zero."""
+        old = dt.datetime(2026, 9, 25, 9, 0, tzinfo=dt.UTC)
+        climbed = unrouted(attempt("sol", 20, XHIGH, start=old, iteration=2))
+        state = {
+            "status": "RUNNING",
+            "stages": [unrouted(attempt("sol", 1, HIGH, start=old)), climbed],
+            "reasoning_escalations": [climb(10, HIGH, XHIGH, start=old)],
             "validation": verdict(climbed, "FAIL"),
         }
         [row] = rows(state)
-        self.assertEqual(("failed_again", "validation"), (row["outcome"], row["outcome_basis"]))
-        self.assertEqual(SOL, row["cost"]["usd"])
+        self.assertEqual(([], cost_of(None, unrouted=1)), (row["attempts"], row["cost"]))
+        self.assertEqual(
+            ("sol", "Tester", "running", "run_status"), (row["stage"], row["job"], row["outcome"], row["outcome_basis"])
+        )
+        self.assertEqual(
+            "  Tester: GPT-6 Sol High → GPT-6 Sol XHigh after validation rework; 1 attempt with no recorded route, "
+            "cost unknown; still running.",
+            escalation_view.lines([row])[1],
+        )
+        # The run was resumed on a version that records routes: that attempt is priced, as a floor.
+        resumed = attempt("sol", 30, XHIGH, start=old, iteration=3)
+        state["stages"].append(resumed)
+        [row] = rows(state)
+        self.assertEqual([resumed["started_at"]], [one["started_at"] for one in row["attempts"]])
+        self.assertEqual(cost_of(SOL, estimated=SOL, unrouted=1), row["cost"])
+        self.assertIn(
+            f"; 1 attempt, 1 attempt with no recorded route, at least {cost.usd(SOL)}; still running.",
+            escalation_view.lines([row])[1],
+        )
 
     def test_an_escalation_with_no_usage_record_has_an_unknown_cost_never_zero(self):
         climbed = attempt("sol", 20, XHIGH, tokens=None)
@@ -192,7 +347,7 @@ class EffortClimbTests(unittest.TestCase):
         [row] = rows(state)
         self.assertEqual([None], [one["cost_usd"] for one in row["attempts"]])
         self.assertEqual(
-            {"usd": None, "reported_usd": None, "estimated_usd": None, "unpriced_attempts": 1, "complete": False},
+            cost_of(None, unpriced=1),
             row["cost"],
         )
         self.assertEqual(("running", "run_status"), (row["outcome"], row["outcome_basis"]))
@@ -536,7 +691,7 @@ class StrongerAttemptTests(unittest.TestCase):
             (row["role"], row["job"], row["inherited"], row["attempts"], row["outcome"]),
         )
         self.assertEqual(
-            {"usd": None, "reported_usd": None, "estimated_usd": None, "unpriced_attempts": 0, "complete": False},
+            cost_of(None),
             row["cost"],
         )
         self.assertEqual(
@@ -544,6 +699,79 @@ class StrongerAttemptTests(unittest.TestCase):
             "before the restored checkpoint, cost unknown; the run paused.",
             escalation_view.lines([row])[1],
         )
+
+
+class LinesTests(unittest.TestCase):
+    """What `--status` prints for a person."""
+
+    def test_the_count_line_names_each_outcome_in_words(self):
+        climbed = attempt("sol", 20, XHIGH)
+        ran = {"stages": [climbed], "reasoning_escalations": [climb(10, HIGH, XHIGH)]}
+        unlaunched = {"reasoning_escalations": [climb(10, HIGH, XHIGH)]}
+        states = {
+            "Escalations: 1 (1 passed).": {"status": "RUNNING", **ran, "validation": verdict(climbed, "PASS")},
+            "Escalations: 1 (1 failed again).": {"status": "RUNNING", **ran, "validation": verdict(climbed, "FAIL")},
+            "Escalations: 1 (1 paused).": {"status": "PAUSED_COST_LIMIT", **unlaunched},
+            "Escalations: 1 (1 still running).": {"status": "RUNNING", **unlaunched},
+        }
+        found = []
+        for header, state in states.items():
+            with self.subTest(header):
+                [row] = rows(state)
+                self.assertEqual(header, escalation_view.lines([row])[0])
+                found.append(row)
+        self.assertEqual(
+            "Escalations: 5 (2 passed, 1 failed again, 1 paused, 1 still running).",
+            escalation_view.lines([found[0], *found])[0],
+        )
+        # A row from another version whose outcome this one does not know.
+        mixed = escalation_view.lines([found[0], {**found[0], "outcome": "lost"}])
+        self.assertEqual("Escalations: 2 (1 passed, 1 with an unknown outcome).", mixed[0])
+        self.assertTrue(mixed[2].endswith("; outcome unknown."), mixed[2])
+
+    def test_a_job_no_table_names_is_never_shown_by_its_code_name(self):
+        """A climb saved under the Resolver's old route key (`astra`, before #1345) with no stage record to name its
+        job. A row without a job is named from its stage or role through autocode_roles, else `Unknown job`."""
+        astra = {"model": "openai/gpt-6-astra", "reasoning_effort": "high", "profile": "GPT-6 Astra High"}
+        climbed = {**astra, "reasoning_effort": "xhigh", "profile": "GPT-6 Astra XHigh"}
+        [row] = rows({"status": "RUNNING", "reasoning_escalations": [climb(10, astra, climbed, role="astra")]})
+        self.assertEqual(("astra", None, None), (row["role"], row["stage"], row["job"]))
+        self.assertTrue(escalation_view.lines([row])[1].startswith("  Unknown job: GPT-6 Astra High → "))
+        for role, stage, job in (
+            ("sol", None, "Tester"),
+            ("terra", None, "Builder"),
+            ("completion", None, "Completion Reviewer"),
+            ("resolver", None, "Resolver"),
+            ("sol", "astra_checkpoint", "Completion Reviewer"),
+            ("glm", "glm_custom", "Unknown job"),
+        ):
+            with self.subTest(role=role, stage=stage):
+                line = escalation_view.lines([{**row, "role": role, "stage": stage, "job": None}])[1]
+                self.assertTrue(line.startswith(f"  {job}: "), line)
+
+    def test_rows_of_another_shape_are_printed_without_raising(self):
+        self.assertEqual(
+            [
+                "Escalations: 1 (1 with an unknown outcome).",
+                "  Unknown job: an unknown model → an unknown model after an unrecorded trigger; attempts unknown, cost "
+                "unknown; outcome unknown.",
+            ],
+            escalation_view.lines(
+                [
+                    {
+                        "outcome": ["passed"],
+                        "role": ["sol"],
+                        "attempts": 5,
+                        "cost": {"usd": "1", "unrouted_attempts": [1]},
+                        "trigger": {"kind": 1},
+                        "from": [],
+                        "to": None,
+                    },
+                    "junk",
+                ]
+            ),
+        )
+        self.assertEqual([], escalation_view.lines({"escalations": []}))
 
 
 if __name__ == "__main__":

@@ -110,7 +110,7 @@
               "kind": {"type": "string", "enum": ["effort_climb", "stronger_attempt"]},
               "role": {"type": "string", "description": "The route role whose route moved (a settings.roles key: sol, terra, completion, resolver)."},
               "stage": {"type": ["string", "null"], "description": "The stage that struggled, else the first escalated attempt's; null when neither is recorded."},
-              "job": {"type": ["string", "null"], "description": "That stage's job as the screen names it (Tester, Builder, ...); the route role's when no stage record is known."},
+              "job": {"type": ["string", "null"], "description": "That stage's job as the screen names it (Tester, Builder, ...; tools/autocode_roles.py); the route role's when the stage is not known; null when neither names a job."},
               "at": {"type": ["string", "null"]},
               "trigger": {"type": ["string", "null"], "description": "What set it off: validation_rework, rejected_output, no_progress or abandoned_attempt for a climb; execution_failure for the stronger attempt."},
               "detail": {"type": ["string", "null"]},
@@ -134,13 +134,14 @@
               },
               "cost": {
                 "type": "object",
-                "required": ["usd", "reported_usd", "estimated_usd", "unpriced_attempts", "complete"],
-                "description": "What the escalated attempts cost at the dated price table, as the view's `cost` prices a stage. A null amount is unknown, never zero; while `complete` is false, `usd` is a floor. 0 only when no attempt launched in a run that made the escalation itself.",
+                "required": ["usd", "reported_usd", "estimated_usd", "unpriced_attempts", "unrouted_attempts", "complete"],
+                "description": "What the escalated attempts cost at the dated price table, as the view's `cost` prices a stage. A null amount is unknown, never zero; while `complete` is false, `usd` is a floor. 0 only when no attempt launched in a run that made the escalation itself and has a launch route on every record of the role after it.",
                 "properties": {
                   "usd": {"type": ["number", "null"]},
                   "reported_usd": {"type": ["number", "null"]},
                   "estimated_usd": {"type": ["number", "null"]},
                   "unpriced_attempts": {"type": "integer"},
+                  "unrouted_attempts": {"type": "integer", "description": "The role's stage records after it, within its attempts' span, saved without a launch route (before 2026-10-01): they may be its attempts but cannot be shown to be, so they are not in `attempts`, nothing they did decides its outcome, and while there are any `complete` is false and `usd` is null when no listed attempt is priced."},
                   "complete": {"type": "boolean"}
                 }
               },
