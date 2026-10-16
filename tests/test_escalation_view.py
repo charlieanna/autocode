@@ -798,6 +798,7 @@ class StrongerAttemptTests(unittest.TestCase):
                 escalated, strong, check = self.tasked_stronger_attempt(state)
                 if paused:
                     self.assertEqual("pause", policy.failure(state, check["output"], "f"))
+                    self.decided_row(state, "pause")["at"] = at(3, escalated)  # made after the check it charges
                     expected = ("paused", "recorded", "; the run paused.")
                 else:
                     self.assertEqual("replan", policy.failure(state, check["output"], "f", classification="plan"))
