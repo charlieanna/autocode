@@ -52,8 +52,9 @@ TANGLED = frozenset(
 # by its --chat re-prompt; the rule is in autocode_answer_options.
 # 2026-10-14: the report-only mutation check (#699) runs in autocode_regression; verify() keeps the candidate
 # tree for it and diffs product files through the staged tree, which raised autocode_verify.py.
+# 2026-10-16: queuing a report-only repair moved to autocode_report_repair_queue (#1257).
 MAX_LINES = {
-    "autocode.py": 2036,
+    "autocode.py": 2002,
     "autocode_goals.py": 1404,
     "autocode_support.py": 620,
     "autopilot.py": 1513,

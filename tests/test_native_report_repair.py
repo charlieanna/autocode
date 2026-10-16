@@ -312,9 +312,20 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
 
     def test_repair_launches_report_only_on_the_original_route_through_the_native_owner(self):
         self.queue()
-        with patch.object(runner, "run_role", side_effect=RuntimeError("controlled launch stop")) as launch:
+        queued, counted = len(self.saved), []
+
+        def stop(*_args, **_options):
+            # The attempt counts the native parent sink had saved when the repair launched.
+            counted.extend(row["pending_report_repair"]["attempts"] for row in self.saved[queued:])
+            raise RuntimeError("controlled launch stop")
+
+        with (
+            patch.object(runner, "write_json", side_effect=AssertionError("ordinary writer used")),
+            patch.object(runner, "run_role", side_effect=stop) as launch,
+        ):
             with self.assertRaisesRegex(RuntimeError, "controlled launch stop"):
                 self.view.execute_report_repair(self.state, self.run, self.root)
+        self.assertEqual([1], counted)  # counted through the native parent sink before the launch
         options = launch.call_args.kwargs
         self.assertEqual(
             ("plan_reviewer", "read-only", False, True, "controlled/reviewer"),
@@ -324,7 +335,7 @@ class RepairRunsUnderTheNativeOwner(NativeRepairFixture):
         self.assertEqual(self.calls.sink.write, options["persist"])
         self.assertIn(str(MALFORMED), options["prompt"])
         self.assertEqual(1, self.state["pending_report_repair"]["attempts"])
-        self.assertEqual(1, self.disk()["pending_report_repair"]["attempts"])  # counted before the launch
+        self.assertEqual(1, self.disk()["pending_report_repair"]["attempts"])
 
     def test_exhausted_or_changed_inputs_launch_nothing(self):
         self.queue()
@@ -834,6 +845,23 @@ class NoInvestigatorUnderNativeAuthority(NativeRepairFixture):
         self.assertNotIn("stuck_investigations", saved)
         self.assertNotIn("stuck_investigation", saved)
 
+    def test_native_stage_that_ends_the_loop_paused_keeps_its_reason_without_an_investigation(self):
+        # A stage can also record its own non-convergence pause and return: the loop then ends normally.
+        self.state["planning"]["reports"] = {}  # the pause screen lists the planning reports
+        reason = "Original native output retained: controlled repeated rejection"
+
+        def attempt(current, stage):
+            record = {"stage": stage, "rejected": True}
+            current["stages"].append(record)
+            runner.run_status.pause(current, "PAUSED_REPEATED_FAILURE", reason)
+            return record
+
+        saved = self.run_native_loop(attempt)
+        self.assertEqual(("PAUSED_REPEATED_FAILURE", reason), (saved["status"], saved["stop_reason"]))
+        self.assertEqual("plan_review", saved["next_stage"])
+        self.assertNotIn("stuck_investigations", saved)
+        self.assertNotIn("stuck_investigation", saved)
+
     def test_native_builder_failure_classification_is_restored_to_its_own_pause(self):
         # After approval a native run owns the Builder. A Builder that changed nothing is routed by
         # autopilot.route_builder_failure, which queues the Investigator to classify the failure.
@@ -885,6 +913,26 @@ def pend_repair(case):
     original.update(stage="plan_revise", rejected=True, exit_code=0, source_revision=case.raw["revision"])
     case.state["pending_report_repair"] = {"original": original, "attempts": 1, "pins": {}, "contract_hash": None}
     util.atomic_json(case.state_path, case.state)
+
+
+def owner_refuses(case, reason):
+    """The original journal owner itself refuses the saved stopped launch and records nothing.
+
+    The CLI's admission (stage_recovery.request) refuses such a launch first, so it is skipped
+    here: the owner's own check is what decides.
+    """
+    record = deepcopy(case.state["active_stage"])
+    intent = protection.stage_recovery.PlanningAbandonIntent(
+        "001/plan-revise-01", frozenset({"plan_revise"}), util.digest(record)
+    )
+    before = case.journal_bytes()
+    with (
+        patch.object(protection.stage_recovery, "constructor_record", return_value=record),
+        patch.object(protection.processes, "live_processes", side_effect=case.observe),
+        case.assertRaisesRegex(util.Paused, reason),
+    ):
+        case.construct(intent=intent)
+    case.assertEqual(before, case.journal_bytes())
 
 
 class StoppedRepairLaunchClosesThroughTheOriginalOwner(unittest.TestCase):
@@ -940,6 +988,22 @@ class StoppedRepairLaunchClosesThroughTheOriginalOwner(unittest.TestCase):
         self.assertEqual(before, self.journal_bytes())
         self.assertIn("active_stage", self.state)
 
+    def test_owner_refuses_a_report_only_output_limit_that_is_not_the_pending_repair_launch(self):
+        self.collected_length()
+        original = deepcopy(self.state)
+        cases = {
+            "no pending repair": lambda state: state.pop("pending_report_repair"),
+            "uncounted": lambda state: state["pending_report_repair"].update(attempts=0),
+            "another stage's repair": lambda state: state["pending_report_repair"]["original"].update(
+                stage="plan_review"
+            ),
+        }
+        for label, change in cases.items():
+            with self.subTest(label):
+                self.state = deepcopy(original)
+                change(self.state)
+                owner_refuses(self, "output limit is not an original collected planning stop")
+
 
 class HeldRepairLaunchCancelsThroughTheOriginalOwner(unittest.TestCase):
     """A repair launch held at a failed cleanup is cancelled as an original held launch is."""
@@ -970,6 +1034,23 @@ class HeldRepairLaunchCancelsThroughTheOriginalOwner(unittest.TestCase):
         self.assertIn("cancelled native report repair launch", abandoned["rejection_reason"])
         with patch.object(protection.processes, "live_processes", side_effect=self.observe):
             self.construct()  # the original journal still replays with the cancelled repair launch
+
+
+class HeldReportOnlyLaunchOutsideARepairStage(unittest.TestCase):
+    """The original owner cancels a held report-only launch only on a report-repair stage."""
+
+    fixture = cleanup_cancellation_tests.NativeHeldCancellationTests
+    observe = fixture.observe
+    journal_bytes = fixture.journal_bytes
+    construct = fixture.construct
+    record_overrides = {"original_stage": "plan_revise", "report_only": True}  # on plan_revise itself
+
+    def setUp(self):
+        self.fixture.setUp(self)  # PAUSED_PROCESS_CLEANUP with an unreleased, held report-only launch
+        pend_repair(self)
+
+    def test_held_report_only_launch_of_the_original_stage_is_refused(self):
+        owner_refuses(self, "not a collected original deadline-cancelled planning stop")
 
 
 class RepairLaunchPinsTheStageInputs(unittest.TestCase):
