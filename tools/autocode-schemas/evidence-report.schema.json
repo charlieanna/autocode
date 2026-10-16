@@ -219,6 +219,41 @@
             "string",
             "null"
           ]
+        },
+        "goal_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "plan_file": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "goal_hash",
+            "revision",
+            "changed"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "goal_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "revision": {
+              "type": "integer"
+            },
+            "changed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },

@@ -262,6 +262,13 @@ PR template asks for an entry here; a change without one is incomplete.
   it does not list, as it refuses a plan approval: exit 2, nothing saved, and the run stays at its pause. A
   completion accepted before this change is listed with no recorded acceptor. `--as NAME` now also goes with
   `--goal-file`, which already recorded who loaded the plan as a goal edit.
+- A completed run's evidence report, and so the pull request body `autocode-issue pr` builds from `evidence.md`,
+  gives the approved plan's goal hash (what `autocode plan --check FILE` prints for a file holding exactly that
+  plan). When the approved plan was loaded with `--goal-file`, it also names the file, its goal hash and the plan
+  revision it was loaded as, and says whether the approved plan is the file's plan unchanged, differs only in the
+  runner's records of the plan's review, or differs in named parts. The status view's `approved_contract` gains
+  `goal_hash` and `plan_file`, and the report's `plan` gains the same two optional fields; older reports still
+  authenticate. Starting a new run from a plan file is not part of this change (#720).
 
 ### Changed
 
@@ -505,8 +512,10 @@ PR template asks for an entry here; a change without one is incomplete.
   resume without changing that role's model or effort. A repair launch that stops
   (timeout, output limit, cleanup) is closed with `--abandon-stage`, as an original planning stop is. A native run
   no longer sends a stage pause to an Investigator it cannot run, so that pause keeps its reason and spends no
-  investigation; a Builder failure classification still pauses as before. The final plan review is not repaired
-  yet (#1257).
+  investigation; a Builder failure classification still pauses as before. The final plan review (`plan_finalize`)
+  now supports bounded report-only repair and publishes reviewed-plan records into the native visual protection
+  journal before approval; and unparsed OpenCode planning launches that left the launch unclosed at
+  `PAUSED_INVALID_OUTPUT` support operator closure via `--abandon-stage` without dispatching an agent (#1257).
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
   to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,

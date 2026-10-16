@@ -311,7 +311,8 @@ class RunState(TypedDict, total=False):
     acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     # The approved contract; written by goals. A revision loaded with --goal-file also names that file in
-    # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop).
+    # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop;
+    # autocode_plan_file_origin reads it for run_view's approved_contract and the evidence report).
     goal_contract: dict | None
     current_task: dict | None  # the task the Builder is on
     user_events: list  # goals writes answers/approvals; timeout receipts include operational_changes

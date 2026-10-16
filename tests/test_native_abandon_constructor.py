@@ -387,6 +387,35 @@ class NativeAbandonConstructorTests(unittest.TestCase):
         self.state.update(status="PAUSED_PROVIDER_UNCERTAIN", active_stage=self.record)
         util.atomic_json(self.state_path, self.state)
 
+    def unparsed_launch(self):
+        self.record.update(timed_out=False, exit_code=0, rejected=True)
+        self.receipt["cause"] = "controller_finished"
+        util.atomic_json(Path(self.metadata["receipt"]), self.receipt)
+        self.state.update(status="PAUSED_INVALID_OUTPUT", active_stage=self.record)
+        util.atomic_json(self.state_path, self.state)
+
+    def test_public_unparsed_launch_retains_history_and_same_stage_resume(self):
+        self.unparsed_launch()
+        before = deepcopy(self.state)
+        events = Path(self.record["events"]).read_bytes()
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            view = self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"])
+        self.assertEqual("plan_revise", view["next_stage"])
+        self.assertEqual(before["settings"], self.state["settings"])
+        self.assertEqual(before["planning"], self.state["planning"])
+        self.assertEqual(before["total_seconds"], self.state["total_seconds"])
+        self.assertEqual(events, Path(self.record["events"]).read_bytes())
+        rejected = self.state["stages"][-1]
+        self.assertTrue(rejected["rejected"])
+        self.assertTrue(rejected["abandoned"])
+        self.assertEqual(0, rejected["exit_code"])
+        self.assertFalse(rejected["timed_out"])
+        self.assertIn("unparsed", rejected["rejection_reason"])
+        self.assertFalse(Path(rejected["output"]).exists())
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            self.driver.resume_paused()
+
     def test_public_authentication_rejection_retains_history_and_same_stage_resume(self):
         self.authentication_rejection()
         before = deepcopy(self.state)
