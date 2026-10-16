@@ -120,6 +120,7 @@ class RunViewTests(unittest.TestCase):
                 "interaction_timing",
                 "conversation",
                 "controller",
+                "planning_depth",
             },
             set(run_view.view({"status": "RUNNING"})),
         )
@@ -636,6 +637,35 @@ class TaskRunTests(unittest.TestCase):
                     self.workspace, BRIEF, options=[*FIXTURE_OPTIONS, "--max-reported-tokens", cap], env=self.env
                 )
         self.assertFalse((self.workspace / ".autocode").exists())
+
+    def test_status_shows_the_planning_depth_decisions(self):
+        # #697: whether recognition skipped Requirements, the plan's size, the review allowance and whether
+        # the Plan Reviewer approved the draft at its first review reach --status, not only state.json.
+        for clarity, requirements_ran in (("clear", False), ("vague", True)):
+            with self.subTest(clarity=clarity):
+                workspace = self.workspace.parent / f"project-{clarity}"
+                shutil.copytree(self.workspace, workspace)
+                env = {**self.env, "LIVE_FIXTURE_CLARITY": clarity}
+                run = taskrun.TaskRun.start(workspace, BRIEF, options=FIXTURE_OPTIONS, env=env, timeout=300)
+                view = run.status()
+                self.assertEqual("approve_plan", (view["needs"] or {}).get("kind"), view["stop_reason"])
+                depth = view["planning_depth"]
+                self.assertEqual(
+                    {
+                        "adaptive": True,
+                        "clarity": clarity,
+                        "requirements_skipped": not requirements_ran,
+                        "plan_size": "small",
+                        "review_limit": 2,
+                        "challenges": 1,
+                        "approved_early": True,
+                    },
+                    {key: value for key, value in depth.items() if key != "size_signals"},
+                )
+                self.assertEqual(1, depth["size_signals"]["milestones"])
+                stages = [row["stage"] for row in util.read(run.run_dir / "state.json")["stages"]]
+                self.assertEqual(requirements_ran, "requirements_gather" in stages, stages)
+                self.assertNotIn("astra_finalize", stages, "approved at the first review")
 
     def test_program_guidance_sends_the_displayed_plan_back_without_becoming_the_users_input(self):
         # #866: a program's correction of the displayed plan re-plans the run. Saved as user feedback,

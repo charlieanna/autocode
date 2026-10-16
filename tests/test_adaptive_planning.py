@@ -79,6 +79,129 @@ class EntryStage(unittest.TestCase):
         self.assertEqual(state["next_stage"], workflows.INVESTIGATE_STAGE)
 
 
+def recognized(settings, clarity="clear", kind="build", then="requirements_gather", **saved):
+    """The workflow record a recognition with this clarity leaves (autocode_workflows.apply)."""
+    state = {"settings": settings, "workspace": ".", **saved}
+    workflows.begin(state, then)
+    workflows.apply(state, {"workflow": kind, "reason": "", "signals": [], "clarity": clarity}, {})
+    return state["workflow"]
+
+
+class RecordedSkip(unittest.TestCase):
+    """Whether recognition skipped Requirements is saved where it is decided, so the status view can show it (#697)."""
+
+    def test_a_clear_build_records_that_requirements_was_skipped(self):
+        self.assertIs(True, recognized(ON["settings"])["requirements_skipped"])
+
+    def test_a_vague_build_records_that_requirements_runs(self):
+        self.assertIs(False, recognized(ON["settings"], clarity="vague")["requirements_skipped"])
+
+    def test_a_clear_follow_up_that_refreshes_requirements_records_that_it_runs(self):
+        saved = {"turns": [{"say": "Add casefolding."}], "requirements_handoff": {"output": "previous.json"}}
+        self.assertIs(False, recognized(ON["settings"], **saved)["requirements_skipped"])
+
+    def test_a_spec_first_run_records_that_requirements_runs(self):
+        settings = {**ON["settings"], "spec_first": True}
+        self.assertIs(False, recognized(settings)["requirements_skipped"])
+
+    def test_nothing_is_recorded_where_clarity_decides_nothing(self):
+        self.assertNotIn("requirements_skipped", recognized(OFF["settings"]), "fixed planning sequence")
+        self.assertNotIn("requirements_skipped", recognized(ON["settings"], kind="bugfix"), "its own first stage")
+        self.assertNotIn(
+            "requirements_skipped", recognized(ON["settings"], then="astra_discovery"), "no Requirements stage next"
+        )
+
+    def test_a_build_from_an_approved_design_records_nothing(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "design.md").write_text("# Design\n")
+            state = {**ON, "workspace": root}
+            workflows.begin(state, "requirements_gather")
+            value = {
+                "workflow": "build",
+                "reason": "",
+                "signals": [],
+                "clarity": "clear",
+                "design_document": "design.md",
+            }
+            workflows.apply(state, value, {})
+        self.assertEqual(workflows.DESIGN_CHECK_STAGE, state["next_stage"])
+        self.assertNotIn("requirements_skipped", state["workflow"], "the design, not clarity, decides")
+
+
+class StatusView(unittest.TestCase):
+    """The planning-depth decisions as the status view shows them (`planning_depth`, #697)."""
+
+    EMPTY = {
+        "adaptive": False,
+        "clarity": None,
+        "requirements_skipped": None,
+        "plan_size": None,
+        "size_signals": None,
+        "review_limit": None,
+        "challenges": 0,
+        "approved_early": False,
+    }
+
+    def test_a_fixed_sequence_run_shows_no_decisions(self):
+        self.assertEqual(self.EMPTY, adaptive.view({"settings": {}}))
+        self.assertEqual(self.EMPTY, adaptive.view({}))
+        self.assertEqual(self.EMPTY, adaptive.view({"settings": ["adaptive_planning"]}), "malformed settings")
+
+    def test_after_recognition_it_shows_clarity_and_the_skip(self):
+        state = {**ON, "workflow": recognized(ON["settings"])}
+        self.assertEqual(
+            {**self.EMPTY, "adaptive": True, "clarity": "clear", "requirements_skipped": True}, adaptive.view(state)
+        )
+        state = {**ON, "workflow": recognized(ON["settings"], clarity="vague")}
+        self.assertEqual(
+            {**self.EMPTY, "adaptive": True, "clarity": "vague", "requirements_skipped": False}, adaptive.view(state)
+        )
+
+    def test_a_plan_approved_at_its_first_review_shows_size_allowance_and_early_approval(self):
+        sized = adaptive.plan_size(body())
+        planning = {
+            **sized,
+            "review_limit": 2,
+            "challenges": 1,
+            "approved_at": "astra_challenge#1",
+            "final_stage": "astra_challenge",
+        }
+        shown = adaptive.view({**ON, "planning": {"adaptive": planning}})
+        self.assertEqual(
+            {
+                **self.EMPTY,
+                "adaptive": True,
+                "plan_size": "small",
+                "size_signals": sized["signals"],
+                "review_limit": 2,
+                "challenges": 1,
+                "approved_early": True,
+            },
+            shown,
+        )
+        shown["size_signals"]["milestones"] = 99
+        self.assertEqual(1, planning["signals"]["milestones"], "the view is a copy")
+
+    def test_a_blocked_large_plan_shows_its_raised_allowance_and_no_early_approval(self):
+        planning = {**adaptive.plan_size(body(milestones=3)), "review_limit": 3, "challenges": 2, "approved_at": None}
+        shown = adaptive.view({**ON, "planning": {"adaptive": planning}})
+        self.assertEqual(
+            ("large", 3, 2, False),
+            tuple(shown[k] for k in ("plan_size", "review_limit", "challenges", "approved_early")),
+        )
+
+    def test_malformed_saved_records_read_as_no_decision(self):
+        for state in (
+            {**ON, "workflow": "build", "planning": []},
+            {**ON, "workflow": {"clarity": 3, "requirements_skipped": "yes"}, "planning": {"adaptive": "small"}},
+            {**ON, "planning": {"adaptive": {"size": "huge", "signals": [], "review_limit": "2", "challenges": None}}},
+        ):
+            with self.subTest(state=state):
+                self.assertEqual({**self.EMPTY, "adaptive": True}, adaptive.view(state))
+
+
 class NewRunsOnly(unittest.TestCase):
     def test_turning_the_flag_on_for_a_saved_run_is_refused(self):
         self.assertTrue(adaptive.resume_refused({"engine": "opencode"}, True))

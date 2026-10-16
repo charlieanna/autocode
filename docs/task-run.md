@@ -989,6 +989,23 @@ it. `workflow_source` is `"model"` when the recognizer decided it and `"user"`
 when `--workflow` named it; `workflow_reason` is the recognizer's one-sentence
 reason. Both are `null` whenever `workflow` is.
 
+`planning_depth` shows how much planning the run chose and why
+([adaptive planning](adaptive-planning.md)). It is always present:
+
+| Field | Meaning |
+| --- | --- |
+| `adaptive` | Whether the run plans adaptively (`--adaptive-planning`, the default where it applies); `false` on the fixed sequence |
+| `clarity` | The recognizer's judgment of the request text, `"clear"` or `"vague"`; `null` on the fixed sequence, under `--workflow`, and before recognition |
+| `requirements_skipped` | `true` when recognition judged a build request clear and sent it straight to the Planner, `false` when that judgment kept the Requirements stage (a vague request, a follow-up refreshing its requirements, or `--spec-first`); `null` where clarity decides nothing (another kind of job, a build from an approved design, the fixed sequence, a run saved before this field) |
+| `plan_size` | `"small"`, `"medium"` or `"large"`, measured from the draft's milestones and the files they touch at its first review; `null` before that review |
+| `size_signals` | The counts behind `plan_size`: `milestones`, `affected_paths`, `acceptance_criteria`, `dependency_edges`; `null` before the first review |
+| `review_limit` | The plan-review call allowance set at the first review (`0` is unlimited); a large plan gets one more call. A later `--planning-review-call-limit` changes the allowance in force, not this record |
+| `challenges` | How many first-style reviews the Plan Reviewer has made |
+| `approved_early` | `true` when the Plan Reviewer approved the Planner's draft at a first-style review, with no revision or final review |
+
+The Plan Reviewer still reviews every build plan and you still approve it; these
+fields only report the decisions.
+
 `needs` is `null` when the run is complete. Otherwise its `kind` says what the
 run is waiting for:
 

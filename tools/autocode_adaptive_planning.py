@@ -35,12 +35,14 @@ State keys written by callers from these decisions:
     workflow.clarity: "clear" | "vague", saved by autocode_workflows.apply. Evidence of why
         Requirements was skipped; nothing in tools/ branches on it after recognition.
         scenarios/harness/plan_compare.py reads it from state.json.
+    workflow.requirements_skipped: whether that clarity sent the turn straight to the Planner,
+        saved by autocode_workflows.apply where clarity decides it.
     planning.adaptive: {"size", "signals", "review_limit", "challenges", "approved_at",
         "final_stage"}, saved by units.autoplanner.after_challenge. Read by
         units.autoplanner.after_revise (challenges), autocode_resolver_human._decision
         (final_stage: which review is the final planning evidence), review_notes here (for
         autocode_goal_lifecycle.render), and plan_compare.summarize via state.json. The status
-        view (autocode_run_view) does not show either key yet.
+        view (autocode_run_view) shows these decisions as ``planning_depth`` through ``view`` here.
     revises_plan, on a brief_feedback event: {"requirements_handoff": the output path of the
         requirements handoff the feedback was given against, or ""}, saved by
         autocode_goals.feedback from feedback_marker. Read by feedback_requirements here, which
@@ -289,3 +291,27 @@ def after_revise(limit: int, calls_used: int, challenges: int) -> str:
     if (remaining is None or remaining >= 2) and challenges < MAX_CHALLENGES:
         return "astra_challenge"
     return "astra_finalize"
+
+
+def view(state: RunState) -> dict:
+    """The planning-depth decisions this run has made, as the status view shows them (``planning_depth``, #697).
+
+    A copy of saved records, never a recomputation: a value the run has not decided, or saved malformed, is None
+    (or 0 / False for the counters), so an old or corrupt checkpoint still has a view."""
+    settings = state.get("settings")
+    workflow = state.get("workflow") if isinstance(state.get("workflow"), dict) else {}
+    planning = state.get("planning") if isinstance(state.get("planning"), dict) else {}
+    record = planning.get("adaptive") if isinstance(planning.get("adaptive"), dict) else {}
+    limit, challenges = record.get("review_limit"), record.get("challenges")
+    return {
+        "adaptive": isinstance(settings, dict) and bool(settings.get(SETTING)),
+        "clarity": workflow.get("clarity") if workflow.get("clarity") in CLARITY else None,
+        "requirements_skipped": workflow.get("requirements_skipped")
+        if isinstance(workflow.get("requirements_skipped"), bool)
+        else None,
+        "plan_size": record.get("size") if record.get("size") in ("small", "medium", "large") else None,
+        "size_signals": copy.deepcopy(record["signals"]) if isinstance(record.get("signals"), dict) else None,
+        "review_limit": limit if type(limit) is int else None,
+        "challenges": challenges if type(challenges) is int else 0,
+        "approved_early": bool(record.get("approved_at")),
+    }
