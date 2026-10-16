@@ -42,9 +42,22 @@ KINDS = {"goal_approval": "plan", "human_review": "review"}
 EDIT_ORIGIN = "user_cli_edit"
 FIELDS = ("git_user_name", "git_user_email", "host", "command", "claimed_as")
 CLAIM_LIMIT = 200
-# The completion summary's line for a run that recorded no approval, edit or resume, such as one saved before
-# AutoCode kept approval events or a workflow that asks for none.
+# The completion summary's line for a run whose workflow can ask for an approval but that recorded no approval,
+# edit or resume, such as one saved before AutoCode kept approval events, a design review or an unreproduced bug.
 NONE_RECORDED = "Approvals: none recorded (no plan or review approval, plan edit or resume from a pause was saved)."
+# The workflows (state["workflow"]["kind"], the status view's ``workflow``) that never ask for an approval: each
+# has one stage that completes the run without a plan (autocode_review_job, autocode_discuss_job). Their evidence
+# reports leave approvals out, as verification, program and component reports do, and their completion summary
+# has no "none recorded" line. A review report can be posted verbatim on someone else's pull request
+# (autocode review-pr --post), where a line about approvals means nothing and a resumer's identity does not belong.
+NO_APPROVAL_STEP = ("review", "discuss")
+
+
+def asks_for_approval(workflow: str | None) -> bool:
+    """Whether a run of this workflow kind can ask for a plan or review approval: a build, a bug fix (a reproduced
+    bug is planned and approved), a design (a proposed design is), and a run saved before workflow recognition
+    (None), which is a build. Not a review or a discussion (``NO_APPROVAL_STEP``)."""
+    return workflow not in NO_APPROVAL_STEP
 
 
 def claim_refusal(name: str | None) -> str | None:
@@ -247,10 +260,11 @@ def _who(row: dict) -> str:
 
 
 def lines(state: RunState) -> list[str]:
-    """The completion summary's approvals section; for a run with none it says so in one line."""
+    """The completion summary's approvals section. A run that recorded none says so in one line when its workflow
+    can ask for an approval, and has no section when it cannot (a review or discussion, ``NO_APPROVAL_STEP``)."""
     rows = view(state)
     if not rows:
-        return [NONE_RECORDED]
+        return [NONE_RECORDED] if asks_for_approval((state.get("workflow") or {}).get("kind")) else []
     out = ["Approvals:"]
     for row in rows:
         what = {

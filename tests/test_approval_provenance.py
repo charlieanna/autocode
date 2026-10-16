@@ -299,8 +299,14 @@ class ViewTests(unittest.TestCase):
         )
 
     def test_a_run_that_recorded_no_approval_says_so_before_its_cost_line(self):
-        # Such as a run saved before AutoCode kept approval events, or a workflow that asks for none.
-        for state in ({}, {"user_events": [{"kind": "answer", "actor": "user_cli"}]}):
+        # Such as a run saved before AutoCode kept approval events, or a bug fix or design that ended before a plan.
+        for state in (
+            {},
+            {"user_events": [{"kind": "answer", "actor": "user_cli"}]},
+            {"workflow": {"kind": "build"}},
+            {"workflow": {"kind": "bugfix"}},
+            {"workflow": {"kind": "design"}},
+        ):
             with self.subTest(state=state):
                 summary = jobs.render(state, lambda _: "TASK COMPLETE\n")
                 self.assertIn(
@@ -308,6 +314,25 @@ class ViewTests(unittest.TestCase):
                     "from a pause was saved).\nCost: ",
                     summary,
                 )
+
+    def test_a_review_or_discussion_never_asks_for_an_approval_so_its_summary_does_not_say_none(self):
+        resumed = {
+            "at": "2026-10-15T08:30:00+00:00",
+            "pause_status": "PAUSED_TIME_LIMIT",
+            "provenance": {**IDENTITY, "host": "desk-7", "command": "autocode resume", "claimed_as": None},
+        }
+        for state, last in (
+            ({"workflow": {"kind": "review"}, "review": {"verdict": "approve"}}, "Findings: "),
+            ({"workflow": {"kind": "discuss"}, "answer": {"answer": "Yes."}}, "Evidence:"),
+        ):
+            with self.subTest(workflow=state["workflow"]["kind"]):
+                summary = jobs.render(state, lambda _: "TASK COMPLETE\n")
+                self.assertNotIn("Approvals", summary)
+                self.assertIn(last, summary.splitlines()[-2])  # the job's own last line, just before the cost line
+                self.assertTrue(summary.splitlines()[-1].startswith("Cost: "))
+                # A resume is still the run's own record: the local summary lists it, as --status does.
+                text = jobs.render({**state, "pause_acknowledgements": [resumed]}, lambda _: "TASK COMPLETE\n")
+                self.assertIn("\n\nApprovals:\n  Resumed from PAUSED_TIME_LIMIT 2026-10-15T08:30:00+00:00 by Ana", text)
 
 
 class ClaimArgumentTests(unittest.TestCase):

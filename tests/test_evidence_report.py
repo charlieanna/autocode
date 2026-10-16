@@ -471,6 +471,87 @@ class ApprovalReportTests(unittest.TestCase):
             document.render(report),
         )
 
+    def resumed_report(self, kind, **saved):
+        """The published, authenticated report of a completed ``kind`` run that was resumed from a pause once."""
+        root = self.root / str(kind)
+        root.mkdir()
+        state = {
+            "status": "TASK_COMPLETE",
+            **({"workflow": {"kind": kind}} if kind else {}),
+            "base_commit": "base",
+            "pause_acknowledgements": [
+                {
+                    "at": "2026-10-15T08:30:00+00:00",
+                    "pause_status": "PAUSED_TIME_LIMIT",
+                    "provenance": {**APPROVER, "command": "autocode resume --run-dir --as", "claimed_as": "Cy"},
+                }
+            ],
+            **saved,
+        }
+        view = run_view.view(state)
+        self.assertEqual(["resume"], [row["kind"] for row in view["approvals"]])  # --status still lists it
+        export.publish(root, state, view, provenance.configured({}, "fake"))
+        report = export.read(
+            root,
+            state["evidence_export"],
+            expected_binding=export.binding(state, view["usage"]["accounting"]),
+            current=True,
+            include=True,
+        )
+        self.assertEqual("current", report["availability"], report["reasons"])
+        return report
+
+    def test_a_review_or_discussion_report_lists_no_approvals_not_even_who_resumed_it(self):
+        # Neither workflow has an approval step, and review-pr --post publishes a review's report verbatim as a
+        # GitHub review on someone else's pull request.
+        import autocode_pr_review as pr_review
+
+        for kind, saved in (
+            ("review", {"review": {"verdict": "approve", "blocking": 0, "advisory": 0, "report_sha256": "c" * 64}}),
+            ("discuss", {"answer": {"answer": "Yes.", "note_path": ""}}),
+        ):
+            with self.subTest(workflow=kind):
+                report = self.resumed_report(kind, **saved)
+                self.assertEqual(kind, report["document"]["run"]["workflow"])
+                self.assertNotIn("approvals", report["document"])
+                published = report["markdown"] + json.dumps(report["document"])
+                for absent in (
+                    "## Approvals",
+                    "this run saved no plan approval",
+                    "ana@example.test",
+                    "desk-7",
+                    UNVERIFIED_APPROVER,
+                ):
+                    self.assertNotIn(absent, published)
+                if kind == "review":
+                    posted = pr_review.summary(
+                        {"verdict": "approve", "summary": "No defects."},
+                        report,
+                        "https://example.test/pull/7",
+                        "a" * 40,
+                    )
+                    self.assertIn(report["markdown"], posted)
+                    self.assertNotIn("## Approvals", posted)
+                    self.assertNotIn("ana@example.test", posted)
+
+    def test_a_build_bug_fix_or_design_report_keeps_its_approvals(self):
+        # Each can ask for an approval (a reproduced bug and a proposed design are planned and approved); a run
+        # saved before workflow recognition (no kind) is a build.
+        import autocode_issue as issue
+
+        for kind in ("build", "bugfix", "design", None):
+            with self.subTest(workflow=kind):
+                report = self.resumed_report(kind)
+                self.assertEqual(["resume"], [row["kind"] for row in report["document"]["approvals"]])
+                self.assertIn(UNVERIFIED_APPROVER, report["document"]["unverified"])
+                row = (
+                    "| 2026-10-15T08:30:00+00:00 | Resumed from PAUSED_TIME_LIMIT | Ana Example &lt;ana@example.test&gt; "
+                    "| desk-7 | autocode resume --run-dir --as | Cy (a claim, not verified) |"
+                )
+                self.assertIn(row, report["markdown"])
+                record = {"owner": "acme", "repo": "widgets", "number": 7, "run_dir": "run", "base_commit": "a" * 40}
+                self.assertIn(row, issue.pr_body(record, {}, " app.py | 1 +", evidence_markdown=report["markdown"]))
+
 
 class EvidenceFileTests(unittest.TestCase):
     def setUp(self):

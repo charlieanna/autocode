@@ -155,8 +155,13 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
     if provenance.get("kind") in ("fake", "mixed", "unknown"):
         unverified.append("Model effectiveness is not established by fake, mixed or undeclared provider evidence")
     # Only the task status view lists approvals; a report built from other facts (verification, program,
-    # components) has no such record and omits the field rather than claiming there were none.
-    approvals = approval_facts(view["approvals"]) if "approvals" in view else None
+    # components) has no such record and omits the field rather than claiming there were none. So does the report
+    # of a workflow with no approval step (review, discuss), which review-pr may post on someone else's pull request.
+    approvals = (
+        approval_facts(view["approvals"])
+        if "approvals" in view and approval_provenance.asks_for_approval(view.get("workflow"))
+        else None
+    )
     if any(row["provenance"] for row in approvals or ()):
         unverified.append(APPROVER_UNVERIFIED)
     unrecorded = sum(1 for row in approvals or () if row["provenance"] is None and row["actor"] != POLICY_ACTOR)
@@ -342,8 +347,8 @@ def _approval_cells(row):
 
 
 def _approval_lines(document):
-    """The Approvals section (#722), or [] for a report written before it listed approvals, so an older
-    report's Markdown still renders byte for byte from its JSON."""
+    """The Approvals section (#722), or [] for a report without approvals: one written before AutoCode listed
+    them, so an older report's Markdown still renders byte for byte from its JSON, or a review or discussion's."""
     if "approvals" not in document:
         return []
     lines = [
