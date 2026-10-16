@@ -102,6 +102,24 @@ class ClientDecisionTests(unittest.TestCase):
             self.client.approvals,
         )
 
+    def test_a_catalog_run_exports_each_plan_before_the_client_approves_it(self):
+        """#720: as Driver.serve does, the plan is exported and read back first (harness.plan_round_trip), and
+        what happened is in that approval's row."""
+        self.client.round_trip_plans = True
+        trip = {"file": "plan-files/01.md"}
+        with mock.patch.object(self.client, "call") as call:
+
+            def exported(client):
+                self.assertEqual(0, call.call_count, "the plan is exported before it is approved")
+                return trip
+
+            with mock.patch.object(conformance.plan_round_trip, "take", side_effect=exported) as take:
+                self.client.take(view(token="r2:abc"), ["--approve-goal", "-"], {}, "next_command")
+                self.client.take(view("answer"), ["--answer", "Q1=Use UTC"], {}, "next_command")
+        take.assert_called_once_with(self.client)
+        self.assertEqual(2, call.call_count)
+        self.assertEqual([{"gate": "approve_plan", "token": "r2:abc", "plan_file": trip}], self.client.approvals)
+
     def test_an_operational_request_continues_only_through_a_named_retry(self):
         operational = view(
             "answer", "autocode --resolver-message 'WHAT CHANGED'", resolver_scope="operational_exhaustion"

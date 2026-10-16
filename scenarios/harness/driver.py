@@ -41,7 +41,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import attempts, profiles
+from . import attempts, plan_round_trip, profiles
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 from .project import overlay_paths
 
@@ -259,8 +259,11 @@ class Driver:
         explicit_answers=(),
         acknowledge=(),
         fixture_root: Path | None = None,
+        round_trip_plans: bool = False,
     ):
         self.project, self.root, self.flags, self.autocode = project, root, list(flags), autocode
+        # A catalog run exports each plan it approves and reads the file back first (harness.plan_round_trip).
+        self.round_trip_plans = round_trip_plans
         # The person's own answers, by question id; served even where no default may be used.
         self.explicit_answers = dict(explicit_answers)
         self.resume_after_explicit = False
@@ -341,9 +344,17 @@ class Driver:
         return view
 
     def call(
-        self, kind: str, *extra: str, task: str | None = None, action: bool = False, record: bool = True
+        self,
+        kind: str,
+        *extra: str,
+        task: str | None = None,
+        action: bool = False,
+        record: bool = True,
+        subcommand: bool = False,
     ) -> subprocess.CompletedProcess:
-        """One CLI invocation. Actions must exit 0; launches may also exit 2 (stopped for input)."""
+        """One CLI invocation. Actions must exit 0; launches may also exit 2 (stopped for input).
+        A ``subcommand`` call is `autocode` followed by ``extra`` alone (``plan --check FILE``), and its
+        exit code is the caller's to judge."""
         if record and len(self.steps) >= self.max_steps:
             raise DriveError(f"step budget used up after {len(self.steps)} CLI calls")
         # One reading both admits the call and starts its timing.
@@ -352,15 +363,19 @@ class Driver:
         if remaining <= 0:
             raise DriveError(f"time budget used up after {len(self.steps)} CLI calls. {self.budget_account(started)}")
         flags = saved_run_flags(self.flags) if self.run_dir else self.flags
-        cmd = [
-            *self.autocode,
-            *([task] if task else []),
-            "--workspace",
-            str(self.project),
-            *(["--run-dir", str(self.run_dir)] if self.run_dir else ["--in-place"]),
-            *([] if action else ["--no-chat", *flags]),
-            *extra,
-        ]
+        cmd = (
+            [*self.autocode, *extra]
+            if subcommand
+            else [
+                *self.autocode,
+                *([task] if task else []),
+                "--workspace",
+                str(self.project),
+                *(["--run-dir", str(self.run_dir)] if self.run_dir else ["--in-place"]),
+                *([] if action else ["--no-chat", *flags]),
+                *extra,
+            ]
+        )
         try:
             proc = run_cli(
                 cmd,
@@ -404,7 +419,7 @@ class Driver:
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
         if proc.returncode < 0:
             raise InterruptedDrive(f"{kind} exited on signal {-proc.returncode}; delivery and usage remain ungraded")
-        if usage_error or proc.returncode not in ((0,) if action else (0, 2)):
+        if usage_error or (not subcommand and proc.returncode not in ((0,) if action else (0, 2))):
             raise DriveError(f"{kind} exited {proc.returncode}: {(proc.stderr or proc.stdout).strip()[-500:]}")
         return proc
 
@@ -585,7 +600,10 @@ class Driver:
         """Answer one gate the way a cooperative user would, recording every answer."""
         kind = need["kind"]
         if kind == "approve_plan":
-            self.approvals.append({"gate": "approve_plan", "token": need["token"]})
+            gate = {"gate": "approve_plan", "token": need["token"]}
+            if self.round_trip_plans and self.run_dir:
+                gate["plan_file"] = plan_round_trip.take(self)
+            self.approvals.append(gate)
             self.call("approve-plan", "--approve-goal", need["token"], action=True)
         elif kind == "answer":
             # One CLI call with every answer: a published AutoResolver request

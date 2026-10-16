@@ -310,6 +310,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
         explicit_answers=scenario.fake_answers if args.fake and not split else (),
         acknowledge=scenario.fake_acknowledge if args.fake and not split else (),
+        round_trip_plans=True,
         **options,
     )
     drive_error, not_reached = "", None
@@ -467,6 +468,7 @@ def run_program(scenario, args, out: Path, result: dict, project: Path, flags: l
         max_steps=args.max_steps or scenario.max_steps,
         timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
         explicit_answers=scenario.fake_answers if args.fake else (),
+        round_trip_plans=True,
     )
     drive_error = ""
     started = time.monotonic()
@@ -581,7 +583,8 @@ def run_record(driver: Driver, state: dict) -> dict:
         "model_stages": metrics(state)["model_stage_names"],
         "answers": driver.answers,
         # The gates the harness passed for the person (result.json "approvals"); approval_provenance
-        # requires each plan and review approval among them to be listed in the view's approvals.
+        # requires each plan and review approval among them to be listed in the view's approvals, and
+        # plan_round_trip judges the plan file each plan approval's row records.
         "approvals": approvals_of(driver),
         "cli_calls": [step["kind"] for step in driver.steps],
         "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in driver.steps],

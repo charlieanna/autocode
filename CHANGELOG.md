@@ -330,6 +330,16 @@ PR template asks for an entry here; a change without one is incomplete.
   a new pull request, on `-plan-2`, made from the base branch that holds the merged file.
   `TaskRun.export_plan(path)` is the task-run interface's way to write the plan file. `docs/workflow.md` describes
   the team workflow. Starting a new run from the merged file is not available yet (#720).
+- The scenario harness now checks at every plan approval a catalog run reaches that the plan file round trip
+  reproduces the plan's goal hash (#720, the first acceptance check). Before it approves a plan, it exports the plan
+  with `autocode plan --export` to `plan-files/NN.md` in the evidence directory and reads the file back with
+  `autocode plan --check`, the reader `--goal-file` uses. The `plan round trip` check in `result.json` requires the
+  file to read back with the run plan's goal hash, the run directory to be unchanged by the two commands, and the
+  approved plan's goal hash in the final `--status --json` to be the exported one. A plan masked on export for
+  credential-shaped text differs by design and must read back as written. The two calls are no steps; they add
+  about 4 s per plan approval on the fake provider. Each plan approval's row in `approvals` keeps their output as
+  `plan_file`, and a program's run record now carries `approvals` too. A failure makes the verdict `FALSE_COMPLETE`
+  when the scenario completed, and `HONEST_BLOCKER` when it stopped.
 
 ### Changed
 

@@ -931,10 +931,12 @@ approved. The front matter is JSON, which YAML front-matter readers also accept.
 it is generated from the front matter so reviewers can read the plan.
 
 The goal hash is the SHA-256 of the contract body: what the plan says, whatever run or revision
-holds it. A plan read back from the file has the same goal hash as the run's. The approval token is
-not in the file, so committing it approves nothing. Text that looks like a credential is masked
-before the file is written, with the same policy as `autocode bundle`; the export then says that
-the file's goal hash differs from the run's.
+holds it. A plan read back from the file has the same goal hash as the run's. The scenario harness
+checks this at every plan approval a catalog scenario reaches: it exports the plan and reads the file
+back with `--check` before it approves the plan ([scenarios/README.md](../scenarios/README.md)). The
+approval token is not in the file, so committing it approves nothing. Text that looks like a
+credential is masked before the file is written, with the same policy as `autocode bundle`; the
+export then says that the file's goal hash differs from the run's.
 
 A reviewer edits the front matter, then runs `autocode plan --render FILE` to regenerate the text.
 `--check` then prints the new goal hash and the one it was exported as. It exits 2 when the text no
