@@ -28,6 +28,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - The dashboard's **Checks** pane shows, under each requirement's **Inspect**, the diff of each saved Builder step
   attributed to it, labelled as attribution rather than proof and marked when it overlaps another requirement. A
   requirement with no attributed step offers **View all run changes** instead (#730).
+- The dashboard's **Preview** shows the run's development server while `autocode serve start` runs it, reloading
+  after each restart, and otherwise falls back to the saved app address with the server's state and the command to
+  start it (#730).
 - `autocode serve start` restarts the run's development server after each code-changing step the run applies, on
   the same port when it can, and leaves it running through pauses and completion. A server that exits or never
   answers is shown with its last output and started again after the next code change, unless the run has

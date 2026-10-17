@@ -200,6 +200,7 @@ jobs:
                                   ("test_setup_browser_ui.js", 300),
                                   ("test_checkpoint_browser_ui.js", 300),
                                   ("test_criterion_diff_browser_ui.js", 240),
+                                  ("test_preview_dev_server_browser_ui.js", 300),
                                   ("test_scoped_start_browser_ui.js", 240)]:
                   try:
                       result = run(["node", "tools/dashboard/tests/" + script],

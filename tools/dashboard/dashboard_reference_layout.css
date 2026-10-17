@@ -166,6 +166,10 @@
 #task-detail #preview .preview-address button:disabled{color:var(--text-secondary);opacity:.65}
 #task-detail #preview .preview-address button:hover:not(:disabled),#task-detail #preview .preview-address a:hover{background:var(--m2b-action-tint)}
 #task-detail #preview-error:empty{display:none}
+#task-detail #preview .preview-source{margin:12px 0 0}
+#task-detail #preview .preview-source p{font-size:12px;line-height:18px;margin:4px 0;overflow-wrap:anywhere}
+#task-detail #preview .preview-source .preview-source-status{font-weight:600;color:var(--m2b-ink)}
+#task-detail #preview .preview-source code{font-family:var(--mono,ui-monospace,monospace);overflow-wrap:anywhere}
 #task-detail #preview-content .preview-frame{display:block;width:100%;height:410px;max-height:65vh;margin-top:16px;border:1px solid var(--m2b-hairline);border-radius:12px;box-shadow:0 4px 12px #171c2e0a;background:var(--surface-default)}
 #task-detail #preview .preview-caption{font-size:11px;line-height:17px;margin:16px 0 0;color:var(--m2b-secondary)}
 #task-detail #preview .preview-setup{margin:12px 0 0;color:var(--m2b-secondary)}
