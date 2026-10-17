@@ -80,6 +80,7 @@ class DirectCliTests(unittest.TestCase):
                 }
             elif stage == "requirements_gather":
                 report = {
+                    "assistant_reply": "Hi! What would you like to build or change?",
                     "summary": "No task specified",
                     "intended_outcome": "Not yet specified by the user",
                     "required_behaviors": [],
