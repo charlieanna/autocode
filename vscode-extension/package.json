@@ -4,7 +4,7 @@
   "description": "Drive AutoCode task runs from VS Code: start a run, follow its progress, and take the action the status view names.",
   "version": "0.0.1",
   "private": true,
-  "publisher": "autocode",
+  "publisher": "ankurkothari",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -219,5 +219,6 @@
   },
   "dependencies": {
     "marked": "15.0.12"
-  }
+  },
+  "preview": true
 }
