@@ -213,7 +213,7 @@
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "4.0.0",
-    "esbuild": "^0.24.0",
+    "esbuild": "0.25.12",
     "jsdom": "26.1.0",
     "typescript": "^5.7.0"
   },
