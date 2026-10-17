@@ -603,21 +603,8 @@ class RegistryInterventionMixin:
         self.pool.submit(self._execute, key, str(workspace), action)
         return action
 
-    def recover_stage(self, workspace, run, attempt):
-        # Read fresh runner status, and let the runner recheck the exact attempt
-        # and process liveness under its workspace lock. Never edit state here.
-        status, error = self._json_command(["--workspace", str(workspace), "--run-dir", str(run), "--status"])
-        if error:
-            raise ValueError(error["message"])
-        if status.get("status") not in ("PAUSED_PROVIDER_UNCERTAIN", "PAUSED_UNCERTAIN_STAGE"):
-            raise ValueError("This task is no longer waiting for interrupted-stage recovery. Refresh its status.")
-        if not isinstance(attempt, str) or not attempt or attempt != status.get("attempt_id"):
-            raise ValueError("The interrupted attempt changed. Review the current attempt before recovering it.")
-        self.status_cache.pop(str(run), None)
-        return self.enqueue(workspace, run, "Recover saved work", ["--no-chat", "--abandon-stage", attempt])
-
     def mutate(self, data):
-        if data.get("action") not in ("feedback", "pause", "stop", "continue", "recover_stage"):
+        if data.get("action") not in ("feedback", "pause", "stop", "continue"):
             return super().mutate(data)
         workspace = self.workspace_for(data.get("workspace", ""))
         run = self.run_for(workspace, data.get("run", ""))
@@ -638,8 +625,6 @@ class RegistryInterventionMixin:
                 ):
                     raise ValueError("The approved plan changed. Reload before building.")
             return self.continue_run(workspace, run, expected)
-        if data["action"] == "recover_stage":
-            return self.recover_stage(workspace, run, data.get("attempt_id"))
         return self.intervene(
             workspace,
             run,

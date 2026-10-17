@@ -226,30 +226,15 @@ class RegistryInterventionTests(unittest.TestCase):
             self.action("continue")
         self.assertEqual([], self.console.action_log(self.workspace, self.run))
 
-    def test_recover_requires_fresh_exact_attempt_and_never_launches_resume(self):
+    def test_interrupted_attempt_has_no_unbound_recovery_action(self):
+        # The recovery card's "Recover saved work" binds --abandon-stage to the
+        # exact saved pause; the older recover_stage action bypassed that (#730).
         self.interrupted()
-        for attempt in ("", "023/wrong-01", None):
-            with self.assertRaisesRegex(ValueError, "attempt changed"):
-                self.action("recover_stage", attempt_id=attempt)
         before = (self.run / "state.json").read_bytes()
-        action = self.action("recover_stage", attempt_id="023/terra-02")
-        self.assertEqual(["--no-chat", "--abandon-stage", "023/terra-02"], action["command"][-3:])
-        self.assertNotIn("--resume-paused", action["command"])
-        self.assertEqual(before, (self.run / "state.json").read_bytes())
-
-    def test_recovery_rejects_changed_status_and_busy_workspace(self):
-        self.interrupted()
-        self.console.view(self.workspace, self.run)
-        self.status["status"] = "RUNNING"
-        self.save("status.json", self.status)
-        with self.assertRaisesRegex(ValueError, "no longer waiting"):
-            self.action("recover_stage", attempt_id="023/terra-02")
-        self.status["status"] = "PAUSED_PROVIDER_UNCERTAIN"
-        self.save("status.json", self.status)
-        self.console.workspace_busy.add(str(self.workspace))
-        with self.assertRaisesRegex(ValueError, "already queued or running"):
+        with self.assertRaisesRegex(ValueError, "Unknown action"):
             self.action("recover_stage", attempt_id="023/terra-02")
         self.assertEqual([], self.console.action_log(self.workspace, self.run))
+        self.assertEqual(before, (self.run / "state.json").read_bytes())
 
     def legacy(self):
         self.status["interventions"]["runner_capability"] = {"supported": False, "reason": "old"}

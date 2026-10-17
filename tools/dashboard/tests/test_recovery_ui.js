@@ -121,10 +121,13 @@ function deferredRecoveryPage(){
  vm.runInContext(range('function focusKey(', 'function captureControls(')
   +range('function disclosure(', 'async function api(')
   +range('function runProjectWorkspace(', 'function taskProjectWorkspace(')
+  +range('function interruptedAttempt(', 'function taskActionBusy(')
   +range('function renderRecoveryCard(', 'async function sendChange('),page);
  return {requests,messages,render(current){page.latestRun=current;page.renderTaskAttention(current);},
   inspection:()=>attention.querySelector('details[data-recovery-inspection]'),
   resume:()=>all(attention).find(node=>node.dataset.recoveryAction==='resume'),
+  buttons:()=>all(attention).filter(node=>node.tag==='button').map(node=>node.textContent),
+  text:()=>all(attention).map(node=>node.textContent).join(' '),
   flush(){while(queued.length)queued.shift()();}};
 }
 const pause={run:'/owned/deferred/run',workspace:'/owned/deferred',status:'PAUSED_REQUESTED',
@@ -167,6 +170,15 @@ for(const current of [
  assert.equal(fresh.resume().disabled,true);assert.equal(fresh.requests.length,0);
 }
 console.log('Deferred opening/closing survives exact-pause refresh; fresh pauses, other runs and detached events stay gated.');
+
+// Recovering an interrupted attempt runs only from its card, bound to the exact
+// saved pause. Without a card the dashboard offers no unbound command (#730).
+const noCard=deferredRecoveryPage();
+noCard.render({run:'/owned/deferred/interrupted',workspace:'/owned/deferred',status:'PAUSED_PROVIDER_UNCERTAIN',interventions:{mode:'capable',attempt_id:'023/terra-02'},actions:[]});
+assert.deepEqual(noCard.buttons(),[],'An interrupted attempt without a card has no recovery button');
+assert.match(noCard.text(),/Refresh to load the recovery card/);
+assert.equal(noCard.requests.length,0);
+console.log('An interrupted attempt without a recovery card offers no unbound command.');
 
 // A New conversation recovery click belongs to the original project, even
 // when execution used a separate worktree. Drive the shipped callback, not

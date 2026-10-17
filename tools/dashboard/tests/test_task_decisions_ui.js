@@ -87,8 +87,9 @@ assert.equal(messages[1].question_text,'Which scope?');
 assert.equal(messages.some(message=>message.planning_history),false,'Internal planning drafts are inspected separately, not published as questions');
 assert.match(source,/Internal planning reports \(not human requests\)/);
 assert.match(source,/Review recovery/,'interrupted work starts with explicit review');
-assert.match(source,/Inspect interrupted attempt/);
+assert.match(source,/Inspect this saved pause/);
 assert.match(source,/Recover saved work/);
+assert.doesNotMatch(source,/recover_stage/,'interrupted work recovers only through its card, bound to the saved pause');
 assert.match(source,/Resume separately/);
 console.log('Current approval authority, resume decisions, workflow phase, model identity, and conversation ordering passed.');
 
