@@ -125,6 +125,7 @@ afterEach(() => {
 
 test('start passes the selected workspace to the CLI regardless of the host directory', async (t) => {
   host.config.set('provider', 'chosen-route');
+  const revealLog = t.mock.method(host.log, 'show', () => {});
   const launch = t.mock.method(cli, 'stream', async () => ok);
   const selected = '/different workspace/project';
   const created = await controller.start(selected, 'Build the requested CLI');
@@ -136,6 +137,7 @@ test('start passes the selected workspace to the CLI regardless of the host dire
   assert.equal(args[args.indexOf('--provider') + 1], 'chosen-route');
   assert.ok(args.includes('--joint-planning'));
   assert.ok(args.includes('--spec-first'), 'chat must gather and confirm requirements before planning');
+  assert.equal(revealLog.mock.callCount(), 0, 'starting chat must not open the diagnostic console');
 });
 
 test('start reports an input rejection instead of returning a nonexistent run', async (t) => {

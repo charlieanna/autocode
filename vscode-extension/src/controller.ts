@@ -77,7 +77,6 @@ export class RunController {
     // Sidebar conversations gather and confirm requirements before planning.
     // Creation flags stay off later actions, which use the run's saved flow.
     const args = [brief, "--in-place", "--no-chat", "--joint-planning", "--spec-first", ...settings.runOptions, "--workspace", workspace, "--new-run-dir", runDir];
-    this.log.show(true);
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
     created?.({ workspace, runDir });
     const result = await stream({ ...settings, cwd: workspace }, args, {}, (chunk) => this.log.append(chunk));
