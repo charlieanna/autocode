@@ -130,7 +130,7 @@ def streaming_reply(state: RunState, run_dir):
             lines = source.read(262144).decode("utf-8", errors="replace").splitlines()
     except OSError:
         return ""
-    texts = {}
+    texts: dict[str, str] = {}
     live = ""
     for line in lines:
         try:
@@ -141,10 +141,14 @@ def streaming_reply(state: RunState, run_dir):
             continue
         if row.get("type") == "autocode_chat_reply" and isinstance(row.get("reply"), str):
             live = row["reply"][:12000]
-        part = row.get("part") if isinstance(row.get("part"), dict) else {}
-        if row.get("type") == "text" and isinstance(part.get("text"), str):
-            texts[str(part.get("id", len(texts)))] = part["text"]
-        item = row.get("item") if isinstance(row.get("item"), dict) else {}
+        part_value = row.get("part")
+        part: dict[str, object] = part_value if isinstance(part_value, dict) else {}
+        part_text = part.get("text")
+        if row.get("type") == "text" and isinstance(part_text, str):
+            texts[str(part.get("id", len(texts)))] = part_text
+        item_value = row.get("item")
+        item: dict[str, object] = item_value if isinstance(item_value, dict) else {}
         if row.get("type") in ("item.updated", "item.completed") and item.get("type") == "agent_message":
-            texts[str(item.get("id", len(texts)))] = item.get("text", "")
+            item_text = item.get("text", "")
+            texts[str(item.get("id", len(texts)))] = item_text if isinstance(item_text, str) else ""
     return live or partial_string("\n".join(texts.values()))
