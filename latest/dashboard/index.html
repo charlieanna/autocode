@@ -1972,7 +1972,7 @@
 
 
 <h1 id="browser-dashboard">Browser dashboard<a class="headerlink" href="#browser-dashboard" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/12eca06bfcca268f91a2e58b6e89e698e6cd8420/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/31600d03fa4705b86f3edccf3473f19b2b96b8b5/README.md">← Back to README</a></p>
 <p>Autocode includes a local browser dashboard for planning work with the Requirements Planner, approving
 the lead-reviewed plan, choosing each execution role's model and reasoning level,
 following active tasks, and sending feedback or a pause
@@ -2005,13 +2005,20 @@ Overlapping task-index polls share the same in-progress snapshot, and each
 snapshot reuses one watched-project discovery result instead of building a
 queue of duplicate scans.</p>
 <h2 id="preview-and-saved-screenshots">Preview and saved screenshots<a class="headerlink" href="#preview-and-saved-screenshots" title="Permanent link">&para;</a></h2>
-<p>Preview remembers a loopback app address per project in this browser. Open
-Preview from any conversation in that project to reuse it. Existing task-level
-addresses remain available. The dashboard starts no development server; start your
-app separately, or with <code>autocode serve start</code> for a run whose project names <code>serve</code>
-(<a href="../cli/#development-server">Development server</a>), which restarts it on the same address after each code
-change, and enter its address once. A completed code-changing step
-refreshes the preview; ordinary status polling preserves the running frame.</p>
+<p>While <code>autocode serve start</code> runs a run's development server
+(<a href="../cli/#development-server">Development server</a>), Preview shows that server
+with no address to enter. It notes whether the server was started on the run's
+latest saved step, reloads the frame when the server restarts after a code
+change, and waits while the server starts instead of switching to another app.
+When the server is not running, Preview says why (stopped, exited with its exit
+code, or no longer answering), says when it starts again after the next code
+change, or shows the <code>autocode serve start</code> command to run from a terminal.</p>
+<p>Otherwise Preview shows the loopback app address you saved for the project in
+this browser; it is also the fallback while the run's server is not running.
+Open Preview from any conversation in that project to reuse it. Existing
+task-level addresses remain available. The dashboard starts no development
+server itself. A completed code-changing step refreshes the preview; ordinary
+status polling preserves the running frame.</p>
 <p>A Validator image reference appears in chat beside its requirement and recorded
 source revision. Open the image or follow its link to Checks. These are saved
 results, not new visual acceptance. When a recorded image fingerprint exists,
