@@ -1,8 +1,9 @@
 """Requirements conversation policy and bounded assistant-text projection.
 
 The existing task controller owns dispatch and sessions. This module supplies
-the opening question and reads only the active stage's assistant reply, never
-tool output or reasoning. A partial reply carries no planning authority.
+the opening question for a bare greeting, makes the first reply the run's task,
+and reads only the active stage's assistant reply, never tool output or
+reasoning. A partial reply carries no planning authority.
 """
 
 from __future__ import annotations
@@ -15,25 +16,53 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_task_input as task_input
+except ImportError:
+    import autocode_task_input as task_input
+
 INTRO = "requirements-intro"
 GREETING = "Hi! What would you like to work on today?"
 STAGE = "requirements_gather"
+RECOGNIZE = "recognize_workflow"
 
 
 def enabled(state: RunState):
     return bool((state.get("settings") or {}).get("spec_first") and not state.get("goal_contract"))
 
 
-def opening(state: RunState):
+def _greeted(state: RunState):
     text = str(state.get("task", "")).strip().casefold().rstrip("!?. ")
     return bool(
         enabled(state)
         and text in {"hi", "hello", "hey", "hi there", "hello there", "good morning", "good afternoon", "good evening"}
         and not state.get("requirements_handoff")
-        and not state.get("user_events")
         and not state.get("stages")
         and not (state.get("workflow") or {}).get("kind")
     )
+
+
+def opening(state: RunState):
+    return _greeted(state) and not state.get("user_events")
+
+
+def adopt_reply(state: RunState):
+    """The person's first reply to the opening names the work: it becomes the task, then the job is recognized."""
+    if not _greeted(state):
+        return False
+    events = state.get("user_events") or []
+    if len(events) != 1 or events[0].get("actor") != "user_cli":
+        return False
+    event = events[0]
+    if not (event.get("kind") == "brief_feedback" or event.get("question_id") == INTRO):
+        return False
+    text = str(event.get("text") or "").strip()
+    if not text:
+        return False
+    # The source log keeps the greeting as task:0; the reply is saved there as its own source.
+    task_input.assign(state, text)
+    state.update({"next_stage": RECOGNIZE, "phase": "DISCOVERING"})
+    return True
 
 
 def question():

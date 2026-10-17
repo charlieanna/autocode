@@ -150,9 +150,6 @@ def after_answers(state: RunState) -> None:
     """A review answer other than 'plan' is new requirements input: Requirements runs again, not the Planner."""
     if not enabled(state) or state.get("goal_contract") or state.get("pending_questions"):
         return
-    if not state.get("requirements_handoff") and "requirements-intro" in (state.get("answers") or {}):
-        state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
-        return
     answer = (
         (state.get("answers") or {}).get(review_question(state)["id"]) if state.get("requirements_handoff") else None
     )
@@ -161,8 +158,3 @@ def after_answers(state: RunState) -> None:
     )
     if needs_refresh and state.get("next_stage") == NEXT:
         state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
-    elif answer and state.get("next_stage") == NEXT and not (state.get("workflow") or {}).get("kind"):
-        # The user has approved their understood requirements. Classify the
-        # actual request now, then prepare/review the plan; never build here.
-        state["workflow"]["then"] = NEXT
-        state["next_stage"] = "recognize_workflow"

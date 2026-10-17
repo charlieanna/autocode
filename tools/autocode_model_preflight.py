@@ -229,10 +229,13 @@ def check(
         # Native calls require their original held, accounted launch authority.
         # Standalone access probes cannot borrow that authority or its budget.
         return False
-    if (state.get("settings") or {}).get("spec_first") and state.get("next_stage") == "requirements_gather":
-        # This read-only conversation is itself the requested model call.
-        # Future execution roles are probed when approved requirements release
-        # planning; do not make the user wait for unrelated model probes here.
+    if (state.get("settings") or {}).get("spec_first") and state.get("next_stage") in (
+        "recognize_workflow",
+        "requirements_gather",
+    ):
+        # Recognition and the read-only conversation are themselves the
+        # requested model calls. Future execution roles are probed when
+        # approved requirements release planning; do not make the user wait.
         return False
     groups = _billing_groups(runner, state.get("settings") or {}, workspace)
     if not groups:

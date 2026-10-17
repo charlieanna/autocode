@@ -112,11 +112,7 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "workspace_inventory": inventory or {},
         "goal_contract": None,
         "current_task": None,
-        "saved_answers": {
-            row.get("id") or row["question_id"]: row["text"]
-            for row in state.get("user_events", [])
-            if row.get("actor") == "user_cli" and (row.get("id") or row.get("question_id")) and row.get("text")
-        },
+        "saved_answers": {},
         # A request with a Figma design is still recognized by what the user wants back.
         **({"figma_file": state["settings"]["figma_file"]} if (state.get("settings") or {}).get("figma_file") else {}),
     }
@@ -193,9 +189,7 @@ def prompt(
 def begin(state: RunState, then: str) -> None:
     """Make recognition the first stage of a new run; ``then`` is the stage that follows it."""
     state["workflow"] = {"kind": None, "reason": "", "signals": [], "source": None, "then": then}
-    # A conversational run gathers the actual goal before classifying its job.
-    # Requirements approval later releases recognition with the saved answers.
-    state["next_stage"] = then if (state.get("settings") or {}).get("spec_first") else STAGE
+    state["next_stage"] = STAGE
 
 
 def apply(state: RunState, value: dict, record: dict) -> None:

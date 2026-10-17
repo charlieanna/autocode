@@ -11,6 +11,8 @@ import autocode_chat_view as view
 import autocode_model_preflight as preflight
 import autocode_requirements_chat as chat
 import autocode_role_transport as transport
+import autocode_task_input as task_input
+import autocode_workflows as workflows
 
 
 class RequirementsChatTests(unittest.TestCase):
@@ -32,6 +34,65 @@ class RequirementsChatTests(unittest.TestCase):
             state["next_stage"] = "astra_discovery"
             self.assertFalse(preflight.check(SimpleNamespace(), state, "/run", "/project"))
             groups.assert_called_once()
+
+    def test_recognition_runs_before_requirements_in_a_conversation(self):
+        for settings in ({"spec_first": True}, {}):
+            with self.subTest(settings=settings):
+                state = {"settings": settings}
+                workflows.begin(state, chat.STAGE)
+                self.assertEqual(workflows.STAGE, state["next_stage"])
+                self.assertEqual(chat.STAGE, state["workflow"]["then"])
+
+    def test_recognition_does_not_probe_other_models_in_a_conversation(self):
+        state = {"settings": {"spec_first": True}, "next_stage": workflows.STAGE}
+        with mock.patch.object(preflight, "_billing_groups", return_value=[]) as groups:
+            self.assertFalse(preflight.check(SimpleNamespace(), state, "/run", "/project"))
+            groups.assert_not_called()
+
+    def test_first_reply_to_the_opening_becomes_the_task_and_the_job_is_recognized(self):
+        reply = "Add a CSV export to the reports page."
+        for event in (
+            {"kind": "answer", "actor": "user_cli", "question_id": chat.INTRO, "text": reply},
+            {"kind": "brief_feedback", "actor": "user_cli", "id": "feedback-1", "text": reply + "\n"},
+        ):
+            with self.subTest(kind=event["kind"]):
+                state = {
+                    "task": "Hi!",
+                    "task_sha256": task_input.digest("Hi!"),
+                    "settings": {"spec_first": True},
+                    "workflow": {"kind": None, "then": chat.STAGE},
+                    "next_stage": chat.STAGE,
+                    "user_events": [event],
+                }
+                self.assertTrue(chat.adopt_reply(state))
+                self.assertEqual(reply, state["task"])
+                self.assertEqual(task_input.digest(reply), state["task_sha256"])
+                self.assertEqual(workflows.STAGE, state["next_stage"])
+                self.assertFalse(chat.adopt_reply(state), "Only the first reply names the work")
+
+    def test_reply_is_not_adopted_once_the_work_is_named(self):
+        event = {"kind": "brief_feedback", "actor": "user_cli", "id": "feedback-1", "text": "Use JSON instead."}
+        seed = {
+            "task": "Hi!",
+            "settings": {"spec_first": True},
+            "workflow": {"kind": None},
+            "next_stage": chat.STAGE,
+            "user_events": [event],
+        }
+        for change in (
+            {"task": "Add a CSV export"},
+            {"workflow": {"kind": "build"}},
+            {"stages": [{"stage": workflows.STAGE}]},
+            {"requirements_handoff": {"report": {}}},
+            {"user_events": [event, {**event, "id": "feedback-2"}]},
+            {"user_events": [{**event, "actor": "user_intervention"}]},
+            {"settings": {}},
+        ):
+            with self.subTest(change=change):
+                state = {**seed, **change}
+                before = dict(state)
+                self.assertFalse(chat.adopt_reply(state))
+                self.assertEqual(before, state)
 
     def test_opening_only_handles_a_bare_greeting_before_any_dispatch(self):
         seed = {"task": "Hi!", "settings": {"spec_first": True}}
