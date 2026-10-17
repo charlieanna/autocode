@@ -46,6 +46,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- An end-to-end acceptance test for the chat client: `test_scenario_client_browser_ui.js` types a catalog
+  scenario's brief (parallel-diamond) in chat, attaches the project, approves and builds the plan, and checks in
+  **Checks** that each requirement shows its reference solution's hunks and only its own files of the shared
+  parallel step, at desktop, tablet and phone widths. The task runs the real runner against fake providers. It
+  runs in CI's browser step (#730).
 - Each action on the status view's recovery card that runs a control names its exact CLI flags in `args`, for
   example `["--resume-paused", "--retry-builder", "M3"]`. The dashboard's recovery buttons run those flags, bound to
   the inspected pause's token, instead of keeping their own table of action kinds; an action that names no flags

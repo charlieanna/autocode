@@ -180,6 +180,12 @@ CI runs the Python suite and the Node tests on macOS and Linux, except
 `agent-browser` CLI and need it installed.
 
 The browser fixture uses disposable workspaces and cannot launch agents. The
+exception is the chat client's acceptance test, `test_scenario_client_browser_ui.js`:
+it types the parallel-diamond scenario's brief in chat, attaches a project, approves
+and builds the plan, and checks each requirement's changes against the scenario's
+reference solution at three viewport sizes. Its fixture runs the real runner on the fake
+OpenCode client, which hands each stage to the scenario harness's scripted model, so no
+model is called. The
 packaged-import regression tests the installed entry-point layout, not just the
 source-directory import path. Updating files does not reload a running dashboard:
 restart only its server at an idle boundary, preserving the same environment and
