@@ -740,8 +740,7 @@ function renderChat(data) {
   const messages = document.getElementById('messages');
   const welcome = { id: 'welcome', role: 'assistant', text: 'Hi! What would you like to work on today?' };
   const rows = data.state && data.state.chat ? data.state.chat.messages
-    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief },
-      ...(/^(hi|hello|hey)[!.?]*$/i.test(data.pendingBrief.trim()) ? [welcome] : [])] : [welcome];
+    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [welcome];
   const serialized = JSON.stringify(rows);
   if (messages.dataset.content !== serialized) {
     messages.dataset.content = serialized; messages.textContent = '';
@@ -756,7 +755,7 @@ function renderChat(data) {
     });
   }
   if (data.state) render(data.state);
-  else { app.textContent = data.busy && !/^(hi|hello|hey)[!.?]*$/i.test((data.pendingBrief || '').trim()) ? 'Thinking…' : ''; }
+  else { app.textContent = data.busy ? 'Thinking…' : ''; }
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();

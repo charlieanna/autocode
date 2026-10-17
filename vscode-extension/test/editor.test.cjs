@@ -755,6 +755,19 @@ test('new chat shows the selected run while its first provider call is still pen
   assert.ok(ui.document.body.textContent.includes('Approve and build'));
 });
 
+test('a greeting waits for Requirements to answer instead of a canned reply', async (t) => {
+  const ui = await openChat(t, null, undefined);
+  ui.chat.show(); await flush();
+  t.mock.method(controller, 'start', async (workspace, brief, created) => {
+    created(run);
+    return new Promise(() => {});
+  });
+  ui.type('hi'); ui.submit(); await flush();
+  const rows = [...ui.document.querySelectorAll('#messages .message')].map((row) => row.textContent);
+  assert.deepEqual(rows, ['Youhi']);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
+});
+
 test('requirements chat streams replies without an empty task dashboard and keeps typed text', async (t) => {
   const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' }, chat: {
     phase: 'requirements', context: 'turn-one', input: null,
