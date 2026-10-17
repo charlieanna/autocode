@@ -116,6 +116,17 @@ fails. The project list still reads saved run state for fields the view does not
 carry; that read is confined to `dashboard_run_state.py`, and the dashboard uses
 only public names of core modules (both checked in `tests/test_architecture.py`).
 
+In **Checks**, each requirement's **Inspect** section lists, beside its recorded
+evidence, the saved Builder steps of the milestones that cover it and each file's
+diff against the saved step before it (`GET /api/criterion-diffs`, which calls
+`autocode_review_diff.criterion_diffs` on that same status view and reads committed
+Git objects, never the working tree). The changes are labelled as attribution, not
+proof that the requirement is met. A requirement whose steps also changed files
+another requirement's milestone changed is marked as overlapping. When a requirement
+has no attributed step, or the run's status is unavailable, it says so and offers
+**View all run changes**, which opens **Changes**. The pane is read once per run
+until a step is saved or its attribution changes.
+
 ## Project-specific counters
 
 Project-specific counters are optional. Declare a read-only projection in the

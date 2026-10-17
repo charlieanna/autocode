@@ -218,6 +218,13 @@
 #task-detail .check-row details[open]>summary:before{content:'▾'}
 #task-detail .check-row[data-check-state=pass]>details>summary{color:var(--m2b-success-text,#15803d)}
 #task-detail .check-row[data-check-state=fail]>details>summary{color:var(--accent-danger)}
+#task-detail .criterion-changes{min-width:0;margin:4px 0}
+#task-detail .criterion-changes>.text-button{min-height:44px}
+#task-detail .criterion-step{min-width:0;margin:12px 0 0}
+#task-detail .criterion-step h4{margin:0 0 4px;font-size:13px;line-height:20px;font-weight:500;color:var(--m2b-ink)}
+#task-detail .criterion-step .criterion-file{margin:8px 0 4px;font-family:var(--mono,ui-monospace,monospace);font-size:12px;color:var(--m2b-ink);overflow-wrap:anywhere}
+#task-detail .criterion-step .diff-output{margin:0;padding:0;max-width:100%;max-height:50vh;font-size:12px;line-height:20px;border-radius:6px}
+#task-detail .criterion-step .diff-line{padding:0 8px;min-height:20px}
 [data-theme=dark] #task-detail .execution-summary.verification-complete{background:#123526}
 [data-theme=dark] #task-detail .check-row[data-check-state=pass]>details>summary{color:#6ddd9b}
 

@@ -13,8 +13,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 try:
+    from .. import autocode_review_diff as review_diff
     from ..autocode_control_tokens import private_command
 except ImportError:
+    import autocode_review_diff as review_diff
     from autocode_control_tokens import private_command
 
 try:
@@ -447,6 +449,22 @@ class RegistryInterventionMixin:
             "status_view": status_view if isinstance(status_view, dict) else None,
         }
         return value
+
+    def criterion_diffs(self, workspace, run):
+        """Each requirement's saved-step diffs, from the status view the task detail carries (#730).
+
+        Reads committed checkpoint objects only, never the checkout or saved run state."""
+        self._intervention_view(workspace, run)
+        status_view = self.status_cache.get(str(run), {}).get("status_view")
+        if not isinstance(status_view, dict):
+            return {
+                "meaning": review_diff.STEP_MEANING,
+                "availability": "unavailable",
+                "reason": "The run's status is unavailable, so its saved steps cannot be shown by requirement.",
+                "steps": {},
+                "criteria": [],
+            }
+        return review_diff.criterion_diffs(workspace, status_view)
 
     def view(self, workspace, run, s=None):
         interventions = self._intervention_view(workspace, run)
