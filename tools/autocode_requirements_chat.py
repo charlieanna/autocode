@@ -65,6 +65,9 @@ def adopt_reply(state: RunState):
     report = (state.get("requirements_handoff") or {}).get("report")
     if not _first_conversation(state) or not isinstance(report, dict) or report.get("requirements"):
         return False
+    # Answering one of several questions waits for the rest, which stay with this report.
+    if state.get("pending_questions"):
+        return False
     events = state.get("user_events") or []
     event = events[-1] if events else {}
     if event.get("actor") != "user_cli" or event.get("kind") not in ("brief_feedback", "answer"):
@@ -81,7 +84,12 @@ def adopt_reply(state: RunState):
 
 
 def recognize_after_approval(state: RunState):
-    """Once the person approves what Requirements understood, recognize the job before planning it."""
+    """Once the person approves what Requirements understood, recognize the job before planning it.
+
+    Recognition keeps ``workflow.then`` as the build pipeline's entry, so a later request is gathered
+    again; ``requirements_approved`` tells workflows.apply that this one already was. A job with its
+    own first stage starts there once; when it hands back for planning, the approval stands.
+    """
     if not _first_conversation(state) or state.get("pending_questions"):
         return False
     if state.get("next_stage") != requirements_review.NEXT or not state.get("requirements_handoff"):
@@ -91,8 +99,11 @@ def recognize_after_approval(state: RunState):
         return False
     kind = state["workflow"].get("kind")
     if kind is None:
-        workflows.begin(state, requirements_review.NEXT)
-    elif kind in workflows.FIRST_STAGE:
+        workflows.begin(state, state["workflow"].get("then") or STAGE)
+        state["workflow"]["requirements_approved"] = True
+    elif kind in workflows.FIRST_STAGE and not any(
+        row.get("stage") == workflows.FIRST_STAGE[kind] for row in state.get("stages") or []
+    ):
         state["next_stage"] = workflows.FIRST_STAGE[kind]
     else:
         return False

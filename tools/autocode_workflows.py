@@ -20,7 +20,10 @@ State key written here (and read by autocode_run_view, autopilot):
                "clarity": "clear" | "vague", only in adaptive-planning runs,
                "requirements_skipped": bool, only where clarity decides whether Requirements
                runs (an adaptive build recognized with Requirements next and no approved
-               design); read by autocode_adaptive_planning.view for the status view}
+               design); read by autocode_adaptive_planning.view for the status view,
+               "requirements_approved": True, only between a chat run's approval and its
+               recognition (autocode_requirements_chat); apply then plans a build instead of
+               gathering it again}
 """
 
 from __future__ import annotations
@@ -208,7 +211,8 @@ def apply(state: RunState, value: dict, record: dict) -> None:
         raise ValueError(f"Unknown workflow {value.get('workflow')!r}; expected one of {WORKFLOWS}")
     # ``then`` stays the build pipeline's entry stage: a workflow with its own first
     # stage (FIRST_STAGE) may still hand over to the build pipeline afterwards.
-    then = (state.get("workflow") or {}).get("then") or "requirements_gather"
+    previous = state.get("workflow") or {}
+    then = previous.get("then") or "requirements_gather"
     state["workflow"] = {
         "kind": value["workflow"],
         "reason": value.get("reason", ""),
@@ -226,6 +230,9 @@ def apply(state: RunState, value: dict, record: dict) -> None:
     if adaptive.enabled(state) and value["workflow"] == "build" and not design and then == "requirements_gather":
         # Saved where clarity decides it; the status view shows it as planning_depth.requirements_skipped (#697).
         state["workflow"]["requirements_skipped"] = first != then
+    if previous.get("requirements_approved") and first == then:
+        # A chat run's Requirements spoke and was approved before recognition (autocode_requirements_chat).
+        first = planner_stage(state)
     state.update(
         {
             "status": "RUNNING",

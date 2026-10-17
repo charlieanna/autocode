@@ -133,6 +133,9 @@ class RequirementsChatTests(unittest.TestCase):
             {"settings": {}},
             {"goal_contract": {"body": {}}},
             {"turns": [{"say": "earlier"}]},
+            # An answer to one of several questions waits for the rest; adopting it would move
+            # the run off the stage the remaining questions belong to.
+            {"pending_questions": [{"id": "Q2", "question": "Which reports?"}]},
         ):
             with self.subTest(change=change):
                 state = {**self.conversation(reply), **change}
@@ -158,7 +161,7 @@ class RequirementsChatTests(unittest.TestCase):
         state = self.approved(" Plan ")
         self.assertTrue(chat.recognize_after_approval(state))
         self.assertEqual(workflows.STAGE, state["next_stage"])
-        self.assertEqual((None, review.NEXT), (state["workflow"]["kind"], state["workflow"]["then"]))
+        self.assertEqual((None, chat.STAGE), (state["workflow"]["kind"], state["workflow"]["then"]))
         pinned = self.approved(workflow={"kind": "review", "then": chat.STAGE})
         self.assertTrue(chat.recognize_after_approval(pinned))
         self.assertEqual(workflows.REVIEW_STAGE, pinned["next_stage"])
@@ -176,6 +179,36 @@ class RequirementsChatTests(unittest.TestCase):
         legacy = self.approved()
         legacy.pop("workflow")
         self.assertFalse(chat.recognize_after_approval(legacy))
+
+    def test_an_approved_build_is_planned_and_a_later_request_is_gathered_again(self):
+        build = {"workflow": "build", "reason": "Adds a feature", "signals": []}
+        state = self.approved()
+        self.assertTrue(chat.recognize_after_approval(state))
+        workflows.apply(state, build, {"output": None})
+        self.assertEqual(review.NEXT, state["next_stage"], "Requirements already ran and was approved")
+        self.assertFalse(state["workflow"].get("requirements_skipped"))
+        # A follow-up starts from the saved pipeline entry (autocode_follow_up reads workflow.then).
+        self.assertEqual(chat.STAGE, state["workflow"]["then"])
+        workflows.begin(state, state["workflow"]["then"])
+        workflows.apply(state, build, {"output": None})
+        self.assertEqual(chat.STAGE, state["next_stage"])
+
+    def test_an_approval_starts_a_job_with_its_own_first_stage_only_once(self):
+        design = workflows.FIRST_STAGE["design"]
+        pinned = self.approved(workflow={"kind": "design", "then": chat.STAGE}, stages=[{"stage": chat.STAGE}])
+        self.assertTrue(chat.recognize_after_approval(pinned))
+        self.assertEqual(design, pinned["next_stage"])
+        for kind, ran in (
+            ("design", [chat.STAGE, design, chat.STAGE]),
+            ("bugfix", [chat.STAGE, workflows.STAGE, workflows.FIRST_STAGE["bugfix"]]),
+        ):
+            with self.subTest(kind=kind):
+                later = self.approved(
+                    workflow={"kind": kind, "then": chat.STAGE}, stages=[{"stage": stage} for stage in ran]
+                )
+                before = copy.deepcopy(later)
+                self.assertFalse(chat.recognize_after_approval(later), "The job's first stage already ran")
+                self.assertEqual(before, later)
 
     def test_the_recognizer_judges_the_job_from_the_confirmed_understanding(self):
         outcome = "Reports can be exported as CSV with a total row"
