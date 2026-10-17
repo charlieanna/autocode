@@ -217,6 +217,42 @@ class ScopedIntakeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside approved"):
             manifest.load(self.path, **self.arguments())
 
+    def test_node_navigation_needs_its_destination_but_back_and_url_do_not(self):
+        original = copy.deepcopy(self.body)
+        source = self.path.parent / original["files"][0]["pages"][0]["source_json"]["path"]
+        original_source = json.loads(source.read_text())
+
+        def load_action(action):
+            self.body = copy.deepcopy(original)
+            receipt = copy.deepcopy(original_source)
+            transition = self.body["files"][0]["transitions"][0]
+            transition.update(action=action, target_node_id=action.get("destinationId") or "")
+            node = next(row for row in receipt["nodes"] if row["id"] == transition["source_node_id"])
+            node["transitions"] = [
+                {key: transition[key] for key in ("id", "target_node_id", "trigger", "action")}
+            ]
+            source.write_text(json.dumps(receipt))
+            self.body["files"][0]["pages"][0]["source_json"]["sha256"] = util.file_hash(source)
+            self.path.write_text(json.dumps(self.body))
+            self.write_authority()
+            return manifest.load(self.path, **self.arguments())
+
+        for navigation in ("NAVIGATE", "CHANGE_TO"):
+            for destination in (None, "", "omitted"):
+                action = {"type": "NODE", "navigation": navigation}
+                if destination != "omitted":
+                    action["destinationId"] = destination
+                with self.subTest(action=action), self.assertRaisesRegex(ValueError, "NODE action omits.*destination"):
+                    load_action(action)
+        for action in (
+            {"type": "NODE", "navigation": "NAVIGATE", "destinationId": "1:6"},
+            {"type": "BACK"},
+            {"type": "URL", "url": "https://example.test/"},
+        ):
+            with self.subTest(action=action):
+                loaded = load_action(action)
+                self.assertEqual(action, loaded["body"]["files"][0]["transitions"][0]["action"])
+
     def test_full_missing_resources_remain_blockers_but_unused_delivery_is_separate(self):
         file = self.body["files"][1]
         font = file["fonts"][0]

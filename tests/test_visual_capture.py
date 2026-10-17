@@ -136,6 +136,40 @@ class RealCaptureCliTests(unittest.TestCase):
         self.assertIn("Served asset differs", " ".join(util.read_object(failures[0])["errors"]))
         self.assertEqual([], list((self.root / ".autocode/captures").glob("*/manifest.json")))
 
+    def test_focused_form_controls_capture_without_mutating_the_rendered_dom(self):
+        (self.root / "index.html").write_text(
+            '<!doctype html><body data-state="ready"><input value="Project">'
+            '<textarea id="message">Describe the task</textarea></body>'
+        )
+        (self.root / "fixture.cjs").write_text(
+            FIXTURE.replace(
+                "await page.goto(`http://127.0.0.1:${server.address().port}/screen`);",
+                "await page.goto(`http://127.0.0.1:${server.address().port}/screen`);\n"
+                "  await page.locator('#message').focus();",
+            )
+        )
+        capture = self.capture()
+        evidence.verify(self.state, capture["capture_ref"], capture["capture_sha256"], case=self.case)
+        self.assertIsNone(capture["visual_acceptance"])
+
+    def test_page_change_during_screenshot_cannot_publish_a_capture(self):
+        (self.root / "fixture.cjs").write_text(
+            FIXTURE.replace(
+                "const bytes =",
+                "const screenshot = page.screenshot.bind(page);\n"
+                "  page.screenshot = async options => {\n"
+                "    await page.evaluate(() => document.body.setAttribute('data-changed', 'yes'));\n"
+                "    return screenshot(options);\n"
+                "  };\n"
+                "  const bytes =",
+            )
+        )
+        self.capture(2)
+        failures = list((self.root / ".autocode/captures").glob("*/browser.json"))
+        self.assertEqual(1, len(failures))
+        self.assertIn("Rendered DOM changed during capture", util.read_object(failures[0])["errors"])
+        self.assertEqual([], list((self.root / ".autocode/captures").glob("*/manifest.json")))
+
     def test_source_change_during_capture_cannot_publish_a_usable_manifest(self):
         (self.root / "change-during-capture").write_text("yes")
         result = self.capture(2)

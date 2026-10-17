@@ -1006,6 +1006,8 @@ def _validate(file, root, node_tables):
                     raise ValueError("Duplicate source transition identity")
                 if reaction["target_node_id"] != (reaction["action"].get("destinationId") or ""):
                     raise ValueError("Prototype destination disagrees with its source action")
+                if reaction["action"].get("type") == "NODE" and not reaction["action"].get("destinationId"):
+                    raise ValueError("Prototype NODE action omits its original destination")
                 reactions[reaction["id"]] = dict(source_node_id=node["id"], **reaction)
         for variable in receipt["variables"]:
             old = variables.setdefault(variable["key"], variable)
