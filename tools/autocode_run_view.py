@@ -30,6 +30,7 @@ try:
     from . import autocode_accepted_source as accepted_source
     from . import autocode_adaptive_planning as adaptive_planning
     from . import autocode_approval_provenance as approval_provenance
+    from . import autocode_chat_view as chat_view
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
     from . import autocode_component_plan as component_plan
@@ -69,6 +70,7 @@ except ImportError:
     import autocode_accepted_source as accepted_source
     import autocode_adaptive_planning as adaptive_planning
     import autocode_approval_provenance as approval_provenance
+    import autocode_chat_view as chat_view
     import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
     import autocode_component_plan as component_plan
@@ -236,8 +238,8 @@ def view(
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
         "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
-        # The model and engine each role's next launch uses, and every model a person named for a
-        # role after its quota ran out (autocode_quota_route): role, from, to, stage, at, via.
+        # Saved model slots, their primary job, effort and provider; actual models remain
+        # on usage.accounting.attempts. Assignments record explicit route changes.
         "routes": quota_route.routes(state),
         # The provider those OpenCode-engine routes launch through ("opencode", "claude", a configured
         # tool's name); None when every role runs on Codex (#717).
@@ -260,6 +262,7 @@ def view(
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
         "job_report_recovery": None,
     }
+    result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     if simulated or invalid_replay:
         result["completion_current"] = False
     result["efficiency"] = autocode_efficiency.summary(

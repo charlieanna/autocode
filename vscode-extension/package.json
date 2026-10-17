@@ -1,0 +1,198 @@
+{
+  "name": "autocode",
+  "displayName": "AutoCode",
+  "description": "Drive AutoCode task runs from VS Code: start a run, follow its progress, and take the action the status view names.",
+  "version": "0.0.1",
+  "private": true,
+  "publisher": "autocode",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "autocode",
+          "title": "AutoCode",
+          "icon": "media/autocode.svg"
+        }
+      ]
+    },
+    "views": {
+      "autocode": [
+        {
+          "id": "autocode.chat",
+          "name": "Chat",
+          "type": "webview",
+          "when": "!autocode.showHistory",
+          "contextualTitle": "AutoCode chat"
+        },
+        {
+          "id": "autocode.runs",
+          "name": "Runs",
+          "when": "autocode.showHistory",
+          "contextualTitle": "AutoCode runs"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "autocode.showChat",
+        "title": "Back to Chat",
+        "category": "AutoCode",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "autocode.startRun",
+        "title": "New Chat",
+        "category": "AutoCode",
+        "icon": "$(plus)"
+      },
+      {
+        "command": "autocode.refresh",
+        "title": "Refresh Runs",
+        "category": "AutoCode",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "autocode.openRun",
+        "title": "Open Run",
+        "category": "AutoCode"
+      },
+      {
+        "command": "autocode.takeAction",
+        "title": "Take the Named Action",
+        "category": "AutoCode",
+        "icon": "$(play)"
+      },
+      {
+        "command": "autocode.continueRun",
+        "title": "Continue Run",
+        "category": "AutoCode",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "autocode.showCliCommand",
+        "title": "Copy the Command the Status View Named",
+        "category": "AutoCode",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "autocode.watchRun",
+        "title": "Watch / Unwatch Run",
+        "category": "AutoCode"
+      },
+      {
+        "command": "autocode.showLog",
+        "title": "Show AutoCode Output",
+        "category": "AutoCode"
+      },
+      {
+        "command": "autocode.openDetails",
+        "title": "Open Run Details",
+        "category": "AutoCode"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "autocode.showChat",
+          "when": "view == autocode.runs",
+          "group": "navigation@0"
+        },
+        {
+          "command": "autocode.startRun",
+          "when": "view == autocode.runs",
+          "group": "navigation@1"
+        },
+        {
+          "command": "autocode.refresh",
+          "when": "view == autocode.runs",
+          "group": "navigation@2"
+        },
+        {
+          "command": "autocode.startRun",
+          "when": "view == autocode.chat",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "autocode.continueRun",
+          "when": "viewItem == autocode.runActive",
+          "group": "inline@1"
+        },
+        {
+          "command": "autocode.takeAction",
+          "when": "viewItem == autocode.runNeeds",
+          "group": "inline@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AutoCode",
+      "properties": {
+        "autocode.cliPath": {
+          "type": "string",
+          "default": "autocode",
+          "markdownDescription": "The `autocode` executable. Point it at a checkout wrapper if you run AutoCode from source."
+        },
+        "autocode.cliArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Leading arguments before AutoCode's own, for a `python3 /path/tools/autocode.py` style launch."
+        },
+        "autocode.provider": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Value for `--provider` when the extension starts or continues a run. Leave empty to use AutoCode's default. This is the route your models bill to, so check it before a live run."
+        },
+        "autocode.extraOptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra engine and model flags passed whenever the extension starts or advances a run, for example `[\"--engine\", \"codex\"]`."
+        },
+        "autocode.pollSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "markdownDescription": "Seconds between `--status` reads for a watched run. Reads never change the checkpoint or launch a provider."
+        },
+        "autocode.confirmPersonOnly": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Ask before taking an action on a pause AutoCode stopped for a person to decide (`resume`, `retry_job`, `recover_source`, a blocker or an exhausted-recovery request). Keep this on: those are the decisions the run stopped to ask you."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js test/*.test.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.24.0",
+    "jsdom": "26.1.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "marked": "15.0.12"
+  }
+}

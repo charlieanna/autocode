@@ -70,6 +70,7 @@ class RunViewTests(unittest.TestCase):
                 "pause_category",
                 "pause_category_label",
                 "next_command",
+                "chat",
                 "status",
                 "done",
                 "needs",

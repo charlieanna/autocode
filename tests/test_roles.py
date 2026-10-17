@@ -49,6 +49,27 @@ class OneListOfNames(unittest.TestCase):
 
 
 class NamesFollowTheJobNotTheAi(unittest.TestCase):
+    def test_configured_slot_labels_follow_the_canonical_jobs_and_planning_flow(self):
+        for role, expected in {
+            "astra": "Planner",
+            "glm": "Requirements",
+            "requirements": "Requirements",
+            "plan_reviewer": "Plan Reviewer",
+            "terra": "Builder",
+            "sol": "Tester",
+            "completion": "Completion Reviewer",
+            "resolver": "Resolver",
+            "architect": "Designer",
+            "investigator": "Investigator",
+            "stuck_investigator": "Investigator",
+            "analyst": "Analyst",
+            "utility": "Job recognizer",
+            "acceptance_tester": "Tester",
+        }.items():
+            self.assertEqual(expected, roles.route_name(role, {}))
+        self.assertEqual("Planner", roles.route_name("glm", {"settings": {"planning_flow": "v2"}}))
+        self.assertEqual("Future Role", roles.route_name("future_role", {}))
+
     def test_v2_names_follow_the_actual_planning_stages(self):
         from units.autoplanner import V2_STAGE_ROLES, V2_STAGES
 

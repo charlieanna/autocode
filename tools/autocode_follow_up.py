@@ -54,8 +54,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_chat_history as chat_history
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_chat_history as chat_history
     import autocode_source_scope as source_scope
 
 
@@ -125,6 +127,9 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
     first_stage = first or (state.get("workflow") or {}).get("then") or workflows.planner_stage(state)
     changes = turn_changes(state, workspace)
     previous = {
+        # Durable display text for task-run chat clients after this turn's
+        # live answer/decision is replaced. Never used as new requirements.
+        "chat_response": chat_history.response(state),
         "task": state.get("task", ""),
         "workflow": workflows.kind(state),
         "status": state["status"],

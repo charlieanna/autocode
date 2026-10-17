@@ -155,6 +155,33 @@ visible in the additive `task_preflight` status field. See
 [task-preflight.md](task-preflight.md) for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.
 
+## Chat projection for ordinary task runs
+
+The additive `view.chat` contains `messages` (stable `id`, `role`, `text`),
+an opaque `context`, and an optional `input` offer. Messages project existing
+human receipts and saved completed replies. At a follow-up, the prior reply is
+retained under that turn's historical record; display text grants no approval
+and does not become a new requirement. Status reads do not write a transcript.
+
+`input` is null when free text is not an admitted action. Otherwise it names
+`kind` (`feedback` or `follow_up`), a display `label`, and `next_command` with
+one literal `MESSAGE` placeholder. A client replaces that argument with the
+person's text, checks that the command names the same workspace/run, and runs it
+as an argument array without a shell. The headless conformance client's
+`message_command()` implements this same parsing boundary.
+
+A client compares the displayed `context` with a fresh status before submitting;
+if it changed, retain the draft and ask the person to review the new checkpoint.
+The ordinary CLI independently rechecks admission when saving the action.
+Saving feedback or a follow-up launches no model. A button explicitly offering
+to send **and continue** may then follow the ordinary `needs.kind=continue`
+action. It may never infer a plan approval, answer another question or release
+an operational pause. Approval remains bound to the displayed plan token.
+Older cores without `chat` leave free-text input disabled for an existing run.
+
+This projection is separate from the explicit Requirements journal below:
+ordinary run clients do not create or drive a second conversation controller.
+
 ## Core Requirements conversations
 
 `TaskRun.start_conversation(workspace, text, request_id="first-message")` starts a
@@ -910,8 +937,17 @@ history: an approval stays listed after a newer plan or a rejection replaces it,
 is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`. It is empty
 until the first record.
 
-`routes` maps every configured role to the `model` and `engine` its next launch
-uses. `provider` names the provider those OpenCode-engine routes launch through
+`routes` maps every configured role to its saved `model` and `engine`, plus
+`reasoning_effort` (null when unspecified), resolved per-role `provider`, and
+`job` (its primary job's screen name from `autocode_roles`). These are configured
+assignments, not evidence a stage ran or a prediction of conditional routing or
+escalation. Several slots can serve the same job. The actual history is in
+`usage.accounting.attempts`: each attempt now also includes `job`, derived from
+its stage and workflow, alongside its recorded model and `launch_route`.
+Clients must keep configured assignments separate from actual attempts; changing
+a saved route does not rewrite an earlier attempt's model or reasoning effort.
+
+The top-level `provider` names the provider those OpenCode-engine routes launch through
 (`opencode`, `claude` for the [built-in Claude Code provider](providers.md#claude-code-provider),
 or a configured tool's name); it is null when every role runs on Codex. `route_assignments` lists, oldest first, every model a person named for a
 role after its quota ran out or its provider's content filter refused it: `kind` (always `route_assignment`), `role`, `job`,

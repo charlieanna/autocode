@@ -34,6 +34,18 @@ class ScopeTests(unittest.TestCase):
     def test_docs_only_never_dispatches_provider_or_native_jobs(self):
         self.assertEqual({"docs"}, self.enabled("docs/testing.md"))
 
+    def test_chat_contract_changes_select_the_extension_consumer(self):
+        for path in (
+            "vscode-extension/src/chat.ts",
+            "tools/autocode_chat_view.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_quota_route.py",
+            "tools/autocode_roles.py",
+            "tools/autocode_usage.py",
+            "tools/autocode_progress_view.py",
+        ):
+            self.assertIn("extension", self.enabled(path))
+
     def test_dashboard_and_visual_changes_keep_their_real_browser_jobs(self):
         self.assertEqual({"suite", "dashboard", "wheel"}, self.enabled("tools/dashboard/dashboard_app.js"))
         self.assertTrue({"suite", "visual", "wheel"} <= self.enabled("tools/autocode_visual_browser.cjs"))
@@ -267,6 +279,7 @@ class WorkflowGateTests(unittest.TestCase):
         flags = {flag: str(flag in enabled).lower() for flag in ci_scope.JOBS}
         jobs = {
             "suite": bool(enabled & {"suite", "scenarios", "dashboard"}),
+            "extension": "extension" in enabled,
             "macos-tool-containment": "macos" in enabled,
             "linux-tool-containment": "linux" in enabled,
             "windows-fast-suite": "windows" in enabled,

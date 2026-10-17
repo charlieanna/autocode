@@ -6,7 +6,7 @@ to the screen name. Name the job being done, not the AI that happens to do it â€
 when reviewer routing gives the Plan Reviewer the testing job, the screen says
 ``Tester``.
 
-Do not add a second name table. ``autocode_status.role_name`` is the only reader.
+Do not add a second name table. Status and client projections read this catalogue.
 """
 
 from __future__ import annotations
@@ -89,6 +89,32 @@ STAGE_JOB = {
     "investigate_stuck": "investigator",
     "answer_question": "analyst",
 }
+
+# Configured model slots are distinct from recorded stages: a slot can serve
+# several stages. These name its primary job, not a prediction of execution.
+ROUTE_JOB = {
+    "astra": "planner",
+    "glm": "requirements",
+    "requirements": "requirements",
+    "plan_reviewer": "plan_reviewer",
+    "terra": "builder",
+    "sol": "tester",
+    "completion": "completion",
+    "resolver": "resolver",
+    "architect": "designer",
+    "analyst": "analyst",
+    "investigator": "investigator",
+    "stuck_investigator": "investigator",
+    "acceptance_tester": "tester",
+    "utility": "recognizer",
+}
+
+
+def route_name(role: str, state: Mapping[str, Any]) -> str:
+    """Primary job of a configured slot; actual stage names use screen_name."""
+    job = "planner" if role == "glm" and planning_flow(state) == "v2" else ROUTE_JOB.get(role)
+    return SCREEN[job] if job else str(role).replace("_", " ").title()
+
 
 # Reviewer-routing modes that hand independent validation to the Plan Reviewer
 # (autocode_workflow.MODE). Their astra_checkpoint stage runs the Tester's job.

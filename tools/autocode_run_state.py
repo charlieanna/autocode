@@ -386,7 +386,7 @@ class RunState(TypedDict, total=False):
     # --- others (see KEYS for the full set) ---
     workflow: dict  # workflows.begin/apply/pin write the recognition record; absent before recognition
     integration: dict | None  # program integration state
-    turns: list  # follow-up turns of a conversation
+    turns: list  # follow_up writes; chat_history reads previous.chat_response for retained completed-turn text
     replay_result: dict | None  # replay_checks owns archival obligation/result; view reads it, never current proof
     regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
     active_runner_check: dict | None  # an in-flight runner-owned check

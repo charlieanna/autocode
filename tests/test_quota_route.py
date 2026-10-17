@@ -291,7 +291,10 @@ class QuotaRouteTests(unittest.TestCase):
         asked = quota_route.question(state, self.stopped(state))
         state["pending_questions"] = [asked]
         view = run_view.view(state)
-        self.assertEqual({"model": "gpt-5.6-sol", "engine": "codex"}, view["routes"]["sol"])
+        self.assertEqual(
+            {"model": "gpt-5.6-sol", "engine": "codex", "job": "Tester", "reasoning_effort": None, "provider": "codex"},
+            view["routes"]["sol"],
+        )
         self.assertEqual([], view["route_assignments"])
         self.assertEqual(
             {
@@ -308,6 +311,37 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual("", view["needs"]["questions"][0]["proposed_default"])
         quota_route.assign(state, "sol", "gpt-6-luna", at="t", via="answer")
         self.assertEqual("gpt-6-luna", run_view.view(state)["route_assignments"][0]["to"])
+
+    def test_status_exposes_all_configured_models_before_any_attempt_without_private_settings(self):
+        state = {
+            "status": "RUNNING",
+            "settings": {
+                "engine": "opencode",
+                "provider": "kilocode",
+                "roles": {
+                    "requirements": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "medium"},
+                    "terra": {
+                        "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+                        "reasoning_effort": "high",
+                        "api_key": "private",
+                    },
+                    "sol": {"model": "gpt-6-sol", "engine": "codex"},
+                    "completion": {"model": "other", "provider": "claude"},
+                },
+            },
+        }
+        view = run_view.view(state)
+        self.assertEqual([], view["usage"]["accounting"]["attempts"])
+        routes = view["routes"]
+        self.assertEqual({"requirements", "terra", "sol", "completion"}, set(routes))
+        self.assertEqual("Requirements", routes["requirements"]["job"])
+        self.assertEqual("Builder", routes["terra"]["job"])
+        self.assertEqual("high", routes["terra"]["reasoning_effort"])
+        self.assertEqual("kilocode", routes["terra"]["provider"])
+        self.assertEqual("codex", routes["sol"]["provider"])
+        self.assertIsNone(routes["sol"]["reasoning_effort"])
+        self.assertEqual("claude", routes["completion"]["provider"])
+        self.assertNotIn("private", json.dumps(routes))
 
     def job_state(
         self,

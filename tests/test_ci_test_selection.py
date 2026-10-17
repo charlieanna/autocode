@@ -8,6 +8,10 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_chat_projection_keeps_its_public_cli_consumer(self):
+        for path in ("tools/autocode_chat_view.py", "tools/autocode_run_view.py"):
+            self.assertIn("tests.test_chat_cli", dependencies.dependencies(path))
+
     def select(self, path):
         consumers = {
             *dependencies.PROMPT_CONSUMERS,

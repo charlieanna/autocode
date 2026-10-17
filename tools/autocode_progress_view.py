@@ -100,7 +100,14 @@ def progress(
     elif stage and state.get("active_stage") and finished:
         headline = f"{stage} finished"
     elif stage and state.get("active_stage"):
-        headline = f"{stage} working"
+        # Recognition chooses the workflow before planning. Explain the activity
+        # without making it sound like a separate conversation with another agent;
+        # keep the canonical stage name in the detailed projection below.
+        headline = (
+            "Understanding your request"
+            if _mapping(state.get("active_stage")).get("stage") == "recognize_workflow"
+            else f"{stage} working"
+        )
     elif stage:
         headline = f"Next: {stage}"
     else:
