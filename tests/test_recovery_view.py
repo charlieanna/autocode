@@ -1,10 +1,14 @@
 """Public recovery descriptions do not grant authority or omit a next step."""
 
 import ast
+import contextlib
 import copy
+import io
 import unittest
 from pathlib import Path
 
+import autocode_args
+import autocode_configure as configure
 import autocode_issue as issue
 import autocode_progress_view as progress
 import autocode_recovery_novelty as novelty
@@ -444,6 +448,65 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual(("retry_report", "004/validator-01"), (selected["kind"], selected["attempt_id"]))
         actions = self.card(self.state("WAITING_FOR_DEPENDENCY"))["actions"]
         self.assertEqual(["inspect", "feedback"], [row["kind"] for row in actions])
+
+    def test_each_execution_action_names_the_exact_cli_flags_it_runs(self):
+        # A client runs these after the inspected token instead of mapping an action's kind to flags (#730).
+        builder = self.state("PAUSED_BUILDER_RETRY_LIMIT")
+        builder["builder_retries"] = {recovery.builder_policy.key(builder): {"action": "pause", "failures": ["a"]}}
+        parallel = self.state(
+            "PAUSED_ORCHESTRATOR_WORKER",
+            next_stage="orchestrator",
+            orchestration_batch={
+                "status": "BUILDING",
+                "contract_hash": "approved",
+                "workers": [
+                    {"milestone_id": "M2", "status": "INTERRUPTED"},
+                    {"milestone_id": "M3", "status": "FAILED"},
+                ],
+            },
+        )
+        interrupted = self.state(
+            "PAUSED_PROVIDER_UNCERTAIN",
+            active_stage={"iteration": 4, "stage": "terra", "output": "/run/iterations/004/builder-02.json"},
+        )
+        cases = [
+            (self.card(self.state("PAUSED_REQUESTED")), "resume", ["--resume-paused"]),
+            (self.card(interrupted), "abandon", ["--abandon-stage", "004/builder-02"]),
+            (self.card(builder), "retry_builder", ["--resume-paused", "--retry-builder", "M1"]),
+            (self.card(parallel), "retry_builder:M3", ["--resume-paused", "--retry-builder", "M3"]),
+            (
+                recovery.project(self.state("PAUSED_JOB_FAILURE"), {"kind": "retry_job", "job_retry_token": "job-1"}),
+                "retry_job",
+                ["--resume-paused", "--retry-failed-stage", "--job-retry-token", "job-1"],
+            ),
+            (
+                recovery.project(self.state("PAUSED_REPEATED_FAILURE"), {"retry_report_attempt": "004/validator-01"}),
+                "retry_report",
+                ["--resume-paused", "--retry-report", "004/validator-01"],
+            ),
+            (
+                self.card(self.state("PAUSED_REPEATED_FAILURE")),
+                "retry_failed_stage",
+                ["--resume-paused", "--retry-failed-stage"],
+            ),
+        ]
+        for card, ident, flags in cases:
+            with self.subTest(action=ident):
+                action = next(row for row in card["actions"] if row["id"] == ident or row["id"].startswith(ident + ":"))
+                self.assertEqual(flags, action["args"])
+                with contextlib.redirect_stderr(io.StringIO()):
+                    args = autocode_args.parse(
+                        None,
+                        ["--run-dir", "/saved/run", "--no-chat", "--expected-recovery-token", card["token"], *flags],
+                        configure.DEFAULT_ROLE_MODELS,
+                    )[0]
+                self.assertEqual(card["token"], args.expected_recovery_token)
+        stopped = self.card(self.state("PAUSED_INTERVENTION", applied_interventions=[{"id": "s", "kind": "stop"}]))
+        decision = self.card(self.state("PAUSED_REQUESTED", pending_questions=[{"id": "q1", "question": "Which?"}]))
+        for card in (stopped, decision, *(case[0] for case in cases)):
+            for row in card["actions"]:
+                if row["kind"] in ("inspect", "feedback", "decision", "new_conversation", "new_run"):
+                    self.assertNotIn("args", row, row["kind"] + " runs no recovery control")
 
     def test_missing_original_job_source_offers_inspection_without_execution(self):
         for status in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):

@@ -513,6 +513,14 @@ CLI callers can omit the flag; all ordinary liveness, scope and approval gates
 still apply. Abandoning an interrupted attempt preserves partial work and does
 not resume automatically. Stop remains terminal for that conversation.
 
+Each card action that runs a control names its exact flags in `args`, for
+example `["--resume-paused", "--retry-builder", "M3"]` or
+`["--abandon-stage", "004/builder-02"]`. A client runs
+`autocode --run-dir RUN --expected-recovery-token TOKEN ARGS...` and never
+derives flags from the action's `kind`, so a new action needs no client change.
+Inspection, feedback, decision and conversation actions have no `args`: they
+open a view or ask the person for input instead of running a command.
+
 ## Inspecting current verification
 
 `autocode --run-dir RUN --status --inspect-evidence` performs a read-only source

@@ -223,14 +223,39 @@ def _awaits_model(state: RunState, need):
     )
 
 
+def _args(kind, fields):
+    """The exact CLI flags an execution action runs, after the caller's --expected-recovery-token; else None."""
+    if kind == "abandon":
+        return ["--abandon-stage", fields["attempt_id"]]
+    if kind == "resume":
+        return ["--resume-paused"]
+    if kind == "retry_failed_stage":
+        return ["--resume-paused", "--retry-failed-stage"]
+    if kind == "retry_job":
+        return ["--resume-paused", "--retry-failed-stage", "--job-retry-token", fields["job_retry_token"]]
+    if kind == "retry_report":
+        return ["--resume-paused", "--retry-report", fields["attempt_id"]]
+    if kind == "retry_builder":
+        return [
+            "--resume-paused",
+            *(word for member in fields["milestone_ids"] for word in ("--retry-builder", member)),
+        ]
+    return None
+
+
 def _action(kind, label, effect, **fields):
-    return {
+    row = {
         "id": kind + (":" + ",".join(fields["milestone_ids"]) if fields.get("milestone_ids") else ""),
         "kind": kind,
         "label": label,
         "effect": effect,
         **fields,
     }
+    args = _args(kind, fields)
+    if args is not None:
+        # Clients run exactly these flags instead of mapping the action's kind (#730).
+        row["args"] = args
+    return row
 
 
 def native_cleanup_need(state: RunState):
