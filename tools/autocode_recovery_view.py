@@ -17,11 +17,13 @@ import json
 from pathlib import PurePath
 
 try:
+    from . import autocode_accepted_source as accepted_source
     from . import autocode_builder_policy as builder_policy
     from . import autocode_member_stop as member_stop
     from . import autocode_quota_route as quota_route
     from .autocode_role_names import role_name
 except ImportError:
+    import autocode_accepted_source as accepted_source
     import autocode_builder_policy as builder_policy
     import autocode_member_stop as member_stop
     import autocode_quota_route as quota_route
@@ -231,6 +233,8 @@ def _args(kind, fields):
         return ["--resume-paused"]
     if kind == "retry_failed_stage":
         return ["--resume-paused", "--retry-failed-stage"]
+    if kind == "accept_source_edit":
+        return accepted_source.COMMAND.split()
     if kind == "retry_job":
         return ["--resume-paused", "--retry-failed-stage", "--job-retry-token", fields["job_retry_token"]]
     if kind == "retry_report":
@@ -526,6 +530,14 @@ def project(state: RunState, need=None):
                 "resume",
                 "Validate the edited source",
                 "Archive the stale report repair and collect fresh evidence. Existing limits and approvals still apply.",
+            )
+        )
+    elif need.get("action") == accepted_source.COMMAND:
+        actions.append(
+            _action(
+                "accept_source_edit",
+                "Accept the edited source",
+                "Hand the paused repair the source as it is now. The read-only Resolver diagnoses that source next; the approved plan, limits and verification gates still apply.",
             )
         )
     elif need.get("retry_report_attempt"):

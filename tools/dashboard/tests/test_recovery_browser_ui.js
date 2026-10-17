@@ -129,6 +129,20 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   assert.deepEqual(fs.readFileSync(sourceFile),sourceBefore,'Missing original identity never grants an execution attempt');
   assert.equal(data('()=>latestRun.actions?.length||0'),0);
   browser('screenshot',path.join(evidence,viewport+'-missing-source.png'));
+  open('handoff');
+  // The runner names the one command that continues an edited-source repair; the card offers it (#730).
+  const handoffFile=path.join(data('()=>latestRun.run'),'state.json'),handoffBefore=fs.readFileSync(handoffFile);
+  assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','accept_source_edit','feedback']);
+  assert.equal(data('()=>document.querySelector('+JSON.stringify(button('accept_source_edit'))+').disabled'),true,'Accepting waits for inspection');
+  assert.equal(data('()=>document.querySelector('+JSON.stringify(button('accept_source_edit'))+').textContent'),'Accept the edited source');
+  click(inspect);wait('!document.querySelector('+JSON.stringify(button('accept_source_edit'))+').disabled');
+  assert.deepEqual(fs.readFileSync(handoffFile),handoffBefore,'Inspection does not accept the edit');
+  data('()=>{document.querySelector('+JSON.stringify(button('accept_source_edit'))+').scrollIntoView({block:"center"});return true}');
+  browser('screenshot',path.join(evidence,viewport+'-edited-source.png'));
+  click(button('accept_source_edit'));wait('latestRun.status==="RUNNING"');
+  const accepted=data('()=>latestRun.actions.at(-1).command');
+  assert.deepEqual(accepted.slice(-2),['--resume-paused','--accept-source-edit']);
+  assert.equal(accepted.includes('-'),true,'The token travels privately, not in argv');
   open('internal');
   const internalFile=path.join(data('()=>latestRun.run'),'state.json'),internalBefore=fs.readFileSync(internalFile);
   assert.match(data('()=>document.querySelector("#task-attention").textContent'),/Awaiting Resolver/);
@@ -138,7 +152,7 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   open('stopped');assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','new_conversation']);
   assert.equal(data('()=>document.documentElement.scrollWidth>innerWidth'),false);
   assert.deepEqual(fs.readFileSync(kept),originalWork);
-  results.push({viewport,geometry,builder_command:sent,recovery_command:recovered,quota_command:quotaCommand,quota_resume:quotaResume});
+  results.push({viewport,geometry,builder_command:sent,recovery_command:recovered,quota_command:quotaCommand,quota_resume:quotaResume,accept_source_command:accepted});
  }
  fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify(results,null,2));
  console.log('Exact recovery, separate resume, stale refusal and preserved work passed in three browser sizes. '+evidence);

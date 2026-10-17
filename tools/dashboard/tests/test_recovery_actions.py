@@ -85,6 +85,28 @@ class RecoveryActionTests(unittest.TestCase):
         self.assertNotIn("999/injected", result["command"])
         self.assertEqual(before, (self.run / "state.json").read_bytes())
 
+    def test_an_edited_source_pause_continues_by_the_runner_named_acceptance(self):
+        # The dashboard learns this action only from the public card; it has no table of kinds (#730).
+        import autocode_run_view as run_view
+
+        self.state.update(
+            status="PAUSED_STALE_HANDOFF",
+            stop_reason="Repair diagnosis needs the current reviewed source and task",
+            resolution_request={"source_revision": "reviewed-source"},
+            goal_contract={"revision": 1, "hash": "approved"},
+        )
+        self.write_state()
+        public = run_view.view(self.state)
+        self.status.update(status=self.state["status"], view=public)
+        self.save("status.json", self.status)
+        card = self.console.view(self.workspace, self.run)["interventions"]["recovery"]
+        self.assertEqual(public["recovery"], card)
+        with patch.object(self.console.pool, "submit", wraps=self.console.pool.submit) as submit:
+            result = self.action("recover_pause", recovery_token=card["token"], recovery_action="accept_source_edit")
+        expected = ["--no-chat", "--expected-recovery-token", "-", "--resume-paused", "--accept-source-edit"]
+        self.assertEqual(expected, result["command"][-len(expected) :])
+        self.assertEqual({"AUTOCODE_EXPECTED_RECOVERY_TOKEN": card["token"]}, submit.call_args.args[-1])
+
     def test_builder_button_names_only_current_members(self):
         self.check(
             "retry_builder",

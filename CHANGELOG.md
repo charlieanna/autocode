@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A repair paused because its source was edited (`PAUSED_STALE_HANDOFF`) now offers "Accept the edited source"
+  on its recovery card, running `--resume-paused --accept-source-edit` with the card's token. The dashboard
+  could previously only inspect or send feedback, so such a run could not be continued there (#730).
 - A `--package` run no longer stays blocked when the person removes their own untracked nested repository
   entirely during the run: the launch record held it as added, so its absence names no change of the
   candidate. A deleted submodule or a path that is no longer a Git repository is still named (#711).

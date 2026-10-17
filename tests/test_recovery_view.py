@@ -469,8 +469,14 @@ class RecoveryViewTests(unittest.TestCase):
             "PAUSED_PROVIDER_UNCERTAIN",
             active_stage={"iteration": 4, "stage": "terra", "output": "/run/iterations/004/builder-02.json"},
         )
+        source_edit = self.state(
+            "PAUSED_STALE_HANDOFF",
+            stop_reason="Repair diagnosis needs the current reviewed source and task",
+            resolution_request={"source_revision": "s1"},
+        )
         cases = [
             (self.card(self.state("PAUSED_REQUESTED")), "resume", ["--resume-paused"]),
+            (self.card(source_edit), "accept_source_edit", ["--resume-paused", "--accept-source-edit"]),
             (self.card(interrupted), "abandon", ["--abandon-stage", "004/builder-02"]),
             (self.card(builder), "retry_builder", ["--resume-paused", "--retry-builder", "M1"]),
             (self.card(parallel), "retry_builder:M3", ["--resume-paused", "--retry-builder", "M3"]),
@@ -507,6 +513,28 @@ class RecoveryViewTests(unittest.TestCase):
             for row in card["actions"]:
                 if row["kind"] in ("inspect", "feedback", "decision", "new_conversation", "new_run"):
                     self.assertNotIn("args", row, row["kind"] + " runs no recovery control")
+
+    def test_a_repair_paused_on_an_edited_source_offers_accepting_that_source(self):
+        # The run names --resume-paused --accept-source-edit as the one command that continues;
+        # without a card action a dashboard reader had no way to continue it (#730).
+        reason = "Repair diagnosis needs the current reviewed source and task"
+        edited = self.state("PAUSED_STALE_HANDOFF", stop_reason=reason, resolution_request={"source_revision": "s1"})
+        view = run_view.view(edited)
+        self.assertEqual("--resume-paused --accept-source-edit", view["needs"]["action"])
+        self.assertEqual(
+            ["inspect", "accept_source_edit", "feedback"], [row["kind"] for row in view["recovery"]["actions"]]
+        )
+        accept = view["recovery"]["actions"][1]
+        self.assertEqual("Accept the edited source", accept["label"])
+        self.assertIn("Resolver", accept["effect"])
+        resolver_wrote = self.state(
+            "PAUSED_STALE_HANDOFF",
+            stop_reason="Resolver must leave the reviewed source unchanged",
+            resolution_request={"source_revision": "s1"},
+        )
+        held = recovery.project(edited, {"kind": "resume", "action": "--resume-paused --feedback-review"})
+        for card in (self.card(resolver_wrote), held):
+            self.assertNotIn("accept_source_edit", [row["kind"] for row in card["actions"]])
 
     def test_missing_original_job_source_offers_inspection_without_execution(self):
         for status in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):

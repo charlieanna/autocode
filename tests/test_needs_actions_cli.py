@@ -75,7 +75,24 @@ class NeedsActionsCliTests(unittest.TestCase):
         self.assertEqual(approved, held["approved_contract"])
         self.assertEqual(edited, source.read_bytes())
 
-        accepted = run.accept_source_edit()
+        # The run's recovery card offers the same control: a client runs its exact flags, bound
+        # to the inspected token, without knowing the action's kind (#730).
+        card = held["recovery"]
+        offer = next(row for row in card["actions"] if row["kind"] == "accept_source_edit")
+        self.assertEqual(["--resume-paused", "--accept-source-edit"], offer["args"])
+        with self.assertRaises(taskrun.TaskRunError):
+            run._invoke("stale card", *offer["args"], "--expected-recovery-token", "recovery-v1:stale", "--no-chat")
+        self.assertEqual(before, self.launches(), "A stale card token must not accept the edit")
+        run._invoke(
+            "accept from card",
+            *offer["args"],
+            "--expected-recovery-token",
+            card["token"],
+            "--no-chat",
+            *run.options,
+            advancing=True,
+        )
+        accepted = run.status()
         self.assertEqual("PAUSED_REQUESTED", accepted["status"], self.details(accepted))
         self.assertEqual("terra", accepted["next_stage"])
         self.assertEqual(["astra_resolve"], [row["stage"] for row in self.launches()[len(before) :]])

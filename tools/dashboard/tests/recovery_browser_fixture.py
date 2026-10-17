@@ -32,7 +32,17 @@ def main():
         runs = workspace / ".autocode/runs"
         names = []
         for viewport in ("desktop", "tablet", "mobile"):
-            for kind in ("builder", "interruption", "quota", "unknown", "stopped", "internal", "stale", "source"):
+            for kind in (
+                "builder",
+                "interruption",
+                "quota",
+                "unknown",
+                "stopped",
+                "internal",
+                "stale",
+                "source",
+                "handoff",
+            ):
                 name = kind + "-" + viewport
                 names.append(name)
                 run = runs / name
@@ -114,6 +124,11 @@ def main():
                         "write_diagnosis": {},
                         "unrestored": ["original source capture"],
                     }
+                elif kind == "handoff":
+                    state["status"] = "PAUSED_STALE_HANDOFF"
+                    state["next_stage"] = "astra_resolve"
+                    state["stop_reason"] = "Repair diagnosis needs the current reviewed source and task"
+                    state["resolution_request"] = {"source_revision": "reviewed-source"}
                 elif kind == "internal":
                     state["status"] = "WAITING_FOR_USER"
                     state["pending_questions"] = [
@@ -189,6 +204,11 @@ def main():
                             "attempt_id": attempt,
                         }
                     )
+                elif "--accept-source-edit" in extra:
+                    if "--resume-paused" not in extra or state["status"] != "PAUSED_STALE_HANDOFF":
+                        raise ValueError("Accept only the inspected edited-source pause, with its resume")
+                    state["status"] = "RUNNING"
+                    state["next_stage"] = "astra_resolve"
                 elif "--retry-builder" in extra:
                     state["iteration"] += 1
                     state["builder_retries"][recovery.builder_policy.key(state)]["failures"].append(

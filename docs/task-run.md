@@ -515,7 +515,9 @@ not resume automatically. Stop remains terminal for that conversation.
 
 Each card action that runs a control names its exact flags in `args`, for
 example `["--resume-paused", "--retry-builder", "M3"]` or
-`["--abandon-stage", "004/builder-02"]`. A client runs
+`["--abandon-stage", "004/builder-02"]`. A repair paused on an edited source
+offers `accept_source_edit` with `["--resume-paused", "--accept-source-edit"]`,
+the same command `needs.action` names. A client runs
 `autocode --run-dir RUN --expected-recovery-token TOKEN ARGS...` and never
 derives flags from the action's `kind`, so a new action needs no client change.
 Inspection, feedback, decision and conversation actions have no `args`: they
