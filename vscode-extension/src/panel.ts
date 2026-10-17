@@ -465,6 +465,23 @@ function render(state) {
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
+  if (chatMode && state.chat && state.chat.phase === 'requirements' && !state.gap && !state.pause) {
+    // The conversation carries the questions. Operational details remain in
+    // Run details, and approval is the exact answer offered by the core.
+    if (state.chat.review) {
+      const review = state.chat.review;
+      if (review.summary) app.appendChild(el('pre', 'understanding', review.summary));
+      const approve = el('button', null, review.label);
+      approve.disabled = state.taking;
+      approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
+        answers: { [review.question_id]: review.answer }, token: null,
+        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+      app.appendChild(approve);
+    } else if (state.needKind === 'continue') {
+      app.appendChild(el('div', 'line', 'Thinking…'));
+    }
+    return;
+  }
   app.appendChild(el('h1', null, state.headline));
   if (!chatMode || state.line !== state.headline) app.appendChild(el('div', 'line', state.line));
   const meta = [
@@ -704,8 +721,10 @@ function renderChat(data) {
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');
+  const welcome = { id: 'welcome', role: 'assistant', text: 'Hi! What would you like to work on today?' };
   const rows = data.state && data.state.chat ? data.state.chat.messages
-    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [];
+    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief },
+      ...(/^(hi|hello|hey)[!.?]*$/i.test(data.pendingBrief.trim()) ? [welcome] : [])] : [welcome];
   const serialized = JSON.stringify(rows);
   if (messages.dataset.content !== serialized) {
     messages.dataset.content = serialized; messages.textContent = '';
@@ -720,7 +739,7 @@ function renderChat(data) {
     });
   }
   if (data.state) render(data.state);
-  else { app.textContent = data.busy ? 'Starting AutoCode…' : 'Describe what you want to build, fix, review, or discuss.'; }
+  else { app.textContent = data.busy && !/^(hi|hello|hey)[!.?]*$/i.test((data.pendingBrief || '').trim()) ? 'Thinking…' : ''; }
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();

@@ -40,7 +40,9 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         if prior.get(ident):
             rows.append({"id": f"{ident}-response", "role": "assistant", "text": prior[ident]})
         question = event.get("question")
-        if isinstance(question, dict) and question.get("question"):
+        if event.get("assistant_reply"):
+            rows.append({"id": f"{ident}-reply", "role": "assistant", "text": event["assistant_reply"]})
+        elif isinstance(question, dict) and question.get("question"):
             rows.append({"id": f"{ident}-question", "role": "assistant", "text": question["question"]})
         rows.append({"id": ident, "role": "user", "text": event["text"]})
     if completed:

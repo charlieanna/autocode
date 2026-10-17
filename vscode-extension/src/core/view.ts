@@ -118,7 +118,9 @@ export interface StatusView {
   recovery?: Record<string, unknown> | null;
   current_task?: { id?: string; objective?: string } | null;
   chat?: {
-    messages: { id: string; role: string; text: string }[];
+    messages: { id: string; role: string; text: string; streaming?: boolean }[];
+    phase?: "requirements" | null;
+    review?: { question_id: string; answer: string; label: string; summary?: string } | null;
     context: string;
     input: { kind: "feedback" | "follow_up"; label: string; next_command: string } | null;
   };

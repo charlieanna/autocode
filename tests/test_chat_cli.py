@@ -1,5 +1,6 @@
 """Drive the chat projection through the public CLI with the offline provider."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -134,7 +135,10 @@ class ChatCliTests(unittest.TestCase):
         self.assertEqual("answer", view["needs"]["kind"])
         questions = view["needs"]["questions"]
         self.assertEqual(1, len(questions), questions)
-        self.assertIn("What would you like to build", questions[0]["question"])
+        self.assertEqual("Hi! What would you like to work on today?", questions[0]["question"])
+        self.assertFalse(list(run.run_dir.glob("iterations/*/*.jsonl")), "A greeting must dispatch no provider")
+        self.assertFalse((run.run_dir / "model-preflight").exists(), "A greeting must not probe models")
+        self.assertEqual(questions[0]["question"], view["chat"]["messages"][-1]["text"])
         self.assertIsNone(view.get("displayed_plan"))
         self.assertEqual("Send reply", view["chat"]["input"]["label"])
         self.assertNotIn("--approve-goal", view["next_command"])
@@ -143,9 +147,30 @@ class ChatCliTests(unittest.TestCase):
         clarified = run.advance_until_input()
         self.assertEqual("answer", clarified["needs"]["kind"])
         self.assertTrue(clarified["needs"]["questions"][-1]["id"].startswith("requirements-review-"))
-        self.assertEqual(2, len(list(run.run_dir.glob("iterations/*/requirements-gather-*.jsonl"))))
+        self.assertEqual(1, len(list(run.run_dir.glob("iterations/*/requirements-gather-*.jsonl"))))
         self.assertFalse(list(run.run_dir.glob("iterations/*/discovery-*.jsonl")))
         self.assertIn(BRIEF, [row["text"] for row in clarified["chat"]["messages"]])
+        previous_question = clarified["needs"]["questions"][-1]
+        run.feedback("Keep the same scope and standard-library-only constraint.")
+        refreshed = run.advance_until_input()
+        self.assertEqual("answer", refreshed["needs"]["kind"])
+        self.assertNotEqual(previous_question["id"], refreshed["needs"]["questions"][-1]["id"])
+        threads = []
+        for path in sorted(run.run_dir.glob("iterations/*/requirements-gather-*.jsonl")):
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            threads.append(next(row["thread_id"] for row in rows if row.get("type") == "thread.started"))
+        self.assertEqual(2, len(threads))
+        self.assertEqual(threads[0], threads[1], "Requirements must retain its session across replies")
+        self.assertFalse(list(run.run_dir.glob("iterations/*/recognize-workflow-*.jsonl")))
+        self.assertFalse((self.workspace / "greet.py").exists())
+        approved = refreshed["needs"]["questions"][-1]
+        run.answer(approved["id"], "plan", resolver_token=refreshed["needs"]["resolver_token"])
+        self.assertEqual("recognize_workflow", run.status()["next_stage"])
+        reviewed = run.advance_until_input()
+        self.assertEqual("approve_plan", reviewed["needs"]["kind"])
+        self.assertIsNotNone(reviewed["displayed_plan"])
+        self.assertTrue(list(run.run_dir.glob("iterations/*/plan-challenge-*.jsonl")))
+        self.assertFalse((self.workspace / "greet.py").exists(), "Requirements approval cannot start implementation")
 
     def test_chat_named_feedback_and_followup_keep_one_run_and_require_fresh_approval(self):
         run = taskrun.TaskRun.start(

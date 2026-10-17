@@ -30,8 +30,10 @@ import hashlib
 
 try:
     from . import autocode_conversation as conversation
+    from . import autocode_requirements_chat as requirements_chat
 except ImportError:
     import autocode_conversation as conversation
+    import autocode_requirements_chat as requirements_chat
 
 KEY: Final = "source_log"
 
@@ -61,6 +63,7 @@ def save_feedback(state: RunState, event):
 
     goals.feedback, goals.apply_intervention_feedback and follow_up.accept all call
     this; the source record is written exactly when its ledger event is."""
+    requirements_chat.retain_reply(state, event)
     state.setdefault("user_events", []).append(event)
     state.setdefault("brief_feedback", []).append(event)
     if KEY not in state or not event.get("id") or not event.get("text"):

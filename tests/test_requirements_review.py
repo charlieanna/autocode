@@ -101,7 +101,7 @@ class RequirementsReviewCliTests(unittest.TestCase):
     def test_plan_releases_the_planner_after_the_user_sees_the_requirements(self):
         run, view = self.start(*JOINT, "--spec-first")
         need, question = self.review_need(view)
-        self.assertIn("Requirements understood this", need["questions"][-1]["question"])
+        self.assertIn("Here’s what I understand", need["questions"][-1]["question"])
         self.assertNotIn("astra_discovery", self.stages(run))
         view = run.answer(question, "plan", resolver_token=need["resolver_token"])
         view = run.advance_until_input()

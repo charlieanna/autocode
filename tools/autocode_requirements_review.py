@@ -82,13 +82,14 @@ def review_question(state: RunState) -> dict:
     ]
     text = "\n".join(
         [
-            "Requirements understood this. Answer 'plan' to start planning, or say what to change.",
+            "Here’s what I understand. Does this match what you want?",
             f"Outcome: {str(report.get('intended_outcome', '')).strip()}",
             *_lines("Behaviors", report.get("required_behaviors")),
             *_lines("Acceptance examples", report.get("acceptance_tests")),
             *_lines("Constraints", report.get("constraints")),
             *_lines("Left out", report.get("ignored_statements")),
             *_lines("Assumptions", assumptions),
+            "Approve this understanding to prepare a reviewed plan, or tell me what to change.",
         ]
     )
     return {
@@ -149,6 +150,9 @@ def after_answers(state: RunState) -> None:
     """A review answer other than 'plan' is new requirements input: Requirements runs again, not the Planner."""
     if not enabled(state) or state.get("goal_contract") or state.get("pending_questions"):
         return
+    if not state.get("requirements_handoff") and "requirements-intro" in (state.get("answers") or {}):
+        state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
+        return
     answer = (
         (state.get("answers") or {}).get(review_question(state)["id"]) if state.get("requirements_handoff") else None
     )
@@ -157,3 +161,8 @@ def after_answers(state: RunState) -> None:
     )
     if needs_refresh and state.get("next_stage") == NEXT:
         state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
+    elif answer and state.get("next_stage") == NEXT and not (state.get("workflow") or {}).get("kind"):
+        # The user has approved their understood requirements. Classify the
+        # actual request now, then prepare/review the plan; never build here.
+        state["workflow"]["then"] = NEXT
+        state["next_stage"] = "recognize_workflow"

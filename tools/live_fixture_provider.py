@@ -466,6 +466,17 @@ def main() -> int:
             "machine_resolutions": [],
             "access_blockers": [],
         }
+        if data.get("spec_first"):
+            report["assistant_reply"] = "I understand you want a deterministic greeting CLI. Is that right?"
+        for event in data.get("brief_feedback") or []:
+            if event.get("text") == "Keep the same scope and standard-library-only constraint.":
+                report["requirements"].append(
+                    {
+                        "id": "R5",
+                        "text": "Keep the existing scope and standard-library-only constraint",
+                        "source_quote": event["text"],
+                    }
+                )
         if data.get("task") == "hi" and not data.get("saved_answers") and not data.get("brief_feedback"):
             report.update(
                 summary="The user greeted the assistant without describing a task.",
@@ -619,6 +630,11 @@ def main() -> int:
         else {}
     )
     saved = _saved_report(data) if repairing else {}
+    handoff = (data.get("requirements_handoff") or {}).get("report") or {}
+    if "requirement_trace" in report and any(row.get("id") == "R5" for row in handoff.get("requirements", [])):
+        report["requirement_trace"].extend(_trace(("R5", "Python standard library only")))
+    if "assistant_reply" in schema.get("properties", {}):
+        report.setdefault("assistant_reply", report.get("summary", ""))
     if "source_verdict" in saved:
         report["source_verdict"] = copy.deepcopy(saved["source_verdict"])
     if "source_verdict" in schema.get("properties", {}) or (

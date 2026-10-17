@@ -734,9 +734,43 @@ test('new chat shows the selected run while its first provider call is still pen
   assert.equal(start.mock.callCount(), 1);
   assert.equal(start.mock.calls[0].arguments[0], run.workspace);
   assert.ok(ui.document.querySelector('#messages').textContent.includes('Build something'));
-  assert.ok(ui.document.body.textContent.includes('Starting AutoCode'));
+  assert.ok(ui.document.body.textContent.includes('Thinking…'));
   ui.setView(chatView()); finish(); await flush(); await flush();
   assert.ok(ui.document.body.textContent.includes('Approve and build'));
+});
+
+test('requirements chat streams replies without an empty task dashboard and keeps typed text', async (t) => {
+  const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }, { id: 'live', role: 'assistant', text: 'Who will', streaming: true }],
+  } };
+  const ui = await openChat(t, value);
+  ui.type('It is just for me');
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Who will'));
+  assert.equal(ui.document.querySelectorAll('#app h1, #app h2').length, 0);
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('nothing needed'));
+  const next = structuredClone(value); next.chat.messages[1].text = 'Who will use it?';
+  await ui.poll(next);
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Who will use it?'));
+  assert.equal(ui.document.querySelector('#message').value, 'It is just for me');
+});
+
+test('requirements approval sends only the core-offered answer and never approves a build', async (t) => {
+  const value = { status: 'WAITING_FOR_USER', done: false, needs: { kind: 'answer', resolver_token: 'bound-summary',
+    questions: [{ id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' }] },
+    next_command: `autocode --answer requirements-review-current=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'summary', input: null,
+      review: { question_id: 'requirements-review-current', answer: 'plan', label: 'Approve understanding and prepare plan' },
+      messages: [{ id: 'summary', role: 'assistant', text: 'A personal reading list. Is that right?' }] },
+  };
+  const ui = await openChat(t, value);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const approve = [...ui.document.querySelectorAll('#app button')].find((button) => button.textContent.includes('Approve understanding'));
+  approve.click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  const args = launch.mock.calls[0].arguments[1];
+  assert.ok(args.includes('requirements-review-current=plan'));
+  assert.ok(!args.includes('--approve-goal'));
 });
 
 test('missing message action disables free text instead of bypassing a person-only pause', async (t) => {
