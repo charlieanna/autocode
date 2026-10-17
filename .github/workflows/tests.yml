@@ -78,6 +78,9 @@ jobs:
       - name: Bundle
         run: npm run build
         working-directory: vscode-extension
+      - name: Package the distributable
+        run: npm run package -- --out /tmp/autocode.vsix
+        working-directory: vscode-extension
 
   suite:
     needs: scope

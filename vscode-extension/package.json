@@ -6,6 +6,18 @@
   "private": true,
   "publisher": "autocode",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/charlieanna/autocode.git",
+    "directory": "vscode-extension"
+  },
+  "files": [
+    "dist/extension.js",
+    "media/autocode.svg",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE"
+  ],
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -181,6 +193,7 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.mjs",
+    "package": "vsce package --no-dependencies",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js test/*.test.cjs"
@@ -188,6 +201,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "4.0.0",
     "esbuild": "^0.24.0",
     "jsdom": "26.1.0",
     "typescript": "^5.7.0"
