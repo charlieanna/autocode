@@ -156,8 +156,8 @@ class CriterionDiffTests(unittest.TestCase):
         self.assertEqual("available", shown["availability"])
         self.assertEqual(
             [
-                {"id": "C1", "checkpoints": ["code-1"], "overlapping": False},
-                {"id": "C2", "checkpoints": ["code-2"], "overlapping": False},
+                {"id": "C1", "checkpoints": ["code-1"], "files": ["a.py"], "overlapping": False},
+                {"id": "C2", "checkpoints": ["code-2"], "files": ["b.py", "new.py"], "overlapping": False},
             ],
             shown["criteria"],
         )
@@ -227,6 +227,31 @@ class CriterionDiffTests(unittest.TestCase):
         missing = presentation.render_review({"id": "C1", "text": "A changes"})
         self.assertIn("Saved Builder steps attributed to this criterion", missing)
         self.assertIn("Unavailable in this status view.", missing)
+
+    def test_a_shared_parallel_step_shows_each_criterion_only_its_own_files(self):
+        self.rows[1].update(
+            milestone_id=None,
+            label="Integrate and verify",
+            members=[
+                {"milestone_id": "M2", "changed_files": ["b.py"]},
+                {"milestone_id": "M3", "changed_files": ["new.py"]},
+            ],
+        )
+        self.body["acceptance_criteria"].append({"id": "C3"})
+        self.body["milestones"].append({"id": "M3", "acceptance_criteria": ["C3"]})
+        shown = review_diff.criterion_diffs(self.root, self.view())
+        self.assertEqual(["b.py", "new.py"], [row["path"] for row in shown["steps"]["code-2"]["files"]])
+        second = presentation.render_review({"id": "C2", "text": "B changes", "criterion_diffs": shown})
+        third = presentation.render_review({"id": "C3", "text": "New file", "criterion_diffs": shown})
+        self.assertIn("  code-2 (milestones M2, M3): Integrate and verify", second.splitlines())
+        self.assertIn("    b.py", second.splitlines())
+        self.assertIn("+b1", second)
+        self.assertNotIn("    new.py", second.splitlines())
+        self.assertNotIn("/dev/null", second)
+        self.assertIn("    Not shown, changed in this step for another milestone: new.py", second.splitlines())
+        self.assertIn("    new.py", third.splitlines())
+        self.assertNotIn("+b1", third)
+        self.assertIn("    Not shown, changed in this step for another milestone: b.py", third.splitlines())
 
 
 if __name__ == "__main__":

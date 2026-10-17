@@ -226,20 +226,30 @@ def _criterion_steps(lines, row):
     if not _ids(criterion.get("checkpoints")):
         lines.append("  No saved Builder step is attributed to this criterion yet.")
     steps = _mapping(shown.get("steps"))
+    # A parallel batch's step is shared; its other members' files belong to their own criteria.
+    own = set(_ids(criterion["files"])) if isinstance(criterion.get("files"), list) else None
     for ident in _ids(criterion.get("checkpoints")):
         step = _mapping(steps.get(ident))
-        lines.append(
-            "  "
-            + display_text(ident)
-            + " (milestone "
-            + display_text(step.get("milestone_id"))
-            + "): "
-            + display_text(step.get("label"))
+        served = _ids(step.get("milestones"))
+        owner = (
+            "milestones " + ", ".join(display_text(item) for item in served)
+            if served
+            else "milestone " + display_text(step.get("milestone_id"))
         )
+        lines.append("  " + display_text(ident) + " (" + owner + "): " + display_text(step.get("label")))
         lines.append("    Availability: " + display_text(step.get("availability") or "unavailable"))
         if step.get("reason"):
             lines.append("    " + display_text(step["reason"]))
-        for file in _rows(step.get("files")):
+        files = _rows(step.get("files"))
+        others = [file.get("path") for file in files if own is not None and file.get("path") not in own]
+        if others:
+            lines.append(
+                "    Not shown, changed in this step for another milestone: "
+                + ", ".join(display_text(path) for path in others)
+            )
+        for file in files:
+            if own is not None and file.get("path") not in own:
+                continue
             lines.append("    " + display_text(file.get("path")))
             if file.get("text"):
                 lines.extend("      " + line for line in display_text(file["text"]).splitlines())

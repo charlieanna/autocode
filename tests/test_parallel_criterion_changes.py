@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 import autocode_review_diff as review_diff
+import autocode_review_presentation as presentation
 
 FILES = {
     "C_A": ["contract/schema.json", "dependency_trace.json"],
@@ -78,6 +79,10 @@ class ParallelCriterionChanges(unittest.TestCase):
                     self.assertTrue(added)
                     for line in added:
                         self.assertIn("+" + line, diffs[name].splitlines())
+                lines = presentation.render_review({"id": criterion["id"], "criterion_diffs": shown}).splitlines()
+                for cid, names in FILES.items():
+                    for name in names:
+                        (self.assertIn if cid == criterion["id"] else self.assertNotIn)("    " + name, lines)
 
 
 if __name__ == "__main__":

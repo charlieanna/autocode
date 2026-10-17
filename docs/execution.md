@@ -608,7 +608,10 @@ step before it (or the run's base) to its own saved checkpoint, limited to the
 files it changed and read from Git objects, not the working tree. It is labeled
 as attribution, not proof: it shows where to look. A file another milestone's
 step also changed is flagged, since its diff may hold that work. A step after an
-unavailable checkpoint is shown as unavailable rather than mixed with it.
+unavailable checkpoint is shown as unavailable rather than mixed with it. Parallel
+Builders' integrated batch is one saved step that names its milestones; each
+criterion shows only the files its own milestone changed in it and names the
+files left out for the other milestones.
 
 The direct approval interface remains available:
 

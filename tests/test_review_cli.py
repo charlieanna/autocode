@@ -72,7 +72,7 @@ class ReviewCLIDisplayTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             self.assertEqual(0, review_cli.review(run, as_json=True))
         shown = json.loads(output.getvalue())["criterion_diffs"]
-        self.assertEqual([{"id": "C1", "checkpoints": [], "overlapping": False}], shown["criteria"])
+        self.assertEqual([{"id": "C1", "checkpoints": [], "files": None, "overlapping": False}], shown["criteria"])
         self.assertEqual("unavailable", shown["availability"])
 
     def test_text_shows_the_attributed_steps_section(self):
