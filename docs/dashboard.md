@@ -46,13 +46,21 @@ queue of duplicate scans.
 
 ## Preview and saved screenshots
 
-Preview remembers a loopback app address per project in this browser. Open
-Preview from any conversation in that project to reuse it. Existing task-level
-addresses remain available. The dashboard starts no development server; start your
-app separately, or with `autocode serve start` for a run whose project names `serve`
-([Development server](cli.md#development-server)), which restarts it on the same address after each code
-change, and enter its address once. A completed code-changing step
-refreshes the preview; ordinary status polling preserves the running frame.
+While `autocode serve start` runs a run's development server
+([Development server](cli.md#development-server)), Preview shows that server
+with no address to enter. It notes whether the server was started on the run's
+latest saved step, reloads the frame when the server restarts after a code
+change, and waits while the server starts instead of switching to another app.
+When the server is not running, Preview says why (stopped, exited with its exit
+code, or no longer answering), says when it starts again after the next code
+change, or shows the `autocode serve start` command to run from a terminal.
+
+Otherwise Preview shows the loopback app address you saved for the project in
+this browser; it is also the fallback while the run's server is not running.
+Open Preview from any conversation in that project to reuse it. Existing
+task-level addresses remain available. The dashboard starts no development
+server itself. A completed code-changing step refreshes the preview; ordinary
+status polling preserves the running frame.
 
 A Validator image reference appears in chat beside its requirement and recorded
 source revision. Open the image or follow its link to Checks. These are saved

@@ -2570,28 +2570,65 @@ function previewChangeKey(run){
   const stages=(run.stages||[]).filter(row=>['terra','orchestrator'].includes(row.stage)&&row.finished_at&&stageSucceeded(row)&&(row.changed_files||[]).length);
   const last=stages.at(-1);return last?JSON.stringify([last.source_revision,last.diff_ref,last.finished_at]):'';
 }
+function shellWord(value){value=String(value??'');return /^[\w@%+=:,./-]+$/.test(value)?value:"'"+value.replace(/'/g,"'\\''")+"'";}
+function devServerTarget(run,dashboardUrl){
+  // The run's own development server (view.dev_server, autocode serve start): its address while it answers,
+  // otherwise why it does not and, unless it waits for the next code change, the command that starts it.
+  const server=run?.status_view?.dev_server;
+  if(!server||typeof server!=='object'||(server.configured!==true&&(!server.status||server.status==='off')))return null;
+  const rows=run.status_view?.code_checkpoints?.rows,latest=Array.isArray(rows)&&rows.length?rows.at(-1)?.id??null:null;
+  const result={server,lines:[],url:null,pending:server.status==='starting',command:''};
+  if(server.status==='running'&&server.url){
+    try{result.url=localPreviewUrl(server.url,dashboardUrl);}
+    catch(error){result.lines.push('This run’s development server answers at '+server.url+', which cannot be embedded here. '+error.message);return result;}
+    result.lines.push('Showing this run’s development server · '+result.url);
+    if(latest)result.lines.push(server.code_checkpoint===latest?'It was started on the run’s latest saved step.':'It was started before the run’s latest saved step.');
+    return result;
+  }
+  if(result.pending){result.lines.push('This run’s development server is starting. The preview opens when it answers.');return result;}
+  if(server.status==='lost')result.lines.push('This run’s development server no longer answers: the autocode serve process that ran it has ended.');
+  else result.lines.push('This run’s development server is not running'+(server.reason?': '+server.reason:'')+(['exited','failed'].includes(server.status)&&Number.isInteger(server.exit_code)?' (exit code '+server.exit_code+')':'')+'.');
+  if(server.waiting)result.lines.push('It starts again after the run’s next code change.');
+  else result.command='autocode serve start --workspace '+shellWord(run.workspace)+' --run-dir '+shellWord(run.run);
+  return result;
+}
+function renderPreviewSource(dev,savedUrl){
+  const host=$('#preview-source');if(!host)return;
+  const lines=dev?[...dev.lines]:[];
+  if(dev&&savedUrl&&!dev.pending)lines.push(dev.url?'Your saved address ('+savedUrl+') is used when it is not running.':'Showing your saved address instead.');
+  const signature=JSON.stringify([lines,dev?.command||'']);if(host.dataset.previewSource===signature)return;host.dataset.previewSource=signature;
+  host.replaceChildren(...lines.map((line,index)=>Object.assign(n('p',line),{className:index?'field-note':'preview-source-status'})));
+  if(dev?.command){const start=Object.assign(n('p','Start it from a terminal: '),{className:'field-note'});start.append(n('code',dev.command));host.append(start);}
+  host.hidden=!lines.length;
+}
 function stopPreview(){const host=$('#preview-content');host.replaceChildren();delete host.dataset.previewIdentity;}
-function mountPreview(run,url){
-  const host=$('#preview-content'),identity=JSON.stringify([previewStorageKey(run),url,previewChangeKey(run)]);
+function mountPreview(run,url,key){
+  const host=$('#preview-content'),identity=key||JSON.stringify([previewStorageKey(run),url,previewChangeKey(run)]);
   if(host.dataset.previewIdentity===identity&&host.querySelector('iframe'))return;
   host.replaceChildren();host.dataset.previewIdentity=identity;
   const frame=n('iframe','');frame.className='preview-frame';frame.title='Local app preview';frame.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');frame.referrerPolicy='no-referrer';frame.src=url;host.append(frame);
 }
 function renderPreviewState(){
   const note=$('#preview-empty-note');if(!note)return;
-  const run=previewContext(),saved=savedPreview(run);
+  const run=previewContext(),saved=savedPreview(run),dev=devServerTarget(run,location.href);
   const title=taskTitle(run);
   const persistent=stored(previewStorageKey(run))===saved||stored('preview:'+run.run)===saved;
-  const setup=$('#preview-setup'),contextIdentity=JSON.stringify([previewStorageKey(run),saved]);
-  if(setup.dataset.previewSetupIdentity!==contextIdentity){setup.open=!saved;setup.dataset.previewSetupIdentity=contextIdentity;}
+  const setup=$('#preview-setup'),contextIdentity=JSON.stringify([previewStorageKey(run),saved,!!dev]);
+  if(setup.dataset.previewSetupIdentity!==contextIdentity){setup.open=!saved&&!dev;setup.dataset.previewSetupIdentity=contextIdentity;}
   $('#preview-reload').disabled=true;$('#preview-open').hidden=true;
   note.textContent=saved?(persistent?'Saved for this project':'Open for this browser session only')+' · “'+title+'”: '+saved:'No app address is saved for this project yet · “'+title+'”. Start your app, then enter its local address below.';
-  if(!saved){stopPreview();return;}
-  try{const url=localPreviewUrl(saved,location.href);mountPreview(run,url);$('#preview-reload').disabled=false;$('#preview-open').href=url;$('#preview-open').hidden=false;}
-  catch(error){stopPreview();$('#preview-error').textContent=error.message;}
+  let savedUrl='',savedError='';
+  if(saved)try{savedUrl=localPreviewUrl(saved,location.href);}catch(error){savedError=error.message;}
+  renderPreviewSource(dev,savedUrl);
+  const show=(url,key)=>{mountPreview(run,url,key);$('#preview-reload').disabled=false;$('#preview-open').href=url;$('#preview-open').hidden=false;};
+  // A restart of the run's server (new ready_at) reloads the frame; polling an unchanged one keeps it.
+  if(dev?.url){show(dev.url,JSON.stringify(['dev-server',run.run,dev.url,dev.server.ready_at,dev.server.restarts]));return;}
+  if(!saved||dev?.pending){stopPreview();return;}
+  if(savedUrl)show(savedUrl);
+  else{stopPreview();$('#preview-error').textContent=savedError;}
 }
 $('#refresh-changes').onclick=()=>loadChanges(true);
-$('#preview-reload').onclick=()=>{if(!savedPreview(previewContext()))return;stopPreview();renderPreviewState();};
+$('#preview-reload').onclick=()=>{stopPreview();renderPreviewState();};
 $('#preview-form').onsubmit=event=>{
   event.preventDefault();if(!chosen?.run)return;
   try{const run=previewContext(),url=localPreviewUrl($('#preview-url').value.trim(),location.href);sessionPreviewUrls.set(previewStorageKey(run),url);persist(previewStorageKey(run),url);$('#preview-error').textContent='';stopPreview();renderPreviewState();}
