@@ -97,6 +97,12 @@
         "command": "autocode.openDetails",
         "title": "Open Run Details",
         "category": "AutoCode"
+      },
+      {
+        "command": "autocode.connections",
+        "title": "Connections",
+        "category": "AutoCode",
+        "icon": "$(plug)"
       }
     ],
     "menus": {
@@ -118,6 +124,11 @@
         },
         {
           "command": "autocode.startRun",
+          "when": "view == autocode.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "autocode.connections",
           "when": "view == autocode.chat",
           "group": "navigation@1"
         }
@@ -154,7 +165,7 @@
         "autocode.provider": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Value for `--provider` when the extension starts or continues a run. Leave empty to use AutoCode's default. This is the route your models bill to, so check it before a live run."
+          "markdownDescription": "Value for `--provider` for new chats. Existing chats keep their saved provider. Leave empty to use AutoCode's default. This is the route your models bill to, so check it before a live run."
         },
         "autocode.extraOptions": {
           "type": "array",
@@ -162,7 +173,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Extra engine and model flags passed whenever the extension starts or advances a run, for example `[\"--engine\", \"codex\"]`."
+          "markdownDescription": "Extra engine and model flags for new chats, for example `[\"--engine\", \"codex\"]`."
         },
         "autocode.pollSeconds": {
           "type": "number",

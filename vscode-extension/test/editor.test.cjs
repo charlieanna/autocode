@@ -10,9 +10,78 @@ const { RunPanel, panelHtml } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
 const { activate } = host.load('extension.js');
+const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
+
+const connectionRows = [
+  { id: 'kilocode', label: 'Kilo', connection_status: 'not_checked', detail: 'Installed', actions: [
+    { id: 'login', label: 'Sign in / Reconnect', next_command: ['connections', 'login', '--provider', 'kilocode'] },
+    { id: 'check', label: 'Check connection', next_command: ['connections', 'check', '--provider', 'kilocode', '--json'] },
+  ] },
+  { id: 'company', label: 'Company', connection_status: 'not_checked', detail: 'Installed', actions: [] },
+];
+
+test('connections delegates login using only the core offer and no shell text', async (t) => {
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ version: 1, connections: connectionRows }) };
+  });
+  const terminal = t.mock.method(host.vscode.window, 'createTerminal', (options) => ({ show() {}, options }));
+  host.config.set('cliPath', '/python path/python'); host.config.set('cliArgs', ['/core path/autocode.py']);
+  const connections = new ConnectionsPanel(host.workspaceState);
+  t.after(() => connections.dispose());
+  await connections.show();
+  const panel = host.panels.at(-1);
+  panel.webview.receive({ type: 'action', provider: 'company', action: 'login', next_command: ['evil'] });
+  await flush();
+  assert.equal(terminal.mock.callCount(), 0, 'unoffered login must not run');
+  panel.webview.receive({ type: 'action', provider: 'kilocode', action: 'login', next_command: ['evil'] });
+  await flush();
+  assert.equal(terminal.mock.callCount(), 1);
+  const options = terminal.mock.calls[0].arguments[0];
+  assert.equal(options.shellPath, '/python path/python');
+  assert.deepEqual(options.shellArgs, ['/core path/autocode.py', 'connections', 'login', '--provider', 'kilocode']);
+  assert.ok(calls.every((args) => args.join(' ') === 'connections list --json'), 'login is not captured as a noninteractive call');
+});
+
+test('connection switching restores Kilo routes and cannot reroute an existing chat', async (t) => {
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ version: 1, connections: connectionRows }) }));
+  host.config.set('provider', 'kilocode');
+  const routes = ['--requirements-model', 'zai-coding-plan/glm-5.3', '--astra-model=xiaomi-token-plan-sgp/mimo-v2.6-pro', '--pin-model-role', 'astra'];
+  host.config.set('extraOptions', ['--max-cost-usd', '3', ...routes]);
+  const storage = new Map();
+  const connections = new ConnectionsPanel({ get: (key) => storage.get(key), update: async (key, value) => { storage.set(key, value); } });
+  t.after(() => connections.dispose());
+  await connections.show();
+  const panel = host.panels.at(-1);
+  panel.webview.receive({ type: 'select', provider: 'company' }); await flush();
+  assert.equal(host.config.get('provider'), 'company');
+  assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '3']);
+  const prepared = controller.prepare({ status: 'RUNNING', needs: { kind: 'continue' } }, run, {});
+  assert.deepEqual(prepared.argv, ['--no-chat'], 'saved run must not inherit the picker backend or new options');
+  host.config.set('extraOptions', ['--max-cost-usd', '5']);
+  panel.webview.receive({ type: 'select', provider: 'kilocode' }); await flush();
+  assert.equal(host.config.get('provider'), 'kilocode');
+  assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '5', ...routes]);
+});
+
+test('connections renders backend text safely and sends only provider and action IDs', () => {
+  const sent = [];
+  const dom = new JSDOM(connectionsHtml(), { runScripts: 'dangerously', beforeParse(window) {
+    window.acquireVsCodeApi = () => ({ postMessage: (message) => sent.push(message) });
+  } });
+  try {
+    const row = { ...connectionRows[0], label: '<img src=x onerror=alert(1)>', detail: '<script>evil()</script>' };
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { connections: [row], selected: 'company' } }));
+    assert.equal(dom.window.document.querySelectorAll('img').length, 0);
+    assert.ok(dom.window.document.querySelector('main').textContent.includes('<script>evil()</script>'));
+    [...dom.window.document.querySelectorAll('button')].find((button) => button.textContent === 'Sign in / Reconnect').click();
+    assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'action', provider: 'kilocode', action: 'login' });
+  } finally { dom.window.close(); }
+});
 
 test('status polling uses the core-recognized read-only command grammar', async (t) => {
   const { EventEmitter } = require('node:events');

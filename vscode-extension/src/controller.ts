@@ -125,14 +125,16 @@ export class RunController {
     const { argv, env } = this.named(view, run);
     const filled = applyDecisions(argv, answers);
     const advancing = isAdvancing(filled);
-    return { argv: advancing ? [...filled, ...this.settings.runOptions] : filled, env, advancing };
+    // Existing runs own their saved backend, models and limits. Changing the
+    // Connections selection for a new chat must not reroute a paused run.
+    return { argv: filled, env, advancing };
   }
 
   /**
    * Run the named action.
    *
-   * Answers and approvals launch no model on their own; only a command that
-   * advances the run carries the client's engine and model options.
+   * Answers and approvals launch no model on their own. Advancing uses the
+   * run's saved engine and model options.
    *
    * An approval is bound to the plan token a person was shown. A plan revised
    * while the panel sat open has a new token, and approving it unseen is not

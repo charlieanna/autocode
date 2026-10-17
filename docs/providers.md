@@ -929,3 +929,32 @@ A version the offline conformance suite has not been run against is
 | kilocode | registered-adapter | kilocode | n/a | n/a | known-good | 2026-10-03 | `b96a633e` | Registered KiloCode adapter; see docs/provider-conformance.md. |
 
 <!-- END provider conformance matrix -->
+
+### Connection setup and company backends
+
+`autocode connections list --json` lists built-in Kilo, OpenCode and Claude Code
+and user-registered providers. `connections check --provider NAME --json` checks
+credentials without model traffic. `connections login --provider NAME` opens the
+backend's own interactive sign-in. AutoCode does not store a second copy of keys,
+SSO sessions, or AWS credentials. Kilo/OpenCode login lets the backend choose its
+supported API-key or browser flow; existing route/billing checks still apply
+before a task launches.
+
+A company GoCode adapter can keep its corporate authentication and Bedrock
+routing. AutoCode does not require it to go through Kilo or OpenCode. In a
+registered provider's user-level TOML, optionally add:
+
+```toml
+[connection]
+login_command = ["your-company-cli", "its-documented-login-command"]
+status_command = ["your-company-cli", "its-documented-login-status-command"]
+```
+
+These are argument arrays executed without a shell. Use the company's documented
+commands; the names above are placeholders, not GoCode commands. The status
+command must make no inference requests: exit 0 for credentials present, 1 for
+sign-in required, and another code for a failed check. Its stdout/stderr is
+withheld from clients. The interactive login command owns its terminal output.
+Without these optional commands AutoCode reports login as unchecked and offers
+no guessed sign-in command. Provider files are trusted user configuration; files
+in a project are never discovered as connection definitions.

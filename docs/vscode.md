@@ -71,7 +71,7 @@ use the core's named commands, including the optional `view.chat.input` offer.
 Commands use argument arrays; issued tokens stay in the child environment.
 
 Starting a new chat asks you to confirm model spend. Buttons that save an input
-and then advance explicitly say **and continue**; advancing uses your configured
+and then advance explicitly say **and continue**; advancing uses the run’s saved
 provider and per-role routes. Person-only recovery decisions still require their
 separate confirmation (`autocode.confirmPersonOnly`). Free text cannot bypass an
 operational stop or approve a plan.
@@ -112,8 +112,8 @@ The jsdom tests alone establish neither editor-host nor live-provider compatibil
 | --- | --- | --- |
 | `autocode.cliPath` | `autocode` | The CLI to start. |
 | `autocode.cliArgs` | `[]` | Leading arguments, for a source checkout. |
-| `autocode.provider` | `""` | `--provider` when starting or advancing a run. |
-| `autocode.extraOptions` | `[]` | Extra engine and model flags on advancing calls. |
+| `autocode.provider` | `""` | `--provider` for new chats. |
+| `autocode.extraOptions` | `[]` | Extra engine and model flags for new chats. |
 | `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
 
@@ -129,3 +129,19 @@ Plan editing (`--edit-goal`), recovery grants and other actions with unresolved
 The client cannot invent those decisions. The separate core Requirements
 conversation journal is documented in [task-run.md](task-run.md); this client
 uses ordinary task runs and their additive chat projection.
+
+### Connections
+
+Open **Connections** from the chat toolbar or **AutoCode: Connections** in the
+command palette. It lists installed and registered backends in the AutoCode CLI
+environment. **Check connection** checks saved credentials without launching a
+model. **Sign in / Reconnect** runs the backend's own sign-in in a terminal;
+finish there and check again. AutoCode does not ask you to paste credentials into
+chat. Credential presence does not establish selected-model access or a passing
+live qualification.
+
+**Use for new chats** changes the default backend. Each backend's role/model
+options are saved separately, so switching back to Kilo restores its token-plan
+routes. Existing chats retain their saved backend, models and budgets. Company
+providers such as GoCode appear when registered; their optional connection
+commands are described in [Providers](providers.md#connection-setup-and-company-backends).

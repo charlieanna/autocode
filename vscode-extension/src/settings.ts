@@ -6,7 +6,7 @@ import type { CliOptions } from "./core/cli";
 export interface Settings extends CliOptions {
   pollMs: number;
   confirmPersonOnly: boolean;
-  /** Engine and model flags the client passes whenever it starts or advances a run. */
+  /** Engine and model flags for new chats; saved runs retain their own configuration. */
   runOptions: string[];
 }
 

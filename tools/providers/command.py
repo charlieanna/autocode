@@ -497,6 +497,8 @@ def _validate(name: str, config: dict) -> None:
     if "models" in config and not config["models"]:
         raise ValueError("models must list at least one model")
     codex_sandbox.validate(config)
+    if "connection" in config:
+        _validate_connection(config["connection"])
     if "auth" in config:
         _validate_auth(config["auth"])
     if "builder_retry" in config:
@@ -532,6 +534,18 @@ def _validate_builder_retry(config) -> None:
             "[builder_retry] checker_model is strong_model or shares its model family, "
             "so the stronger attempt would be checked by its own model"
         )
+
+
+def _validate_connection(connection) -> None:
+    if not isinstance(connection, dict) or set(connection) - {"login_command", "status_command"}:
+        raise ValueError("[connection] accepts only login_command and status_command")
+    for key, value in connection.items():
+        if (
+            not isinstance(value, list)
+            or not value
+            or not all(isinstance(part, str) and part.strip() for part in value)
+        ):
+            raise ValueError(f"[connection] {key} must be a non-empty argument array")
 
 
 def _validate_auth(auth) -> None:

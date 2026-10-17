@@ -257,3 +257,41 @@ All task artifacts stay under ignored `.scenario-runs/pr1425-editor-live-2026101
 The redacted Kilo bundle's manifest SHA-256 is
 `cfec6db8df6503b09002aab519ee4944a360d8f3662a5510d22df184cd33dfd0`.
 No logs, credentials or bundles are committed.
+
+## Connections follow-up
+
+The owner approved a Connections screen with backend-owned authentication. The
+core now publishes `connections list --json`, named check/login actions, and
+optional `[connection]` commands for registered company tools. The VS Code client
+renders those offers and starts login as the terminal executable with argv; it
+never collects credentials or invokes Kilo directly. Selecting a backend applies
+to new chats, with per-backend route overrides preserved. Existing task actions
+use saved runtime settings instead of reapplying the editor's current selection.
+
+Focused verification for this addition:
+
+- `npm test`: 75 passed, including delegated login arguments, unoffered-action
+  refusal, safe rendering, Kilo route restoration, and unchanged saved-run actions.
+- `npm run typecheck` and `npm run build`: passed.
+- Venv unittest: `tests.test_connections tests.test_architecture
+  tests.test_cli_documentation tests.test_cli_surface tests.test_shell_completion
+  tests.test_ci_test_selection`: 64 tests, 63 passed, one shell-dependent skip,
+  14.126 seconds. This includes a real CLI subprocess with a deterministic
+  company login-status helper; no model stage or task directory is created.
+- `tests.test_command_provider.CommandProviderTests`: 31 passed, 0.632 seconds.
+- Ruff and mypy for the new core module passed; `git diff --check` passed.
+
+Native VS Code verification used the existing task-owned Linux CLI bridge:
+Connections listed Kilo/OpenCode, disabled unavailable Claude Code, retained Kilo
+as selected, and **Check connection** reported saved credentials through the real
+Kilo CLI. **Sign in / Reconnect** opened a real Kilo interactive terminal showing
+its provider selector (Xiaomi Token Plan, Z.AI Coding Plan, Other). The prompt was
+cancelled before choosing a provider or entering credentials. No inference or
+account change was needed. The bridge forwards a TTY for this login action.
+
+The host has a `gocode.toml` registration but no GoCode executable on PATH. Its
+company login/status commands and Bedrock access remain unverified; no command
+names were guessed and no AWS credential flow was substituted. The supported
+configuration contract is documented in `docs/providers.md`. Full live
+build/test/completion qualification remains a separate outstanding readiness
+condition, so the follow-up PR stays draft.
