@@ -88,8 +88,9 @@ class VerificationSourceTests(unittest.TestCase):
         )
         self.assertGreater(imports[0].kwargs["timeout"], 30)
         self.assertLessEqual(imports[0].kwargs["timeout"], copies.PREPARATION_ALLOWANCE_SECONDS)
-        self.assertEqual(payload, self.git("show", "HEAD:source.bin", root=tree))
-        self.assertEqual(b"blob\n", self.git("cat-file", "-t", "HEAD:source.bin", root=tree))
+        self.assertEqual(payload, self.git("show", ":source.bin", root=tree))
+        self.assertEqual(b"blob\n", self.git("cat-file", "-t", ":source.bin", root=tree))
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "HEAD", root=tree))
         self.assertEqual(before, source_snapshot.snapshot(self.root))
 
     def test_bulk_operations_share_the_remaining_preparation_allowance(self):
@@ -119,7 +120,8 @@ class VerificationSourceTests(unittest.TestCase):
         ):
             tree = self.allocate()
         self.assertEqual({"pack": 900, "add": 800, "commit": 600}, timeouts)
-        self.assertEqual(b"bound current source\n", self.git("show", "HEAD:source.txt", root=tree))
+        self.assertEqual(b"bound current source\n", self.git("show", ":source.txt", root=tree))
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "HEAD", root=tree))
         self.assertEqual(before, source_snapshot.snapshot(self.root))
 
     def test_expired_shared_allowance_stops_before_the_next_bulk_command(self):
@@ -277,12 +279,11 @@ class VerificationSourceTests(unittest.TestCase):
         self.git("add", "-f", "--all", root=ordinary)
         self.assertEqual(self.index(ordinary), entries)
         self.assertEqual(b"1\n", self.git("rev-list", "--count", "HEAD", root=tree))
-        self.assertEqual(
-            self.git("symbolic-ref", "HEAD", root=tree), self.git("for-each-ref", "--format=%(refname)", root=tree)
-        )
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "HEAD", root=tree))
+        self.assertEqual(b"", self.git("for-each-ref", "--format=%(refname)", root=tree))
         self.assertEqual(before, source_snapshot.snapshot(self.root))
 
-    def test_deleted_input_stays_absent_and_empty_copy_has_one_baseline_commit(self):
+    def test_deleted_input_stays_absent_and_empty_index_retains_source_history(self):
         removed = self.root / "removed.txt"
         removed.write_text("removed current source\n")
         self.git("add", "removed.txt")
@@ -302,7 +303,9 @@ class VerificationSourceTests(unittest.TestCase):
         tree = self.allocate()
         self.assertFalse((tree / "removed.txt").exists())
         self.assertEqual({}, self.index(tree))
-        self.assertEqual(b"1\n", self.git("rev-list", "--count", "HEAD", root=tree))
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "HEAD", root=tree))
+        self.assertEqual(b"2\n", self.git("rev-list", "--count", "HEAD", root=tree))
+        self.assertEqual(b"removed current source\n", self.git("show", "HEAD:removed.txt", root=tree))
         self.assertEqual(before, source_snapshot.snapshot(self.root))
 
     def test_large_regular_input_does_not_require_whole_file_read_bytes(self):
