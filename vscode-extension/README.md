@@ -1,5 +1,15 @@
 # AutoCode for VS Code
 
+Early preview. Install from the Marketplace as `ankurkothari.autocode`.
+
+```sh
+code --install-extension ankurkothari.autocode
+```
+
+The AutoCode CLI must be installed separately. Provider-backed execution requires
+a supported Linux host; this extension does not bundle the CLI or model backends.
+Full interactive and live-model qualification is incomplete.
+
 A thin client for AutoCode task runs. It starts the `autocode` CLI, reads the
 status view, and takes the action the view names. It imports nothing from
 `tools/` and never reads `state.json`.
@@ -27,7 +37,7 @@ regressions with a substituted VS Code host. It also executes the generated webv
 script in jsdom, covering chat history, feedback/follow-ups, stale approval,
 polling while typing, model selection, Markdown, and composer/scroll behavior.
 These tests launch no providers. They do not qualify the actual VS Code host or a
-live model route; both remain required before this draft is ready.
+live model route. Full release qualification remains incomplete.
 
 Current editor and live results: [qualification record](https://github.com/charlieanna/autocode/blob/master/docs/bugs/2026-10-16-vscode-chat-qualification.md).
 
