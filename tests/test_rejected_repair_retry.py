@@ -108,8 +108,14 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         view = driver.view()
         self.assertIn("No causal progress", view.get("stop_reason", ""), view.get("status"))
         self.assertEqual(builders, self.stages(driver).count("terra"))
+        # The recovery card offers that one retry: a client runs its exact flags, bound to the
+        # inspected card's token, as the dashboard does (#730).
+        card = view["recovery"]
+        retry = next((row for row in card["actions"] if row["id"] == "retry_failed_stage"), None)
+        self.assertIsNotNone(retry, [row["id"] for row in card["actions"]])
+        self.assertEqual(view["needs"]["retry_action"], " ".join(retry["args"]))
         try:
-            driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage")
+            driver.call("authorized-retry", "--expected-recovery-token", card["token"], *retry["args"])
         except Exception as error:
             # The harness suppresses display of its public CallTimeout context.
             # Retain only bounded public timeout/output facts before scratch cleanup.

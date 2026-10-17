@@ -11,15 +11,52 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import autocode_recovery_view as recovery
+import autocode_resolver_human as human
 import autocode_run_view as run_view
 from agent_console import Console, Handler, LoopbackHTTPServer
 from autocode_control_tokens import private_command
+from autocode_util import digest
 from unified_browser_fixture import FIXTURE_NOW, base_state, fixture_base_directory
+
+if TYPE_CHECKING:
+    from autocode_run_state import RunState
+
+
+def publish_novelty_hold(state: "RunState"):
+    """A recovery novelty hold published by the production Resolver request path (#1012)."""
+    contract = {
+        "task_id": state["task_id"],
+        "revision": 1,
+        "body": {"open_blocking_questions": [], "acceptance_criteria": [{"id": "C1", "criterion": "Greeting"}]},
+    }
+    contract.update(hash=digest(contract), approval_status="approved", approval_event=None)
+    state.update(goal_contract=contract, status="PAUSED_NO_PROGRESS", next_stage="astra_resolve")
+    state["resolution_request"] = {"novelty_hold": {"stage": "astra_resolve", "incident_id": "incident"}}
+    receipt = {"stage": "resolver", "runner_owned": True, "decision": {"action": "hold"}}
+    receipt["receipt"] = {"evaluation_binding": human._binding(state)}
+    state["resolver"] = {"operational_diagnostics": ["hold"], "operational_receipts": {"hold": receipt}}
+    human.queue(
+        state,
+        "operational_exhaustion",
+        {"stage": "astra_resolve", "pause_status": "PAUSED_NO_PROGRESS"},
+        request={
+            "kind": "blocker",
+            "decision_needed": "Provide corrective information or leave paused",
+            "impact": "The same incident repeated without new information",
+            "options": ["Provide corrective information", "Leave paused"],
+            "discovered": "No causal progress for the same incident",
+            "proposed_delta": "",
+        },
+        evidence={"resolver_receipt_id": "hold"},
+    )
+    if human.evaluate(state) != "escalate":
+        raise RuntimeError("The novelty hold did not publish its request")
 
 
 def main():
@@ -42,6 +79,7 @@ def main():
                 "stale",
                 "source",
                 "handoff",
+                "held",
             ):
                 name = kind + "-" + viewport
                 names.append(name)
@@ -129,6 +167,8 @@ def main():
                     state["next_stage"] = "astra_resolve"
                     state["stop_reason"] = "Repair diagnosis needs the current reviewed source and task"
                     state["resolution_request"] = {"source_revision": "reviewed-source"}
+                elif kind == "held":
+                    publish_novelty_hold(state)
                 elif kind == "internal":
                     state["status"] = "WAITING_FOR_USER"
                     state["pending_questions"] = [
@@ -209,6 +249,10 @@ def main():
                         raise ValueError("Accept only the inspected edited-source pause, with its resume")
                     state["status"] = "RUNNING"
                     state["next_stage"] = "astra_resolve"
+                elif "--retry-failed-stage" in extra:
+                    if "--resume-paused" not in extra or not run.name.startswith("held-"):
+                        raise ValueError("Retry only the inspected held step, with its resume")
+                    state["status"] = "RUNNING"
                 elif "--retry-builder" in extra:
                     state["iteration"] += 1
                     state["builder_retries"][recovery.builder_policy.key(state)]["failures"].append(
