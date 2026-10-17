@@ -6,7 +6,7 @@ const { editor, flush } = require('./helpers/editor.cjs');
 const host = editor();
 const cli = host.load('core/cli.js');
 const { RunController } = host.load('controller.js');
-const { RunPanel } = host.load('panel.js');
+const { RunPanel, panelHtml } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
 const { activate } = host.load('extension.js');
@@ -292,6 +292,7 @@ async function openChat(t, initial, selected = run) {
   t.after(() => { chat.dispose(); dom.window.close(); });
   return {
     chat, document: dom.window.document, window: dom.window, sent, saved,
+    get webviewState() { return persisted; },
     setView(next) { value = next; },
     async poll(next = value) { value = next; t.mock.timers.tick(5000); await flush(); },
     async visible(visible) { view.visible = visible; visibility(); await flush(); },
@@ -376,8 +377,9 @@ test('composer model, variant and usage update on polling without losing the dra
   ui.type('Keep my unsent feedback');
   const field = ui.document.querySelector('#message');
   field.focus(); field.setSelectionRange(5, 10);
-  const details = ui.document.querySelector('#usage-details'); details.open = true;
-  assert.match(ui.document.querySelector('#model-info').textContent, /glm-5.3.*Variant: medium/);
+  const details = ui.document.querySelector('#usage-details');
+  assert.equal(details.open, true, 'model details start expanded');
+  assert.match(ui.document.querySelector('#model-info').textContent, /zai-coding-plan\/glm-5.3.*Providerkilocode.*Variantmedium/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /1,200 tokens.*\$0.0500.*est\./);
   const next = structuredClone(initial);
   next.usage.accounting.attempts[0] = { model: 'xiaomi-token-plan-sgp/mimo-v2.6-pro<script>bad()</script>', active: true,
@@ -385,7 +387,7 @@ test('composer model, variant and usage update on polling without losing the dra
   next.usage.accounting.tokens.output_tokens = q(400);
   await ui.poll(next);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /1,400 tokens/);
-  assert.match(ui.document.querySelector('#model-info').textContent, /Variant: high/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /Varianthigh/);
   assert.equal(ui.document.querySelector('#model-info script'), null);
   assert.equal(ui.document.activeElement, field);
   assert.equal(field.value, 'Keep my unsent feedback');
@@ -394,6 +396,26 @@ test('composer model, variant and usage update on polling without losing the dra
   ui.chat.show(); await flush();
   assert.match(ui.document.querySelector('#model-info').textContent, /after the first stage/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
+});
+
+test('model details remember expansion across polling, draft edits and webview recreation', async (t) => {
+  const ui = await openChat(t, chatView());
+  const disclosure = ui.document.querySelector('#usage-details');
+  assert.equal(disclosure.open, true);
+  for (const open of [false, true]) {
+    disclosure.open = open;
+    disclosure.dispatchEvent(new ui.window.Event('toggle'));
+    ui.type('Keep both the draft and my display preference');
+    await ui.poll({ ...chatView(), usage: { tokens: 42 } });
+    assert.equal(disclosure.open, open);
+    assert.equal(ui.webviewState.modelDetailsOpen, open);
+    assert.ok(Object.values(ui.webviewState.drafts).includes('Keep both the draft and my display preference'));
+    const restored = new JSDOM(panelHtml(true), { runScripts: 'outside-only' });
+    restored.window.acquireVsCodeApi = () => ({ getState: () => ui.webviewState, setState() {}, postMessage() {} });
+    restored.window.eval(restored.window.document.querySelector('script').textContent);
+    assert.equal(restored.window.document.querySelector('#usage-details').open, open);
+    restored.window.close();
+  }
 });
 
 test('history replaces chat instead of splitting the sidebar and returning preserves the draft', async (t) => {

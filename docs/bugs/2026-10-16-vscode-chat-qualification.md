@@ -15,7 +15,7 @@ reuse, not a fork of Kilo's provider/runtime or a claim of complete UI parity.
 
 Focused checks on this change:
 
-- `npm test` in `vscode-extension`: 67 passed, including controller/webview chat,
+- `npm test` in `vscode-extension`: 68 passed, including controller/webview chat,
   stale approval, same-run follow-up, Markdown safety, reading-position retention,
   composer sizing, local undo and IME/newline behavior.
 - `npm run typecheck` and `npm run build`: passed.
@@ -79,7 +79,7 @@ this UI-only follow-up; no additional live-model run was needed for the layout.
 The model/usage follow-up adds the actual attempt's model and reasoning variant
 beside the composer, with run-wide tokens and separate reported/historical cost
 figures. It fixes the original scalar-token assumption: the real public view has
-structured counters. The 67 extension tests cover partial/unknown quantities,
+structured counters. The 68 extension tests cover partial/unknown quantities,
 cache/reasoning inclusion, separate cost bases, actual launch-route variants,
 parallel attempts, and polling without disturbing a draft or expanded details.
 Typecheck and build passed. In VS Code, a read-only preview using the retained
@@ -87,6 +87,13 @@ Kilo public accounting snapshot displayed MiMo/high, at least 149,147 tokens,
 the partial historical estimate of $0.0940, and unavailable reported cost. The
 expanded breakdown kept the composer at the bottom. This reused snapshot is UI
 evidence only, not a new live run or a successful live qualification.
+
+Model details now live in an expanded-by-default **Model & usage** panel pinned
+above the composer. Its collapsed summary retains the model, variant and usage;
+the full model route and provider remain available without opening run details.
+In VS Code, collapsing the panel, opening History and returning to chat preserved
+the collapsed state; expanding restored all rows. The saved preference also
+survives draft edits, polling and webview recreation in the regression test.
 
 ## Live token-plan attempt
 

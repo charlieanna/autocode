@@ -408,15 +408,16 @@ export function panelHtml(chat = false): string {
 <body>
 ${chat ? '<nav class="chat-toolbar"><button id="history" class="secondary">History</button><button id="details" class="secondary">Run details</button><button id="new-chat" class="secondary">New chat</button></nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>' : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
-${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button><form id="composer">
+${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
+<section id="telemetry" aria-label="Model and usage">
+<details id="usage-details" open><summary id="telemetry-summary"><span class="telemetry-heading">Model &amp; usage</span>
+<span id="model-summary">Model not reported</span><span id="usage-summary">Tokens not reported · Cost not reported</span></summary>
+<div id="telemetry-body"><div id="model-info"></div><div id="usage-breakdown"></div></div></details>
+</section>
+<form id="composer">
 <label for="message" id="send-hint">Message AutoCode</label>
 <textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
-<section id="telemetry" aria-label="Model and usage">
-<div id="model-info"></div>
-<details id="usage-details"><summary id="usage-summary">Tokens not reported · Cost not reported</summary>
-<div id="usage-breakdown"></div></details>
-</section>
 <div class="actions"><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
 <button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
@@ -656,7 +657,7 @@ function saveDraft() {
   const saved = vscode.getState() || {};
   const drafts = saved.drafts || {};
   drafts[chatEnvelope.runKey] = document.getElementById('message').value;
-  vscode.setState({ drafts });
+  vscode.setState({ ...saved, drafts });
 }
 
 function updateComposer() {
@@ -712,25 +713,28 @@ function renderTelemetry(info) {
   if (host.dataset.content === signature) return;
   host.dataset.content = signature;
   host.textContent = '';
+  document.getElementById('model-summary').textContent = info && info.models.length
+    ? info.models.map((item) => item.model.split('/').pop() + ' · ' + item.variant).join(' / ')
+    : 'Model not reported';
   if (!info || !info.models.length) host.appendChild(el('span', 'model-placeholder', info ? 'Model and variant not reported' : 'Model available after the first stage starts'));
   else {
     host.appendChild(el('div', 'model-caption', info.modelLabel));
     info.models.forEach((item) => {
-      const row = el('div', 'model-row');
-      const model = el('span', 'model-name', item.model.split('/').pop());
-      model.title = item.model;
-      row.appendChild(model);
-      row.appendChild(el('span', 'variant', 'Variant: ' + item.variant));
-      host.appendChild(row);
+      const model = el('div', 'model-card');
+      [['Model', item.model], ['Provider', item.provider], ['Variant', item.variant]].forEach(([label, value]) => {
+        const row = el('div', 'telemetry-row');
+        row.appendChild(el('span', 'telemetry-label', label));
+        row.appendChild(el('span', 'model-value', value));
+        model.appendChild(row);
+      });
+      host.appendChild(model);
     });
   }
   document.getElementById('usage-summary').textContent = info ? info.tokens + ' · ' + info.cost : 'Tokens not reported · Cost not reported';
   const details = document.getElementById('usage-breakdown');
   details.textContent = '';
   if (!info) { details.textContent = 'Usage will appear as AutoCode reports it.'; return; }
-  info.models.forEach((item) => {
-    details.appendChild(el('div', 'telemetry-note', item.model + ' · Provider: ' + item.provider + ' · Reasoning variant: ' + item.variant));
-  });
+  details.appendChild(el('div', 'model-caption', 'Usage for this run'));
   info.details.forEach((item) => {
     const row = el('div', 'telemetry-row');
     row.appendChild(el('span', null, item.label));
@@ -755,6 +759,12 @@ function appendFormatted(parent, nodes) {
 }
 
 if (chatMode) {
+  const disclosure = document.getElementById('usage-details');
+  const saved = vscode.getState() || {};
+  disclosure.open = saved.modelDetailsOpen !== false;
+  disclosure.addEventListener('toggle', () => {
+    vscode.setState({ ...(vscode.getState() || {}), modelDetailsOpen: disclosure.open });
+  });
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
   document.getElementById('details').addEventListener('click', () => vscode.postMessage({ type: 'details' }));
   document.getElementById('message').addEventListener('input', () => { saveDraft(); updateComposer(); });
