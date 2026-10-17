@@ -708,8 +708,7 @@ def planning_input_pins(settings, *, role):
     record = settings.get("design_manifest")
     if not record or not _saved_planning_reader(settings, role) or _complete_planning_root(record) is None:
         return {}
-    verify(record)
-    catalog = inventory.catalog(record["body"], record["root"], admission=admitted_scope(record))
+    catalog = verified_catalog(record)
     return {row["path"]: row["sha256"] for row in _complete_planning_refs(record, catalog).values()}
 
 
@@ -860,12 +859,12 @@ def context(settings, *, stage=None, current_task=None):
     if not record:
         return None
     try:
-        verify(record)
+        catalog = verified_catalog(record)
     except (ValueError, OSError) as error:
         raise util.Paused("PAUSED_DESIGN_REFERENCE", str(error)) from error
     result = copy.deepcopy(record)
     if record["body"]["version"] == 2:
-        result["catalog"] = inventory.catalog(record["body"], record["root"], admission=admitted_scope(record))
+        result["catalog"] = catalog
         result["inventory_instruction"] = INSTRUCTION_SCOPED if record.get("scope_admission") else INSTRUCTION_V2
         if stage in ("terra", "sol"):
             roster = _case_roster(record["body"])
