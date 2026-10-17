@@ -17,10 +17,10 @@ function partitionOptions(options: string[]): { shared: string[]; routes: string
   const routes: string[] = [];
   for (let i = 0; i < options.length; i++) {
     const flag = options[i]!.split("=", 1)[0]!;
-    if (/^--(?:provider|engine|model|reasoning-effort|pin-model-role|(?:astra|terra|sol|completion|glm|requirements|plan-reviewer|resolver|investigator)-(?:model|reasoning-effort))$/.test(flag)) {
+    if (/^--(?:provider|engine|model|reasoning-effort|pin-model-role|role-transport|builder-strong-model|allow-uncontained-tools|(?:astra|terra|sol|completion|glm|requirements|plan-reviewer|resolver|investigator)-(?:model|reasoning-effort))$/.test(flag)) {
       // provider is owned by the picker, never a hidden extraOptions override.
       if (flag !== "--provider") routes.push(options[i]!);
-      if (!options[i]!.includes("=")) {
+      if (!options[i]!.includes("=") && flag !== "--allow-uncontained-tools") {
         i++;
         if (flag !== "--provider" && i < options.length) routes.push(options[i]!);
       }
@@ -72,7 +72,7 @@ export class ConnectionsPanel implements vscode.Disposable {
       const row = this.rows.find((item) => item.id === message.provider);
       if (!row) return;
       if (message.type === "select") {
-        if (row.connection_status === "unavailable") throw new Error("Install this backend before selecting it.");
+        if (["unavailable", "setup_required", "sdk_required"].includes(row.connection_status)) throw new Error("Finish this backend's setup before selecting it.");
         await this.select(row.id);
         return;
       }
@@ -82,10 +82,10 @@ export class ConnectionsPanel implements vscode.Disposable {
       const action = this.rows.find((item) => item.id === row.id)?.actions.find((item) => item.id === message.action);
       if (message.type !== "action" || !action) return;
       const settings = readSettings();
-      if (action.id === "login") {
+      if (action.id === "login" || action.id === "setup") {
         // VS Code launches AutoCode directly as the terminal process, with an
         // argument array. No sendText(), shell interpolation or auth output log.
-        vscode.window.createTerminal({ name: `AutoCode: ${row.label} sign-in`, shellPath: settings.command,
+        vscode.window.createTerminal({ name: `AutoCode: ${row.label} setup`, shellPath: settings.command,
           shellArgs: [...settings.prefix, ...action.next_command], env: settings.env }).show();
       } else if (action.id === "check") {
         const result = await invoke(settings, action.next_command);
@@ -125,6 +125,6 @@ body{font:var(--vscode-font-size) var(--vscode-font-family);color:var(--vscode-f
 document.getElementById('refresh').onclick=()=>vscode.postMessage({type:'refresh'});
 window.addEventListener('message',({data})=>{main.replaceChildren();document.getElementById('error').textContent=data.error||'';document.getElementById('refresh').disabled=data.busy;
 for(const row of data.connections||[]){const card=document.createElement('article');const heading=document.createElement('h2');heading.textContent=row.label+(data.selected===row.id?' · Selected':'');card.append(heading);const detail=document.createElement('p');detail.className='detail';detail.textContent=row.detail;card.append(detail);
-const select=document.createElement('button');select.textContent=data.selected===row.id?'Selected for new chats':'Use for new chats';select.disabled=data.busy||data.selected===row.id||row.connection_status==='unavailable';select.onclick=()=>vscode.postMessage({type:'select',provider:row.id});card.append(select);
+const select=document.createElement('button');select.textContent=data.selected===row.id?'Selected for new chats':'Use for new chats';select.disabled=data.busy||data.selected===row.id||['unavailable','setup_required','sdk_required'].includes(row.connection_status);select.onclick=()=>vscode.postMessage({type:'select',provider:row.id});card.append(select);
 for(const action of row.actions){const button=document.createElement('button');button.textContent=action.label;button.disabled=data.busy;button.onclick=()=>vscode.postMessage({type:'action',provider:row.id,action:action.id});card.append(button);}main.append(card);}});vscode.postMessage({type:'ready'});</script></body></html>`;
 }

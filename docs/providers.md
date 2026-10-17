@@ -958,3 +958,77 @@ withheld from clients. The interactive login command owns its terminal output.
 Without these optional commands AutoCode reports login as unchecked and offers
 no guessed sign-in command. Provider files are trusted user configuration; files
 in a project are never discovered as connection definitions.
+
+### AutoCode direct connections (issue #1493)
+
+AutoCode includes its own text/tool runtime. It does not require Kilo, OpenCode,
+Codex, Claude Code, or another coding-agent executable. In VS Code open
+**Connections → AutoCode · Direct connection → Set up AutoCode**, or run:
+
+```sh
+autocode connections setup
+autocode connections check --provider autocode --json
+autocode "hi" --provider autocode --joint-planning --spec-first
+```
+
+Setup is interactive in a terminal and launches no model. Choose one transport:
+
+- **compatible:** enter an HTTPS API base URL (including its version path), an
+  API key through hidden input, and the endpoint's actual producer/reviewer model
+  IDs. The transport uses Chat Completions with function tools and
+  `max_completion_tokens`. A nonempty role reasoning-effort override is sent as
+  `reasoning_effort`; the endpoint must support the requested fields. Redirects
+  are refused, with no automatic parameter change, retry or provider fallback.
+- **bedrock:** install `autocode-supervisor[bedrock]` in the CLI environment, then
+  enter an AWS region, optional named profile, and Bedrock model IDs or inference
+  profile ARNs. Boto3's credential chain owns credentials and SSO/role refresh;
+  AutoCode does not collect AWS access keys. Use the organization's existing AWS
+  sign-in to establish that profile. Enter `-` when editing to return to the
+  default credential chain. This transport uses Converse text/tool messages and
+  the model's default reasoning. Explicit reasoning-effort overrides and
+  unsupported content/signature blocks are refused, not discarded.
+
+Model IDs are those the endpoint accepts, not Kilo/OpenCode routing aliases.
+Setup groups Planner/Builder/Requirements and independent reviewers/testers; the
+existing verifier-independence rules still apply. Reopening setup with blank
+model answers preserves every saved role assignment. `models --provider autocode`
+lists the configured roster; unconfigured model escalation is refused.
+
+The compatible API key lives in a separate `auth.json` file, mode `0600`, under
+`$XDG_CONFIG_HOME/autocode/direct/` (default `~/.config/autocode/direct/`), whose
+mode is `0700`. This is a private local file, not an OS keychain. The credential
+is bound to the API endpoint: changing the endpoint requires an explicit key for
+that destination. Status and launch arguments never contain key values. Listing
+connections reads metadata only; **Check setup** validates local setup, not live
+model access. `configured`, `setup_required` and `sdk_required` are distinct.
+Key rotation for the same endpoint preserves transport identity; changes to the
+endpoint, models, AWS profile/region or runtime change it and trigger the saved
+run's existing drift checks. Configuration is never read from project files.
+
+Select **Use for new chats** after setup. This does not replace an existing
+Kilo/GoCode connection or change its model routes. CLI callers explicitly pass
+`--provider autocode`; setup does not silently change the global default.
+
+The existing supported-Linux provider supervisor owns each launch and cleanup.
+Model-requested commands run only through AutoCode's existing kernel shell
+boundary, with credentials removed, no network, protected run files, and the
+stage's read/write authority. Read-only execution uses the existing verification
+copy mechanism. There are at most 32 model responses per stage and eight tool
+calls per response, an 8192-token requested response cap, a 60-second HTTP read
+bound, and a 90-second tool bound; outer task/stage/spend limits still apply.
+Tool output is bounded at 65536 bytes and explicitly marked when truncated.
+Actual tool output and exit codes supply evidence; model prose cannot manufacture
+command events. Reported input/output usage is retained across requests, including failed turns;
+output counts include reasoning. A separate reasoning-token breakdown is not yet
+reported by this runtime. Missing token fields and prices remain unknown.
+
+This initial runtime supports text and shell tools with a fresh context per
+stage. It does not provide native image qualification, in-process file tools,
+MCP tools, or external-agent session resumption. Local HTTP/AWS fixtures and
+supported-Linux task tests verify protocol and safety behavior; they do not
+establish live model or company Bedrock access. The implementation stays draft
+pending live qualification with an explicitly configured connection.
+
+Protocol references: [Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
+[Bedrock Converse](https://docs.aws.amazon.com/boto3/latest/reference/services/bedrock-runtime/client/converse.html),
+and [Boto3 credential profiles](https://docs.aws.amazon.com/boto3/latest/guide/credentials.html).
