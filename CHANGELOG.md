@@ -34,6 +34,11 @@ PR template asks for an entry here; a change without one is incomplete.
   level. Automatic quota recovery retains and accounts for the stopped attempt before retrying,
   and remembers exhausted alternatives across restarts instead of cycling between them (#1426).
 
+- Figma captures of focused inputs and textareas no longer fail because Playwright's own caret hiding
+  changes the DOM. Captures retain the caret's initial behavior while still rejecting application DOM
+  changes during screenshots. Used prototype actions now reject missing, null or empty node destinations,
+  including nested conditional actions; explicitly excluded originals remain preserved (#250, #251).
+
 - The VS Code chat showed plan-approval internals: "Plan the approval is bound to (revision 3)",
   criterion IDs (`AC1`, `AC2`), each verification command and a token notice with a raw CLI command.
   The chat now lists what the plan will deliver under "Plan to approve", marks the items you check

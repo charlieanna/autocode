@@ -305,7 +305,7 @@ class IssueCliTests(unittest.TestCase):
         self.options = FIXTURE_OPTIONS
         temp = tempfile.TemporaryDirectory(prefix="issue-")
         self.addCleanup(temp.cleanup)
-        root = Path(temp.name)
+        root = Path(temp.name).resolve()
         self.remote = root / "acme" / "widgets.git"
         subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
         # `pr --open` pushes here. Git starts the push's receive-pack without GIT_CONFIG_COUNT,
