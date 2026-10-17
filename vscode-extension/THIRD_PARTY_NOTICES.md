@@ -13,7 +13,8 @@ behavior in `src/upstream/kilo-chat.ts` are adapted from Kilo Code revision
 Changes: converted the selected behavior from Solid effects to DOM events and
 observers; replaced Kilo session/provider calls with AutoCode's public status and
 named actions; omitted unsupported attachments, tool execution, automatic
-approvals and session editing. Theme variables use VS Code fallbacks.
+approvals and session editing. Theme variables use VS Code fallbacks. AutoCode
+adds a model/variant and usage disclosure using its public accounting view.
 This is a component adaptation, not the full Kilo extension.
 
 MIT License

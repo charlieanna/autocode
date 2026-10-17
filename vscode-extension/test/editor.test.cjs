@@ -364,6 +364,38 @@ test('chat drafts survive polling, hidden view restoration and switching runs', 
   assert.equal(ui.saved.get('autocode.chat.run').runDir, run.runDir);
 });
 
+test('composer model, variant and usage update on polling without losing the draft or open breakdown', async (t) => {
+  const q = (value) => ({ value, known: value, complete: true, known_items: 1 });
+  const initial = { ...chatView(), provider: 'kilocode', usage: { accounting: {
+    attempts: [{ model: 'zai-coding-plan/glm-5.3', active: true,
+      launch_route: { engine: 'opencode', reasoning_effort: 'medium' } }],
+    tokens: { input_tokens: q(1000), output_tokens: q(200), cached_input_tokens: q(500), reasoning_output_tokens: q(80) },
+    cost: { historical_estimated_usd: q(0.05) },
+  } } };
+  const ui = await openChat(t, initial);
+  ui.type('Keep my unsent feedback');
+  const field = ui.document.querySelector('#message');
+  field.focus(); field.setSelectionRange(5, 10);
+  const details = ui.document.querySelector('#usage-details'); details.open = true;
+  assert.match(ui.document.querySelector('#model-info').textContent, /glm-5.3.*Variant: medium/);
+  assert.match(ui.document.querySelector('#usage-summary').textContent, /1,200 tokens.*\$0.0500.*est\./);
+  const next = structuredClone(initial);
+  next.usage.accounting.attempts[0] = { model: 'xiaomi-token-plan-sgp/mimo-v2.6-pro<script>bad()</script>', active: true,
+    launch_route: { engine: 'opencode', reasoning_effort: 'high' } };
+  next.usage.accounting.tokens.output_tokens = q(400);
+  await ui.poll(next);
+  assert.match(ui.document.querySelector('#usage-summary').textContent, /1,400 tokens/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /Variant: high/);
+  assert.equal(ui.document.querySelector('#model-info script'), null);
+  assert.equal(ui.document.activeElement, field);
+  assert.equal(field.value, 'Keep my unsent feedback');
+  assert.equal(field.selectionStart, 5);
+  assert.equal(details.open, true);
+  ui.chat.show(); await flush();
+  assert.match(ui.document.querySelector('#model-info').textContent, /after the first stage/);
+  assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
+});
+
 test('history replaces chat instead of splitting the sidebar and returning preserves the draft', async (t) => {
   const contexts = new Map();
   const views = require('../package.json').contributes.views.autocode;

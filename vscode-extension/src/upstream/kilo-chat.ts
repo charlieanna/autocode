@@ -19,6 +19,17 @@ export const chatStyles = /* css */ `
   #send-message { margin-left: auto; flex-shrink: 0; }
   #send-hint { display: block; padding: 6px 8px 0; font-size: .75rem; color: var(--vscode-descriptionForeground); }
   #chat-error { padding: 0 8px; font-size: .8rem; color: var(--vscode-errorForeground); }
+  #telemetry { margin: 4px 8px 0; padding-top: 6px; border-top: 1px solid var(--vscode-panel-border);
+    font-size: .75rem; color: var(--vscode-descriptionForeground); }
+  #model-info { max-height: 80px; overflow: auto; }
+  .model-caption { font-size: .7rem; margin-bottom: 3px; }
+  .model-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+  .model-name { color: var(--vscode-foreground); font-weight: 600; overflow-wrap: anywhere; }
+  .variant { border-radius: 4px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); padding: 1px 5px; }
+  #usage-summary { cursor: pointer; line-height: 1.5; overflow-wrap: anywhere; }
+  #usage-breakdown { max-height: 25vh; overflow: auto; padding: 6px 0; }
+  .telemetry-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 3px 0; }
+  .telemetry-note { overflow-wrap: anywhere; margin: 4px 0; }
   .message { overflow-wrap: anywhere; margin: 0 0 20px; line-height: 1.5; }
   .message.user { white-space: pre-wrap; padding: 10px 12px; border-radius: 8px;
     background: var(--vscode-textCodeBlock-background); }

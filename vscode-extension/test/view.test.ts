@@ -58,7 +58,7 @@ test("unknown cost is not zero", () => {
     done: false,
     usage: { tokens: 100, cost_usd: { reported: 0.5, complete: false } },
   });
-  assert.match(partial ?? "", /\$0\.50 \(partial\)/);
+  assert.match(partial ?? "", /\$0\.5000 \(partial\) reported/);
   const unknown = usageLine({ status: "S", done: false, usage: { unknown_stages: 3 } });
   assert.equal(unknown, "3 stage(s) unknown");
 });

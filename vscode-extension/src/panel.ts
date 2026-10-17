@@ -13,6 +13,7 @@ import { approvalToken, needsSummary, pauseLabel, planForApproval, progressLine,
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
+import { telemetry, type Telemetry } from "./core/telemetry";
 
 export interface Decision {
   questionId: string;
@@ -39,6 +40,7 @@ export interface PanelState {
   nextStage: string | null;
   task: string | null;
   usage: string | null;
+  telemetry: Telemetry | null;
   pause: string | null;
   needKind: string | null;
   needSummary: string | null;
@@ -229,6 +231,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     nextStage: view.next_stage ?? null,
     task: view.task ?? null,
     usage: usageLine(view),
+    telemetry: telemetry(view),
     pause: pauseLabel(view),
     needKind: need?.kind ?? null,
     needSummary: view.done ? null : needsSummary(view),
@@ -327,6 +330,7 @@ function emptyState(run: RunRef): PanelState {
     nextStage: null,
     task: null,
     usage: null,
+    telemetry: null,
     pause: null,
     needKind: null,
     needSummary: null,
@@ -408,6 +412,11 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <label for="message" id="send-hint">Message AutoCode</label>
 <textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
+<section id="telemetry" aria-label="Model and usage">
+<div id="model-info"></div>
+<details id="usage-details"><summary id="usage-summary">Tokens not reported · Cost not reported</summary>
+<div id="usage-breakdown"></div></details>
+</section>
 <div class="actions"><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
 <button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
@@ -463,7 +472,7 @@ function render(state) {
     !chatMode && state.iteration ? 'iteration ' + state.iteration : null,
     !chatMode && state.nextStage ? 'next: ' + state.nextStage : null,
     state.pause ? 'pause: ' + state.pause : null,
-    state.usage,
+    !chatMode ? state.usage : null,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
 
@@ -691,9 +700,43 @@ function renderChat(data) {
   }
   if (data.state) render(data.state);
   else { app.textContent = data.busy ? 'Starting AutoCode…' : 'Describe what you want to build, fix, review, or discuss.'; }
+  renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();
   if (!same) chatBehavior.resume();
+}
+
+function renderTelemetry(info) {
+  const host = document.getElementById('model-info');
+  const signature = JSON.stringify(info);
+  if (host.dataset.content === signature) return;
+  host.dataset.content = signature;
+  host.textContent = '';
+  if (!info || !info.models.length) host.appendChild(el('span', 'model-placeholder', info ? 'Model and variant not reported' : 'Model available after the first stage starts'));
+  else {
+    host.appendChild(el('div', 'model-caption', info.modelLabel));
+    info.models.forEach((item) => {
+      const row = el('div', 'model-row');
+      const model = el('span', 'model-name', item.model.split('/').pop());
+      model.title = item.model;
+      row.appendChild(model);
+      row.appendChild(el('span', 'variant', 'Variant: ' + item.variant));
+      host.appendChild(row);
+    });
+  }
+  document.getElementById('usage-summary').textContent = info ? info.tokens + ' · ' + info.cost : 'Tokens not reported · Cost not reported';
+  const details = document.getElementById('usage-breakdown');
+  details.textContent = '';
+  if (!info) { details.textContent = 'Usage will appear as AutoCode reports it.'; return; }
+  info.models.forEach((item) => {
+    details.appendChild(el('div', 'telemetry-note', item.model + ' · Provider: ' + item.provider + ' · Reasoning variant: ' + item.variant));
+  });
+  info.details.forEach((item) => {
+    const row = el('div', 'telemetry-row');
+    row.appendChild(el('span', null, item.label));
+    row.appendChild(el('span', null, item.value));
+    details.appendChild(row);
+  });
 }
 
 function appendFormatted(parent, nodes) {

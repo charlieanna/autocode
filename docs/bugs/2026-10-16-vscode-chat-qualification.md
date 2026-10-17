@@ -15,7 +15,7 @@ reuse, not a fork of Kilo's provider/runtime or a claim of complete UI parity.
 
 Focused checks on this change:
 
-- `npm test` in `vscode-extension`: 59 passed, including controller/webview chat,
+- `npm test` in `vscode-extension`: 67 passed, including controller/webview chat,
   stale approval, same-run follow-up, Markdown safety, reading-position retention,
   composer sizing, local undo and IME/newline behavior.
 - `npm run typecheck` and `npm run build`: passed.
@@ -75,6 +75,18 @@ History replaced the conversation, and Back to Chat restored its unsent draft.
 A navigation regression verifies that only one pane is visible and browsing
 history never advances a run. Extension tests, typecheck and build passed for
 this UI-only follow-up; no additional live-model run was needed for the layout.
+
+The model/usage follow-up adds the actual attempt's model and reasoning variant
+beside the composer, with run-wide tokens and separate reported/historical cost
+figures. It fixes the original scalar-token assumption: the real public view has
+structured counters. The 67 extension tests cover partial/unknown quantities,
+cache/reasoning inclusion, separate cost bases, actual launch-route variants,
+parallel attempts, and polling without disturbing a draft or expanded details.
+Typecheck and build passed. In VS Code, a read-only preview using the retained
+Kilo public accounting snapshot displayed MiMo/high, at least 149,147 tokens,
+the partial historical estimate of $0.0940, and unavailable reported cost. The
+expanded breakdown kept the composer at the bottom. This reused snapshot is UI
+evidence only, not a new live run or a successful live qualification.
 
 ## Live token-plan attempt
 

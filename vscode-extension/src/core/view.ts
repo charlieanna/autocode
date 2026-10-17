@@ -9,6 +9,8 @@
  * No VS Code API, so it is unit-testable in-process.
  */
 
+import { usageDisplay, type Usage } from "./telemetry";
+
 export interface Needs {
   kind: string;
   token?: string;
@@ -74,14 +76,6 @@ export interface ProgressTask {
   current?: boolean;
 }
 
-export interface Usage {
-  stages?: number;
-  active_stage?: string | null;
-  tokens?: number;
-  cost_usd?: { reported?: number; estimated?: number; complete?: boolean };
-  unknown_stages?: number;
-}
-
 /** A criterion carries both its verification method and its human-review requirement. */
 export interface AcceptanceCriterion {
   id: string;
@@ -118,6 +112,7 @@ export interface StatusView {
   displayed_plan?: DisplayedPlan | null;
   progress?: Progress | null;
   usage?: Usage | null;
+  provider?: string | null;
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
   recovery?: Record<string, unknown> | null;
   current_task?: { id?: string; objective?: string } | null;
@@ -275,14 +270,10 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
 export function usageLine(view: StatusView): string | null {
   const usage = view.usage;
   if (!usage) return null;
-  const cost = usage.cost_usd;
+  const display = usageDisplay(usage);
   const parts: string[] = [];
-  if (typeof usage.tokens === "number") parts.push(`${usage.tokens.toLocaleString()} tokens`);
-  if (cost) {
-    const value = cost.reported ?? cost.estimated;
-    if (typeof value === "number") parts.push(`$${value.toFixed(2)}${cost.complete ? "" : " (partial)"}`);
-    else if (typeof usage.stages === "number" && usage.active_stage) parts.push("cost not yet reported");
-  }
+  if (display.tokens !== "Tokens not reported") parts.push(display.tokens);
+  if (display.cost !== "Cost not reported") parts.push(display.cost);
   if (typeof usage.unknown_stages === "number" && usage.unknown_stages > 0) {
     parts.push(`${usage.unknown_stages} stage(s) unknown`);
   }

@@ -22,6 +22,18 @@ draft. New output follows the bottom until you scroll up or select text;
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
 are in [THIRD_PARTY_NOTICES.md](../vscode-extension/THIRD_PARTY_NOTICES.md).
 
+The composer shows the model used by the current attempt (or **Last used** after
+it finishes) and its reasoning **Variant**, such as medium or high. Expand the
+usage row for the full model route, provider, input/output tokens, cache tokens,
+reasoning tokens and cost breakdown. Values refresh with status polling and
+cover the whole run. Cache and reasoning are already included in input/output
+totals. Partial counts are labeled; unreported usage stays unknown.
+
+Provider-reported cost and the core's historical comparison estimates are shown
+separately. These estimates are not current API prices or your token-plan bill.
+The extension reads the public accounting view and does not calculate its own
+prices. A new chat shows model information once its first attempt is recorded.
+
 When a plan is ready, its criteria, verification methods, constraints and
 permissions appear in the thread. Send **plan feedback and continue** to revise
 it. **Approve and build** approves only the displayed plan, then continues the
