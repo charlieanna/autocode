@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_requirements_chat as requirements_chat
+except ImportError:
+    import autocode_requirements_chat as requirements_chat
+
 
 def response(state: RunState) -> str:
     """The completed turn's saved result, without reading report files or logs."""
@@ -31,6 +36,8 @@ def response(state: RunState) -> str:
 def messages(state: RunState, *, completed=False) -> list[dict]:
     turns = state.get("turns") or []
     initial = (turns[0].get("previous") or {}).get("task") if turns else state.get("task")
+    # A chat that opened with a greeting shows it, not the reply that later became the task.
+    initial = requirements_chat.greeting(state) or initial
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     for index, event in enumerate(state.get("user_events") or []):

@@ -7,10 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import autocode_chat_history as history
 import autocode_chat_view as view
 import autocode_model_preflight as preflight
 import autocode_requirements_chat as chat
 import autocode_role_transport as transport
+import autocode_source_log as source_log
 import autocode_task_input as task_input
 import autocode_workflows as workflows
 
@@ -69,6 +71,18 @@ class RequirementsChatTests(unittest.TestCase):
                 self.assertEqual(task_input.digest(reply), state["task_sha256"])
                 self.assertEqual(workflows.STAGE, state["next_stage"])
                 self.assertFalse(chat.adopt_reply(state), "Only the first reply names the work")
+
+    def test_chat_keeps_the_greeting_after_the_reply_becomes_the_task(self):
+        reply = "Add a CSV export to the reports page."
+        state = {"task": "hi", "settings": {"spec_first": True}, "workflow": {"kind": None}}
+        source_log.seed(state)
+        source_log.save_feedback(
+            state, {"kind": "brief_feedback", "actor": "user_cli", "id": "feedback-1", "text": reply}
+        )
+        self.assertTrue(chat.adopt_reply(state))
+        rows = [(row["role"], row["text"]) for row in history.messages(state)]
+        self.assertEqual(("user", "hi"), rows[0])
+        self.assertEqual(1, rows.count(("user", reply)), rows)
 
     def test_reply_is_not_adopted_once_the_work_is_named(self):
         event = {"kind": "brief_feedback", "actor": "user_cli", "id": "feedback-1", "text": "Use JSON instead."}

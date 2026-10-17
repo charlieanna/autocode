@@ -27,19 +27,33 @@ STAGE = "requirements_gather"
 RECOGNIZE = "recognize_workflow"
 
 
+GREETINGS = {"hi", "hello", "hey", "hi there", "hello there", "good morning", "good afternoon", "good evening"}
+
+
 def enabled(state: RunState):
     return bool((state.get("settings") or {}).get("spec_first") and not state.get("goal_contract"))
 
 
+def _is_greeting(text):
+    return str(text or "").strip().casefold().rstrip("!?. ") in GREETINGS
+
+
 def _greeted(state: RunState):
-    text = str(state.get("task", "")).strip().casefold().rstrip("!?. ")
     return bool(
         enabled(state)
-        and text in {"hi", "hello", "hey", "hi there", "hello there", "good morning", "good afternoon", "good evening"}
+        and _is_greeting(state.get("task"))
         and not state.get("requirements_handoff")
         and not state.get("stages")
         and not (state.get("workflow") or {}).get("kind")
     )
+
+
+def greeting(state: RunState):
+    """The bare greeting a run opened with, kept as task:0 after the first reply became the task."""
+    tasks = [row for row in state.get("source_log") or [] if str(row.get("id", "")).startswith("task:")]
+    if len(tasks) == 1 and tasks[0].get("kind") == "task" and _is_greeting(tasks[0].get("text")):
+        return str(tasks[0]["text"])
+    return None
 
 
 def opening(state: RunState):
