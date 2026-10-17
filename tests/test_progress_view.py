@@ -54,6 +54,22 @@ def states(view):
 
 
 class ProgressLineTests(unittest.TestCase):
+    def test_queued_recognition_explains_the_next_activity_without_claiming_it_is_running(self):
+        saved = state(active_stage=None, next_stage="recognize_workflow")
+        shown = project(saved, stage="Job recognizer")
+        self.assertEqual("Next: Understand your request", shown["headline"])
+        self.assertTrue(shown["line"].startswith("Next: Understand your request ·"))
+        self.assertEqual("Job recognizer", shown["stage"])
+        self.assertEqual("nothing needed from you", shown["needs_you"])
+        self.assertEqual(
+            "Job recognizer stopped without saving a report",
+            project(saved, stage="Job recognizer", stopped="Inspect the failed attempt")["headline"],
+        )
+        saved.update(status="WAITING_FOR_USER", pending_questions=[{"id": "Q1", "question": "What outcome?"}])
+        self.assertEqual("Waiting for you", project(saved, stage="Job recognizer")["headline"])
+        saved = state(active_stage=None, next_stage="terra")
+        self.assertEqual("Next: Builder", project(saved)["headline"])
+
     def test_recognition_explains_the_activity_but_keeps_the_stage_and_stop_truthful(self):
         saved = state(active_stage={"stage": "recognize_workflow"})
         view = project(saved, stage="Job recognizer")
