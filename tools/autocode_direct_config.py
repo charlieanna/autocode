@@ -1,13 +1,12 @@
 """AutoCode-owned connection settings. Secrets never enter the public view.
 
 The private auth file is independent of metadata, so key rotation does not change
-a saved run's transport identity. AWS credentials stay in the AWS credential chain.
+a saved run's transport identity. Kilo credentials are never imported.
 """
 
 from __future__ import annotations
 
 import getpass
-import importlib.util
 import json
 import os
 import stat
@@ -15,6 +14,14 @@ import tempfile
 import warnings
 from pathlib import Path
 from urllib.parse import urlsplit
+
+PROVIDERS = {
+    "mimo": ("compatible", ""),
+    "zai": ("compatible", ""),
+    "openai": ("compatible", "https://api.openai.com/v1"),
+    "claude": ("anthropic", "https://api.anthropic.com/v1"),
+    "compatible": ("compatible", ""),
+}
 
 ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
 
@@ -60,7 +67,7 @@ def endpoint(value):
 
 
 def validate(value):
-    if value.get("version") != 1 or value.get("transport") not in ("compatible", "bedrock"):
+    if value.get("version") != 1 or value.get("transport") not in ("compatible", "anthropic"):
         raise ValueError("Configure an AutoCode connection first")
     roles = value.get("roles")
     if not isinstance(roles, dict) or set(roles) != set(ROLES):
@@ -68,20 +75,16 @@ def validate(value):
     for model in roles.values():
         if not isinstance(model, str) or not model.strip() or any(c.isspace() for c in model):
             raise ValueError("Model IDs must be nonempty and contain no whitespace")
-    if value["transport"] == "compatible":
-        endpoint(value.get("endpoint", ""))
-    elif not isinstance(value.get("region"), str) or not value["region"].strip():
-        raise ValueError("Bedrock needs an AWS region")
-    if not isinstance(value.get("profile", ""), str):
-        raise ValueError("AWS profile must be a string")
-    # These fixed limits bound a single provider invocation. The existing stage,
-    # tool, wall-time and spend gates remain outer limits; no retries are hidden.
-    result = {
-        key: value[key] for key in ("version", "transport", "roles", "endpoint", "profile", "region") if key in value
+    provider = value.get("api_provider", "claude" if value["transport"] == "anthropic" else "compatible")
+    if provider not in PROVIDERS or PROVIDERS[provider][0] != value["transport"]:
+        raise ValueError("Choose MiMo, Z.ai, OpenAI, Claude or a compatible API")
+    return {
+        "version": 1,
+        "transport": value["transport"],
+        "api_provider": provider,
+        "roles": roles,
+        "endpoint": endpoint(value.get("endpoint", "")),
     }
-    if result["transport"] == "compatible":
-        result["endpoint"] = endpoint(result["endpoint"])
-    return result
 
 
 def load():
@@ -120,13 +123,12 @@ def _write(name, value):
 
 def save(value, key=None):
     value = validate(value)
-    if value["transport"] == "compatible":
-        if key is None:
-            api_key(value)
-        elif not key.strip() or any(c in key for c in "\r\n"):
-            raise ValueError("API key must be nonempty and contain no line breaks")
-        else:
-            _write("auth.json", {"api_key": key, "endpoint": value["endpoint"]})
+    if key is None:
+        api_key(value)
+    elif not key.strip() or any(c in key for c in "\r\n"):
+        raise ValueError("API key must be nonempty and contain no line breaks")
+    else:
+        _write("auth.json", {"api_key": key, "endpoint": value["endpoint"]})
     _write("connection.json", value)
 
 
@@ -135,7 +137,7 @@ def describe(*, check=False):
         "id": "autocode",
         "label": "AutoCode · Direct connection",
         "connection_status": "setup_required",
-        "detail": "Connect directly with an API endpoint/key or AWS Bedrock. Kilo and OpenCode are optional.",
+        "detail": "Connect MiMo, Z.ai, OpenAI or Claude with an API key. Kilo is optional.",
         "actions": [{"id": "setup", "label": "Set up AutoCode", "next_command": ["connections", "setup"]}],
     }
     row["actions"].append(
@@ -147,20 +149,11 @@ def describe(*, check=False):
     )
     try:
         value = load()
-        if value["transport"] == "compatible":
-            if check:
-                api_key()
-            elif not (directory() / "auth.json").is_file():
-                return row
-            detail = "API connection configured. Credentials and model access have not been live-verified."
-        elif importlib.util.find_spec("boto3") is None:
-            row.update(
-                connection_status="sdk_required",
-                detail="Bedrock is configured. Install AutoCode's bedrock extra in the CLI environment: pip install 'autocode-supervisor[bedrock]'.",
-            )
+        if check:
+            api_key(value)
+        elif not (directory() / "auth.json").is_file():
             return row
-        else:
-            detail = "Bedrock region/profile configured. AWS resolves credentials when a task starts; access is not live-verified."
+        detail = f"{value['api_provider']} API configured. Credentials and model access have not been live-verified."
         row.update(connection_status="configured", detail=detail)
         row["actions"][0]["label"] = "Edit AutoCode setup"
     except (OSError, ValueError):
@@ -175,35 +168,35 @@ def setup():
     except (OSError, ValueError):
         current = {}
     print("AutoCode direct connection. Setup makes no model calls. Secrets are stored in a private local auth file.")
-    transport = input(
-        f"Transport: compatible or bedrock [{current.get('transport', 'compatible')}]: "
-    ).strip() or current.get("transport", "compatible")
-    value = {"version": 1, "transport": transport}
-    key = None
-    if transport == "compatible":
-        value["endpoint"] = input(f"API base URL [{current.get('endpoint', '')}]: ").strip() or current.get(
-            "endpoint", ""
-        )
-        endpoint(value["endpoint"])
-        # getpass refuses no terminal; do not fall back to echoed stdin.
-        if not os.isatty(0):
-            raise ValueError("API-key setup requires an interactive terminal")
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", getpass.GetPassWarning)
-            try:
-                key = getpass.getpass("API key (hidden; blank keeps an existing key): ") or None
-            except getpass.GetPassWarning:
-                raise ValueError("A terminal with hidden input is required; no key was saved") from None
-    elif transport == "bedrock":
-        value["region"] = input(f"AWS region [{current.get('region', '')}]: ").strip() or current.get("region", "")
-        profile = input(
-            f"AWS profile (blank keeps current; '-' uses the default credential chain) [{current.get('profile', '')}]: "
-        ).strip()
-        value["profile"] = "" if profile == "-" else profile or current.get("profile", "")
-        print("Use your organization's AWS SSO/profile/role setup. AutoCode does not collect AWS access keys.")
-    else:
-        raise ValueError("Choose compatible or bedrock")
-    old_roles = current.get("roles", {}) if transport == current.get("transport") else {}
+    provider = input(
+        f"API provider: mimo, zai, openai, claude or compatible [{current.get('api_provider', 'openai')}]: "
+    ).strip().lower() or current.get("api_provider", "openai")
+    if provider not in PROVIDERS:
+        raise ValueError("Choose mimo, zai, openai, claude or compatible")
+    transport, default_endpoint = PROVIDERS[provider]
+    same_provider = provider == current.get("api_provider")
+    if provider in ("mimo", "zai"):
+        print("Enter the exact API base URL for your billing route; API and subscription credentials are separate.")
+        if provider == "mimo":
+            print(
+                "MiMo API: https://api.xiaomimimo.com/v1; Token Plan: use the exact base URL from your Token Plan console."
+            )
+        else:
+            print("Z.ai API: https://api.z.ai/api/paas/v4; Coding Plan: https://api.z.ai/api/coding/paas/v4")
+    default_endpoint = current.get("endpoint", "") if same_provider else default_endpoint
+    value = {"version": 1, "transport": transport, "api_provider": provider}
+    value["endpoint"] = input(f"API base URL [{default_endpoint}]: ").strip() or default_endpoint
+    endpoint(value["endpoint"])
+    # Never fall back to echoed stdin for credentials.
+    if not os.isatty(0):
+        raise ValueError("API-key setup requires an interactive terminal")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", getpass.GetPassWarning)
+        try:
+            key = getpass.getpass("API key (hidden; blank keeps an existing key for this endpoint): ") or None
+        except getpass.GetPassWarning:
+            raise ValueError("A terminal with hidden input is required; no key was saved") from None
+    old_roles = current.get("roles", {}) if same_provider else {}
     producer = input(f"Planner/Builder/Requirements model ID [{old_roles.get('glm', '')}]: ").strip()
     reviewer = input(f"Independent reviewer/tester model ID [{old_roles.get('sol', '')}]: ").strip()
     if not producer and not reviewer and old_roles:

@@ -55,10 +55,18 @@ class DirectCliTests(unittest.TestCase):
             config.save(value, "fixture-secret")
 
     def test_hi_uses_direct_http_and_requirements_with_no_external_agent_installed(self):
+        self._greeting("compatible")
+
+    def test_hi_uses_claude_messages_and_requirements_without_showing_approval(self):
+        self._greeting("anthropic")
+
+    def _greeting(self, protocol):
         stages = []
 
         def respond(body):
-            prompt = body["messages"][1]["content"]
+            prompt = (
+                body["messages"][0]["content"][0]["text"] if protocol == "anthropic" else body["messages"][1]["content"]
+            )
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             stage = data["stage"]
             stages.append(stage)
@@ -101,6 +109,14 @@ class DirectCliTests(unittest.TestCase):
                 }
             else:
                 return 400, {"error": "Unexpected stage"}
+            if protocol == "anthropic":
+                return 200, {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": json.dumps(report)}],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 15, "output_tokens": 10},
+                }
             return 200, {
                 "choices": [{"message": {"role": "assistant", "content": json.dumps(report)}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 15, "completion_tokens": 10},
@@ -108,7 +124,7 @@ class DirectCliTests(unittest.TestCase):
 
         fixture = HttpFixture(respond)
         self.addCleanup(fixture.close)
-        self.save(settings(fixture.url))
+        self.save(settings(fixture.url, protocol))
         for executable in ("kilo", "opencode", "codex", "claude"):
             self.assertIsNone(shutil.which(executable, path=self.env["PATH"]))
         run = taskrun.TaskRun.start(

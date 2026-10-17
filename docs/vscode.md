@@ -149,10 +149,10 @@ commands are described in [Providers](providers.md#connection-setup-and-company-
 ### No Kilo or OpenCode installed
 
 The **AutoCode · Direct connection** card is always available in Connections.
-Choose **Set up AutoCode** to enter an API endpoint/key or AWS Bedrock profile in
-a terminal, then refresh Connections. **Use for new chats** is enabled after
+Choose **Set up AutoCode** to select MiMo, Z.ai, OpenAI or Claude and enter its
+API endpoint/key in a terminal, then refresh Connections. **Use for new chats** is enabled after
 local setup is complete; it does not mean live model access was verified.
-Bedrock setup reports a missing SDK separately. See
+See
 [AutoCode direct connections](providers.md#autocode-direct-connections-issue-1493)
 for credential storage, protocol support and qualification limits.
 

@@ -125,7 +125,7 @@ def run(settings, key, prompt, model, effort, report, execute, *, complete=None)
         elif settings["transport"] == "compatible":
             message, stop, usage = transport.compatible(settings, key, messages, TOOLS, model, effort)
         else:
-            message, stop, usage = transport.bedrock(settings, messages, TOOLS, model, effort)
+            message, stop, usage = transport.anthropic(settings, key, messages, TOOLS, model, effort)
         counts = {}
         for source, target in (("prompt_tokens", "input_tokens"), ("completion_tokens", "output_tokens")):
             count = usage.get(source)
@@ -221,7 +221,7 @@ def main():
             raise ValueError("Direct connection changed after launch preparation")
         if args.model not in settings["roles"].values():
             raise ValueError("Model is not configured for this direct connection")
-        key = config.api_key(settings) if settings["transport"] == "compatible" else None
+        key = config.api_key(settings)
         # Fail closed on unsupported host, missing sandbox or setup before an
         # inference request. The provider's outer supervisor still owns cleanup.
         shell = Shell(args.workspace, args.run_dir, args.allow_write, args.planning)

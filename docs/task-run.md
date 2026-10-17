@@ -1352,7 +1352,7 @@ must not be copied onto a different backend.
 The always-present `autocode` connection advertises a `setup` action with
 `next_command=["connections", "setup"]`. Execute it interactively in a terminal,
 with no credential arguments or webview input. Its additional setup states are
-`setup_required`, `configured` and `sdk_required`; clients must not describe
+`setup_required` and `configured`; clients must not describe
 `configured` as authenticated live access. The core setup action neither chooses
 a client's default backend nor launches a model. Discovery reads its nonsecret
 metadata; an explicit check validates its private local credential setup.

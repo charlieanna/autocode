@@ -971,22 +971,34 @@ autocode connections check --provider autocode --json
 autocode "hi" --provider autocode --joint-planning --spec-first
 ```
 
-Setup is interactive in a terminal and launches no model. Choose one transport:
+Setup is interactive in a terminal and launches no model. Choose **mimo**,
+**zai**, **openai**, **claude**, or a custom **compatible** API. One direct
+provider/endpoint is selected for a connection; mixed-provider routing remains
+available through the existing Kilo backend.
 
-- **compatible:** enter an HTTPS API base URL (including its version path), an
-  API key through hidden input, and the endpoint's actual producer/reviewer model
-  IDs. The transport uses Chat Completions with function tools and
-  `max_completion_tokens`. A nonempty role reasoning-effort override is sent as
-  `reasoning_effort`; the endpoint must support the requested fields. Redirects
-  are refused, with no automatic parameter change, retry or provider fallback.
-- **bedrock:** install `autocode-supervisor[bedrock]` in the CLI environment, then
-  enter an AWS region, optional named profile, and Bedrock model IDs or inference
-  profile ARNs. Boto3's credential chain owns credentials and SSO/role refresh;
-  AutoCode does not collect AWS access keys. Use the organization's existing AWS
-  sign-in to establish that profile. Enter `-` when editing to return to the
-  default credential chain. This transport uses Converse text/tool messages and
-  the model's default reasoning. Explicit reasoning-effort overrides and
-  unsupported content/signature blocks are refused, not discarded.
+| API choice | Protocol | Authentication | Response limit field |
+| --- | --- | --- | --- |
+| MiMo | Chat Completions | `api-key` | `max_completion_tokens` |
+| Z.ai | Chat Completions | Bearer key | `max_tokens` |
+| OpenAI / custom compatible | Chat Completions | Bearer key | `max_completion_tokens` |
+| Claude | Anthropic Messages | `x-api-key`, version `2023-06-01` | `max_tokens` |
+
+MiMo and Z.ai require an explicit base URL, including its version path. Use the
+exact endpoint and matching key for your billing route: ordinary API access and
+Token/Coding Plan subscriptions have separate endpoints. Setup shows the API
+examples and requires you to choose; it never falls back to another billing
+route. OpenAI defaults to `https://api.openai.com/v1`; Claude defaults to
+`https://api.anthropic.com/v1`. Endpoint overrides require HTTPS (HTTP is allowed
+only for loopback fixtures). This setup accepts API keys, not ChatGPT or Claude
+subscription logins. Kilo continues to own its separate sign-in and routes.
+
+MiMo/Z.ai assistant messages retain `reasoning_content` across tool turns.
+Claude uses native `tool_use`/`tool_result` blocks and replays signed thinking
+blocks in order. Unsupported content and incomplete responses fail closed.
+Nonempty Chat Completions effort overrides are sent as `reasoning_effort` and
+must be supported by that model. Claude effort overrides are currently refused;
+its default reasoning is used. Redirects are refused, with no automatic
+parameter change, retry or provider fallback. Bedrock is outside this scope.
 
 Model IDs are those the endpoint accepts, not Kilo/OpenCode routing aliases.
 Setup groups Planner/Builder/Requirements and independent reviewers/testers; the
@@ -994,15 +1006,15 @@ existing verifier-independence rules still apply. Reopening setup with blank
 model answers preserves every saved role assignment. `models --provider autocode`
 lists the configured roster; unconfigured model escalation is refused.
 
-The compatible API key lives in a separate `auth.json` file, mode `0600`, under
+The API key lives in a separate `auth.json` file, mode `0600`, under
 `$XDG_CONFIG_HOME/autocode/direct/` (default `~/.config/autocode/direct/`), whose
 mode is `0700`. This is a private local file, not an OS keychain. The credential
 is bound to the API endpoint: changing the endpoint requires an explicit key for
 that destination. Status and launch arguments never contain key values. Listing
 connections reads metadata only; **Check setup** validates local setup, not live
-model access. `configured`, `setup_required` and `sdk_required` are distinct.
+model access. `configured` and `setup_required` are distinct.
 Key rotation for the same endpoint preserves transport identity; changes to the
-endpoint, models, AWS profile/region or runtime change it and trigger the saved
+API provider, endpoint, models or runtime change it and trigger the saved
 run's existing drift checks. Configuration is never read from project files.
 
 Select **Use for new chats** after setup. This does not replace an existing
@@ -1024,11 +1036,14 @@ reported by this runtime. Missing token fields and prices remain unknown.
 
 This initial runtime supports text and shell tools with a fresh context per
 stage. It does not provide native image qualification, in-process file tools,
-MCP tools, or external-agent session resumption. Local HTTP/AWS fixtures and
+MCP tools, or external-agent session resumption. Local HTTP fixtures and
 supported-Linux task tests verify protocol and safety behavior; they do not
-establish live model or company Bedrock access. The implementation stays draft
+establish live model access. The implementation stays draft
 pending live qualification with an explicitly configured connection.
 
-Protocol references: [Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
-[Bedrock Converse](https://docs.aws.amazon.com/boto3/latest/reference/services/bedrock-runtime/client/converse.html),
-and [Boto3 credential profiles](https://docs.aws.amazon.com/boto3/latest/guide/credentials.html).
+Protocol references: [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
+[MiMo API and Token Plan setup](https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call),
+[MiMo Chat Completions](https://mimo.mi.com/docs/en-US/api/chat/openai-api),
+[Z.ai Chat Completions](https://docs.z.ai/api-reference/llm/chat-completion),
+[Z.ai thinking replay](https://docs.z.ai/guides/capabilities/thinking-mode),
+and [Claude Messages](https://platform.claude.com/docs/en/api/messages/create).

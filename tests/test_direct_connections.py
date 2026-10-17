@@ -1,4 +1,4 @@
-"""Direct setup, HTTP/AWS protocol and evidence tests; no live model requests."""
+"""Direct setup, provider API protocol and evidence tests; no live model requests."""
 
 from __future__ import annotations
 
@@ -26,12 +26,14 @@ import autocode_providers as providers
 class HttpFixture:
     def __init__(self, respond):
         self.requests = []
+        self.paths = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 owner.requests.append((dict(self.headers), body))
+                owner.paths.append(self.path)
                 code, value = respond(body)
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
@@ -59,8 +61,6 @@ def settings(endpoint="https://models.example.invalid/v1", transport_name="compa
         "version": 1,
         "transport": transport_name,
         "endpoint": endpoint,
-        "region": "us-east-1",
-        "profile": "company",
         "roles": {
             role: "fixture/reviewer" if role in ("sol", "completion", "plan_reviewer") else "fixture/producer"
             for role in config.ROLES
@@ -191,11 +191,34 @@ class DirectConnectionsTests(unittest.TestCase):
         self.assertIn("cancelled", output.getvalue())
         self.assertFalse((config.directory() / "connection.json").exists())
 
-    def test_bedrock_setup_keeps_aws_credentials_in_aws_store(self):
-        config.save(settings(transport_name="bedrock"))
+    def test_named_provider_setup_selects_protocol_and_does_not_import_kilo_keys(self):
+        for provider in ("mimo", "zai", "openai", "claude"):
+            with self.subTest(provider=provider):
+                replies = iter([provider, "https://models.example.invalid/v1", "producer", "reviewer"])
+                with (
+                    mock.patch("builtins.input", side_effect=lambda _prompt: next(replies)),
+                    mock.patch.object(config.os, "isatty", return_value=True),
+                    mock.patch.object(config.getpass, "getpass", return_value="explicit-new-key"),
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    config.setup()
+                self.assertEqual(provider, config.load()["api_provider"])
+                self.assertEqual("anthropic" if provider == "claude" else "compatible", config.load()["transport"])
+                self.assertEqual("explicit-new-key", config.api_key())
+        with self.assertRaises(ValueError):
+            config.save(settings(transport_name="bedrock"), "unused")
+
+    def test_mimo_and_zai_setup_require_explicit_billing_endpoint(self):
+        for provider in ("mimo", "zai"):
+            replies = iter([provider, ""])
+            with (
+                self.subTest(provider=provider),
+                mock.patch("builtins.input", side_effect=lambda _prompt: next(replies)),
+                contextlib.redirect_stdout(io.StringIO()),
+                self.assertRaises(ValueError),
+            ):
+                config.setup()
         self.assertFalse((config.directory() / "auth.json").exists())
-        with mock.patch.object(config.importlib.util, "find_spec", return_value=None):
-            self.assertEqual("sdk_required", config.describe()["connection_status"])
 
     def test_edit_setup_can_rotate_key_without_replacing_role_assignments(self):
         original = settings()
@@ -291,45 +314,138 @@ class DirectConnectionsTests(unittest.TestCase):
                 finally:
                     server.close()
 
-    def test_bedrock_converse_uses_tool_result_and_refuses_unsupported_effort(self):
-        client = mock.Mock()
-        client.converse.return_value = {
-            "output": {"message": {"content": [{"text": '{"summary":"done"}'}]}},
-            "stopReason": "end_turn",
-            "usage": {"inputTokens": 15, "outputTokens": 4},
-        }
-        messages = [
-            {"role": "system", "content": "instructions"},
-            {"role": "user", "content": "task"},
-            {
-                "role": "assistant",
-                "tool_calls": [{"id": "x", "function": {"name": "shell", "arguments": '{"command":"true"}'}}],
-            },
-            {"role": "tool", "tool_call_id": "x", "content": "exit 0"},
-        ]
-        message, stop, usage = transport.bedrock(
-            settings(transport_name="bedrock"), messages, runtime.TOOLS, "fixture/producer", "", client=client
-        )
-        self.assertEqual("stop", stop)
-        self.assertEqual(15, usage["prompt_tokens"])
-        sent = client.converse.call_args.kwargs
-        self.assertEqual("x", sent["messages"][-1]["content"][0]["toolResult"]["toolUseId"])
-        self.assertEqual("shell", sent["toolConfig"]["tools"][0]["toolSpec"]["name"])
-        with self.assertRaises(transport.TransportError):
-            transport.bedrock(
-                settings(transport_name="bedrock"), [], runtime.TOOLS, "fixture/producer", "high", client=client
-            )
-        self.assertEqual(1, client.converse.call_count)
+    def test_named_chat_protocols_preserve_reasoning_and_tool_results(self):
+        for provider in ("mimo", "zai", "openai"):
+            with self.subTest(provider=provider):
 
-    def test_bedrock_error_does_not_disclose_raw_aws_response(self):
-        client = mock.Mock()
-        error = RuntimeError("fixture-secret")
-        error.response = {"ResponseMetadata": {"HTTPStatusCode": 403}}
-        client.converse.side_effect = error
-        with self.assertRaises(transport.TransportError) as failure:
-            transport.bedrock(settings(transport_name="bedrock"), [], runtime.TOOLS, "model", "", client=client)
-        self.assertEqual(403, failure.exception.code)
-        self.assertNotIn("fixture-secret", str(failure.exception))
+                def respond(body):
+                    limit = "max_tokens" if provider == "zai" else "max_completion_tokens"
+                    self.assertEqual(8192, body[limit])
+                    self.assertNotIn("max_completion_tokens" if provider == "zai" else "max_tokens", body)
+                    if body["messages"][-1]["role"] == "tool":
+                        self.assertEqual("opaque-reasoning", body["messages"][-2]["reasoning_content"])
+                        result = json.loads(body["messages"][-1]["content"])
+                        self.assertEqual({"exit_code": 7, "output": "actual-output"}, result)
+                        message, stop = {"role": "assistant", "content": '{"summary":"done"}'}, "stop"
+                    else:
+                        message, stop = (
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "reasoning_content": "opaque-reasoning",
+                                "tool_calls": [
+                                    {
+                                        "id": "tool-1",
+                                        "type": "function",
+                                        "function": {"name": "shell", "arguments": '{"command":"actual-command"}'},
+                                    }
+                                ],
+                            },
+                            "tool_calls",
+                        )
+                    return 200, {"choices": [{"message": message, "finish_reason": stop}]}
+
+                fixture = HttpFixture(respond)
+                try:
+                    value = {**settings(fixture.url), "api_provider": provider}
+                    execute = mock.Mock(return_value=(7, "actual-output"))
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        runtime.run(value, "explicit-key", "task", "model", "", self.root / "report.json", execute)
+                    execute.assert_called_once_with("actual-command")
+                    self.assertEqual(["/v1/chat/completions"] * 2, fixture.paths)
+                    for headers, _ in fixture.requests:
+                        if provider == "mimo":
+                            self.assertEqual("explicit-key", headers["Api-Key"])
+                            self.assertNotIn("Authorization", headers)
+                        else:
+                            self.assertEqual("Bearer explicit-key", headers["Authorization"])
+                finally:
+                    fixture.close()
+
+    def test_claude_messages_tool_roundtrip_preserves_signed_blocks_and_cache_usage(self):
+        original = [
+            {"type": "thinking", "thinking": "opaque thought", "signature": "signature-value"},
+            {"type": "redacted_thinking", "data": "opaque-data"},
+            {"type": "tool_use", "id": "call-1", "name": "shell", "input": {"command": "actual-command"}},
+        ]
+
+        def respond(body):
+            self.assertEqual(8192, body["max_tokens"])
+            self.assertEqual("shell", body["tools"][0]["name"])
+            self.assertEqual("object", body["tools"][0]["input_schema"]["type"])
+            self.assertEqual("text", body["system"][0]["type"])
+            if body["messages"][-1]["content"][0]["type"] == "tool_result":
+                self.assertEqual(original, body["messages"][-2]["content"])
+                result = body["messages"][-1]["content"][0]
+                self.assertEqual("tool_result", result["type"])
+                self.assertEqual("call-1", result["tool_use_id"])
+                self.assertEqual({"exit_code": 7, "output": "actual-output"}, json.loads(result["content"]))
+                blocks, stop = [{"type": "text", "text": '{"summary":"done"}'}], "end_turn"
+            else:
+                blocks, stop = original, "tool_use"
+            return 200, {
+                "type": "message",
+                "role": "assistant",
+                "content": blocks,
+                "stop_reason": stop,
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 3,
+                    "cache_read_input_tokens": 5,
+                    "cache_creation_input_tokens": 2,
+                },
+            }
+
+        fixture = HttpFixture(respond)
+        self.addCleanup(fixture.close)
+        value = {**settings(fixture.url, "anthropic"), "api_provider": "claude"}
+        config.save(value, "explicit-key")
+        output = io.StringIO()
+        execute = mock.Mock(return_value=(7, "actual-output"))
+        with contextlib.redirect_stdout(output):
+            runtime.run(value, "explicit-key", "task", "model", "", self.root / "report.json", execute)
+        execute.assert_called_once_with("actual-command")
+        rows = providers.resolve("autocode").normalized_events(
+            [json.loads(line) for line in output.getvalue().splitlines()]
+        )
+        self.assertEqual({"input_tokens": 34, "output_tokens": 6, "cached_input_tokens": 10}, rows[-1]["usage"])
+        self.assertEqual({"summary": "done"}, json.loads((self.root / "report.json").read_text()))
+        self.assertEqual(["/v1/messages"] * 2, fixture.paths)
+        for headers, _ in fixture.requests:
+            self.assertEqual("explicit-key", headers["X-Api-Key"])
+            self.assertEqual("2023-06-01", headers["Anthropic-Version"])
+        self.assertNotIn("signature-value", output.getvalue())
+        with self.assertRaises(transport.TransportError):
+            transport.anthropic(value, "explicit-key", [], runtime.TOOLS, "model", "high")
+        self.assertEqual(2, len(fixture.requests))
+
+    def test_claude_http_errors_and_unsupported_content_fail_closed(self):
+        for status in (401, 403, 429, 307):
+            fixture = HttpFixture(lambda _body: (status, {"error": "fixture-secret"}))
+            try:
+                with self.assertRaises(transport.TransportError) as failure:
+                    transport.anthropic(
+                        settings(fixture.url, "anthropic"), "fixture-secret", [], runtime.TOOLS, "model", ""
+                    )
+                self.assertEqual(status, failure.exception.code)
+                self.assertNotIn("fixture-secret", str(failure.exception))
+                self.assertEqual(1, len(fixture.requests))
+            finally:
+                fixture.close()
+        fixture = HttpFixture(
+            lambda _body: (
+                200,
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "server_tool_use", "id": "unsupported"}],
+                    "stop_reason": "end_turn",
+                },
+            )
+        )
+        self.addCleanup(fixture.close)
+        with self.assertRaises(transport.TransportError):
+            transport.anthropic(settings(fixture.url, "anthropic"), "key", [], runtime.TOOLS, "model", "")
 
     def test_length_and_malformed_tool_stops_never_write_completion_report(self):
         for response in (

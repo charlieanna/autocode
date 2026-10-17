@@ -58,20 +58,13 @@ class DirectProvider(command.CommandProvider):
         }
 
     def check_subscription_routes(self, roles, workspace=None, *, env=None):
-        if self.settings["transport"] == "compatible":
-            connection.api_key()
-        elif connection.describe()["connection_status"] == "sdk_required":
-            raise ValueError("Install AutoCode's bedrock extra before starting a direct Bedrock task")
+        connection.api_key(self.settings)
         # There is no Kilo/OpenCode gateway or billing-route substitution here.
 
     def launch(self, role, workspace, run_dir, session, model, effort, allow_write, *, planning=False, **kwargs):
         argv, env, metadata = super().launch(
             role, workspace, run_dir, None, model, effort, allow_write, planning=planning, **kwargs
         )
-        if self.settings["transport"] == "bedrock" and effort:
-            raise ValueError(
-                "Direct Bedrock uses the selected model's default reasoning; per-role effort overrides are unsupported"
-            )
         if planning:
             argv.append("--planning")
         if allow_write and not planning:

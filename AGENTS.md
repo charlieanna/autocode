@@ -32,7 +32,7 @@ The owner expanded PR #1425 on 2026-10-16 to include sidebar chat, plan
 feedback and follow-ups, reusing Kilo UI components where practical.
 The owner also approved Connections setup: backend selection and delegated
 sign-in through the core connection interface, with credentials owned by the backend.
-Issue #1493 extends that approval to AutoCode-owned direct API/Bedrock setup and
+Issue #1493 extends that approval to AutoCode-owned direct MiMo, Z.ai, OpenAI and Claude API setup and
 a first-party core runtime when no external coding-agent backend is installed.
 The editor still launches only the core CLI and renders its named actions.
 It is a client of the
