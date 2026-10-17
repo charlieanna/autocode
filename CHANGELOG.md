@@ -52,6 +52,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Step 9's decision logic (#1426): an `--auto-select` run saves its permitted set - every qualified, connected
+  candidate for each role, all on accounts the launch already used - under `route_selection.candidates`, and
+  `autocode_route_selector.next_route` answers "where does this role go when its model stopped?" from it:
+  the next cheapest qualified model with every other route pinned, so checker independence holds, and None
+  when nothing remains so the person is asked as before. The recovery-chain wiring that applies the switch
+  automatically on a quota stop is the remaining half of step 9.
 - `--auto-select` (#1426, step 11's flag-gated form): a new run chooses every role's model from the tool's
   connected accounts - discovery, the selector, and the selection-driven access probe all run for real. Per-role
   model flags, `--single-model`, role-provider flags and conversation history still win; a saved run refuses the

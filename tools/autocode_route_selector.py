@@ -191,6 +191,42 @@ def _options(role, candidates, permitted):
     return sorted(usable, key=lambda pair: _rank(*pair))
 
 
+def permitted_set(candidates):
+    """The per-role candidate lists a run saves for recovery (#1426 step 9).
+
+    Every qualified, connected candidate for each role, as discovery found it: the
+    routes a quota stop may switch to without asking, because every account in them
+    was already permitted when the run chose its routes. Selection stores this under
+    ``route_selection["candidates"]``.
+    """
+    return {role: [candidate for candidate, _entry in _options(role, candidates, None)] for role in PIPELINE_ROLES}
+
+
+def next_route(selection, role, stopped_model):
+    """The route a stopped model's role switches to on its own, or None (#1426 step 9).
+
+    Re-selects ``role`` from the saved permitted set minus the stopped model, with
+    every other role pinned to its current route so checker independence holds. The
+    answer never bills an account the run was not already permitted to bill; when no
+    candidate remains the result is None and the person is asked, as before.
+    """
+    saved = (selection or {}).get("candidates") or {}
+    routes = (selection or {}).get("routes") or {}
+    if role not in routes:
+        return None
+    pool = [candidate for candidates in saved.values() for candidate in candidates]
+    stopped = model_identity.identity(stopped_model)
+    alive = [candidate for candidate in pool if model_identity.identity(candidate["model"]) != stopped]
+    pinned = {other: route["model"] for other, route in routes.items() if other != role and route.get("model")}
+    result = select(list(routes), alive, pinned=pinned)
+    if result["stop"] is not None or result["routes"] is None:
+        return None
+    route = result["routes"][role]
+    if route.get("origin") != role_route.AUTO_SELECTED or model_identity.identity(route["model"]) == stopped:
+        return None
+    return route
+
+
 def _clashes(role, model, assigned):
     """Why ``model`` cannot take ``role`` given the routes already assigned, or None."""
     for producer, verifier, label in independence.PAIRS:

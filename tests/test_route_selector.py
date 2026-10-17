@@ -202,3 +202,44 @@ class RouteRecordContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NextRouteTests(unittest.TestCase):
+    """Step 9's decision: the route a stopped model's role switches to on its own (#1426)."""
+
+    def test_a_dead_tester_switches_to_the_next_qualified_independent_model(self):
+        result = selector.select(ALL_ROLES, coding_plans())
+        result["candidates"] = selector.permitted_set(coding_plans())
+        switched = selector.next_route(result, "sol", GLM)
+        self.assertIsNotNone(switched)
+        self.assertEqual(SOL, switched["model"])
+        self.assertEqual("ChatGPT login", switched["account"])
+
+    def test_no_candidate_left_means_ask_not_guess(self):
+        # The Builder died and its only other qualified model is the family its
+        # checkers run on: switching would break independence, so the person is asked.
+        result = selector.select(ALL_ROLES, coding_plans())
+        result["candidates"] = selector.permitted_set(coding_plans())
+        self.assertIsNone(selector.next_route(result, "terra", MIMO))
+        gateway = selector.select(ALL_ROLES, gateway_only())
+        gateway["candidates"] = selector.permitted_set(gateway_only())
+        self.assertIsNone(selector.next_route(gateway, "terra", DEEPSEEK))
+
+    def test_other_roles_keep_their_routes_through_the_switch(self):
+        result = selector.select(ALL_ROLES, coding_plans())
+        result["candidates"] = selector.permitted_set(coding_plans())
+        before = {role: route["model"] for role, route in result["routes"].items()}
+        switched = selector.next_route(result, "sol", GLM)
+        self.assertIsNotNone(switched)
+        # The saved selection itself is not mutated by asking for a next route.
+        self.assertEqual(before, {role: route["model"] for role, route in result["routes"].items()})
+
+    def test_a_selection_without_a_saved_permitted_set_has_no_next_route(self):
+        result = selector.select(ALL_ROLES, coding_plans())
+        self.assertIsNone(selector.next_route(result, "sol", GLM))
+
+    def test_permitted_set_lists_each_roles_qualified_connected_candidates(self):
+        permitted = selector.permitted_set(coding_plans())
+        self.assertEqual({GLM, MIMO}, {c["model"] for c in permitted["terra"]})
+        self.assertEqual({SOL, GLM}, {c["model"] for c in permitted["sol"]})
+        self.assertEqual({ASTRA}, {c["model"] for c in permitted["astra"]})

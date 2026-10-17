@@ -183,6 +183,9 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"], pinned=pinned)
     if result["stop"]:
         raise ValueError(result["stop"])
+    # The permitted set a quota stop may switch within without asking (#1426 step 9):
+    # every qualified, connected candidate, all on accounts this launch already used.
+    result["candidates"] = route_selector.permitted_set(found["candidates"])
     for role, route in result["routes"].items():
         if role in pinned or role not in roles:
             continue
