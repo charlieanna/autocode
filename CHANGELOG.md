@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Isolated verification copies retain the delivered Git commit and its reachable history, so atomic
+  delivery checks inspect the real commit instead of an unrelated synthetic root. Current source
+  changes remain in the copy; original Git configuration, hooks and other refs stay excluded (#1522).
+
 - Chat questions about a reviewed plan now receive an explanation without invalidating its approval
   token. Requirements distinguishes questions from requested changes; changes still need a refreshed
   review and explicit approval (#1522).
