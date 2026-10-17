@@ -2149,6 +2149,38 @@ class CompletePlanningInputTests(unittest.TestCase):
             },
         }
 
+    def test_planning_inspection_constructs_one_catalog_without_dropping_inputs(self):
+        expected = design_inventory.catalog(
+            self.body, self.record["root"], admission=manifest.admitted_scope(self.record)
+        )
+        projected = manifest.planning_context(self.settings, role="requirements")
+        references = {projected[key]["path"]: projected[key]["sha256"] for key in ("body", "catalog")}
+        for operation in ("context", "pins"):
+            with self.subTest(operation=operation), patch.object(
+                design_inventory, "catalog", wraps=design_inventory.catalog
+            ) as build_catalog:
+                if operation == "context":
+                    self.assertEqual(expected, manifest.context(self.settings)["catalog"])
+                else:
+                    pins = manifest.planning_input_pins(self.settings, role="requirements")
+                    self.assertEqual(references, pins)
+                # A deterministic work bound: these callers formerly rebuilt
+                # the complete catalog immediately after verifying it.
+                self.assertEqual(1, build_catalog.call_count)
+
+    def test_each_planning_inspection_reauthenticates_after_an_earlier_success(self):
+        manifest.context(self.settings)
+        manifest.planning_input_pins(self.settings, role="requirements")
+        path = Path(self.record["root"]) / "context.txt"
+        original = path.read_bytes()
+        path.chmod(0o600)
+        path.write_bytes(b"x" * len(original))
+        path.chmod(0o400)
+        with self.assertRaisesRegex(util.Paused, "changed design reference"):
+            manifest.context(self.settings)
+        with self.assertRaisesRegex(ValueError, "changed design reference"):
+            manifest.planning_input_pins(self.settings, role="requirements")
+
     def test_fresh_complete_planning_inputs_reconstruct_full_context(self):
         original = manifest.context(self.settings)
         self.assertEqual("design-inputs-planning-v2", Path(self.record["root"]).parent.name)
