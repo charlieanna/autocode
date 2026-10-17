@@ -178,6 +178,9 @@ When the only pending question is the core's current requirements review,
 A client may display that summary and submit the ordinary named answer action.
 This confirms the understanding and releases plan preparation and review.
 The resulting execution plan still needs its own displayed-token approval.
+The optional `notice` explains a stop or ongoing work in ordinary language;
+chat clients keep diagnostic headings, empty counts and pause categories in
+Run details. A notice never grants an action beyond the view's named command.
 
 `input` is null when free text is not an admitted action. Otherwise it names
 `kind` (`feedback` or `follow_up`), a display `label`, and `next_command` with
