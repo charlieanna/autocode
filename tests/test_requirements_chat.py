@@ -71,6 +71,10 @@ class RequirementsChatTests(unittest.TestCase):
             shown = view.project(state, {"status": "RUNNING", "needs": {"kind": "continue"}}, run_dir=root)
             self.assertTrue(shown["messages"][-1]["streaming"])
             self.assertEqual("Who will use", shown["messages"][-1]["text"])
+            with events.open("a") as target:
+                target.write(json.dumps({"type": "autocode_chat_reply", "reply": "Who will use it?"}) + "\n")
+            shown = view.project(state, {"status": "RUNNING", "needs": {"kind": "continue"}}, run_dir=root)
+            self.assertEqual("Who will use it?", shown["messages"][-1]["text"])
             self.assertEqual("", chat.streaming_reply(state, root / "other-run"))
             state["active_stage"]["stage"] = "astra_challenge"
             self.assertEqual("", chat.streaming_reply(state, root))

@@ -19,11 +19,13 @@ class RequirementsStreamTests(unittest.TestCase):
 import {requirementsStream} from HOOK;
 const h = await requirementsStream();
 await h['chat.message']({sessionID:'current'});
-const update = (id, type, sessionID='current') => h.event({event:{type:'message.part.updated',properties:{part:{id,type,sessionID}}}});
+const update = (id, type, sessionID='current', messageID='answer') => h.event({event:{type:'message.part.updated',properties:{part:{id,type,sessionID,messageID}}}});
 const delta = (partID, delta, sessionID='current') => h.event({event:{type:'message.part.delta',properties:{partID,delta,sessionID,field:'text'}}});
 await update('reason','reasoning'); await delta('reason','private reasoning');
 await update('tool','tool'); await delta('tool','private tool output');
 await update('outside','text','foreign'); await delta('outside','foreign','foreign');
+await update('user','text','current','user'); await delta('user','{"assistant_reply":"private prompt example"}');
+await h.event({event:{type:'message.updated',properties:{info:{id:'answer',sessionID:'current',role:'assistant'}}}});
 await update('text','text');
 await delta('text','{"summary":"private structured field","assistant_reply":"What');
 await delta('text',' would you like?","constraints":["private constraint"]}');

@@ -3,6 +3,7 @@ export async function requirementsStream() {
   let sessionID;
   const parts = new Map();
   const emitted = new Map();
+  const assistants = new Set();
   function publish(id, text) {
     const match = /"assistant_reply"\s*:\s*"/.exec(text);
     if (!match) return;
@@ -24,12 +25,15 @@ export async function requirementsStream() {
     }
   }
   return {
-    'chat.message': async (input) => { sessionID = input.sessionID; parts.clear(); emitted.clear(); },
+    'chat.message': async (input) => { sessionID = input.sessionID; parts.clear(); emitted.clear(); assistants.clear(); },
     event: async ({event}) => {
       const data = event.properties || {};
-      if (event.type === 'message.part.updated') {
+      if (event.type === 'message.updated') {
+        const info = data.info;
+        if (info?.sessionID === sessionID && info.role === 'assistant' && assistants.size < 32) assistants.add(info.id);
+      } else if (event.type === 'message.part.updated') {
         const part = data.part;
-        if (!part || part.sessionID !== sessionID || part.type !== 'text') return;
+        if (!part || part.sessionID !== sessionID || part.type !== 'text' || !assistants.has(part.messageID)) return;
         if (!parts.has(part.id) && parts.size >= 32) return;
         const text = typeof part.text === 'string' ? part.text.slice(0, 262144) : '';
         parts.set(part.id, text); publish(part.id, text);
