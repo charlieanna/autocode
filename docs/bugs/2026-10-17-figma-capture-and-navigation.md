@@ -29,3 +29,29 @@ bundle; its focused tests also reject reference changes after an earlier success
 
 These corrections do not establish visual acceptance. Fresh captures and independent
 inspection of the approved reference and current implementation remain required.
+
+## Native pre-launch validation
+
+The retained native run stopped twice: Planner02 exhausted its900-second cap
+while printing a71KB draft in tool chunks instead of submitting a final report;
+Requirements03 later exhausted its300-second idle cap with an empty provider
+stream. The redacted failure bundle manifest is
+`b3f2e952f56301b40f5bb8d787d0daaaa5877373a675e61a62f70d4e72045257`.
+No partial draft or empty stream is successful evidence.
+
+Process samples showed JSON parsing during launch preparation. The native owner
+reparsed and canonicalized every historical row on each journal read. It now
+reuses that validation only for identical bytes freshly reread by the same
+invocation. Its64MiB raw-byte cache never supplies ownership, path or chain
+authority: lock and namespace checks, safe file reads, sequence/filename/previous
+checks and external evidence pins still run. Values returned from the cache are
+independent copies; changed bytes require the original strict parser, digest
+and canonical-byte validation. The bound does not evict a repeatedly read prefix
+just to retain a new suffix.
+
+A controlled corpus made only from the completed public plan (24 rows,11.9MB,
+12 passes) used1.298 CPU seconds without reuse and0.421 with it, with identical
+row identities. This67.6% reduction measures repeated row validation, not whole
+native launch time. Warm-cache tampering, renamed sequence files and lost locks
+remain refused. Neither this benchmark nor the guard tests establish live image
+acceptance; a repaired immutable runtime still needs actual qualification.

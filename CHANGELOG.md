@@ -34,6 +34,11 @@ PR template asks for an entry here; a change without one is incomplete.
   level. Automatic quota recovery retains and accounts for the stopped attempt before retrying,
   and remembers exhausted alternatives across restarts instead of cycling between them (#1426).
 
+- Native Figma launch validation reuses canonical validation for exact, freshly reread history-row bytes
+  within one invocation. It still checks original locks, namespace, paths, chain order and evidence pins;
+  changed bytes are validated again. This reduces repeated parsing before provider release without
+  extending the saved idle, tool or stage deadlines (#250, #251).
+
 - Figma captures of focused inputs and textareas no longer fail because Playwright's own caret hiding
   changes the DOM. Captures retain the caret's initial behavior while still rejecting application DOM
   changes during screenshots. Used prototype actions now reject missing, null or empty node destinations,

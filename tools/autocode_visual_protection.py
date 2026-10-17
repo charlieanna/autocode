@@ -46,6 +46,7 @@ try:
     from . import autocode_tool_containment as containment
     from . import autocode_util as util
     from . import autocode_verification_copy as copies
+    from . import autocode_verified_json_cache as verified_json_cache
     from . import autocode_visual_acceptance as acceptance
     from . import autocode_visual_checkpoint as checkpoint
     from . import autocode_visual_history as history
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_tool_containment as containment
     import autocode_util as util
     import autocode_verification_copy as copies
+    import autocode_verified_json_cache as verified_json_cache
     import autocode_visual_acceptance as acceptance
     import autocode_visual_checkpoint as checkpoint
     import autocode_visual_history as history
@@ -544,6 +546,7 @@ class NativeProtection:
         self._commits = {}
         self._commit_receipts = {}
         self._last_parent_ack = None
+        self._validated_rows = verified_json_cache.VerifiedJSONCache(self._validated_row)
         self._ownership()
         if not self.root.exists():
             self.root.mkdir(mode=0o700)
@@ -997,24 +1000,34 @@ class NativeProtection:
                 "original retained evidence changed",
             )
 
+    @staticmethod
+    def _validated_row(raw):
+        row = _json(raw)
+        _require(
+            set(row) == {"version", "sequence", "previous", "kind", "body", "id"}
+            and row["version"] == 1
+            and row["kind"] in _KINDS
+            and row["id"] == util.digest({key: value for key, value in row.items() if key != "id"})
+            and _bytes(row) == raw,
+            "journal gap/replacement/noncanonical row",
+        )
+        return row
+
     def _rows(self):
         self._ownership()
         result, previous = [], None
         for path in sorted(self.root.iterdir()):
             match = _ROW.fullmatch(path.name)
             _require(match is not None and path.is_file() and not path.is_symlink(), "unexpected journal member")
+            # Always reread the original safe file. Reuse only byte-identical
+            # canonical validation; never cache paths, ownership or chain facts.
             raw = self._safe(path, file=True).read_bytes()
-            row = _json(raw)
+            row = self._validated_rows.validated(raw)
             _require(
-                set(row) == {"version", "sequence", "previous", "kind", "body", "id"}
-                and row["version"] == 1
-                and row["sequence"] == len(result)
+                row["sequence"] == len(result)
                 and int(match[1]) == row["sequence"]
                 and row["previous"] == previous
-                and row["kind"] in _KINDS
-                and row["id"] == match[2]
-                and row["id"] == util.digest({key: value for key, value in row.items() if key != "id"})
-                and _bytes(row) == raw,
+                and row["id"] == match[2],
                 "journal gap/replacement/noncanonical row",
             )
             result.append(row)
