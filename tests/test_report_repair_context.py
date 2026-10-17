@@ -334,7 +334,13 @@ class DecisionRepairContextTests(unittest.TestCase):
         )
         for stage in roles.ALL_PLANNING_STAGES:
             with self.subTest(stage=stage):
-                self.assertEqual(expected, context.baseline_instruction(stage))
+                instruction = context.baseline_instruction(stage)
+                if stage == "requirements_gather":
+                    self.assertTrue(instruction.startswith(expected))
+                    self.assertIn("requirements_correction_sources", instruction)
+                    self.assertIn("ignored_requirements", instruction)
+                else:
+                    self.assertEqual(expected, instruction)
 
     def test_other_roles_keep_the_execution_history_baseline(self):
         expected = (
