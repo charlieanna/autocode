@@ -20,6 +20,8 @@ npm test
 code .          # then F5 for the Extension Development Host
 ```
 
-`src/core/` holds the CLI-facing logic and imports no VS Code API, so `npm test`
-runs it in-process. `src/` above it is the editor layer: the runs tree, the detail
-panel, and the commands.
+`npm test` runs the CLI-facing helper tests plus controller and registered-command
+regressions with a substituted VS Code host. It also executes the generated webview
+script in jsdom, covering plan approval, polling while typing, and model selection.
+These tests launch no providers. They do not qualify the actual VS Code host or a
+live model route; both remain required before this draft is ready.

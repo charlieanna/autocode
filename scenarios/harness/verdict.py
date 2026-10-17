@@ -13,7 +13,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import evidence_reports
+from . import approval_provenance, evidence_reports, plan_round_trip
 from .oracle import Check
 
 PASS = "PASS"  # AutoCode ended the way the scenario expects and the oracle agrees
@@ -98,12 +98,23 @@ class OracleResult:
 
 def evaluate(scenario, project, run: dict | None = None) -> OracleResult:
     """Run the oracle. Oracles that declare a third parameter also see how the run went
-    (``harness.oracle.run_checks`` documents the shape); in ``check`` mode it is None."""
+    (``harness.oracle.run_checks`` documents the shape); in ``check`` mode it is None. An executed
+    run's checks also hold two postconditions of every completed run, its authenticated evidence
+    report (evidence_reports) and who approved it (approval_provenance), and, for every run that
+    reached a plan approval, that the plan's exported file reads back with its goal hash
+    (plan_round_trip)."""
     try:
         check = scenario.oracle()
         takes_run = len(inspect.signature(check).parameters) >= 3
         results = check(project, scenario, run) if takes_run else check(project, scenario)
-        return OracleResult([*results, *evidence_reports.checks(run)])
+        return OracleResult(
+            [
+                *results,
+                *evidence_reports.checks(run),
+                *approval_provenance.checks(run),
+                *plan_round_trip.checks(run),
+            ]
+        )
     except Exception:
         return OracleResult(error=traceback.format_exc())
 

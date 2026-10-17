@@ -56,3 +56,21 @@ proof, which needs each case's test to fail without the change.
 The status view's `acceptance_tests` field shows the files, the cases and how each test behaved on the
 code before building. The final regression proof (fails without the change, passes with it) is
 unchanged.
+
+## Blind tests (`--blind-tests`)
+
+`--blind-tests` (off by default; implies `--spec-first`) runs the Tester before the Builder starts,
+but isolates the test code from the Builder entirely (#702):
+
+- The Tester writes the tests and the runner verifies them on base code (`test:` criteria must fail;
+  `guard:` must pass).
+- The runner archives the tests in evidence and removes them from the workspace.
+- The Builder gets no prompt note naming the test files, and workspace protection is not applied because the
+  files are not in the workspace. The Builder never sees the test implementation.
+- Before independent validation (`sol`, `astra_checkpoint`) and completion review (`astra_review`),
+  the runner executes the archived tests in a candidate scratch worktree.
+- Any test failure in the candidate scratch tree opens a blocking runner finding (`source="runner"`),
+  preventing completion and appearing in open findings for review. When tests pass on candidate, the finding
+  resolves.
+- The status view's `acceptance_tests` field marks `blind: true`.
+

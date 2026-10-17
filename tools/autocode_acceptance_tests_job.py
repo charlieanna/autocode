@@ -288,4 +288,13 @@ def apply(
             "source_revision": record.get("source_revision"),
         },
     )
+    if acceptance.is_blind(state):
+        for path in files:
+            target = Path(workspace) / path
+            if target.is_file():
+                target.unlink()
+            parent = target.parent
+            while parent != Path(workspace) and parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+                parent = parent.parent
     run_status.running(state, "EXECUTING", next_stage=acceptance.resume_stage(state))

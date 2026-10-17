@@ -82,12 +82,20 @@ export interface Usage {
   unknown_stages?: number;
 }
 
+/** A criterion carries both its verification method and its human-review requirement. */
+export interface AcceptanceCriterion {
+  id: string;
+  criterion: string;
+  verification_method: string;
+  human_review: boolean;
+}
+
 /** The structured approval projection `docs/task-run.md` describes as `displayed_plan`. */
 export interface DisplayedPlan {
   revision?: number;
   hash?: string;
   token?: string;
-  acceptance_criteria?: string[];
+  acceptance_criteria?: AcceptanceCriterion[];
   constraints?: string[];
   permission_boundaries?: string[];
 }
@@ -245,7 +253,17 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
   const plan = view.displayed_plan;
   if (!plan?.token) return null;
   const asked = approvalToken(view);
-  return asked !== null && plan.token === asked ? plan : null;
+  if (asked === null || plan.token !== asked) return null;
+  // A matching token is insufficient if this client cannot display the full
+  // approval projection. Refuse malformed/older shapes instead of hiding terms.
+  if (!Array.isArray(plan.acceptance_criteria) || !plan.acceptance_criteria.every((row) =>
+    row && typeof row.id === "string" && typeof row.criterion === "string"
+      && typeof row.verification_method === "string" && typeof row.human_review === "boolean"
+  )) return null;
+  if (![plan.constraints, plan.permission_boundaries].every((rows) =>
+    Array.isArray(rows) && rows.every((row) => typeof row === "string")
+  )) return null;
+  return plan;
 }
 
 /** Cost so far, in the words the view supports: unknown cost is not zero. */

@@ -69,15 +69,41 @@ settings, with rungs removed that its provider does not offer: the provider's
 published list, and the model list a new run reads for its routes before its
 first model call ([Builder retry policy](#builder-retry-policy) covers the stronger
 attempt). Each
-escalation later records how it ended — a validation PASS `passed`, a
-retry-limit pause `paused` — and `autocode --status` summarizes that as
-`escalation_outcomes`.
+escalation, and each ordinary Builder retry, later records how its struggle ended,
+and `autocode --status` counts those stamps as `escalation_outcomes`. The runner
+stamps every one still open `passed` when the run completes on work a validation
+passed, or when the Completion Reviewer or Resolver assigns the next task while the
+last validation passed, and `paused` at the Builder's retry-limit pause. At that
+assignment it leaves the Builder's own open when the work was sent back since that
+validation, by a retry-policy charge or a correction task (the work failed, and a
+stronger attempt the charge just made has not run yet), or when the run's records do
+not say when that validation's attempt started, so a send-back cannot be ruled out. `autocode --status` also lists
+each escalation as a row of `escalations` (a climb, or the Builder's stronger
+attempt): the job and stage it was for, the route it climbed from and to, what its
+escalated attempts cost, and whether the work then passed, failed again, paused or is
+still running, with one line each on stderr ([status view](task-run.md#status-view)).
+The row judges each escalation by its own work, so read a row's `outcome` for how one
+escalation ended; when its struggle has ended, its stamp agrees. A stamp is the
+struggle's, though: a climb a later climb replaced takes the struggle's end too while
+its row reads `failed_again`, and so does an ordinary retry, which has no row. Before
+the struggle ends the stamp is `open` while the row may already read `passed`;
+completing the run or accepting completion via `--accept-completion` stamps open entries `passed`.
 The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
 are on no ladder: they keep their configured route, and a verifier that keeps
 struggling pauses the run instead. The Builder instead gets its
 [retry policy](#builder-retry-policy)'s one stronger attempt. If you configure the
 Builder on `openai/gpt-6-sol` (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.
+
+Two scripted scenarios check these rows end to end, through `autocode --status --json`
+([catalog](../scenarios/README.md#catalog)). In `escalation-converts` the Builder's stronger
+attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
+Sol XHigh, one attempt with its cost, `passed`, and the run completes; `escalation_outcomes`
+stamps that attempt and the ordinary retry before it `passed` too. In `escalation-ladder-end`
+that attempt fails too: the row reads `paused`, as both stamps do, and the run pauses at
+`PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's diagnosis in its stop reason.
+`scenarios/test_escalation.py` also checks that a `--builder-strong-model` the tool does not
+list refuses the new run before any model call.
 
 The Resolver runs on a route of its own, `resolver`. It starts as a copy of the `astra`
 route, which the per-task Planner (`astra_plan`) runs on; `autocode models` lists that
@@ -126,7 +152,9 @@ that request is priced before it launches, from the role's last attempt's tokens
 climbed route's rate; when that projection would take the spend past the cap, the run
 pauses `PAUSED_COST_LIMIT`, naming the rung and the arithmetic, instead of launching it.
 Under an [active-time budget you set](execution.md#timeouts-and-watchdog) it is timed the same
-way, from the role's last attempt's duration, and pauses `PAUSED_TIME_LIMIT` instead.
+way, from the role's last attempt's duration, and pauses `PAUSED_TIME_LIMIT` instead. A Builder
+climb is also timed against a [milestone budget you set](execution.md#milestone-checkpoints-and-acceptance),
+and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that budget.
 
 > **Note on role names.** The CLI flags keep the older tier names — `--astra-model`
 > (the per-task Planner, and the route the Resolver starts from; see above),
@@ -163,7 +191,8 @@ custom-provider Builder never makes the stronger attempt, so its policy is left 
 A Builder failure whose cause the runner cannot tell from its evidence goes to the
 Investigator to be classified before this policy charges it. A milestone may have as many
 failures classified as this policy takes (its ordinary retries, the stronger attempt or the
-retry in its place, and the failure it pauses on), so classifying never stops a milestone
+retry in its place, the failure it pauses on, and each failure that did not count, see below),
+so classifying never stops a milestone
 before the policy would; the next milestone, or a later turn's new plan, starts its own.
 Classifications do not count toward the run's three stuck-stage investigations
 ([Workflow](workflow.md)), and turning those off (`max_calls_per_run = 0`) turns
@@ -172,11 +201,32 @@ Under a [money cap](execution.md#money-cap) the stronger attempt is priced befor
 from the last Builder attempt's tokens at the stronger model's rate; when that projection would take
 the spend past the cap, the run pauses `PAUSED_COST_LIMIT` with the arithmetic instead of launching it.
 Under an [active-time budget you set](execution.md#timeouts-and-watchdog) it is timed from the last
-Builder attempt's duration, and pauses `PAUSED_TIME_LIMIT` when it would take the run past that budget.
+Builder attempt's duration, and pauses `PAUSED_TIME_LIMIT` when it would take the run past that budget,
+or `PAUSED_MILESTONE_BUDGET` when it would take the milestone past a
+[milestone budget you set](execution.md#milestone-checkpoints-and-acceptance).
 Explicit model pins and custom providers are never overridden. Existing saved runs
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses
 are not automatically retried by this policy.
+
+Each charged failure is checked against the milestone's earlier ones (its evidence ledger,
+`tools/autocode_evidence_ledger.py`). A failure's items are the checks that exited nonzero, the
+criteria not met and the open blocking findings in the latest validation and review; its signature
+is those items with the files the Builder changed.
+
+- **A repeat**, a failure with the signature of an earlier one, has no new evidence, so it skips the
+  remaining ordinary retries. It goes straight to the stronger attempt, or pauses once that is spent
+  or the run has none. The stop reason then says the last failure repeated an earlier one.
+- **Progress**, a failure whose earlier failing items are all resolved (each check exits 0, each
+  criterion passes, each finding is closed) and that fails only on new items, does not count toward
+  the limit. The Builder retries on the route it has now, and a pause stays a pause. A run that keeps
+  finding new problems is still bounded by its milestone time budget, the stalled-review limit, the
+  iteration limit and any money cap.
+- **Anything else**, including a failure with no failing items, counts as before.
+
+Each decision in `builder_retry_decisions` records which of these it was as `novelty` (`new`,
+`repeat` or `progress`). A failure saved before the ledger existed has no signature, so the next
+failure cannot count as progress.
 
 The stronger attempt must not be checked by its own model. The rule is the cross-model
 guard's (`tools/autocode_verifier_independence.py`), so its families count: when the Tester or

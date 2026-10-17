@@ -11,6 +11,8 @@ either conflicts or the design's binding decisions. The runner then:
   rejects the report (autocode_test_cases.run_probes),
 - on conflicts: writes them to ``<design>.blockers.json`` beside the design and
   STOPS the run (``PAUSED_DESIGN_CONFLICT``). No Builder runs; the user decides,
+- a later check of the same design that finds no conflicts removes that file,
+  so no stale one is left behind,
 - otherwise: saves the design's binding decisions as ``state["design_constraint"]``
   and continues straight to the Planner. Requirements gathering is skipped because
   the approved design already is the requirements, and the Planner is told the
@@ -34,8 +36,10 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_prompts as prompts
+    from . import autocode_util as util
 except ImportError:
     import autocode_prompts as prompts
+    import autocode_util as util
 
 
 import json
@@ -117,6 +121,23 @@ def blockers_path(design_document: str) -> str:
     return Path(design_document).with_suffix(".blockers.json").as_posix()
 
 
+def _remove_blockers(state: RunState, workspace) -> None:
+    """Remove the blockers file an earlier, stopped check of this run wrote: a check that passes leaves
+    no stale one behind. Only what the run itself recorded writing (``design_check.blockers``) is
+    removed, never a symlink, and a failure is left for the package check to report."""
+    previous = state.get("design_check")
+    target = previous.get("blockers") if isinstance(previous, dict) else None
+    if not (isinstance(target, str) and target.strip()):
+        return
+    path = Path(workspace) / target
+    try:
+        if path.is_symlink() or not path.is_file():
+            return
+        path.unlink()
+    except OSError:
+        pass
+
+
 def check(state: RunState, value: dict, changed_files, workspace) -> None:
     stray = stage_access.stray(STAGE, changed_files)
     if stray:
@@ -152,6 +173,8 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None)
         key="design_says",
     )
     design = value["design_document"].strip()
+    if not value["conflicts"]:
+        _remove_blockers(state, workspace)
     state["design_check"] = {
         "design_document": design,
         "conflicts": len(value["conflicts"]),
@@ -171,6 +194,7 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None)
             + "\n"
         )
         state["design_check"]["blockers"] = target
+        state["design_check"]["blockers_sha256"] = util.file_hash(path)
         run_status.pause(
             state,
             STOP_STATUS,

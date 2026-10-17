@@ -33,7 +33,6 @@ tool is test infrastructure, not a way to clear native-Codex live coverage.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -192,7 +191,7 @@ def _receipt(path: Path, value: dict) -> None:
     line = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
     lock_path = path.with_name(path.name + ".lock")
     with lock_path.open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        util.lock_file(lock, blocking=True)
         old = path.read_bytes() if path.exists() else b""
         fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
         try:

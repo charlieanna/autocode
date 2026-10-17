@@ -8,7 +8,7 @@
 
 import * as vscode from "vscode";
 import { ClientGap, leavesForPerson } from "./core/next-command";
-import type { Question, StatusView } from "./core/view";
+import type { AcceptanceCriterion, Question, StatusView } from "./core/view";
 import { approvalToken, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 
@@ -45,12 +45,14 @@ export interface PanelState {
   problems: { id: string; finding: string; severity: string; blocking: boolean }[];
   criteria: { id: string; criterion: string }[];
   decisions: Decision[];
+  /** Draft answers belong to this request and these questions, not just their IDs. */
+  decisionContext: string;
   gap: string | null;
   commandText: string;
   personOnly: boolean;
   taking: boolean;
   /** The plan the current token asks to approve, only when the view shows it. */
-  plan: { revision: number | null; criteria: string[]; constraints: string[]; boundaries: string[] } | null;
+  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
@@ -250,6 +252,10 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     })),
     criteria: (need?.criteria ?? []).map((row) => ({ id: row.id, criterion: row.criterion ?? "" })),
     decisions,
+    decisionContext: JSON.stringify([
+      run.workspace, run.runDir, view.current_task?.id, view.turn, need?.kind,
+      need?.request_id, need?.resolver_token, need?.token, need?.route, decisions,
+    ]),
     gap,
     commandText: safeCommandText(view, run, controller),
     personOnly: leavesForPerson(need),
@@ -323,6 +329,7 @@ function emptyState(run: RunRef): PanelState {
     problems: [],
     criteria: [],
     decisions: [],
+    decisionContext: "",
     commandText: "",
     personOnly: false,
     taking: false,
@@ -391,6 +398,8 @@ function html(): string {
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 let current = null;
+let answers = Object.create(null);
+let renderedState = '';
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -414,6 +423,15 @@ function stateRow(item) {
 }
 
 function render(state) {
+  const serialized = JSON.stringify(state);
+  if (serialized === renderedState) return;
+  renderedState = serialized;
+  const sameRequest = current && current.decisionContext === state.decisionContext;
+  const focused = document.activeElement;
+  const focusedQuestion = sameRequest && focused && focused.dataset.question;
+  const selection = focusedQuestion && focused.tagName === 'INPUT'
+    ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
+  if (!sameRequest) answers = Object.create(null);
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
@@ -475,7 +493,18 @@ function render(state) {
       state.plan.criteria.length + ' acceptance criteria  ·  '
       + state.plan.constraints.length + ' constraints  ·  '
       + state.plan.boundaries.length + ' permission boundaries'));
-    state.plan.criteria.forEach((text) => app.appendChild(el('div', 'row', text)));
+    state.plan.criteria.forEach((criterion) => {
+      const item = el('div', 'decision');
+      item.appendChild(el('div', 'q', criterion.id + ': ' + criterion.criterion));
+      item.appendChild(el('div', 'why', 'Verification:'));
+      item.appendChild(el('pre', null, criterion.verification_method));
+      item.appendChild(el('div', 'why', 'Human review: ' + (criterion.human_review ? 'required' : 'not required')));
+      app.appendChild(item);
+    });
+    if (state.plan.constraints.length) {
+      app.appendChild(el('h2', null, 'Constraints'));
+      state.plan.constraints.forEach((text) => app.appendChild(el('div', 'row', text)));
+    }
     if (state.plan.boundaries.length) {
       app.appendChild(el('h2', null, 'What it may do'));
       state.plan.boundaries.forEach((text) => app.appendChild(el('div', 'row', text)));
@@ -502,7 +531,6 @@ function render(state) {
       const box = el('div', 'decision');
       box.appendChild(el('div', 'q', decision.text));
       if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
-      const answers = (current.answers) || {};
       const name = decision.questionId;
       let input;
       if (decision.options.length > 0) {
@@ -524,8 +552,9 @@ function render(state) {
       }
       input.dataset.question = name;
       if (answers[name]) input.value = answers[name];
-      input.addEventListener('change', () => { current.answers = current.answers || {}; current.answers[name] = input.value; });
-      input.addEventListener('input', () => { current.answers = current.answers || {}; current.answers[name] = input.value; });
+      const save = () => { answers[name] = input.value; updateActionButton(); };
+      input.addEventListener('change', save);
+      input.addEventListener('input', save);
       box.appendChild(input);
       form.appendChild(box);
     });
@@ -535,16 +564,16 @@ function render(state) {
     var approving = state.needKind === 'approve_plan';
     var label = state.taking ? 'Taking…' : (approving ? 'Approve this plan' : (state.needKind === 'review' ? 'Accept the reviewed criteria' : 'Take the named action'));
     const take = el('button', null, label);
-    var needsModel = state.decisions.some((d) => d.kind === 'model' && !(current.answers || {})[d.questionId]);
-    take.disabled = state.taking || needsModel || !state.canApprove;
+    take.id = 'take-action';
     take.addEventListener('click', () => {
-      vscode.postMessage({ type: 'take', answers: current.answers || {}, token: state.token || null });
+      vscode.postMessage({ type: 'take', answers: { ...answers }, token: state.token || null });
     });
     actions.appendChild(take);
     const again = el('button', 'secondary', 'Refresh');
     again.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
     actions.appendChild(again);
     app.appendChild(actions);
+    updateActionButton();
 
     if (!state.canApprove && state.needKind === 'approve_plan') {
       const notice = el('div', 'notice');
@@ -565,6 +594,20 @@ function render(state) {
     app.appendChild(el('h2', null, 'Command the view named'));
     app.appendChild(el('pre', null, state.commandText));
   }
+  if (focusedQuestion) {
+    const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
+    if (input) {
+      input.focus();
+      if (selection && input.tagName === 'INPUT') input.setSelectionRange(...selection);
+    }
+  }
+}
+
+function updateActionButton() {
+  const take = document.getElementById('take-action');
+  if (!take || !current) return;
+  const missing = current.decisions.some((decision) => !(answers[decision.questionId] || '').trim());
+  take.disabled = current.taking || missing || !current.canApprove;
 }
 
 window.addEventListener('message', (event) => {

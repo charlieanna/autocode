@@ -1,0 +1,22 @@
+title = "The Builder's stronger attempt fails too, and the run pauses at the ladder's end"
+category = "feature"
+brief_from = "completion-rework-direct"
+# Issue #612: an escalation that ends in a pause. The greeting fix of completion-rework-direct, where every
+# Builder attempt keeps the seed's defect, the stronger one included (harness/escalation_provider.py). After
+# one ordinary retry and the stronger attempt the retry policy has no rung left: the run pauses
+# (PAUSED_BUILDER_RETRY_LIMIT) instead of claiming completion or launching anything more. With a run the
+# oracle judges that stop and the status view's `escalations` row (one attempt, its cost, `paused`), never the
+# undelivered fix. No broken/ overlay: the scripted Builder never applies the solution, so an overlay would
+# run exactly as the reference does and the lying matrix would judge it PASS. escalation-converts' broken
+# overlay reaches this same pause. Under a live profile the fault is not injected, so a live Builder that
+# fixes the greeting completes the run, which this scenario judges FALSE_COMPLETE.
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+fault = "escalation_exhausted"
+
+[run]
+expected = "stop"
+requires_stages = ["terra", "sol", "astra_review"]
+timeout_minutes = 10
+max_steps = 24

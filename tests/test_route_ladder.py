@@ -266,6 +266,42 @@ class ServeTests(unittest.TestCase):
         settings = route_ladder.serve(self.settings(strong="gpt-6-sol"), self.OFFERED)
         self.assertEqual("gpt-6-sol", settings["builder_retry"]["strong_model"])
 
+    def test_serve_filters_only_specified_roles_and_preserves_other_ladders(self):
+        settings = self.settings()
+        # The provider offers none of the models on any effort ladder:
+        # when roles={"sol"} is specified, only sol's ladder is filtered (emptied).
+        # resolver, terra, and completion ladders are preserved.
+        served = route_ladder.serve(settings, ["some-custom-model"], roles={"sol"})
+        self.assertEqual([], served["route_ladders"]["effort"]["sol"])
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["terra"]],
+            served["route_ladders"]["effort"]["terra"],
+        )
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["completion"]],
+            served["route_ladders"]["effort"]["completion"],
+        )
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["resolver"]],
+            served["route_ladders"]["effort"]["resolver"],
+        )
+
+    def test_serve_maps_astra_to_resolver(self):
+        settings = self.settings()
+        served = route_ladder.serve(settings, ["some-custom-model"], roles={"astra"})
+        self.assertEqual([], served["route_ladders"]["effort"]["resolver"])
+        self.assertEqual(
+            [list(rung) for rung in route_ladder.EFFORT_LADDERS["sol"]],
+            served["route_ladders"]["effort"]["sol"],
+        )
+
+    def test_serve_leaves_builder_retry_untouched_when_terra_not_in_roles(self):
+        settings = self.settings()
+        expected = copy.deepcopy(settings["builder_retry"])
+        # Provider offers neither strong_model nor checker_model, but terra is not in roles:
+        served = route_ladder.serve(settings, ["some-custom-model"], roles={"sol"}, named_strong="openai/gpt-6-sol")
+        self.assertEqual(expected, served["builder_retry"])
+
 
 class OutcomeTests(unittest.TestCase):
     def state(self):
@@ -318,6 +354,79 @@ class OutcomeTests(unittest.TestCase):
         self.assertEqual("paused", state["reasoning_escalations"][0]["outcome"])
         self.assertEqual("paused", state["builder_retry_decisions"][0]["outcome"])
         self.assertNotIn("outcome", state["builder_retry_decisions"][1])
+
+
+class PassStampTests(unittest.TestCase):
+    """record_pass: the runner's `passed` stamp where the next task is assigned on a validation PASS (#612)."""
+
+    PASSED = "2026-10-16T10:00:00+00:00"  # when the Tester attempt that passed the work started
+
+    def state(self, **change):
+        state = {
+            "stages": [{"stage": "sol", "output": "sol-02.json", "started_at": self.PASSED}],
+            "validation": {"verdict": "PASS", "output": "sol-02.json"},
+            "reasoning_escalations": [{"role": "sol", "trigger": "validation_rework"}],
+            "builder_retry_decisions": [{"action": "retry", "at": "2026-10-16T09:30:00+00:00"}],
+            "current_task": {
+                "id": "t3",
+                "kind": "implement",
+                "decision": "CONTINUE",
+                "assigned_at": "2026-10-16T10:09:00+00:00",
+            },
+        }
+        return {**state, **change}
+
+    def stamped(self, state):
+        route_ladder.record_pass(state)
+        return [
+            row.get("outcome", "open") for row in (*state["reasoning_escalations"], *state["builder_retry_decisions"])
+        ]
+
+    def test_work_the_run_moves_on_from_stamps_every_open_escalation(self):
+        self.assertEqual(["passed", "passed"], self.stamped(self.state()))
+
+    def test_work_sent_back_since_the_pass_leaves_the_builders_own_open(self):
+        sent_back = {
+            "a stronger attempt charged on the review": self.state(
+                builder_retry_decisions=[
+                    {"action": "retry", "at": "2026-10-16T09:30:00+00:00"},
+                    {"action": "escalate", "at": "2026-10-16T10:05:00+00:00"},
+                ]
+            ),
+            "a correction task": self.state(
+                current_task={"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:09:00+00:00"}
+            ),
+            "a correction task since archived for the next task": self.state(
+                task_archive=[{"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:05:00+00:00"}]
+            ),
+            "a Builder climb and a correction task": self.state(
+                reasoning_escalations=[{"role": "sol"}, {"role": "terra"}],
+                current_task={"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T10:09:00+00:00"},
+            ),
+        }
+        for case, state in sent_back.items():
+            with self.subTest(case):
+                outcomes = self.stamped(state)
+                # The Tester's own climb passed its validation, as before; the Builder's work did not pass.
+                self.assertEqual("passed", outcomes[0])
+                self.assertEqual({"open"}, set(outcomes[1:]))
+                self.assertTrue(route_ladder.sent_back(state))
+
+    def test_a_charge_or_correction_before_the_pass_is_not_a_send_back(self):
+        state = self.state(
+            builder_retry_decisions=[
+                {"action": "retry", "at": "2026-10-16T09:30:00+00:00"},
+                {"action": "escalate", "at": "2026-10-16T09:50:00+00:00"},
+            ],
+            task_archive=[{"kind": "implement", "decision": "REWORK", "assigned_at": "2026-10-16T09:51:00+00:00"}],
+        )
+        self.assertFalse(route_ladder.sent_back(state))
+        self.assertEqual(["passed", "passed", "passed"], self.stamped(state))
+
+    def test_an_unknown_pass_leaves_the_builders_own_open(self):
+        for case, stages in {"no record of it": [], "no start": [{"output": "sol-02.json"}]}.items():
+            with self.subTest(case):
+                self.assertEqual(["passed", "open"], self.stamped(self.state(stages=stages)))
 
 
 if __name__ == "__main__":

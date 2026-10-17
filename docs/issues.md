@@ -9,8 +9,10 @@ changes nothing about how a run plans, builds or completes.
 
 It never makes a decision that belongs to you. Approving the plan, answering
 questions, accepting reviews and resuming pauses stay with you; the tool prints
-the exact command for each. It refuses to prepare a pull request from a run that
-has not completed. Nothing is pushed unless you pass `--open`.
+the exact command for each. It refuses to prepare the change's pull request from
+a run that has not completed. Nothing is pushed unless you pass `--open`. On a
+team, it can also put the plan in a pull request for review before anything is
+built ([below](#reviewing-the-plan-in-a-pull-request)).
 
 ## Walkthrough
 
@@ -52,6 +54,8 @@ filled in.
 | brief | The issue's title, URL, labels, description and up to 30 of its newest comments. The description and comments are quoted and marked as the reporter's words, not instructions. The brief adds no requirements of its own. AutoCode's requirements stage traces every requirement to the issue text or your `--note`. |
 | `pr` | Refuses unless the run is complete and its canonical evidence report is current. Checks that report before staging or committing. Commits every change except `.autocode/` on the issue branch. Writes the PR body to `.autocode/issues/OWNER-REPO-N-pr.md`. |
 | `pr --open` | Pushes the branch to `--remote` and opens a draft pull request against the branch that was current at `start` (override with `--base`). If `--remote` is a fork, the head is `FORK-OWNER:branch`. `--ready` opens it ready for review instead of as a draft. |
+| `plan` | Refuses unless the run is waiting for its plan to be approved. Exports that plan as a plan file and commits it, as the only change, on branch `autocode/issue-N-<title>-plan` made from the run's base commit (after a merged plan pull request, on `-plan-2` from the base branch). Writes that pull request's body to `.autocode/issues/OWNER-REPO-N-plan-pr.md`. See [Reviewing the plan in a pull request](#reviewing-the-plan-in-a-pull-request). |
+| `plan --open` | Pushes that branch and opens a draft pull request with the same base, fork and `--ready` rules as `pr --open`. |
 
 The PR body says `Resolves OWNER/REPO#N` and includes the run's exact canonical
 `evidence.md`, with the issue wrapper and diffstat. The paired `evidence.json`
@@ -61,8 +65,8 @@ and `evidence.md` live in the run directory. They report what AutoCode recorded:
 - each acceptance criterion with its result and evidence
 - for bug fixes, the runner's fail-before/pass-after regression proof
 - the review findings and their status
-- for a build, bug fix or design, who approved the plan and each review, edited the plan or
-  resumed a pause, with the Git identity, host, command and any `--as` name recorded for each,
+- for a build, bug fix or design, who approved the plan and each review, accepted completion,
+  edited the plan or resumed a pause, with the Git identity, host, command and any `--as` name recorded for each,
   none of it verified ([Who approved](execution.md#who-approved)). A report written before
   AutoCode listed approvals has no such section, and neither does a pull request body built
   from it, until AutoCode saves the completed run again; reading its status does not.
@@ -76,6 +80,68 @@ authenticates the saved pair against the current run and source before delivery.
 A missing, changed or stale pair must be repaired/revalidated in the owned run;
 preparing the PR does not silently regenerate evidence. A passed completion
 gate is evidence for review, not proof of correctness.
+
+## Reviewing the plan in a pull request
+
+On a team, what will be built is worth reviewing before AutoCode builds it. When
+`start` or `continue` stops with the plan waiting for approval, put it in a pull
+request instead of approving it at once:
+
+```sh
+autocode-issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
+autocode-issue plan #812 --open                # push that branch and open a draft pull request
+```
+
+- **What it commits.** The plan is exported as `autocode plan --export` writes
+  it, through the task-run interface. It is committed as one file on branch
+  `autocode/issue-N-<title>-plan`, made from the commit the run started from.
+  The commit is built without a checkout: your checkout, the issue's worktree
+  and the run do not change, and nothing is approved. `--path PATH` puts the file
+  elsewhere in the repository, as a path from its top level, never under
+  `.autocode/`.
+- **The pull request.** Its title is `Plan: TITLE (#N)`, and its body gives the
+  plan revision and the file's goal hash, says how to edit the file, and says
+  that merging approves nothing. The run's directory is named, not its path on
+  your machine. If the export masked credential-shaped text, the body says so:
+  the run refuses the file until those values are restored.
+- **A changed plan.** While the pull request is open, run `plan` again after the
+  run's plan changes, for example after `--feedback`. The new plan is committed on
+  top of the branch, so the same pull request shows the change. An unchanged plan
+  reuses the commit. It never replaces commits it did not make: if the branch
+  moved, it refuses, and if reviewers pushed edits to the pull request, the push
+  is refused. A branch deleted here holds nothing to replace, so `plan` makes it
+  again at its last plan commit. A merged plan pull request is never reused (see
+  below).
+
+Reviewers edit the file in the pull request as
+[Reviewing a plan in a pull request](workflow.md#reviewing-a-plan-in-a-pull-request)
+describes. Merging it approves nothing. Once `plan --open` has opened it,
+`status` prints its URL and the command that loads the merged file into the
+issue's run, to run once it is merged and pulled into your checkout; loading and
+approving stay with you:
+
+```sh
+autocode --goal-file /path/to/project/plans/issue-812.md --workspace WT --run-dir RUN
+autocode-issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
+autocode --approve-goal TOKEN --workspace WT --run-dir RUN
+```
+
+The approval stop names the file and its goal hash. The merged file goes back
+into the run that drafted the plan; starting a new run from it is not available
+yet ([A team's plan review](workflow.md#a-teams-plan-review)).
+
+`autocode-issue` counts the pull request as merged once the base branch, here or
+as last fetched from the remote (`plan` fetches it first once it has committed a
+plan, with or without `--open`), holds a different file at its path than the plan
+branch started from, whatever the merge method, and whether or not the plan
+branch was deleted with it (`gh pr merge --delete-branch` deletes it here too).
+Until the run's plan moves past the one the merged pull request carried, `plan`
+refuses and pushes nothing, and `status` prints the `--goal-file` command. After
+that, for example once the Plan Reviewer revised the loaded plan, `status` stops
+printing it: loading the file again would replace the newer plan. To have the
+changed plan reviewed again, `plan` starts a new pull request, on branch
+`autocode/issue-N-<title>-plan-2` (then `-plan-3`) made from the base branch
+that holds the merged file, so it shows only what changed since.
 
 ## Credentials
 

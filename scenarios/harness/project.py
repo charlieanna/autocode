@@ -9,6 +9,11 @@ from pathlib import Path
 from .oracle import IGNORED
 
 GIT_IDENTITY = ["-c", "user.name=Scenario", "-c", "user.email=scenario@example.test"]
+# The person at the terminal. Every scenario project configures this Git identity, so AutoCode records it as who
+# approved (#722) and harness.approval_provenance requires exactly it. It is not the seed's author, so a record
+# that named the last commit's author instead of the configured identity would not pass.
+PERSON_NAME = "Scenario Person"
+PERSON_EMAIL = "person@scenario.example.test"
 # A commit starts `git maintenance run --auto --detach`. On Git 2.55 it can repack while a copy or a
 # cleanup walks .git (docs/bugs/git-background-repack-cleanup-race.md).
 NO_MAINTENANCE = ["-c", "maintenance.auto=false", "-c", "gc.auto=0"]
@@ -30,12 +35,15 @@ def without_maintenance(project: Path) -> Path:
 
 def materialize(seed: Path, project: Path, *overlays: Path, npm_setup: bool = False) -> Path:
     """Copy and commit the seed, then lay overlays on top without committing them. The seed commit
-    starts no background maintenance; the project's own Git configuration is left alone."""
+    starts no background maintenance. The only setting added to the project's own Git configuration
+    is the person's identity (PERSON_NAME, PERSON_EMAIL), which AutoCode records for each approval."""
     if seed.is_dir():
         shutil.copytree(seed, project, ignore=IGNORED)
     else:
         project.mkdir(parents=True)
     git(project, "init", "-q", "-b", "main")
+    git(project, "config", "user.name", PERSON_NAME)
+    git(project, "config", "user.email", PERSON_EMAIL)
     git(project, "add", "-A")
     git(project, *NO_MAINTENANCE, "commit", "-q", "--allow-empty", "-m", "Scenario seed")
     for overlay in overlays:

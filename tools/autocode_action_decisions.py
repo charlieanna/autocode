@@ -25,6 +25,7 @@ import copy
 import sys
 
 try:
+    from . import autocode_acceptance_tests as acceptance
     from . import autocode_answer_output as answer_output
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_conversation_policy as conversation_policy
@@ -33,6 +34,7 @@ try:
     from . import autocode_goal_file as goal_file
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
+    from . import autocode_package_writes as package_writes
     from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_command as pause_command
     from . import autocode_planning as planning
@@ -48,6 +50,7 @@ try:
     from . import autopilot
     from .autocode_action_resolver import OPERATIONAL_NOT_ANSWER
 except ImportError:
+    import autocode_acceptance_tests as acceptance
     import autocode_answer_output as answer_output
     import autocode_approval_provenance as approval_provenance
     import autocode_conversation_policy as conversation_policy
@@ -56,6 +59,7 @@ except ImportError:
     import autocode_goal_file as goal_file
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_package_writes as package_writes
     import autocode_pause_authority as pause_authority
     import autocode_pause_command as pause_command
     import autocode_planning as planning
@@ -346,6 +350,12 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 )
             if args.accept_completion:
                 runner.accept_completion(candidate, workspace, run_dir=run_dir)
+                # No judging dispatch precedes it, so a package run's check runs here, once its own guards
+                # (a finished run, recorded checks, an unapproved goal, missing evidence) have spoken:
+                # closing the finding with --close-finding accepts nothing (#711). A refusal discards the
+                # candidate, completion included.
+                package_writes.refuse(candidate, workspace)
+                acceptance.refuse(candidate, workspace, run_dir=run_dir)
             if args.close_finding:
                 finding_close.close(
                     candidate,

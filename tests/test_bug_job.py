@@ -435,6 +435,25 @@ class ApplyTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "inside the repository"):
                 self.apply(diagnosis(affected_paths=[path]))
 
+    def test_a_package_run_refuses_a_diagnosis_that_names_files_outside_its_package(self):
+        # #711: the handoff names the package (tests.test_package_investigator_cli); the note stays under docs/bugs/.
+        workspace = tempfile.mkdtemp()
+        state = state_for(workspace)
+        state["settings"]["package"] = "packages/api"
+        record = {"changed_files": [], "output": "/run/investigate_bug-01.json"}
+        for affected, tests in (
+            (["packages/web/client.py"], ["packages/api/tests/"]),
+            (["packages/api/client.py"], ["tests/test_client.py"]),
+            (["packages/api-v2/client.py"], ["packages/api"]),
+        ):
+            with self.subTest(affected=affected, tests=tests):
+                with self.assertRaisesRegex(ValueError, r"This run works in the package packages/api/ \(--package\)"):
+                    bug_job.apply(state, diagnosis(affected_paths=affected, test_paths=tests), record, workspace)
+        self.assertFalse((Path(workspace) / "docs/bugs/duplicate-renew.json").exists())
+        inside = diagnosis(affected_paths=["./packages/api/client.py"], test_paths=["packages/api/", "packages/api"])
+        bug_job.apply(state, inside, record, workspace)
+        self.assertTrue((Path(workspace) / "docs/bugs/duplicate-renew.json").is_file())
+
 
 class SmallCorrectionTests(unittest.TestCase):
     """A small reproduced bug becomes one Builder task, approved by the recorded policy, not the user.

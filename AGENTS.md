@@ -1,7 +1,7 @@
 # Working on AutoCode
 
 Rules for anyone changing this repository, human or agent. They exist because
-the code grew faster than its structure: much of `tools/` sits in import
+the code grew faster than its structure: much of `tools/` sat in import
 cycles, and three naming schemes describe the same roles. The goal right
 now is to make the existing workflow dependable and the code easier to change,
 not to add surface area. See `RELIABILITY.md` for product priorities.
@@ -14,19 +14,21 @@ not to add surface area. See `RELIABILITY.md` for product priorities.
 | `tests/test_*.py` | Unit and integration tests (`unittest`). `tests/__init__.py` puts `tools/` on `sys.path`, so tests import runtime modules by their top-level names (`import autopilot`, `from units import autoreview`). |
 | `scenarios/` | End-to-end scenario harness and catalog. Black box: it drives the CLI and never imports `tools/`. |
 | `test-scenarios/` | Older fault-injection suite (crash/resume, budgets, dirty workspaces) against a fake Codex. |
-| `tools/dashboard/`, `macos-app/` | Browser dashboard and native macOS host. Frozen: bug fixes only. |
+| `tools/dashboard/`, `macos-app/` | Browser dashboard and native macOS host: clients of the core. |
 | `vscode-extension/` | VS Code thin client. The `autocode` CLI and the status view, nothing else. |
 | `docs/` | User documentation. |
 
-**Frozen since 2026-09-26: the browser dashboard (`tools/dashboard/`) and the
-macOS app (`macos-app/`).** Bug fixes only, no new features, until the core is
-consolidated. Their tests stay in the suite gate. The installed macOS app runs
-the dashboard straight from this checkout, so a change that breaks the dashboard
-breaks the app. The core must not import the dashboard.
+**The browser dashboard (`tools/dashboard/`) and the macOS app (`macos-app/`)
+are open for features again** (owner decision, 2026-10-16; they were frozen from
+2026-09-26). New client work follows #730: the core exposes what a client needs
+through the task-run interface (`docs/task-run.md`) first, and the client renders
+it and runs the actions the status view names. Their tests stay in the suite
+gate. The installed macOS app runs the dashboard straight from this checkout, so
+a change that breaks the dashboard breaks the app. The core must not import the
+dashboard.
 
-**Narrow exception, decided 2026-10-15 for #884: one new thin client is allowed,
-in `vscode-extension/`.** The freeze is about the two existing UIs, not about the
-client shape roadmap #1006 asks for. It is a client of the
+**VS Code client, approved 2026-10-15 for #884, in `vscode-extension/`.**
+It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:
 
 - it starts `autocode` as an argument array with no shell, and reads only
@@ -41,8 +43,7 @@ client shape roadmap #1006 asks for. It is a client of the
 - it never launches a model on its own, and binds an approval to the plan token
   it displayed, so it cannot approve a plan nobody read.
 
-The dashboard and the macOS app stay frozen. A second new client, or growth
-beyond that contract, needs the owner's decision again.
+A second new client, or growth beyond that contract, needs the owner's decision again.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports
 were archived at tag `archive/pre-restructure-2026-09-26`
@@ -56,17 +57,15 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    Review responsibilities and dependency direction. A new CLI flag's action
    goes in the `autocode_action_*` step for its family (`autocode_run_actions.STEPS`),
    not in `handle()`.
-2. **Do not join an import cycle.** 6 modules are in one (listed in
-   `tests/test_architecture.py`): the goal lifecycle, workflow, the planning
-   unit and the stage context around them. `autocode.py`, `autopilot`, `autocode_goals`
-   (the contract; the steps that act on it are in `autocode_goal_lifecycle`)
-   and `autocode_support` (the completion gate is `autocode_completion`, the
-   stage prompt `autocode_stage_context`) are no longer in one. A new module
-   must depend only on lower-level modules, never on `autocode`, `autopilot` or
-   anything in a cycle. Pass what you need as arguments instead. The shared
-   helpers (clock, hashing, JSON files, locks, snapshots, schemas) are in
-   `autocode_util`, which imports nothing from AutoCode. Removing a module from
-   the cycles is progress: take it off the list (the test says when).
+2. **Do not create an import cycle.** No module is in one now (`TANGLED` in
+   `tests/test_architecture.py` is empty since #695), and that test fails on a
+   new one. `autocode_goals` is the contract; the steps that act on it are in
+   `autocode_goal_lifecycle`. `autocode_support` no longer holds the completion
+   gate (`autocode_completion`) or the stage prompt (`autocode_stage_context`).
+   A new module must depend only on lower-level modules, never on `autocode`,
+   `autopilot` or the planning unit. Pass what you need as arguments instead.
+   The shared helpers (clock, hashing, JSON files, locks, snapshots, schemas)
+   are in `autocode_util`, which imports nothing from AutoCode.
 3. **Target layering**, from the bottom: utilities (files, hashing, locking,
    schemas) → domain (contract, findings, milestones, completion gate; pure
    functions over state) → runtime (processes, providers) → controller
@@ -208,8 +207,7 @@ A break only a slow module catches can
 therefore first show up on master: fix it forward straight away. Making a slow test fast (in-process instead of a CLI
 subprocess, a copied Git fixture instead of `git init`, a fake clock instead
 of a wait) and taking it off the slow list is progress. Run the full suite yourself only when you change something many
-modules share. Every module taken out of the import cycle makes `--changed`
-more precise.
+modules share.
 
 Where a new test belongs:
 

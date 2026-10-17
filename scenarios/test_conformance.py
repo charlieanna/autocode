@@ -84,6 +84,75 @@ class ClientDecisionTests(unittest.TestCase):
         with self.assertRaisesRegex(ConformanceGap, "name a model"):
             self.client.decide(need, ["--answer", "route-terra=MODEL"])
 
+    def test_each_approval_it_takes_is_a_gate_passed_for_the_person(self):
+        """Recorded as the ordinary driver records its own (result.json "approvals"), so the approval
+        provenance check (#722) matches each one to a row of the final view."""
+        review = ["--approve-review", "C1", "--approve-review", "C2", "--review-token", "-"]
+        with mock.patch.object(self.client, "call") as call:
+            self.client.take(view(token="r2:abc"), ["--approve-goal", "-"], {}, "next_command")
+            self.client.take(view("review", token="rt", criteria=["C1", "C2"]), review, {}, "next_command")
+            self.client.take(view("answer"), ["--answer", "Q1=Use UTC"], {}, "next_command")
+        self.assertEqual(3, call.call_count)
+        self.assertEqual(
+            [
+                {"gate": "approve_plan", "token": "r2:abc"},
+                {"gate": "review", "criterion": "C1", "token": "rt"},
+                {"gate": "review", "criterion": "C2", "token": "rt"},
+            ],
+            self.client.approvals,
+        )
+
+    def test_a_catalog_run_exports_each_plan_before_the_client_approves_it(self):
+        """#720: as Driver.serve does, the plan is exported and read back first (harness.plan_round_trip), and
+        what happened is in that approval's row. Only `autocode` is stood in for: the client's own ``call``
+        (which also runs `autocode intervention submit`) carries the plan commands to the CLI."""
+        self.client.round_trip_plans = True
+        self.client.run_dir.mkdir(parents=True)
+        (self.client.run_dir / "state.json").write_text("{}")
+        goal, commands = "f" * 64, []
+
+        def cli(command, **_):
+            args = list(command[1:])
+            commands.append(args)
+            if args[:2] == ["plan", "--export"]:
+                Path(args[2]).write_text("---\n")
+                payload = {"revision": 2, "goal_hash": goal, "written_goal_hash": goal, "masked": False}
+            elif args[:2] == ["plan", "--check"]:
+                payload = {"goal_hash": goal, "exported_hash": goal, "revision": 2, "matches": True}
+            else:
+                payload = {}
+            return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+        with mock.patch("harness.driver.run_cli", cli):
+            self.client.take(view(token="r2:abc"), ["--approve-goal", "-"], {}, "next_command")
+            self.client.take(view("answer"), ["--answer", "Q1=Use UTC"], {}, "next_command")
+        path = self.client.root / "plan-files" / "01.md"
+        where = ["--workspace", str(self.client.project), "--run-dir", str(self.client.run_dir)]
+        self.assertEqual(
+            [
+                ["plan", "--export", str(path), *where, "--json"],
+                ["plan", "--check", str(path), "--json"],
+                [*where, "--approve-goal", "-"],
+                [*where, "--answer", "Q1=Use UTC"],
+            ],
+            commands,
+        )
+        (gate,) = self.client.approvals
+        self.assertEqual(("approve_plan", "r2:abc"), (gate["gate"], gate["token"]))
+        self.assertEqual(
+            (str(path), 0, goal, 0, goal, []),
+            (
+                gate["plan_file"]["file"],
+                gate["plan_file"]["export"]["exit"],
+                gate["plan_file"]["export"]["goal_hash"],
+                gate["plan_file"]["check"]["exit"],
+                gate["plan_file"]["check"]["goal_hash"],
+                gate["plan_file"]["run_changed"],
+            ),
+        )
+        # The export and the check are no steps; the two decisions are.
+        self.assertEqual(["approve_plan", "answer"], [step["kind"] for step in self.client.steps])
+
     def test_an_operational_request_continues_only_through_a_named_retry(self):
         operational = view(
             "answer", "autocode --resolver-message 'WHAT CHANGED'", resolver_scope="operational_exhaustion"
@@ -260,6 +329,16 @@ class LifecycleScenarioTests(unittest.TestCase):
             ["interrupted", "feedback"], [row["did"] for row in journal if row["did"] in ("interrupted", "feedback")]
         )
         self.assertIn("needs.retry_action", [row["source"] for row in journal])
+        # #722: each plan approval the client took is listed in the final view with the person's provenance.
+        taken = [row for row in journal if row["did"] == "took" and "--approve-goal" in row["what"].split()]
+        self.assertEqual(len(taken), sum(gate["gate"] == "approve_plan" for gate in result["approvals"]))
+        self.assertGreaterEqual(len(taken), 2)
+        (provenance,) = [check for check in result["checks"] if check["name"] == "approval provenance: task"]
+        self.assertTrue(provenance["ok"], provenance["detail"])
+        # #720: the client exported each of those plans and read the file back before approving it.
+        (trip,) = [check for check in result["checks"] if check["name"] == "plan round trip"]
+        self.assertTrue(trip["ok"], trip["detail"])
+        self.assertIn(f"{len(taken)} plan(s) exported at the approval stop", trip["detail"])
 
 
 if __name__ == "__main__":

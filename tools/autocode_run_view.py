@@ -28,6 +28,7 @@ except ImportError:
 try:
     from . import autocode_acceptance_tests as acceptance_tests
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_adaptive_planning as adaptive_planning
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
@@ -36,8 +37,10 @@ try:
     from . import autocode_contract_identity as contract_identity
     from . import autocode_conversation_projection as conversation_projection
     from . import autocode_cost as cost
+    from . import autocode_criterion_changes as criterion_changes
     from . import autocode_design_coverage as design_coverage
     from . import autocode_efficiency, autocode_usage
+    from . import autocode_escalation_view as escalation_view
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_liveness as liveness_policy
     from . import autocode_member_stop as member_stop
@@ -46,6 +49,8 @@ try:
     from . import autocode_package_scope as package_scope
     from . import autocode_pause_category as pause_category
     from . import autocode_pause_command as pause_command
+    from . import autocode_plan_file as plan_file
+    from . import autocode_plan_file_origin as plan_file_origin
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
@@ -62,6 +67,7 @@ try:
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_accepted_source as accepted_source
+    import autocode_adaptive_planning as adaptive_planning
     import autocode_approval_provenance as approval_provenance
     import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
@@ -70,8 +76,10 @@ except ImportError:
     import autocode_contract_identity as contract_identity
     import autocode_conversation_projection as conversation_projection
     import autocode_cost as cost
+    import autocode_criterion_changes as criterion_changes
     import autocode_design_coverage as design_coverage
     import autocode_efficiency
+    import autocode_escalation_view as escalation_view
     import autocode_finding_rescope as finding_rescope
     import autocode_liveness as liveness_policy
     import autocode_member_stop as member_stop
@@ -80,6 +88,8 @@ except ImportError:
     import autocode_package_scope as package_scope
     import autocode_pause_category as pause_category
     import autocode_pause_command as pause_command
+    import autocode_plan_file as plan_file
+    import autocode_plan_file_origin as plan_file_origin
     import autocode_progressive_plan as progressive_rules
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
@@ -116,6 +126,7 @@ def view(
     controller=None,
     run_dir=None,
     workspace=None,
+    dev_server=None,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     try:
@@ -140,6 +151,7 @@ def view(
     # Saved stage records, then the running stage, so the running one is read first; a corrupt list reads empty.
     stages = state.get("stages")
     launches = [*(stages if isinstance(stages, list) else []), active]
+    plan = approved_contract(state)
     result = {
         "replay_source": None if invalid_replay else replay_view.project(state, run_dir=run_dir),
         "replay_progress": replay_progress,
@@ -174,6 +186,10 @@ def view(
         "recovery": recovery_view.project(state, need),
         "verification": verification_view.project(state),
         "code_checkpoints": code_checkpoints.project(state),
+        # Which saved checkpoints built each approved criterion's milestones (#730): attribution, not proof.
+        "changes_by_criterion": criterion_changes.attribute((plan or {}).get("body"), state.get("code_checkpoints")),
+        # The run's development server as the caller inspected it (autocode_dev_server.inspect, #730).
+        "dev_server": deepcopy(dev_server),
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
         "iteration": state.get("iteration"),
@@ -191,11 +207,15 @@ def view(
         # "model" when the recognizer decided it, "user" when --workflow named it; the reason it gave.
         "workflow_source": (state.get("workflow") or {}).get("source"),
         "workflow_reason": (state.get("workflow") or {}).get("reason"),
+        # How much planning the run chose and why (autocode_adaptive_planning.view, #697): whether recognition
+        # skipped Requirements as clear, the plan's size, the review allowance and an early approval.
+        "planning_depth": adaptive_planning.view(state),
         # Which request of the conversation the run is on: 1, then one more per --follow-up
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
         "evidence": evidence(state),
-        "approvals": approval_provenance.view(state),  # who approved, edited the plan or resumed a pause (#722)
+        # Who approved, edited the plan, resumed a pause or accepted completion (#722).
+        "approvals": approval_provenance.view(state),
         # Canonical publication metadata is historical until the status interface
         # authenticates its files and current completion; no state mutation here.
         "evidence_report": evidence_report(state),
@@ -204,10 +224,14 @@ def view(
         "usage": autocode_usage.summary(state),
         # Spend against the person's money cap at the dated price table (autocode_cost, #721).
         "cost": cost.view(state),
-        # How the run's route escalations resolved (autocode_route_ladder): a
-        # validation PASS passed the retried work, a retry-limit pause ended it,
-        # and an open one is still unresolved.
+        # How the struggles behind the run's escalations and Builder retries ended, as the runner
+        # stamped them (autocode_route_ladder): `passed` once the run completed on work a validation
+        # passed or moved on from it, `paused` at a retry-limit pause, `open` while unresolved.
         "escalation_outcomes": route_ladder.outcome_summary(state),
+        # Each escalation (a role's effort climb, the Builder's stronger attempt) with the role and stage it was
+        # for, the route it climbed from and to, what its escalated attempts cost and how it ended
+        # (autocode_escalation_view, #612): passed, failed_again, paused or running.
+        "escalations": escalation_view.rows(state),
         "request_context": request_usage.view(state),
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
@@ -265,7 +289,7 @@ def view(
                 }
         except (KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
-        approved = approved_contract(state)
+        approved = plan
         if approved is not None:
             result["approved_contract"] = approved
     design = design_coverage.projection(state)
@@ -326,21 +350,29 @@ def approved_contract(state: RunState) -> dict | None:
     follow-up answered by a review, design or discussion, it is the earlier request's plan.
     A program coordinating several runs reads the child's approved criteria here, never
     state.json.
+
+    ``goal_hash`` is the plan's goal hash, what `autocode plan --check FILE` prints for a file
+    holding exactly this plan; ``plan_file`` names the plan file it was loaded from with
+    --goal-file, or is None (autocode_plan_file_origin.citation, which never fails on a
+    malformed record, so such a record cannot take the approved plan out of the view).
     """
     contract = state.get("goal_contract") or {}
     try:
         if not contract_identity.approved(state):
             return None
-        return {
+        approved = {
             "revision": contract["revision"],
             "hash": contract["hash"],
             "token": contract_identity.token(contract),
             "task_id": contract.get("task_id"),
             "approved_at": (contract.get("approval_event") or {}).get("at"),
             "body": deepcopy(contract["body"]),
+            "goal_hash": plan_file.goal_hash(contract["body"]),
         }
     except (KeyError, TypeError, AttributeError, ValueError):
         return None
+    approved["plan_file"] = plan_file_origin.citation(state)
+    return approved
 
 
 def progressive(state: RunState) -> dict | None:
@@ -472,7 +504,8 @@ def evidence(state: RunState) -> dict:
                       this revision to the workspace before treating the status as current.
     findings          the findings ledger: id, status, severity, finding, source, blocking, evidence,
                       scope (sol: Tester, astra: Completion Reviewer, runner: a failed runner lifecycle
-                      observation, #451)
+                      observation, #451, or, in a --package run, the files changed outside the package,
+                      one blocking row naming each path, autocode_package_writes, #711)
     finding_scope_moves  present once an approved revision moved criteria that open findings cite:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
                       to (every resulting row's id, milestone_id, criteria), contract_token, at

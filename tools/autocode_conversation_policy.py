@@ -320,7 +320,7 @@ def prepare_refresh(run_dir, request_id, expected_revision, *, question_id=None,
             if _read_action(path, run_dir) != action:
                 raise ValueError("Saved conversation action conflicts with its sealed request")
         else:
-            protocol._atomic_json(path, action)
+            protocol.write_private_json(path, action)
     return result
 
 

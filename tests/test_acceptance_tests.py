@@ -42,6 +42,360 @@ def approved(cases=CASES, **extra):
     }
 
 
+class BlindTestsConfigTests(unittest.TestCase):
+    def test_add_argument_registers_blind_tests_flag(self):
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        acceptance.add_argument(parser)
+        parsed = parser.parse_args(["--blind-tests"])
+        self.assertTrue(parsed.blind_tests)
+        parsed_no = parser.parse_args(["--no-blind-tests"])
+        self.assertFalse(parsed_no.blind_tests)
+
+    def test_new_run_setting_enforces_joint_planning(self):
+        self.assertTrue(acceptance.new_run_setting(True, joint=True))
+        self.assertFalse(acceptance.new_run_setting(False, joint=False))
+        self.assertFalse(acceptance.new_run_setting(None, joint=True))
+        with self.assertRaisesRegex(ValueError, "--blind-tests needs joint planning"):
+            acceptance.new_run_setting(True, joint=False)
+
+    def test_resume_refused_detects_mismatch(self):
+        self.assertTrue(acceptance.resume_refused({"blind_tests": True}, False))
+        self.assertTrue(acceptance.resume_refused({"blind_tests": False}, True))
+        self.assertFalse(acceptance.resume_refused({"blind_tests": True}, True))
+        self.assertFalse(acceptance.resume_refused({"blind_tests": True}, None))
+        self.assertFalse(acceptance.resume_refused({}, None))
+
+    def test_cli_build_parser_recognizes_blind_tests(self):
+        import autocode_args
+
+        parser = autocode_args.build_parser(None, autocode_args.DEFAULT_ROLE_MODELS)
+        args = parser.parse_args(["--task", "do something", "--blind-tests"])
+        self.assertTrue(args.blind_tests)
+        args_no = parser.parse_args(["--task", "do something", "--no-blind-tests"])
+        self.assertFalse(args_no.blind_tests)
+
+    def test_is_blind_and_enabled(self):
+        self.assertTrue(acceptance.is_blind({"settings": {"blind_tests": True}}))
+        self.assertFalse(acceptance.is_blind({"settings": {"spec_first": True}}))
+        self.assertFalse(acceptance.is_blind({"settings": {}}))
+        self.assertTrue(acceptance.enabled({"settings": {"blind_tests": True}}))
+        self.assertTrue(acceptance.enabled({"settings": {"spec_first": True}}))
+        self.assertFalse(acceptance.enabled({"settings": {}}))
+
+
+class BlindTestsWorkspaceTests(unittest.TestCase):
+    def test_blind_tests_leave_protected_files_and_builder_note_empty(self):
+        with tempfile.TemporaryDirectory() as root:
+            workspace, archive = Path(root) / "w", Path(root) / "archive"
+            workspace.mkdir()
+            archive.mkdir()
+            dummy_test = archive / "test_dummy.py"
+            dummy_test.write_bytes(b"def test_dummy(): pass\n")
+            entry = {"sha256": acceptance.sha256(dummy_test), "archive": str(dummy_test)}
+
+            state = approved()
+            state["settings"] = {"blind_tests": True}
+            acceptance.record_receipt(
+                state, acceptance.due(state), {"contract_hash": "h1", "files": {"tests/test_stock.py": entry}}
+            )
+
+            self.assertEqual({}, acceptance.protected(state))
+            self.assertEqual({"tests/test_stock.py": entry}, acceptance.blind_files(state))
+            self.assertEqual("", acceptance.builder_note(state))
+            self.assertFalse(acceptance.check_untouched(state, workspace))
+
+            view = acceptance.view(state)
+            self.assertIsNotNone(view)
+            self.assertTrue(view["blind"])
+            self.assertEqual(["tests/test_stock.py"], view["files"])
+
+    def test_apply_archives_and_removes_tests_from_workspace_when_blind(self):
+        import autocode_acceptance_tests_job as job
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root) / "workspace"
+            evidence_dir = Path(root) / "evidence"
+            test_dir = workspace / "tests"
+            test_dir.mkdir(parents=True)
+            evidence_dir.mkdir(parents=True)
+
+            test_file = test_dir / "test_stock.py"
+            test_code = b"import unittest\nclass T(unittest.TestCase):\n    def test_c1_move_transfers_units(self): self.fail()\n"
+            test_file.write_bytes(test_code)
+
+            state = approved()
+            state["settings"] = {"blind_tests": True}
+            acceptance.route(state)
+            value = {
+                "tests": [
+                    {"case_id": "C1", "file": "tests/test_stock.py", "test_name": "test_c1_move_transfers_units"},
+                    {
+                        "case_id": "C2",
+                        "file": "tests/test_stock.py",
+                        "test_name": "test_c2_remove_takes_units_and_drops_empty_holdings",
+                    },
+                    {
+                        "case_id": "C3",
+                        "file": "tests/test_stock.py",
+                        "test_name": "test_c3_move_more_than_on_hand_is_refused",
+                    },
+                ],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(evidence_dir / "tester.json"), "source_revision": "rev1"}
+
+            # Fake runner reporting test failed on base (as required for test: case)
+            def run_tests(files):
+                return {
+                    "command": "python -m unittest tests/test_stock.py",
+                    "results": {
+                        "passed": [],
+                        "failed": [
+                            "test_c1_move_transfers_units",
+                            "test_c2_remove_takes_units_and_drops_empty_holdings",
+                            "test_c3_move_more_than_on_hand_is_refused",
+                        ],
+                        "complete": True,
+                    },
+                }
+
+            job.apply(state, value, record, workspace, run_tests=run_tests, evidence_dir=evidence_dir)
+
+            # Test file was archived
+            receipt = list(acceptance.receipts(state).values())[0]
+            archive_entry = receipt["files"]["tests/test_stock.py"]
+            self.assertTrue(Path(archive_entry["archive"]).is_file())
+            self.assertEqual(test_code, Path(archive_entry["archive"]).read_bytes())
+
+            # Test file was REMOVED from workspace so Builder never sees it
+            self.assertFalse(test_file.exists())
+            self.assertEqual("terra", state["next_stage"])
+
+
+class BlindTestsCandidateExecutionTests(unittest.TestCase):
+    def test_reconcile_candidate_failure_opens_blocking_runner_finding(self):
+        import autocode_completion as completion
+        import autocode_findings as findings_ledger
+
+        state = approved()
+        state["settings"]["blind_tests"] = True
+        receipt = {
+            "exit_code": 1,
+            "results": {"passed": [], "failed": ["test_c1_move_transfers_units"]},
+            "output": "FAILED (failures=1)",
+        }
+        row = acceptance.reconcile_candidate(state, receipt, "rev1234567890ab")
+        self.assertIsNotNone(row)
+        self.assertEqual("runner", row["source"])
+        self.assertEqual("open", row["status"])
+        self.assertTrue(row["blocking"])
+        self.assertTrue(row["blind_tests"])
+        self.assertEqual("rev1234567890ab", row["source_revision"])
+        self.assertEqual(["test_c1_move_transfers_units"], row["failed_tests"])
+
+        self.assertEqual(row, acceptance.open_row(state))
+        self.assertIn(row, findings_ledger.blocking_entries(state))
+        self.assertIn("open blocking findings", completion.ledger_rejection(state))
+
+    def test_reconcile_candidate_success_settles_open_finding(self):
+        import autocode_findings as findings_ledger
+
+        state = approved()
+        state["settings"]["blind_tests"] = True
+        failed_receipt = {
+            "exit_code": 1,
+            "results": {"passed": [], "failed": ["test_c1"]},
+        }
+        row = acceptance.reconcile_candidate(state, failed_receipt, "rev1")
+        self.assertIsNotNone(row)
+        self.assertEqual("open", row["status"])
+
+        passing_receipt = {
+            "exit_code": 0,
+            "results": {"passed": ["test_c1"], "failed": []},
+        }
+        settled_result = acceptance.reconcile_candidate(state, passing_receipt, "rev2")
+        self.assertIsNone(settled_result)
+        self.assertIsNone(acceptance.open_row(state))
+        self.assertEqual("resolved", row["status"])
+        self.assertEqual([], findings_ledger.blocking_entries(state))
+
+    def test_check_candidate_runs_scratch_with_blind_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            workspace, run_dir, archive = Path(root) / "w", Path(root) / "run", Path(root) / "archive"
+            workspace.mkdir()
+            run_dir.mkdir()
+            archive.mkdir()
+            dummy_test = archive / "test_stock.py"
+            dummy_test.write_bytes(b"class T: pass\n")
+            entry = {"sha256": acceptance.sha256(dummy_test), "archive": str(dummy_test)}
+
+            state = approved()
+            state["settings"]["blind_tests"] = True
+            state["run_dir"] = str(run_dir)
+            acceptance.record_receipt(
+                state,
+                acceptance.due(state),
+                {
+                    "contract_hash": "h1",
+                    "files": {"tests/test_stock.py": entry},
+                    "command": "python -m unittest tests/test_stock.py",
+                },
+            )
+
+            calls = []
+
+            def fake_scratch_run(ws, tree, files=None, command=None, tests=None, timeout=None):
+                calls.append({"ws": ws, "tree": tree, "files": files, "command": command, "tests": tests})
+                return {
+                    "exit_code": 1,
+                    "results": {"passed": [], "failed": ["test_c1"]},
+                }
+
+            row = acceptance.check_candidate(state, workspace, run_dir=run_dir, scratch_run=fake_scratch_run)
+            self.assertEqual(1, len(calls))
+            self.assertEqual({"tests/test_stock.py": str(dummy_test)}, calls[0]["files"])
+            self.assertEqual("python -m unittest tests/test_stock.py", calls[0]["command"])
+            self.assertEqual(["tests/test_stock.py"], calls[0]["tests"])
+            self.assertIsNotNone(row)
+            self.assertEqual("runner", row["source"])
+
+    def test_refuse_raises_when_blind_tests_fail(self):
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root) / "w"
+            workspace.mkdir()
+            state = approved()
+            state["settings"]["blind_tests"] = True
+            dummy_test = workspace / "dummy.py"
+            dummy_test.write_bytes(b"pass\n")
+            acceptance.record_receipt(
+                state,
+                acceptance.due(state),
+                {"contract_hash": "h1", "files": {"tests/test_stock.py": {"archive": str(dummy_test)}}},
+            )
+
+            def failing_scratch(ws, tree, **kwargs):
+                return {"exit_code": 1, "results": {"failed": ["test_c1"]}}
+
+            with self.assertRaisesRegex(ValueError, "Completion acceptance requires blind acceptance tests to pass"):
+                acceptance.refuse(state, workspace, scratch_run=failing_scratch)
+
+            def passing_scratch(ws, tree, **kwargs):
+                return {"exit_code": 0, "results": {"passed": ["test_c1"], "failed": []}}
+
+            # Passes without error
+            acceptance.refuse(state, workspace, scratch_run=passing_scratch)
+
+    def test_before_review_runs_blind_candidate_check(self):
+        import subprocess
+
+        import autocode_regression as regression
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace, run_dir = Path(root) / "w", Path(root) / "run"
+            workspace.mkdir()
+            run_dir.mkdir()
+            subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+            dummy_test = workspace / "dummy.py"
+            dummy_test.write_bytes(b"pass\n")
+            subprocess.run(["git", "-C", str(workspace), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@test", "commit", "-qm", "init"],
+                check=True,
+            )
+
+            state = approved()
+            state["settings"]["blind_tests"] = True
+            acceptance.record_receipt(
+                state,
+                acceptance.due(state),
+                {"contract_hash": "h1", "files": {"tests/test_stock.py": {"archive": str(dummy_test)}}},
+            )
+
+            checked = []
+
+            original_check = acceptance.check_candidate
+            try:
+                acceptance.check_candidate = lambda s, ws, rd: checked.append((s, ws, rd))
+                for stage in ("sol", "astra_checkpoint", "astra_review"):
+                    checked.clear()
+                    regression.before_review(state, stage, workspace, run_dir)
+                    self.assertEqual(1, len(checked))
+                    self.assertEqual((workspace, run_dir), (checked[0][1], checked[0][2]))
+                for stage in (None, "terra", "astra_plan"):
+                    checked.clear()
+                    regression.before_review(state, stage, workspace, run_dir)
+                    self.assertEqual(0, len(checked))
+            finally:
+                acceptance.check_candidate = original_check
+
+    def test_accept_completion_refuses_when_blind_tests_fail(self):
+        from types import SimpleNamespace
+
+        import autocode_action_decisions as action_decisions
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace, run_dir = Path(root) / "w", Path(root) / "run"
+            workspace.mkdir()
+            run_dir.mkdir()
+            dummy_test = workspace / "dummy.py"
+            dummy_test.write_bytes(b"pass\n")
+
+            state = approved()
+            state["settings"]["blind_tests"] = True
+            acceptance.record_receipt(
+                state,
+                acceptance.due(state),
+                {"contract_hash": "h1", "files": {"tests/test_stock.py": {"archive": str(dummy_test)}}},
+            )
+
+            errors = []
+            runner = SimpleNamespace(
+                accept_completion=lambda s, w, run_dir=None: None,
+                normalize_human_boundary=lambda s, r: None,
+                intervention_metadata=lambda w, r, s: {"pending_count": 0, "inbox_error": None},
+                launch_inputs=SimpleNamespace(guard=lambda c, w, r: None),
+                status_command=SimpleNamespace(reject_input=lambda r, s, w, rd, err: errors.append(err) or 2),
+            )
+            args = SimpleNamespace(
+                accept_completion=True,
+                feedback=None,
+                program_guidance=None,
+                edit_goal=None,
+                goal_file=None,
+                answer=[],
+                delegate=[],
+                delegate_all=False,
+                reject_assumption=[],
+                show_goal=False,
+                approve_goal=None,
+                approve_review=[],
+                reject_review=None,
+                planning_review_call_limit=None,
+                reconcile_review=None,
+                follow_up=None,
+                close_finding=None,
+                claimed_as=None,
+            )
+
+            original_check = acceptance.check_candidate
+            try:
+                # Mock check_candidate to return a failing finding row
+                acceptance.check_candidate = lambda s, ws, run_dir=None, scratch_run=None: {
+                    "id": "F-1",
+                    "finding": "Blind acceptance tests failed",
+                }
+                exit_code = action_decisions.apply(runner, args, None, state, None, run_dir, workspace, {})
+                self.assertEqual(2, exit_code)
+                self.assertEqual(1, len(errors))
+                self.assertIn("Completion acceptance requires blind acceptance tests to pass", str(errors[0]))
+            finally:
+                acceptance.check_candidate = original_check
+
+
 class RouteTests(unittest.TestCase):
     def test_a_build_with_unwritten_cases_goes_to_the_tester_once(self):
         state = approved()
@@ -238,6 +592,24 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         self.assertEqual(sorted(["C0", *CASES]), sorted(seen["case_ids"]))
         self.assertEqual("passes", seen["results"]["C0"])
         self.assertTrue({seen["results"][cid] for cid in CASES} <= {"fails", "cannot load"}, seen["results"])
+
+    def test_blind_tests_cli_runs_tester_isolates_workspace_and_completes(self):
+        # With --blind-tests, Tester writes tests before Builder, but files are archived and isolated
+        guard = {"C0": "guard: test_receive_adds_units"}
+        self.scenario = dataclasses.replace(self.scenario, fake_criteria={**guard, **CASES})
+        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--blind-tests")
+        self.assertTrue(view["done"], self.details(view))
+        order = self.stage_order(run)
+        self.assertIn("acceptance-tests", order)
+        self.assertLess(order.index("acceptance-tests"), order.index("builder"), order)
+        seen = view["acceptance_tests"]
+        self.assertTrue(seen["blind"])
+        self.assertEqual(["tests/test_stock.py"], seen["files"])
+        self.assertEqual(sorted(["C0", *CASES]), sorted(seen["case_ids"]))
+        prompts = sorted(
+            Path(run.run_dir).glob("iterations/*/builder-*.prompt.md"), key=lambda path: path.stat().st_mtime
+        )
+        self.assertNotIn("The tests for the cases above are already written", prompts[0].read_text())
 
     def test_a_case_that_already_works_goes_back_to_plan_review_as_a_guard(self):
         self.scenario = dataclasses.replace(

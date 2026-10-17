@@ -243,6 +243,40 @@ per role, and separately estimated elapsed time for any recorded active stage.
 These are elapsed stage durations, not billed model-compute hours or proof a recorded
 process is still alive. Ordinary stage updates also print milestone time and progress.
 
+A milestone budget you set with `--max-milestone-seconds N` is also checked before a climbed
+Builder attempt launches: the milestone's Builder escalating to its stronger model, or the Builder
+climbing a rung of its effort ladder. The attempt is projected as for the
+[active-time budget](#timeouts-and-watchdog), from the last Builder attempt's recorded duration,
+never more than the stage time limit. If the milestone's counted time so far plus that projection
+would pass `N`, the run stops with `PAUSED_MILESTONE_BUDGET` before the attempt starts, instead of
+launching it and stopping at the next writer launch with that time spent. The stop names the climb,
+the projection, the milestone's time so far, the total and the budget to resume with, for example
+`The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of
+active time, the last Builder attempt's duration, it would take this milestone's active time from
+650 s to 1,250 s, past the 1,000 s milestone budget you set ... resume with --max-milestone-seconds
+1250 or more`. The climb stays saved, so `--resume-paused --max-milestone-seconds M` with `M` at
+least that total launches that same attempt, including one a repair's recovery packet holds (see
+[Evidence-bound repair](#evidence-bound-repair)); that resume also restarts the milestone's
+count, as it always does. Reasserting the saved budget alone does not acknowledge this pause; any
+other `M`, or `0` for no limit, does, and the attempt is then checked against `M` from the
+restarted count. Only the Builder is checked against this budget, since it gates writer launches;
+a Tester or Completion Reviewer climb is not. The new-run default and a budget delegated with
+`--autoresolver-managed-limits` are not projected and keep only the check at the writer launch, as
+do a progressive run's slice budget and a last attempt without a recorded duration. So does a
+budget given while turning checkpoints on for a saved run, in the same command
+(`--milestone-checkpoints --max-milestone-seconds N` on a resume) or queued with
+`--request-milestone-checkpoints`: it is saved without being recorded as yours, until a later resume
+sets `--max-milestone-seconds` again. When a climb would also cross the cost cap or the run's
+active-time budget, that stop comes first. Once the climbed attempt has launched, the writer-launch
+check governs it, and a parallel Builder leaves this check to the serial run.
+
+A progressive run's slice budget pauses with the same `PAUSED_MILESTONE_BUDGET` status, naming the
+ceiling it spent: `local_seconds`, the slice's, which `--max-milestone-seconds` sets, or
+`run_seconds`, the run's, which `--max-seconds` sets. A resume does not restart the slice's count,
+so that stop's advice asks for `--resume-paused --max-milestone-seconds N` with `N` above the
+slice's counted time (or `0`), adding `--max-seconds M` above the run's counted time when it names
+`run_seconds`.
+
 The saved milestone replan limit defaults to one changed-approach replan. Set
 `--max-milestone-replans 0` on a saved-run resume to allow further evidence-backed
 changed-approach cycles within the same approved milestone. This does not change its
@@ -568,6 +602,14 @@ than attributed to a criterion without a recorded association. The command submi
 the displayed artifact token automatically and never starts a model. Source or
 validation changes during inspection cause the decision to be refused.
 
+Each criterion also lists the saved Builder steps of the plan milestones that
+cover it (`criterion_diffs` in `--json`). Each step's diff runs from the saved
+step before it (or the run's base) to its own saved checkpoint, limited to the
+files it changed and read from Git objects, not the working tree. It is labeled
+as attribution, not proof: it shows where to look. A file another milestone's
+step also changed is flagged, since its diff may hold that work. A step after an
+unavailable checkpoint is shown as unavailable rather than mixed with it.
+
 The direct approval interface remains available:
 
 ```sh
@@ -607,24 +649,31 @@ typed, and the option names of that invocation, never their values, so tokens st
 - A plan approval (`--approve-goal`, or `yes` in the terminal conversation) and an artifact
   acceptance (`--approve-review`, `autocode review`, or `y` at the conversation's review
   prompt), on the approval event.
-- A goal edit (`--edit-goal body.json`), on the draft revision the edit installed. The draft
-  still needs its own review and approval.
+- A completion acceptance (`--accept-completion`), on the event it saves when it closes a run
+  whose gates the runner verified but whose completion report could not be produced.
+- A goal edit (`--edit-goal body.json` or `--goal-file PATH`), on the draft revision the edit
+  installed. The draft still needs its own review and approval.
 - An explicit resume (`--resume-paused`, `autocode resume`, `TaskRun.resume_paused()`) that
   takes the run out of the pause holding it: the pause, the pause behind AutoResolver's
   operational request, or the pause a pause intervention interrupted. It is saved when the
   run goes on to build: once every check that could keep the run at that pause has passed,
   just before its next stage launches. A resume the pause's own rules refuse records nothing,
   such as `--resume-paused` without a higher `--max-iterations` at an iteration limit you
-  set, or a resume while the run's `pause-requested` file is still in place.
+  set, or a resume while the run's `pause-requested` file is still in place. Nor does one
+  whose next attempt is projected past a budget: a role's climb on its effort ladder, like the
+  Builder's stronger attempt, is checked against the cost cap, the time limit and the
+  milestone budget before the resume is saved, so a resume that pauses there again is not
+  listed (#611).
 
-On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`, `--edit-goal` or
-the resume; the name is saved beside the Git identity as the person's own claim. With a resume
-it is saved only when the resume releases a pause, as above.
+On a shared machine add `--as NAME` to `--approve-goal`, `--approve-review`,
+`--accept-completion`, `--edit-goal`, `--goal-file` or the resume; the name is saved beside the
+Git identity as the person's own claim. With a resume it is saved only when the resume releases
+a pause, as above.
 
 None of this is verified, and none of it grants anything: Git identity is whatever the
 checkout configures, and `--as` is taken at the person's word. The token checks and each
 pause's own rules remain the authority; the one refusal is a project's required approver,
-below. `--status` lists every approval, goal edit and
+below. `--status` lists every approval, completion acceptance, goal edit and
 resume with its provenance under `approvals` ([Status view](task-run.md#status-view)), and
 the completion summary lists the same records just before its cost line. A record saved before
 AutoCode kept it shows no provenance. A build, bug-fix or design run that recorded none, such as
@@ -641,13 +690,27 @@ approval step and `autocode review-pr --post` publishes a review's report on som
 request ([Issues](issues.md#reviewing-a-pull-request)). A report written before AutoCode listed
 approvals has no such section either, until AutoCode saves the completed run again; reading its
 status does not. Each row gives the time, what was decided (the plan token approved, the criterion
-accepted, the draft an edit saved, or the pause a resume released), the Git identity, host,
-command and any `--as` name, marked as a claim. A record saved without provenance says it was not
-recorded, a workflow-policy approval says no person made it, and a run with none says
+accepted, completion accepted, the draft an edit saved, or the pause a resume released), the Git
+identity, host, command and any `--as` name, marked as a claim. A record saved without provenance
+says it was not recorded, a workflow-policy approval says no person made it, and a run with none says
 `None recorded`. When the table names an approver, the report's "Not verified" list adds that
 approver identity is recorded as given; it also counts any records saved without a recorded
 approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
-([Issues](issues.md#what-it-does)), the pull request body lists the approvals too.
+([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A completed
+program's or components run's report lists its child runs' approvals, each with the child it
+came from, in the same way; the program agreement (`autocode program approve`) records no
+approver and is not among them, and neither are the approvals of a plan run the program was
+derived from ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
+
+The scenario harness checks this record from outside on each task run a scenario completes,
+including a program's or a components run's own task runs (a program's plan run once its plan
+is approved). It reads `approvals` from that run's final `--status --json`, and each row a
+person made must name the scenario's person, the host and a command of option names only. Each
+plan and review approval the harness gave a run must also be listed among that run's own rows,
+and so must each budget pause the scenario's person acknowledged, as the resume that names it.
+In a program or components scenario each such gate names the task run it was given to, so an
+approval listed only in another workstream's run fails
+([scenarios/README.md](../scenarios/README.md)).
 
 #### Required approver
 
@@ -664,16 +727,16 @@ backslashes. An entry such as `Lee`, `Lee <lee@example.com>`, `<lee@example.com>
 `mailto:lee@example.com` stops a new run before it starts, naming the file and the key.
 
 A run started with that setting refuses a plan approval (`--approve-goal`, or `yes` in the
-terminal conversation) or an artifact acceptance (`--approve-review`, `autocode review`, a
-`TaskRun` approval, or `y` at the conversation's review prompt) whose recorded Git
-`user.email` is not on the list, compared without regard to case. The refusal comes before
-anything is approved: the command exits 2 (the conversation stops at the same question,
-without asking about any further criterion) with a message naming the required addresses and
-the actual Git identity, nothing it carried is saved, and the run stays at the same stop for a
-listed approver. An `--as` name is a claim and never counts. A goal edit installs a draft that
-still needs a listed approver's approval, a resume releases a pause rather than approving
-anything, and a small bug fix approved under the workflow policy has no person to check, so
-none of those is refused. `--accept-completion` is not checked.
+terminal conversation), an artifact acceptance (`--approve-review`, `autocode review`, a
+`TaskRun` approval, or `y` at the conversation's review prompt) or a completion acceptance
+(`--accept-completion`) whose recorded Git `user.email` is not on the list, compared without
+regard to case. The refusal comes before anything is approved: the command exits 2 (the
+conversation stops at the same question, without asking about any further criterion) with a
+message naming the required addresses and the actual Git identity, nothing it carried is saved,
+and the run stays at the same stop for a listed approver. An `--as` name is a claim and never
+counts. A goal edit installs a draft that still needs a listed approver's approval, a resume
+releases a pause rather than approving anything, and a small bug fix approved under the
+workflow policy has no person to check, so none of those is refused.
 
 The identity checked is the output of `git -C WORKSPACE config --get user.email`, where
 `WORKSPACE` is the run's saved workspace (its task worktree, or the checkout an `--in-place`
@@ -739,7 +802,9 @@ it follows. The new-run default and a budget delegated with `--autoresolver-mana
 projected, because Resolver may extend them once at the stage boundary; for them, and when the last
 attempt has no recorded duration, only the stage-boundary check applies, as before. When a climb would cross both
 the cost cap and this budget, the cost stop comes first. Once the climbed attempt has launched, the
-stage-boundary check governs it, and a parallel Builder leaves this check to the serial run.
+stage-boundary check governs it, and a parallel Builder leaves this check to the serial run. A Builder's
+climb is then checked against a milestone budget you set
+([Milestone checkpoints](#milestone-checkpoints-and-acceptance)).
 Runs created before these defaults keep the limits they saved. Saved stage limits are preserved,
 including an existing five-minute cap or an explicit zero; use
 `--max-stage-seconds 0` to deliberately remove a saved hard cap. Saved runs gain
@@ -873,6 +938,11 @@ report that no longer lists it; a finding reported again after a fix keeps its I
 and counts the repeat. The runner raises findings of its own (source `runner`)
 when its lifecycle observation fails, and only the runner closes them, when that
 observation passes (see [Process-recovery proof](#process-recovery-proof-for-declared-lifecycle-apis)).
+In a `--package` run it also raises one when the candidate changes a file outside
+the package, checked before each Tester and Completion Reviewer dispatch (not
+before the Code Reviewer, Designer or Design Reviewer) and by
+`--accept-completion`, and closes it when a later check finds no such change
+([Monorepo packages](workflow.md#monorepo-packages)).
 With milestone checkpoints, each finding also records the
 milestone criteria it was raised under, and a report closes it only if that report
 reviewed all of those criteria. A validation of different work, or a report-only
@@ -1156,10 +1226,42 @@ admission as one (#418).
 An unchanged incident can pause as `PAUSED_NO_PROGRESS` before another provider
 launch. A source hash, session rotation or comment-only edit alone cannot clear
 that hold. Existing healthy or uncertain workers are not restarted to create a
-new attempt. A supported known correction still receives the ordinary retry or
-escalation decision, assignment checks, fresh independent validation and the
-Completion gate. Unsupported changes remain unknown rather than being treated as
-proven progress.
+new attempt. The hold's stop names the incident's check and its packet. Its
+reason is followed by what is left of each budget the one scoped retry runs under:
+with a cost cap, the [`Cost:` line `--status` prints](#money-cap); with a time
+limit, the run's active time against it; and, with milestone checkpoints on, the
+current milestone's time against its budget:
+"... authorizes one attempt under existing limits. Cost: $0.53 so far; cap $5.00.
+Active time: 1,250 s of the 43,200 s limit. Milestone M1: 300 s of its 5,400 s budget."
+The time limit is the one the stage boundary enforces, whether you, the runner's
+default or AutoResolver's extension set it. The milestone line is left out while a
+progressive run's slice budget governs, or before the milestone has counted time.
+The figures are read when the stop is written, never saved with the hold's
+reason, so a cap, time limit or milestone budget you change at the hold, with or
+without `--resume-paused`, is the one the stop then states. A budget the run does
+not have is not mentioned (#611).
+A supported known correction still receives the ordinary retry or escalation
+decision, assignment checks, fresh independent validation and the Completion
+gate. Unsupported changes remain unknown rather than being treated as proven
+progress.
+
+A recovery packet is bound to the run's settings, but not to its launch ceilings: the iteration
+limit, the active-time budget, the cost cap and the milestone budget. They decide whether an
+attempt may launch, not what it acts on, so resuming with a new one, as a budget stop advises,
+or AutoResolver's one-time extension of a default one, keeps the packet and the repair it holds,
+and buys no novelty. Other settings changes, such as another model or stage time limit, still
+make the repair a stale handoff (`PAUSED_STALE_HANDOFF`). Bindings recorded before #611, on a
+packet, a repair admission, a novelty hold, a retry grant or a retained diagnosis, hashed the
+milestone budget too. Each still holds while the run's settings are unchanged, and stops holding
+when the milestone budget changes. A binding recorded after the upgrade leaves the budget out, even
+for a packet saved before it: once the Resolver's plan for that packet finishes, the repair
+admission written then lets its repair launch after a milestone budget change.
+
+The `rework-same-failure` scenario (scenarios/README.md) shows the hold on a correct repair: the
+required suite keeps failing on a file the task may not change, so after the second identical
+failure the run stops at `RESOLVER_PENDING` naming that check, with no paid diagnosis or third
+Builder attempt. The status view's `cost` shows the spend under the cost cap, and the stop's own
+text states that spend and the cap, and the run's active time and its time limit (#611).
 
 An attempt that automatic recovery archived because it ended without a completed
 turn (a provider timeout, capacity or startup failure, or a denied path) returned
@@ -1240,7 +1342,12 @@ These are delegated recovery-policy ceilings, not user account balances or
 mandatory spending targets. An explicit cap, missing progress, repeated unchanged
 failures, unknown usage, pending input or an exhausted financial guard prevents
 automatic growth. Disabled limits remain disabled, and unknown usage never becomes
-zero. Billing routes and provider quota cannot be changed by this mechanism.
+zero. A milestone budget given while turning checkpoints on for a saved run
+(`--milestone-checkpoints --max-milestone-seconds N` on a resume, or queued with
+`--request-milestone-checkpoints --max-milestone-seconds N`) is saved without being recorded
+as yours, so Resolver may extend it once as it would the default; a later resume with
+`--max-milestone-seconds` records the budget as yours. Billing routes and provider quota
+cannot be changed by this mechanism.
 The planning extension requires a changed accepted plan and matching review/revision
 evidence; it is not granted for narrative churn or recycled failed calls.
 
@@ -1411,13 +1518,15 @@ read the run store, `.autocode/runs`: not this run's `state.json`, events or
 receipts, and no other run's files. Only this run's `planning/` artifacts (the
 predecessor plan and its delta) stay readable there; the stage gets the rest of
 its run context from its handoff (#1250). Nor can it read these `.autocode`
-stores, which hold other runs or what they keep: `archive` (runs archived from
+stores, which hold other runs, conversation records or what they keep: `archive` (runs archived from
 task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
 (parallel Builder workspaces and their runs), `bundles` (`autocode bundle`
-archives), `issues` (`autocode issue` worktrees and their runs), `programs`,
-`pull-reviews` (`autocode review-pr` checkouts and their runs), `registry` (the
-run registry), `replay` (replay recordings), `task-flows`, `verification`
-(`autocode verify` checkouts and reports) and `worktrees` (task and
+archives), `conversation-handoffs` (requirements conversation handoffs),
+`conversation-starts` (conversation start markers), `investigation` (bug
+investigation workspaces), `issues` (`autocode issue` worktrees and their runs),
+`programs`, `pull-reviews` (`autocode review-pr` checkouts and their runs),
+`registry` (the run registry), `replay` (replay recordings), `task-flows`,
+`verification` (`autocode verify` checkouts and reports) and `worktrees` (task and
 program worktrees). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an `--out` or `--arena` directory outside these
 stores, or another `.autocode` directory) is not denied. Each store that exists
@@ -1441,8 +1550,8 @@ with a real directory, or remove it, then `--resume-paused`.
 Everything else in `.autocode` stays as readable as the rest of the workspace:
 the launch's own control directory and scratch, project settings,
 retained design inputs, capture bundles, the shared `evidence` and `output`
-areas, other launches' `tool-containment-*` control directories, conversation
-records and AutoCode's other internal files.
+areas, other launches' `tool-containment-*` control directories, and AutoCode's
+other internal files.
 Before the provider starts, each such launch shows through the actual native
 shell that a file in its run directory and in each denied store cannot be
 read, and records the denial as `private_reads` in its `tool_containment` record
@@ -1516,6 +1625,40 @@ Command Line Tools Git, so those tests skip on other hosts. These model-free che
 boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-in
 `NativeToolTests` (`AUTOCODE_NATIVE_CONTAINMENT_TEST=1`, OpenCode 1.18.33 on `PATH`)
 do, on either backend. The full scenario suite continues to run on Ubuntu.
+
+The `linux-tool-containment` job also runs `ContainedFakeOpenCodeFlow` from
+`tests/test_contained_fake_cli.py` without skips. It drives a fake OpenCode run through
+the CLI whose Builder, Tester and Completion Reviewer launch inside the real bubblewrap
+boundary. It checks that the run finishes, that `--status --json` names the backend, and
+that a Builder shell write planted outside the workspace is blocked; an uncontained
+control shows the same write lands. The fake client's own edits and checks run outside
+the boundary, so this does not replace `NativeToolTests` either.
+
+A pull request runs this job when it changes any Python file that flow loads, or a stage
+report schema in `tools/autocode-schemas/`. `tools/ci_scope.py` works the Python files out
+from the test module each time: it follows their import statements, including those inside
+functions, and every script the code starts or copies by file name, such as the CLI, the
+fake clients and the runtime's own workers. That is most of `tools/`, so a change to the
+status view or the containment setup check runs the job without anyone adding it to a list.
+It does not follow a module loaded by a name built at run time through `importlib`, such as
+a subcommand from the subcommand table. Prompt changes do not select the job.
+
+The scenario harness runs the same contained flow as a scenario, in the suite job rather
+than in `linux-tool-containment`: `scenarios/test_contained_opencode.py` runs
+`greenfield-greeting-cli` with the scripted model behind the fake OpenCode client, with no
+`--allow-uncontained-tools`, so its Builder, Tester and Completion Reviewer launch inside
+bubblewrap. It checks that the scenario's oracle passes and the run completes; that every
+record of those three stages names `bubblewrap` and the version `autocode doctor` reports;
+that a Builder shell write planted outside the project is blocked; and that `--status --json`
+says `tool_containment: "contained"` and names the same backend. It asks
+`autocode doctor --json` whether this host has the boundary. Without a working bubblewrap,
+the test skips locally and fails in CI on Linux. Any other problem doctor reports, such as
+the fake client no longer reporting the qualified OpenCode version, fails it everywhere. The
+suite job installs bubblewrap before its scenario harness step. On a pull request that step
+runs the case when the case itself, the shared harness (`scenarios/harness/`,
+`scenarios/run.py`) or the fake OpenCode client changes (`SCENARIO_FIXTURES` in
+`tools/run_suite.py`); master runs it every time. The container backend (`docker` or
+`podman`) and a fake scenario under it are still open.
 
 ## Secret redaction
 

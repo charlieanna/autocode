@@ -109,15 +109,86 @@ every oracle check, CLI calls, answers given on the user's behalf, each with its
 each human-review criterion, more planning review calls, a program agreement,
 and `auto_approve` for each call of a components run launched with
 `--auto-approve`, inside which the product answers its own gates, and
-`acknowledge` for a budget pause the scenario's person continued), wall time,
+`acknowledge` for a budget pause the scenario's person continued; in a program
+or components scenario, each gate given to one of its task runs also names that
+run's `run_dir`), wall time,
 stages with a per-stage count and time breakdown, report-repair rounds, model
 time and tokens, `cost` (the final status view's `cost` block, #721: estimated,
 provider-reported and known spend in USD against the run's cap, each `null` when
 unknown and never zero; `null` as a whole for an interrupted attempt or a view
 without one) and `pause_origin` (the pause an AutoResolver request for a person
 stems from, such as `PAUSED_COST_LIMIT` behind `WAITING_FOR_USER`, so the stop
-class names it)), `steps.jsonl`, the final `state.json`, and the delivered
+class names it)), `steps.jsonl`, the final `state.json`, `plan-files/` (each
+plan the harness exported before approving it, below), and the delivered
 `project/`, kept for inspection.
+
+Besides the scenario's own oracle, three checks use AutoCode's public commands and
+status, and each appears in `checks`. `canonical evidence: RUN` authenticates the `evidence.json`
+and `evidence.md` pair of each task run that completed, and of a program or
+components run that completed as a whole. `approval provenance: RUN` (#722) reads
+`approvals` in the final `--status --json` view of each task run that completed:
+the scenario's one run, each completed workstream run of a program and its plan
+run once the plan is approved (the program is derived from that plan and never
+relaunches the run, so it does not complete), or a components run's architecture
+run and each completed component. A program or components run as a whole has no
+`approvals` of its own and gets no such check. It requires:
+
+- each row a person made to name the scenario's person, `Scenario Person
+  <person@scenario.example.test>`. Every scenario project sets that identity in
+  its own Git configuration; the seed commit's author is `Scenario`, so a record
+  of the commit author instead does not pass;
+- each such row to name this machine's host and a command of `autocode` with
+  option names only, never their values;
+- a row approved under the workflow policy to name no one;
+- each plan and review approval the harness gave a run (`approvals` above,
+  recorded by the ordinary driver and the [conformance](#conformance) client
+  alike) to be listed among that run's own rows: a plan row with the plan's
+  token and a review row with the criterion. Each budget pause the scenario's
+  person acknowledged (`[fake] acknowledge`) must be listed too, as a `resume`
+  row whose `pause_status` names that pause. The task runs of a program or
+  components scenario share one `approvals` list, so there each gate the harness
+  gave one of them also names that run's `run_dir`, and it is matched to that
+  run's rows only: a plan approval listed only in another workstream's run fails,
+  as `approval provenance: T` with `the harness approved plan r2:..., which no
+  plan row lists`. The `auto_approve` rows of a components run name no run: under
+  `--auto-approve` the product approves its components itself, so they are
+  checked for provenance only. A passing check ends by naming the gates it
+  matched, such as `each gate the harness passed for this run is listed
+  (approve_plan)`.
+
+`plan round trip` (#720) checks that a plan file reproduces its plan's goal hash
+([Reviewing a plan in a pull request](../docs/workflow.md#reviewing-a-plan-in-a-pull-request)).
+At each plan approval a run reaches (the scenario's one run, a program's plan run
+and each workstream run, a components run's architecture run, and the
+[conformance](#conformance) client's run alike), the harness first exports the
+plan with `autocode plan --export plan-files/NN.md --json`, then reads the file
+back with `autocode plan --check FILE --json`. That is the reader
+`autocode --goal-file` loads a file with, and the goal hash it prints is the one
+`--goal-file` records. The harness does not load the file: loading installs a new
+plan revision, and the harness approves the plan it was shown. The approval's row in
+`approvals` keeps both commands' output as `plan_file`, with the seconds they took
+(about 4 s per approval on the fake provider). The check requires:
+
+- both commands to succeed, and the file to read back with the goal hash it was
+  written with, which must be the goal hash of the run's plan;
+- the run directory to be as it was before them, file by file (size and
+  modification time);
+- when the final status view reports that plan approved, its
+  `approved_contract.goal_hash` to be the exported one.
+
+A masked export fails the check: its file does not reproduce the plan's goal hash,
+and `--goal-file` refuses a masked file. The export reports `masked` whenever the
+file's goal hash differs from the run's, so the flag cannot show that only
+credential-shaped text changed; a mask that took plan text for a credential reports
+it too. The two calls are no steps: neither the step budget nor `cli_calls` counts
+them, but the time budget bounds them. A run that reaches no plan approval gets no
+such check.
+
+Like any oracle check, a failed one makes the verdict `FALSE_COMPLETE` when
+AutoCode reported the scenario complete (for a program or components scenario,
+the whole program or components run). When it stopped instead, as a program can
+after a workstream run completed, the failure keeps the verdict from `PASS`: it
+is `HONEST_BLOCKER`.
 
 Each completed scenario and plain-agent baseline also starts with a
 `failure_attribution` record: empty `evidence_refs`, and `null` for
@@ -274,6 +345,21 @@ provider.
 `run --profile NAME --hybrid` scripts the stages a scenario's `[hybrid]` route
 names and runs every other stage live; its mode is `NAME-hybrid`
 ([Hybrid runs](#hybrid-runs)).
+
+A fake run uses the Codex engine. `test_contained_opencode.py` runs
+`greenfield-greeting-cli` on the OpenCode engine instead, inside Linux bubblewrap
+(#709). It puts the checked fake OpenCode client (`tools/fake_opencode.py`, copied,
+never imported) on `PATH` beside the scripted model, which the client runs as its
+`codex`, and sets `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1` so the runner contains
+its Builder, Tester and Completion Reviewer. Then it checks the oracle's verdict, that
+every record of those three stages in the saved `state.json` names `bubblewrap` and the
+version doctor reports, that a Builder write planted outside the project
+(`AUTOCODE_FIXTURE_SHELL_ESCAPE`) is blocked, and the status view's `tool_containment`
+and `tool_containment_backend`. Without a working bubblewrap, as `autocode doctor --json`
+reports it, the test skips, or fails in CI on Linux. Any other problem doctor reports,
+such as the fake's OpenCode version, is the fixture's and fails it everywhere. A pull
+request that changes `tools/fake_opencode.py` runs it too (`SCENARIO_FIXTURES` in
+`tools/run_suite.py`; [Conformance in CI](../docs/execution.md#conformance-in-ci)).
 
 ## Verdicts
 
@@ -844,7 +930,10 @@ held (`ProviderBarrier`) until the client has looked at the view; with live mode
 polls the view while the stage runs. A scripted Plan Reviewer's first review is blocking, so
 `run --profile NAME --hybrid` scripts that review and the first Builder attempt and runs
 everything else live. The client's journal, one row per decision with what the view named,
-is in `conformance.jsonl` and in the oracle's `run["conformance"]`.
+is in `conformance.jsonl` and in the oracle's `run["conformance"]`. Each plan and review
+approval it takes is recorded in `result.json`'s `approvals`, as the ordinary driver
+records the ones it gives (a conformance result saved before #722 lists none, so its
+approvals count in `stats` is a lower bound).
 
 ## Comparing with a plain agent
 
@@ -937,14 +1026,19 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. Its Investigator model is fixed in `scenario.toml` (`--investigator-model openai/gpt-6-sol`), so the scenario cannot be run live on Claude models without a product change to how the stuck-stage Investigator selects a tool provider. |
 | `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. `broken/lone-partial-page` has a regression test that passes on the reference and on its wrong fix; the mutation check reports its surviving off-by-one (#699). |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
+| `bugfix-monorepo-package` | bugfix | Issue #711: `feature-monorepo-package`'s check for a bug fix. Two packages, `packages/invoices/` and `packages/search/`, each keep a copy of the same off-by-one pager; the report and the fix belong to the invoice package. The scripted run passes `--package packages/invoices/` (`[fake] flags`), so the bug goes through the Investigator first and the proof runs in that package. The oracle judges the package as `feature-monorepo-package` does; with a run, the runner's diagnosis note (the `note_path` the run's saved investigation names) is not a change outside the package, but any other file under `docs/bugs/` is. With a run it also requires the bug-fix workflow, the Investigator before any other model stage but the job recognizer (or a repair of its report), plan review and the user's approval, no requirements gathering and no questions. `broken/fixes-search-copy-too` delivers the same correct fix and also fixes the other team's copy: the run stops (`HONEST_BLOCKER`) with the file named in the open `runner` finding. The scripted Investigator names only the files inside the package its handoff names (`package_scope`), so the run reaches the Builder. Before the Investigator was told the package, its diagnosis named the other team's copy too; the runner now refuses such a diagnosis. Against AutoCode from before #1415, the reference did not complete either: the proof counted the diagnosis note as a change outside the package. A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the delivered files and the workflow alone. |
 | `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; one that never does is `NOT_EXERCISED`. The scripted run reaches it by construction — #628's `[fake] fault = "refund_store_clock"` makes the first Builder apply `broken/trusts-store-date` — and passes with a `CORRECT` diagnosis. |
 | `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each refusal rule needs a delivered test that fails on the original code, and an extra test that also passes there is reported, not failed); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes; `SCENARIO_FAKE_SCOPE_SLIP=retry` (or `pause`) makes the repair Builder's first attempt also leave a backup of `stock.py` outside its assignment, as a live repair did on 2026-10-06, and the Investigator recommend one more attempt (or leave it to a person), which `tests/test_rejected_repair_retry.py` drives ([2026-10-06-rejected-repair-retry](../docs/bugs/2026-10-06-rejected-repair-retry.md)); `--fake-solution broken/vacuous-refusal-tests` never repairs the tests, so the runner holds at `RESOLVER_PENDING` (`HONEST_BLOCKER`) and the diagnosis is `INCORRECT` on `repair_made_the_tests_discriminate`. Live Builders rarely write the vacuous tests (0 of 6 `claude-tiers` runs, 2026-10-05); `--hybrid` scripts planning and the first Builder so the trap is reached by construction, with AutoResolver live ([Hybrid runs](#hybrid-runs)). The first six hybrid runs (2026-10-05) found real defects in the helpers the seed and every solution shared: a QTY of `²` or of 5000 digits crashed (exit 1), `٣` was read as 3, and a JSON `true` in `stock.json` passed as 1. The seed (whose README contract already required those refusals) and every solution now refuse them, and the hidden tests check them for both commands; those six runs' diagnoses were rightly not bounded test repairs and are not comparable with later runs. |
+| `escalation-converts` | feature | Issue #612: the greeting fix of `completion-rework-direct`, which the scripted Builder delivers only on its stronger route (`[fake] fault = "escalation_converts"`): its first attempt and its ordinary retry fail, the retry policy's stronger attempt (GPT-6 Sol at xhigh) passes, and the run completes. With a run the oracle reads the final status view's `escalations` (`harness.oracle.escalation_checks`): one Builder row, its two routes, one attempt with a known cost, outcome `passed` by validation, the runner's own stamps in `escalation_outcomes` agreeing (its ordinary retry and the stronger attempt `passed`), and no Builder attempt after it. `broken/accepts-empty` refuses a whitespace-only name but still greets an empty one (`str.isspace()` is false for `""`): the stronger attempt delivers it, the Tester's check fails, and the run pauses at `PAUSED_BUILDER_RETRY_LIMIT` (`HONEST_BLOCKER`). |
+| `escalation-ladder-end` | feature | Issue #612: the same task where the stronger attempt fails too (`fault = "escalation_exhausted"`, `expected = "stop"`). The run pauses at `PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's scripted diagnosis in its stop reason, the row's outcome is `paused`, as the runner's stamps on the ordinary retry and the stronger attempt are, no Builder attempt follows and the seed's tests are kept. No `broken/` overlay, like `provider-idle-hang`: the scripted Builder never applies the solution, so an overlay's fake run would stop exactly as the reference's does and `scenarios/test_lying_matrix.py` would judge it `PASS`; `escalation-converts`' broken overlay reaches this pause. `scenarios/test_escalation.py` runs both and reads `autocode --status --json`, and checks that a `--builder-strong-model` the tool does not list refuses the new run before any model call. |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
+| `feature-monorepo-package` | feature | Issue #711: a seed with two packages, `packages/greet/` and `packages/farewell/`; the task adds an option to the greeting package only. The scripted run passes `--package packages/greet/` (`[fake] flags`; the driver never repeats it on a call to the saved run, which the CLI refuses), so the suite is detected and run in that package. The oracle runs the package's suite and hidden tests from its directory and requires nothing changed outside it since the seed. With a run started with `--package`, every file left changed outside the package must be named in an open blocking `runner` finding in the status view, and none may be reported when there is none. `broken/edits-farewell-package` delivers the same correct change and also edits the other package: the run stops (`HONEST_BLOCKER`) with both files named; AutoCode from before #1415 completed it (`FALSE_COMPLETE`). A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the delivered files alone. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
 | `implement-design-conflict` | feature | The approved design contradicts a frozen API. The right ending is a stop with the conflict written down and no code changed (`expected = "stop"`). |
 | `greenfield-greeting-cli` | greenfield | A small CLI from an empty repository. |
 | `capacity-recovery` | greenfield | Issue #1071: Requirements receives one terminal model-capacity failure, then serial dispatch retries on the same model in a fresh session and completes the greeting CLI. The oracle requires the archived failed event, no successful report for that attempt, one recovery handoff and both public accounting rows, plus independent CLI acceptance. `broken/accepts-empty-name` proves a recovered run can still be `FALSE_COMPLETE`. `--hybrid` scripts only the first Requirements attempt, then hands recovery and delivery to the selected report-file provider. Its trace binds the retry handoff and distinct report path to public attempt accounting. `--fake --hybrid` rehearses this route without model spend; it is not live transport evidence. An ordinary live delivery is `NOT_EXERCISED` because it did not receive the fault. Recovery-cap exhaustion is not covered. |
 | `cost-cap-resume` | greenfield | Issue #721: the greeting CLI under a $0.10 cost cap (`[fake] flags`). The scripted run's spend at the dated price table passes the cap after planning, so it pauses at `PAUSED_COST_LIMIT` and AutoResolver asks the person; their `[fake] acknowledge` raises the cap to $100 with `--resume-paused --max-cost-usd 100` and the run completes. With a run the oracle also checks that it paused at the cap exactly once, was acknowledged once, and completed with the view's `cost` showing the $100 cap and spend past $0.10. |
+| `rework-same-failure` | feature | Issue #611's rework loop, after the recorded bug-fix run whose correct fix kept spending until the budget ran out. The greeting repair is right from the first Builder attempt (`[fake] fault = "completion_rework_unowned_check"`), but the suite the brief requires, `python3 -m unittest`, also runs the release owner's `test_release.py`, which fails until `VERSION`, a file the brief forbids changing, is bumped. The right ending is a stop (`expected = "stop"`): the oracle requires the greeting fixed and nothing but `greet.py` changed, the same check failing twice, no paid diagnosis or third Builder attempt, a stop that names the check and says there was no progress on it (not a budget stop), the view's `cost` showing spend under the $5 cap, and the stop's text stating that spend and the cap as the view has them, and the run's active time and its time limit as the run saved them. `broken/bumps-version` completes by bumping `VERSION` (`FALSE_COMPLETE`). `broken/edits-release-test` edits the release owner's `test_release.py`; AutoCode refuses the Tester's report because a protected test changed, and the run stops at `PAUSED_INVALID_OUTPUT` before any completion review (`NOT_EXERCISED`). `broken/accepts-whitespace` leaves the greeting wrong. |
 | `greenfield-todo-cli` | greenfield | Durable state and failure cases that must not corrupt data. |
 | `port-policy-go` | port | Porting C# to Go against golden vectors. Requires `go`. |
 | `parallel-diamond` | parallel | Four milestones where two can be built in parallel. The scripted run plans the same diamond and each Builder applies only its own milestone, so the orchestrator really schedules B and C as one parallel batch. |
@@ -1066,8 +1160,9 @@ Checks that launch task-stage providers also need the
 ```
 catalog/<id>/
   scenario.toml     title, category, optional requires = ["go"], [fake] check = "...",
-                    optional [fake] flags = [...] (extra CLI flags), fault = "name" (a scripted
-                    mistake in harness/fake_codex.py), live_investigator = true (the scripted run
+                    optional [fake] flags = [...] (extra CLI flags for the scripted run only;
+                    --package, like --workflow, goes to the first call only), fault = "name"
+                    (a scripted mistake in harness/fake_codex.py), live_investigator = true (the scripted run
                     still uses a real Investigator; needs --i-authorize-live-model-spend),
                     answers = { "route-sol" = "gpt-6-luna" } (the person's own answers, by question id;
                     fault "quota_once" stops the Tester on the driver's default Tester model),

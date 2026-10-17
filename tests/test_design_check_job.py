@@ -8,6 +8,7 @@ from pathlib import Path
 
 import autocode_design_check_job as check_job
 import autocode_jobs as jobs
+import autocode_util as util
 import autocode_workflows as workflows
 import autopilot
 from units import autoplanner, autoreview
@@ -142,6 +143,30 @@ class ApplyTests(unittest.TestCase):
             state["design_constraint"],
         )
         self.assertIsNone(jobs.ended_in(state))
+
+    def test_a_passing_re_run_removes_the_blockers_file_an_earlier_check_wrote(self):
+        # The stopped check's file is the runner's own artifact; once the repository holds the design,
+        # no stale blockers file is left behind to exempt or to blame on the Builder (#711).
+        with tempfile.TemporaryDirectory() as root:
+            state = state_for(workspace_with_design(root))
+            autoreview.apply_job(check_job.STAGE, state, report([CONFLICT], constraints=()), {"output": "o"}, root)
+            path = Path(root) / "docs/design/rate-limiter.blockers.json"
+            self.assertTrue(path.exists())
+            self.assertEqual(util.file_hash(path), state["design_check"]["blockers_sha256"])
+            autoreview.apply_job(check_job.STAGE, state, report(), {}, root)
+            self.assertFalse(path.exists())
+        self.assertNotIn("blockers", state["design_check"])
+        self.assertNotIn("blockers_sha256", state["design_check"])
+        self.assertIn("design_constraint", state)
+
+    def test_a_passing_re_run_removes_the_blockers_file_even_when_it_was_edited_after_the_pause(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = state_for(workspace_with_design(root))
+            autoreview.apply_job(check_job.STAGE, state, report([CONFLICT], constraints=()), {"output": "o"}, root)
+            path = Path(root) / "docs/design/rate-limiter.blockers.json"
+            path.write_text('{"conflicts": [], "annotated after the pause": true}\n')
+            autoreview.apply_job(check_job.STAGE, state, report(), {}, root)
+            self.assertFalse(path.exists())
 
     def test_a_build_of_the_earlier_turn_s_design_is_planned_afresh(self):
         # Live runs of discuss-then-design-then-build (#185): "Build it." revised the design turn's contract

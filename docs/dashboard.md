@@ -48,8 +48,10 @@ queue of duplicate scans.
 
 Preview remembers a loopback app address per project in this browser. Open
 Preview from any conversation in that project to reuse it. Existing task-level
-addresses remain available. AutoCode starts no development server; start your
-app separately and enter its address once. A completed code-changing step
+addresses remain available. The dashboard starts no development server; start your
+app separately, or with `autocode serve start` for a run whose project names `serve`
+([Development server](cli.md#development-server)), which restarts it on the same address after each code
+change, and enter its address once. A completed code-changing step
 refreshes the preview; ordinary status polling preserves the running frame.
 
 A Validator image reference appears in chat beside its requirement and recorded
@@ -105,6 +107,14 @@ separate signals. A disconnected task retains its last successful view, labels i
 stale, disables mutations, and offers **Retry status**. Refreshing the project list
 does not make a failed task read look current. HTTP read failures never resume,
 restart, or retry an agent stage.
+
+An open task also carries the run's public status view (`status_view`, from the
+same cached `autocode --status` call that fills the intervention panel), so
+detail panes read fields such as `changes_by_criterion`, `dev_server` and `needs`
+from the contract in [docs/task-run.md](task-run.md). It is `null` when that call
+fails. The project list still reads saved run state for fields the view does not
+carry; that read is confined to `dashboard_run_state.py`, and the dashboard uses
+only public names of core modules (both checked in `tests/test_architecture.py`).
 
 ## Project-specific counters
 

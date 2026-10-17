@@ -118,7 +118,16 @@ cancels or skips. Master and manual runs retain their existing complete coverage
 
 Maintain the mappings in `tools/ci_scope.py` and `tools/ci_test_selection.py`
 alongside new consumers. A tests-workflow edit exercises its heavy job wiring;
-it does not enroll the whole fake catalog as a PR prerequisite.
+it does not enroll the whole fake catalog as a PR prerequisite. One trigger is
+derived rather than mapped: `linux-tool-containment` runs for every Python file that
+`tests/test_contained_fake_cli.py` loads, which `ci_scope.py` works out from their
+import statements and the scripts they start by file name
+([Conformance in CI](execution.md#conformance-in-ci)). Data the flow reads is not
+derived: the report schemas are listed in `CONTAINED_FLOW_DATA`, and a new data
+directory the flow depends on goes there. A `tools/` script that a scenario module
+copies by file name and runs, which no import names, goes in `SCENARIO_FIXTURES` in
+`tools/run_suite.py` with that module: a pull request that changes the script then
+runs the scenario harness step and selects the module.
 
 ### Unit suite
 
@@ -156,6 +165,36 @@ Process tests require local `ps` access and exercise detached-worker cleanup, ti
 interruption and checkpoint-write failure. The repair audit (archived at tag `archive/pre-restructure-2026-09-26`, under
 `audits/opencode-repair-2026-09-19/`) also verifies the original defects with native
 OpenCode metadata and a loopback provider fixture, without hosted model requests.
+
+`tests/test_contained_fake_cli.py` runs that fake OpenCode through the CLI inside the
+runner's real Linux bubblewrap boundary (#709). With `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1`
+the fake reports OpenCode 1.18.33 and answers the model-free `opencode debug agent`
+conformance checks, running each `--tool bash` command through the boundary shell the
+runner configured. `AUTOCODE_FIXTURE_SHELL_ESCAPE=<path>` makes its Builder write that path
+through the same shell. The module checks that such a run finishes; that its Builder,
+Tester and Completion Reviewer stage records and `autocode --status --json`
+(`tool_containment_backend`) name `bubblewrap` and its version; and that the planted write
+outside the workspace is blocked. Its uncontained control (`--allow-uncontained-tools`)
+shows the same write lands. The fake's own work, the scripted Codex delegate's edits and
+checks, still runs outside the boundary. So this proves the runner's contained launch
+path, not OpenCode's own tool dispatch, which the opt-in `NativeToolTests` cover. The
+module skips without a working bubblewrap; as root, drop the capabilities as described in
+[host requirements](#host-requirements-for-tests). Without those variables the fake is
+unchanged.
+
+`scenarios/test_contained_opencode.py` is the scenario harness's counterpart. It runs the
+`greenfield-greeting-cli` scenario on that fake OpenCode client, with the harness's scripted
+model as the client's `codex`, so the scenario's oracle judges a build whose Builder, Tester
+and Completion Reviewer ran contained. It checks that the oracle passes and the run
+completes; that every record of those three stages, in the state the harness saves as
+evidence, names `bubblewrap` and the version `autocode doctor` reports; that a Builder write
+planted outside the project with `AUTOCODE_FIXTURE_SHELL_ESCAPE` is blocked; and that
+`--status --json` says `tool_containment: "contained"` and that its
+`tool_containment_backend` names the same backend. It asks `autocode doctor --json` whether
+the boundary is available. Without a working bubblewrap, the test skips, except in CI on
+Linux, where it fails: the suite job installs bubblewrap before the scenario harness runs.
+Any other problem doctor reports where bubblewrap works, such as the fake no longer
+reporting the qualified OpenCode version, fails the test everywhere.
 
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).

@@ -1404,10 +1404,14 @@ def review() -> dict:
     }
 
 
-def investigate() -> dict:
+def investigate(data: dict) -> dict:
     """The fake's investigation: the diagnosis note in the solution it was told to apply, if any.
     A note with "reproduced": false ends the run; anything else hands over to the build pipeline,
-    where the fake Builder applies the solution. The runner writes the note; the fake writes nothing."""
+    where the fake Builder applies the solution. The runner writes the note; the fake writes nothing.
+    In a package run, whose handoff names the package (``package_scope``), it names only the files inside
+    it, as the handoff asks (#711); the fake Builder still applies the whole solution."""
+    package = (data.get("package_scope") or {}).get("package")
+    scoped = lambda paths: [path for path in paths if not package or path.startswith(package)]
     notes = sorted((Path(CONFIG["reference"]) / "docs" / "bugs").glob("*.json"))
     saved = json.loads(notes[0].read_text()) if notes else {}
     reproduced = saved.get("reproduced", True) is not False
@@ -1418,7 +1422,7 @@ def investigate() -> dict:
         "observed": text("observed", "observed_by_reporter") or CONFIG["title"],
         "reproduction": text("reproduction", "reproduction_attempted") or "Scripted reproduction",
         "root_cause": text("root_cause") or ("Scripted root cause" if reproduced else ""),
-        "affected_paths": (
+        "affected_paths": scoped(
             saved.get("affected_paths")
             or [
                 p
@@ -1428,7 +1432,7 @@ def investigate() -> dict:
         )
         if reproduced
         else [],
-        "test_paths": ([p for p in PATHS if "test" in p] or ["tests/"]) if reproduced else [],
+        "test_paths": (scoped([p for p in PATHS if "test" in p]) or [package or "tests/"]) if reproduced else [],
         "invariant": text("invariant") or ("Scripted invariant" if reproduced else ""),
         "test_cases": (saved.get("test_cases") or scripted_cases()) if reproduced else [],
         "conclusion": text("conclusion", "finding", "fix") or "Scripted conclusion",
@@ -2015,6 +2019,9 @@ def report_for(stage: str, data: dict) -> dict:
             return scripted_fault(FAULT_PROVIDERS["refund_store_clock"])["classify"](data)
         if CONFIG.get("fault") == "vacuous_refusal_tests" and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") == "retry":
             return scripted_fault("vacuous_refusal_provider.py")["investigate"](data)
+        if CONFIG.get("fault") == "escalation_exhausted" and not builder_context:
+            # The Builder's retry-limit pause at the ladder's end (escalation-ladder-end): explain it.
+            return scripted_fault("escalation_provider.py")["investigate"](data)
         # A scripted run that got stuck is a scenario defect; pause and say so.
         return {
             "diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.",
@@ -2034,7 +2041,7 @@ def report_for(stage: str, data: dict) -> dict:
     if stage == "review_design":
         return design()
     if stage == "investigate_bug":
-        return investigate()
+        return investigate(data)
     task = data.get("current_task") or {}
     if stage in ("sol", "astra_checkpoint", "astra_review") and os.environ.get(
         "SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE"
@@ -2093,6 +2100,10 @@ def report_for(stage: str, data: dict) -> dict:
         "astra_resolve",
     ):
         provider = scripted_fault("completion_rework_provider.py")
+        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+    if CONFIG.get("fault", "").startswith("escalation_") and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+        # The Builder's work passes only on its stronger route, or never (escalation-converts, escalation-ladder-end).
+        provider = scripted_fault("escalation_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if CONFIG.get("fault") in FAULT_PROVIDERS and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])

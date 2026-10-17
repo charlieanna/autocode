@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 import datetime as dt
-import fcntl
 import json
 import math
 import os
@@ -38,8 +37,10 @@ from pathlib import Path
 
 try:
     from . import autocode_request_usage as request_usage
+    from . import autocode_util as util
 except ImportError:
     import autocode_request_usage as request_usage
+    import autocode_util as util
 
 # Historical comparison rates, USD per 1M inclusive input/output tokens.
 # These are not verified current provider prices or subscription charges.
@@ -479,7 +480,7 @@ def _upsert(ledger, row):
     """Replace the run's row in place, or append it. Whole-file replace under a lock: runs share the file."""
     ledger.parent.mkdir(parents=True, exist_ok=True)
     with (ledger.parent / "usage.lock").open("a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        util.lock_file(lock, blocking=True)
         try:
             rows = _read(ledger)
             for index, existing in enumerate(rows):
@@ -493,7 +494,7 @@ def _upsert(ledger, row):
                 stream.write("".join(json.dumps(item, sort_keys=True) + "\n" for item in rows))
             os.replace(tmp, ledger)
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            util.unlock_file(lock)
 
 
 def record(path, state: RunState):

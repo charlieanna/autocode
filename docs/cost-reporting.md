@@ -9,6 +9,8 @@ switched on and no model is called.
   holds the run's totals so far: stages, tokens, `cost_usd` (`reported`, `estimated`, `complete`),
   `unknown_stages` and the same by role. `cost` holds the spend at current list prices against the
   run's money cap, and `--status` prints it as one `Cost: ...` line on stderr (below).
+  `escalations` prices each escalation's attempts the same way and says how it ended, so a run shows
+  what each climb cost and whether it helped ([status view](task-run.md#status-view)).
 - **Project ledger.** `PROJECT/.autocode/usage.jsonl` has one row per run, rewritten at every
   checkpoint save, so it is right during a task and after it pauses, completes or is killed. It
   is under `.autocode/`, which Git ignores.

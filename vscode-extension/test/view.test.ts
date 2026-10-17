@@ -123,7 +123,11 @@ test("an approval is bound to the token the run asks for", () => {
 });
 
 test("a revised plan is not the plan the token approves", () => {
-  const shown = { revision: 20, hash: "abc", token: "r20:abc", acceptance_criteria: ["one"] };
+  const shown = {
+    revision: 20, hash: "abc", token: "r20:abc",
+    acceptance_criteria: [{ id: "AC1", criterion: "one", verification_method: "run the test", human_review: false }],
+    constraints: [], permission_boundaries: [],
+  };
   const current = { status: "S", done: false, needs: { kind: "approve_plan", token: "r20:abc" }, displayed_plan: shown };
   assert.deepEqual(planForApproval(current), shown);
 

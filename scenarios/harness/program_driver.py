@@ -40,7 +40,7 @@ import time
 from pathlib import Path
 
 from . import evidence_reports
-from .driver import DriveError, Driver, leaves_for_person, metrics
+from .driver import DriveError, Driver, attribute, leaves_for_person, metrics
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 
 # Program statuses the driver leaves as they are: done, or waiting for what only a person decides.
@@ -177,6 +177,7 @@ class ProgramDriver:
         max_steps: int,
         timeout_seconds: int,
         explicit_answers=(),
+        round_trip_plans: bool = False,
     ):
         self.scenario, self.project, self.root = scenario, project, root
         self.flags, self.autocode = list(flags), autocode
@@ -191,6 +192,7 @@ class ProgramDriver:
             max_steps=max_steps,
             timeout_seconds=timeout_seconds,
             explicit_answers=explicit_answers,
+            round_trip_plans=round_trip_plans,
         )
         self.env, self.steps, self.answers = self.plan.env, self.plan.steps, self.plan.answers
         self.approvals = self.plan.approvals
@@ -337,6 +339,7 @@ class ProgramDriver:
                 raise DriveError("the plan was approved but its status view reports no approved_contract")
         finally:
             self.plan_steps, self.plan_answers = len(self.steps), len(self.answers)
+            attribute(self.approvals, self.plan.run_dir)  # every gate so far was the plan run's
         return ""
 
     def show(self) -> str:
@@ -476,14 +479,19 @@ class ProgramDriver:
                 max_steps=self.max_steps,
                 timeout_seconds=self.deadline - time.monotonic(),
                 explicit_answers=self.explicit_answers,
+                round_trip_plans=self.plan.round_trip_plans,
             )
-            # One budget and one record of answers and approvals.
+            # One budget and one record of answers and approvals; each gate served here names this run.
             child.steps, child.answers, child.approvals = self.steps, self.answers, self.approvals
             view = child.view()
             need = view.get("needs")
             if view["done"] or not need or need["kind"] == "continue" or leaves_for_person(need):
                 continue
-            child.serve(need)
+            given = len(self.approvals)
+            try:
+                child.serve(need)
+            finally:
+                attribute(self.approvals[given:], row["run_dir"])
             served = True
         return served
 
@@ -643,6 +651,9 @@ class ProgramDriver:
             "changes": [dict(record) for record in self.changes],
             "revisions": [dict(record) for record in self.revisions],
             "answers": self.answers,
+            # Every gate the harness passed, the plan run's and each workstream run's (harness.plan_round_trip);
+            # each one given to a task run names its run_dir (harness.approval_provenance).
+            "approvals": list(self.approvals),
             "cli_calls": [step["kind"] for step in self.steps],
             "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in self.steps],
             # Every model stage of the plan run and of every workstream run, for [run] requires_stages.

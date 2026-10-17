@@ -5,5 +5,5 @@
     "rootDir": ".",
     "sourceMap": false
   },
-  "include": ["src/core/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

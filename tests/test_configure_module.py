@@ -2,7 +2,7 @@
 
 Covers the autocode_configure extraction contract: the module imports nothing
 from the CLI or the controller, keeps the shared names resolvable on the runner
-module for the frozen dashboard and status command, and the runner wrappers
+module for the dashboard and status command, and the runner wrappers
 pass the same collaborators a direct call receives.
 
 The module-level imports of autocode_configure and tests.test_planning are
@@ -111,7 +111,7 @@ class ConfigureModuleSurfaceTests(unittest.TestCase):
             autocode_configure.DEFAULT_ROLE_MODELS,
         )
         self.assertEqual("opencode", autocode_configure.DEFAULT_ENGINE)
-        # The runner module keeps resolving the shared names (frozen dashboard,
+        # The runner module keeps resolving the shared names (dashboard,
         # status command and argparse all read them through autocode).
         self.assertTrue(callable(runner.configure))
         self.assertTrue(callable(runner.check_subscription))
@@ -187,6 +187,21 @@ class WrapperWiringTests(unittest.TestCase):
                 self.assertEqual(milestones.DEFAULTS["max_seconds"], fresh["milestone_checkpoints"]["max_seconds"])
                 self.assertEqual(milestones.DEFAULTS["max_replans"], fresh["milestone_checkpoints"]["max_replans"])
         self.assertEqual(3, milestones.DEFAULTS["stalled_reviews"], "Explicit requests must not mutate defaults")
+
+    def test_a_new_run_saves_the_project_serve_command_only_when_set(self):
+        saved = {"command": "npm run dev -- --port {port}", "ready_path": "/", "ready_seconds": 60}
+        for value, expected in ((saved, saved), (None, None)):
+            with self.subTest(value=value):
+                args = self.configure_args(serve=value)
+                with patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
+                    settings = autocode_configure.configure(
+                        args,
+                        {"workspace": "/tmp/fixture", "iteration": 0},
+                        planning=planning,
+                        milestones=milestones,
+                        autopilot=autopilot,
+                    )
+                self.assertEqual(expected, settings.get("serve"))
 
     def test_replan_limit_cannot_release_an_interrupted_exhausted_pause(self):
         args = self.configure_args()

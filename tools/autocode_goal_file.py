@@ -29,27 +29,25 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_brief_literals as brief_literals
-    from . import autocode_brief_obligations as brief_obligations
     from . import autocode_native_test_names as native_test_names
     from . import autocode_plan_file as plan_file
+    from . import autocode_plan_file_origin as origin
     from . import autocode_requirement_cues as cues
-    from . import autocode_risk_obligations as risk_obligations
-    from . import autocode_source_trace as source_trace
 except ImportError:
     import autocode_brief_literals as brief_literals
-    import autocode_brief_obligations as brief_obligations
     import autocode_native_test_names as native_test_names
     import autocode_plan_file as plan_file
+    import autocode_plan_file_origin as origin
     import autocode_requirement_cues as cues
-    import autocode_risk_obligations as risk_obligations
-    import autocode_source_trace as source_trace
 
-FIELD = "plan_file"
+# Which revision a file was loaded as, and how a plan differs from it, are in autocode_plan_file_origin, which
+# the status view and the evidence report read too; these names stay here for this module's callers.
+FIELD = origin.FIELD
+RUNNER_RECORDS = origin.RUNNER_RECORDS
+loaded = origin.loaded
+changed = origin.changed
 # autocode_util.redact's marker: `autocode plan --export` writes it in place of credential-shaped text.
 MASKED = "[REDACTED]"
-# The runner's records in a contract body. Each one's ``review`` is the evidence of the Plan Reviewer
-# execution that sealed it, so a review of an unchanged plan seals it anew and changes only that.
-RUNNER_RECORDS = (brief_obligations.KEY, risk_obligations.KEY, source_trace.KEY)
 
 
 def read(path: Path) -> plan_file.PlanFile:
@@ -136,49 +134,6 @@ def _marked(value) -> set[str]:
 def record(state: RunState, path: Path, plan: plan_file.PlanFile) -> None:
     """Name the plan file the revision just installed came from."""
     cast(dict, state["goal_contract"])[FIELD] = {"path": str(Path(path).resolve()), "goal_hash": plan.goal_hash}
-
-
-def loaded(state: RunState) -> dict | None:
-    """The latest revision loaded from a plan file since the last approved one, or None.
-
-    Any revision before the current one that was approved ends the search, the loaded revision included:
-    a plan drafted after an approval is described against that approval, not the file. A revision counts
-    as approved when it still carries its approval or when a saved goal_approval event names its token,
-    since feedback, an answer or a rejected assumption resets an approved revision to draft in place.
-    """
-    current = state.get("goal_contract") or {}
-    approvals = {
-        event.get("token")
-        for event in state.get("user_events") or []
-        if isinstance(event, dict) and event.get("kind") == "goal_approval"
-    }
-    for contract in reversed([*(state.get("contract_history") or []), current]):
-        if not isinstance(contract, dict):
-            continue
-        if contract is not current and (
-            contract.get("approval_status") == "approved"
-            or contract.get("approval_event")
-            or f"r{contract.get('revision')}:{contract.get('hash')}" in approvals
-        ):
-            return None
-        if isinstance(contract.get(FIELD), dict):
-            return contract
-    return None
-
-
-def changed(before: dict, after: dict) -> list[str]:
-    """The parts of the plan ``after`` that differ from ``before``, apart from the Plan Reviewer's evidence."""
-
-    def plan(body):
-        return {
-            key: {name: item for name, item in value.items() if name != "review"}
-            if key in RUNNER_RECORDS and isinstance(value, dict)
-            else value
-            for key, value in body.items()
-        }
-
-    before, after = plan(before), plan(after)
-    return sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key))
 
 
 def approval_lines(state: RunState) -> list[str]:

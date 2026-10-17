@@ -33,11 +33,13 @@ try:
     from .. import autocode_investigation_workspace as investigation_workspace
     from .. import autocode_job_report_recovery as job_report_recovery
     from .. import autocode_launch_inputs as launch_inputs
+    from .. import autocode_package_writes as package_writes
     from .. import autocode_providers
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_resolver_human as human
     from .. import autocode_resolver_recommendation as recommendation
     from .. import autocode_resolver_recovery as resolver_recovery
+    from .. import autocode_role_transport as role_transport
     from .. import autocode_source_scope as source_scope
     from .. import autocode_stuck_job as stuck_job
     from .. import autocode_test_environment as test_environment
@@ -54,11 +56,13 @@ except ImportError:
     import autocode_investigation_workspace as investigation_workspace
     import autocode_job_report_recovery as job_report_recovery
     import autocode_launch_inputs as launch_inputs
+    import autocode_package_writes as package_writes
     import autocode_providers
     import autocode_recovery_novelty as novelty
     import autocode_resolver_human as human
     import autocode_resolver_recommendation as recommendation
     import autocode_resolver_recovery as resolver_recovery
+    import autocode_role_transport as role_transport
     import autocode_source_scope as source_scope
     import autocode_stuck_job as stuck_job
     import autocode_test_environment as test_environment
@@ -79,7 +83,9 @@ def prepare_answer(state: RunState):
     Investigator. Like the Architect: GPT-6 Astra stays reserved for the Resolver (docs/models.md)."""
     state["phase"] = "INVESTIGATING"
     roles = state["settings"]["roles"]
-    roles.setdefault("analyst", capped_route(roles.get("plan_reviewer") or roles["astra"]))
+    source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
+    roles.setdefault("analyst", capped_route(roles.get(source) or roles["astra"]))
+    role_transport.inherit(state.get("settings"), "analyst", source)
     prompt, metrics = discuss_job.prompt(
         state,
         autoplanner.workspace_inventory(state["workspace"], state["task"]),
@@ -96,7 +102,9 @@ def prepare_investigation(state: RunState):
     to the workspace itself. GPT-6 Astra stays reserved for the Resolver (docs/models.md)."""
     state["phase"] = "INVESTIGATING"
     roles = state["settings"]["roles"]
-    roles.setdefault("investigator", copy.deepcopy(roles.get("plan_reviewer") or roles["astra"]))
+    source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
+    roles.setdefault("investigator", copy.deepcopy(roles.get(source) or roles["astra"]))
+    role_transport.inherit(state.get("settings"), "investigator", source)
     scratch = investigation_workspace.prepare(state["workspace"])
     prompt, metrics = bug_job.prompt(
         state,
@@ -108,6 +116,8 @@ def prepare_investigation(state: RunState):
             state["workspace"], (state["settings"].get("regression") or {}).get("test_command")
         )
         or verify.python_for(state["workspace"]),
+        # A package run names its package and suite; the diagnosis must stay inside it (#711).
+        package_context=package_writes.context(state["settings"], bug_job.STAGE),
     )
     return ModelRequest("astra", "investigator", prompt, metrics, bug_job.SCHEMA, True)
 
@@ -313,6 +323,8 @@ def prepare_stuck(state: RunState, state_path):
     roles[stuck_job.ROUTE] = stuck_job.pinned_route(state["settings"]) or stuck_job.route(
         roles, (roles.get(stuck_route) or {}).get("model", ""), state["settings"].get("provider")
     )
+    source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
+    role_transport.inherit(state.get("settings"), stuck_job.ROUTE, source)
     state.setdefault("sessions", {}).pop(stuck_job.ROUTE, None)
     identities = state["settings"].setdefault("transport_identities", {})
     if roles[stuck_job.ROUTE].get("engine") == "opencode" and "opencode" not in identities:
@@ -345,6 +357,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
     # Inherit the planner model, not its conversation. A dedicated route keeps
     # resolver sessions separate from planning, completion and implementation.
     state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["astra"]))
+    role_transport.inherit(state.get("settings"), "resolver", "astra")
     request = execution_request(state, "astra_review", state_path, schema_dir)
     instruction, payload = request.prompt.split("CURRENT HANDOFF DATA\n", 1)
     data = json.loads(payload)
@@ -446,6 +459,7 @@ def prepare_diagnosis(state: RunState, stage, state_path, schema_dir):
         raise ValueError(f"Autoresolver cannot run {stage}")
     diagnosis_guard(state, Path(state["workspace"]))
     state["settings"]["roles"].setdefault("resolver", copy.deepcopy(state["settings"]["roles"]["astra"]))
+    role_transport.inherit(state.get("settings"), "resolver", "astra")
     # Reuse the Plan Reviewer's handoff context (current source, task, evidence
     # inventory) for input only; the output schema below is unrelated to and far
     # narrower than the reviewer decision schema that context call would imply.

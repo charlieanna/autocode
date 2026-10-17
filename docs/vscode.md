@@ -47,7 +47,7 @@ CLI's prose to decide what to do.
 cd vscode-extension
 npm ci
 npm run build
-npm test          # the pure CLI-facing logic, in-process
+npm test          # helpers, controller/commands and the webview DOM; no providers
 code .
 ```
 
@@ -55,6 +55,10 @@ In the debug window (`F5`) the AutoCode view appears in the Activity Bar. Point
 `autocode.cliPath` at your `autocode`, or set `autocode.cliArgs` to run it from a
 source checkout, e.g. `cliPath: python3`,
 `cliArgs: ["/path/to/autocode/tools/autocode.py"]`.
+
+The extension remains a draft pending both an actual VS Code flow and the owner's
+live-model qualification. The automated tests substitute the VS Code host and
+render the webview in jsdom; passing them does not establish either qualification.
 
 `autocode.provider` is the route your models bill to. Check it before a live run:
 AutoCode refuses to spend without it landing where you meant.

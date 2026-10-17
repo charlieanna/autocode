@@ -62,18 +62,23 @@ LINUX_SYSTEM_FILES = (
 # prepare() names each launch's control directory uuid4().hex; nothing else matches.
 CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
 # .autocode directories, besides the run store, where AutoCode keeps other runs, programs and task
-# flows, or the workspaces, archives and indexes that hold them (#1250): archived task-worktree
-# runs, `autocode arena` attempts, parallel Builder workspaces, run bundles, `autocode issue`
-# worktrees, program state, `autocode review-pr` checkouts, the run registry, replay recordings,
-# task-flow state, `autocode verify` checkouts and reports, and task or program worktrees. A native
-# planning shell reads none of those that exist when its launch is prepared (private_run_reads()).
-# Not every .autocode directory is listed: other launches' control directories and the rest stay
-# readable.
+# flows, or the workspaces, archives, conversation records and indexes that hold them (#1250):
+# archived task-worktree runs, `autocode arena` attempts, parallel Builder workspaces, run bundles,
+# requirements conversation handoffs, conversation start markers, bug investigation workspaces,
+# `autocode issue` worktrees, program state, `autocode review-pr` checkouts, the run registry,
+# replay recordings, task-flow state, `autocode verify` checkouts and reports, and task or program
+# worktrees. A native planning shell reads none of those that exist when its launch is prepared
+# (private_run_reads()). Not every .autocode directory is listed: other launches' control directories
+# and the rest stay readable. The modules that make these directories own their names;
+# tests/test_tool_containment.py binds each entry to them.
 PRIVATE_STORES = (
     "archive",
     "arena",
     "builders",
     "bundles",
+    "conversation-handoffs",
+    "conversation-starts",
+    "investigation",
     "issues",
     "programs",
     "pull-reviews",
@@ -1782,17 +1787,10 @@ def verify(boundary):
             reads = boundary["private_reads"]
             if not isinstance(reads, dict):
                 raise ValueError("Missing private run-store read denial")
-            # Computed again now. A store made since the profile was rendered is only in the current
-            # denial; when that is the whole difference, the pause names it and its remedy.
+            # Computed again now: a store made since the profile was rendered is only in the current denial.
             current = private_run_reads(workspace, reads["run_dir"])
-            appeared = [path for path in current["denied"] if path not in reads.get("denied", ())]
-            if appeared and reads == {**current, "denied": [p for p in current["denied"] if p not in appeared]}:
-                raise _stores_made_since(appeared)
-            if (
-                reads != current
-                or boundary.get("allow_write") is not False
-                or not _enforces_private_reads(host, profile.read_bytes(), reads)
-            ):
+            pinned = profile.read_bytes()
+            if boundary.get("allow_write") is not False or not _enforces_private_reads(host, pinned, reads):
                 raise ValueError("Profile does not enforce the exact recorded private run-store denial")
             proof = json.loads(Path(boundary["conformance"]).read_text()).get("private_reads")
             if (
@@ -1805,6 +1803,24 @@ def verify(boundary):
                 or not proof["command"]
             ):
                 raise ValueError("Missing native private run-state read conformance")
+            if reads != current:
+                # The pause names the stores only in the current denial, with their remedy, when they are
+                # the whole difference and this boundary really leaves each one readable: the pinned
+                # profile denies none of them, and none is the run store, which holds this run and so
+                # existed when the boundary was prepared. A proof that matches the record does not show
+                # the record is prepare()'s, since both can be pinned again together. For a boundary as
+                # prepare() pinned it, whose record named every store that existed then, such a store was
+                # made since. Any other difference, such as a record without a store the profile still
+                # denies, is the plain refusal below.
+                appeared = [path for path in current["denied"] if path not in reads["denied"]]
+                if (
+                    appeared
+                    and str(Path(current["run_dir"]).parent) not in appeared
+                    and reads == {**current, "denied": [p for p in current["denied"] if p not in appeared]}
+                    and not any(_enforces_private_reads(host, pinned, {**reads, "denied": [p]}) for p in appeared)
+                ):
+                    raise _stores_made_since(appeared)
+                raise ValueError("The recorded private run-store denial is not the current one")
         except UnusableStore as error:
             raise StorePause(DENIAL_CHANGED + ": " + str(error)) from error
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:

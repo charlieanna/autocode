@@ -142,6 +142,32 @@ class CleanTests(Fixture):
         self.assertEqual("", git(self.project, "branch", "--list", "autocode/builder-*"))
         self.assertEqual(1, git(self.project, "worktree", "list", "--porcelain").count("worktree "))
 
+    def test_clean_worktrees_json_output(self):
+        self.task()
+        code, out = self.clean("--json")
+        self.assertEqual(0, code)
+        data = json.loads(out)
+        self.assertEqual(str(self.project), data["project"])
+        self.assertFalse(data["failed"])
+        self.assertGreater(len(data["worktrees"]), 0)
+        self.assertIn("action", data["worktrees"][0])
+
+    def test_clean_worktrees_json_yes_output(self):
+        _, tree, state = self.task()
+        worktrees.deliver(state, tree)
+        code, out = self.clean("--json", "--yes")
+        self.assertEqual(0, code)
+        data = json.loads(out)
+        self.assertFalse(data["failed"])
+        actions = [entry["action"] for entry in data["worktrees"]]
+        self.assertIn("removed", actions)
+
+    def test_clean_worktrees_json_empty_output(self):
+        code, out = self.clean("--json")
+        self.assertEqual(0, code)
+        data = json.loads(out)
+        self.assertEqual([], data["worktrees"])
+
 
 class RemoveCheckoutTests(Fixture):
     def test_records_stay_in_place_and_an_interrupted_removal_is_finished(self):

@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_interventions as interventions
 import autocode_support as support
 
+from tests.test_util_windows import FakeMsvcrt
+
 
 def submit_in_process(workspace, run_dir, request_id):
     interventions.submit(Path(workspace), Path(run_dir), request_id=request_id, kind="feedback", text=request_id)
@@ -202,17 +204,32 @@ class InterventionTests(unittest.TestCase):
         self.assertEqual(json.dumps({"version": 1, "requests": [{}]}), inbox.read_text())
         inbox.unlink()
 
-        def blocked_lock(_handle, operation):
-            if operation & interventions.fcntl.LOCK_NB:
+        def blocked_lock(_handle, *, blocking=False):
+            if not blocking:
                 raise BlockingIOError()
 
         with (
             patch.object(interventions, "LOCK_TIMEOUT_SECONDS", 0),
-            patch.object(interventions.fcntl, "flock", side_effect=blocked_lock),
+            patch.object(interventions.util, "lock_file", side_effect=blocked_lock),
         ):
             with self.assertRaisesRegex(interventions.InterventionError, "busy"):
                 interventions.submit(self.workspace, self.run, request_id="blocked", kind="pause", text="")
         self.assertFalse(inbox.exists())
+
+    def test_a_busy_inbox_reports_busy_with_the_windows_lock(self):
+        # msvcrt refuses to unlock a byte range its handle never locked, so a wait that times out
+        # must not try to: that refusal would replace "busy" (#698).
+        with (
+            patch.object(interventions.util, "_WINDOWS", True),
+            patch.dict(sys.modules, {"msvcrt": FakeMsvcrt()}),
+            patch.object(interventions, "LOCK_TIMEOUT_SECONDS", 0),
+            (self.run / interventions.LOCK_NAME).open("a+") as holder,
+        ):
+            interventions.util.lock_file(holder)
+            with self.assertRaisesRegex(interventions.InterventionError, "busy"):
+                interventions.submit(self.workspace, self.run, request_id="blocked", kind="pause", text="")
+            interventions.util.unlock_file(holder)
+        self.assertFalse((self.run / interventions.INBOX_NAME).exists())
 
     def test_malformed_optional_goal_contract_returns_a_receipt_without_a_token(self):
         self.state_path.write_text(

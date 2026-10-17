@@ -626,9 +626,88 @@ What the package changes:
   command unless `--test-command` gives one, so a large repository does not bind
   thousands of unrelated tests. The replay of the package suite is read in the
   package as the same suite is read at the root.
+- In a bug fix, the Investigator's handoff names the package
+  (`package_scope`) and, when the run has one, `suite`: the command the run
+  tests the package with (the suite detected there, or `--test-command`). A
+  reproduced diagnosis must name only files or directories inside the package in
+  `affected_paths` and `test_paths`. One that names anything else (another
+  package, a file at the repository root, a shared lockfile) is refused as
+  invalid output and takes the path of any refused report: the Investigator is
+  asked to repair it with the reason, and the run pauses rather than plan from a
+  report that still names such a path. The diagnosis note stays under
+  `docs/bugs/` at the repository root, where the runner writes it. A bug whose
+  fix is outside the package needs a run without `--package`: the Investigator
+  is told to name the file it would change there anyway, so its report is
+  refused and the run pauses rather than plan the fix.
+- The package is the Builder's write scope, and its handoff says so
+  (`write_scope`). Apart from the Investigator, no other stage is told the
+  package. Before each Tester and
+  Completion Reviewer dispatch, in every package run, whether or not it owes a
+  regression proof, the runner compares the candidate with the run's base, as
+  the regression proof reads it. The Code Reviewer, Designer and Design
+  Reviewer dispatches are not checked. A file added, modified (its content or
+  its mode) or deleted outside the package (another package, a file at the
+  repository root, a shared lockfile or workspace file; a rename counts on both
+  sides) opens one blocking finding with source `runner` that names each path
+  and what happened to it. A file restored with the same content but a
+  different mode still counts as modified. The completion gate and a
+  milestone's acceptance refuse while the finding is open; every stage sees it
+  in `open_findings`, and a correction task is assigned it. Only the runner
+  closes it, when a later check finds no change outside the package; no
+  reviewer report can. Closing it with `--close-finding` accepts nothing:
+  `--accept-completion` runs the same check once its own checks pass (a
+  finished run, an unapproved plan or missing evidence is refused for that
+  reason first) and refuses while the change is there, and the next check
+  before review opens a new finding. A task that must change files outside the
+  package, such as a root lockfile, needs a run without `--package`.
+- What the check does not count outside the package:
+  - what the regression proof does not count either: AutoCode's own
+    `.autocode/` files, bytecode, the runner's dependency links, and an
+    untracked file Git ignores, unless the approved plan names its path;
+  - an untracked Git repository or a submodule's uncommitted work that the
+    checkout already held when the run started, which the run's base cannot
+    hold. Every new package run records what is there when its base is taken
+    (none, in a new task worktree). While such a path is still a Git
+    repository, it and everything under it are left out, so a later change
+    inside it is not seen. An untracked repository that is later removed
+    entirely was the person's own and names no change of the candidate: it
+    does not hold the run. A deleted submodule, or a path that is no longer a
+    Git repository (replaced by a file, or its `.git` removed), is named
+    apart from the Builder's changes, and the finding tells the Builder not
+    to delete, move or reset anything there: the person restores it. A
+    package run saved before this record existed has none, so its check
+    leaves out every nested Git repository and submodule work it finds
+    outside the package rather than report the person's own as the Builder's;
+  - the files the runner wrote for this run, while they are as the runner
+    wrote them: a bug fix's diagnosis note under `docs/bugs/` (compared with
+    the investigation the run saved, whether or not it reproduced the bug),
+    a review's or design review's report (its saved hash) and a design
+    check's blockers file (its saved hash). Once changed, the finding names
+    them apart and tells the Builder to put back what the runner wrote, not
+    to delete them. A check of the same design that later passes removes the
+    blockers file an earlier, stopped check wrote, so no stale one is left
+    behind;
+  - what an earlier, finished turn of the run left (a discussion's note, a
+    design's documents, the other files the turn changed), and a blockers
+    file a run saved before it recorded the hash, are recorded by path only:
+    they are left out by path, so an edit to one is not seen.
+
+  The regression proof's list of changes outside the package leaves out the
+  same paths, apart from the person's Git work that is no longer as it was.
 - A runner regression proof (a bug fix, or a plan whose criteria name tests)
-  leaves a change outside the package `UNVERIFIED`, because the package suite
-  never ran it. The run cannot complete with such a change.
+  also leaves a change outside the package `UNVERIFIED`, because the package
+  suite never ran it.
+
+The `feature-monorepo-package` scenario
+([scenarios/README.md, Catalog](../scenarios/README.md#catalog)) runs a build in
+one package of a two-package repository with `--package` and the scripted
+model. Its reference completes; its broken variant, which also edits the other
+package, stops with each of those files named in the open `runner` finding.
+`bugfix-monorepo-package` does the same for a bug fix: the Investigator runs
+first, the proof runs in the package, and the runner's diagnosis note under
+`docs/bugs/` is not counted as a change outside it. Its scripted Investigator
+names only the package's files, as its handoff asks. Its broken variant also
+fixes the other package's copy of the bug and stops with that file named.
 
 An explicit `--test-command` or `--regression-command` still runs from the
 repository root, exactly as given; write `cd packages/api && …` to run it in the
@@ -656,8 +735,9 @@ baseline cache, as at the root.
 
 Not covered yet (#711):
 
-- The package does not limit what the Builder may write, and a run that owes no
-  runner regression proof does not check for changes outside the package.
+- Nothing limits what the Builder writes while it works: a change outside the
+  package is found when the candidate is checked before review, not refused when
+  it is written.
 - Detection in the package does not read pytest configuration in parent
   directories (a root `pyproject.toml` `[tool.pytest]` section, `pytest.ini` or
   `conftest.py`), so a package that relies on it is detected as unittest. Give
@@ -688,7 +768,6 @@ Not covered yet (#711):
   with the suite detected at the repository root.
 - Diff coverage and the mutation report, which never change a verdict, are not
   narrowed to a package's commands and may be skipped.
-- The `scenarios/` catalog has no two-package scenario yet.
 
 ## Reviews, discussions and designs: findings and claims shown by running code
 
@@ -876,10 +955,13 @@ approved. The front matter is JSON, which YAML front-matter readers also accept.
 it is generated from the front matter so reviewers can read the plan.
 
 The goal hash is the SHA-256 of the contract body: what the plan says, whatever run or revision
-holds it. A plan read back from the file has the same goal hash as the run's. The approval token is
-not in the file, so committing it approves nothing. Text that looks like a credential is masked
-before the file is written, with the same policy as `autocode bundle`; the export then says that
-the file's goal hash differs from the run's.
+holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
+(`scenarios/run.py`) checks this at every plan approval its catalog runs reach: it exports the plan
+and reads the file back with `--check` before it approves the plan
+([scenarios/README.md](../scenarios/README.md)). The approval token is not in the file, so
+committing it approves nothing. Text that looks like a credential is masked before the file is
+written, with the same policy as `autocode bundle`; the export then says that the file's goal hash
+differs from the run's.
 
 A reviewer edits the front matter, then runs `autocode plan --render FILE` to regenerate the text.
 `--check` then prints the new goal hash and the one it was exported as. It exits 2 when the text no
@@ -916,6 +998,40 @@ still the plan loaded from it. A review of an unchanged plan records the new rev
 records, so that plan's goal hash differs from the file's; any other change is named. The approval
 token locks the revision on the screen, as always. `--goal-file` revises a saved run; it does not
 start a new one.
+
+When the run completes, its evidence report (`evidence.md`, and so the pull request body
+`autocode-issue pr` writes around it) gives the approved plan's goal hash, the one `--check` prints
+for a file holding exactly that plan. When the approved plan came from a plan file, the report also
+names the file, its goal hash and the plan revision it was loaded as, and says how the two differ:
+the approved plan is the file's plan unchanged (the two goal hashes are equal), differs from it only
+in the runner's records of the plan's review, or differs from it in the parts it names. A plan
+approved, changed and approved again after the load is the later approval's plan, so the report
+names no file for it. For example:
+
+```text
+Plan goal hash: 3f1c… (what `autocode plan --check FILE` prints for a file holding exactly this plan).
+Plan file: `/repo/plans/refunds.md` (goal hash 9a07…), loaded as plan revision 2; the approved plan differs from that file's plan only in the runner's records of the plan's review.
+```
+
+### A team's plan review
+
+Put together, a team reviews a plan like this:
+
+1. **AutoCode drafts the plan.** A run stops with its plan waiting for approval. For a GitHub issue,
+   `autocode-issue start` gets it there.
+2. **A person opens a pull request with the file.** `autocode-issue plan ISSUE --open` exports the
+   plan, commits it as `plans/issue-N.md` on a branch of its own and opens a draft pull request
+   ([GitHub issues](issues.md#reviewing-the-plan-in-a-pull-request)). Without an issue, run
+   `autocode plan --export FILE`, then commit, push and open the pull request yourself.
+3. **Reviewers edit it.** They change the front matter, regenerate the text with
+   `autocode plan --render FILE` and check it with `autocode plan --check FILE`. Merging approves nothing.
+4. **The merged file goes back to the run that drafted it.** `autocode --goal-file FILE --run-dir RUN`
+   loads it as that run's next revision, and a person approves it at the approval stop as usual.
+
+Not available yet: starting a new run from the merged file (`autocode "TASK" --goal-file FILE`), for
+example on another machine or once the drafting run is gone. A plan file carries the exporting run's
+records of the plan's review, and how a new run should treat them is still to be decided (#720). Until
+then, `--goal-file` revises a saved run; it does not start one.
 
 ## Task chat message intent
 

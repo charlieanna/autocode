@@ -59,8 +59,9 @@ def ended_in(state: RunState):
 
 def render(state: RunState, fallback) -> str:
     """The completion summary: the job's own, or ``fallback(state)`` for a build-pipeline completion,
-    then who approved its plan and reviews, or that no approval was recorded when its workflow can ask
-    for one (#722), ending with the run's cost line (#721)."""
+    then who approved its plan and reviews, edited the plan, resumed it from a pause or accepted its
+    completion, or that no approval was recorded when its workflow can ask for one (#722), ending with
+    the run's cost line (#721)."""
     job = ended_in(state)
     summary = (job.render(state) if job else fallback(state)).rstrip("\n")
     approvals = approval_provenance.lines(state)

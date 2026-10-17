@@ -15,7 +15,10 @@ from the runner.
 State key written here (and read by autocode_run_view, autopilot):
     workflow: {"kind": one of WORKFLOWS or None, "reason": str, "signals": [str],
                "source": "model" | "user", "then": the stage to run after recognition,
-               "clarity": "clear" | "vague", only in adaptive-planning runs}
+               "clarity": "clear" | "vague", only in adaptive-planning runs,
+               "requirements_skipped": bool, only where clarity decides whether Requirements
+               runs (an adaptive build recognized with Requirements next and no approved
+               design); read by autocode_adaptive_planning.view for the status view}
 """
 
 from __future__ import annotations
@@ -202,6 +205,9 @@ def apply(state: RunState, value: dict, record: dict) -> None:
     if design:
         state["workflow"]["design_document"] = design
     first = adaptive.entry_stage(state, value, then, planner_stage(state))
+    if adaptive.enabled(state) and value["workflow"] == "build" and not design and then == "requirements_gather":
+        # Saved where clarity decides it; the status view shows it as planning_depth.requirements_skipped (#697).
+        state["workflow"]["requirements_skipped"] = first != then
     state.update(
         {
             "status": "RUNNING",

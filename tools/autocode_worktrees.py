@@ -37,7 +37,6 @@ if TYPE_CHECKING:
 
 import argparse
 import contextlib
-import fcntl
 import json
 import os
 import shutil
@@ -46,8 +45,10 @@ import tempfile
 from pathlib import Path
 
 try:
+    from . import autocode_util as util
     from . import autocode_workspaces as workspaces
 except ImportError:
+    import autocode_util as util
     import autocode_workspaces as workspaces
 
 IDENTITY = {
@@ -171,7 +172,7 @@ def _locked(paths):
         for path in paths:
             handle = path.open("a+")
             handles.append(handle)
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            util.lock_file(handle)
         yield
     finally:
         for handle in handles:
@@ -271,6 +272,7 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument("--workspace", type=Path, default=Path.cwd(), help="The project (or one of its task worktrees)")
     result.add_argument("--yes", action="store_true", help="Remove the worktrees listed as removable")
+    result.add_argument("--json", action="store_true", help="Format output as JSON")
     return result
 
 
@@ -289,27 +291,85 @@ def cli(argv) -> int:
     programs = _program_owned(project)
     trees = sorted(p for p in registered if p.parent == parent)
     if not trees:
-        print(f"No task worktrees under {parent}.")
+        if args.json:
+            print(
+                json.dumps({"project": str(project), "parent": str(parent), "worktrees": [], "failed": False}, indent=2)
+            )
+        else:
+            print(f"No task worktrees under {parent}.")
         return 0
     failed = False
+    json_worktrees: list[dict[str, object]] = []
     for tree in trees:
         if tree in programs:
-            print(f"keep    {tree}: owned by an `autocode program`")
+            if args.json:
+                json_worktrees.append(
+                    {"worktree": str(tree), "action": "keep", "reason": "owned by an `autocode program`"}
+                )
+            else:
+                print(f"keep    {tree}: owned by an `autocode program`")
             continue
         # A delivered worktree is detached, so its branch comes from its own metadata.
         branch = _task_branch(tree, legacy=True) or registered[tree]
         removable, reason = assess(project, tree, branch, registered)
         if not removable:
-            print(f"keep    {tree}: {reason}")
+            if args.json:
+                json_worktrees.append({"worktree": str(tree), "action": "keep", "reason": reason, "branch": branch})
+            else:
+                print(f"keep    {tree}: {reason}")
         elif not args.yes:
-            print(f"remove  {tree}: {reason} (dry run; add --yes)")
+            if args.json:
+                json_worktrees.append(
+                    {
+                        "worktree": str(tree),
+                        "action": "remove",
+                        "reason": reason,
+                        "branch": branch,
+                        "dry_run": True,
+                    }
+                )
+            else:
+                print(f"remove  {tree}: {reason} (dry run; add --yes)")
         else:
             try:
                 archive = remove(project, tree, registered)
-                print(f"removed {tree}: branch {branch} kept; run records in {archive}")
+                if args.json:
+                    json_worktrees.append(
+                        {
+                            "worktree": str(tree),
+                            "action": "removed",
+                            "reason": reason,
+                            "branch": branch,
+                            "archive": str(archive),
+                        }
+                    )
+                else:
+                    print(f"removed {tree}: branch {branch} kept; run records in {archive}")
             except BlockingIOError:
-                print(f"keep    {tree}: a runner holds its lock")
+                if args.json:
+                    json_worktrees.append(
+                        {
+                            "worktree": str(tree),
+                            "action": "keep",
+                            "reason": "a runner holds its lock",
+                            "branch": branch,
+                        }
+                    )
+                else:
+                    print(f"keep    {tree}: a runner holds its lock")
             except (OSError, ValueError) as error:
                 failed = True
-                print(f"error   {tree}: {error}")
+                if args.json:
+                    json_worktrees.append(
+                        {"worktree": str(tree), "action": "error", "error": str(error), "branch": branch}
+                    )
+                else:
+                    print(f"error   {tree}: {error}")
+    if args.json:
+        print(
+            json.dumps(
+                {"project": str(project), "parent": str(parent), "worktrees": json_worktrees, "failed": failed},
+                indent=2,
+            )
+        )
     return 1 if failed else 0

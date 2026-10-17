@@ -19,7 +19,7 @@ import {
   ClientGap,
   type OpenDecision,
 } from "./core/next-command";
-import { readRegistryList, readStatusPayload, approvalToken, type RegistryList, type StatusView } from "./core/view";
+import { readRegistryList, readStatusPayload, approvalToken, planForApproval, type RegistryList, type StatusView } from "./core/view";
 import { readSettings, type Settings } from "./settings";
 
 export interface RunRef {
@@ -73,11 +73,12 @@ export class RunController {
    */
   async start(workspace: string, brief: string): Promise<RunRef> {
     const runDir = freshRunDir(workspace);
-    const args = [brief, "--in-place", "--no-chat", "--new-run-dir", runDir, ...this.settings.runOptions];
+    const settings = this.settings;
+    const args = [brief, "--in-place", "--no-chat", ...settings.runOptions, "--workspace", workspace, "--new-run-dir", runDir];
     this.log.show(true);
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
-    const result = await stream(this.settings, args, {}, (chunk) => this.log.append(chunk));
-    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
+    const result = await stream({ ...settings, cwd: workspace }, args, {}, (chunk) => this.log.append(chunk));
+    if (result.rejected || (result.code !== 0 && result.code !== 2)) throw new Error(tail(result));
     this.log.appendLine(`[autocode exited ${result.code}]`);
     return { workspace, runDir };
   }
@@ -143,6 +144,9 @@ export class RunController {
     const asked = approvalToken(view);
     if (asked !== null && shownToken !== asked) {
       throw new ClientGap("the plan changed since it was displayed; review the new plan before approving it");
+    }
+    if (view.needs?.kind === "approve_plan" && !planForApproval(view)) {
+      throw new ClientGap("the complete plan is unavailable; review the plan before approving it");
     }
     const action = this.prepare(view, run, answers);
     const args = [...action.argv, "--workspace", run.workspace, "--run-dir", run.runDir];

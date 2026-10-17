@@ -156,7 +156,8 @@ class NativeAbandonConstructorTests(unittest.TestCase):
             metadata = {
                 "schema": 1,
                 "nonce": "d" * 32,
-                "provider": self.original_root,
+                # Actual supervisor admission includes SID; ProcessTree.capture_root omits it.
+                "provider": {**self.original_root, "session": self.original_root["pid"]},
                 "owner": {"pid": 402, "birth_identity": 1000000002.0},
                 "keeper": {"pid": 403, "birth_identity": 1000000003.0},
                 "receipt": str(self.run / "plan-revise-01.supervision.json"),
@@ -386,6 +387,35 @@ class NativeAbandonConstructorTests(unittest.TestCase):
         util.atomic_json(Path(self.metadata["receipt"]), self.receipt)
         self.state.update(status="PAUSED_PROVIDER_UNCERTAIN", active_stage=self.record)
         util.atomic_json(self.state_path, self.state)
+
+    def unparsed_launch(self):
+        self.record.update(timed_out=False, exit_code=0, rejected=True)
+        self.receipt["cause"] = "controller_finished"
+        util.atomic_json(Path(self.metadata["receipt"]), self.receipt)
+        self.state.update(status="PAUSED_INVALID_OUTPUT", active_stage=self.record)
+        util.atomic_json(self.state_path, self.state)
+
+    def test_public_unparsed_launch_retains_history_and_same_stage_resume(self):
+        self.unparsed_launch()
+        before = deepcopy(self.state)
+        events = Path(self.record["events"]).read_bytes()
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            view = self.driver.abandon_stage("001/plan-revise-01")
+        self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"])
+        self.assertEqual("plan_revise", view["next_stage"])
+        self.assertEqual(before["settings"], self.state["settings"])
+        self.assertEqual(before["planning"], self.state["planning"])
+        self.assertEqual(before["total_seconds"], self.state["total_seconds"])
+        self.assertEqual(events, Path(self.record["events"]).read_bytes())
+        rejected = self.state["stages"][-1]
+        self.assertTrue(rejected["rejected"])
+        self.assertTrue(rejected["abandoned"])
+        self.assertEqual(0, rejected["exit_code"])
+        self.assertFalse(rejected["timed_out"])
+        self.assertIn("unparsed", rejected["rejection_reason"])
+        self.assertFalse(Path(rejected["output"]).exists())
+        with patch.object(taskrun, "run_process", side_effect=self.public_cli):
+            self.driver.resume_paused()
 
     def test_public_authentication_rejection_retains_history_and_same_stage_resume(self):
         self.authentication_rejection()
@@ -685,6 +715,8 @@ class NativeAbandonConstructorTests(unittest.TestCase):
         self.assertNotIn("planning_review_refunded", self.state["stages"][-1])
 
     def test_public_abandon_reaches_original_constructor_and_preserves_rejected_tail(self):
+        self.assertNotEqual(self.original_root, self.metadata["provider"])
+        self.assertEqual(self.original_root["pid"], self.metadata["provider"]["session"])
         events = Path(self.record["events"]).read_bytes()
         before = self.state_path.read_bytes()
         with patch.object(taskrun, "run_process", side_effect=self.public_cli):
@@ -693,6 +725,7 @@ class NativeAbandonConstructorTests(unittest.TestCase):
         self.assertEqual(Path(self.record["events"]).read_bytes(), events)
         self.assertNotEqual(self.state_path.read_bytes(), before)
         self.assertEqual(self.state["total_seconds"], 900.0)
+        self.assertEqual(self.metadata, self.state["stages"][-1]["supervision"])
         self.assertTrue(all(any(row["pid"] == 402 for row in inventory) for inventory in self.observed_originals))
         rows = [json.loads(p.read_bytes()) for p in sorted((self.run / "visual-native-protection").iterdir())]
         stopped = [row["body"] for row in rows if row["kind"] == "finished"]
@@ -752,12 +785,27 @@ class NativeAbandonConstructorTests(unittest.TestCase):
 
     def test_original_constructor_refuses_changed_seal_supervisor_and_live_controller(self):
         original = self.receipt.copy()
-        for case in ("nonce", "owner", "keeper", "provider", "phase", "cleanup", "cause", "live"):
+        for case in (
+            "nonce",
+            "owner",
+            "keeper",
+            "provider",
+            "provider_session",
+            "provider_group",
+            "phase",
+            "cleanup",
+            "cause",
+            "live",
+        ):
             receipt = deepcopy(original)
             if case == "nonce":
                 receipt["nonce"] = "e" * 32
             elif case in ("owner", "keeper", "provider"):
                 receipt[case]["birth_identity"] += 1
+            elif case == "provider_session":
+                receipt["provider"]["session"] += 1
+            elif case == "provider_group":
+                receipt["provider"]["group"] += 1
             elif case == "phase":
                 receipt["phase"] = "running"
             elif case == "cleanup":
@@ -778,6 +826,20 @@ class NativeAbandonConstructorTests(unittest.TestCase):
             self.assertFalse(Path(self.record["after_ref"]).exists())
             self.matching_live = []
         util.atomic_json(Path(self.metadata["receipt"]), original)
+
+    def test_saved_admission_keeps_exact_session_and_group_despite_projected_root(self):
+        original = deepcopy(self.record["supervision"])
+        for field in ("session", "group", "birth_identity", "pid"):
+            changed = deepcopy(original)
+            changed["provider"][field] += 1
+            self.record["supervision"] = changed
+            util.atomic_json(self.state_path, self.state)
+            before = self.journal_bytes()
+            with self.subTest(field=field), patch.object(taskrun, "run_process", side_effect=self.public_cli):
+                with self.assertRaises(taskrun.TaskRunError):
+                    self.driver.abandon_stage("001/plan-revise-01")
+            self.assertEqual(before, self.journal_bytes())
+        self.record["supervision"] = original
 
     def test_original_constructor_refuses_source_settings_and_stale_intent_without_writes(self):
         original = deepcopy(self.state)

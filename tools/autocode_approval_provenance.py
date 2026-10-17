@@ -1,12 +1,13 @@
-"""Who approved: the provenance each approval, goal edit and resume records (#722).
+"""Who approved: the provenance each approval, completion acceptance, goal edit and resume records (#722).
 
 An approval token says what was approved, never who agreed to it. When a person
-approves a plan (``--approve-goal`` or "yes" in the terminal conversation) or
-accepts a reviewed artifact (``--approve-review`` or "y" at the review prompt),
-the approval event gains ``provenance``. So does the draft a person installs with
-``--edit-goal`` (on the contract revision itself), and an explicit resume
-(``--resume-paused`` or ``autocode resume``) that releases the pause holding the
-run is saved with its own in ``pause_acknowledgements``. Each provenance holds:
+approves a plan (``--approve-goal`` or "yes" in the terminal conversation),
+accepts a reviewed artifact (``--approve-review`` or "y" at the review prompt) or
+accepts completion (``--accept-completion``), the event gains ``provenance``. So
+does the draft a person installs with ``--edit-goal`` or ``--goal-file`` (on the
+contract revision itself), and an explicit resume (``--resume-paused`` or
+``autocode resume``) that releases the pause holding the run is saved with its own
+in ``pause_acknowledgements``. Each provenance holds:
 
     git_user_name, git_user_email   ``git config user.name`` / ``user.email`` as the
                                     workspace resolves them, None when unset
@@ -21,8 +22,8 @@ Nothing here is verified. Git identity is whatever the checkout configures and a
 ``--as`` name is the person's own claim; both are recorded for audit and never
 grant authority. The approval checks remain the token checks. The one refusal is a
 project's ``require-approver`` (autocode_required_approver): ``stamp`` refuses a
-person's plan approval or artifact acceptance whose recorded Git email is not one the
-run was started to accept, before anything is stamped.
+person's plan approval, artifact acceptance or completion acceptance whose recorded
+Git email is not one the run was started to accept, before anything is stamped.
 
 Bottom layer: imports nothing from AutoCode but that rule, which imports nothing, so
 the CLI steps, the terminal conversation, the build loop, the status view and the
@@ -44,8 +45,9 @@ except ImportError:
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
-# The approval events a person makes, and the name the status view gives each.
-KINDS = {"goal_approval": "plan", "human_review": "review"}
+# The approval events a person makes, and the name the status view gives each. ``completion_accept`` is the event
+# --accept-completion saves (autocode.accept_completion) when it closes a run whose gates the runner verified.
+KINDS = {"goal_approval": "plan", "human_review": "review", "completion_accept": "completion"}
 # The origin of a contract revision a person wrote with --edit-goal (autocode_native_test_names.USER_EDIT).
 EDIT_ORIGIN = "user_cli_edit"
 FIELDS = ("git_user_name", "git_user_email", "host", "command", "claimed_as")
@@ -55,7 +57,7 @@ CLAIM_LIMIT = 200
 NONE_RECORDED = "Approvals: none recorded (no plan or review approval, plan edit or resume from a pause was saved)."
 # The workflows (state["workflow"]["kind"], the status view's ``workflow``) that never ask for an approval: each
 # has one stage that completes the run without a plan (autocode_review_job, autocode_discuss_job). Their evidence
-# reports leave approvals out, as verification, program and component reports do, and their completion summary
+# reports leave approvals out, as verification reports do, and their completion summary
 # has no "none recorded" line. A review report can be posted verbatim on someone else's pull request
 # (autocode review-pr --post), where a line about approvals means nothing and a resumer's identity does not belong.
 NO_APPROVAL_STEP = ("review", "discuss")
@@ -136,16 +138,17 @@ def _revision(contract) -> tuple:
 
 
 def stamp(saved: RunState, candidate: RunState, called: dict, *, record=capture) -> int:
-    """Record provenance on each approval, and the goal edit, the decision just added to ``candidate``.
+    """Record provenance on each approval (plan, artifact or completion), and the goal edit, the decision just added
+    to ``candidate``.
 
     New means a user's approval event absent from the saved run's events, so an
     approval repeated with the same token keeps the provenance of the first. Call it
     straight after the decision, before the request is consumed: the consumed
     response and later request bindings then copy the event with its provenance.
     The approval event is the same object the contract and the review binding hold,
-    so they gain it too. An edit is the draft revision --edit-goal installed, which is
-    never the saved contract: a later decision on that draft does not restamp it, and
-    an edit saved before AutoCode recorded editors keeps none. Its provenance sits
+    so they gain it too. An edit is the draft revision --edit-goal or --goal-file
+    installed, which is never the saved contract: a later decision on that draft does
+    not restamp it, and an edit saved before AutoCode recorded editors keeps none. Its provenance sits
     beside the contract's seal (task_id, revision, body), so the hash and token stay
     as they were. Returns how many records were stamped.
 
@@ -225,7 +228,8 @@ def _row(kind, at, actor, provenance, *, contract_token=None, criterion=None, pa
 
 
 def view(state: RunState) -> list[dict]:
-    """Every approval, goal edit and pause-releasing resume the run recorded, oldest first (``approvals``).
+    """Every approval, completion acceptance, goal edit and pause-releasing resume the run recorded, oldest first
+    (``approvals``).
 
     A history, not the approvals in force: an approval stays listed after a newer plan
     or a rejection replaces it. ``provenance`` is None for a record saved before
@@ -295,6 +299,7 @@ def lines(state: RunState) -> list[str]:
             "review": f"Review of {row['criterion']} approved",
             "edit": f"Edited plan {row['contract_token']} saved",
             "resume": f"Resumed from {row['pause_status']}",
+            "completion": "Completion accepted",
         }[row["kind"]]
         out.append(f"  {what} {row['at']} {_who(row)}.")
     return out

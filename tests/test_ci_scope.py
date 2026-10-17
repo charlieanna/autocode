@@ -53,19 +53,82 @@ class ScopeTests(unittest.TestCase):
                 self.assertTrue({"suite", "scenarios", "macos", "linux", "windows", "wheel"} <= self.enabled(path))
 
     def test_native_check_changes_keep_the_macos_job_that_runs_their_seatbelt_tests(self):
-        for path in (
-            "tools/autocode_native_check_execution.py",
-            "tools/autocode_native_check_runtime.py",
-            "tools/autocode_native_launch.py",
-            "tools/autocode_verification_copy.py",
-            "tools/autocode_visual_protection.py",
-            "tests/test_native_check_execution.py",
-            "tests/test_native_initial_callers.py",
+        for path, linux in (
+            # The contained OpenCode flow loads these runtime modules, so linux runs too (#709).
+            ("tools/autocode_native_check_execution.py", True),
+            ("tools/autocode_native_check_runtime.py", True),
+            ("tools/autocode_native_launch.py", True),
+            ("tools/autocode_verification_copy.py", True),
+            ("tools/autocode_visual_protection.py", True),
+            # It does not load these test modules.
+            ("tests/test_native_check_execution.py", False),
+            ("tests/test_native_initial_callers.py", False),
         ):
             with self.subTest(path=path):
                 enabled = self.enabled(path)
                 self.assertTrue({"suite", "macos"} <= enabled)
-                self.assertFalse({"linux", "windows"} & enabled)
+                self.assertNotIn("windows", enabled)
+                self.assertEqual(linux, "linux" in enabled)
+
+    def test_contained_fake_cli_changes_keep_the_linux_job_that_runs_that_flow_without_skips(self):
+        for path in (
+            "tools/fake_opencode.py",
+            "tests/opencode_fixture_cli.py",
+            "tests/test_contained_fake_cli.py",
+            "tests/test_containment_policy_cli.py",
+            # Files the flow loads that no prefix named: the status view it reads, the setup
+            # decision to contain, the delegate the fake runs and the CLI flow harness (#709).
+            "tools/autocode_run_view.py",
+            "tools/autocode_containment_policy.py",
+            "tools/fake_codex.py",
+            "tests/test_subprocess.py",
+            # Workers the runtime starts only by file name, never by an import.
+            "tools/autocode_builder_worker.py",
+            "tools/autocode_verification_prepare_worker.py",
+            # A new module in scenarios/, first on the tests' sys.path, would shadow the one the flow imports.
+            "scenarios/autocode_tool_containment.py",
+            # Schemas each stage's report is checked against.
+            "tools/autocode-schemas/v2/terra-report.schema.json",
+            "tools/autocode-schemas/sol-report.schema.json",
+        ):
+            with self.subTest(path=path):
+                enabled = self.enabled(path)
+                self.assertTrue({"suite", "linux"} <= enabled)
+                self.assertFalse({"macos", "windows"} & enabled)
+
+    def test_a_tools_fixture_a_scenario_copies_turns_the_scenario_harness_on(self):
+        # scenarios/test_contained_opencode.py copies and runs the fake OpenCode client; no import names it (#709).
+        self.assertEqual({"suite", "scenarios", "linux", "wheel"}, self.enabled("tools/fake_opencode.py"))
+        # A tools/ fixture no scenario copies leaves the scenario harness off.
+        self.assertNotIn("scenarios", self.enabled("tools/fake_codex.py"))
+
+    def test_files_the_contained_flow_never_reads_leave_the_linux_job_off(self):
+        # Runtime modules the flow neither imports nor starts by name, the dashboard,
+        # the scenario runner, a fixture and a prompt.
+        for path in (
+            "tools/autocode_doctor.py",
+            "tools/inprocess_cli.py",
+            "tools/dashboard/agent_console.py",
+            "scenarios/run.py",
+            "tools/fixtures/fake_docker.py",
+            "tools/prompts/fragments/milestones/policy.md",
+        ):
+            with self.subTest(path=path):
+                self.assertNotIn("linux", self.enabled(path))
+
+    def test_the_contained_flow_data_is_a_directory_a_flow_module_reads_by_name(self):
+        # Renaming the schema directory fails here instead of quietly dropping the trigger.
+        sources = [(ROOT / path).read_text() for path in ci_scope.contained_flow_files() if (ROOT / path).is_file()]
+        for directory in ci_scope.CONTAINED_FLOW_DATA:
+            with self.subTest(directory=directory):
+                self.assertTrue(list((ROOT / directory).glob("*.json")))
+                self.assertTrue(any(f'"{Path(directory).name}"' in source for source in sources))
+
+    def test_the_contained_flow_trigger_starts_from_the_module_the_linux_job_runs(self):
+        workflow = (ROOT / ".github/workflows/tests.yml").read_text()
+        job = workflow.split("\n  linux-tool-containment:\n", 1)[1].split("\n  windows-fast-suite:\n", 1)[0]
+        module = ci_scope.CONTAINED_FLOW.removesuffix(".py").replace("/", ".")
+        self.assertIn(f'"{module}.ContainedFakeOpenCodeFlow"', job)
 
     def test_container_changes_keep_real_teardown_job(self):
         self.assertIn("containers", self.enabled("tests/test_local_compose_scenario.py"))
@@ -128,6 +191,70 @@ class ScopeTests(unittest.TestCase):
             paths = ci_scope.changed_paths(base, head)
             self.assertEqual({"tools/autocode_local_compose.py", "docs.md"}, set(paths))
             self.assertTrue(ci_scope.select(paths)["containers"])
+
+
+class ContainedFlowFilesTests(unittest.TestCase):
+    """The linux job's trigger follows what the contained flow loads, so it stays right as imports change."""
+
+    FILES = {
+        "tests/__init__.py": "",
+        "tests/test_contained_fake_cli.py": "import autocode_tool_containment\nfrom . import harness\n",
+        # A function-level import, the CLI and its fake started or copied by file name, and a
+        # scenarios/ helper imported by its top-level name (tests/__init__.py puts scenarios/ on sys.path).
+        "tests/harness.py": (
+            'CLI = TOOLS / "cli.py"\nFAKE = "fake_client.py"\nfrom phases import guard\n'
+            "def later():\n    from tests import lazy\n"
+        ),
+        "tests/lazy.py": "",
+        "tests/unrelated_helper.py": "",
+        "scenarios/phases.py": "",
+        "scenarios/unrelated_phase.py": "",
+        "tools/autocode_tool_containment.py": "",
+        # A worker the runtime starts beside itself, a package import and an import whose file is gone.
+        "tools/cli.py": 'from units import stage\nimport removed_module\nWORKER = HERE.with_name("worker.py")\n',
+        "tools/units/__init__.py": "",
+        "tools/units/stage.py": 'from . import common\nimport providers.client\nHELPER = HERE / "helper.py"\n',
+        "tools/units/common.py": "",
+        "tools/units/helper.py": "",
+        "tools/providers/__init__.py": "",
+        "tools/providers/client.py": "",
+        "tools/worker.py": "import broken\n",
+        # Unparsable: still a dependency, but its imports cannot be read.
+        "tools/broken.py": "def (:\nimport never_followed\n",
+        "tools/never_followed.py": "",
+        "tools/fake_client.py": "",
+        # Loads the flow's modules but is not loaded by it.
+        "tools/unrelated.py": "import cli\nimport autocode_tool_containment\n",
+    }
+    UNLOADED = {
+        "tests/unrelated_helper.py",
+        "scenarios/unrelated_phase.py",
+        "tools/never_followed.py",
+        "tools/unrelated.py",
+    }
+
+    def tree(self, directory):
+        root = Path(directory)
+        for path, text in self.FILES.items():
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            (root / path).write_text(text)
+        return root
+
+    def test_follows_imports_and_named_scripts_and_leaves_out_what_the_flow_never_loads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            files = ci_scope.contained_flow_files(self.tree(directory))
+        self.assertEqual(set(), set(self.FILES) - self.UNLOADED - files)
+        self.assertEqual(set(), self.UNLOADED & files)
+        # Deleting a module the flow still imports, or adding one that would shadow it, selects the job too.
+        self.assertIn("tools/removed_module.py", files)
+        self.assertTrue(all(path.endswith(".py") for path in files))
+
+    def test_a_renamed_flow_module_fails_selection_instead_of_skipping_the_job(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.tree(directory)
+            (root / ci_scope.CONTAINED_FLOW).unlink()
+            with self.assertRaises(FileNotFoundError):
+                ci_scope.contained_flow_files(root)
 
 
 class WorkflowGateTests(unittest.TestCase):

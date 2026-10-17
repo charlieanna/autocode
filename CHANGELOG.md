@@ -9,7 +9,59 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- A `--package` run no longer stays blocked when the person removes their own untracked nested repository
+  entirely during the run: the launch record held it as added, so its absence names no change of the
+  candidate. A deleted submodule or a path that is no longer a Git repository is still named (#711).
+- A design check that passes now removes the blockers file an earlier, stopped check of the same run wrote,
+  so no stale one is left outside the package; and while a blockers file is live its content is recorded
+  (a saved hash), so an edit to it is reported as the runner's file instead of being left out by path (#711).
+- Stamp open reasoning escalations and Builder retries as `passed` when completion is accepted via `--accept-completion` (#612).
+- Filter each role's escalation ladder only against its own tool's model list under `--role-transport`, preserving effort ladders for roles running on other tools (#1426).
+- A resume is listed among the run's approvals only once a role's climb on its effort ladder is admitted against
+  the cost cap, time limit and milestone budget; a resume that the climb's projection pauses again is no longer
+  recorded as releasing the pause, matching the Builder's stronger attempt (#611).
+
 ### Added
+
+- `autocode serve start` restarts the run's development server after each code-changing step the run applies, on
+  the same port when it can, and leaves it running through pauses and completion. A server that exits or never
+  answers is shown with its last output and started again after the next code change, unless the run has
+  completed. `dev_server` in the status view gains `restarts`, `code_checkpoint` and `waiting` (#730).
+- `autocode serve start|stop|status` runs a saved run's development server from its `serve` command (#730): in the
+  foreground on a free loopback port, under the same process supervision as a test command and without the
+  environment's credentials, until Ctrl-C or `autocode serve stop`. `autocode --status` shows it as
+  `view.dev_server` (whether configured, its status and its address while it runs); its record is
+  `dev-server.json` in the run directory, never `state.json`.
+- A project can name the command that runs its development server (#730): `serve` in `.autocode/config.toml`, a
+  command string with `{port}` where the port goes, or a `[serve]` table that also names `ready-path` and
+  `ready-seconds` (`pyproject.toml` takes only the string). A new run saves it with its settings, and
+  `autocode doctor` lists it with the other project settings. A value without `{port}`, an unknown field or a
+  ready path that is not a server path stops a new run, naming the file.
+- `autocode --status --json` shows the run's planning-depth decisions under `planning_depth`: whether the request
+  was judged clear and Requirements skipped, the plan's size and the review allowance it set, and whether the Plan
+  Reviewer approved the draft at its first review. Before, these were only in `state.json` (#697).
+- `autocode --status --json` shows `changes_by_criterion`: for each acceptance criterion of the approved plan, the
+  saved Builder steps of the milestones that cover it and the files they changed, with files another milestone also
+  changed marked as overlapping. It says where to look, not that the criterion is met (#730).
+- `autocode review` shows, for each criterion, the diff of each saved Builder step attributed to it, against the
+  saved step before it and read from Git objects rather than the working tree (`criterion_diffs` in `--json`).
+  Labeled as attribution, not proof (#730).
+
+- A novelty hold's stop also states the run's active time against its time limit and, with milestone checkpoints
+  on, the current milestone's time against its budget, after the spend against the cost cap; a limit or budget
+  changed at the hold is the one the stop then states (#611).
+
+- Opt-in blind tests via `--blind-tests` execute acceptance tests written by the Tester in a separate candidate
+  scratch tree without exposing test implementations or file paths to the Builder's workspace or prompt (#702).
+
+- `docs/cli.md` now includes a dedicated subcommand exit-code reference table documenting exit codes 0, 1, and 2
+  across all subcommands, and `tests/test_cli_surface.py` tests that documented inventory (#714).
+
+- `autocode plan`, `autocode prune-run`, `autocode merge`, and `autocode clean-worktrees` now support `--json`
+  output for structured machine-readable reporting of results and errors, and `autocode checkpoint` and
+  `autocode tasks` accept `--json` for CLI caller consistency (#714).
 
 - `tests/test_json_output.py` holds `--status` and `--json` to the status-view schema and exit-code table on a
   saved auth pause (`your_environment`) and rate-limit pause (`model_or_provider`), matching the AutoCode
@@ -71,16 +123,16 @@ PR template asks for an entry here; a change without one is incomplete.
   user.email`, for the run's saved workspace in AutoCode's own environment, is not listed, compared without regard
   to case, before anything is approved: exit 2 (the conversation stops at the same question) with a message naming
   the required and the actual identity, and the run stays at the same stop. An `--as` name never counts. Goal
-  edits, resumes, workflow-policy approvals and `--accept-completion` are not checked. The run saves the list when
-  it starts (`settings.require_approver`), so a changed file never alters a run in progress; the key has no flag,
-  and `autocode doctor` shows it with its source. Without the setting nothing changes. It guards against an
-  approval under the wrong configured Git identity, not against someone who deliberately sets a listed address
-  (Git's environment variables or a repository-local `user.email` change what is checked): it is not
-  authentication. A replay (`autocode replay`, `--replay-recording`) never takes it, `autocode program` and
-  `autocode components` child runs read it from their own worktree (so only a committed file reaches them), and
-  `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task now reads the project
-  settings, all of them, as every other new run does (it read none before), so a project `engine` other than
-  `codex` refuses it, as it already did with a typed task.
+  edits, resumes and workflow-policy approvals are not checked; `--accept-completion` is, since the fifth part
+  below. The run saves the list when it starts (`settings.require_approver`), so a changed file never alters a run
+  in progress; the key has no flag, and `autocode doctor` shows it with its source. Without the setting nothing
+  changes. It guards against an approval under the wrong configured Git identity, not against someone who
+  deliberately sets a listed address (Git's environment variables or a repository-local `user.email` change what is
+  checked): it is not authentication. A replay (`autocode replay`, `--replay-recording`) never takes it,
+  `autocode program` and `autocode components` child runs read it from their own worktree (so only a committed file
+  reaches them), and `autocode program approve` is not checked. `autocode --ui-run HANDOFF` without a typed task
+  now reads the project settings, all of them, as every other new run does (it read none before), so a project
+  `engine` other than `codex` refuses it, as it already did with a typed task.
 - AutoCode runs as a step inside the coding agent you already use: a Claude Code skill
   (`examples/agent-step`) and an MCP server (`python -m autocode_cli.autocode_mcp`) start a run, report
   each stop with its pause category and next command, pass on only your own plan approval or answer, and
@@ -253,7 +305,148 @@ PR template asks for an entry here; a change without one is incomplete.
   offering a command that could set accepted work aside. Nothing it prints starts,
   resumes or changes a run.
 
+- A fake OpenCode run through the CLI can launch its Builder, Tester and Completion Reviewer inside the real
+  Linux bubblewrap boundary (#709). With `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1` the test fixture reports
+  OpenCode 1.18.33 and answers the runner's model-free conformance checks through the boundary shell. The new
+  `tests/test_contained_fake_cli.py` checks that such a run finishes and that `--status --json` names `bubblewrap`
+  and its version in `tool_containment_backend`. It also checks that a Builder shell write planted outside the
+  workspace is blocked, while an uncontained control shows the same write lands. The `linux-tool-containment` CI
+  job runs it without skips, and changes to the fixture select that job. The fixture's own edits and checks still
+  run outside the boundary, so OpenCode's tool dispatch stays with the opt-in `NativeToolTests`. Without the
+  variable the fixture is unchanged.
+- Accepting completion records who accepted it, and a required approver covers it (#722, fifth part):
+  `--accept-completion` saves the workspace's Git `user.name` and `user.email`, the host name and the command's
+  option names on the event it records, and takes `--as NAME`. `--status` lists it in `approvals` (kind
+  `completion`), and the completion summary, the evidence report and so the `autocode-issue pr` body show it as
+  "Completion accepted"; a report that lists one says so in its Approvals introduction, and every earlier report
+  renders unchanged. A run started with `require-approver` refuses `--accept-completion` from a Git `user.email`
+  it does not list, as it refuses a plan approval: exit 2, nothing saved, and the run stays at its pause. A
+  completion accepted before this change is listed with no recorded acceptor. `--as NAME` now also goes with
+  `--goal-file`, which already recorded who loaded the plan as a goal edit.
+- A completed run's evidence report, and so the pull request body `autocode-issue pr` builds from `evidence.md`,
+  gives the approved plan's goal hash (what `autocode plan --check FILE` prints for a file holding exactly that
+  plan). When the approved plan was loaded with `--goal-file`, it also names the file, its goal hash and the plan
+  revision it was loaded as, and says whether the approved plan is the file's plan unchanged, differs only in the
+  runner's records of the plan's review, or differs in named parts. The status view's `approved_contract` gains
+  `goal_hash` and `plan_file`, and the report's `plan` gains the same two optional fields; older reports still
+  authenticate. Starting a new run from a plan file is not part of this change (#720).
+- `autocode --status` shows each escalation a run made: a role's climb on its effort ladder and the Builder's
+  stronger attempt, as rows of the status view's new `escalations` field (`--status --json`) and one line each on
+  stderr after the cost line. A row names the job and stage it was for, the route it climbed from and to, its
+  escalated attempts and what they cost at the dated price table, and how it ended: `passed`, `failed_again`,
+  `paused` or `running`, with what decided it. A cost that cannot be known is unknown, never zero: an attempt
+  with no usage record, an escalation a checkpoint continuation inherited (its attempts ran before the restore),
+  and the role's stage records saved before launch routes were recorded (2026-10-01), which cannot be shown to
+  be its attempts (`unrouted_attempts`). Only a validation of the escalation's own work for its own milestone counts
+  as its pass, and not once the Builder's retry policy charged that work as a failure (a review sent it back, also
+  after a validate task's re-check): the runner's blanket `passed` stamp does not override a failure of its own
+  work, is not taken once the role ran on another route, and is never taken for the Builder, whose work validations
+  judge. It is read from the records the run already keeps; no run-state key is added (#612).
+- Fake scenarios for escalation outcomes, read black box through `autocode --status --json`: `escalation-converts`
+  (the Builder's stronger attempt fixes what its ordinary attempts could not; one `escalations` row with both routes,
+  one attempt and its cost, `passed`, and the run completes) and `escalation-ladder-end` (that attempt fails too; the
+  row reads `paused` and the run pauses at `PAUSED_BUILDER_RETRY_LIMIT` with the stuck-stage Investigator's
+  diagnosis). `scenarios/test_escalation.py` runs both and checks that a `--builder-strong-model` the tool does not
+  list refuses the new run before any model call. The scripted provider gains the two faults
+  (`harness/escalation_provider.py`) and the oracle helper `escalation_checks`; no runtime change (#612).
+- A scenario catalog case for #611's rework loop, with an oracle, a reference and broken variants.
+  `rework-same-failure` has a correct greeting repair whose required suite also fails a release test the task may
+  not change: the run must stop after the second identical failure, naming the check, with no paid diagnosis or
+  third Builder attempt, and its status view's `cost` must show the spend under the $5 cap; it passes today.
+- The scenario harness runs a fake OpenCode build inside the Linux bubblewrap boundary (#709).
+  `scenarios/test_contained_opencode.py` runs `greenfield-greeting-cli` on the fake OpenCode client, with the
+  harness's scripted model behind it and `AUTOCODE_FIXTURE_QUALIFIED_OPENCODE=1`, so its Builder, Tester and
+  Completion Reviewer launch contained. It checks that the scenario's oracle passes and the run completes, that
+  every record of those three stages names `bubblewrap` and the version `autocode doctor` reports, that a Builder
+  shell write planted outside the project is blocked, and that `--status --json` says `tool_containment:
+  "contained"` and names the same backend. The test asks `autocode doctor --json` whether the boundary is
+  available. Without a working bubblewrap, the test skips, except in CI on Linux, where it fails; the suite job
+  installs bubblewrap before the scenario harness runs. Any other problem doctor reports, such as the fake no
+  longer reporting the qualified OpenCode version, fails it everywhere. A pull request that changes only
+  `tools/fake_opencode.py` now runs the scenario harness step and this case (`SCENARIO_FIXTURES` in
+  `tools/run_suite.py`, read by `tools/ci_scope.py`). Only tests and CI selection change.
+- The scenario harness now checks who approved each task run a scenario completes (#722, sixth part). It reads
+  `approvals` from that run's final `--status --json`. Each row a person made must name the scenario's person
+  (`Scenario Person <person@scenario.example.test>`, which every scenario project now sets in its own Git
+  configuration), this host, and a command of `autocode` and option names only. A workflow-policy row must name no
+  one. In a scenario of one run, each plan and review approval the harness gave must also be listed; the
+  conformance client now records the approvals it takes in `result.json`'s `approvals`, as the ordinary driver
+  does. A program's plan and workstream runs and a components run's architecture and component runs are checked for
+  provenance only. The `approval provenance: RUN` check sits beside `canonical evidence: RUN` in `result.json`. A
+  failure makes the verdict `FALSE_COMPLETE` when the scenario completed, and `HONEST_BLOCKER` when it stopped.
+- The scenario catalog has a two-package scenario, `feature-monorepo-package` (#711). Its seed is a repository with
+  `packages/greet/` and `packages/farewell/`, and the task adds an option to the greeting package only. The scripted
+  run is started with `--package packages/greet/`: the reference completes, and `broken/edits-farewell-package`,
+  which also edits the other package, must stop with both files named in an open blocking `runner` finding (the
+  oracle reads it from the status view). Run against AutoCode from before #1415, that variant completes and is
+  judged `FALSE_COMPLETE`. The harness no longer repeats `--package` on calls to the saved run, which the CLI
+  refuses. A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the
+  delivered files alone. A pull request that changes `tools/autocode_regression.py` or
+  `tools/autocode_build_loop.py` now also runs `tests.test_package_scope_cli`: the regression proof records a
+  launch's files outside the package and runs the package check before each review, and the build loop calls it.
+- `autocode-issue plan ISSUE` puts the plan an issue's run is waiting to have approved in a pull request, so a
+  team reviews what will be built before anything is built. It exports the plan as `autocode plan --export` writes
+  it and commits it as `plans/issue-N.md` (`--path` for another place) on branch `autocode/issue-N-<title>-plan`,
+  made from the run's base commit, without touching any checkout or the run, and writes the pull request's body.
+  `--open` pushes the branch and opens a draft pull request (`--base`, `--ready` as for `pr`). Run again after the
+  plan changes while that pull request is open, it commits the new plan on top, so the same pull request shows the
+  change; it never replaces commits it did not make (a plan branch deleted here is made again at its last plan
+  commit). Merging approves nothing: once `plan --open` has opened the plan pull request, `autocode-issue status` at
+  the approval stop prints its URL and the `autocode --goal-file` command that loads the merged file into the run,
+  until the run's plan moves past the one it carried. A merged plan pull request is never reused, even when its
+  branch was deleted with it: `plan` fetches the base branch first, and a plan that changed after the merge goes in
+  a new pull request, on `-plan-2`, made from the base branch that holds the merged file.
+  `TaskRun.export_plan(path)` is the task-run interface's way to write the plan file. `docs/workflow.md` describes
+  the team workflow. Starting a new run from the merged file is not available yet (#720).
+- A completed program's or components run's evidence report now lists its child runs' approvals (#722, seventh
+  part). Each row is copied from that child's own report with the child's id added as `child`, child by child, and
+  `evidence.md` shows them in an Approvals table with a Child column. It also says what is left out: a program
+  agreement (`autocode program approve`) records no approver, a program does not list approvals of a plan run it was
+  derived from (`autocode program derive`), and a components run does not list approvals of its architecture. A child whose report lists no approvals, written before AutoCode listed them, is named in the
+  report's not-verified list. When no child's report lists any, the report is unchanged. The scenario harness's
+  `approval provenance: RUN` check now also matches each budget pause a scenario's person acknowledged (`[fake]
+  acknowledge`) to the `resume` row naming that pause, as it matches plan approvals by token and review approvals
+  by criterion.
+- The scenario catalog has a bug fix in one package of a two-package repository, `bugfix-monorepo-package` (#711).
+  Both `packages/invoices/` and `packages/search/` keep a copy of the same off-by-one pager; the report and the fix
+  belong to the invoice package. The scripted run is started with `--package packages/invoices/`, goes through the
+  Investigator first, runs its proof in the package and completes; the runner's diagnosis note under `docs/bugs/` is
+  not counted as a change outside the package. `broken/fixes-search-copy-too`, which also fixes the other team's copy,
+  must stop with that file named in an open blocking `runner` finding. Against AutoCode from before #1415 the
+  reference did not complete, because the proof counted the diagnosis note as a change outside the package. The
+  status view's `findings` documentation (`autocode_run_view`, `docs/task-run.md`) now names the package check as a
+  source of `runner` findings, and `docs/workflow.md` records that the Investigator is not told the package.
+- The scenario runner (`scenarios/run.py`) now checks at every plan approval a catalog run reaches that the plan
+  file round trip reproduces the plan's goal hash (#720, the first acceptance check). Before it approves a plan, it
+  exports the plan with `autocode plan --export` to `plan-files/NN.md` in the evidence directory and reads the file
+  back with `autocode plan --check`, the reader `--goal-file` uses. The `plan round trip` check in `result.json`
+  requires the file to read back with the run plan's goal hash, the run directory to be unchanged by the two
+  commands, and the approved plan's goal hash in the final `--status --json` to be the exported one. A masked export
+  fails: its file does not reproduce the goal hash, and `--goal-file` refuses it. The two calls are no steps; they
+  add about 4 s per plan approval on the fake provider. Each plan approval's row in `approvals` keeps their output
+  as `plan_file`, and the record a program or components scenario is judged on now carries `approvals` too. A
+  failure makes the verdict `FALSE_COMPLETE` when the scenario completed, and `HONEST_BLOCKER` when it stopped.
+- The scenario harness's `approval provenance: RUN` check now matches the gates it gave a program's or components
+  run's task runs to each run's own `--status --json` approvals (#722, eighth part). Before, one `approvals` list
+  held the gates of all of them, so their runs were checked for provenance only and a plan approval listed in no
+  run, or only in another workstream's, still passed. Now each gate the harness gives one of those runs (the
+  program's plan run, each workstream run, a components run's architecture run) names that run's `run_dir` in
+  `result.json`'s `approvals`, and must be listed among that run's own rows: otherwise the check fails, named for
+  the run, as in `approval provenance: T` with `the harness approved plan r2:..., which no plan row lists`. A
+  program's plan run is now judged once its plan is approved, since the program never relaunches it and it never
+  completes. A components run's `auto_approve` rows name no run. A passing check now ends by naming the gates it
+  matched, for a scenario of one run too; nothing else changes there.
+
 ### Changed
+
+- Native Windows support is no longer planned; WSL stays the supported Windows path. [Install](docs/install.md) says
+  so, and [Native Windows](docs/windows.md) keeps the audit and the open work for whoever takes it up again (#698).
+
+- The Builder retry policy now weighs each failure's evidence against the milestone's earlier failures. A failure
+  with the same failing checks, criteria, open findings and changed files as an earlier one skips the remaining
+  ordinary retries for the stronger attempt, or pauses once that is spent, and the stop says it repeated. A failure
+  whose earlier failing items are all resolved, and that fails only on new ones, does not count toward the limit.
+  Each decision records which it was as `novelty` (#611).
 
 - Under a money cap (`--max-cost-usd`), a milestone's stronger Builder attempt is priced before it launches: the
   last Builder attempt's tokens at the stronger model's rate. When the spend so far plus that projection would pass
@@ -356,6 +549,24 @@ PR template asks for an entry here; a change without one is incomplete.
   `prune-run` (`autocode_prune_run`), dependency waits (`autocode_dependency`) and milestone carry-forward
   (`autocode_carryforward`) take the typed `RunState`, so the untyped-`state` ratchet drops from 374 to 287 and mypy
   checks those 87 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- In a `--package` run, a change outside the package is a blocking finding (#711): before each Tester and Completion
+  Reviewer dispatch (not the Code Reviewer, Designer or Design Reviewer), the runner compares the candidate with the
+  run's base, and any file added, modified (content or mode) or deleted outside the package (a rename counts on both
+  sides) opens one finding with source `runner` naming each path. What the regression proof does not count (AutoCode's
+  `.autocode/` files, bytecode, the runner's dependency links, an ignored file the approved plan does not name) does
+  not count here either. The completion gate refuses while the finding is open, and only a later check that finds no
+  such change closes it. `--accept-completion` runs the same check once its own checks pass, so closing the finding
+  with `--close-finding` does not accept the change. Before, a run that owed no regression proof (a build whose
+  criteria name no test) completed with the change. Neither this check nor the regression proof counts an untracked
+  Git repository or a submodule's uncommitted work the checkout held at launch, which every new package run now
+  records (`package_outside_at_launch`), while it is still a Git repository; once deleted or no longer one, the
+  finding names it and tells the Builder to leave it to the person. A package run saved without that record leaves
+  every nested repository and submodule's work out of the check. Nor do they count the files the runner wrote for the
+  run while unchanged: the bug fix's diagnosis note and a review's or design review's report are compared with what
+  the runner wrote, and a changed one is reported; a design check's blockers and what an earlier turn left are
+  recognized by path only, so an edit to them is not seen. Before, the proof left a package bug fix with its own
+  diagnosis note, or an in-place run beside a nested repository, `UNVERIFIED`. Only the Builder's handoff states the
+  write scope (`write_scope`); nothing limits its writes while it works.
 - The money cap (`autocode_cost`), token usage (`autocode_usage`), efficiency measurements (`autocode_efficiency`),
   evidence report publication (`autocode_evidence_export`, except `record`), `--status` rendering
   (`autocode_status_command`), progress updates (`autocode_status`, except `persist`), runner checks
@@ -391,6 +602,56 @@ PR template asks for an entry here; a change without one is incomplete.
   revisions (`autocode_design_revision`), the CLI's edit step (`autocode_action_edits`) and a UI run's accepted plan
   (`autocode_ui`) take the typed `RunState`, so the untyped-`state` ratchet drops from 201 to 110 and mypy checks those
   85 function bodies. Type-only: no behaviour, output or `state.json` change (#695).
+- No module in `tools/` is in an import cycle any more. Which role and engine run a stage (`autocode_stage_roles`), the
+  planning cycle (`autocode_planning_cycle`) and the units' `ModelRequest` type (`units/model_request`) moved unchanged
+  out of the planning unit (`units/autoplanner`) and `units/common`, which re-export them under their old names. That
+  took the last six modules out of the cycle: the goal lifecycle, reviewer routing (`autocode_workflow`), the planning
+  unit and its `autocode_planning` shim, `units/common` and the stage context. `tests/test_architecture.py` now fails
+  when any module joins a cycle. Structure only: no behaviour, prompt, output or `state.json` change (#695).
+- Under a milestone budget you set (`--max-milestone-seconds N`), a climbed Builder attempt (the milestone's
+  stronger attempt or a climb on the Builder's effort ladder) is timed before it launches, from the last Builder
+  attempt's duration held to the stage time limit. When the milestone's counted time plus that projection would
+  pass the budget, the run pauses `PAUSED_MILESTONE_BUDGET` before the attempt, naming the climb, the projection,
+  the milestone's time so far, the total and the budget to resume with; `--resume-paused --max-milestone-seconds M`
+  with `M` at least that total launches exactly that attempt. Before, the milestone budget was checked only once
+  its time was already spent, so the climbed attempt launched. The cost cap and the run's active-time budget are
+  checked first. The new-run default, a delegated budget, a progressive run's slice budget and a budget given with
+  `--max-milestone-seconds` while turning checkpoints on for a saved run (`--milestone-checkpoints` on a resume, or
+  `--request-milestone-checkpoints`) are not projected, and Tester and Completion Reviewer climbs are not checked
+  against it. On every `PAUSED_MILESTONE_BUDGET` stop, the advice AutoResolver's request appends to its decision
+  and the stop reason now names `--max-milestone-seconds` instead of `--resolver-response provide_information`
+  followed by a resume. For a progressive run's slice-budget stop, which shares the status, it asks for a slice
+  budget above the slice's counted time, which a resume does not restart, and `--max-seconds` when the stop names
+  `run_seconds`. The request's options, the status view's `needs.action` and the progress line still offer that
+  response, which AutoResolver holds at this stop as before; what releases the pause is unchanged (#611).
+- A rework loop that stops because a repeat brings no new evidence (the recovery novelty hold, "No causal
+  progress for the same incident") now says what the run has spent of its cost cap. With `--max-cost-usd`, the
+  hold's reason, in the line printed when the run stops and in the stop reason `--status` shows, is followed by
+  the `Cost:` line `--status` prints: "... authorizes one attempt under existing limits. Cost: $0.53 so far; cap
+  $5.00." You can see what is left of the cap before the one scoped retry the hold admits. Without a cap nothing
+  is added, as the cost stops do. The pause status, exit code and request kind are unchanged. The hold's own
+  record and AutoResolver's request keep its reason without the spend, which is read again whenever the stop is
+  written: a cap changed at the hold, with or without `--resume-paused`, is the cap the stop then states, and
+  removing the cap removes the `Cost:` line. The `rework-same-failure` scenario's oracle now checks that the stop
+  states the status view's spend and cap (#611).
+- In a `--package` bug fix, the Investigator is told the package (#711). Its handoff gains `package_scope`: the
+  package, `suite` (the command the run tests the package with, the suite detected there or `--test-command`) when
+  the run has one, and an instruction to name only files inside the package. A reproduced diagnosis whose
+  `affected_paths` or `test_paths` name anything outside the package is refused as invalid output, so it goes
+  through report repair with the reason and the run pauses rather than plan from it; before, it was accepted and the
+  fix was planned from it. When the fix does need a file outside the package, the instruction and the reason tell
+  the Investigator to keep naming it, so the run pauses: such a fix needs a run without `--package`. The diagnosis
+  note stays under `docs/bugs/` at the repository root and is still left out of the check for changes outside the
+  package. The scripted Investigator in `scenarios/` names only the package's files when its handoff names a
+  package, so `bugfix-monorepo-package`'s broken variant still reaches the Builder.
+- Native Windows (#698): the last thirteen runtime modules that imported `fcntl` at load (the checkout, registry,
+  intervention, milestone-request, usage, worktree and conversation locks among them) now lock through
+  `autocode_util.lock_file` / `unlock_file`, so the CLI loads without `fcntl`. On Linux and macOS each lock is the
+  same exclusive `flock`, blocking or not, with the same busy error. The registry, intervention and conversation locks
+  unlock only a lock they took, so on Windows a timed-out or interrupted wait keeps its own error. `tests/test_windows_portability.py` now
+  allows no module-level POSIX-only import and loads the CLI with `fcntl` unimportable. On Windows the CLI still
+  stops loading at `autocode_junit`'s POSIX-only open flags; [Native Windows](docs/windows.md) records that and
+  the POSIX-only calls the thirteen modules still make.
 
 ### Removed
 
@@ -408,6 +669,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- When a role is copied mid-run from an existing role (such as Analyst or Investigator in the discuss
+  and bug-fix workflows, Architect in the design workflow, Acceptance Tester in spec-first runs, Resolver,
+  Stuck Investigator, or Utility route), it now inherits the source role's saved transport tool identity,
+  preventing missing-identity failures when using external role transports such as `--role-transport` (#1426).
+  A derived role whose own route stays on the run's tool (a Resolver with its own `--resolver-model` on
+  OpenCode while the Completion Reviewer moves to another tool) inherits nothing and keeps that route. Before,
+  it was handed the source role's identity, and every start then refused with "Saved role transport does not
+  match its immutable route".
 - When the OpenCode planning roles receive the complete Figma manifest and catalog as SHA-256 and
   byte-bound file references, their handoff now also carries the complete case roster inline (ID, route
   and state of every case, in manifest order), as Builder and Tester handoffs already did. Before, the
@@ -455,21 +724,22 @@ PR template asks for an entry here; a change without one is incomplete.
   other run's files. On Seatbelt and bubblewrap the shell now reads only its own run's `planning/` artifacts in
   `.autocode/runs`. Each launch proves this through the actual native shell, records it as `private_reads`, and
   pauses as `PAUSED_TOOL_CONTAINMENT` if the boundary stops enforcing it (#1250).
-- That planning shell also can no longer read these `.autocode` stores, which hold other runs or what they keep:
-  archived and bundled runs (`archive`, `bundles`), `autocode arena` attempts (`arena`), parallel Builder workspaces
-  (`builders`), `autocode issue` worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`),
-  the run `registry`, `replay` recordings, `task-flows`, `autocode verify` checkouts and reports (`verification`)
-  and task worktrees (`worktrees`). A store is denied when it exists as the launch is prepared; none is created.
-  Other `.autocode` directories, including other launches' `tool-containment-*` control directories, stay readable,
-  as do its own scratch, project settings, retained design inputs and capture bundles. Each denial is in
-  `private_reads`, the native-shell proof covers each store, and a profile missing any one of them pauses as
-  `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store first made after the profile was written,
-  up to the launch's last check just before the provider is released: every check before then computes the denial
-  again, including native preparation and the held launch's seal. That pause names the new store, and a plain
-  `--resume-paused` prepares the boundary again with it denied. A store made after that last check, such as one made
-  once the provider has started, causes no pause and stays readable to that stage until it ends; a later planning
-  launch denies it. A store path that is a symlink, even a dangling one, or not a directory cannot be denied, so
-  each native planning launch in that workspace pauses as `PAUSED_TOOL_CONTAINMENT`, naming the path: replace it
+- That planning shell also can no longer read these `.autocode` stores, which hold other runs, conversation
+  records, investigation workspaces or what they keep: archived and bundled runs (`archive`, `bundles`), `autocode arena`
+  attempts (`arena`), parallel Builder workspaces (`builders`), requirements conversation handoffs (`conversation-handoffs`),
+  conversation start markers (`conversation-starts`), bug investigation workspaces (`investigation`), `autocode issue`
+  worktrees (`issues`), `programs`, `autocode review-pr` checkouts (`pull-reviews`), the run `registry`, `replay`
+  recordings, `task-flows`, `autocode verify` checkouts and reports (`verification`) and task worktrees (`worktrees`).
+  A store is denied when it exists as the launch is prepared; none is created. Other `.autocode` directories, including
+  other launches' `tool-containment-*` control directories, stay readable, as do its own scratch, project settings,
+  retained design inputs and capture bundles. Each denial is in `private_reads`, the native-shell proof covers each store,
+  and a profile missing any one of them pauses as `PAUSED_TOOL_CONTAINMENT` before the provider starts. So does a store
+  first made after the profile was written, up to the launch's last check just before the provider is released: every
+  check before then computes the denial again, including native preparation and the held launch's seal. That pause names
+  the new store, and a plain `--resume-paused` prepares the boundary again with it denied. A store made after that last
+  check, such as one made once the provider has started, causes no pause and stays readable to that stage until it ends;
+  a later planning launch denies it. A store path that is a symlink, even a dangling one, or not a directory cannot be
+  denied, so each native planning launch in that workspace pauses as `PAUSED_TOOL_CONTAINMENT`, naming the path: replace it
   with a real directory, or remove it, then `--resume-paused` (#1250).
 
 - Completed runs now print every unresolved non-blocking finding and its evidence; the public status view exposes
@@ -495,8 +765,10 @@ PR template asks for an entry here; a change without one is incomplete.
   resume without changing that role's model or effort. A repair launch that stops
   (timeout, output limit, cleanup) is closed with `--abandon-stage`, as an original planning stop is. A native run
   no longer sends a stage pause to an Investigator it cannot run, so that pause keeps its reason and spends no
-  investigation; a Builder failure classification still pauses as before. The final plan review is not repaired
-  yet (#1257).
+  investigation; a Builder failure classification still pauses as before. The final plan review (`plan_finalize`)
+  now supports bounded report-only repair and publishes reviewed-plan records into the native visual protection
+  journal before approval; and unparsed OpenCode planning launches that left the launch unclosed at
+  `PAUSED_INVALID_OUTPUT` support operator closure via `--abandon-stage` without dispatching an agent (#1257).
 - Milestone review prompts make a final validation task conditional on missing current independent criterion or whole-flow evidence, retaining the full completion gate (#1292). Repair stale rendered-prompt snapshots introduced by a master merge without changing their production instructions.
 - Model-access preflight now probes each role through the tool that runs it. A role bound with `--role-transport`
   to a tool with `[auth]` billing routes, such as Kilo, is probed through that tool and its login is checked; before,
@@ -902,6 +1174,71 @@ PR template asks for an entry here; a change without one is incomplete.
   retaining its saved checkpoint and showing `--resume-paused`. Birth-bound owner
   receipts distinguish active execution from deliberate ready handoffs; status
   stays read-only and recovery persists under the existing run lock (#1021).
+- A native planning launch whose recorded private-read denial was weakened, such as one that no longer lists the
+  run store, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after the boundary
+  was prepared; the store-specific pause now needs a boundary that otherwise verifies against its proof. A test
+  also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
+- Under `--json`, a setting the run's configuration refuses as the run loads (such as `--single-model` or
+  `--spec-first` on a saved run, or `--single-model` with a per-role model flag) printed nothing on stdout.
+  It now prints the saved run's status payload with `result`, whose `error.code` is `input_rejected`
+  (`{"result": …}` alone before a new run's first checkpoint). The invocation still ends with `autocode: …`
+  on stderr and exits 2, and the refused setting is not saved (a new run without `--in-place` may already
+  have created its task worktree and branch, which `result.message` names). A native visual run
+  (`VISUAL_REVIEW_PROFILE=`) still saves such a refusal as a `PAUSED_INVALID_OUTPUT` pause, printed like any
+  other pause with `error` null (#714).
+- A native planning launch whose recorded private-read denial leaves out the run store, or a store its pinned
+  profile still denies, still pauses as `PAUSED_TOOL_CONTAINMENT` but no longer claims that store was made after
+  the boundary was prepared, even when its conformance proof was pinned again to match. The store-specific pause
+  now needs a boundary that otherwise verifies against its proof and names only stores its profile does not deny.
+  A test also fails when a module renames a `.autocode` store the planning shell must not read (#1250).
+- Under `--json`, a tool-containment refusal as the run loads (`--allow-uncontained-tools` on a run with no
+  built-in OpenCode stage, or a built-in OpenCode run without it where the kernel tool boundary is unavailable)
+  printed nothing on stdout. It now prints like any other refused setting: the saved run's status payload with
+  `result`, whose `error.code` is `input_rejected` with the refusal's text (`{"result": …}` alone before a new
+  run's first checkpoint). The text, the closing `autocode: …` on stderr, exit code 2 and the saved run are
+  unchanged. A native visual run already saved such a refusal as a `PAUSED_INVALID_OUTPUT` pause and still
+  does (#714).
+- Pull request CI ran the `linux-tool-containment` job, which runs the contained fake OpenCode flow under
+  bubblewrap, only when one of four named files changed. A pull request that broke the flow through another
+  file it loads, such as the status view (`autocode_run_view.py`) or the containment setup check
+  (`autocode_containment_policy.py`), skipped the job, and the break first showed on master. `tools/ci_scope.py`
+  now works out the Python files from `tests/test_contained_fake_cli.py` itself. It follows their import
+  statements and the scripts they start or copy by file name, so the list stays right as imports change. A
+  change to the stage report schemas in `tools/autocode-schemas/` runs the job too. That covers most Python
+  files in `tools/` outside the dashboard, so most pull requests that change runtime code now run this job too,
+  on its own runner beside the suite job. A missing test module fails CI's job selection instead of skipping
+  the job (#709).
+- With the Builder's retry policy off (a reviewer routing mode, or `builder_retry` disabled), the status view's
+  `escalations` row for a Builder climb read `passed` once the Tester passed a climbed attempt, even after the
+  Completion Reviewer sent that work back: nothing charged the review, so the climb's attempts stopped at that PASS,
+  leaving the next climbed attempt, its failed check and its cost out while the cost said complete. The correction
+  task the review assigns (`REWORK`) now sends that work back as the retry policy's charge does, so the row reads
+  `failed_again` with every climbed attempt and its cost (#612).
+- A milestone-budget stop before a repair's Builder launched could not be resumed as it advised. The repair's
+  recovery packet bound the milestone budget with the run's other settings, so
+  `--resume-paused --max-milestone-seconds M` stopped at `PAUSED_STALE_HANDOFF` ("Recovery packet: current source,
+  task, settings, contract or scope changed before admission") instead of launching the attempt, such as the
+  stronger attempt a known correction chose. The packet now leaves the milestone budget out, as it already left out
+  the iteration limit, the active-time budget and the cost cap: those decide whether an attempt may launch, not
+  what it acts on. AutoResolver's one-time extension of a default milestone budget changes the same setting and no
+  longer counts as a settings change either. A binding saved before this change, on a packet, a repair admission,
+  a novelty hold, a retry grant or a retained diagnosis, still holds while the run's settings are unchanged, and
+  stops holding when the milestone budget changes. One recorded after the upgrade leaves the budget out, even for a
+  packet saved before it: the repair admission written when the Resolver's plan finishes lets that repair launch
+  after a milestone budget change (#611).
+- The status view's `escalation_outcomes`, the runner's own stamp on each escalation and Builder retry, disagreed
+  with the `escalations` row for the Builder's stronger attempt. A run that completed on that attempt's work left it
+  and the ordinary retry before it `open` while the row read `passed`: the runner stamped `passed` only where the
+  Completion Reviewer or Resolver assigned a next task on a PASS, never at completion. And where a review sent work
+  the Tester had passed back and the retry policy made the stronger attempt, that same assignment stamped it
+  `passed` before it ran. The runner now also stamps every open one `passed` when the run completes, and at an
+  assignment leaves the Builder's own open when the work was sent back after the validation's attempt started (a
+  retry-policy charge or a correction task anywhere in the run, which the rows take as a failure after a PASS of the
+  escalation's own milestone), or when that attempt's start is not recorded, so a send-back cannot be ruled out
+  (`autocode_route_ladder.record_pass`). In `escalation-converts`, `escalation_outcomes` now reads 2 passed and 0
+  open, as its row does, and the scenario's oracle checks it. A stamp still ends with the struggle, so a climb a
+  later climb replaced reads `passed` there and `failed_again` as a row; `docs/models.md` and `docs/task-run.md`
+  say which to read (#612).
 
 ## [0.7.1] — 2026-10-09
 

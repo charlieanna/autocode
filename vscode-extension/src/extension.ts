@@ -10,7 +10,9 @@
 import * as vscode from "vscode";
 import { RunController, type RunRef } from "./controller";
 import { RunPanel } from "./panel";
-import { RunsProvider } from "./runsView";
+import { RunsProvider, type RunItem } from "./runsView";
+
+type RunTarget = RunRef | RunItem;
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("AutoCode", { log: true });
@@ -21,7 +23,11 @@ export function activate(context: vscode.ExtensionContext): void {
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
 
   /** The run the panel or the tree last named, or the one a command was invoked on. */
-  const targetOf = (passed?: RunRef): RunRef | undefined => (passed?.runDir ? passed : active);
+  const targetOf = (passed?: RunTarget): RunRef | undefined => {
+    if (!passed) return active;
+    const run = "run" in passed ? passed.run : passed;
+    return run.workspace && run.runDir ? { workspace: run.workspace, runDir: run.runDir } : undefined;
+  };
 
   const showRun = (run: RunRef): void => {
     active = run;
@@ -77,19 +83,19 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("autocode.refresh", () => refresh()),
 
-    vscode.commands.registerCommand("autocode.openRun", (run?: RunRef) => {
+    vscode.commands.registerCommand("autocode.openRun", (run?: RunTarget) => {
       const target = targetOf(run);
       if (!target) return void vscode.window.showInformationMessage("Select a run first.");
       showRun(target);
     }),
 
-    vscode.commands.registerCommand("autocode.takeAction", (run?: RunRef) => {
+    vscode.commands.registerCommand("autocode.takeAction", (run?: RunTarget) => {
       const target = targetOf(run);
       if (!target) return void vscode.window.showInformationMessage("Select a run first.");
       showRun(target);
     }),
 
-    vscode.commands.registerCommand("autocode.showCliCommand", async (run?: RunRef) => {
+    vscode.commands.registerCommand("autocode.showCliCommand", async (run?: RunTarget) => {
       const target = targetOf(run);
       if (!target) return;
       try {
@@ -103,7 +109,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
 
-    vscode.commands.registerCommand("autocode.continueRun", async (run?: RunRef) => {
+    vscode.commands.registerCommand("autocode.continueRun", async (run?: RunTarget) => {
       const target = targetOf(run);
       if (!target) return;
       const proceed = await vscode.window.showWarningMessage(
@@ -121,7 +127,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await refresh();
     }),
 
-    vscode.commands.registerCommand("autocode.watchRun", (run?: RunRef) => {
+    vscode.commands.registerCommand("autocode.watchRun", (run?: RunTarget) => {
       const target = targetOf(run);
       if (target) active = target;
     }),

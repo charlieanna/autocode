@@ -9,14 +9,23 @@ keeping a copy of it, and remembers the real stdout. The one object written ther
   that payload plus ``result`` (action());
 - for any other return once the run has loaded (loaded()), such as an operational pause raised in the
   build loop or a stop an intervention asked for, the saved run's payload plus ``result`` (finish());
-- before the run loads, such as a refusal of the arguments, ``{"result": ...}`` alone (finish()).
+- before the run loads, such as a refusal of the arguments, ``{"result": ...}`` alone (finish());
+- for a setting runner.configure or containment_policy refuses as run_setup.load_locked loads the run
+  (run_setup.SettingRefused, such as ``--single-model`` or ``--spec-first`` on a saved run,
+  ``--single-model`` with a per-role model flag, ``--allow-uncontained-tools`` where it does not apply,
+  or a built-in OpenCode run without it where the kernel tool boundary is unavailable), the saved run's
+  payload plus ``result``, or ``{"result": ...}`` alone before a run has a checkpoint (refused()). The
+  invocation still ends by raising, as cli()'s ``autocode: ...`` on stderr, and the refused setting is
+  not saved. On the native planning path run_locked catches that refusal first and saves it as a
+  PAUSED_INVALID_OUTPUT pause, which finish() prints like any other, with ``error`` null.
 
-An invocation that ends by raising (cli()'s ``autocode: ...``, such as a setting a saved run cannot
-take, or a parser error) never reaches finish() and prints nothing on stdout.
+Any other invocation that ends by raising (cli()'s ``autocode: ...``) or with a parser error never
+reaches finish() and prints nothing on stdout.
 
 ``result`` holds the exit code, whether the action was saved, the text a person would have read on
 stdout, and ``error``: ``{"code": "input_rejected", "message": ...}`` when the input was refused,
-else null. A refusal also ends stderr with ``{"error": ...}`` on its own line. Exit codes are
+else null. A refusal also prints ``{"error": ...}`` on its own line of stderr: its last line, except
+after a refused setting, which cli()'s ``autocode: ...`` follows. Exit codes are
 unchanged: 0 saved or complete, 2 waiting or refused (#885). The read commands (--status, --explain,
 --dry-run) print their own output and are left alone. docs/schemas/status-view.schema.json describes
 the status payload; a lone ``{"result": ...}`` validates only against its ``properties.result``.
@@ -121,6 +130,20 @@ def finish(code):
     if _active is not None and not _active["emitted"]:
         _write({**_saved(), "result": _result(code)})
     return code
+
+
+def refused(message) -> None:
+    """A setting was refused with ``message`` as the run loaded (run_setup.SettingRefused), and the invocation
+    ends by raising it: an invocation under --json that printed no object prints the saved run's payload with
+    that refusal as ``result``."""
+    if _active is None or _active["emitted"]:
+        return
+    payload = _saved()  # first, so its status hints (the cost line) come before the error line on stderr
+    error = {"code": "input_rejected", "message": message}
+    # Built here, not by _result(): the refusal is the raised error, not an "Input rejected:" line on stderr.
+    result = {"exit_code": 2, "saved": False, "message": _active["printed"].getvalue().strip(), "error": error}
+    print(json.dumps({"error": error}), file=_active["stderr"], flush=True)
+    _write({**payload, "result": result})
 
 
 def _payload(runner, state: RunState, args, workspace, run_dir) -> dict:

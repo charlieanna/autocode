@@ -18,6 +18,7 @@ from unittest.mock import patch
 import autocode_action_authority as action_authority
 import autocode_captured_process as captured_process
 import autocode_goal_lifecycle as lifecycle
+import autocode_plan_file as plan_file
 import autocode_process as processes
 import autocode_prompts as prompts
 import autocode_run_view as run_view
@@ -103,6 +104,7 @@ class RunViewTests(unittest.TestCase):
                 "tool_containment_backend",
                 "package",
                 "escalation_outcomes",
+                "escalations",
                 "job_report_recovery",
                 "verification_obligation",
                 "evidence_report",
@@ -118,9 +120,19 @@ class RunViewTests(unittest.TestCase):
                 "interaction_timing",
                 "conversation",
                 "controller",
+                "planning_depth",
+                "changes_by_criterion",
+                "dev_server",
             },
             set(run_view.view({"status": "RUNNING"})),
         )
+
+    def test_dev_server_is_the_callers_inspection_copied(self):
+        self.assertIsNone(run_view.view({"status": "RUNNING"})["dev_server"])
+        inspected = {"configured": True, "status": "running", "url": "http://127.0.0.1:4100/"}
+        shown = run_view.view({"status": "RUNNING"}, dev_server=inspected)
+        inspected["status"] = "stopped"
+        self.assertEqual("running", shown["dev_server"]["status"])
 
     def test_verification_obligation_is_additive_read_only_projection(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["verification_obligation"])
@@ -235,7 +247,9 @@ class RunViewTests(unittest.TestCase):
         self.assertNotIn("approved_contract", draft)
         approved = run_view.view(state)
         shown = approved["approved_contract"]
-        self.assertEqual({"revision", "hash", "token", "task_id", "approved_at", "body"}, set(shown))
+        self.assertEqual(
+            {"revision", "hash", "token", "task_id", "approved_at", "body", "goal_hash", "plan_file"}, set(shown)
+        )
         # Expected values are public and independent of the saved contract: what the draft view
         # showed for approval, the token it asked for, and the inputs the run was given.
         self.assertEqual(
@@ -244,6 +258,9 @@ class RunViewTests(unittest.TestCase):
         )
         self.assertEqual("greet-task", shown["task_id"])
         self.assertEqual(goal_fixtures.body(), shown["body"])
+        # What `autocode plan --check FILE` prints for a file holding this plan; none was loaded from one (#720).
+        self.assertEqual(plan_file.goal_hash(goal_fixtures.body()), shown["goal_hash"])
+        self.assertIsNone(shown["plan_file"])
         self.assertIsInstance(shown["approved_at"], str)
         self.assertTrue(shown["approved_at"])
         self.assertEqual({"approved_contract"}, set(approved) - set(draft))
@@ -629,6 +646,35 @@ class TaskRunTests(unittest.TestCase):
                     self.workspace, BRIEF, options=[*FIXTURE_OPTIONS, "--max-reported-tokens", cap], env=self.env
                 )
         self.assertFalse((self.workspace / ".autocode").exists())
+
+    def test_status_shows_the_planning_depth_decisions(self):
+        # #697: whether recognition skipped Requirements, the plan's size, the review allowance and whether
+        # the Plan Reviewer approved the draft at its first review reach --status, not only state.json.
+        for clarity, requirements_ran in (("clear", False), ("vague", True)):
+            with self.subTest(clarity=clarity):
+                workspace = self.workspace.parent / f"project-{clarity}"
+                shutil.copytree(self.workspace, workspace)
+                env = {**self.env, "LIVE_FIXTURE_CLARITY": clarity}
+                run = taskrun.TaskRun.start(workspace, BRIEF, options=FIXTURE_OPTIONS, env=env, timeout=300)
+                view = run.status()
+                self.assertEqual("approve_plan", (view["needs"] or {}).get("kind"), view["stop_reason"])
+                depth = view["planning_depth"]
+                self.assertEqual(
+                    {
+                        "adaptive": True,
+                        "clarity": clarity,
+                        "requirements_skipped": not requirements_ran,
+                        "plan_size": "small",
+                        "review_limit": 2,
+                        "challenges": 1,
+                        "approved_early": True,
+                    },
+                    {key: value for key, value in depth.items() if key != "size_signals"},
+                )
+                self.assertEqual(1, depth["size_signals"]["milestones"])
+                stages = [row["stage"] for row in util.read(run.run_dir / "state.json")["stages"]]
+                self.assertEqual(requirements_ran, "requirements_gather" in stages, stages)
+                self.assertNotIn("astra_finalize", stages, "approved at the first review")
 
     def test_program_guidance_sends_the_displayed_plan_back_without_becoming_the_users_input(self):
         # #866: a program's correction of the displayed plan re-plans the run. Saved as user feedback,

@@ -146,6 +146,7 @@ try:
     from . import autocode_recovery_context as recovery_context  # noqa: F401 - compatibility API
     from . import autocode_progressive_state as progressive_state  # noqa: F401 - compatibility API
     from . import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
+    from . import autocode_route_ladder as route_ladder
     from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_role_transport as role_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
     from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
@@ -186,6 +187,7 @@ except ImportError:
     import autocode_recovery_context as recovery_context  # noqa: F401 - compatibility API
     import autocode_progressive_state as progressive_state  # noqa: F401 - compatibility API
     import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
+    import autocode_route_ladder as route_ladder
     import autocode_configure
     import autocode_joint_transport as joint_transport
     import autocode_role_transport as role_transport
@@ -220,7 +222,7 @@ orchestrator = autopilot
 SCHEMA_DIR = Path(__file__).resolve().parent / "autocode-schemas"
 # Run configuration lives in autocode_configure (which imports neither this
 # module nor autopilot); the shared names stay resolvable here for argparse,
-# the status command and the frozen dashboard.
+# the status command and the dashboard.
 DEFAULT_ROLE_MODELS = autocode_configure.DEFAULT_ROLE_MODELS
 DEFAULT_ENGINE = autocode_configure.DEFAULT_ENGINE
 BUDGET_ARGUMENTS = autocode_configure.BUDGET_ARGUMENTS
@@ -1678,6 +1680,7 @@ def accept_completion(state: RunState, workspace: Path, *, run_dir=None) -> None
             "phase": "COMPLETE",
         }
     )
+    route_ladder.record_outcome(state, "passed")
 
 
 def recheck_completion(state: RunState, workspace, *, run_dir=None):

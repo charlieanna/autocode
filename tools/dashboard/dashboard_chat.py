@@ -22,6 +22,7 @@ except ImportError:
 
 try:
     from . import dashboard_chat_intent as chat_intent
+    from . import dashboard_run_state as run_state
     from .dashboard_conversation_journal import append_feedback, project_conversation
     from .dashboard_metrics import project_metrics
     from .dashboard_monitor import snapshot
@@ -31,6 +32,7 @@ try:
     from .dashboard_work_summary import project as work_summary
 except ImportError:  # Direct source launch, as well as the installed entry point.
     import dashboard_chat_intent as chat_intent
+    import dashboard_run_state as run_state
     from dashboard_conversation_journal import append_feedback, project_conversation
     from dashboard_metrics import project_metrics
     from dashboard_monitor import snapshot
@@ -224,10 +226,9 @@ class ConversationMixin(VerificationViewMixin):
                     continue
                 path = path.resolve()
                 try:
-                    state_path = path / "state.json"
-                    if state_path.is_symlink():
+                    if run_state.path(path).is_symlink():
                         continue
-                    state = json.loads(state_path.read_text())
+                    state = run_state.read(path)
                     if (
                         isinstance(state.get("task"), str)
                         and hashlib.sha256(state["task"].encode()).hexdigest() == attachment.get("goal_hash")
@@ -704,7 +705,7 @@ class ConversationMixin(VerificationViewMixin):
                     append_feedback(run, row, product_change=False)
                     self._save_chat(run, row)
                     try:
-                        saved = json.loads((run / "state.json").read_text())
+                        saved = run_state.read(run)
                         if (
                             saved.get("status") == "RUNNING"
                             and not saved.get("pending_questions")
@@ -750,9 +751,7 @@ class ConversationMixin(VerificationViewMixin):
     def task_view(self, workspace, run):
         state = {}
         try:
-            state = json.loads((run / "state.json").read_text())
-            if not isinstance(state, dict):
-                raise ValueError("State is not an object")
+            state = run_state.read(run)
             view = self.view(workspace, run, state)
             view["monitor"] = snapshot(state, run, detailed=True)
             view["monitor"]["metrics"] = project_metrics(workspace, run)
@@ -797,7 +796,7 @@ class ConversationMixin(VerificationViewMixin):
         state = s
         if state is None:
             try:
-                state = json.loads((run / "state.json").read_text())
+                state = run_state.read(run)
             except (OSError, ValueError):
                 state = {}
         view["planning_messages"] = planning_messages(object_value(state), run)

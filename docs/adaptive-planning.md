@@ -52,8 +52,12 @@ Where it lives: `tools/autocode_adaptive_planning.py` holds the decisions as pur
 functions. `units/autoplanner.py` (`schema_for`, `after_challenge`,
 `after_revise`, `rerun_requirements`), `autocode_workflows.apply` and
 `autocode_goals.feedback` apply them. State: `workflow.clarity`,
-`planning.adaptive` (`size`, `signals`, `review_limit`, `challenges`,
-`approved_at`, `final_stage`), and `revises_plan` on a feedback event.
+`workflow.requirements_skipped`, `planning.adaptive` (`size`, `signals`,
+`review_limit`, `challenges`, `approved_at`, `final_stage`), and `revises_plan`
+on a feedback event. `autocode --status --json` shows the decisions under
+`planning_depth` ([task-run interface](task-run.md)): the clarity, whether
+Requirements was skipped, the plan's size, the review allowance and whether the
+Plan Reviewer approved the draft early.
 
 ## Feedback on a plan you were shown
 

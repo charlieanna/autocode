@@ -138,6 +138,112 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(policy.s.Paused):
             policy.guard(state)
 
+    def saw(self, state, *, open=(), resolved=(), failing=(), passing=(), changed=("app.py",)):
+        """The evidence a charge sees: open blocking and resolved findings, checks that failed or passed, changed files."""
+        state["findings_ledger"] = [{"id": ident, "status": "open", "blocking": True} for ident in open] + [
+            {"id": ident, "status": "resolved", "blocking": True} for ident in resolved
+        ]
+        checks = [{"command": command, "exit_code": 1} for command in failing]
+        state["validation"] = {"checks": checks + [{"command": command, "exit_code": 0} for command in passing]}
+        state["changed_files"] = list(changed)
+        return state
+
+    def test_a_failure_repeating_an_earlier_one_skips_the_ordinary_retries_then_pauses(self):
+        state = self.state()
+        state["settings"]["builder_retry"]["ordinary_retries"] = 3
+        self.saw(state, failing=["pytest -q"])
+        self.assertEqual("retry", policy.failure(state, "e1", "code failure"))
+        self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual("pause", policy.failure(state, "e3", "code failure"))
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
+        self.assertIn("remains blocked after configured retry/escalation", state["stop_reason"])
+        self.assertIn("repeats an earlier one of this milestone with no new evidence", state["stop_reason"])
+        decisions = state["builder_retry_decisions"]
+        self.assertEqual(["new", "repeat", "repeat"], [row["novelty"] for row in decisions])
+        self.assertIn("no new evidence", decisions[1]["reason"])
+        self.assertEqual([1, 2, 3], [row["attempt"] for row in decisions])
+
+    def test_new_failures_that_are_not_progress_spend_the_ordinary_retries_as_before(self):
+        state = self.state()
+        state["settings"]["builder_retry"]["ordinary_retries"] = 2
+        actions = []
+        for attempt in range(4):
+            self.saw(state, failing=["pytest -q"], changed=[f"app{attempt}.py"])
+            actions.append(policy.failure(state, f"e{attempt}", "code failure"))
+        self.assertEqual(["retry", "retry", "escalate", "pause"], actions)
+        self.assertEqual(["new"] * 4, [row["novelty"] for row in state["builder_retry_decisions"]])
+
+    def test_failures_that_resolve_every_earlier_one_do_not_count_toward_the_limit(self):
+        # Live run 9pvu43lu (2026-10-07): each review resolved the last round's findings and found a new one,
+        # and the Builder stopped on the count alone.
+        state = self.state()
+        self.saw(state, open=["F-a"])
+        self.assertEqual("retry", policy.failure(state, "e1", "review rework"))
+        self.saw(state, resolved=["F-a"], open=["F-b"])
+        self.assertEqual("retry", policy.failure(state, "e2", "review rework"))
+        self.saw(state, resolved=["F-a", "F-b"], open=["F-c"])
+        self.assertEqual("retry", policy.failure(state, "e3", "review rework"))
+        policy.guard(state)
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        decisions = state["builder_retry_decisions"]
+        self.assertEqual(["new", "progress", "progress"], [row["novelty"] for row in decisions])
+        self.assertIn("does not count toward the retry limit", decisions[1]["reason"])
+        self.assertEqual("escalate", policy.failure(state, "e4", "review rework"))
+        self.saw(state, resolved=["F-a", "F-b"], open=["F-c"], changed=["other.py"])
+        self.assertEqual("pause", policy.failure(state, "e5", "review rework"))
+        self.assertEqual(["e1", "e2", "e3", "e4", "e5"], policy.lane(state)["failures"])
+
+    def test_progress_after_the_stronger_attempt_retries_on_the_stronger_route(self):
+        state = self.state()
+        self.saw(state, failing=["pytest -q"])
+        policy.failure(state, "e1", "code failure")
+        self.saw(state, failing=["pytest -q"], changed=["lib.py"])
+        self.assertEqual("escalate", policy.failure(state, "e2", "code failure"))
+        self.saw(state, open=["F-b"], passing=["pytest -q"])
+        self.assertEqual("retry", policy.failure(state, "e3", "code failure"))
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        policy.guard(state)
+        self.saw(state, open=["F-b"], passing=["pytest -q"], changed=["lib.py"])
+        self.assertEqual("pause", policy.failure(state, "e4", "code failure"))
+
+    def test_progress_cannot_lift_a_pause(self):
+        state = self.state()
+        for attempt in range(3):
+            self.saw(state, failing=["pytest -q"], changed=[f"app{attempt}.py"])
+            policy.failure(state, f"e{attempt}", "code failure")
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", state["status"])
+        self.saw(state, open=["F-b"], passing=["pytest -q"])
+        self.assertEqual("pause", policy.failure(state, "e3", "code failure"))
+        with self.assertRaises(policy.s.Paused):
+            policy.guard(state)
+
+    def test_a_repeat_with_no_stronger_model_pauses_instead_of_retrying_the_same_route(self):
+        state = self.state()
+        state["settings"]["builder_retry"]["strong_model"] = None
+        self.saw(state, failing=["pytest -q"])
+        self.assertEqual("retry", policy.failure(state, "e1", "code failure"))
+        self.assertEqual("pause", policy.failure(state, "e2", "code failure"))
+        self.assertIn("offers no stronger Builder model", state["stop_reason"])
+        self.assertIn("no new evidence", state["stop_reason"])
+
+    def test_the_classification_budget_grows_with_failures_that_did_not_count(self):
+        state = self.state()
+        self.assertEqual(3, policy.classification_limit(state))
+        self.saw(state, open=["F-a"])
+        policy.failure(state, "e1", "review rework")
+        self.saw(state, resolved=["F-a"], open=["F-b"])
+        policy.failure(state, "e2", "review rework")
+        self.assertEqual(4, policy.classification_limit(state))
+
+    def test_a_lane_saved_before_the_ledger_keeps_its_count(self):
+        state = self.state()
+        policy.lane(state)["failures"].append("e0")
+        policy.lane(state)["action"] = "retry"
+        self.saw(state, open=["F-b"])
+        self.assertEqual("escalate", policy.failure(state, "e1", "code failure"))
+        self.assertEqual("escalate", policy.failure(state, "e0", "code failure"))
+
     def climbed(self, cap, tokens=None):
         """A run whose Builder failed twice on GPT-6 Luna and escalated, under a cost cap of `cap`."""
         state = self.state()
@@ -223,6 +329,80 @@ class PolicyTests(unittest.TestCase):
         strong = {"engine": "codex", "model": "gpt-6-sol", "reasoning_effort": "xhigh"}
         state["stages"].append({**state["stages"][0], "launch_route": strong})
         policy.guard(state)
+
+    def milestone_budgeted(self, budget, *, used=650, origin="user_explicit"):
+        """The climbed run, with `used` seconds counted on milestone M1 under a milestone budget of `budget`
+        seconds that `origin` set; the last GPT-6 Luna attempt took 600 s."""
+        state = self.climbed(None)
+        state["current_task"]["contract_hash"] = "approved"
+        state["settings"]["limits"] = {"stage_timeout_seconds": 3600}
+        state["settings"]["milestone_checkpoints"] = {"enabled": True, "max_seconds": budget}
+        state["settings"]["budget_origins"] = {"milestone_max_seconds": origin}
+        state["milestone_progress"] = {"approved:M1": {"id": "M1", "contract_hash": "approved", "seconds": used}}
+        state["stages"][0]["duration_seconds"] = 600
+        return state
+
+    def test_a_stronger_attempt_projected_past_the_milestone_budget_pauses_before_it_launches(self):
+        # Used: 650 s on milestone M1. Projected: the last GPT-6 Luna attempt's 600 s. 1,250 s passes the 1,000 s
+        # milestone budget set with --max-milestone-seconds, though 650 s alone is within it.
+        state = self.milestone_budgeted(1000)
+        with self.assertRaises(policy.s.Paused) as stop:
+            policy.guard(state)
+        self.assertEqual("PAUSED_MILESTONE_BUDGET", stop.exception.status)
+        self.assertEqual(
+            "The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of active "
+            "time, the last Builder attempt's duration, it would take this milestone's active time from 650 s to "
+            "1,250 s, past the 1,000 s milestone budget you set. AutoCode never raises a budget you set; resume with "
+            "--max-milestone-seconds 1250 or more (0 for no limit), which also restarts this milestone's count, to "
+            "make this attempt",
+            str(stop.exception),
+        )
+        # The escalation decision stands: a budget that admits the total, none, or the milestone's count restarted
+        # by resuming with --max-milestone-seconds, lets that attempt launch.
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["terra"]["model"])
+        for budget, used in ((1250, 650), (0, 650), (1000, 0)):
+            with self.subTest(budget=budget, used=used):
+                policy.guard(self.milestone_budgeted(budget, used=used))
+        # An attempt projected past the budget on its own pauses even on a restarted count.
+        with self.assertRaises(policy.s.Paused) as stop:
+            policy.guard(self.milestone_budgeted(500, used=0))
+        self.assertIn(
+            "from 0 s to 600 s, past the 500 s milestone budget you set. AutoCode never raises a budget you set; "
+            "resume with --max-milestone-seconds 600 or more",
+            str(stop.exception),
+        )
+
+    def test_only_a_milestone_budget_you_set_is_projected_for_the_current_milestone(self):
+        launched = self.milestone_budgeted(1000)
+        strong = {"engine": "codex", "model": "gpt-6-sol", "reasoning_effort": "xhigh"}
+        launched["stages"].append({**launched["stages"][0], "launch_route": strong})
+        progressive = self.milestone_budgeted(1000)
+        progressive["progressive"] = {"version": 1, "budget": {"run_limit": 3600}}
+        revised = self.milestone_budgeted(1000)
+        revised["current_task"]["contract_hash"] = "superseded"
+        # The 600 s projection alone passes 500 s, so projecting from 0 s without a row would pause.
+        unassigned = self.milestone_budgeted(500)
+        del unassigned["milestone_progress"]
+        disabled = self.milestone_budgeted(1000)
+        disabled["settings"]["milestone_checkpoints"]["enabled"] = False
+        undated = self.milestone_budgeted(1000)
+        del undated["stages"][0]["duration_seconds"]
+        for name, state in (
+            # The writer-launch check governs these, as before: it pauses once the milestone's time reaches them.
+            ("runner default", self.milestone_budgeted(1000, origin="runner_default")),
+            ("delegated", self.milestone_budgeted(1000, origin="resolver_delegated")),
+            ("checkpoints off", disabled),
+            # A progressive run's slice budget has its own check, and resuming does not restart its count.
+            ("progressive", progressive),
+            ("task on another contract", revised),
+            ("no milestone row", unassigned),
+            ("no duration", undated),
+            ("stronger attempt launched", launched),
+            ("parallel Builder", {**self.milestone_budgeted(1000), "parent_run": "parent"}),
+        ):
+            with self.subTest(name):
+                policy.guard(state)
+        self.assertNotIn("milestone_progress", unassigned, "the check never creates a milestone row")
 
     def test_unknown_class_name_cannot_mutate_authority(self):
         state = self.state()
@@ -989,6 +1169,9 @@ class PolicyBlackbox(unittest.TestCase):
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
         self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", self.state()["status"])
         self.assertEqual(["retry", "escalate", "pause"], [r["action"] for r in self.state()["builder_retry_decisions"]])
+        # The fake Tester fails the same check every round: the ledger sees the second and third as repeats.
+        self.assertEqual(["new", "repeat", "repeat"], [r["novelty"] for r in self.state()["builder_retry_decisions"]])
+        self.assertIn("no new evidence", self.state()["stop_reason"])
         self.assertEqual(2, len(self.events(stage="astra_resolve")))
 
     def test_a_stronger_builder_attempt_past_the_cost_cap_pauses_before_it_launches(self):
@@ -1081,6 +1264,59 @@ class PolicyBlackbox(unittest.TestCase):
             self.assertIn(part, view["stop_reason"])
         self.assertNotEqual(request, view["needs"].get("resolver_request_id"), "the resume must reach the new stop")
         self.build(extra=["--resume-paused", "--max-seconds", str(needed)])
+        self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
+
+    def test_a_stronger_builder_attempt_past_the_milestone_budget_pauses_before_it_launches(self):
+        # Issue #611: the climb consults the milestone budget you set before it spends, and names the arithmetic.
+        self.seed(
+            bb.plan(
+                [([], "Version prints 1", ["version.py"])],
+                {"M1": {"version.py": "print(1)\n"}},
+                {"M1": "import version"},
+                "Print version",
+            ),
+            planner_extra=["--max-milestone-seconds", "1000"],
+        )
+        self.env["BUILD_AUDIT_FAULT"] = "retry_exhausted"
+        self.build()
+        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"])
+        self.build()
+        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat", "--pause-after-stage"], 2)
+        self.assertEqual(
+            ["investigate", "retry", "investigate", "escalate"],
+            [r["action"] for r in self.state()["builder_retry_decisions"]],
+        )
+        # The fake clock, at that pause: the last GPT-6 Luna attempt took 600 s, in its duration and milestone M1's
+        # counted time, so the stronger attempt is projected at that long. The 1,000-second milestone budget admits
+        # the milestone's time so far, and the attempt alone, but not both.
+        path = self.run / "state.json"
+        saved = json.loads(path.read_text())
+        last = [row for row in saved["stages"] if row["stage"] == "terra"][-1]
+        last["duration_seconds"] += 600
+        row = saved["milestone_progress"][f"{saved['goal_contract']['hash']}:M1"]
+        row["seconds"] += 600
+        path.write_text(json.dumps(saved, indent=2))
+        needed = math.ceil(row["seconds"] + last["duration_seconds"])
+        self.assertLess(max(row["seconds"], last["duration_seconds"]), 1000)
+        self.assertGreater(needed, 1000)
+        before = self.events()
+        self.build(2, extra=["--resume-paused"])
+        self.assertEqual(before, self.events(), "the stronger attempt must not launch past the milestone budget")
+        view = self.view()
+        self.assertEqual("PAUSED_MILESTONE_BUDGET", view["needs"].get("pause_origin"), view["needs"])
+        for part in (
+            "The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at",
+            "of active time, the last Builder attempt's duration, it would take this milestone's active time from",
+            "past the 1,000 s milestone budget you set",
+            f"resume with --max-milestone-seconds {needed} or more (0 for no limit), which also restarts this "
+            "milestone's count",
+            "To acknowledge this milestone-budget pause, use autocode resume --max-milestone-seconds N",
+        ):
+            self.assertIn(part, view["stop_reason"])
+        # Information cannot release this stop, so its advice never offers that path.
+        self.assertNotIn("provide_information", view["stop_reason"])
+        # The climb stays saved: the budget the stop names launches exactly that attempt.
+        self.build(extra=["--resume-paused", "--max-milestone-seconds", str(needed)])
         self.assertEqual(["gpt-6-luna", "gpt-6-luna", "gpt-6-sol"], [r["model"] for r in self.events()])
 
     def view(self):

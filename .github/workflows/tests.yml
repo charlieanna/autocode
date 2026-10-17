@@ -72,7 +72,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
         working-directory: vscode-extension
-      - name: Test the CLI-facing core against AutoCode's reference client
+      - name: Test the CLI contract, editor commands and webview
         run: npm test
         working-directory: vscode-extension
       - name: Bundle
@@ -369,6 +369,9 @@ jobs:
               "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_unix_relay_is_reachable_while_foreign_socket_and_host_network_are_absent",
               "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_original_namespace_pid1_is_bound_but_its_forked_peer_is_refused",
               "tests.test_kilo_linux_boundary.KiloLinuxBoundaryTests.test_policy_filter_and_command_tampering_refuse",
+              # A fake OpenCode run through the CLI whose Builder, Tester and Completion Reviewer launch
+              # contained, and the uncontained control for its planted write outside the workspace.
+              "tests.test_contained_fake_cli.ContainedFakeOpenCodeFlow",
               # The dashboard suite job has no bubblewrap and skips this one (#1250). Last: its module
               # puts tools/dashboard first on sys.path.
               "dashboard.tests.test_permanent_delete_endpoints.PermanentDeleteTests"

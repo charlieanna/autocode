@@ -11,14 +11,14 @@ so a run that finds the checkout busy can say which run has it.
 A run that finds it busy changes nothing: it says who holds the checkout and exits,
 and the same command works once the other run's agents have stopped. Saving an
 answer, approval or other action that launches no agent does not need the checkout
-and is not blocked. This runtime helper uses files, ``fcntl`` and process identity.
+and is not blocked. This runtime helper uses files, file locks (``autocode_util.lock_file``)
+and process identity.
 """
 
 from __future__ import annotations
 
 import contextlib
 import datetime as dt
-import fcntl
 import json
 import math
 import os
@@ -225,7 +225,7 @@ def exclusive(workspace, run_dir, *, busy=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            util.lock_file(handle)
         except BlockingIOError:
             message = busy_message(workspace)
             if busy is None:
@@ -235,7 +235,7 @@ def exclusive(workspace, run_dir, *, busy=None):
         # Check under the lock before overwriting the former holder.
         if orphaned_workers(holder(workspace)):
             message = busy_message(workspace)
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            util.unlock_file(handle)
             if busy is None:
                 raise CheckoutBusy(message)
             print(message, file=sys.stderr, flush=True)

@@ -25,6 +25,55 @@ except ImportError:
 
 PREFIX = "role:"
 
+DERIVED_ROLES: dict[str, tuple[str, ...]] = {
+    "analyst": ("plan_reviewer", "astra"),
+    "investigator": ("plan_reviewer", "astra"),
+    "architect": ("plan_reviewer", "astra"),
+    "acceptance_tester": ("sol",),
+    "resolver": ("astra",),
+    "stuck_investigator": ("plan_reviewer", "astra"),
+    "utility": ("plan_reviewer", "requirements", "astra"),
+}
+
+
+def inherit(settings, role, source_role=None):
+    """Save an immutable tool identity for a derived role copied mid-run from a source role."""
+    if not settings or not isinstance(settings, dict):
+        return None
+    identities = settings.get("transport_identities")
+    if not identities or not isinstance(identities, dict):
+        return None
+    target_key = PREFIX + str(role)
+    if target_key in identities:
+        return identities[target_key]
+
+    routes = settings.get("roles", {})
+    route = routes.get(role, {})
+    provider = route.get("provider")
+    if provider in (None, "opencode", "openai", settings.get("provider")):
+        # The role runs on the run's own tool, so there is no external identity to copy:
+        # a copied one would contradict its route, and `_entry` refuses that pairing.
+        return None
+
+    sources = (source_role,) if source_role else DERIVED_ROLES.get(role, ())
+    for src in sources:
+        if not src:
+            continue
+        src_key = PREFIX + str(src)
+        src_identity = identities.get(src_key)
+        if src_identity is not None and isinstance(src_identity, dict) and src_identity.get("provider") == provider:
+            inherited = copy.deepcopy(src_identity)
+            settings.setdefault("transport_identities", {})[target_key] = inherited
+            return inherited
+
+    for k, v in identities.items():
+        if k.startswith(PREFIX) and isinstance(v, dict) and v.get("provider") == provider:
+            inherited = copy.deepcopy(v)
+            settings.setdefault("transport_identities", {})[target_key] = inherited
+            return inherited
+
+    return None
+
 
 def add_arguments(parser):
     """The two transport inputs; keep the provider flag's existing semantics."""
@@ -67,6 +116,8 @@ def _entry(settings, role):
     key = PREFIX + str(role)
     selected = identities.get(key)
     if selected is None:
+        selected = inherit(settings, role)
+    if selected is None:
         external_route = (route.get("engine") or settings.get("engine")) == "opencode" and route.get(
             "provider"
         ) not in (
@@ -76,7 +127,7 @@ def _entry(settings, role):
             settings.get("provider"),
         )
         if key in identities or external_route:
-            raise ValueError("Saved external role transport identity is missing; no fallback")
+            raise ValueError(f"Saved external role transport identity is missing for {role}; no fallback")
         return None
     if (
         not isinstance(selected, dict)

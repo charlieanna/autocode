@@ -120,7 +120,7 @@ TABLE: dict[str, tuple[str, str]] = {
         "--resume-paused --max-iterations N continues.",
     ),
     "PAUSED_MILESTONE_BUDGET": (
-        "A milestone's time budget is exhausted.",
+        "A milestone's time budget is exhausted, or a stronger Builder attempt is projected past the budget you set.",
         "--resume-paused --max-milestone-seconds N continues.",
     ),
     "PAUSED_MILESTONE_TIME_LIMIT": (

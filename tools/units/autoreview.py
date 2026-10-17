@@ -29,6 +29,7 @@ try:
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_review_job as review_job
     from .. import autocode_review_mutation as review_mutation
+    from .. import autocode_role_transport as role_transport
     from .. import autocode_run_status as run_status
     from .. import autocode_task_authority as task_authority
     from .. import autocode_verification_plan as verification_plan
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_recovery_novelty as novelty
     import autocode_review_job as review_job
     import autocode_review_mutation as review_mutation
+    import autocode_role_transport as role_transport
     import autocode_run_status as run_status
     import autocode_task_authority as task_authority
     import autocode_verification_plan as verification_plan
@@ -101,6 +103,7 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         state["phase"] = "EXECUTING"
         roles = state["settings"]["roles"]
         roles.setdefault("acceptance_tester", deepcopy(roles["sol"]))
+        role_transport.inherit(state.get("settings"), "acceptance_tester", "sol")
         return job_request(state, acceptance_tests_job, "sol", "acceptance_tester")
     if stage in (design_job.STAGE, design_check_job.STAGE):
         # The Architect inherits the Plan Reviewer's model (the planner's own when
@@ -110,6 +113,8 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         state["phase"] = "REVIEWING"
         roles = state["settings"]["roles"]
         roles.setdefault("architect", architect_route(roles))
+        source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
+        role_transport.inherit(state.get("settings"), "architect", source)
         return job_request(state, JOBS[stage], "astra", "architect")
     if stage not in ("sol", "astra_review", "astra_checkpoint"):
         raise ValueError(f"Autoreview cannot run {stage}")

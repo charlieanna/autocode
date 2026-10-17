@@ -8,7 +8,11 @@
   the command that ran, from the repository root, in every scratch copy;
 - the protected-test inventory keeps only the package's tests, and their replay reads the saved
   package command's per-test results inside the package (``recognize``);
-- the regression proof leaves a change outside the package unverified.
+- the regression proof leaves a change outside the package unverified (``uncovered``), and in every
+  package run a change outside it is a runner finding (``changes_outside``, read by
+  autocode_package_writes); neither counts the paths autocode_package_writes.exempt names;
+- the bug-fix Investigator's diagnosis may name only paths inside the package (``named_outside``, read
+  by autocode_bug_job.check).
 
 An explicit ``--test-command`` still runs from the repository root, exactly as given. Written as
 ``cd PATH && RUNNER`` for the run's own package, the proof reads it with that runner inside the
@@ -27,7 +31,7 @@ import os
 import shlex
 import stat
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_test_root as test_roots
@@ -197,6 +201,44 @@ def inside(package, paths) -> list[str]:
 def outside(package, paths) -> list[str]:
     """Paths not inside the package, sorted."""
     return test_roots.outside(package, paths)
+
+
+def named_outside(package, paths) -> list[str]:
+    """The ``paths`` a report names that are not inside the package, sorted. Each is read as a plain
+    repository-relative path (``./`` and a trailing slash dropped), and the package directory itself is
+    inside the package."""
+    return sorted(
+        {path for path in paths if (name := PurePosixPath(path).as_posix()) != package and not contains(package, name)}
+    )
+
+
+def changes_outside(package, changes, exempt=()) -> dict[str, str]:
+    """The changes not inside the package, by path, in path order.
+
+    ``changes`` maps each changed path to ``added``, ``modified`` or ``deleted``, as
+    autocode_verify.changed_files reports a candidate: AutoCode's run state, bytecode and the
+    runner's dependency links are already left out, and a rename is a deleted and an added path, so a
+    rename into or out of the package leaves its outside side here. A file at the package path itself
+    is outside it. Each ``exempt`` path is left out with everything under it: a nested repository
+    (``dir/``) or a submodule is reported as itself or as the files it holds.
+    """
+    covered = [root for root in (str(path).rstrip("/") for path in exempt) if root]
+    return {
+        path: changes[path]
+        for path in outside(package, changes)
+        if not any(path == root or path.startswith(root + "/") for root in covered)
+    }
+
+
+def uncovered(package, changes, exempt=()) -> str | None:
+    """The regression proof's note on the changes outside the package, which its suite never ran, naming
+    the first ten; None when there are none."""
+    elsewhere = list(changes_outside(package, changes, exempt))
+    if not elsewhere:
+        return None
+    return f"Files outside the package {package}/ changed, and its suite does not cover them: " + ", ".join(
+        elsewhere[:10]
+    )
 
 
 class PackageFramework(Framework):

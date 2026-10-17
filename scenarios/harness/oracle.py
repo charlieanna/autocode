@@ -213,8 +213,10 @@ def run_checks(
 
     ``run`` is None in ``check`` mode (no AutoCode ran), and then there is nothing to
     judge. Otherwise it holds ``status``, the final status ``view`` (docs/task-run.md),
-    ``stages`` (saved stage names in order), ``answers`` (questions the driver answered)
-    and ``cli_calls`` (the kinds of CLI call the driver made).
+    ``stages`` (saved stage names in order), ``answers`` (questions the driver answered),
+    ``approvals`` (the gates the driver passed for the person, as in result.json; a plan
+    approval's row also holds ``plan_file``, harness.plan_round_trip) and ``cli_calls``
+    (the kinds of CLI call the driver made; the round trip's `autocode plan` calls are not among them).
 
     ``workflow`` is the kind of job the run should have recognized; the harness
     reads it from the status view's ``workflow`` field (README, "Workflows").
@@ -269,6 +271,63 @@ def run_checks(
             Check("stage_budget", count <= max_model_stages, f"{count} model stages, allowed {max_model_stages}")
         )
     return checks
+
+
+def escalation_checks(
+    run: dict | None,
+    *,
+    kind: str,
+    role: str,
+    job: str,
+    climbed: tuple[tuple[str, str], tuple[str, str]],
+    attempts: int,
+    outcome: str,
+    basis: str,
+    stamped: dict[str, int],
+) -> list[Check]:
+    """Checks on the one escalation a run made, from the final status view's ``escalations`` (docs/task-run.md:
+    the rows ``autocode --status --json`` prints, #612): its ``kind``, ``role`` and screen ``job``, the routes it
+    ``climbed`` from and to as (model, reasoning effort), its escalated ``attempts``, each finished and priced,
+    their cost in all, and how it ended (``outcome``, ``basis``); then the runner's own stamps on it and on the
+    Builder's retries, as the view's ``escalation_outcomes`` counts them (``stamped``), which must agree with that
+    row. Empty in ``check`` mode (``run`` is None)."""
+    if run is None:
+        return []
+    stamps = (run.get("view") or {}).get("escalation_outcomes")
+    rows = (run.get("view") or {}).get("escalations")
+    row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
+    sides = [row.get(side) if isinstance(row.get(side), dict) else {} for side in ("from", "to")]
+    launched = [one for one in row.get("attempts") or [] if isinstance(one, dict)]
+    spent = [one.get("cost_usd") for one in launched]
+    cost = row.get("cost") if isinstance(row.get("cost"), dict) else {}
+    priced = all(isinstance(usd, (int, float)) and usd > 0 for usd in spent)
+    return [
+        Check(
+            "one_escalation",
+            (row.get("kind"), row.get("role"), row.get("job")) == (kind, role, job),
+            f"escalations: {rows}",
+        ),
+        Check(
+            "escalation_routes",
+            tuple((side.get("model"), side.get("reasoning_effort")) for side in sides) == climbed,
+            f"from {sides[0]} to {sides[1]}",
+        ),
+        Check(
+            "escalated_attempts_and_cost",
+            len(launched) == attempts
+            and all(one.get("active") is False for one in launched)
+            and priced
+            and cost.get("complete") is True
+            and cost.get("usd") == round(sum(spent), 6),
+            f"attempts {launched}; cost {cost}",
+        ),
+        Check(
+            "escalation_outcome",
+            (row.get("outcome"), row.get("outcome_basis")) == (outcome, basis),
+            f"{row.get('outcome')!r} ({row.get('outcome_basis')!r}), wanted {outcome!r} ({basis!r})",
+        ),
+        Check("runner_stamps_agree", stamps == stamped, f"escalation_outcomes {stamps}, wanted {stamped}"),
+    ]
 
 
 def program_checks(run: dict | None, scenario, *, journeys: dict[str, str] | None = None) -> list[Check]:

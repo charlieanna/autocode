@@ -57,12 +57,13 @@ SUBCOMMANDS = {
     "models": "model_catalogue",
     "review-pr": "autocode_review_pr",
     "review": "autocode_review_cli",
+    "serve": "autocode_serve_cli",
     "completion": "autocode_shell_completion",
 }
 # A few existing entry points consume sys.argv rather than an argv parameter.
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}
 SYS_ARGV_COMMANDS = frozenset({"dashboard", "unattended"})
-# No parser() to read: the dashboard is frozen; unattended passes run arguments through to
+# No parser() to read: the dashboard reads sys.argv itself; unattended passes run arguments through to
 # the main parser. Program dispatches its commands by hand; its parser() gathers theirs.
 WITHOUT_PARSER = frozenset({"dashboard", "unattended"})
 DISTRIBUTION = "autocode-supervisor"

@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from harness import catalog, verdict
-from harness.driver import DriveError, Driver, default_autocode, fake_setup
+from harness.driver import DriveError, Driver, default_autocode, fake_setup, with_flag_values
 from harness.project import materialize
 
 from scenarios import run as scenario_run
@@ -38,7 +38,7 @@ class CompletionReworkCLI(unittest.TestCase):
             Path(artifacts).mkdir(parents=True, exist_ok=True)
             self.root = Path(tempfile.mkdtemp(prefix="rework-cli-", dir=artifacts)).resolve()
         else:
-            scratch = tempfile.TemporaryDirectory(prefix="rework-cli-", dir=results)
+            scratch = tempfile.TemporaryDirectory(prefix="rework-cli-", dir=results, ignore_cleanup_errors=True)
             self.addCleanup(scratch.cleanup)
             self.root = Path(scratch.name).resolve()
         self.scenario = catalog.load("completion-rework-direct")
@@ -429,6 +429,64 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual(
             ["terra", "sol", "astra_review", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
         )
+
+
+class ReworkHoldCostCLI(unittest.TestCase):
+    """#611: the rework loop's no-progress hold (rework-same-failure) states the run's spend against its cost cap
+    and its active time against its time limit."""
+
+    def test_a_cap_changed_at_the_hold_is_the_cap_its_stop_states(self):
+        results = Path(__file__).resolve().parents[1] / ".scenario-runs"
+        results.mkdir(exist_ok=True)
+        scratch = tempfile.TemporaryDirectory(prefix="rework-hold-cost-", dir=results, ignore_cleanup_errors=True)
+        self.addCleanup(scratch.cleanup)
+        root = Path(scratch.name).resolve()
+        scenario = catalog.load("rework-same-failure")
+        flags, env = fake_setup(scenario, root, scenario.reference)
+        (root / "config").mkdir()
+        env.update(XDG_CONFIG_HOME=str(root / "config"))
+        driver = Driver(
+            materialize(scenario.seed, root / "project"),
+            root,
+            flags,
+            env,
+            autocode=default_autocode(),
+            max_steps=scenario.max_steps,
+            timeout_seconds=60 * scenario.timeout_minutes,
+        )
+        view = driver.drive(scenario.brief)
+        self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
+        self.assertIn("No causal progress", view["stop_reason"])
+        self.assertIn("; cap $5.00.", view["stop_reason"])
+        self.assertRegex(view["stop_reason"], r"; cap \$5\.00\. Active time: [\d,.]+ s of the [\d,]+ s limit\.")
+        # The person reads the cap, changes it at the hold without --resume-paused and checks --status before
+        # the one scoped retry: the stop the command prints and the status view state the cap the run has now.
+        for given, cap, stated in (("20", 20.0, "; cap $20.00."), ("0", None, None)):
+            with self.subTest(max_cost_usd=given):
+                driver.flags = with_flag_values(driver.flags, ["--max-cost-usd", given])
+                printed = driver.call("change-cap").stdout
+                view = driver.view()
+                self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
+                self.assertEqual(cap, view["cost"]["cap_usd"])
+                self.assertIn("No causal progress", view["stop_reason"])
+                self.assertIn("RESOLVER_PENDING: Incident", printed, printed)
+                for text in (view["stop_reason"], printed):
+                    self.assertNotIn("cap $5.00", text)
+                    if stated:
+                        self.assertEqual(1, text.count("; cap $"), text)
+                        self.assertIn(stated, text)
+                    else:
+                        self.assertNotIn("Cost:", text)
+                self.assertNotIn("cap $5.00", json.dumps(view))
+        # A time limit changed at the hold is the limit its stop states, as the cap is. The scenario sets none, so the
+        # person passes it from now on.
+        driver.flags = [*driver.flags, "--max-seconds", "7200"]
+        printed = driver.call("change-time-limit").stdout
+        view = driver.view()
+        self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
+        for text in (view["stop_reason"], printed):
+            self.assertEqual(1, text.count("Active time: "), text)
+            self.assertRegex(text, r"Active time: [\d,.]+ s of the 7,200 s limit\.")
 
 
 if __name__ == "__main__":

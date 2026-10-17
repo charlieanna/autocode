@@ -2,34 +2,55 @@
 
 Python on Windows has no fcntl, termios, pwd, grp, resource or pty, so one such import at
 module level stops `autocode` itself from starting there, before any platform check can
-run. The list below is the known debt recorded in docs/windows.md. A new module-level
-import fails this test: take the lock through `autocode_util.lock_file` / `unlock_file`,
-or import the POSIX module inside the POSIX-only branch. Removing a module is progress:
-take it off the list (the test says when). The frozen dashboard is out of scope.
+run. The last such imports, thirteen file locks, were removed on 2026-10-16, so any
+module-level import now fails this test: take the lock through `autocode_util.lock_file` /
+`unlock_file`, or import the POSIX module inside the POSIX-only branch. The dashboard
+is out of scope.
 """
 
 import ast
+import json
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
 POSIX_ONLY = frozenset({"fcntl", "termios", "pwd", "grp", "resource", "pty", "tty", "posix", "syslog", "crypt"})
 
-KNOWN = {
-    "autocode_checkout_lock.py": {"fcntl"},
-    "autocode_checkpoint_cli.py": {"fcntl"},
-    "autocode_controller_owner.py": {"fcntl"},
-    "autocode_conversation.py": {"fcntl"},
-    "autocode_conversation_session.py": {"fcntl"},
-    "autocode_dependencies.py": {"fcntl"},
-    "autocode_interventions.py": {"fcntl"},
-    "autocode_milestones.py": {"fcntl"},
-    "autocode_registry.py": {"fcntl"},
-    "autocode_usage.py": {"fcntl"},
-    "autocode_workspaces.py": {"fcntl"},
-    "autocode_worktrees.py": {"fcntl"},
-    "opencode_stage_router.py": {"fcntl"},
-}
+# Modules that must load with fcntl unimportable, as on native Windows: the CLI, which
+# `autocode --version` and `doctor` load, and the thirteen that imported fcntl at load until
+# 2026-10-16. The CLI loads nine of them at start; the others load with the command that
+# needs them or run as their own program.
+LOADS_WITHOUT_FCNTL = (
+    "autocode",
+    "autocode_checkout_lock",
+    "autocode_checkpoint_cli",
+    "autocode_controller_owner",
+    "autocode_conversation",
+    "autocode_conversation_session",
+    "autocode_dependencies",
+    "autocode_interventions",
+    "autocode_milestones",
+    "autocode_registry",
+    "autocode_usage",
+    "autocode_workspaces",
+    "autocode_worktrees",
+    "opencode_stage_router",
+)
+# A fresh interpreter, so modules this process already loaded are imported again.
+IMPORT_WITHOUT_FCNTL = """
+import importlib, json, sys
+sys.path.insert(0, sys.argv[1])
+sys.modules["fcntl"] = None  # `import fcntl` now raises ImportError, as on Windows
+failed = {}
+for name in sys.argv[2:]:
+    try:
+        importlib.import_module(name)
+    except ImportError as error:
+        failed[name] = str(error)
+print(json.dumps(failed))
+"""
 
 
 def load_time_imports(tree):
@@ -63,13 +84,23 @@ def posix_only_imports():
 
 class LoadTimeImportTests(unittest.TestCase):
     def test_no_new_module_imports_a_posix_only_module_at_load(self):
-        found = posix_only_imports()
-        added = {name: names for name, names in found.items() if not names <= KNOWN.get(name, set())}
         self.assertEqual(
-            {}, added, "these modules stop `autocode` loading on native Windows; use autocode_util.lock_file"
+            {},
+            posix_only_imports(),
+            "these modules stop `autocode` loading on native Windows; use autocode_util.lock_file",
         )
-        fixed = sorted(set(KNOWN) - set(found))
-        self.assertEqual([], fixed, "progress: take these modules off KNOWN in this test and docs/windows.md")
+
+    def test_the_cli_and_the_former_fcntl_modules_load_without_fcntl(self):
+        """The scan above reads each file; this loads them, with everything they import."""
+        result = subprocess.run(
+            [sys.executable, "-c", IMPORT_WITHOUT_FCNTL, str(TOOLS), *LOADS_WITHOUT_FCNTL],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual({}, json.loads(result.stdout), "these modules need fcntl to load")
 
     def test_the_shared_helpers_load_without_posix_modules(self):
         self.assertNotIn("autocode_util.py", posix_only_imports())

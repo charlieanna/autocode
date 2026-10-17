@@ -250,6 +250,41 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
                 (row,) = stats.summarize([result])
                 self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
+    def test_the_architecture_run_s_gates_name_that_run_and_auto_approve_names_none(self):
+        """#722: one approvals list holds the architecture run's gates and the components calls' --auto-approve,
+        so each gate the architecture driver passed names that run (harness.approval_provenance matches it to
+        that run's rows); the product approves its components itself, so --auto-approve names no run."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            run_dir = root / "architecture-run-dir"
+
+            def architecture(driver, brief):
+                reference = catalog.load("architecture-two-services").reference
+                for name in overlay_paths(reference):
+                    target = driver.project / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes((reference / name).read_bytes())
+                driver.run_dir = run_dir
+                driver.approvals.append({"gate": "approve_plan", "token": "r1:architecture"})
+
+            with (
+                mock.patch.object(run.components_driver.Driver, "drive", architecture),
+                mock.patch.object(run.components_driver.Driver, "view", return_value={"complete": True}),
+                mock.patch.object(
+                    run.components_driver, "run_cli", return_value=subprocess.CompletedProcess([], 7, "", "")
+                ),
+                mock.patch.object(run.verdict, "evaluate", side_effect=AssertionError("no grading")),
+            ):
+                result = self.run_sample(root)
+            self.assertEqual(verdict.ERROR, result["verdict"])
+            self.assertEqual(
+                [
+                    {"gate": "approve_plan", "token": "r1:architecture", "run_dir": str(run_dir)},
+                    {"gate": "auto_approve", "call": "components"},
+                ],
+                result["approvals"],
+            )
+
     def test_full_fake_pipeline_executes_actual_generated_services(self):
         with tempfile.TemporaryDirectory() as folder:
             result = self.run_sample(Path(folder))
@@ -263,6 +298,11 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
                 ["components", "components-local"],
                 [row["call"] for row in result["approvals"] if row["gate"] == "auto_approve"],
             )
+            # #720: the architecture run's plan was exported and read back before the harness approved it, and the
+            # verdict judged that round trip.
+            (trip,) = [check for check in result["checks"] if check["name"] == "plan round trip"]
+            self.assertTrue(trip["ok"], trip["detail"])
+            self.assertTrue(trip["detail"].endswith(", approved"), trip["detail"])
             (row,) = stats.summarize([result])
             self.assertEqual(3, row["approvals"])
             self.assertEqual("3", stats.format_table([row]).splitlines()[-1].split()[-1])

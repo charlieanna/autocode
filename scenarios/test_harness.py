@@ -18,6 +18,7 @@ import re
 import select
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run  # noqa: E402
 from harness import (  # noqa: E402
     api_cost,
+    approval_provenance,
     attempts,
     baseline,
     build_compare,
@@ -62,6 +64,7 @@ from harness.driver import (  # noqa: E402
     with_flag_values,
     workspace_files,
 )
+from harness.project import PERSON_EMAIL, PERSON_NAME, materialize  # noqa: E402
 
 
 class PhaseCatalogTests(unittest.TestCase):
@@ -318,6 +321,8 @@ class DriverFlagTests(unittest.TestCase):
             "--workflow=build",
             "--terra-model",
             "claude-haiku",
+            "--package",
+            "packages/greet/",
         ]
         done = subprocess.CompletedProcess([], 0, "", "")
         with tempfile.TemporaryDirectory() as root, patch("harness.driver.run_cli", return_value=done) as launch:
@@ -327,7 +332,8 @@ class DriverFlagTests(unittest.TestCase):
             driver.call("resume", "--resume-paused")
         first, then = (call.args[0] for call in launch.call_args_list)
         self.assertEqual(flags, first[first.index("--no-chat") + 1 :])
-        # The CLI refuses --builder-strong-model and --workflow on a saved run, so a resume never repeats them.
+        # The CLI refuses --builder-strong-model, --workflow and --package on a saved run, so a resume never
+        # repeats them.
         self.assertEqual(
             ["--provider", "claude", "--terra-model", "claude-haiku", "--resume-paused"],
             then[then.index("--no-chat") + 1 :],
@@ -1795,6 +1801,16 @@ CONTROL_SUMMARIES = {
         "broken/refusal-writes-store": "5/6 checks; failing: hidden_tests_pass",
         "broken/vacuous-refusal-tests": "5/6 checks; failing: new_command_tests_fail_on_original_code",
     },
+    "feature-monorepo-package": {
+        "seed": "4/7 checks; failing: hidden_tests_pass, new_tests_fail_on_original_code, readme_documents_option",
+        "reference": "7/7 checks",
+        "broken/edits-farewell-package": "6/7 checks; failing: nothing_changed_outside_the_package",
+    },
+    "bugfix-monorepo-package": {
+        "seed": "4/6 checks; failing: hidden_tests_pass, new_tests_fail_on_original_code",
+        "reference": "6/6 checks",
+        "broken/fixes-search-copy-too": "5/6 checks; failing: nothing_changed_outside_the_package",
+    },
 }
 
 
@@ -1926,6 +1942,551 @@ class JudgeTests(unittest.TestCase):
         self.assertFalse(verdict.OracleResult([]).passed)
 
 
+class ApprovalProvenanceTests(unittest.TestCase):
+    """#722: a completed run's `--status --json` lists each approval with who made it (harness.approval_provenance)."""
+
+    token = "r2:" + "a" * 64
+
+    def row(self, kind="plan", actor="user_cli", pause_status=None, **provenance):
+        recorded = {
+            "git_user_name": PERSON_NAME,
+            "git_user_email": PERSON_EMAIL,
+            "host": socket.gethostname() or None,
+            "command": "autocode --workspace --run-dir --approve-goal",
+            "claimed_as": None,
+            **provenance,
+        }
+        return {
+            "kind": kind,
+            "at": "2026-10-16T08:00:00Z",
+            "actor": actor,
+            "contract_token": self.token if kind == "plan" else None,
+            "criterion": "C1" if kind == "review" else None,
+            "pause_status": pause_status,
+            "provenance": recorded,
+        }
+
+    def record(self, rows, gates=(), status="TASK_COMPLETE"):
+        return {"report_expected": True, "view": {"status": status, "approvals": rows}, "approvals": list(gates)}
+
+    def failures(self, record):
+        return [check.detail for check in approval_provenance.checks(record) if not check.ok]
+
+    def test_approvals_that_name_the_person_pass(self):
+        policy = {**self.row(actor="workflow_policy"), "provenance": None}
+        review = self.row("review", command="autocode --workspace --run-dir --approve-review --review-token")
+        resume = self.row(
+            "resume", "user_cli", "PAUSED_COST_LIMIT", command="autocode resume --run-dir --as", claimed_as="Ana"
+        )
+        gates = [
+            {"gate": "approve_plan", "token": self.token},
+            {"gate": "review", "criterion": "C1", "token": "review-token"},
+            {"gate": "planning_budget", "feedback": "more"},
+            {"gate": "acknowledge", "pause": "PAUSED_COST_LIMIT", "flags": ["--max-cost-usd", "100"]},
+        ]
+        (check,) = approval_provenance.checks(self.record([self.row(), review, resume, policy], gates))
+        self.assertEqual("approval provenance: task", check.name)
+        self.assertTrue(check.ok, check.detail)
+        self.assertIn("4 recorded (plan, review, resume, plan)", check.detail)
+        self.assertTrue(approval_provenance.checks(self.record([]))[0].ok)  # a review or discussion approves nothing
+
+    def test_an_approval_without_the_person_s_provenance_fails(self):
+        for name, row, said in (
+            ("no provenance", {**self.row(), "provenance": None}, "row 1 (plan) records no provenance"),
+            ("no Git name", self.row(git_user_name=None), "git_user_name is None, not 'Scenario Person'"),
+            ("the seed's author", self.row(git_user_email="scenario@example.test"), "git_user_email"),
+            ("another host", self.row(host="elsewhere.invalid"), "host is 'elsewhere.invalid'"),
+            ("a token value", self.row(command="autocode --approve-goal " + self.token), "is not autocode and option"),
+            ("no command", self.row(command=None), "command None"),
+            ("no actor", self.row(actor="runner"), "neither a person nor the workflow policy"),
+            ("policy naming a person", self.row(actor="workflow_policy"), "under the workflow policy but names"),
+        ):
+            with self.subTest(name):
+                (failure,) = self.failures(self.record([row]))
+                self.assertIn(said, failure)
+
+    def test_each_approval_the_harness_gave_must_be_listed(self):
+        plan = {"gate": "approve_plan", "token": self.token}
+        review = {"gate": "review", "criterion": "C1", "token": "review-token"}
+        policy = {**self.row(actor="workflow_policy"), "provenance": None}
+        for name, rows, gates, said in (
+            ("nothing listed", [], [plan], f"the harness approved plan {self.token}, which no plan row lists"),
+            ("another plan", [self.row()], [{**plan, "token": "r3:b"}], "approved plan r3:b"),
+            ("no review row", [self.row()], [plan, review], "the review of C1, which no review row lists"),
+            ("another criterion", [self.row(), self.row("review")], [plan, {**review, "criterion": "C2"}], "of C2"),
+            ("only the policy's", [policy], [plan], "which no plan row lists"),
+        ):
+            with self.subTest(name):
+                (failure,) = self.failures(self.record(rows, gates))
+                self.assertIn(said, failure)
+
+    def test_each_budget_pause_the_person_acknowledged_must_have_its_resume_row(self):
+        """[fake] acknowledge (Driver.acknowledge_pause) is matched to the resume row naming that pause."""
+        acknowledged = {"gate": "acknowledge", "pause": "PAUSED_COST_LIMIT", "flags": ["--max-cost-usd", "100"]}
+        command = "autocode --workspace --run-dir --resume-paused --max-cost-usd"
+        resumed = self.row("resume", "user_cli", "PAUSED_COST_LIMIT", command=command)
+        self.assertEqual([], self.failures(self.record([self.row(), resumed], [acknowledged])))
+        said = "the harness acknowledged PAUSED_COST_LIMIT, which no resume row lists"
+        for name, rows in (
+            ("nothing listed", []),
+            ("no resume row", [self.row()]),
+            ("another pause resumed", [self.row("resume", "user_cli", "PAUSED_TIME_LIMIT", command=command)]),
+            ("a resume naming no pause", [self.row("resume", command=command)]),
+            ("a plan row naming the pause", [self.row("plan", "user_cli", "PAUSED_COST_LIMIT")]),
+            (
+                "the pause resumed by no person",
+                [{**self.row("resume", "workflow_policy", "PAUSED_COST_LIMIT"), "provenance": None}],
+            ),
+        ):
+            with self.subTest(name):
+                self.assertEqual([said], self.failures(self.record(rows, [acknowledged])))
+
+    def test_the_driver_s_acknowledgement_reaches_the_check(self):
+        """Driver.acknowledge_pause records the gate run.run_record hands to the check, which then needs its row."""
+        driver = self.driver_at_a_cost_pause()
+        with patch.object(driver, "call"):
+            driver.acknowledge_pause("PAUSED_COST_LIMIT")
+        view = {"status": "TASK_COMPLETE", "approvals": []}
+        driver.view, driver.run_dir, driver.turn_marks = (lambda: view), Path("r1"), []
+        record = run.run_record(driver, {"stages": []})
+        self.assertEqual(
+            ["the harness acknowledged PAUSED_COST_LIMIT, which no resume row lists"], self.failures(record)
+        )
+        view["approvals"] = [self.row("resume", "user_cli", "PAUSED_COST_LIMIT", command="autocode --resume-paused")]
+        self.assertEqual([], self.failures(run.run_record(driver, {"stages": []})))
+
+    def driver_at_a_cost_pause(self):
+        return Driver(
+            Path.cwd(),
+            Path.cwd(),
+            ["--max-cost-usd", "0.1"],
+            {},
+            autocode=[],
+            max_steps=5,
+            timeout_seconds=60,
+            acknowledge=(("PAUSED_COST_LIMIT", ("--max-cost-usd", "100")),),
+        )
+
+    def test_the_run_record_carries_the_harness_s_approvals_to_the_check(self):
+        """run.run_record hands the gates the harness passed to the check; without them nothing is matched."""
+        gates = [{"gate": "approve_plan", "token": self.token}]
+        view = {"status": "TASK_COMPLETE", "approvals": []}
+        driver = argparse.Namespace(
+            run_dir=Path("r1"), view=lambda: view, answers=[], approvals=gates, steps=[], turn_marks=[]
+        )
+        record = run.run_record(driver, {"stages": []})
+        self.assertEqual(gates, record.get("approvals"))
+        self.assertEqual([f"the harness approved plan {self.token}, which no plan row lists"], self.failures(record))
+
+    def test_only_a_completed_executed_run_is_judged(self):
+        bad = [{**self.row(), "provenance": None}]
+        self.assertEqual([], approval_provenance.checks(None))
+        self.assertEqual([], approval_provenance.checks({**self.record(bad), "report_expected": False}))
+        self.assertEqual([], approval_provenance.checks(self.record(bad, status="PAUSED_INVALID_OUTPUT")))
+        missing = {"report_expected": True, "view": {"status": "TASK_COMPLETE"}}
+        self.assertEqual(["the status view has no approvals list"], self.failures(missing))
+
+    def test_each_completed_program_and_component_run_is_judged(self):
+        good, bad = [self.row()], [{**self.row(), "provenance": None}]
+        program = {
+            "report_expected": True,
+            "program": {"status": "COMPLETE"},
+            "plan": {"view": {"status": "TASK_COMPLETE", "approvals": good}},
+            "children": {"M1": [{"status": "TASK_COMPLETE", "approvals": bad}, {"status": "PAUSED", "approvals": bad}]},
+        }
+        components = {
+            "report_expected": True,
+            "components": {
+                "components": {
+                    "api": {"view": {"status": "TASK_COMPLETE", "approvals": bad}},
+                    "web": {"view": {"status": "PAUSED", "approvals": bad}},
+                }
+            },
+            "architecture_view": {"status": "TASK_COMPLETE", "approvals": good},
+        }
+        # A plan run waiting for its plan's approval, or an architecture run that has not completed, is not judged.
+        waiting = {"status": "AWAITING_GOAL_APPROVAL", "approvals": bad}
+        workstream, component = ("approval provenance: M1", False), ("approval provenance: api", False)
+        for name, record, expected in (
+            ("program", program, [("approval provenance: program plan", True), workstream]),
+            ("plan waiting", {**program, "plan": {"view": waiting}}, [workstream]),
+            ("components", components, [("approval provenance: architecture", True), component]),
+            ("architecture waiting", {**components, "architecture_view": waiting}, [component]),
+        ):
+            with self.subTest(name):
+                self.assertEqual(expected, [(row.name, row.ok) for row in approval_provenance.checks(record)])
+
+    def test_each_task_run_of_a_program_or_components_run_must_list_the_gates_given_to_it(self):
+        """One approvals list holds the gates the harness gave all of a program's or components run's task runs;
+        each names the run it was given to (driver.attribute) and must be listed among that run's own rows."""
+        s_token, t_token = "r2:" + "5" * 64, "r2:" + "7" * 64
+
+        def listing(token):
+            return {"status": "TASK_COMPLETE", "approvals": [{**self.row(), "contract_token": token}]}
+
+        def plan(token, run_dir):
+            return {"gate": "approve_plan", "token": token, "run_dir": run_dir}
+
+        # The plan run is never relaunched once approved, so it is judged on its approved plan.
+        approved = {**listing(self.token), "status": "RUNNING", "approved_contract": {"token": self.token}}
+        program = {
+            "report_expected": True,
+            "program": {"status": "COMPLETE"},
+            "plan": {"run_dir": "/runs/plan", "view": approved},
+            "children": {
+                "S": [{**listing(s_token), "run_dir": "/runs/S"}],
+                "T": [{**listing(t_token), "run_dir": "/runs/T"}],
+            },
+            "approvals": [
+                plan(self.token, "/runs/plan"),
+                {"gate": "program_agreement", "token": "a1:agreement"},
+                plan(s_token, "/runs/S"),
+                plan(t_token, "/runs/T"),
+            ],
+        }
+        components = {
+            "report_expected": True,
+            "architecture_run_dir": "/runs/architecture",
+            "architecture_view": listing(self.token),
+            "components": {"components": {"api": {"run_dir": "/runs/api", "view": listing(s_token)}}},
+            "approvals": [plan(self.token, "/runs/architecture"), {"gate": "auto_approve", "call": "components"}],
+        }
+
+        def judged(record):
+            return [(check.name.removeprefix("approval provenance: "), check.detail) for check in self.failing(record)]
+
+        # Each run passes, and says it lists the gates given to it; a component, which the product approved for
+        # itself under --auto-approve, was given none.
+        listed = "; each gate the harness passed for this run is listed (approve_plan)"
+        for record, given in (
+            (program, [("program plan", True), ("S", True), ("T", True)]),
+            (components, [("architecture", True), ("api", False)]),
+        ):
+            checks = approval_provenance.checks(record)
+            self.assertTrue(all(check.ok for check in checks), [check.detail for check in checks])
+            self.assertEqual(
+                given,
+                [(check.name.removeprefix("approval provenance: "), check.detail.endswith(listed)) for check in checks],
+            )
+        s_gate, t_gate = program["approvals"][2], program["approvals"][3]
+        missing = "the harness approved plan {}, which no plan row lists"
+        for name, record, failures in (
+            (
+                "S's gate attributed to T",
+                {**program, "approvals": [*program["approvals"][:2], {**s_gate, "run_dir": "/runs/T"}, t_gate]},
+                [("T", missing.format(s_token))],
+            ),
+            (
+                "S lists T's approval and T lists S's",
+                {
+                    **program,
+                    "children": {
+                        "S": [{**listing(t_token), "run_dir": "/runs/S"}],
+                        "T": [{**listing(s_token), "run_dir": "/runs/T"}],
+                    },
+                },
+                [("S", missing.format(s_token)), ("T", missing.format(t_token))],
+            ),
+            (
+                "the plan run lists nothing",
+                {**program, "plan": {"run_dir": "/runs/plan", "view": {**approved, "approvals": []}}},
+                [("program plan", missing.format(self.token))],
+            ),
+            (
+                "the architecture's gate attributed to a component",
+                {**components, "approvals": [plan(self.token, "/runs/api")]},
+                [("api", missing.format(self.token))],
+            ),
+            (
+                "the architecture run lists nothing",
+                {**components, "architecture_view": {"status": "TASK_COMPLETE", "approvals": []}},
+                [("architecture", missing.format(self.token))],
+            ),
+        ):
+            with self.subTest(name):
+                self.assertEqual(failures, judged(record))
+
+    def failing(self, record):
+        return [check for check in approval_provenance.checks(record) if not check.ok]
+
+    def test_every_executed_run_s_oracle_result_holds_the_check(self):
+        scenario = argparse.Namespace(oracle=lambda: lambda project, scenario: [verdict.Check("delivered", True)])
+        for row, ok in ((self.row(), True), ({**self.row(), "provenance": None}, False)):
+            with self.subTest(ok=ok):
+                result = verdict.evaluate(scenario, Path("."), {**self.record([row]), "run_dir": "."})
+                self.assertEqual(ok, {check.name: check.ok for check in result.checks}["approval provenance: task"])
+                self.assertFalse(result.error, result.error)
+
+    def test_a_scenario_project_names_the_person_who_is_not_the_seed_s_author(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(catalog.load("bugfix-trivial").seed, Path(root) / "project")
+
+            def git(*args):
+                return subprocess.run(
+                    ["git", "-C", str(project), *args], capture_output=True, text=True, check=True
+                ).stdout.strip()
+
+            self.assertEqual(
+                [PERSON_NAME, PERSON_EMAIL], [git("config", "--get", f"user.{key}") for key in ("name", "email")]
+            )
+            self.assertEqual("Scenario <scenario@example.test>", git("log", "-1", "--format=%an <%ae>"))
+
+
+class PlanRoundTripTests(unittest.TestCase):
+    """#720 acceptance 1: before the harness approves a catalog run's plan, it exports the plan and reads the file
+    back with `autocode plan --check`, and the file must reproduce the plan's goal hash (harness.plan_round_trip).
+    Judged through verdict.evaluate, beside the other postconditions."""
+
+    token = "r2:" + "b" * 64
+    goal = "c" * 64
+
+    def trip(self, export=None, check=None, changed=()):
+        exported = {
+            "exit": 0,
+            "path": "plan-files/01.md",
+            "revision": 2,
+            "approved": False,
+            "goal_hash": self.goal,
+            "written_goal_hash": self.goal,
+            "masked": False,
+            "message": "Wrote plan revision 2",
+        }
+        checked = {
+            "exit": 0,
+            "path": "plan-files/01.md",
+            "goal_hash": self.goal,
+            "exported_hash": self.goal,
+            "revision": 2,
+            "matches": True,
+            "stale_line": None,
+            "message": "plan-files/01.md: goal hash",
+        }
+        return {
+            "file": "plan-files/01.md",
+            "export": {**exported, **(export or {})},
+            "check": {**checked, **(check or {})},
+            "run_changed": list(changed),
+            "seconds": 3.1,
+        }
+
+    def judged(self, trips, approved=None, **record):
+        """The plan round trip checks verdict.evaluate gives a completed run whose plan approvals recorded ``trips``."""
+        gates = [{"gate": "approve_plan", "token": self.token, "plan_file": trip} for trip in trips]
+        view = {"status": "TASK_COMPLETE", "approvals": []}
+        if approved is not None:
+            view["approved_contract"] = {"token": self.token, "goal_hash": approved}
+        run = {"report_expected": True, "run_dir": ".", "view": view, "approvals": gates, **record}
+        scenario = argparse.Namespace(oracle=lambda: lambda project, scenario: [verdict.Check("delivered", True)])
+        result = verdict.evaluate(scenario, Path("."), run)
+        self.assertFalse(result.error, result.error)
+        return [check for check in result.checks if check.name == "plan round trip"]
+
+    def test_a_plan_file_that_reads_back_with_the_plan_s_goal_hash_passes(self):
+        (check,) = self.judged([self.trip()], approved=self.goal)
+        self.assertTrue(check.ok, check.detail)
+        self.assertIn("1 plan(s) exported at the approval stop and read back by `autocode plan --check`", check.detail)
+        self.assertIn(f"revision 2 goal hash {self.goal}, approved", check.detail)
+
+    def test_a_round_trip_that_does_not_reproduce_the_goal_hash_fails(self):
+        other = "e" * 64
+        error = {"error": {"code": "plan_error", "message": "has no plan yet"}}
+        for name, trip, approved, said in (
+            ("export failed", self.trip({"exit": 2, **error}), None, "`autocode plan --export` exited 2: has no plan"),
+            (
+                "stale file",
+                self.trip(check={"exit": 2, "error": {"code": "stale_plan_text", "message": "line 9"}}),
+                None,
+                "`autocode plan --check` exited 2: line 9",
+            ),
+            ("read back otherwise", self.trip(check={"goal_hash": other}), None, f"as goal hash {other}, not the"),
+            (
+                # What the CLI reports for any file written with another goal hash: `autocode plan --export` sets
+                # `masked` whenever the hashes differ, so a mask that took plan text for a credential (the
+                # `risk-<sha>` ids #1307 fixed) looks exactly like this, and `--goal-file` refuses the file.
+                "masked on export",
+                self.trip({"written_goal_hash": other, "masked": True}, {"goal_hash": other, "matches": False}),
+                None,
+                f"reads back as goal hash {other}, not the run's plan's {self.goal} (the export reported text masked",
+            ),
+            ("front matter otherwise", self.trip(check={"matches": False}), None, "not the run's plan's"),
+            ("another revision", self.trip(check={"revision": 1}), None, "names revision 1, not the exported 2"),
+            ("run changed", self.trip(changed=["state.json"]), None, "changed the run: state.json"),
+            ("approved otherwise", self.trip(), other, f"approved plan's goal hash as {other}, not the exported"),
+        ):
+            with self.subTest(name):
+                (check,) = self.judged([trip], approved=approved)
+                self.assertFalse(check.ok)
+                self.assertIn(f"plan {self.token}: ", check.detail)
+                self.assertIn(said, check.detail)
+
+    def test_only_an_executed_run_that_reached_a_plan_approval_is_judged(self):
+        self.assertEqual([], self.judged([]))
+        self.assertEqual([], self.judged([self.trip()], report_expected=False))
+        bare = {"report_expected": True, "approvals": [{"gate": "approve_plan", "token": self.token}]}
+        scenario = argparse.Namespace(oracle=lambda: lambda project, scenario: [verdict.Check("delivered", True)])
+        self.assertNotIn(
+            "plan round trip", [check.name for check in verdict.evaluate(scenario, Path("."), bare).checks]
+        )
+        # A run that stopped after the approval is judged on what was exported all the same.
+        (check,) = self.judged([self.trip(changed=["state.json"])], view={"status": "PAUSED_BUDGET"})
+        self.assertFalse(check.ok)
+
+    def test_a_components_scenario_judges_its_architecture_run_s_plan(self):
+        """run.run_components judges the plan file round trip of the architecture run's plan approval, which
+        components_driver's architecture Driver records, beside the --auto-approve rows of the components calls."""
+        root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        scenario = argparse.Namespace(
+            oracle=lambda: lambda project, scenario: [verdict.Check("delivered", True)], expected="complete"
+        )
+        for name, trip, outcome in (
+            ("reproduced", self.trip(), verdict.PASS),
+            ("run changed", self.trip(changed=["state.json"]), verdict.FALSE_COMPLETE),
+        ):
+            with self.subTest(name):
+                out = root / name
+                out.mkdir()
+                architecture = Mock(
+                    run_dir=out / "architecture-run",
+                    answers=[],
+                    approvals=[
+                        {"gate": "approve_plan", "token": self.token, "plan_file": trip},
+                        {"gate": run.components_driver.AUTO_APPROVE_GATE, "call": "components"},
+                    ],
+                    steps=[],
+                )
+                # Not complete, so neither its evidence report nor its provenance is checked: the round trip alone.
+                architecture.view.return_value = {"approved_contract": {"token": self.token, "goal_hash": self.goal}}
+
+                def drive(scenario, args, out, project, flags, env, decisions, architecture=architecture):
+                    decisions.update(answers=architecture.answers, approvals=architecture.approvals)
+                    return architecture, out / "product", {"exit_code": 0, "components": {}}, []
+
+                with patch.object(run.components_driver, "drive", drive):
+                    result = run.run_components(
+                        scenario, argparse.Namespace(local_docker=False), out, {}, out / "project", [], {}
+                    )
+                self.assertEqual(outcome, result["verdict"], result["summary"])
+                (check,) = [check for check in result["checks"] if check["name"] == "plan round trip"]
+                self.assertEqual(outcome == verdict.PASS, check["ok"], check["detail"])
+                self.assertIn(f"goal hash {self.goal}, approved" if check["ok"] else "changed the run", check["detail"])
+
+    def plan_cli(self, root: Path, export=None):
+        """Stands in for `autocode`: `plan --export` (``export`` changes what it does), `plan --check`, approval."""
+        commands = []
+
+        def cli(command, **_):
+            args = list(command[1:])
+            commands.append(args)
+            if args[:2] == ["plan", "--export"]:
+                if export:
+                    return export(args)
+                Path(args[2]).write_text("---\n")
+                payload = {"revision": 2, "goal_hash": self.goal, "written_goal_hash": self.goal, "masked": False}
+                return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+            if args[:2] == ["plan", "--check"]:
+                payload = {"goal_hash": self.goal, "exported_hash": self.goal, "revision": 2, "matches": True}
+                return subprocess.CompletedProcess(command, 0, json.dumps(payload, indent=2), "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        return cli, commands
+
+    def driver(self, root: Path, **options) -> Driver:
+        driver = Driver(
+            root / "project", root, [], {}, autocode=["autocode"], max_steps=5, timeout_seconds=60, **options
+        )
+        driver.run_dir = root / "run"
+        driver.run_dir.mkdir(parents=True)
+        (driver.run_dir / "state.json").write_text("{}")
+        return driver
+
+    def test_the_driver_exports_and_reads_back_each_plan_before_approving_it(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        driver = self.driver(root, round_trip_plans=True)
+        cli, commands = self.plan_cli(root)
+        with patch("harness.driver.run_cli", cli):
+            driver.serve({"kind": "approve_plan", "token": self.token})
+        path = root / "plan-files" / "01.md"
+        where = ["--workspace", str(root / "project"), "--run-dir", str(driver.run_dir)]
+        self.assertEqual(
+            [
+                ["plan", "--export", str(path), *where, "--json"],
+                ["plan", "--check", str(path), "--json"],
+                [*where, "--approve-goal", self.token],
+            ],
+            commands,
+        )
+        self.assertTrue(path.is_file())
+        # The export and the check are the harness's own: no step, so neither the step budget nor an oracle's
+        # count of CLI calls sees them; the time budget does.
+        self.assertEqual(["approve-plan"], [step["kind"] for step in driver.steps])
+        self.assertEqual({"plan-export", "plan-check"}, set(driver.unrecorded))
+        (gate,) = driver.approvals
+        self.assertEqual(
+            (self.token, str(path), []), (gate["token"], gate["plan_file"]["file"], gate["plan_file"]["run_changed"])
+        )
+        self.assertEqual(
+            (0, self.goal, 0, self.goal),
+            (
+                gate["plan_file"]["export"]["exit"],
+                gate["plan_file"]["export"]["goal_hash"],
+                gate["plan_file"]["check"]["exit"],
+                gate["plan_file"]["check"]["goal_hash"],
+            ),
+        )
+        (check,) = self.judged([gate["plan_file"]])
+        self.assertTrue(check.ok, check.detail)
+        # A driver outside a catalog run approves without exporting, as before.
+        plain = self.driver(root / "plain")
+        cli, commands = self.plan_cli(root / "plain")
+        with patch("harness.driver.run_cli", cli):
+            plain.serve({"kind": "approve_plan", "token": self.token})
+        self.assertEqual(
+            [
+                [
+                    "--workspace",
+                    str(root / "plain/project"),
+                    "--run-dir",
+                    str(plain.run_dir),
+                    "--approve-goal",
+                    self.token,
+                ]
+            ],
+            commands,
+        )
+        self.assertEqual([{"gate": "approve_plan", "token": self.token}], plain.approvals)
+
+    def test_a_failed_export_or_a_changed_run_is_recorded_and_the_plan_still_approved(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        for name, export, said in (
+            (
+                "refused",
+                lambda args: subprocess.CompletedProcess(
+                    args, 2, "", '{"error": {"code": "plan_error", "message": "no plan yet"}}\n'
+                ),
+                "`autocode plan --export` exited 2: no plan yet",
+            ),
+            ("writes into the run", None, "changed the run: state.json"),
+        ):
+            with self.subTest(name):
+                driver = self.driver(root / name, round_trip_plans=True)
+
+                def writes(args, run_dir=driver.run_dir):
+                    (run_dir / "state.json").write_text('{"changed": true}')
+                    Path(args[2]).write_text("---\n")
+                    payload = {"revision": 2, "goal_hash": self.goal, "written_goal_hash": self.goal}
+                    return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+                cli, commands = self.plan_cli(root / name, export or writes)
+                with patch("harness.driver.run_cli", cli):
+                    driver.serve({"kind": "approve_plan", "token": self.token})
+                self.assertIn("--approve-goal", commands[-1])
+                # A refused export leaves nothing to read back.
+                self.assertEqual(3 if export is None else 2, len(commands))
+                (check,) = self.judged([driver.approvals[0]["plan_file"]])
+                self.assertFalse(check.ok)
+                self.assertIn(said, check.detail)
+
+
 class RunChecksTests(unittest.TestCase):
     """Run-level checks judge how AutoCode worked; without a run there is nothing to judge."""
 
@@ -2030,6 +2591,151 @@ class RunChecksTests(unittest.TestCase):
             c for c in oracle.run_checks(run_record, workflow="bugfix", max_model_stages=5) if c.name == "stage_budget"
         ]
         self.assertFalse(check.ok)
+
+
+class MonorepoPackageOracleTests(unittest.TestCase):
+    """feature-monorepo-package judges the run's own report of changes outside its package (#711): every one
+    named in an open blocking runner finding, none invented, and nothing to judge in a run without --package."""
+
+    FINDING = "Files outside the package packages/greet/ changed: "
+
+    def score(self, overlay, findings, package="packages/greet"):
+        from harness.project import materialize
+
+        scenario = catalog.load("feature-monorepo-package")
+        with tempfile.TemporaryDirectory(prefix="monorepo-oracle-test-") as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.dir / overlay)
+            record = {
+                "status": "RESOLVER_PENDING",
+                "view": {"workflow": "build", "package": package, "evidence": {"findings": findings}},
+                "stages": ["astra_challenge", "terra", "sol", "astra_review"],
+                "steps": [{"kind": "approve-plan", "exit": 0}],
+            }
+            result = verdict.evaluate(scenario, project, record)
+        self.assertEqual("", result.error)
+        return {check.name: check for check in result.checks}
+
+    def finding(self, text, status="open"):
+        return {"id": "F-1", "source": "runner", "status": status, "blocking": True, "finding": self.FINDING + text}
+
+    def other_runner_finding(self, text):
+        # The run's other runner finding (autocode_risk_findings) is not the package check's report.
+        return {**self.finding(""), "finding": "Runner lifecycle replay failed after " + text}
+
+    def test_every_change_outside_the_package_must_be_named_in_the_open_blocking_package_finding(self):
+        both = "packages/farewell/farewell.py (modified), packages/farewell/test_farewell_formal.py (added). Restore"
+        one = "packages/farewell/farewell.py (modified). Restore"
+        for findings, ok in (
+            ([self.finding(both)], True),
+            ([self.finding(one)], False),
+            ([self.finding(both, status="closed")], False),
+            ([{**self.finding(both), "source": "reviewer"}], False),
+            ([{**self.finding(both), "blocking": False}], False),
+            ([self.other_runner_finding(both)], False),
+            ([], False),
+        ):
+            with self.subTest(findings=findings):
+                checks = self.score("broken/edits-farewell-package", findings)
+                self.assertEqual(ok, checks["outside_changes_reported"].ok, checks["outside_changes_reported"])
+                self.assertFalse(checks["nothing_changed_outside_the_package"].ok)
+
+    def test_a_report_with_nothing_outside_is_invented_and_a_run_without_the_package_is_not_judged(self):
+        checks = self.score("reference", [self.finding("README.md (modified). Restore")])
+        self.assertFalse(checks["outside_changes_reported"].ok)
+        self.assertTrue(self.score("reference", [])["outside_changes_reported"].ok)
+        other = [self.other_runner_finding("packages/greet/greet.py (modified)")]
+        self.assertTrue(self.score("reference", other)["outside_changes_reported"].ok)
+        # A live profile is not started with --package: only the delivered files are judged.
+        self.assertNotIn("outside_changes_reported", self.score("broken/edits-farewell-package", [], package=None))
+
+
+class BugfixMonorepoPackageOracleTests(unittest.TestCase):
+    """bugfix-monorepo-package (#711): a --package bug fix investigated first, judged as feature-monorepo-package
+    judges its package. The runner's diagnosis note (the path the run's saved investigation names) is the
+    workflow's own file, not a change outside the package; any other file under docs/bugs/ is one."""
+
+    FINDING = "Files outside the package packages/invoices/ changed: "
+    NOTE = "docs/bugs/scripted-diagnosis.json"
+    STAGES = ["recognize_workflow", "investigate_bug", "astra_discovery", "astra_challenge", "terra", "sol"]
+
+    def score(self, overlay, findings, stages=STAGES, package="packages/invoices", model_stages=None, extra=()):
+        from harness.project import materialize
+
+        scenario = catalog.load("bugfix-monorepo-package")
+        with tempfile.TemporaryDirectory(prefix="bugfix-monorepo-oracle-test-") as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.dir / overlay)
+            for path in (self.NOTE, *extra):
+                (project / path).parent.mkdir(parents=True, exist_ok=True)
+                (project / path).write_text('{"reproduced": true}\n')
+            run_dir = Path(root) / "run"
+            run_dir.mkdir()
+            (run_dir / "state.json").write_text(json.dumps({"investigation": {"note_path": self.NOTE}}))
+            record = {
+                "status": "RESOLVER_PENDING",
+                "view": {"workflow": "bugfix", "package": package, "evidence": {"findings": findings}},
+                "stages": stages,
+                "run_dir": str(run_dir),
+                "steps": [{"kind": "approve-plan", "exit": 0}],
+                "answers": [],
+                **({"model_stages": model_stages} if model_stages is not None else {}),
+            }
+            result = verdict.evaluate(scenario, project, record)
+        self.assertEqual("", result.error)
+        return {check.name: check for check in result.checks}
+
+    def finding(self, text, status="open"):
+        return {"id": "F-1", "source": "runner", "status": status, "blocking": True, "finding": self.FINDING + text}
+
+    def test_the_other_packages_copy_must_be_named_and_the_diagnosis_note_is_not_outside(self):
+        search = "packages/search/pager.py (modified). A --package run may change only files inside packages/invoices/"
+        for findings, ok in (
+            ([self.finding(search)], True),
+            ([self.finding(search, status="closed")], False),
+            ([{**self.finding(search), "blocking": False}], False),
+            ([], False),
+            # The finding must name the file, and come from the runner.
+            ([self.finding("packages/search/test_pager.py (modified). A --package run may change only")], False),
+            ([{**self.finding(search), "source": "sol"}], False),
+        ):
+            with self.subTest(findings=findings):
+                checks = self.score("broken/fixes-search-copy-too", findings)
+                self.assertEqual(ok, checks["outside_changes_reported"].ok, checks["outside_changes_reported"])
+                self.assertEqual(
+                    "changed outside packages/invoices/: ['packages/search/pager.py']",
+                    checks["nothing_changed_outside_the_package"].detail,
+                )
+        reference = self.score("reference", [])
+        self.assertTrue(reference["nothing_changed_outside_the_package"].ok)
+        self.assertTrue(reference["outside_changes_reported"].ok)
+        # Another runner finding (a lifecycle observation) is not a report of changes outside the package.
+        lifecycle = {**self.finding(""), "finding": "Runner lifecycle observation failed: a claimed lease was lost"}
+        self.assertTrue(self.score("reference", [lifecycle])["outside_changes_reported"].ok)
+        # Reporting the runner's own note as a change outside the package (as the proof did before #1415) is invented.
+        note = [self.finding("docs/bugs/scripted-diagnosis.json (added). A --package run may change only files")]
+        self.assertFalse(self.score("reference", note)["outside_changes_reported"].ok)
+        self.assertNotIn("outside_changes_reported", self.score("reference", [], package=None))
+        # Only the runner's note is left out: another file under docs/bugs/ is a change outside the package.
+        other = self.score("reference", [], extra=["docs/bugs/search-pager.json"])
+        self.assertEqual(
+            "changed outside packages/invoices/: ['docs/bugs/search-pager.json']",
+            other["nothing_changed_outside_the_package"].detail,
+        )
+        self.assertFalse(other["nothing_changed_outside_the_package"].ok)
+
+    def test_the_investigator_runs_before_any_other_model_stage_but_the_job_recognizer(self):
+        for stages, model_stages, ok in (
+            (self.STAGES, None, True),
+            (self.STAGES[1:], None, True),
+            (["recognize_workflow", "recognize_workflow_report_repair", *self.STAGES[1:]], None, True),
+            # A runner-owned record is not a model stage.
+            (["recognize_workflow", "model_preflight", *self.STAGES[1:]], self.STAGES, True),
+            (["recognize_workflow", "astra_discovery", "investigate_bug", "terra"], None, False),
+            (self.STAGES, ["recognize_workflow", "astra_discovery", "investigate_bug"], False),
+            (["recognize_workflow", "astra_discovery", "terra"], None, False),
+        ):
+            with self.subTest(stages=stages, model_stages=model_stages):
+                checks = self.score("reference", [], stages=stages, model_stages=model_stages)
+                self.assertEqual(ok, checks["investigated_first"].ok, checks["investigated_first"])
 
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
@@ -2164,6 +2870,8 @@ class ProgramCLI:
     def answer(self, args):
         if args[0] == "program":
             return getattr(self, args[1].replace("-", "_"))(args[2:])
+        if args[0] == "plan":  # the harness's own export and read-back of a plan it is about to approve (#720)
+            return self.plan_file(args[1:])
         run_dir = args[args.index("--run-dir") + 1]
         if "--status" in args:
             return json.dumps({"view": self.views.get(run_dir, self.view("TASK_COMPLETE", None))}), 0
@@ -2181,6 +2889,13 @@ class ProgramCLI:
         (run_dir / "state.json").write_text("{}")
         self.views[str(run_dir)] = self.view("AWAITING_GOAL_APPROVAL", {"kind": "approve_plan", "token": "r1:plan"})
         return "", 2
+
+    def plan_file(self, args):
+        goal = "f" * 64
+        if args[0] == "--export":
+            Path(args[1]).write_text("---\n")
+            return json.dumps({"revision": 1, "goal_hash": goal, "written_goal_hash": goal, "masked": False}), 0
+        return json.dumps({"goal_hash": goal, "exported_hash": goal, "revision": 1, "matches": True}), 0
 
     def derive(self, args):
         Path(args[args.index("--output") + 1]).write_text(
@@ -2254,7 +2969,7 @@ class ProgramDriverTests(unittest.TestCase):
         self.assertTrue((driver.root / "workstreams/S/01-view.json").is_file())
         self.assertFalse((driver.root / "workstreams/S/01-state.json").exists())
 
-    def drive(self, passes, *changes, cli=ProgramCLI, derived=(), **scenario):
+    def drive(self, passes, *changes, cli=ProgramCLI, derived=(), round_trip_plans=False, **scenario):
         from harness.program_driver import ProgramDriver
 
         temporary = tempfile.TemporaryDirectory()
@@ -2271,6 +2986,7 @@ class ProgramDriverTests(unittest.TestCase):
             autocode=["autocode"],
             max_steps=40,
             timeout_seconds=60,
+            round_trip_plans=round_trip_plans,
         )
         self.cli_calls = cli.calls
         with patch("harness.program_driver.run_cli", cli), patch("harness.driver.run_cli", cli):
@@ -2383,6 +3099,100 @@ class ProgramDriverTests(unittest.TestCase):
             ],
             [(row["gate"], row["token"]) for row in driver.approvals],
         )
+
+    def test_each_gate_names_the_task_run_it_was_given_to(self):
+        """#722: one approvals list holds the gates the harness gave the plan run and every workstream run, so each
+        names its run (harness.approval_provenance matches it to that run's rows); the agreement names none. A gate
+        whose command failed names its run too."""
+        from harness.driver import DriveError
+
+        class RefusingCLI(ProgramCLI):
+            def answer(self, args):
+                if "--approve-goal" in args and args[args.index("--run-dir") + 1] == "/runs/T":
+                    return "", 1
+                return super().answer(args)
+
+        passes = [
+            summary("WAITING", workstream("S", "WAITING", needs=self.APPROVE), workstream("T", "PENDING")),
+            summary("WAITING", workstream("S", "MERGED"), workstream("T", "WAITING", needs=self.APPROVE)),
+            summary("COMPLETE", workstream("S", "MERGED"), workstream("T", "MERGED")),
+        ]
+        for name, cli in (("served", ProgramCLI), ("T's approval refused", RefusingCLI)):
+            with self.subTest(name):
+                try:
+                    status, driver, cli = self.drive(passes, cli=cli)
+                except DriveError:
+                    self.assertIs(RefusingCLI, cli)
+                else:
+                    self.assertEqual("COMPLETE", status)
+                plan_run = self.record["plan"]["run_dir"]
+                self.assertEqual(
+                    [
+                        ("approve_plan", "r1:plan", plan_run),
+                        ("program_agreement", None),
+                        ("approve_plan", "r2:child", "/runs/S"),
+                        ("approve_plan", "r2:child", "/runs/T"),
+                    ],
+                    [
+                        (row["gate"], row.get("run_dir"))
+                        if row["gate"] == "program_agreement"
+                        else (row["gate"], row["token"], row.get("run_dir"))
+                        for row in self.record["approvals"]
+                    ],
+                )
+                # Each is the run the approval was typed in.
+                self.assertEqual(
+                    [plan_run, "/runs/S", "/runs/T"],
+                    [call[call.index("--run-dir") + 1] for call in self.cli_calls if "--approve-goal" in call],
+                )
+
+    def test_each_plan_the_harness_approves_is_exported_and_read_back_first(self):
+        """#720: the plan run and each workstream run reach plan approval, and a catalog run exports each plan and
+        reads the file back before approving it; the program's record carries those approvals to the check."""
+        status, driver, cli = self.drive(
+            [
+                summary("WAITING", workstream("S", "WAITING", needs=self.APPROVE)),
+                summary("COMPLETE", workstream("S", "MERGED")),
+            ],
+            round_trip_plans=True,
+        )
+        self.assertEqual("COMPLETE", status)
+        plans = [row for row in self.record["approvals"] if row["gate"] == "approve_plan"]
+        self.assertEqual(["r1:plan", "r2:child"], [row["token"] for row in plans])
+        self.assertEqual(
+            [str(driver.root / "plan-files" / name) for name in ("01.md", "02.md")],
+            [row["plan_file"]["file"] for row in plans],
+        )
+        self.assertEqual(
+            [(0, 0, [])] * 2,
+            [
+                (row["plan_file"]["export"]["exit"], row["plan_file"]["check"]["exit"], row["plan_file"]["run_changed"])
+                for row in plans
+            ],
+        )
+        # Each run's export and check came before its approval, and none of them is a step.
+        runs = [str(driver.plan.run_dir), "/runs/S"]
+        order = [
+            (
+                call[0] if call[0] == "plan" else "approve",
+                call[call.index("--run-dir") + 1] if "--run-dir" in call else None,
+            )
+            for call in cli.calls
+            if call[0] == "plan" or "--approve-goal" in call
+        ]
+        self.assertEqual(
+            [
+                ("plan", runs[0]),
+                ("plan", None),
+                ("approve", runs[0]),
+                ("plan", runs[1]),
+                ("plan", None),
+                ("approve", runs[1]),
+            ],
+            order,
+        )
+        self.assertEqual([], cli.relaunched)
+        self.assertFalse([step for step in driver.steps if step["kind"].startswith("plan-")])
 
     def test_a_stop_only_a_person_may_clear_ends_the_drive(self):
         for needs in ({"kind": "resume"}, {"kind": "answer", "resolver_scope": "blocker", "questions": []}):
@@ -4505,6 +5315,19 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_fake("reference", scenario="bugfix-trivial")
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(["approve_plan"], [row["gate"] for row in result["approvals"]], result["approvals"])
+        # #722: `--status --json` lists that approval with the person's Git identity, this host and the command.
+        (provenance,) = [check for check in result["checks"] if check["name"] == "approval provenance: task"]
+        self.assertTrue(provenance["ok"], provenance["detail"])
+        self.assertIn(f"1 recorded (plan); each one a person made names {PERSON_NAME}", provenance["detail"])
+        # #720: before approving, the harness exported the plan and `autocode plan --check` read the file back with
+        # the plan's goal hash, leaving the run as it was; the completed run reports that goal hash as approved.
+        (trip,) = [check for check in result["checks"] if check["name"] == "plan round trip"]
+        self.assertTrue(trip["ok"], trip["detail"])
+        self.assertIn("1 plan(s) exported at the approval stop", trip["detail"])
+        self.assertTrue(trip["detail"].endswith(", approved"), trip["detail"])
+        plan_file = result["approvals"][0]["plan_file"]
+        self.assertEqual(plan_file["export"]["goal_hash"], plan_file["check"]["goal_hash"])
+        self.assertEqual([], plan_file["run_changed"])
         (row,) = stats.summarize([result])
         self.assertEqual((0, 0, 1), (row["person_answers"], row["default_answers"], row["approvals"]))
 
@@ -4537,6 +5360,41 @@ class FakeRunTests(unittest.TestCase):
     def test_parallel_diamond_broken_variant_is_caught(self):
         result = self.run_fake("broken/missing-edge", "parallel-diamond")
         self.assertNotEqual(verdict.PASS, result["verdict"], result["summary"])
+
+    def test_a_package_run_completes_a_change_inside_its_package(self):
+        """#711: started with --package packages/greet/ ([fake] flags, never repeated on the saved run), the
+        reference completes, and the status view reports nothing outside the package."""
+        result = self.run_fake("reference", "feature-monorepo-package")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
+
+    def test_a_package_run_reports_a_write_to_the_other_package_and_stops(self):
+        """#711: the broken variant also edits packages/farewell/. The runner names both files in an open
+        blocking finding and the run stops without completing; before #1415 it completed (FALSE_COMPLETE)."""
+        result = self.run_fake("broken/edits-farewell-package", "feature-monorepo-package")
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        failing = [row["name"] for row in result["checks"] if not row["ok"]]
+        self.assertEqual(["nothing_changed_outside_the_package"], failing, result["checks"])
+        self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
+
+    def test_a_package_bug_fix_is_investigated_and_completes_inside_its_package(self):
+        """#711: a bug fix started with --package packages/invoices/ goes through the Investigator, its proof runs
+        in the package, and it completes; the runner's diagnosis note under docs/bugs/ is not reported as a change
+        outside the package (before #1415 the proof counted it, and the run never completed)."""
+        result = self.run_fake("reference", "bugfix-monorepo-package")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        names = [row["name"] for row in result["checks"]]
+        self.assertIn("investigated_first", names)
+        self.assertIn("outside_changes_reported", names)
+
+    def test_a_package_bug_fix_that_also_fixes_the_other_package_stops(self):
+        """#711: the broken variant also fixes packages/search/'s copy. The runner names that file in an open
+        blocking finding and the run stops without completing."""
+        result = self.run_fake("broken/fixes-search-copy-too", "bugfix-monorepo-package")
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        failing = [row["name"] for row in result["checks"] if not row["ok"]]
+        self.assertEqual(["nothing_changed_outside_the_package"], failing, result["checks"])
+        self.assertIn("outside_changes_reported", [row["name"] for row in result["checks"]])
 
     def test_a_review_runs_only_the_reviewer_and_leaves_the_tree_alone(self):
         result = self.run_fake("reference", "review-clean-pr")
@@ -4713,6 +5571,18 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual("approve_plan", gates[0])
         self.assertEqual({"approve_plan", "program_agreement"}, set(gates))
         self.assertEqual(2, gates.count("program_agreement"))
+        # #722: each plan approval names the task run it was given to and is listed among that run's own rows: the
+        # plan run's (approved, never relaunched), and each completed workstream run's, S's re-check run included.
+        listed = "each gate the harness passed for this run is listed (approve_plan)"
+        self.assertEqual(
+            [(name, True, True) for name in ("program plan", "S", "S", "T", "U", "integration")],
+            [
+                (check["name"].removeprefix("approval provenance: "), check["ok"], check["detail"].endswith(listed))
+                for check in result["checks"]
+                if check["name"].startswith("approval provenance: ")
+            ],
+        )
+        self.assertTrue(all(row.get("run_dir") for row in result["approvals"] if row["gate"] == "approve_plan"))
         program = result["program"]
         self.assertEqual(["S", "S", "T", "U", "integration"], [row["workstream"] for row in program["verifications"]])
         self.assertTrue(Path(result["product"]).is_relative_to(Path(result["evidence"]) / "project" / ".autocode"))

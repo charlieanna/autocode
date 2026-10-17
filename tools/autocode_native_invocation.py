@@ -35,6 +35,9 @@ def main(base, unit=None):
         with base.processes.interrupts_held(), base.supervision_cli.guard(saved_argv[1:]) as argv:
             sys.argv = [saved_argv[0], *argv]
             return base.json_output.finish(base._main_body(unit, launched_at=launched_at))
+    except base.run_setup.SettingRefused as error:
+        base.json_output.refused(str(error))  # the invocation still ends with cli()'s `autocode: ...`
+        raise
     finally:
         base.json_output.restore()
         sys.argv = saved_argv

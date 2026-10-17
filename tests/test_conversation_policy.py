@@ -2,16 +2,20 @@
 
 import copy
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_conversation as protocol
 import autocode_conversation_ingress as ingress
 import autocode_conversation_policy as policy
 import autocode_conversation_projection as projection
 import autocode_conversation_session as session
+
+from tests.test_util_windows import FakeMsvcrt
 
 
 def journal_at(run_dir):
@@ -474,3 +478,44 @@ class ConversationRefreshTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "different answer token"):
                 session.refresh(run, request_id="answer", expected_revision=2, question_id="Q1", resolver_token="new")
+
+
+class InterruptedLockWait(Exception):
+    pass
+
+
+class FileLockTests(unittest.TestCase):
+    def test_a_wait_interrupted_under_the_windows_lock_keeps_its_error_and_closes_the_file(self):
+        # msvcrt refuses to unlock a byte range its handle never locked; that refusal must not
+        # replace what interrupted the wait, and the descriptor must still be closed (#698).
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".conversation-journal.lock"
+            closed = []
+            real_close = os.close
+
+            def recording_close(fd):
+                closed.append(fd)
+                real_close(fd)
+
+            def interrupted(_seconds):
+                raise InterruptedLockWait()
+
+            with (
+                patch.object(protocol.util, "_WINDOWS", True),
+                patch.dict(sys.modules, {"msvcrt": FakeMsvcrt()}),
+                patch.object(protocol.util, "sleep", side_effect=interrupted),
+                patch.object(protocol.os, "close", side_effect=recording_close),
+            ):
+                holder = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+                try:
+                    protocol.util.lock_file(holder)
+                    with self.assertRaises(InterruptedLockWait):
+                        with protocol._file_lock(path):
+                            self.fail("the lock was taken while another handle held it")
+                    self.assertEqual(1, len(closed))
+                    protocol.util.unlock_file(holder)
+                    with protocol._file_lock(path):
+                        pass
+                    self.assertEqual(2, len(closed))
+                finally:
+                    real_close(holder)

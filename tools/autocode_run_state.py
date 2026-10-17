@@ -168,6 +168,7 @@ KEYS: frozenset[str] = frozenset(
         "orchestration_history",
         "output",
         "outputs",
+        "package_outside_at_launch",
         "parent_batch",
         "parent_run",
         "pause",
@@ -311,7 +312,8 @@ class RunState(TypedDict, total=False):
     acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
     criteria_revision: str | None  # hash of the criteria; follow_up clears it before a fresh plan
     # The approved contract; written by goals. A revision loaded with --goal-file also names that file in
-    # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop).
+    # its record's plan_file (autocode_goal_file writes it, and reads it for the approval stop;
+    # autocode_plan_file_origin reads it for run_view's approved_contract and the evidence report).
     goal_contract: dict | None
     current_task: dict | None  # the task the Builder is on
     user_events: list  # goals writes answers/approvals; timeout receipts include operational_changes
@@ -329,6 +331,14 @@ class RunState(TypedDict, total=False):
     # (written by autocode_checkpoint_continuation.create; read by autocode_cost, so the money cap counts it).
     inherited_spend: dict
     base_commit: str  # the revision a bug fix is proven against
+    # What a package run's checkout held outside the package at launch that base_commit cannot hold (an
+    # untracked Git repository, a submodule's uncommitted work): {path: added or modified}, {} when nothing.
+    # Written once by autocode_package_writes.at_launch, in every new package run once its base is saved
+    # (autocode_run_setup, or autocode_regression.start for an in-place run and one that found its checkout
+    # busy); read only by autocode_package_writes, whose check leaves out what it names while it is still a
+    # Git repository. A package run started before the record existed has none: its check leaves out every
+    # nested repository and submodule work it finds.
+    package_outside_at_launch: dict[str, str]
 
     # --- recovery / diagnosis ---
     recovery_context: dict | None  # what the last pause knew (autocode_recovery)

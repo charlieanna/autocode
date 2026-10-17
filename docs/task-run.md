@@ -186,7 +186,7 @@ start a second task. Read the current plan and use the separate `approve_plan()`
 action only when the operator authorizes implementation. The original handoff
 source digest stays immutable; later human feedback retains its own provenance.
 Assistant text and unapproved drafts never become mandatory requirements merely
-because they appear in the journal. The browser dashboard and macOS app remain on their existing frozen path.
+because they appear in the journal. The browser dashboard and macOS app still use their existing path.
 
 The additive `view.conversation` is `None` for ordinary and legacy dashboard
 runs. A core conversation exposes actionable `status`/`needs` (including current questions and resolver tokens),
@@ -294,14 +294,19 @@ commands and their exit codes, artifact paths and hashes, roles/models and
 attempt durations, reported usage, regression proof and remaining gaps. The report of a build,
 bug-fix or design run (the run's `workflow`, or none for a run saved before workflow
 recognition) also has `approvals`: the status view's `approvals` rows when the report was
-written (who approved each plan and review, edited the plan or resumed a pause, with its
-recorded provenance, never verified), shown in the Markdown as an Approvals table after the
-intended outcome, or as `None recorded` for a run with none
+written (who approved each plan and review, accepted completion, edited the plan or resumed a
+pause, with its recorded provenance, never verified), shown in the Markdown as an Approvals
+table after the intended outcome, or as `None recorded` for a run with none
 ([Who approved](execution.md#who-approved)). Review and discuss reports, which have no approval
 step, have no `approvals` field and no such section, even when the status view lists a resume.
-Neither do verification, program and component reports, nor reports written before AutoCode
-listed approvals, so older pairs still authenticate. An older build, bug-fix or design report
+Neither do verification reports, nor reports written before AutoCode listed approvals, so
+older pairs still authenticate. A program or components report lists its child runs' approvals
+(below). An older build, bug-fix or design report
 gains the section when AutoCode saves the completed run again; reading its status does not.
+A task report whose approved plan is in the status view also has `plan.goal_hash` and
+`plan.plan_file`, copied from `approved_contract` (#720); the Markdown says them after the
+agreed plan's token. Reports written before AutoCode cited them have neither field and still
+authenticate; a completed run saved again rebuilds its pair with them.
 When the proof's mutation check left survivors, `regression_proof.mutation_survivors` lists
 them per test case, keyed like `case_tests`, and the Markdown names each one under
 the regression proof; they are reported, not gaps. Review-only mutation reports
@@ -356,6 +361,16 @@ child deliveries; the aggregate reader does not claim fresh child verification.
 Aggregate completion timestamps and elapsed wall time remain unrecorded when the
 coordinator has no owned timing record. A child's completion time does not stand
 for later integration checks or runtime smoke.
+An aggregate also lists, under `approvals`, the approvals each child's own report lists
+(#722): child by child, in its `children` order, each row as that report has it plus `child`,
+the child's id. Its Markdown shows them as an Approvals table with a Child column, and says
+what it leaves out: a program agreement (`autocode program approve`) records no approver, a
+program does not list approvals of a plan run it was derived from (`autocode program derive`),
+and a components run does not list approvals of the architecture it was built from. Those runs'
+own reports list them. A child whose
+report lists no approvals, because it was written before AutoCode listed them, is named in the
+aggregate's not-verified list rather than taken to have recorded none. When no child's report
+lists approvals, the aggregate has no `approvals` and no such section, as before.
 For component `--run-local`, `--runtime-evidence-provenance fake|live|unknown`
 separately discloses the runtime smoke route. Its HTTP results and sanitized local
 receipt are included in the aggregate; simulated smoke does not prove real
@@ -389,6 +404,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Start | `autocode "BRIEF" --in-place --no-chat [options]` | 0 complete, 2 stopped for input |
 | Status | `autocode --status` | 0; prints JSON, the view is under `"view"` |
 | Display brief | `autocode --show-goal` | 0; prints the current brief for human review |
+| Export the plan as a plan file (`TaskRun.export_plan(path)`) | `autocode plan --export PATH`: the plan shown for approval, or the approved one, as the file a team reviews in a pull request ([Workflow](workflow.md#reviewing-a-plan-in-a-pull-request)); changes nothing in the run | 0 written, 2 refused (no plan yet, or the file cannot be written) |
 | Continue | `autocode --no-chat [options]` | 0 complete, 2 stopped for input |
 | Resume a pause | `autocode resume --no-chat [options]`; after editing the design at `PAUSED_DESIGN_CONFLICT`, `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
@@ -455,7 +471,8 @@ current, and something the options do not cover goes in `--feedback` (`/feedback
 `--chat`, which asks again after a rejected answer). A question without options takes any
 nonempty text. The terminal CLI also shows the remaining question IDs and
 current Resolver token on stderr after each successful answer and on `--status`, and `--status`
-also prints the run's cost line there (`Cost: ...`, from the view's `cost`);
+also prints the run's cost line there (`Cost: ...`, from the view's `cost`), then, when the run has
+escalated, one `Escalations: ...` line and a line per escalation (from the view's `escalations`);
 the status JSON on stdout and the returned TaskRun view keep their existing shape.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
@@ -628,8 +645,14 @@ pinned supervisor transcript), each `null` when the request declares none. A fai
 `risk_acceptance` makes the replay's `verdict` `FAIL` even though the Tester's
 own checks passed (see [Execution](execution.md#process-recovery-proof-for-declared-lifecycle-apis)).
 Each `findings` row also has `source`: `sol` (Tester), `astra` (Completion
-Reviewer) or `runner` (a failed runner lifecycle observation, which only the
-runner closes). `unverified_risk_claims` lists the person's own sentences that
+Reviewer) or `runner` (a failed runner lifecycle observation or, in a
+`--package` run, the files changed outside the package, one blocking row naming
+each path ([Monorepo packages](workflow.md#monorepo-packages))). No model
+report closes a `runner` finding: the runner closes it when a later check of its
+own passes, and a person can close one with `--close-finding`. Closing the
+package finding accepts nothing: the next check before review opens a new one,
+and `--accept-completion` refuses while the change is there.
+`unverified_risk_claims` lists the person's own sentences that
 promise durability or concurrency but that no runner protocol exercises (`kind`
 `durability` or `concurrency`, `source_id`, `quote`, `reason`); `[]` when there
 are none. It is a disclosure, not a check: a PASS never verifies them.
@@ -683,6 +706,97 @@ once. A null amount is unknown, never zero: `estimated_usd` and `reported_usd` a
 has that basis, and `spent_usd` is null when no stage is known at all; while `complete` is false,
 `spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`.
+
+`escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
+stamped on them (`passed`, `paused`, `open`; `tools/autocode_route_ladder.py`). The runner stamps
+every one still open `passed` when the run completes on work a validation passed (including when
+completion is accepted via `--accept-completion`), or when the Completion Reviewer or Resolver assigns
+the next task while the last validation passed, and `paused` at the Builder's retry-limit pause. At that
+assignment it leaves the Builder's own (its climbs, its retries and its stronger attempt) open when the
+work was sent back after that validation's attempt started (a retry-policy charge or a correction task
+anywhere in the run; `escalations` takes the same two as a failure after a PASS of the escalation's own
+milestone), or when that attempt's start is not in the run's records, so a send-back cannot be ruled out.
+A stamp is the struggle's: every entry still open when the struggle ends takes its end, so a climb a
+later climb replaced reads `passed` there and `failed_again` as a row, and before the struggle ends a
+stamp is `open` while its row may read `passed`. Read a row's `outcome` for how one escalation ended.
+`escalations` lists each escalation the run made, oldest first (`tools/autocode_escalation_view.py`, #612):
+a role's climb on its effort ladder (`kind` `effort_climb`) and the Builder's stronger attempt
+(`stronger_attempt`; see [Models](models.md#builder-retry-policy)). Each row has the route `role` that moved,
+the `stage` that struggled and its `job` as the screen names it (from the role when the stage is not
+known; null, never a code name, when neither names a job), `at`, `trigger` (`validation_rework`,
+`rejected_output`, `no_progress` or `abandoned_attempt` for a climb, `execution_failure` for the stronger
+attempt), `detail`, `struggle_id`, `task_id` (for the stronger attempt, the task of the failed attempt its
+decision names), the route it climbed `from` and `to` (`model`, `reasoning_effort`, `profile`),
+`deferred_by_parallel_builder` (a parallel Builder left the stronger attempt to this run, which made it
+serially), `inherited`, `attempts`, `cost` and `outcome`:
+
+- `attempts` are the role's stage records launched on the route it climbed to, from the escalation
+  until the first of: a validation of its work that passed (that attempt included), unless one of its
+  attempts was then charged as a failure (see `outcome`), or the role's next escalation of either kind
+  (its next climb, the Builder's stronger attempt). The running one is included (`active`); dry runs
+  and the runner's own stages are not attempts. A climb lasts for the rest of the run, so a later
+  milestone's attempts on the climbed rung count until one of those ends it. A stronger attempt's
+  attempts are this run's own Builder records: a parallel Builder's records the parent holds
+  (`worker_milestone`) are its worker's, whose own stronger attempt is recorded only in its worker
+  run. A validation judged an escalation's work when one of its attempts produced it, or, for the
+  Builder, whose work another role validates, when the Builder's last attempt before it is one of its
+  attempts. No other role is judged by another role's validation: a Tester PASS of the Builder's work
+  is not the work of a Completion Reviewer's or Resolver's climb. Nor is a validation of another
+  milestone's work, or of work on a route the role was moved to. The runner assigns every task, a
+  rework included, a new id, so an attempt's milestone is its task's contract hash and milestone ids
+  (`current_task`, `task_archive`): an attempt whose task is of another milestone than the attempt the
+  escalation was made from (a later milestone, or a replanned contract's) is not its work, and for the
+  Builder neither is a validation whose own task is: a replanned contract's first task may be a
+  validate task, whose Tester runs before any Builder attempt. When either task is not recorded, they
+  are not told apart. The Builder's retry policy's charge names the record of the attempt that failed:
+  the Builder's own, or the Tester's or Completion Reviewer's that sent its work back, whose work is
+  the Builder's last attempt for that record's task before the decision; when no Builder attempt of
+  that task started before it (a validate task: unchanged work sent back to the Tester; a record that
+  names no task), the Builder's last attempt of that task's milestone (of any, when it names none)
+  before that record. A review that sends the work back also assigns a correction task (an implement
+  task whose `decision` is `REWORK`), which charges the Builder's last attempt of that task's
+  milestone before it was assigned: with the retry policy off (`settings.workflow` set, or
+  `builder_retry` disabled), nothing else records that a review sent passed work back.
+- `cost` prices those attempts as `cost` prices a stage: `usd` (reported plus estimated),
+  `reported_usd`, `estimated_usd`, `unpriced_attempts`, `unrouted_attempts` and `complete`. An attempt
+  with no usage record is unpriced, never zero: `usd` is then a floor (`complete` false), or null when
+  no attempt is priced. A stage record saved without a launch route (before 2026-10-01) cannot be
+  shown to have run on the route it climbed to: the role's such records in that span are counted in
+  `unrouted_attempts`, not listed in `attempts`, and no validation of them decides the outcome; while
+  there are any, the cost is unknown the same way (`complete` false, `usd` null when no listed attempt
+  is priced). An escalation whose attempt never launched (a cost-cap or time-budget stop before it)
+  cost `0`.
+- `inherited` is true for an escalation made before this run was created: in a checkpoint
+  continuation (`autocode checkpoint --restore`), one the restored run made. Its attempts there are not
+  in this run's stage records, so its `cost` is unknown, never zero: `usd` is null (a floor of its
+  attempts since the restore, when it has any) and `complete` false. What that run spent is in `cost`'s
+  `inherited_usd`.
+- `outcome` is `passed`, `failed_again`, `paused` or `running`, and `outcome_basis` says what decided
+  it, the first that applies: the first decisive record after it (`validation`: a validation of its
+  work passed, unless one of its attempts of its milestone was then charged as a failure: by the
+  Builder's retry policy, as it charges a review that sends passed work back, or by any correction
+  task of its milestone assigned after that PASS, also one that sends back a later attempt that
+  failed its own check; `later_escalation`: the role climbed again, the milestone made another
+  stronger attempt, or the Builder made its stronger attempt after climbing, or climbed after it,
+  from this escalation's attempt), the Builder's retry-limit pause (`recorded`: the runner's `paused`
+  stamp, or the `pause` decision that charged one of its attempts of its milestone, since the runner
+  does not stamp an escalation it already stamped `passed`), a validation of its work failing or blocked
+  (`validation`), else such a charge (`recorded`: a retry, the stronger attempt, the retry-limit pause
+  or a correction task charged to one of its attempts of its milestone), the runner's `passed` stamp
+  (`recorded`), for a role other than the Builder, only when every attempt of its role since it, until
+  the role's next escalation, ran on the route it climbed to and there was at least one, else the
+  run's status now (`run_status`: complete is `passed`, running is `running`, any pause, wait or stop
+  is `paused`). The runner stamps another role's open climb `passed` where the Completion Reviewer or
+  Resolver assigns the next task while the last validation passed, whoever's work passed, so that
+  stamp is not taken over a failure of its own work, once a person or the Builder's retry policy
+  moved the role to another route, or when the role ran nothing since.
+  Validations judge the Builder's work, and a run saved by AutoCode before this change (#612) may hold
+  a `passed` stamp the runner wrote on the Builder's stronger attempt in the handler that made it, at the PASS the review
+  just sent back, before that attempt ran, so the Builder's stamp is never taken. It is a projection of saved records, so it can change as the run
+  continues.
+
+A parallel Builder's own climbs and stronger attempts stay in its worker run's state, which the view
+does not read; a stronger attempt it leaves to the parent is listed once the parent makes it.
 
 `progress` is how far the run has got, counted only from saved records
 (`tools/autocode_progress_view.py`; added by `autocode --status`, which supplies
@@ -743,7 +857,13 @@ or completion proof; the existing CLI approval checks remain authoritative.
 as that approval holds. It has `revision`, `hash`, `token` (the `r<revision>:<hash>`
 that was approved), `task_id`, `approved_at` and `body`, the full approved contract
 body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
-end-to-end flow, technical approach, milestones and the rest) copied as saved. It is
+end-to-end flow, technical approach, milestones and the rest) copied as saved. It also has
+`goal_hash`, the SHA-256 of that body (what `autocode plan --check FILE` prints for a file
+holding exactly this plan), and `plan_file`: null, or, when the plan was loaded with
+`--goal-file` and not approved, changed and approved again since, the file's `path` and
+`goal_hash`, the `revision` it was loaded as and the parts of the plan that `changed` since
+then, apart from the runner's records of the plan's review (#720). A malformed record gives
+null, never an absent `approved_contract`. It is
 absent until the current sealed contract carries an approval of exactly its token,
 once a newer draft revision replaces the approved one (a goal change, or the plan a
 `--follow-up` drafts), and while the contract itself records an open blocking
@@ -764,11 +884,12 @@ was approved. A coordinating layer such as
 the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
-`approvals` lists every plan and review approval, goal edit and pause-releasing resume the
-run recorded, oldest first (#722): `kind` (`plan`, `review`, `edit` or `resume`), `at`,
-`actor` (`user_cli` for a person, `workflow_policy` for a small bug fix approved under the
-workflow policy), `contract_token` (the plan token approved, or the draft an edit installed;
-null for a review or a resume), `criterion` (the accepted criterion, null otherwise),
+`approvals` lists every plan and review approval, completion acceptance, goal edit and
+pause-releasing resume the run recorded, oldest first (#722): `kind` (`plan`, `review`,
+`completion` for `--accept-completion`, `edit` or `resume`), `at`, `actor` (`user_cli` for a
+person, `workflow_policy` for a small bug fix approved under the workflow policy),
+`contract_token` (the plan token approved, or the draft an edit installed; null for a review,
+a completion acceptance or a resume), `criterion` (the accepted criterion, null otherwise),
 `pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
 one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
 `git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and
@@ -867,6 +988,23 @@ the first stage of every new run (`recognize_workflow`): one of `build`,
 it. `workflow_source` is `"model"` when the recognizer decided it and `"user"`
 when `--workflow` named it; `workflow_reason` is the recognizer's one-sentence
 reason. Both are `null` whenever `workflow` is.
+
+`planning_depth` shows how much planning the run chose and why
+([adaptive planning](adaptive-planning.md)). It is always present:
+
+| Field | Meaning |
+| --- | --- |
+| `adaptive` | Whether the run plans adaptively (`--adaptive-planning`, the default where it applies); `false` on the fixed sequence |
+| `clarity` | The recognizer's judgment of the request text, `"clear"` or `"vague"`; `null` on the fixed sequence, under `--workflow`, and before recognition |
+| `requirements_skipped` | `true` when recognition judged a build request clear and sent it straight to the Planner, `false` when that judgment kept the Requirements stage (a vague request, a follow-up refreshing its requirements, or `--spec-first`); `null` where clarity decides nothing (another kind of job, a build from an approved design, the fixed sequence, a run saved before this field) |
+| `plan_size` | `"small"`, `"medium"` or `"large"`, measured from the draft's milestones and the files they touch at its first review; `null` before that review |
+| `size_signals` | The counts behind `plan_size`: `milestones`, `affected_paths`, `acceptance_criteria`, `dependency_edges`; `null` before the first review |
+| `review_limit` | The plan-review call allowance set at the first review (`0` is unlimited); a large plan gets one more call. A later `--planning-review-call-limit` changes the allowance in force, not this record |
+| `challenges` | How many first-style reviews the Plan Reviewer has made |
+| `approved_early` | `true` when the Plan Reviewer approved the Planner's draft at a first-style review, with no revision or final review |
+
+The Plan Reviewer still reviews every build plan and you still approve it; these
+fields only report the decisions.
 
 `needs` is `null` when the run is complete. Otherwise its `kind` says what the
 run is waiting for:
@@ -1083,6 +1221,29 @@ The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --compare CHECKPOINT`, followed by the mutually exclusive `--restore CHECKPOINT
 --expected-token TOKEN --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
+
+`status()["changes_by_criterion"]` attributes those saved steps to the approved
+plan's acceptance criteria. Each criterion lists the plan milestones that cover
+it, the checkpoint ids of their saved Builder steps and the union of the files
+those steps changed. `overlapping` is true when a step outside the criterion's
+milestones also changed one of those files, so the file's diff may hold other
+work. `unattributed` lists steps whose milestone is not in the plan. It is
+attribution, not proof: it says where to look, not that the changes satisfy the
+criterion. It is `null` until a plan is approved.
+
+`status()["dev_server"]` is the run's development server
+([Development server](cli.md#development-server)): `configured` says whether the
+run saved a `serve` command, `status` is `off`, `starting`, `running`, `stopped`,
+`exited`, `failed` or `lost`, and `url` is set only while it is `running`.
+`code_checkpoint` names the code checkpoint the server was started on and
+`restarts` counts the code changes that restarted it, and `waiting` is true while
+a server that exited or failed waits for the run's next code change to start
+again; a client can compare
+`code_checkpoint` with the latest `code_checkpoints` row to tell whether the
+preview shows the newest code. The
+status command inspects it on every call; a direct `run_view.view()` without that
+inspection leaves it `null`. Starting and stopping the server is
+`autocode serve`, not a TaskRun method, and it never changes the run.
 
 ### Conversation task provenance
 
