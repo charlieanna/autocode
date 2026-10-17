@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   approvalToken,
   needsSummary,
+  pauseLabel,
   planForApproval,
   progressLine,
   readRegistryList,
@@ -36,6 +37,21 @@ test("progressLine falls back to the headline, then the status code", () => {
   assert.equal(progressLine({ status: "S", done: false, progress: { line: "one line" } }), "one line");
   assert.equal(progressLine({ status: "S", done: false, progress: { headline: "Builder working" } }), "Builder working");
   assert.equal(progressLine({ status: "S", done: false }), "S");
+});
+
+test("pauseLabel only describes a stopped run, not an approval checkpoint", () => {
+  const approval = {
+    status: "AWAITING_GOAL_APPROVAL",
+    done: false,
+    pause_category: "your_decision",
+    pause_category_label: "Your decision",
+  };
+  assert.equal(pauseLabel(approval), null);
+  assert.equal(pauseLabel({ ...approval, status: "WAITING_FOR_USER" }), null);
+  assert.equal(
+    pauseLabel({ ...approval, status: "PAUSED_TRANSPORT_CHANGED", pause_category_label: "Your environment" }),
+    "Your environment",
+  );
 });
 
 test("needsSummary says what the run waits for, in the view's own words where it has them", () => {

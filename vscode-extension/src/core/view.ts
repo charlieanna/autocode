@@ -234,7 +234,9 @@ export function needsSummary(view: StatusView): string {
 
 /** A short label for a stopped run's cause, so a person can tell whose decision it is. */
 export function pauseLabel(view: StatusView): string | null {
-  if (!view.pause_category) return null;
+  // Normal user checkpoints (for example, plan approval) can also carry a
+  // pause category. Only stopped runs should be presented as unable to continue.
+  if (!view.status.startsWith("PAUSED") || !view.pause_category) return null;
   return view.pause_category_label || view.pause_category;
 }
 
