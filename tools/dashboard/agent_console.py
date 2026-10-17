@@ -1330,6 +1330,17 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except (ValueError, OSError):
                 return self.reply(400, {"error": "Saved changes unavailable for this stage"})
+        if p.path == "/api/criterion-diffs":
+            q = parse_qs(p.query)
+            raw = q.get("workspace", [""])[0]
+            selected = q.get("run", [""])[0]
+            if self.console.removed_project(raw) or self.console.archived_task(selected):
+                return self.reply(404, {"error": "Restore this task and project to inspect its changes"})
+            ws = self.console.workspace_for(raw)
+            run = self.console.run_for(ws, selected)
+            if not run:
+                return self.reply(404, {"error": "Task unavailable"})
+            return self.reply(200, self.console.criterion_diffs(ws, run))
         if p.path == "/api/run":
             archived = self.console.archived_task(parse_qs(p.query).get("run", [""])[0])
             if archived:
