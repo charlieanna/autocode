@@ -15,7 +15,8 @@ starts another conversation; **History** switches to the Runs list so you can
 reopen one. **Back to Chat** returns to the current conversation and its draft.
 The selected conversation and each unsent draft survive reopening VS Code.
 
-The first status is **Understanding your request** while the core chooses the
+Before recognition starts, the status is **Next: Understand your request**.
+It becomes **Understanding your request** while the core chooses the
 workflow (build, fix, review, design or discuss). Requirements gathering follows
 when the chosen workflow needs it. The detailed model history retains the
 canonical **Job recognizer** stage name.
