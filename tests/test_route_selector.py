@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autocode_route_selector as selector
 import autocode_role_route as role_route
+import autocode_route_selector as selector
 
 GLM = "zai-coding-plan/glm-5.3"
 GLM_KILO = "kilo/z-ai/glm-5.3"

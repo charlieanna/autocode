@@ -246,7 +246,7 @@ def _stop(order, options, pinned, candidates):
             clashes = [
                 f"{candidate['model']} — {_clashes(role, candidate['model'], placed)}"
                 for candidate, _entry in options[role]
-                if _clashes(role, candidate['model'], placed)
+                if _clashes(role, candidate["model"], placed)
             ]
             lines.append(f"{_label(role)}: every qualified model would check its own family's work:")
             lines.extend(f"  {reason}" for reason in clashes)
