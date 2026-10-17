@@ -1,9 +1,9 @@
 # AutoCode for VS Code
 
-Early preview. Install from the Marketplace as `ankurkothari.autocode`.
+Early preview. Install from the Marketplace as `ankurkothari.autocode-task-chat`.
 
 ```sh
-code --install-extension ankurkothari.autocode
+code --install-extension ankurkothari.autocode-task-chat
 ```
 
 The AutoCode CLI must be installed separately. Provider-backed execution requires

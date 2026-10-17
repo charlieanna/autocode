@@ -1,5 +1,5 @@
 {
-  "name": "autocode",
+  "name": "autocode-task-chat",
   "displayName": "AutoCode",
   "description": "Drive AutoCode task runs from VS Code: start a run, follow its progress, and take the action the status view names.",
   "version": "0.0.1",
