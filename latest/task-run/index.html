@@ -2276,7 +2276,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ff3b66c362e275cf5fb4f75141e0659afd326a72/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/a5eda9d144d7609a94b38eaece9dba3c4b8f3b20/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2417,6 +2417,28 @@ an opaque <code>context</code>, and an optional <code>input</code> offer. Messag
 human receipts and saved completed replies. At a follow-up, the prior reply is
 retained under that turn's historical record; display text grants no approval
 and does not become a new requirement. Status reads do not write a transcript.</p>
+<p>During spec-first Requirements chat, <code>phase: "requirements"</code> lets clients show
+the conversation without the empty task dashboard. An assistant message may
+have <code>streaming: true</code>; its text is provisional display content from the active
+Requirements attempt, never an answer, approval, report or tool receipt. Kilo
+text deltas are filtered to the current assistant message; reasoning and tool
+output are excluded. Requirements reuses its own saved provider session while
+independent plan reviewers retain separate sessions. Requirements answers
+the first message of a spec-first run, whatever it says: a greeting or an
+off-topic question gets a short answer and a question about what to build or
+change. Until Requirements finds work to do, the person's newest reply becomes
+the task; the source log keeps the first message and each reply as separate
+sources. The Job recognizer runs once the person approves what Requirements
+understood, and judges the job from that understanding. Model access probes for
+planning and execution roles wait until the user confirms the requirements.</p>
+<p>When the only pending question is the core's current requirements review,
+<code>review</code> offers its <code>question_id</code>, exact <code>answer</code>, <code>label</code> and bound <code>summary</code>.
+A client may display that summary and submit the ordinary named answer action.
+This confirms the understanding and releases plan preparation and review.
+The resulting execution plan still needs its own displayed-token approval.
+The optional <code>notice</code> explains a stop or ongoing work in ordinary language;
+chat clients keep diagnostic headings, empty counts and pause categories in
+Run details. A notice never grants an action beyond the view's named command.</p>
 <p><code>input</code> is null when free text is not an admitted action. Otherwise it names
 <code>kind</code> (<code>feedback</code> or <code>follow_up</code>), a display <code>label</code>, and <code>next_command</code> with
 one literal <code>MESSAGE</code> placeholder. A client replaces that argument with the
@@ -2568,7 +2590,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/ff3b66c362e275cf5fb4f75141e0659afd326a72/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/a5eda9d144d7609a94b38eaece9dba3c4b8f3b20/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3322,7 +3344,8 @@ human decisions remain intact and hold the handoff before either route. Modified
 sealed evidence pauses before dispatch. Every assigned repair still requires
 fresh verification and independent completion acceptance.</p>
 <p><code>workflow</code> is the kind of job AutoCode recognized from the request, decided by
-the first stage of every new run (<code>recognize_workflow</code>): one of <code>build</code>,
+the first stage of every new run (<code>recognize_workflow</code>; in a spec-first run, once
+the person approves the requirements): one of <code>build</code>,
 <code>bugfix</code>, <code>review</code>, <code>design</code> or <code>discuss</code> (see <code>scenarios/README.md</code>,
 "Workflows"). It is <code>null</code> until that stage has run, and for runs that predate
 it. <code>workflow_source</code> is <code>"model"</code> when the recognizer decided it and <code>"user"</code>
