@@ -1042,7 +1042,7 @@ def context(state: RunState, stage, state_path):
         packet["program_guidance"] = guidance
     if stage == "requirements_gather":
         packet["previous_requirements_handoff"] = state.get("requirements_handoff")
-    if stage == "astra_discovery" or (stage == "requirements_gather" and not state["settings"].get("spec_first")):
+    if stage in ("requirements_gather", "astra_discovery"):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"])
     try:
         from .. import autocode_design_manifest as design_manifest

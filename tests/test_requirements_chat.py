@@ -94,6 +94,34 @@ class RequirementsChatTests(unittest.TestCase):
                 self.assertFalse(chat.adopt_reply(state))
                 self.assertEqual(before, state)
 
+    def test_requirements_reads_the_workspace_once_the_request_is_named(self):
+        from units import autoplanner
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "reports").mkdir()
+            (root / "reports" / "export.py").write_text("def export():\n    pass\n")
+            roles = ("astra", "glm", "terra", "sol", "requirements", "plan_reviewer", "resolver")
+            state = {
+                "version": 3,
+                "task_id": "task-fixture",
+                "task": "Add a CSV export to the reports page.",
+                "workspace": str(root),
+                "status": "RUNNING",
+                "stages": [],
+                "answers": {},
+                "user_events": [],
+                "settings": {
+                    "spec_first": True,
+                    "joint_planning": True,
+                    "context_soft_tokens": 10000,
+                    "roles": {name: {"model": "fixed-model", "engine": "codex"} for name in roles},
+                },
+            }
+            prompt, _ = autoplanner.context(state, chat.STAGE, root / "state.json")
+            packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+            self.assertIn("reports/export.py", json.dumps(packet.get("workspace_inventory")))
+
     def test_opening_only_handles_a_bare_greeting_before_any_dispatch(self):
         seed = {"task": "Hi!", "settings": {"spec_first": True}}
         self.assertTrue(chat.opening(seed))
