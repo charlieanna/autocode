@@ -27,6 +27,13 @@ whether the report can be reused.
   no implementation started. This uses the offline fixture provider, no models.
 - Ruff lint and format checks and `git diff --check` passed.
 
+Draft #1511's first CI merge also exposed the independently merged #1509's
+unformatted context manager in `tests/test_design_manifest.py` (#1512). CI Ruff
+lint and mypy passed (564 source files); formatting failed on that single block.
+The draft branch was updated to master `63e56a62` and the block formatted with
+pinned Ruff 0.17.0. Its eight affected files pass pinned lint/format checks. This
+formatting-only change does not require repeating provider regressions.
+
 The Linux command was `python3 -m unittest
 tests.test_chat_cli.ChatCliTests.test_source_inventory_refusal_retains_the_report_and_resumes_without_another_provider_call`
 in image `autocode-pr1425-qualification:20261016`, with `--pid=host
