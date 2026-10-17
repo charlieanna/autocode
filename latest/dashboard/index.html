@@ -1972,7 +1972,7 @@
 
 
 <h1 id="browser-dashboard">Browser dashboard<a class="headerlink" href="#browser-dashboard" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/ef3f5871842b237cdaca08d20bc3358df5ff153e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/12eca06bfcca268f91a2e58b6e89e698e6cd8420/README.md">← Back to README</a></p>
 <p>Autocode includes a local browser dashboard for planning work with the Requirements Planner, approving
 the lead-reviewed plan, choosing each execution role's model and reasoning level,
 following active tasks, and sending feedback or a pause
@@ -2062,6 +2062,16 @@ from the contract in <a href="../task-run/">docs/task-run.md</a>. It is <code>nu
 fails. The project list still reads saved run state for fields the view does not
 carry; that read is confined to <code>dashboard_run_state.py</code>, and the dashboard uses
 only public names of core modules (both checked in <code>tests/test_architecture.py</code>).</p>
+<p>In <strong>Checks</strong>, each requirement's <strong>Inspect</strong> section lists, beside its recorded
+evidence, the saved Builder steps of the milestones that cover it and each file's
+diff against the saved step before it (<code>GET /api/criterion-diffs</code>, which calls
+<code>autocode_review_diff.criterion_diffs</code> on that same status view and reads committed
+Git objects, never the working tree). The changes are labelled as attribution, not
+proof that the requirement is met. A requirement whose steps also changed files
+another requirement's milestone changed is marked as overlapping. When a requirement
+has no attributed step, or the run's status is unavailable, it says so and offers
+<strong>View all run changes</strong>, which opens <strong>Changes</strong>. The pane is read once per run
+until a step is saved or its attribution changes.</p>
 <h2 id="project-specific-counters">Project-specific counters<a class="headerlink" href="#project-specific-counters" title="Permanent link">&para;</a></h2>
 <p>Project-specific counters are optional. Declare a read-only projection in the
 project's <code>.autocode/dashboard.json</code> (not in runner state):</p>
