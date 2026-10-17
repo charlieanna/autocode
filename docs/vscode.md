@@ -20,9 +20,12 @@ change the conversation shown in another. The Runs list in each window can
 still open any task registered for that workspace.
 
 New sidebar chats enable joint planning and the core's `--spec-first` flow.
-The Requirements agent talks with you before workflow classification or planning.
 A bare **hi** receives an immediate goal question without inference or model
-probes. Describe your idea and answer in the same composer. Requirements reuses
+probes. Your reply becomes the task. The status shows **Understanding your
+request** while the core chooses the workflow (build, fix, review, design or
+discuss); the detailed model history keeps the **Job recognizer** stage name.
+For a build, the Requirements agent then talks with you before planning.
+Answer in the same composer. Requirements reuses
 its provider session, retains prior replies and streams assistant text through
 the public status view; tool output and reasoning stay outside that stream.
 You can keep writing a draft while a reply arrives. The conversation does not
@@ -30,7 +33,7 @@ show an empty task dashboard.
 
 Once the requirements are clear, read the bound understanding and choose
 **Approve understanding and prepare plan**, or send a correction. This releases
-classification and independent plan preparation/review. It does not authorize
+independent plan preparation/review. It does not authorize
 implementation. **Approve and build** appears later for the concrete reviewed
 execution plan. Terminal users can answer the requirements review with **plan**.
 

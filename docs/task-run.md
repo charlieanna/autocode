@@ -170,8 +170,11 @@ Requirements attempt, never an answer, approval, report or tool receipt. Kilo
 text deltas are filtered to the current assistant message; reasoning and tool
 output are excluded. Requirements reuses its own saved provider session while
 independent plan reviewers retain separate sessions. A bare greeting asks for
-the outcome without dispatching a provider; classification and model probes
-wait until the user confirms the requirements.
+the outcome without dispatching a provider. The first reply to that question
+becomes the task; the source log keeps the greeting and the reply as separate
+sources. The Job recognizer classifies the reply, and a build continues in
+Requirements. Model access probes for planning and execution roles wait until
+the user confirms the requirements.
 
 When the only pending question is the core's current requirements review,
 `review` offers its `question_id`, exact `answer`, `label` and bound `summary`.
