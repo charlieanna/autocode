@@ -801,6 +801,12 @@ test('chat replaces pause dashboards with a useful explanation and keeps recover
   }
   assert.equal(ui.document.querySelector('#send-message').disabled, true);
   assert.equal(ui.document.querySelector('#take-action').textContent, 'Continue');
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(prompt.mock.calls[0].arguments[0], 'Continue AutoCode?');
+  assert.match(prompt.mock.calls[0].arguments[1].detail, /Check Connections/);
+  assert.equal(launch.mock.callCount(), 0, 'cancelling still leaves recovery gated');
 });
 
 test('message actions cannot name another run or append approval flags', async (t) => {

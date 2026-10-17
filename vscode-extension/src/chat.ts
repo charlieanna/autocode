@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { RunController, type RunRef } from "./controller";
 import { leavesForPerson } from "./core/next-command";
-import { needsSummary, type StatusView } from "./core/view";
+import type { StatusView } from "./core/view";
 import { panelHtml, stateFor } from "./panel";
 
 interface ChatMessage {
@@ -159,7 +159,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
         if (leavesForPerson(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true)) {
           const answer = await vscode.window.showWarningMessage(
-            "AutoCode is waiting for your recovery decision.", { modal: true, detail: needsSummary(view) }, "Continue",
+            "Continue AutoCode?", { modal: true,
+              detail: view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, "Continue",
           );
           if (answer !== "Continue") return;
         }
