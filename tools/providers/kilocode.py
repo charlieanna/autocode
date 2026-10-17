@@ -4,6 +4,9 @@ Ordinary commands retain CommandProvider's config, identity and event contract.
 Native support is not a configuration flag and cannot fall back to that path.
 """
 
+import json
+from pathlib import Path
+
 from . import command
 
 
@@ -31,7 +34,7 @@ class KiloProvider(command.CommandProvider):
         if isolation is None:
             if containment is not None or image_preparation is not None:
                 raise ValueError("Kilo native launch requires its original concrete isolation owner")
-            return super().launch(
+            argv, child, saved = super().launch(
                 role,
                 workspace,
                 run_dir,
@@ -46,6 +49,15 @@ class KiloProvider(command.CommandProvider):
                 sandbox=sandbox,
                 env=env,
             )
+            report_schema = json.loads(Path(schema).read_text()) if schema and role == "requirements" else {}
+            if "assistant_reply" in report_schema.get("properties", {}):
+                config = json.loads(child.get("KILO_CONFIG_CONTENT", "{}"))
+                if not isinstance(config, dict) or not isinstance(config.get("plugin", []), list):
+                    raise ValueError("Kilo chat configuration must contain a plugin array")
+                hook = Path(__file__).with_name("requirements_stream.mjs").resolve().as_uri()
+                config["plugin"] = [p for p in config.get("plugin", []) if p != hook] + [hook]
+                child["KILO_CONFIG_CONTENT"] = json.dumps(config)
+            return argv, child, saved
         try:
             from .. import autocode_native_role_isolation as native
         except ImportError:

@@ -127,6 +127,7 @@ def streaming_reply(state: RunState, run_dir):
     except OSError:
         return ""
     texts = {}
+    live = ""
     for line in lines:
         try:
             row = json.loads(line)
@@ -134,10 +135,12 @@ def streaming_reply(state: RunState, run_dir):
             continue
         if not isinstance(row, dict):
             continue
+        if row.get("type") == "autocode_chat_reply" and isinstance(row.get("reply"), str):
+            live = row["reply"][:12000]
         part = row.get("part") if isinstance(row.get("part"), dict) else {}
         if row.get("type") == "text" and isinstance(part.get("text"), str):
             texts[str(part.get("id", len(texts)))] = part["text"]
         item = row.get("item") if isinstance(row.get("item"), dict) else {}
         if row.get("type") in ("item.updated", "item.completed") and item.get("type") == "agent_message":
             texts[str(item.get("id", len(texts)))] = item.get("text", "")
-    return partial_string("\n".join(texts.values()))
+    return live or partial_string("\n".join(texts.values()))
