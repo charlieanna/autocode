@@ -146,6 +146,49 @@ test('approval stays disabled for missing, malformed or stale displayed plans', 
   assert.equal(ui.take().disabled, true);
 });
 
+test('chat recovery retry requires confirmation and keeps the exact job token out of argv', async (t) => {
+  const retry = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', reason: 'The Investigator stopped unexpectedly', job_retry_token: 'jr:exact-secret' },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=jr:exact-secret autocode --resume-paused --retry-failed-stage --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = await openChat(t, retry);
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const action = ui.document.querySelector('#take-action');
+  assert.equal(action.disabled, false);
+
+  action.click();
+  await flush();
+  assert.equal(prompt.mock.callCount(), 1);
+  assert.equal(launch.mock.callCount(), 0, 'declining the recovery confirmation must leave the stopped run untouched');
+
+  prompt.mock.mockImplementation(async () => 'Continue');
+  ui.document.querySelector('#take-action').click();
+  await flush();
+  assert.equal(prompt.mock.callCount(), 2);
+  assert.equal(launch.mock.callCount(), 1);
+  const [, args, env] = launch.mock.calls[0].arguments;
+  assert.ok(args.includes('--retry-failed-stage'));
+  assert.ok(args.includes('--job-retry-token'));
+  assert.ok(args.includes('-'));
+  assert.ok(!args.includes('jr:exact-secret'));
+  assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:exact-secret');
+});
+
+test('chat does not guess an unresolved recovery allowance', async (t) => {
+  const recovery = {
+    status: 'PAUSED_TIMEOUT_RECOVERY', done: false,
+    needs: { kind: 'resume', reason: 'Automatic timeout recoveries are exhausted' },
+    next_command: `autocode --resume-paused --grant-recovery N --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = await openChat(t, recovery);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  assert.match(ui.document.querySelector('#app').textContent, /leaves N open/);
+  assert.equal(ui.document.querySelector('#take-action'), null);
+  assert.equal(launch.mock.callCount(), 0);
+});
+
 test('a click on an old displayed plan cannot approve a newly fetched revision', async (t) => {
   const base = approvalView();
   const ui = await openPanel(t, base);
@@ -321,6 +364,29 @@ test('sidebar sends core-named feedback verbatim then continues, and retains the
   assert.ok(ui.document.querySelector('#messages').textContent.includes(text));
   assert.equal(ui.document.querySelectorAll('script').length, 1);
   assert.equal(ui.document.querySelectorAll('#messages b').length, 0);
+});
+
+test('chat approval uses the displayed plan token and advances only when the core offers continue', async (t) => {
+  const ui = await openChat(t, approvalView());
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Approve and build');
+  const launch = t.mock.method(cli, 'stream', async (_options, args) => {
+    if (args.includes('--approve-goal')) {
+      ui.setView({ status: 'RUNNING', done: false, needs: { kind: 'continue' } });
+    } else {
+      ui.setView({ status: 'PAUSED', done: false, needs: { kind: 'resume', reason: 'The core reached a person-only stop' } });
+    }
+    return ok;
+  });
+
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 2);
+  const [, approveArgs, approveEnv] = launch.mock.calls[0].arguments;
+  assert.ok(approveArgs.includes('--approve-goal'));
+  assert.equal(approveEnv.AUTOCODE_APPROVE_GOAL_TOKEN, 'r1:abc');
+  assert.ok(!approveArgs.includes('r1:abc'));
+  assert.ok(launch.mock.calls[1].arguments[1].includes('--no-chat'));
+  assert.equal(ui.document.querySelector('#send-message').disabled, true, 'a later person-only stop is not bypassed');
 });
 
 test('stale chat submission is rejected and preserves the unsent draft', async (t) => {
