@@ -81,7 +81,9 @@ function isRejection(code: number | null, stderr: string): boolean {
 
 /** `autocode --workspace W --run-dir R --status`, as a parsed view. */
 export async function readStatus<T>(options: CliOptions, workspace: string, runDir: string, parse: (raw: string) => T): Promise<T> {
-  const result = await invoke(options, ["--workspace", workspace, "--run-dir", runDir, "--status"]);
+  // Use the public TaskRun reader grammar. With --status last, the core's
+  // conservative legacy-worker check can mistake polling for another writer.
+  const result = await invoke(options, ["--status", "--workspace", workspace, "--run-dir", runDir]);
   if (result.code !== 0) throw new Error(tail(result));
   return parse(result.stdout);
 }

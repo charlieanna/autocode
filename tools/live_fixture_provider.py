@@ -466,6 +466,29 @@ def main() -> int:
             "machine_resolutions": [],
             "access_blockers": [],
         }
+        if data.get("task") == "hi" and not data.get("saved_answers") and not data.get("brief_feedback"):
+            report.update(
+                summary="The user greeted the assistant without describing a task.",
+                intended_outcome="Not yet specified by the user",
+                required_behaviors=[],
+                acceptance_tests=[],
+                requirements=[],
+                proposed_assumptions=[],
+                constraints=[],
+                source_refs=[],
+                open_questions=[
+                    {
+                        "id": "requested-outcome",
+                        "question": "Hi! What would you like to build or change?",
+                        "why": "No engineering outcome has been requested yet.",
+                        "options": [],
+                        "proposed_default": "",
+                        "kind": "decision",
+                        "category": "requested_outcome",
+                        "delegable": False,
+                    }
+                ],
+            )
     elif stage == "astra_discovery":
         report = {
             "summary": "Handwritten greeting plan",

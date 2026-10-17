@@ -114,7 +114,9 @@ def questions(state: RunState) -> list[dict]:
     review = review_question(state)
     if review["id"] in answered:
         return []
-    return [*(row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered), review]
+    unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
+    # Establish the requested outcome before offering to plan anything.
+    return unresolved or [review]
 
 
 def wait(state: RunState, record: dict, queue) -> None:
@@ -150,5 +152,8 @@ def after_answers(state: RunState) -> None:
     answer = (
         (state.get("answers") or {}).get(review_question(state)["id"]) if state.get("requirements_handoff") else None
     )
-    if answer and state.get("next_stage") == NEXT and answer.get("text", "").strip().lower() != APPROVE:
+    needs_refresh = (answer and answer.get("text", "").strip().lower() != APPROVE) or (
+        not answer and bool(_report(state).get("open_questions"))
+    )
+    if needs_refresh and state.get("next_stage") == NEXT:
         state.update({"next_stage": STAGE, "phase": "DISCOVERING"})

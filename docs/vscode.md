@@ -20,6 +20,12 @@ workflow (build, fix, review, design or discuss). Requirements gathering follows
 when the chosen workflow needs it. The detailed model history retains the
 canonical **Job recognizer** stage name.
 
+New sidebar chats enable joint planning and the core's `--spec-first` flow.
+A greeting such as **hi** asks what you want to build or change. Requirements
+collects missing decisions and shows its understanding before planning; reply
+**plan** to the requirements review only when that understanding is correct.
+Plan approval appears later, after a concrete plan has been reviewed.
+
 The thread shows your messages, saved answers and completed-turn replies, with
 Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
@@ -84,6 +90,14 @@ Press F5 to launch the configured Extension Development Host. The AutoCode view
 appears in the Activity Bar. Point `autocode.cliPath` at your `autocode`, or set
 `cliPath: python3`, `cliArgs: ["/path/to/autocode/tools/autocode.py"]` for a source
 checkout. Provider execution needs a supported host; see [testing.md](testing.md).
+
+For Kilo, set `autocode.provider` to `kilocode`, connect the selected providers
+with `kilo auth`, and put your per-role model routes in `autocode.extraOptions`.
+The CLI and Kilo must run on the same supported backend host. A Docker or remote
+wrapper must forward the argument array and issued token environment, and expose
+the same workspace paths. Point `cliPath`/`cliArgs` at that real CLI or wrapper;
+the qualification fixture is only a UI test backend and cannot conduct a model
+conversation.
 
 PR #1425 remains draft until the actual editor flow and the owner's live-model
 qualification both pass. The editor fixture flow has been exercised; the Kilo
