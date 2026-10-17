@@ -4,7 +4,7 @@ let chosen = null, seq = 0, init = false, focusVersion = 0;
 let currentView = 'tasks', currentTab = 'now', taskFilter = 'all', projectFilter = '', searchText = '';
 let evidenceRequest = 0, evidenceRun = '', previewRun = '', scrollThreadToEnd = false, pendingThreadAnchorKey = '';
 let taskReturn = {view:'tasks',filter:'all',project:''};
-const evidenceCache = new Map();
+const evidenceCache = new Map(), criterionDiffReads = new Map();
 let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '', pendingShortProject = null;
 let taskReadError = '', taskReadAt = null;
 let activeConversation = null, latestConversation = null, refreshPromise = null, refreshAgain = false, refreshTimer = null;
@@ -2466,6 +2466,7 @@ function renderExecution(run){
     const method=[n('p',criterion.verification_method?'Planned check: '+criterion.verification_method:'No verification method was recorded.')];
     if(criterion.human_review)method.push(n('p','Human acceptance is required separately in chat.'));
     if(result.evidence_refs?.length)method.push(disclosure('Recorded evidence · '+result.evidence_refs.length,'evidence:'+criterion.id,[renderDocument(result)],run.run));
+    method.push(criterionChanges(run,criterion));
     const label=(status==='pass'?'PASS':status==='fail'?'FAILED':'NOT CHECKED')+' · '+(criterion.criterion||criterion.description||criterion.id)+' · Inspect';
     const detail=disclosure(label,'check-details:'+criterion.id,method,run.run);detail.className='check-detail';
     row.append(detail);host.append(row);
@@ -2479,6 +2480,55 @@ function renderExecution(run){
   host.append(disclosure('Full acceptance criteria','criteria',[renderDocument(run.criteria||[])],run.run));
   const steps=card('','saved-steps');for(const [index,stage]of (run.stages||[]).entries()){const row=card('','stage-row');row.append(n('span',stageName({...run,stage:stage.stage||stage.role})),n('small',typeof stage.duration_seconds==='number'?stage.duration_seconds.toFixed(1)+'s':'Duration not recorded'));row.append(disclosure('Stage details','stage:'+index,[renderDocument(stage)],run.run));steps.append(row);}host.append(disclosure('Step history ('+(run.stages||[]).length+')','step-history',[steps],run.run));
   const logs=$('#actions');logs.replaceChildren();if(!(run.actions||[]).length)logs.append(Object.assign(n('p','No command output in this dashboard session. Saved task state remains available after a restart.'),{className:'field-note'}));output(logs,run.actions);
+}
+
+function diffOutput(text){
+  const pre=n('pre','');pre.className='diff-output';
+  for(const line of String(text).split('\n'))pre.append(Object.assign(n('span',line||' '),{className:'diff-line '+(line.startsWith('+++')||line.startsWith('---')||line.startsWith('@@')||line.startsWith('diff ')?'header':line.startsWith('+')?'added':line.startsWith('-')?'removed':'')}));
+  return pre;
+}
+// One read serves every requirement until the status view names other saved steps.
+function readCriterionDiffs(run){
+  const view=run.status_view||{},key=run.run+'\0'+JSON.stringify([view.changes_by_criterion?.criteria||null,(view.code_checkpoints?.rows||[]).map(row=>[row?.id,row?.commit,row?.available])]);
+  let entry=criterionDiffReads.get(key);if(entry)return entry;
+  for(const old of criterionDiffReads.keys())if(old.startsWith(run.run+'\0'))criterionDiffReads.delete(old);
+  entry={};entry.promise=api('/api/criterion-diffs?workspace='+encodeURIComponent(run.workspace)+'&run='+encodeURIComponent(run.run)).then(data=>entry.data=data,error=>{criterionDiffReads.delete(key);throw error;});
+  criterionDiffReads.set(key,entry);return entry;
+}
+function criterionChanges(run,criterion){
+  const id=String(criterion.id),attribution=run.status_view?.changes_by_criterion,own=(Array.isArray(attribution?.criteria)?attribution.criteria:[]).find(row=>String(row?.id)===id);
+  const steps=(Array.isArray(own?.checkpoints)?own.checkpoints:[]).filter(step=>typeof step==='string'),note=text=>Object.assign(n('p',text),{className:'field-note'});
+  const box=card('','criterion-changes');box.dataset.criterionChanges=id;box.dataset.overlapping=String(own?.overlapping===true);
+  const runChanges=()=>button('View all run changes',()=>activateTab('changes',true),'text-button');
+  if(!steps.length){
+    box.dataset.criterionChangesState='none';
+    box.append(note(!run.status_view?'The run status is unavailable, so changes cannot be shown by requirement.':!attribution?'No approved plan attributes saved steps to requirements yet.':'No saved Builder step is attributed to this requirement yet.'),runChanges());
+    return box;
+  }
+  box.dataset.criterionChangesState='attributed';
+  const body=card('','criterion-changes-body'),item=disclosure('Changes · '+steps.length+' saved '+(steps.length===1?'step':'steps')+(own.overlapping?' · overlaps another requirement':''),'criterion-changes:'+id,[body],run.run);
+  const show=data=>{
+    body.replaceChildren(note('Saved Builder steps from this requirement’s plan milestones. This is attribution, not proof that the changes satisfy it.'));
+    if(own.overlapping)body.append(note('Another requirement’s steps also changed some of these files, so a change shown here may serve either.'));
+    if(data.reason)body.append(note(data.reason));
+    for(const ident of steps){
+      const step=data.steps?.[ident]||{},section=card('','criterion-step');section.dataset.criterionStep=ident;
+      section.append(n('h4',(step.label||'Saved step')+(step.milestone_id?' · milestone '+step.milestone_id:'')));
+      if(step.reason)section.append(note(step.reason));
+      for(const file of Array.isArray(step.files)?step.files:[]){section.append(Object.assign(n('p',String(file.path)),{className:'criterion-file'}),file.text?diffOutput(file.text):note(file.reason||'Diff unavailable.'));}
+      body.append(section);
+    }
+    if(data.availability!=='available')body.append(runChanges());
+  };
+  const read=async()=>{
+    if(!item.open)return;const entry=readCriterionDiffs(run);if(entry.data)return show(entry.data);
+    body.replaceChildren(note('Loading changes…'));
+    try{const data=await entry.promise;if(item.isConnected&&item.open)show(data);}
+    catch(error){if(item.isConnected)body.replaceChildren(Object.assign(n('p',error.message),{className:'error'}),button('Retry loading',read));}
+  };
+  const remember=item.ontoggle;item.ontoggle=()=>{remember?.();read();};
+  if(item.open)read();
+  box.append(item);return box;
 }
 
 async function loadChanges(force=false){
@@ -2500,7 +2550,7 @@ async function loadChanges(force=false){
           const open=button('View current '+String(path),async()=>{open.disabled=true;content.replaceChildren(n('p','Reading current file…'));try{const data=await api(base+'&stage='+stage.index+'&file='+index);if(!file.isConnected||ticket!==evidenceRequest)return;content.replaceChildren(Object.assign(n('p','Current file contents · this file may have changed since the saved step.'),{className:'field-note'}),data.binary?n('p','Binary file. Text preview is unavailable.'):n('pre',data.text));if(data.truncated)content.append(n('p','Showing the first 192 KB.'));}catch(error){content.replaceChildren(Object.assign(n('p','Current file unavailable. It may have been removed or renamed.'),{className:'error'}));}finally{open.disabled=false;}},'text-button');file.append(open,content);files.append(file);
         }
         if(files.children.length)body.append(files);
-        if(result.text){const detail=card('','saved-diff-card'),pre=n('pre','');pre.className='diff-output';for(const line of result.text.split('\n'))pre.append(Object.assign(n('span',line||' '),{className:'diff-line '+(line.startsWith('+++')||line.startsWith('---')||line.startsWith('@@')||line.startsWith('diff ')?'header':line.startsWith('+')?'added':line.startsWith('-')?'removed':'')}));detail.append(n('h3','Saved diff'),pre);body.append(detail);}else body.append(Object.assign(n('p','No tracked diff in this snapshot. Newly created files can be read above.'),{className:'field-note'}));
+        if(result.text){const detail=card('','saved-diff-card');detail.append(n('h3','Saved diff'),diffOutput(result.text));body.append(detail);}else body.append(Object.assign(n('p','No tracked diff in this snapshot. Newly created files can be read above.'),{className:'field-note'}));
         if(result.truncated)body.append(Object.assign(n('p','Large snapshot: showing the first 192 KB. The full diff remains in the task folder.'),{className:'field-note'}));loaded=true;
       }catch(error){body.replaceChildren(Object.assign(n('p',error.message),{className:'error'}),button('Retry loading',read));}finally{loading=false;}};
       item.ontoggle=()=>{remember?.();read();};host.append(item);
