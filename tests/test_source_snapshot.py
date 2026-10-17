@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_source_snapshot as source
 import autocode_util as util
@@ -29,6 +30,25 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         return path
+
+    def test_git_inventory_and_head_fail_closed_with_an_actionable_pause(self):
+        original = util.snapshot(self.root)
+        config = (self.root / ".git/config").read_bytes()
+        real = subprocess.check_output
+        for command in ("ls-files", "rev-parse"):
+
+            def refuse(args, **kwargs):
+                if args[1] == command:
+                    raise subprocess.CalledProcessError(128, args, stderr=b"fatal: detected dubious ownership")
+                return real(args, **kwargs)
+
+            with self.subTest(command=command), mock.patch.object(util.subprocess, "check_output", side_effect=refuse):
+                with self.assertRaisesRegex(util.Paused, "dubious ownership") as held:
+                    util.snapshot(self.root)
+                self.assertEqual("PAUSED_SOURCE_UNAVAILABLE", held.exception.status)
+                self.assertIn("resume", str(held.exception))
+            self.assertEqual(config, (self.root / ".git/config").read_bytes())
+            self.assertEqual(original, util.snapshot(self.root))
 
     def test_ignored_deliverable_creation_edit_and_deletion_change_identity(self):
         paths = ["docs/checklist.md"]

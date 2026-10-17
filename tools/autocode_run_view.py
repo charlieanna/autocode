@@ -972,7 +972,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}
-        if active.get("output") and isinstance(active.get("iteration"), int):
+        # An inventory refusal leaves a retained result available for the usual
+        # reconciliation checks. It is not authority to discard or replay it.
+        if status != "PAUSED_SOURCE_UNAVAILABLE" and active.get("output") and isinstance(active.get("iteration"), int):
             attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"

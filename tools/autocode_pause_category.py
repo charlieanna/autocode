@@ -72,6 +72,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_PROCESS_CHECK",
                 "PAUSED_REGISTRY",
                 "PAUSED_RUN_BUSY",
+                "PAUSED_SOURCE_UNAVAILABLE",
                 "PAUSED_TOOL_CONTAINMENT",
                 "PAUSED_TRANSPORT_CHANGED",
                 "PAUSED_TRANSPORT_MIGRATION",
