@@ -2513,11 +2513,16 @@ function criterionChanges(run,criterion){
     body.replaceChildren(note('Saved Builder steps from this requirement’s plan milestones. This is attribution, not proof that the changes satisfy it.'));
     if(own.overlapping)body.append(note('Another requirement’s steps also changed some of these files, so a change shown here may serve either.'));
     if(data.reason)body.append(note(data.reason));
+    // A parallel batch is one step shared by several milestones; the others' files belong to their own requirements.
+    const mine=Array.isArray(own.files)?new Set(own.files.map(String)):null;
     for(const ident of steps){
       const step=data.steps?.[ident]||{},section=card('','criterion-step');section.dataset.criterionStep=ident;
-      section.append(n('h4',(step.label||'Saved step')+(step.milestone_id?' · milestone '+step.milestone_id:'')));
+      const served=(Array.isArray(step.milestones)?step.milestones:[]).filter(id=>typeof id==='string'),files=Array.isArray(step.files)?step.files:[];
+      section.append(n('h4',(step.label||'Saved step')+(served.length?' · milestones '+served.join(', '):step.milestone_id?' · milestone '+step.milestone_id:'')));
       if(step.reason)section.append(note(step.reason));
-      for(const file of Array.isArray(step.files)?step.files:[]){section.append(Object.assign(n('p',String(file.path)),{className:'criterion-file'}),file.text?diffOutput(file.text):note(file.reason||'Diff unavailable.'));}
+      const others=mine?files.filter(file=>!mine.has(String(file.path))):[];
+      if(others.length)section.append(note('Not shown, changed in this step for another milestone: '+others.map(file=>String(file.path)).join(', ')));
+      for(const file of files){if(others.includes(file))continue;section.append(Object.assign(n('p',String(file.path)),{className:'criterion-file'}),file.text?diffOutput(file.text):note(file.reason||'Diff unavailable.'));}
       body.append(section);
     }
     if(data.availability!=='available')body.append(runChanges());

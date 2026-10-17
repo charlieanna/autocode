@@ -20,9 +20,9 @@ PR template asks for an entry here; a change without one is incomplete.
   no code checkpoint, so `changes_by_criterion` attributed nothing to its milestones' requirements and their
   diffs were missing. The batch's integration is now one saved step whose `members` name each milestone with
   the files its Builder changed, and each requirement counts only its own member's files (#730).
-- `autocode review` showed every file of a shared parallel step under each of its requirements. Each
-  requirement now shows only the files its own milestone changed in that step, names the ones left out, and
-  the step names the milestones it served (#730).
+- `autocode review` and the dashboard's **Checks** pane showed every file of a shared parallel step under each
+  of its requirements. Each requirement now shows only the files its own milestone changed in that step, names
+  the ones left out, and the step names the milestones it served (#730).
 - A step held for no causal progress (a recovery novelty hold) now offers "Retry the held step once" on its
   recovery card, running the `--resume-paused --retry-failed-stage` that `needs.retry_action` names with the
   card's token. The dashboard could previously only inspect the AutoResolver request, so it could not grant
