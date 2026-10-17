@@ -1679,6 +1679,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#connections-for-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connections for clients
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2233,6 +2244,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#connections-for-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connections for clients
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2254,7 +2276,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/cee7bedd30a74910f6a3c702abbee847d5254315/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9a18b5cb521f5c14104692c0aa7fb0ef1f002556/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2546,7 +2568,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/cee7bedd30a74910f6a3c702abbee847d5254315/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/9a18b5cb521f5c14104692c0aa7fb0ef1f002556/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3679,6 +3701,36 @@ command's liveness. A legacy unbound marker or unavailable
 ownership remains held; status does not reconcile it, grant a retry or establish
 test success. Use the displayed supported recovery action and retain interrupted
 receipts separately from fresh verification.</p>
+<h2 id="connections-for-clients">Connections for clients<a class="headerlink" href="#connections-for-clients" title="Permanent link">&para;</a></h2>
+<p>Connection setup is a core interface alongside task runs. A client may read
+<code>autocode connections list --json</code> before starting a task. The version-1 object
+contains <code>connections</code>, each with <code>id</code>, <code>label</code>, <code>connection_status</code>, <code>detail</code>, and <code>actions</code>.
+An action has <code>id</code>, <code>label</code>, and <code>next_command</code>: an argument array following
+<code>autocode</code>, not shell text. Clients execute only offered actions. Listing reads
+user-level provider configuration and executable availability; it never launches
+models, reads credential stores, or runs backend commands.</p>
+<p><code>connections check --provider NAME --json</code> checks the backend without inference.
+Its result is one connection object. <code>credentials_present</code> means the backend
+reported credentials, not that every model, billing route or live task passed.
+Other statuses are <code>not_checked</code>, <code>unavailable</code>, <code>sign_in_required</code>, and
+<code>check_failed</code>. Status-command output and credential values are never returned.</p>
+<p><code>connections login --provider NAME</code> delegates interactive login to the backend
+in a terminal, inheriting its input and output. The core resolves the offered
+backend command again; the client supplies no credentials or executable. Login
+does not alter a task or start inference. After login the person checks again.
+A remote CLI wrapper must forward a terminal for interactive login (for example,
+a container transport needs a TTY). Connections are checked in the CLI's own
+execution environment, which may differ from the editor host.</p>
+<p>Changing a client's selected backend applies to new chats. Existing task actions
+use their saved provider, models and budgets. Backend-specific role overrides
+must not be copied onto a different backend.</p>
+<p>The always-present <code>autocode</code> connection advertises a <code>setup</code> action with
+<code>next_command=["connections", "setup"]</code>. Execute it interactively in a terminal,
+with no credential arguments or webview input. Its additional setup states are
+<code>setup_required</code> and <code>configured</code>; clients must not describe
+<code>configured</code> as authenticated live access. The core setup action neither chooses
+a client's default backend nor launches a model. Discovery reads its nonsecret
+metadata; an explicit check validates its private local credential setup.</p>
 
 
 
