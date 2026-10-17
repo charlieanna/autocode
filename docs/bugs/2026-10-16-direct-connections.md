@@ -1,5 +1,9 @@
 # AutoCode-owned direct connections (#1493)
 
+PR #1504 was merged externally before the required native/live qualification
+passed. See [the current qualification record](2026-10-17-kilo-live-qualification.md)
+for the remaining gate and subsequent live attempt.
+
 Connections previously required an installed coding-agent backend. The owner
 requested AutoCode setup and direct model access when Kilo/OpenCode are absent.
 This change adds an always-present AutoCode card, private terminal setup, direct

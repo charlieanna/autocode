@@ -37,7 +37,7 @@ def parser():
     check.add_argument("--json", action="store_true")
     login = actions.add_parser("login", help="Run the backend's own interactive sign-in in this terminal")
     login.add_argument("--provider", required=True)
-    actions.add_parser("setup", help="Configure AutoCode's direct API/Bedrock connection in this terminal")
+    actions.add_parser("setup", help="Configure AutoCode's MiMo/Z.ai/OpenAI/Claude API connection in this terminal")
     return result
 
 
