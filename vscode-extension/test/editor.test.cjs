@@ -146,6 +146,49 @@ test('approval stays disabled for missing, malformed or stale displayed plans', 
   assert.equal(ui.take().disabled, true);
 });
 
+test('chat recovery retry requires confirmation and keeps the exact job token out of argv', async (t) => {
+  const retry = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', reason: 'The Investigator stopped unexpectedly', job_retry_token: 'jr:exact-secret' },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=jr:exact-secret autocode --resume-paused --retry-failed-stage --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = await openChat(t, retry);
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const action = ui.document.querySelector('#take-action');
+  assert.equal(action.disabled, false);
+
+  action.click();
+  await flush();
+  assert.equal(prompt.mock.callCount(), 1);
+  assert.equal(launch.mock.callCount(), 0, 'declining the recovery confirmation must leave the stopped run untouched');
+
+  prompt.mock.mockImplementation(async () => 'Continue');
+  ui.document.querySelector('#take-action').click();
+  await flush();
+  assert.equal(prompt.mock.callCount(), 2);
+  assert.equal(launch.mock.callCount(), 1);
+  const [, args, env] = launch.mock.calls[0].arguments;
+  assert.ok(args.includes('--retry-failed-stage'));
+  assert.ok(args.includes('--job-retry-token'));
+  assert.ok(args.includes('-'));
+  assert.ok(!args.includes('jr:exact-secret'));
+  assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:exact-secret');
+});
+
+test('chat does not guess an unresolved recovery allowance', async (t) => {
+  const recovery = {
+    status: 'PAUSED_TIMEOUT_RECOVERY', done: false,
+    needs: { kind: 'resume', reason: 'Automatic timeout recoveries are exhausted' },
+    next_command: `autocode --resume-paused --grant-recovery N --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = await openChat(t, recovery);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  assert.match(ui.document.querySelector('#app').textContent, /leaves N open/);
+  assert.equal(ui.document.querySelector('#take-action'), null);
+  assert.equal(launch.mock.callCount(), 0);
+});
+
 test('a click on an old displayed plan cannot approve a newly fetched revision', async (t) => {
   const base = approvalView();
   const ui = await openPanel(t, base);
@@ -260,10 +303,11 @@ function chatView(base = approvalView(), kind = 'feedback', context = 'chat-1') 
   } };
 }
 
-async function openChat(t, initial, selected = run) {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+async function openChat(t, initial, selected = run, options = {}) {
+  if (!options.timersEnabled) t.mock.timers.enable({ apis: ['setInterval'] });
   let value = initial;
-  t.mock.method(controller, 'status', async () => structuredClone(value));
+  const chatController = options.controller || controller;
+  t.mock.method(chatController, 'status', async () => structuredClone(value));
   let receive;
   let visibility;
   const webview = {
@@ -272,14 +316,14 @@ async function openChat(t, initial, selected = run) {
     postMessage: async (data) => { webview.deliver?.(data); return true; },
   };
   const view = { visible: true, webview, onDidChangeVisibility: (callback) => { visibility = callback; }, onDidDispose() {} };
-  const saved = new Map();
-  const storage = { get: () => undefined, update: async (key, value) => { saved.set(key, value); } };
-  const chat = new ChatView(controller, storage, {
+  const saved = options.storageValues || new Map();
+  const storage = options.storage || { get: (key) => saved.get(key), update: async (key, value) => { saved.set(key, value); } };
+  let persisted = options.webviewState;
+  const chat = new ChatView(chatController, storage, {
     pickWorkspace: async () => run.workspace, confirmStart: async () => true, changed() {}, selected() {},
   });
   chat.resolveWebviewView(view);
   const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
-  let persisted;
   const sent = [];
   dom.window.acquireVsCodeApi = () => ({
     postMessage: (message) => { sent.push(message); receive(message); },
@@ -287,7 +331,8 @@ async function openChat(t, initial, selected = run) {
   });
   webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
   dom.window.eval(dom.window.document.querySelector('script').textContent);
-  chat.show(selected);
+  await flush();
+  if (selected !== false) chat.show(selected);
   await flush();
   t.after(() => { chat.dispose(); dom.window.close(); });
   return {
@@ -319,6 +364,29 @@ test('sidebar sends core-named feedback verbatim then continues, and retains the
   assert.ok(ui.document.querySelector('#messages').textContent.includes(text));
   assert.equal(ui.document.querySelectorAll('script').length, 1);
   assert.equal(ui.document.querySelectorAll('#messages b').length, 0);
+});
+
+test('chat approval uses the displayed plan token and advances only when the core offers continue', async (t) => {
+  const ui = await openChat(t, approvalView());
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Approve and build');
+  const launch = t.mock.method(cli, 'stream', async (_options, args) => {
+    if (args.includes('--approve-goal')) {
+      ui.setView({ status: 'RUNNING', done: false, needs: { kind: 'continue' } });
+    } else {
+      ui.setView({ status: 'PAUSED', done: false, needs: { kind: 'resume', reason: 'The core reached a person-only stop' } });
+    }
+    return ok;
+  });
+
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 2);
+  const [, approveArgs, approveEnv] = launch.mock.calls[0].arguments;
+  assert.ok(approveArgs.includes('--approve-goal'));
+  assert.equal(approveEnv.AUTOCODE_APPROVE_GOAL_TOKEN, 'r1:abc');
+  assert.ok(!approveArgs.includes('r1:abc'));
+  assert.ok(launch.mock.calls[1].arguments[1].includes('--no-chat'));
+  assert.equal(ui.document.querySelector('#send-message').disabled, true, 'a later person-only stop is not bypassed');
 });
 
 test('stale chat submission is rejected and preserves the unsent draft', async (t) => {
@@ -362,7 +430,37 @@ test('chat drafts survive polling, hidden view restoration and switching runs', 
   ui.type('other run draft');
   ui.chat.show(run); await flush();
   assert.equal(field.value, 'a draft for this run');
-  assert.equal(ui.saved.get('autocode.chat.run').runDir, run.runDir);
+  assert.equal(ui.webviewState.selectedRun.runDir, run.runDir);
+  assert.equal(ui.saved.get('autocode.chat.run'), undefined, 'selected runs no longer race through workspace state');
+});
+
+test('separate VS Code windows keep independent selected tasks and drafts', async (t) => {
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-window' };
+  const workspaceValues = new Map([['autocode.chat.run', run]]);
+  const workspaceStorage = {
+    get: (key) => workspaceValues.get(key),
+    update: async (key, value) => { workspaceValues.set(key, value); },
+  };
+  const firstController = new RunController(host.log);
+  const secondController = new RunController(host.log);
+  const first = await openChat(t, chatView(), run, { storage: workspaceStorage, controller: firstController });
+  const second = await openChat(t, chatView(), other, { storage: workspaceStorage, controller: secondController, timersEnabled: true });
+
+  first.type('Draft for the first VS Code window');
+  second.type('Draft for the second VS Code window');
+  assert.deepEqual(first.webviewState.selectedRun, run);
+  assert.deepEqual(second.webviewState.selectedRun, other);
+  assert.equal(first.webviewState.drafts[`${run.workspace}\n${run.runDir}`], 'Draft for the first VS Code window');
+  assert.equal(second.webviewState.drafts[`${other.workspace}\n${other.runDir}`], 'Draft for the second VS Code window');
+  assert.equal(workspaceValues.get('autocode.chat.run'), undefined);
+
+  const restoredFirst = await openChat(t, chatView(), false, {
+    storage: workspaceStorage, controller: new RunController(host.log), webviewState: first.webviewState, timersEnabled: true,
+  });
+  assert.deepEqual(restoredFirst.chat.run, run);
+  assert.equal(restoredFirst.document.querySelector('#message').value, 'Draft for the first VS Code window');
+  assert.deepEqual(second.chat.run, other);
+  assert.equal(second.document.querySelector('#message').value, 'Draft for the second VS Code window');
 });
 
 test('composer model, variant and usage update on polling without losing the draft or open breakdown', async (t) => {
@@ -474,7 +572,7 @@ test('history replaces chat instead of splitting the sidebar and returning prese
   assert.deepEqual(visible(), ['autocode.chat']);
   assert.equal(focused, 'autocode.chat');
   assert.equal(ui.document.querySelector('#message').value, 'Keep this unsent plan feedback');
-  assert.deepEqual(ui.saved.get('autocode.chat.run'), run);
+  assert.deepEqual(ui.webviewState.selectedRun, run);
   assert.equal(launch.mock.callCount(), 0, 'browsing history must never advance a run');
 });
 
