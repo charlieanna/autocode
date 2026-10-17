@@ -476,6 +476,12 @@ test('sidebar sends core-named feedback verbatim then continues, and retains the
 
 test('chat approval uses the displayed plan token and advances only when the core offers continue', async (t) => {
   const ui = await openChat(t, approvalView());
+  const planText = ui.document.querySelector('#app').textContent;
+  for (const expected of ['Review your plan', 'Preserve user data', 'Run migration test', 'This needs your review.', 'Never delete the original data', 'Only edit app.py']) {
+    assert.ok(planText.includes(expected), expected);
+  }
+  assert.ok(!planText.includes('Plan the approval is bound to'));
+  assert.ok(!planText.includes('Human review: not required'));
   assert.equal(ui.document.querySelector('#take-action').textContent, 'Approve and build');
   const launch = t.mock.method(cli, 'stream', async (_options, args) => {
     if (args.includes('--approve-goal')) {
