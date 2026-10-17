@@ -480,11 +480,13 @@ test('chat approval uses the displayed plan token and advances only when the cor
   approval.pause_category_label = 'Your decision';
   const ui = await openChat(t, approval);
   const planText = ui.document.querySelector('#app').textContent;
-  for (const expected of ['Review your plan', 'Preserve user data', 'Run migration test', 'This needs your review.', 'Never delete the original data', 'Only edit app.py']) {
+  for (const expected of ['Plan to approve', 'Preserve user data', 'You check this one yourself', 'Never delete the original data', 'Only edit app.py']) {
     assert.ok(planText.includes(expected), expected);
   }
   assert.ok(!planText.includes('Plan the approval is bound to'));
   assert.ok(!planText.includes('Human review: not required'));
+  assert.ok(!planText.includes('Run migration test'));
+  assert.ok(!planText.includes('Compare export fixture'));
   assert.ok(!planText.includes('I couldn’t finish this step.'));
   assert.ok(!planText.includes('Open Run details to see what needs attention.'));
   assert.equal(ui.document.querySelector('#take-action').textContent, 'Approve and build');
@@ -526,7 +528,7 @@ test('chat shows the plan to approve in plain words, without revision, criterion
   assert.equal(ui.document.querySelector('#take-action').disabled, false);
 });
 
-test('chat lists review criteria and open problems without their internal IDs', async (t) => {
+test('chat shows review criteria but keeps internal problem diagnostics out of the conversation', async (t) => {
   const ui = await openChat(t, { ...chatView(), status: 'WAITING_FOR_USER',
     needs: { kind: 'review', criteria: [{ id: 'AC7', criterion: 'Export matches the saved fixture' }] },
     progress: { headline: 'Review output', problems: { items: [
@@ -535,7 +537,8 @@ test('chat lists review criteria and open problems without their internal IDs', 
   });
   const text = ui.document.querySelector('#app').textContent;
   assert.ok(text.includes('Export matches the saved fixture'));
-  assert.ok(text.includes('Export drops the header row'));
+  assert.ok(!text.includes('Export drops the header row'));
+  assert.ok(!text.includes('Open problems'));
   assert.ok(!text.includes('AC7'), 'criterion ID shown in chat');
   assert.ok(!text.includes('F12'), 'finding ID shown in chat');
 });
