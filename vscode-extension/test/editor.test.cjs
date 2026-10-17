@@ -756,7 +756,7 @@ test('requirements chat streams replies without an empty task dashboard and keep
 });
 
 test('requirements approval sends only the core-offered answer and never approves a build', async (t) => {
-  const value = { status: 'WAITING_FOR_USER', done: false, needs: { kind: 'answer', resolver_token: 'bound-summary',
+  const value = { status: 'WAITING_FOR_USER', done: false, pause_category: 'your_decision', pause_category_label: 'Your decision', needs: { kind: 'answer', resolver_token: 'bound-summary',
     questions: [{ id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' }] },
     next_command: `autocode --answer requirements-review-current=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
     chat: { phase: 'requirements', context: 'summary', input: null,
@@ -764,6 +764,7 @@ test('requirements approval sends only the core-offered answer and never approve
       messages: [{ id: 'summary', role: 'assistant', text: 'A personal reading list. Is that right?' }] },
   };
   const ui = await openChat(t, value);
+  assert.equal(ui.document.querySelectorAll('#app h1, #app h2, #app input').length, 0);
   const launch = t.mock.method(cli, 'stream', async () => ok);
   const approve = [...ui.document.querySelectorAll('#app button')].find((button) => button.textContent.includes('Approve understanding'));
   approve.click(); await flush(); await flush();

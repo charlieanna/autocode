@@ -465,7 +465,8 @@ function render(state) {
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
-  if (chatMode && state.chat && state.chat.phase === 'requirements' && !state.gap && !state.pause) {
+  if (chatMode && state.chat && state.chat.phase === 'requirements' && !state.gap
+      && (!state.pause || state.needKind === 'answer')) {
     // The conversation carries the questions. Operational details remain in
     // Run details, and approval is the exact answer offered by the core.
     if (state.chat.review) {
