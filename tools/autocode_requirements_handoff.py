@@ -24,11 +24,13 @@ try:
     from . import autocode_project_memory_lifecycle as project_memory
     from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
+    from . import autocode_technical_questions as technical_questions
 except ImportError:
     import autocode_goals as goals
     import autocode_project_memory_lifecycle as project_memory
     import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
+    import autocode_technical_questions as technical_questions
 
 
 def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
@@ -65,5 +67,9 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
     project_memory.capture(state, value)
+    remaining = technical_questions.settle(state, questions, "requirements:" + goals.handoff_ref(state))
+    if len(remaining) != len(questions):
+        run_status.running(state, "DISCOVERING", next_stage="requirements_gather", discovery_summary=value["summary"])
+        return
     run_status.running(state, "PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"])
     requirements_review.wait(state, record, queue)

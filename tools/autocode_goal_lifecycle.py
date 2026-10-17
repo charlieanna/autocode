@@ -17,10 +17,12 @@ try:
     from . import autocode_component_plan as component_plan
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
+    from . import autocode_technical_questions as technical_questions
 except ImportError:
     import autocode_component_plan as component_plan
     import autocode_roles as roles
     import autocode_source_scope as source_scope
+    import autocode_technical_questions as technical_questions
 
 
 import copy
@@ -286,6 +288,10 @@ def apply_requirements(state: RunState, body, *, artifact_sha256, record=None):
     state["pending_questions"] = []
     state.pop("user_request", None)
     questions = copy.deepcopy(body["open_blocking_questions"])
+    remaining = technical_questions.settle(state, questions, state["requirements_artifact_token"])
+    if len(remaining) != len(questions):
+        state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": "requirements"})
+        return
     if questions:
         record = record or {}
         origin = {
@@ -378,6 +384,21 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     joint = state.get("settings", {}).get("joint_planning")
     if not queue_human:
         return
+    remaining = technical_questions.settle(state, questions, token(contract))
+    if len(remaining) != len(questions):
+        contract["body"]["open_blocking_questions"] = copy.deepcopy(remaining)
+        contract["hash"] = s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+        questions = remaining
+        if not questions:
+            # The default is planning input, never a ready or approved plan.
+            state.update(
+                {
+                    "status": "RUNNING",
+                    "phase": "DISCOVERING",
+                    "next_stage": "requirements" if roles.planning_flow(state) == "v2" else "astra_discovery",
+                }
+            )
+            return
     if (
         joint
         and not questions

@@ -231,6 +231,14 @@ stop. A question refresh also supplies its `question_id` and current
 `resolver_token`; exact answer and operational-recovery rules still apply.
 Stale revisions, conflicting request IDs and stale question tokens are refused.
 
+During joint planning, technical decisions with a proposed default are resolved internally and
+sent through drafting and review again. They are retained as `user_events` receipts with
+`actor=autocode` and `kind=technical_decision`, outside the human `answers` ledger and chat history.
+They cannot authorize a protected contract change or approve a plan. Genuine questions about the
+requested outcome, behavior, cost, permissions or side effects still require a human answer, as do
+unresolved facts and rejected assumptions. A repeated identical technical question goes to report
+repair instead of another planning loop. Non-joint runs keep their existing question path.
+
 `handoff_conversation(expected_revision=..., expected_plan_token=...)` records the
 reviewed current draft's handoff to that same run. It does not approve the plan or
 start a second task. Read the current plan and use the separate `approve_plan()`

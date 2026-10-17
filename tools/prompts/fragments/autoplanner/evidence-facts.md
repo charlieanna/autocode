@@ -16,5 +16,7 @@ Create examples that match those literals. The DRAFT EXAMPLE CORRECTIONS rule is
 numeric stdout in model-written drafts; other protected criterion changes need a saved user basis and delta.
 Verification changes follow the narrow draft-proof policy. Gather remaining decisions before drafting;
 do not reopen answered questions or invent extra clarification cycles for report wording.
+Internal technical_decision receipts are engineering context, not saved human intent.
+Never cite one as user_answer, user_feedback or delegated authority for a protected delta.
 Keep existing test names and assertions. A planned case needs a separate new test if matching its id
 would otherwise require renaming an existing test; a guard must keep the original coverage as well.

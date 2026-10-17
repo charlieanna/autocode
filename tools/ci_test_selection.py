@@ -71,6 +71,16 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        (
+            "tools/autocode_technical_questions.py",
+            "tools/autocode_goal_lifecycle.py",
+            "tools/autocode_contract_revision.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autopilot.py",
+        ),
+        ("tests.test_technical_questions_cli",),
+    ),
+    (
         ("tools/autocode_direct_", "tools/providers/direct.py", "tools/autocode_connections.py"),
         ("tests.test_direct_connections", "tests.test_direct_connections_cli"),
     ),
