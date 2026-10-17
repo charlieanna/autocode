@@ -70,6 +70,7 @@ export function activate(context: vscode.ExtensionContext): void {
     chat,
     vscode.window.registerWebviewViewProvider("autocode.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),
     vscode.window.createTreeView("autocode.runs", { treeDataProvider: runs, showCollapseAll: true }),
+    vscode.commands.registerCommand("autocode.showChat", () => chat.focus()),
     vscode.commands.registerCommand("autocode.startRun", async () => {
       chat.show();
     }),

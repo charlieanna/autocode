@@ -15,7 +15,7 @@ reuse, not a fork of Kilo's provider/runtime or a claim of complete UI parity.
 
 Focused checks on this change:
 
-- `npm test` in `vscode-extension`: 58 passed, including controller/webview chat,
+- `npm test` in `vscode-extension`: 59 passed, including controller/webview chat,
   stale approval, same-run follow-up, Markdown safety, reading-position retention,
   composer sizing, local undo and IME/newline behavior.
 - `npm run typecheck` and `npm run build`: passed.
@@ -66,6 +66,15 @@ approval tokens, never literal tokens on the command line.
 
 This public-contract fixture is deterministic editor evidence. The separate Linux
 CLI test establishes real core behavior; neither establishes live-model success.
+
+The owner's follow-up layout report exposed a split-pane problem: the always-open
+Runs pane reserved the lower half of the sidebar, placing the composer near the
+middle of the window. Chat and History now occupy the sidebar one at a time.
+In the actual VS Code host, the composer stayed at the bottom after reloading;
+History replaced the conversation, and Back to Chat restored its unsent draft.
+A navigation regression verifies that only one pane is visible and browsing
+history never advances a run. Extension tests, typecheck and build passed for
+this UI-only follow-up; no additional live-model run was needed for the layout.
 
 ## Live token-plan attempt
 

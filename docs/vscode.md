@@ -10,9 +10,10 @@ reads `state.json`.
 ## Chat in the sidebar
 
 Open **AutoCode → Chat**, type a request, and press Enter. Shift+Enter adds a
-newline. **New chat** starts another conversation; **History** focuses the Runs
-list so you can reopen one. The selected conversation and each unsent draft
-survive reopening VS Code.
+newline. Chat fills the sidebar, keeping the composer at the bottom. **New chat**
+starts another conversation; **History** switches to the Runs list so you can
+reopen one. **Back to Chat** returns to the current conversation and its draft.
+The selected conversation and each unsent draft survive reopening VS Code.
 
 The thread shows your messages, saved answers and completed-turn replies, with
 Markdown and code blocks for assistant replies. A fixed composer grows with your

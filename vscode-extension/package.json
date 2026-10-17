@@ -30,16 +30,24 @@
           "id": "autocode.chat",
           "name": "Chat",
           "type": "webview",
+          "when": "!autocode.showHistory",
           "contextualTitle": "AutoCode chat"
         },
         {
           "id": "autocode.runs",
           "name": "Runs",
+          "when": "autocode.showHistory",
           "contextualTitle": "AutoCode runs"
         }
       ]
     },
     "commands": [
+      {
+        "command": "autocode.showChat",
+        "title": "Back to Chat",
+        "category": "AutoCode",
+        "icon": "$(arrow-left)"
+      },
       {
         "command": "autocode.startRun",
         "title": "New Chat",
@@ -93,6 +101,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "autocode.showChat",
+          "when": "view == autocode.runs",
+          "group": "navigation@0"
+        },
         {
           "command": "autocode.startRun",
           "when": "view == autocode.runs",

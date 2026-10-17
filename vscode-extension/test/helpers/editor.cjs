@@ -64,7 +64,7 @@ function editor() {
     try { return require(path.resolve(__dirname, '../../out-test/src', name)); }
     finally { Module._load = original; }
   }
-  return { config, commands, panels, providers, workspaceState, errors, log, load };
+  return { config, commands, panels, providers, workspaceState, errors, log, load, vscode };
 }
 
 module.exports = { editor, flush: () => new Promise((resolve) => setImmediate(resolve)) };

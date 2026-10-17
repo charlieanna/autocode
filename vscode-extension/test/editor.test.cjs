@@ -364,6 +364,36 @@ test('chat drafts survive polling, hidden view restoration and switching runs', 
   assert.equal(ui.saved.get('autocode.chat.run').runDir, run.runDir);
 });
 
+test('history replaces chat instead of splitting the sidebar and returning preserves the draft', async (t) => {
+  const contexts = new Map();
+  const views = require('../package.json').contributes.views.autocode;
+  const visible = () => views.filter((view) => {
+    if (!view.when) return true;
+    return view.when.startsWith('!') ? !contexts.get(view.when.slice(1)) : !!contexts.get(view.when);
+  }).map((view) => view.id);
+  let focused;
+  t.mock.method(host.vscode.commands, 'executeCommand', async (command, key, value) => {
+    if (command === 'setContext') contexts.set(key, value);
+    else if (command.endsWith('.focus')) {
+      focused = command.slice(0, -'.focus'.length);
+      assert.ok(visible().includes(focused), 'make the view visible before focusing it');
+    }
+  });
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const ui = await openChat(t, chatView());
+  ui.type('Keep this unsent plan feedback');
+  assert.deepEqual(visible(), ['autocode.chat']);
+  ui.document.querySelector('#history').click(); await flush();
+  assert.deepEqual(visible(), ['autocode.runs']);
+  assert.equal(focused, 'autocode.runs');
+  await ui.chat.focus();
+  assert.deepEqual(visible(), ['autocode.chat']);
+  assert.equal(focused, 'autocode.chat');
+  assert.equal(ui.document.querySelector('#message').value, 'Keep this unsent plan feedback');
+  assert.deepEqual(ui.saved.get('autocode.chat.run'), run);
+  assert.equal(launch.mock.callCount(), 0, 'browsing history must never advance a run');
+});
+
 test('new chat shows the selected run while its first provider call is still pending', async (t) => {
   const ui = await openChat(t, null, undefined);
   ui.chat.show(); await flush();

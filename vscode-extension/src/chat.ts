@@ -61,9 +61,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.readError = "";
     void this.storage.update("autocode.chat.run", run);
     if (run) this.actions.selected(run);
-    void vscode.commands.executeCommand("autocode.chat.focus");
+    void this.focus();
     this.post();
     void this.refresh();
+  }
+
+  async focus(): Promise<void> {
+    await vscode.commands.executeCommand("setContext", "autocode.showHistory", false);
+    await vscode.commands.executeCommand("autocode.chat.focus");
   }
 
   dispose(): void { clearInterval(this.timer); }
@@ -97,7 +102,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private async receive(message: ChatMessage): Promise<void> {
-    if (message.type === "history") { await vscode.commands.executeCommand("autocode.runs.focus"); return; }
+    if (message.type === "history") {
+      await vscode.commands.executeCommand("setContext", "autocode.showHistory", true);
+      await vscode.commands.executeCommand("autocode.runs.focus");
+      return;
+    }
     if (message.type === "details") { if (this.run) await vscode.commands.executeCommand("autocode.openDetails", this.run); return; }
     if (message.type === "ready" || message.type === "refresh") { await this.refresh(); return; }
     if (message.type === "new") { if (!this.starting) this.show(); return; }
