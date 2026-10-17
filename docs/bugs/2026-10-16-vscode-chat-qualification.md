@@ -106,10 +106,25 @@ survives draft edits, polling and webview recreation in the regression test.
 
 The latest expansion lists every configured role and separately groups actual
 attempts by job, model, provider and variant. It retains older models after a
-route change and does not imply that an unstarted role has run. The current
-editor window is running an earlier extension build with a live task; the new
-all-role layout has deterministic renderer coverage but its native editor recheck
-is still pending. No new paid run was needed for these display-only changes.
+route change and does not imply that an unstarted role has run.
+
+The owner then requested updating the open editor while preserving its chat.
+The deployed UI uses runtime revision `62ba45078cc95a2bfb3c91657170cce3a86ab916`
+with the open demo's local controller and read-only polling fixes preserved.
+That combined deployment passed 72 extension tests, typecheck and build. The
+additive model/progress projections were updated in the demo's CLI; existing
+requirements-flow edits and saved run data were preserved. Original deployment
+files were backed up under ignored scenario artifacts.
+
+In the actual Extension Development Host, History reopened the same conversation
+`20261017-192528-vscode-5b9bed` with its original `hi` message and pending
+Requirements question. The expanded panel exposed all eight configured roles,
+full GLM/MiMo model IDs, Kilo provider, high/medium variants, recorded model
+history, 68,263 tokens and a $0.0376 historical estimate. The composer remained at
+the bottom. Before/after public status snapshots had identical chat messages and
+`WAITING_FOR_USER` status. No message, approval, retry or model launch was issued.
+This verifies the new UI on the preserved chat; it does not qualify the separate
+local controller changes or establish a successful live build/test/completion run.
 
 ## Live token-plan attempt
 
