@@ -614,8 +614,10 @@ function assertM2Scenario(name, viewport) {
       assert.equal(facts.state.visibleText, 'Interrupted · saved work preserved');
       assert.match(facts.step.visibleText, /^Last confirmed step · /);
       assert.doesNotMatch(facts.step.visibleText, /^(?:Next step|Authoritative completion recorded)/);
-      assert.match(data('()=>document.querySelector("#now")?.textContent||""'), /Review recovery → Inspect interrupted attempt → Recover saved work → Resume separately/);
+      assert.match(data('()=>document.querySelector("#now")?.textContent||""'), /Review recovery → Inspect this saved pause → Recover saved work → Resume separately/);
       assert.equal(task.primaryActions[0].label, 'Review recovery');
+      // Recovery comes only from the runner's card, bound to this saved pause (#730).
+      assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(button=>button.dataset.recoveryAction)'), ['inspect','abandon','feedback']);
     }
     if (name === 'completed') {
       assert.equal(facts.state.visibleText, 'Completed · recorded evidence');
@@ -1065,26 +1067,32 @@ function assertM2Scenario(name, viewport) {
       freshBrowserSession('recovery-'+viewport.name);
       openFlowScenario(info, 'flow-recovery-'+viewport.name, viewport, 'Recover the interrupted build');
       browser('click', '#continue-run');
-      waitForCondition('document.querySelector("#task-attention")?.textContent.includes("Review recovery")', viewport.name + ' recovery review');
-      const recoveryBefore=data('()=>({order:document.querySelector("#task-attention").textContent,inspectionOpen:document.querySelector("#task-attention details")?.open,action:[...document.querySelectorAll("#task-attention button")].map(button=>({label:button.textContent.trim(),disabled:button.disabled,description:button.getAttribute("aria-describedby")}))})');
-      assert.match(recoveryBefore.order, /Review recovery.*Inspect interrupted attempt.*Recover saved work.*Resume separately/s, viewport.name+' recovery presents the required ordered inspection path');
-      assert.equal(recoveryBefore.inspectionOpen, false, viewport.name+' recovery starts with the interrupted-attempt evidence closed');
-      assert.deepEqual(recoveryBefore.action, [{label:'Recover saved work',disabled:true,description:'recovery-inspection-required'}], viewport.name+' recovery cannot bypass inspection or resume work');
+      // Recovery runs only from the runner's card, bound to this saved pause (#730).
+      const abandon='#task-attention [data-recovery-action=abandon]',inspection='#task-attention details[data-recovery-inspection]';
+      waitForCondition('!!document.querySelector('+JSON.stringify(abandon)+')', viewport.name + ' recovery card');
+      const recoveryBefore=data('()=>({order:document.querySelector("#now").textContent,inspectionOpen:document.querySelector('+JSON.stringify(inspection)+')?.open,action:[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(button=>({label:button.textContent.trim(),disabled:button.disabled,description:button.getAttribute("aria-describedby")}))})');
+      assert.match(recoveryBefore.order, /Review recovery.*Inspect this saved pause.*Recover saved work.*Resume separately/s, viewport.name+' recovery presents the required ordered inspection path');
+      assert.equal(recoveryBefore.inspectionOpen, false, viewport.name+' recovery starts with the saved pause evidence closed');
+      assert.deepEqual(recoveryBefore.action, [
+        {label:'Inspect saved work',disabled:false,description:'recovery-effect-inspect'},
+        {label:'Recover saved work',disabled:true,description:'recovery-effect-abandon recovery-card-inspection'},
+        {label:'Explain what should change',disabled:false,description:'recovery-effect-feedback'},
+      ], viewport.name+' recovery cannot bypass inspection or resume work');
       // Same bridge limitation as the recovery action below: the chat column
       // scrolls its own transcript, so dispatch the native summary activation
       // instead of letting a coordinate click miss the folded disclosure.
-      data('()=>{const summary=document.querySelector("#task-attention summary");if(summary)summary.click();return true;}');
-      waitForCondition('document.querySelector("#task-attention details")?.open&&document.querySelector("#task-attention button")?.disabled===false', viewport.name + ' recovery inspection');
-      const inspected=data('()=>({open:document.querySelector("#task-attention details")?.open,evidence:document.querySelector("#task-attention details")?.innerText,action:document.querySelector("#task-attention button")?.textContent.trim(),disabled:document.querySelector("#task-attention button")?.disabled})');
-      assert.equal(inspected.open, true, viewport.name+' explicit inspection opens the saved interrupted attempt');
-      assert.match(inspected.evidence, /req_autocode_20260922_141233_7f4a91/, viewport.name+' inspection exposes the matching saved attempt evidence');
+      data('()=>{const summary=document.querySelector('+JSON.stringify(inspection+' summary')+');if(summary)summary.click();return true;}');
+      waitForCondition('document.querySelector('+JSON.stringify(inspection)+')?.open&&document.querySelector('+JSON.stringify(abandon)+')?.disabled===false', viewport.name + ' recovery inspection');
+      const inspected=data('()=>({open:document.querySelector('+JSON.stringify(inspection)+')?.open,evidence:document.querySelector('+JSON.stringify(inspection)+')?.innerText,action:document.querySelector('+JSON.stringify(abandon)+')?.textContent.trim(),disabled:document.querySelector('+JSON.stringify(abandon)+')?.disabled})');
+      assert.equal(inspected.open, true, viewport.name+' explicit inspection opens the saved pause');
+      assert.match(inspected.evidence, /builder-01/, viewport.name+' inspection exposes the matching saved attempt evidence');
       assert.equal(inspected.action, 'Recover saved work');assert.equal(inspected.disabled, false);
       // The recovery action follows an expanded disclosure and can sit below
       // the clipped viewport in the compact layouts. Dispatch the native
       // button activation in the rendered page so this still exercises the
       // exact UI handler and POST, rather than letting the automation
       // bridge's coordinate target silently miss an enabled control.
-      data('()=>{const control=document.querySelector("#task-attention button");if(!control||control.disabled)throw Error("Recover saved work must be enabled after inspection");control.click();return true;}');
+      data('()=>{const control=document.querySelector('+JSON.stringify(abandon)+');if(!control||control.disabled)throw Error("Recover saved work must be enabled after inspection");control.click();return true;}');
       // The recovered status can precede the finished action receipt and
       // submitTaskAction clearing its pending state. Require both before
       // activating the rendered, enabled separate Resume task action.

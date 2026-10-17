@@ -405,9 +405,6 @@ button.destructive:focus-visible,button.destructive[data-focus-visible-test],.re
 .completion-record [data-completion-timestamp]{margin:0;color:var(--text-primary);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
 .completion-record[data-completion-record-state=invalid]{border-color:var(--border-control)}
 .recovery-order,.completion-evidence{margin:var(--space-16) 0 0;padding:var(--space-12) var(--space-16);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-subtle);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
-.recovery-sequence{display:grid;gap:var(--space-8);margin:var(--space-12) 0;padding:0;list-style:none;counter-reset:recovery}
-.recovery-sequence li{display:flex;gap:var(--space-8);align-items:center;min-height:32px;counter-increment:recovery}
-.recovery-sequence li::before{content:counter(recovery);display:inline-grid;place-items:center;width:22px;height:22px;border:1px solid var(--border-control);border-radius:50%;font-size:11px;font-weight:700;flex:none}
 .answer-safety{display:grid;gap:var(--space-8);margin:0 0 var(--space-16);padding:var(--space-16);border:1px solid var(--border-subtle);border-left:3px solid var(--accent-primary);border-radius:var(--radius-10);background:var(--state-running);font-size:13px;line-height:1.6}
 .answer-safety p{margin:0}
 .answer-safety .monitor-kicker{color:var(--text-secondary);font-size:11px;font-weight:700;letter-spacing:.06em}

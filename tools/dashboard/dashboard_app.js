@@ -894,7 +894,7 @@ function monitorPanel(run) {
     const detail=disclosure('Read complete objective','objective:'+run.run,[n('p',facts.objective)],run.run);
     detail.className='monitor-objective-detail';detail.dataset.taskFactDetail='objective';host.append(detail);
   }
-  if(info.label==='Interrupted')host.append(Object.assign(n('p','Recovery order: Review recovery → Inspect interrupted attempt → Recover saved work → Resume separately.',),{className:'recovery-order'}));
+  if(info.label==='Interrupted')host.append(Object.assign(n('p','Recovery order: Review recovery → Inspect this saved pause → Recover saved work → Resume separately.',),{className:'recovery-order'}));
   if(info.group==='complete')host.append(completionRecord(run),Object.assign(n('p','No reply needed. '+completionEvidenceStatement(run)),{className:'completion-evidence'}));
   return host;
 }
@@ -2703,7 +2703,7 @@ function taskDecision(run,busy=false){
   if(info.label==='Review output')return result('Review the finished work',info.reason,'Open Checks, inspect the evidence and approve each requested item. Then choose Finish task to run the final completion check.',true);
   if(info.group==='attention')return result('Your decision is needed',info.reason,'Open Conversation and reply to the current request. Your reply does not approve a new plan revision.',true);
   if(action.kind==='recover'&&run.interventions?.recovery?.version===1)return result(run.interventions.recovery.title,run.interventions.recovery.what_happened,'Inspect the saved checkpoint in chat and choose its specific next action.',true);
-  if(action.kind==='recover')return result('Review the interrupted attempt',info.reason,'Choose Review recovery above, inspect the saved attempt, then Recover saved work. Resume is a separate action.',true);
+  if(action.kind==='recover')return result('Review the interrupted attempt',info.reason,'Refresh to load the recovery card for this saved attempt. Saved work is kept and nothing resumes automatically.',true);
   if(info.label==='Planning needs retry')return result('Retry the planning step',info.reason,'Retry planning requests a new draft. You will review the final plan before approving it.');
   if(info.label==='Internally blocked')return result('Internal failure needs repair',info.reason,'Inspect the saved failure in Checks, correct its cause, then retry the saved step. No approval is requested.');
   if(info.label==='Ready to finish')return result('Your review is saved','All requested review items have an approval for the current result.','Choose Finish task above to run the final completion check.');
@@ -3162,21 +3162,8 @@ function renderTaskAttention(run){
   const attempt=interruptedAttempt(run),paused=/PAUSED|BLOCKED|FAILED/.test(run.status||'');
   const busy=taskActionBusy(run),last=(run.actions||[]).at(-1);
   if(paused&&run.stop_reason&&run.stop_reason!==next.reason)host.append(disclosure('Saved pause details','pause-reason',[n('p',run.stop_reason)],run.run));
-  if(attempt){
-    host.append(n('p','Recovery preserves saved work and never resumes it automatically.'));
-    const order=n('ol','recovery-sequence');
-    for(const step of ['Review recovery','Inspect interrupted attempt','Recover saved work','Resume separately'])order.append(n('li',step));
-    host.append(order);
-    const stage=run.active_stage||{},evidence={attempt,stage:stage.stage,started_at:stage.started_at,finished_at:stage.finished_at,exit_code:stage.exit_code,events:stage.events,output:stage.output};
-    const inspection=disclosure('Inspect interrupted attempt','recovery:'+attempt,[renderDocument(evidence)],run.run);
-    host.append(inspection);
-    const gate=n('p','Inspect the saved interrupted attempt before recovering saved work. Recovery does not resume the task.');
-    gate.id='recovery-inspection-required';gate.className='field-note';host.append(gate);
-    const recover=focusKey(button('Recover saved work',()=>submitTaskAction(run,'recover_stage',{attempt_id:attempt})), 'recover:'+run.run+':'+attempt);
-    recover.setAttribute('aria-describedby',gate.id);
-    const updateRecoveryGate=()=>{recover.disabled=busy||run.interventions?.mode==='unavailable'||!inspection.open;};
-    inspection.addEventListener('toggle',updateRecoveryGate);updateRecoveryGate();host.append(recover);
-  }else if(next.label==='Internally blocked'){
+  if(attempt){host.append(n('p','Refresh to load the recovery card for this saved attempt. Saved work is kept and nothing resumes automatically.'));}
+  else if(next.label==='Internally blocked'){
     host.append(n('p','Inspect the saved failure and correct its cause before retrying.'));
     const retry=button('Retry saved step',()=>submitTaskAction(run,'continue'),'text-button');
     retry.disabled=busy||run.interventions?.mode==='unavailable';host.append(retry);

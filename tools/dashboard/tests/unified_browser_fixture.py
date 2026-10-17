@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import autocode_recovery_view as recovery_view
 import autocode_verification_view as verification_view
 from agent_console import CODEX_DEFAULT_MODELS, Console, Handler, LoopbackHTTPServer, resolver_human
 from dashboard_setup import conversation_model_fields
@@ -230,6 +231,29 @@ def base_state(workspace, task, *, status, stage="terra", role="terra"):
     return state
 
 
+UNCERTAIN_STATUSES = ("PAUSED_PROVIDER_UNCERTAIN", "PAUSED_UNCERTAIN_STAGE")
+
+
+def fixture_recovery(state):
+    """The runner's own recovery card for a disposable interrupted attempt (#730).
+
+    The saved specimen omits its live stage, so project the card from the
+    interrupted Builder attempt the fixture records instead of hand-writing one.
+    """
+    attempt = state.get("_fixture_attempt")
+    if not attempt or state.get("status") not in UNCERTAIN_STATUSES:
+        return None
+    iteration, stem = attempt.split("/", 1)
+    interrupted = {
+        "stage": "terra",
+        "role": "terra",
+        "iteration": int(iteration),
+        "started_at": FIXTURE_NOW,
+        "output": f"iterations/{stem}.jsonl",
+    }
+    return recovery_view.project({**state, "active_stage": interrupted})
+
+
 def scenario_states(workspace):
     running = base_state(
         workspace, "Repair runtime monitoring, approval receipts, and interrupted-task recovery", status="RUNNING"
@@ -297,7 +321,7 @@ def scenario_states(workspace):
     )
     paused.pop("active_stage")
     paused["stop_reason"] = "The saved worker stopped before its provider receipt could be confirmed."
-    paused["_fixture_attempt"] = "req_autocode_20260922_141233_7f4a91"
+    paused["_fixture_attempt"] = "031/builder-01"
     paused["_fixture_monitor"]["live"] = {"state": "unknown", "label": "Live worker status is unverified"}
     paused["_fixture_monitor"]["next_stage"] = "terra"
 
@@ -794,7 +818,8 @@ def main():
                             "completion_current": state["status"] == "TASK_COMPLETE"
                             and inspected["freshness"] == "current",
                         }, None
-                    return state, None
+                    card = fixture_recovery(state)
+                    return ({**state, "view": {"recovery": card}} if card else state), None
                 operation = command[1]
                 return {
                     "registry_version": 1,
@@ -812,6 +837,7 @@ def main():
                     "capable": False,
                     "entries": configured.get("entries", []),
                     "attempt_id": state.get("_fixture_attempt"),
+                    "recovery": fixture_recovery(state),
                     "blocked_conditions": [],
                     "pause_intent": None,
                     "work_progress": progress_from_status(
@@ -836,6 +862,38 @@ def main():
 
             def _save_state(self, run, state):
                 (Path(run) / "state.json").write_text(json.dumps(state), encoding="utf8")
+
+            def _recover_saved_work(self, run, extra):
+                state = self._state(run)
+                index = extra.index("--abandon-stage") if "--abandon-stage" in extra else -1
+                if (
+                    state.get("status") not in UNCERTAIN_STATUSES
+                    or index < 0
+                    or extra[index + 1 : index + 2] != [state.get("_fixture_attempt")]
+                ):
+                    raise ValueError("Inspect the matching interrupted fixture attempt before recovery")
+                state["status"] = "PAUSED_INTERVENTION"
+                state.pop("active_stage", None)
+                # The recovered attempt has a durable implementation-stage
+                # checkpoint. This is what makes the subsequent control a
+                # separate Resume task action rather than a first Start
+                # building action.
+                state.setdefault("stages", []).append(
+                    {
+                        "stage": "terra",
+                        "role": "terra",
+                        "iteration": 31,
+                        "finished_at": FIXTURE_NOW,
+                        "interrupted": True,
+                    }
+                )
+                state["_fixture_monitor"]["next_stage"] = "terra"
+                state["_fixture_monitor"]["live"] = {
+                    "state": "none",
+                    "label": "Saved work recovered; no live worker started",
+                }
+                self._save_state(run, state)
+                return self._lifecycle_receipt(run, "Recover saved work")
 
             def _lifecycle_receipt(self, run, label, request_id=None):
                 self._lifecycle_action_count += 1
@@ -990,7 +1048,7 @@ def main():
                 and receipt for the next dashboard refresh.
                 """
                 action = data.get("action")
-                if action not in {"approve_goal", "continue", "recover_stage", "pause"}:
+                if action not in {"approve_goal", "continue", "pause"}:
                     return super().mutate(data)
                 workspace = self.workspace_for(data.get("workspace", ""))
                 run = self.run_for(workspace, data.get("run", ""))
@@ -1066,37 +1124,13 @@ def main():
                         "status": "uncertain",
                         "error": "Fixture pause delivery could not be confirmed. Refresh status and reconcile this request ID before retrying.",
                     }
-                attempt = data.get("attempt_id")
-                if state.get("status") not in {
-                    "PAUSED_PROVIDER_UNCERTAIN",
-                    "PAUSED_UNCERTAIN_STAGE",
-                } or attempt != state.get("_fixture_attempt"):
-                    raise ValueError("Inspect the matching interrupted fixture attempt before recovery")
-                state["status"] = "PAUSED_INTERVENTION"
-                state.pop("active_stage", None)
-                # The recovered attempt has a durable implementation-stage
-                # checkpoint. This is what makes the subsequent control a
-                # separate Resume task action rather than a first Start
-                # building action.
-                state.setdefault("stages", []).append(
-                    {
-                        "stage": "terra",
-                        "role": "terra",
-                        "iteration": 31,
-                        "finished_at": FIXTURE_NOW,
-                        "interrupted": True,
-                    }
-                )
-                state["_fixture_monitor"]["next_stage"] = "terra"
-                state["_fixture_monitor"]["live"] = {
-                    "state": "none",
-                    "label": "Saved work recovered; no live worker started",
-                }
-                self._save_state(run, state)
-                return self._lifecycle_receipt(run, "Recover saved work", data.get("request_id"))
 
             def enqueue(self, *args, **kwargs):
                 workspace, run, label, extra = args[:4]
+                if run and label == "Recover saved work":
+                    # Production recover_pause has already bound the card's
+                    # token and selected action; record only the CLI effect.
+                    return self._recover_saved_work(run, extra)
                 if run and label == "Send answer":
                     # Keep the ordinary pending-answer specimen as a failed
                     # delivery so the existing draft-retention regression

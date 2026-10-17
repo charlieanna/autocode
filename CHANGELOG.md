@@ -668,6 +668,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Removed
 
+- The dashboard's separate "Recover saved work" control for an interrupted attempt (`recover_stage`). It ran
+  `--abandon-stage` after checking only the attempt id, not the recovery card's token, so other changes to the
+  saved pause after inspection went unchecked. The same control is on the recovery card, bound to the saved
+  pause; a task without a card asks for a refresh instead of offering an unbound command (#730).
 - `examples/claude-provider/claude_stage.py`, `claude.toml` and `trial.py`: superseded by the built-in provider
   and the `claude-tiers` profile (#717).
 - The unreleased `--engine qwen` transport. It could not complete a run: provider
