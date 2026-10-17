@@ -96,6 +96,12 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_completion_properties", "tests.test_completion_status"),
     ),
     (("tools/autocode_milestone",), ("tests.test_subprocess",)),
+    # A parallel batch's integrated step is attributed to each member's requirements (#730) only through
+    # a real orchestrated run: dispatch integrates it, code_checkpoints records it, criterion_changes reads it.
+    (
+        ("tools/autocode_dispatch", "tools/autocode_code_checkpoints", "tools/autocode_criterion_changes"),
+        ("tests.test_parallel_criterion_changes",),
+    ),
     (("tools/autocode_report", "tools/autocode_cmd_only_report"), ("tests.test_report_delivery_cli",)),
     # autocode_planning also matches autocode_planning_cycle; stage_roles and model_request left the planning unit (#695).
     (

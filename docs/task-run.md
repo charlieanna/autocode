@@ -1243,7 +1243,10 @@ before starting a new run. No automatic restart or budget reset occurs.
 ### Saved code checkpoints
 
 `status()["code_checkpoints"]` adds immutable source receipts for recorded,
-code-changing Builder steps. Historical step metadata without source objects
+code-changing Builder steps. A parallel batch's verified integration is one
+saved step: its `milestone_id` is `null` and `members` names each milestone it
+served with the files that milestone's Builder changed (`members` is `null` on
+other steps). Historical step metadata without source objects
 is inspectable but cannot be restored. `recorded_check` is historical, never
 current proof. This interface does not silently materialize snapshots for old runs.
 
@@ -1274,7 +1277,8 @@ interface, places confirmation in chat and comparison in the Changes pane.
 `status()["changes_by_criterion"]` attributes those saved steps to the approved
 plan's acceptance criteria. Each criterion lists the plan milestones that cover
 it, the checkpoint ids of their saved Builder steps and the union of the files
-those steps changed. `overlapping` is true when a step outside the criterion's
+those steps changed; a parallel batch's step counts only each member's own files
+toward that member's milestone. `overlapping` is true when a step outside the criterion's
 milestones also changed one of those files, so the file's diff may hold other
 work. `unattributed` lists steps whose milestone is not in the plan. It is
 attribution, not proof: it says where to look, not that the changes satisfy the

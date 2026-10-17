@@ -6,7 +6,9 @@ to the plan milestones that list it, so it is attributed every saved step of tho
 That tells a reviewer where to look, not that those changes satisfy the criterion. A file that a
 step outside the criterion's milestones also changed is marked ``overlapping``, because that
 file's diff may hold another milestone's work. A step whose milestone is not in the plan
-(``None`` or unknown) is listed as unattributed.
+(``None`` or unknown) is listed as unattributed. An integrated parallel batch is one saved step
+that served several milestones; its ``members`` name each milestone with only the files that
+member's Builder changed, so each criterion is attributed that step with its own files.
 
 Pure over the approved plan body and the saved rows; the status view shows the result as
 ``changes_by_criterion``, and ``autocode review`` reads the per-step diffs from it.
@@ -25,6 +27,14 @@ def _ids(value) -> list[str]:
     return [item for item in value if isinstance(item, str) and item] if isinstance(value, list) else []
 
 
+def _served(row) -> list[tuple]:
+    """Each milestone a saved step served, with the files changed for it."""
+    members = _rows(row.get("members"))
+    if members:
+        return [(member.get("milestone_id"), set(_ids(member.get("changed_files")))) for member in members]
+    return [(row.get("milestone_id"), set(_ids(row.get("changed_files"))))]
+
+
 def attribute(body, rows) -> dict | None:
     """Map the approved plan's criteria onto saved checkpoint rows; None without a plan body."""
     if not isinstance(body, dict) or not isinstance(body.get("acceptance_criteria"), list):
@@ -35,9 +45,10 @@ def attribute(body, rows) -> dict | None:
         if isinstance(row.get("id"), str)
     }
     steps = [
-        (row["id"], row.get("milestone_id"), set(_ids(row.get("changed_files"))))
+        (row["id"], milestone, files)
         for row in _rows(rows)
         if isinstance(row.get("id"), str) and row["id"]
+        for milestone, files in _served(row)
     ]
     criteria = []
     for criterion in _rows(body["acceptance_criteria"]):
@@ -52,7 +63,7 @@ def attribute(body, rows) -> dict | None:
             {
                 "id": cid,
                 "milestones": owners,
-                "checkpoints": [ident for ident, _ in own],
+                "checkpoints": list(dict.fromkeys(ident for ident, _ in own)),
                 "files": sorted(files),
                 "overlapping": bool(files & others),
             }
@@ -60,5 +71,5 @@ def attribute(body, rows) -> dict | None:
     return {
         "meaning": MEANING,
         "criteria": criteria,
-        "unattributed": [ident for ident, milestone, _ in steps if milestone not in milestones],
+        "unattributed": list(dict.fromkeys(ident for ident, milestone, _ in steps if milestone not in milestones)),
     }
