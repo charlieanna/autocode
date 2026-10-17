@@ -238,8 +238,11 @@ def view(
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
         "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
-        # Saved model slots, their primary job, effort and provider; actual models remain
-        # on usage.accounting.attempts. Assignments record explicit route changes.
+        # The route each role's next launch uses (autocode_role_route): its model, engine, primary
+        # job, reasoning level and the tool that runs it, plus the account its model bills and why
+        # the route is what it is; and every model a person named for a role after its quota ran
+        # out (autocode_quota_route): role, from, to, stage, at, via. Actual models remain on
+        # usage.accounting.attempts.
         "routes": quota_route.routes(state),
         # The provider those OpenCode-engine routes launch through ("opencode", "claude", a configured
         # tool's name); None when every role runs on Codex (#717).

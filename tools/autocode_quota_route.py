@@ -35,11 +35,13 @@ from pathlib import Path
 try:
     from . import autocode_output_cap as output_cap
     from . import autocode_provider_refusal as provider_refusal
+    from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
 except ImportError:
     import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
+    import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as roles
 
@@ -754,25 +756,13 @@ def record_resume_change(
 
 
 def routes(state: RunState) -> dict:
-    """Every saved model slot, with display metadata; not evidence a stage ran."""
-    settings = state.get("settings") or {}
-    return {
-        role: {
-            "model": config.get("model"),
-            "engine": engine(settings, role),
-            "job": roles.route_name(role, state),
-            "reasoning_effort": config.get("reasoning_effort"),
-            "provider": (
-                config.get("provider")
-                if config.get("provider") not in (None, "openai", "opencode")
-                else settings.get("provider") or "opencode"
-            )
-            if engine(settings, role) == "opencode"
-            else engine(settings, role),
-        }
-        for role, config in sorted((settings.get("roles") or {}).items())
-        if isinstance(config, dict)
-    }
+    """{role: route record} for every configured role: the routes the next launch uses.
+
+    The record is autocode_role_route's. ``model``, ``engine``, ``job``, ``reasoning_effort``
+    and ``provider`` keep the meaning the status view gave them, and it adds the account the
+    model bills and why the route is what it is (#1426). Not evidence a stage ran.
+    """
+    return role_route.records(state, assignments(state))
 
 
 def provider(state: RunState) -> str | None:

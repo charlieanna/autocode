@@ -292,7 +292,15 @@ class QuotaRouteTests(unittest.TestCase):
         state["pending_questions"] = [asked]
         view = run_view.view(state)
         self.assertEqual(
-            {"model": "gpt-5.6-sol", "engine": "codex", "job": "Tester", "reasoning_effort": None, "provider": "codex"},
+            {
+                "model": "gpt-5.6-sol",
+                "engine": "codex",
+                "job": "Tester",
+                "reasoning_effort": None,
+                "provider": "codex",
+                "account": None,
+                "origin": "unrecorded",
+            },
             view["routes"]["sol"],
         )
         self.assertEqual([], view["route_assignments"])

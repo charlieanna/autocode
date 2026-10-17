@@ -21,12 +21,14 @@ from pathlib import Path
 
 try:
     from . import autocode_prices as prices
+    from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
     from . import autocode_route_ladder as route_ladder
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_prices as prices
+    import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as roles
     import autocode_route_ladder as route_ladder
@@ -455,6 +457,10 @@ def choose(
             )
             for role, route in selected["roles"].items():
                 settings["roles"][role]["model"] = route["model"]
+            if selected.get("route_origins"):
+                # The subgroup's copy shares the real record when the run has one; a run saved
+                # before route origins existed gets its replacements recorded here instead.
+                settings.setdefault("route_origins", {}).update(selected["route_origins"])
             if "route_ladders" in selected:
                 settings["route_ladders"] = selected["route_ladders"]
             if "builder_retry" in selected:
@@ -489,6 +495,7 @@ def choose(
         raise RuntimeError("No model was changed and nothing was launched; start the run with the flags above")
     for role, suggestion in advice["suggestions"].items():
         settings["roles"][role]["model"] = suggestion["model"]
+        settings.setdefault("route_origins", {})[role] = role_route.CATALOGUE_REPLACEMENT
     return _serve(settings, available, named_strong, roles=settings.get("roles"))
 
 

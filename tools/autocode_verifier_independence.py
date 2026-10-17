@@ -2,9 +2,9 @@
 
 Pure domain logic over route dicts; imports only autocode_model_identity and the screen
 names in autocode_roles. A verifier never runs the model that produced the work it judges:
-the same exact model is always a clash (native Codex and OpenCode spellings of one GPT tier
-included), and GLM and MiMo are families, so GLM checks MiMo work and MiMo checks GLM work
-(user 2026-09-26).
+one model is always a clash, however its route is spelled (a gateway in front of its vendor,
+or the native Codex and OpenCode spellings of one GPT tier), and GLM and MiMo are families,
+so GLM checks MiMo work and MiMo checks GLM work (user 2026-09-26).
 
 Asked by the dispatch guard before a launch (autocode_dispatch, which a human
 ``--answer route-<role>=MODEL`` also re-checks through), the Builder's stronger attempt
@@ -67,7 +67,7 @@ def clash(producer_model, verifier_model):
     """Why one model cannot check the other's work, or None."""
     if not shares(producer_model, verifier_model):
         return None
-    if _identity(producer_model) == _identity(verifier_model):
+    if model_identity.identity(producer_model) == model_identity.identity(verifier_model):
         return f"identical model {producer_model}"
     return f"same family {model_identity.family(producer_model)} ({producer_model} / {verifier_model})"
 
@@ -91,8 +91,3 @@ def violations(settings):
         if problem:
             problems.append(f"{label}: {problem}")
     return problems
-
-
-def _identity(model):
-    # Native Codex and OpenCode spell the same exact GPT tier differently.
-    return model.removeprefix("openai/") if model.startswith("openai/gpt-") else model

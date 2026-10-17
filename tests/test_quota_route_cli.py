@@ -119,7 +119,12 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertIsNone(human.current(answered))
         self.assertEqual("consumed", answered["resolver"]["human_escalations"][published["request_id"]]["status"])
         view = self.view()
-        self.assertEqual({"model": OTHER_MODEL, "engine": "codex"}, view["routes"]["sol"])
+        route = view["routes"]["sol"]
+        self.assertEqual(
+            (OTHER_MODEL, "codex", "quota_assigned"),
+            (route["model"], route["engine"], route["origin"]),
+            "the route record names the model a person chose at the stop",
+        )
         [assignment] = view["route_assignments"]
         self.assertEqual(
             ("sol", "gpt-5.6-sol", OTHER_MODEL, "sol", "answer", "user_cli", "PAUSED_BUDGET"),
