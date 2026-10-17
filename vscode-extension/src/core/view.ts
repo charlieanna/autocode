@@ -120,6 +120,7 @@ export interface StatusView {
   chat?: {
     messages: { id: string; role: string; text: string; streaming?: boolean }[];
     phase?: "requirements" | null;
+    notice?: string | null;
     review?: { question_id: string; answer: string; label: string; summary?: string } | null;
     context: string;
     input: { kind: "feedback" | "follow_up"; label: string; next_command: string } | null;

@@ -8,6 +8,20 @@ import autocode_chat_view as chat
 
 
 class ChatViewTests(unittest.TestCase):
+    def test_connection_stop_explains_the_user_action_without_dashboard_jargon(self):
+        state = {"status": "PAUSED_TRANSPORT_CHANGED", "task": "Make it friendlier"}
+        result = self.project(state, need="resume")
+        self.assertEqual(
+            "Your model connection settings changed. Check Connections before continuing.", result["notice"]
+        )
+        self.assertIsNone(result["input"])
+        for status in ("PAUSED_JOB_FAILURE", "PAUSED_PROVIDER_UNCERTAIN"):
+            with self.subTest(status=status):
+                text = chat.notice({"status": status})
+                self.assertTrue(text)
+                self.assertNotIn("Paused", text)
+                self.assertNotIn("no task list", text)
+
     def project(self, state, need="approve_plan", done=False):
         return chat.project(
             state,

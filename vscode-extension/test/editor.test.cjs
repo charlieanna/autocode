@@ -782,6 +782,25 @@ test('missing message action disables free text instead of bypassing a person-on
   assert.equal(launch.mock.callCount(), 0);
 });
 
+test('chat replaces pause dashboards with a useful explanation and keeps recovery gated', async (t) => {
+  const ui = await openChat(t, {
+    status: 'PAUSED_TRANSPORT_CHANGED', done: false, turn: 1,
+    pause_category_label: 'Your environment',
+    progress: { headline: 'Paused', line: 'Paused · no task list yet · no requirements yet · 0 open problems · inspect the pause, then resume', needs_you: 'inspect the pause, then resume' },
+    needs: { kind: 'resume', reason: 'A joint-planning CLI/auth/provider configuration changed' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused`,
+    chat: { messages: [], context: 'connection-stop', input: null,
+      notice: 'Your model connection settings changed. Check Connections before continuing.' },
+  });
+  const text = ui.document.querySelector('#app').textContent;
+  assert.ok(text.includes('Check Connections before continuing.'));
+  for (const internal of ['Paused', 'no task list', 'no requirements', '0 open problems', 'turn 1', 'Your environment', 'Waiting for']) {
+    assert.ok(!text.includes(internal), internal);
+  }
+  assert.equal(ui.document.querySelector('#send-message').disabled, true);
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Continue');
+});
+
 test('message actions cannot name another run or append approval flags', async (t) => {
   const launch = t.mock.method(cli, 'stream', async () => ok);
   const view = chatView();

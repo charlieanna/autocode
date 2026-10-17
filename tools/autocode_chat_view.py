@@ -27,6 +27,20 @@ except ImportError:
     import autocode_requirements_review as requirements_review
 
 
+def notice(public):
+    """Explain the next human step without exposing the diagnostic dashboard."""
+    status = public.get("status") or ""
+    if status == "PAUSED_TRANSPORT_CHANGED":
+        return "Your model connection settings changed. Check Connections before continuing."
+    if status == "PAUSED_PROVIDER_UNCERTAIN":
+        return "I couldn’t confirm the model connection. Check Connections, then try again."
+    if status.startswith("PAUSED"):
+        return "I couldn’t finish this step. Open Run details to see what needs attention."
+    if status == "RUNNING":
+        return "Working on your request…"
+    return None
+
+
 def project(state: RunState, public, *, run_dir=None, workspace=None):
     """Expose only actions admitted at this checkpoint; the CLI rechecks on write."""
     turns = state.get("turns") or []
@@ -92,6 +106,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         "context": context,
         "input": message_input,
         "review": review,
+        "notice": notice(public),
         "phase": "requirements"
         if requirements_chat.enabled(state) and state.get("next_stage") in ("requirements_gather", "astra_discovery")
         else None,

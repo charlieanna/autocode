@@ -483,8 +483,9 @@ function render(state) {
     }
     return;
   }
-  app.appendChild(el('h1', null, state.headline));
-  if (!chatMode || state.line !== state.headline) app.appendChild(el('div', 'line', state.line));
+  if (!chatMode) {
+    app.appendChild(el('h1', null, state.headline));
+    app.appendChild(el('div', 'line', state.line));
   const meta = [
     !chatMode ? state.status : null,
     state.workflow ? state.workflow + ' workflow' : null,
@@ -495,18 +496,23 @@ function render(state) {
     !chatMode ? state.usage : null,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
+  } else if (state.chat && state.chat.notice) {
+    app.appendChild(el('div', 'notice', state.chat.notice));
+  } else if (state.pause) {
+    app.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
+  }
 
   if (state.task && !chatMode) {
     app.appendChild(el('h2', null, 'Request'));
     app.appendChild(el('pre', null, state.task));
   }
 
-  if (state.tasks.length) {
+  if (state.tasks.length && !chatMode) {
     app.appendChild(el('h2', null, 'Tasks'));
     state.tasks.forEach(stateRow);
   }
 
-  if (state.requirements.length) {
+  if (state.requirements.length && !chatMode) {
     app.appendChild(el('h2', null, 'Requirements'));
     if (state.requirementCounts) {
       const c = state.requirementCounts;
@@ -520,7 +526,7 @@ function render(state) {
     state.requirements.forEach(stateRow);
   }
 
-  if (state.problems.length) {
+  if (state.problems.length && !chatMode) {
     app.appendChild(el('h2', null, 'Open problems'));
     state.problems.forEach((item) => {
       const row = el('div', 'row');
@@ -571,7 +577,7 @@ function render(state) {
     }
   }
 
-  if (!state.done) {
+  if (!state.done && !chatMode) {
     app.appendChild(el('h2', null, 'Waiting for'));
     app.appendChild(el('div', 'line', state.needsYou || state.needSummary || state.needKind || '—'));
     if (state.needReason) app.appendChild(el('div', 'why', state.needReason));
@@ -648,7 +654,7 @@ function render(state) {
       app.appendChild(notice);
     }
 
-    if (state.personOnly) {
+    if (state.personOnly && !chatMode) {
       app.appendChild(el('div', 'notice',
         'This pause is AutoCode asking a person. The extension will ask before acting on it.'));
     }
