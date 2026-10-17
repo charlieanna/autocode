@@ -112,7 +112,7 @@ def origin(settings, role, route, *, assignments=(), escalations=(), retries=())
     return "unrecorded"
 
 
-def record(state, role, *, assignments=(), escalations=(), retries=()):
+def record(state: RunState, role, *, assignments=(), escalations=(), retries=()):
     """One role's route: its model, engine, job, reasoning level, tool, account and origin."""
     state = state or {}
     settings = state.get("settings") or {}
