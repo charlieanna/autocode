@@ -535,7 +535,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
     if stage == "astra_discovery":
         clarification.check_handoff_questions(state, value)
         _bind_plan(state, value, "glm_draft", record)
-        if human.internal_questions(state):
+        if human.internal_questions(state) or value["contract"]["open_blocking_questions"]:
             state["discovery_summary"] = value["summary"]
             return
         # install_draft starts the bounded cycle once clarification is complete.
@@ -555,7 +555,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         if any(not r["evidence_refs"] for r in value["responses"]):
             raise ValueError("Planner responses must cite investigated evidence")
         _bind_plan(state, value, stage, record)
-        if human.internal_questions(state):
+        if human.internal_questions(state) or value["contract"]["open_blocking_questions"]:
             reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
             state["discovery_summary"] = value["summary"]
             return

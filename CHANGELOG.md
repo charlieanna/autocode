@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Joint planning keeps technical questions with recommended defaults inside AutoCode, including
+  test-fixture and command details that previously interrupted the VS Code chat with criterion IDs.
+  Internal decisions remain separate from human answers; behavior, authorization and plan approval
+  still require their existing checks (#1522).
 - The VS Code chat showed plan-approval internals: "Plan the approval is bound to (revision 3)",
   criterion IDs (`AC1`, `AC2`), each verification command and a token notice with a raw CLI command.
   The chat now lists what the plan will deliver under "Plan to approve", marks the items you check
