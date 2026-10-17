@@ -16,7 +16,6 @@ try:
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
     from . import autocode_requirements_chat as requirements_chat
-    from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
     from . import autocode_workflows as workflows
@@ -28,7 +27,6 @@ except ImportError:
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
     import autocode_requirements_chat as requirements_chat
-    import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
     import autocode_workflows as workflows
@@ -51,8 +49,7 @@ def prepare(runner, args, parser, state: RunState, state_path, run_dir, workspac
         runner.write_json(state_path, state)
     if not args.run_dir:
         design_intake.queue(state)
-        if requirements_chat.queue_opening(state, resolver_human.queue):
-            resolver_human.evaluate(state)
+        requirements_chat.gather_first(state)
         runner.write_json(state_path, state)
     if args.milestone_checkpoints:
         milestones.activate(state)

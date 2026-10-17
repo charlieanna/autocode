@@ -1,5 +1,6 @@
 """Conversation policy and bounded, assistant-only streaming projection."""
 
+import copy
 import json
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ import autocode_chat_history as history
 import autocode_chat_view as view
 import autocode_model_preflight as preflight
 import autocode_requirements_chat as chat
+import autocode_requirements_review as review
 import autocode_role_transport as transport
 import autocode_source_log as source_log
 import autocode_task_input as task_input
@@ -37,13 +39,27 @@ class RequirementsChatTests(unittest.TestCase):
             self.assertFalse(preflight.check(SimpleNamespace(), state, "/run", "/project"))
             groups.assert_called_once()
 
-    def test_recognition_runs_before_requirements_in_a_conversation(self):
-        for settings in ({"spec_first": True}, {}):
-            with self.subTest(settings=settings):
-                state = {"settings": settings}
+    def test_a_chat_run_talks_with_requirements_before_recognizing_the_job(self):
+        for opener in ("hi", "What is your name?", "What's the weather today?", "Add a CSV export"):
+            with self.subTest(opener=opener):
+                state = {"task": opener, "settings": {"spec_first": True}}
                 workflows.begin(state, chat.STAGE)
+                self.assertTrue(chat.gather_first(state))
+                self.assertEqual(chat.STAGE, state["next_stage"])
+                self.assertIsNone(state["workflow"]["kind"])
+        pinned = {"task": "Look over my change", "settings": {"spec_first": True}}
+        workflows.begin(pinned, chat.STAGE)
+        workflows.pin(pinned, "review")
+        self.assertTrue(chat.gather_first(pinned))
+        self.assertEqual((chat.STAGE, "review"), (pinned["next_stage"], pinned["workflow"]["kind"]))
+        for state in (
+            {"task": "hi", "settings": {}},
+            {"task": "hi", "settings": {"spec_first": True}, "turns": [{"say": "hi"}]},
+        ):
+            with self.subTest(state=state):
+                workflows.begin(state, chat.STAGE)
+                self.assertFalse(chat.gather_first(state))
                 self.assertEqual(workflows.STAGE, state["next_stage"])
-                self.assertEqual(chat.STAGE, state["workflow"]["then"])
 
     def test_recognition_does_not_probe_other_models_in_a_conversation(self):
         state = {"settings": {"spec_first": True}, "next_stage": workflows.STAGE}
@@ -51,62 +67,133 @@ class RequirementsChatTests(unittest.TestCase):
             self.assertFalse(preflight.check(SimpleNamespace(), state, "/run", "/project"))
             groups.assert_not_called()
 
-    def test_first_reply_to_the_opening_becomes_the_task_and_the_job_is_recognized(self):
-        reply = "Add a CSV export to the reports page."
-        for event in (
-            {"kind": "answer", "actor": "user_cli", "question_id": chat.INTRO, "text": reply},
-            {"kind": "brief_feedback", "actor": "user_cli", "id": "feedback-1", "text": reply + "\n"},
-        ):
-            with self.subTest(kind=event["kind"]):
-                state = {
-                    "task": "Hi!",
-                    "task_sha256": task_input.digest("Hi!"),
-                    "settings": {"spec_first": True},
-                    "workflow": {"kind": None, "then": chat.STAGE},
-                    "next_stage": chat.STAGE,
-                    "user_events": [event],
+    @staticmethod
+    def conversation(*replies, requirements=()):
+        """A chat run whose Requirements reply found no work yet, then the person's replies."""
+        return {
+            "task": "What is your name?",
+            "task_sha256": task_input.digest("What is your name?"),
+            "settings": {"spec_first": True},
+            "workflow": {"kind": None, "then": chat.STAGE},
+            "next_stage": chat.STAGE,
+            "requirements_handoff": {
+                "report": {
+                    "requirements": list(requirements),
+                    "open_questions": [{"id": "Q1", "question": "What would you like to build or change?"}],
                 }
-                self.assertTrue(chat.adopt_reply(state))
-                self.assertEqual(reply, state["task"])
-                self.assertEqual(task_input.digest(reply), state["task_sha256"])
-                self.assertEqual(workflows.STAGE, state["next_stage"])
-                self.assertFalse(chat.adopt_reply(state), "Only the first reply names the work")
+            },
+            "user_events": [
+                {"kind": "brief_feedback", "actor": "user_cli", "id": f"feedback-{index}", "text": text}
+                for index, text in enumerate(replies)
+            ],
+        }
 
-    def test_chat_keeps_the_greeting_after_the_reply_becomes_the_task(self):
+    def test_until_requirements_finds_the_work_each_new_reply_becomes_the_task(self):
+        state = self.conversation("What's the weather today?")
+        self.assertTrue(chat.adopt_reply(state))
+        self.assertEqual("What's the weather today?", state["task"])
+        self.assertEqual(task_input.digest("What's the weather today?"), state["task_sha256"])
+        self.assertEqual(chat.STAGE, state["next_stage"])
+        self.assertFalse(chat.adopt_reply(state), "A reply becomes the task once")
         reply = "Add a CSV export to the reports page."
-        state = {"task": "hi", "settings": {"spec_first": True}, "workflow": {"kind": None}}
+        state["user_events"].append({"kind": "brief_feedback", "actor": "user_cli", "id": "feedback-9", "text": reply})
+        self.assertTrue(chat.adopt_reply(state))
+        self.assertEqual(reply, state["task"])
+        answered = self.conversation()
+        answered["user_events"] = [{"kind": "answer", "actor": "user_cli", "question_id": "Q1", "text": reply + "\n"}]
+        self.assertTrue(chat.adopt_reply(answered))
+        self.assertEqual(reply, answered["task"])
+
+    def test_chat_keeps_the_opening_message_after_a_reply_becomes_the_task(self):
+        reply = "Add a CSV export to the reports page."
+        spoken = "I'm AutoCode's requirements assistant. What would you like to build or change?"
+        state = self.conversation()
+        state["requirements_handoff"]["report"]["assistant_reply"] = spoken
         source_log.seed(state)
         source_log.save_feedback(
             state, {"kind": "brief_feedback", "actor": "user_cli", "id": "feedback-1", "text": reply}
         )
         self.assertTrue(chat.adopt_reply(state))
         rows = [(row["role"], row["text"]) for row in history.messages(state)]
-        self.assertEqual(("user", "hi"), rows[0])
-        self.assertEqual(1, rows.count(("user", reply)), rows)
+        self.assertEqual([("user", "What is your name?"), ("assistant", spoken), ("user", reply)], rows)
 
-    def test_reply_is_not_adopted_once_the_work_is_named(self):
-        event = {"kind": "brief_feedback", "actor": "user_cli", "id": "feedback-1", "text": "Use JSON instead."}
-        seed = {
-            "task": "Hi!",
-            "settings": {"spec_first": True},
-            "workflow": {"kind": None},
-            "next_stage": chat.STAGE,
-            "user_events": [event],
-        }
+    def test_reply_is_not_adopted_once_requirements_has_found_the_work(self):
+        reply = "Use JSON instead."
+        found = {"id": "R1", "text": "Export CSV", "source_quote": "Add a CSV export"}
         for change in (
-            {"task": "Add a CSV export"},
-            {"workflow": {"kind": "build"}},
-            {"stages": [{"stage": workflows.STAGE}]},
-            {"requirements_handoff": {"report": {}}},
-            {"user_events": [event, {**event, "id": "feedback-2"}]},
-            {"user_events": [{**event, "actor": "user_intervention"}]},
+            {"requirements_handoff": {"report": {"requirements": [found]}}},
+            {"requirements_handoff": None},
+            {"user_events": []},
+            {"user_events": [{"kind": "brief_feedback", "actor": "user_intervention", "id": "f", "text": reply}]},
+            {
+                "user_events": [
+                    {"kind": "answer", "actor": "user_cli", "question_id": review.PREFIX + "x", "text": "plan"}
+                ]
+            },
             {"settings": {}},
+            {"goal_contract": {"body": {}}},
+            {"turns": [{"say": "earlier"}]},
         ):
             with self.subTest(change=change):
-                state = {**seed, **change}
-                before = dict(state)
+                state = {**self.conversation(reply), **change}
+                before = copy.deepcopy(state)
                 self.assertFalse(chat.adopt_reply(state))
                 self.assertEqual(before, state)
+
+    @staticmethod
+    def approved(answer="plan", **change):
+        state = {
+            "task": "Add a CSV export",
+            "settings": {"spec_first": True},
+            "workflow": {"kind": None, "then": chat.STAGE},
+            "next_stage": review.NEXT,
+            "pending_questions": [],
+            "requirements_handoff": {"report": {"intended_outcome": "CSV export", "requirements": [{"id": "R1"}]}},
+        }
+        state["answers"] = {review.review_question(state)["id"]: {"text": answer}}
+        state.update(change)
+        return state
+
+    def test_the_job_is_recognized_once_the_person_approves_the_understanding(self):
+        state = self.approved(" Plan ")
+        self.assertTrue(chat.recognize_after_approval(state))
+        self.assertEqual(workflows.STAGE, state["next_stage"])
+        self.assertEqual((None, review.NEXT), (state["workflow"]["kind"], state["workflow"]["then"]))
+        pinned = self.approved(workflow={"kind": "review", "then": chat.STAGE})
+        self.assertTrue(chat.recognize_after_approval(pinned))
+        self.assertEqual(workflows.REVIEW_STAGE, pinned["next_stage"])
+        for state in (
+            self.approved("Also add a total row", next_stage=chat.STAGE),
+            self.approved(workflow={"kind": "build", "then": chat.STAGE}),
+            self.approved(pending_questions=[{"id": "Q2"}]),
+            self.approved(settings={}),
+            self.approved(turns=[{"say": "earlier"}]),
+        ):
+            with self.subTest(state=state):
+                before = copy.deepcopy(state)
+                self.assertFalse(chat.recognize_after_approval(state))
+                self.assertEqual(before, state)
+        legacy = self.approved()
+        legacy.pop("workflow")
+        self.assertFalse(chat.recognize_after_approval(legacy))
+
+    def test_the_recognizer_judges_the_job_from_the_confirmed_understanding(self):
+        outcome = "Reports can be exported as CSV with a total row"
+        state = {
+            "task": "Add a CSV export",
+            "settings": {"spec_first": True},
+            "workflow": {"kind": None},
+            "requirements_handoff": {"report": {"intended_outcome": outcome}},
+        }
+        text, _ = workflows.prompt(state)
+        rules, data = text.split("\nCURRENT HANDOFF DATA\n", 1)
+        self.assertEqual(outcome, json.loads(data)["confirmed_understanding"])
+        self.assertIn("confirmed_understanding", rules)
+        self.assertNotIn("greeting", rules.lower())
+        for other in ({**state, "settings": {}}, {**state, "turns": [{"say": "x", "previous": {}}]}):
+            with self.subTest(other=other):
+                text, _ = workflows.prompt(other)
+                self.assertNotIn("confirmed_understanding", json.loads(text.split("\nCURRENT HANDOFF DATA\n", 1)[1]))
 
     def test_requirements_reads_the_workspace_once_the_request_is_named(self):
         from units import autoplanner
@@ -135,19 +222,6 @@ class RequirementsChatTests(unittest.TestCase):
             prompt, _ = autoplanner.context(state, chat.STAGE, root / "state.json")
             packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
             self.assertIn("reports/export.py", json.dumps(packet.get("workspace_inventory")))
-
-    def test_opening_only_handles_a_bare_greeting_before_any_dispatch(self):
-        seed = {"task": "Hi!", "settings": {"spec_first": True}}
-        self.assertTrue(chat.opening(seed))
-        for change in (
-            {"task": "Hi, fix this bug"},
-            {"settings": {}},
-            {"stages": [{"stage": "terra"}]},
-            {"workflow": {"kind": "review"}},
-            {"user_events": [{"text": "Build a library app"}]},
-        ):
-            with self.subTest(change=change):
-                self.assertFalse(chat.opening({**seed, **change}))
 
     def test_partial_reply_decodes_text_without_showing_json_or_other_fields(self):
         for raw, expected in [

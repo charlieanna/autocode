@@ -36,8 +36,8 @@ def response(state: RunState) -> str:
 def messages(state: RunState, *, completed=False) -> list[dict]:
     turns = state.get("turns") or []
     initial = (turns[0].get("previous") or {}).get("task") if turns else state.get("task")
-    # A chat that opened with a greeting shows it, not the reply that later became the task.
-    initial = requirements_chat.greeting(state) or initial
+    # A chat shows the message it opened with, not a later reply that became the task.
+    initial = requirements_chat.opener(state) or initial
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     for index, event in enumerate(state.get("user_events") or []):

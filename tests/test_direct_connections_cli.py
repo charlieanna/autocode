@@ -149,7 +149,9 @@ class DirectCliTests(unittest.TestCase):
         self.assertEqual("answer", view["needs"]["kind"], view)
         self.assertIn("What would you like to build", view["needs"]["questions"][0]["question"])
         self.assertIsNone(view.get("displayed_plan"))
-        self.assertEqual(["recognize_workflow", "requirements_gather"], stages)
+        self.assertEqual(
+            ["requirements_gather"], stages, "A chat run talks with Requirements before recognizing the job"
+        )
         self.assertEqual("autocode", view["provider"])
         self.assertFalse((self.workspace / "greet.py").exists())
 

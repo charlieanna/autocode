@@ -477,9 +477,11 @@ def main() -> int:
                         "source_quote": event["text"],
                     }
                 )
-        if data.get("task") == "hi" and not data.get("saved_answers") and not data.get("brief_feedback"):
+        if data.get("spec_first") and "It prints 'Hello, NAME'" not in str(data.get("task", "")):
+            # A chat message that names no work (a greeting, "What is your name?"): answer it, then ask.
             report.update(
-                summary="The user greeted the assistant without describing a task.",
+                summary="The user has not described a task yet.",
+                assistant_reply="I'm AutoCode's requirements assistant. What would you like to build or change?",
                 intended_outcome="Not yet specified by the user",
                 required_behaviors=[],
                 acceptance_tests=[],
@@ -490,7 +492,7 @@ def main() -> int:
                 open_questions=[
                     {
                         "id": "requested-outcome",
-                        "question": "Hi! What would you like to build or change?",
+                        "question": "What would you like to build or change?",
                         "why": "No engineering outcome has been requested yet.",
                         "options": [],
                         "proposed_default": "",

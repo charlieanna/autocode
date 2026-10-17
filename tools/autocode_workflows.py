@@ -1,7 +1,9 @@
 """Workflow recognition: what kind of engineering job a request is.
 
 AutoPilot runs ``STAGE`` first on every new run, before any requirements or
-planning stage, and saves the answer under ``state["workflow"]``; the status
+planning stage; a chat run (spec-first) runs it once the person approves what
+Requirements understood (autocode_requirements_chat), and the recognizer is
+then given that understanding. The answer is saved under ``state["workflow"]``; the status
 view reports it as ``workflow`` (docs/task-run.md). There are five kinds,
 described in scenarios/README.md ("Workflows"). Normally the request itself is
 read; ``--workflow KIND`` names the kind instead (``pin``), before the recognizer
@@ -115,7 +117,16 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "saved_answers": {},
         # A request with a Figma design is still recognized by what the user wants back.
         **({"figma_file": state["settings"]["figma_file"]} if (state.get("settings") or {}).get("figma_file") else {}),
+        **({"confirmed_understanding": understanding} if (understanding := confirmed_understanding(state)) else {}),
     }
+
+
+def confirmed_understanding(state: RunState) -> str:
+    """In a chat run, the outcome the person approved with Requirements before the job is recognized."""
+    if not (state.get("settings") or {}).get("spec_first") or state.get("turns"):
+        return ""
+    report = (state.get("requirements_handoff") or {}).get("report") or {}
+    return str(report.get("intended_outcome") or "").strip()
 
 
 def follow_up(state: RunState) -> dict | None:
@@ -173,11 +184,10 @@ def prompt(
         PROMPT
         + adaptive.recognizer_rule(state)
         + (
-            "\nREQUIREMENTS-FIRST CONVERSATION: If the message is only a greeting or otherwise names no "
-            "engineering outcome (for example 'hi'), select build with clarity vague so Requirements can ask "
-            "what the user wants to build or change. Do not invent a task or treat the greeting as a "
-            "completed discuss job. Explicit questions, reviews, fixes and designs keep their ordinary workflow.\n"
-            if (state.get("settings") or {}).get("spec_first")
+            "\nCONFIRMED UNDERSTANDING: The user has already talked with Requirements and approved "
+            "confirmed_understanding as what they want. Recognize the job from it, with task as the "
+            "user's own words; do not ask again what they want.\n"
+            if confirmed_understanding(state)
             else ""
         )
         + "\nCURRENT HANDOFF DATA\n"

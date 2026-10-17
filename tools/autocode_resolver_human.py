@@ -25,7 +25,6 @@ try:
     from . import autocode_operational_information as information
     from . import autocode_pause_command as pause_command
     from . import autocode_recovery_limits as recovery_limits
-    from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_recommendation as recommendation
     from . import autocode_run_status as run_status
@@ -37,7 +36,6 @@ except ImportError:
     import autocode_operational_information as information
     import autocode_pause_command as pause_command
     import autocode_recovery_limits as recovery_limits
-    import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
     import autocode_resolver_recommendation as recommendation
     import autocode_run_status as run_status
@@ -333,8 +331,7 @@ def _decision(state: RunState, proposal):
         declared = body.get("open_blocking_questions") or []
         investigation = bug_questions.accepts(state, proposal)
         review = requirements_review.accepts(state, proposal)
-        opening = requirements_chat.accepts(state, proposal)
-        if not (investigation or review or opening) and (not questions or any(q not in declared for q in questions)):
+        if not (investigation or review) and (not questions or any(q not in declared for q in questions)):
             return "reject", "Clarification must match the validated draft questions"
         for question in questions:
             answer = state.get("answers", {}).get(question.get("id"))

@@ -1,9 +1,11 @@
 """Requirements conversation policy and bounded assistant-text projection.
 
-The existing task controller owns dispatch and sessions. This module supplies
-the opening question for a bare greeting, makes the first reply the run's task,
-and reads only the active stage's assistant reply, never tool output or
-reasoning. A partial reply carries no planning authority.
+The existing task controller owns dispatch and sessions. In a chat run
+(spec-first) Requirements answers every message first, whatever it says; until
+it finds work to do, the person's newest reply becomes the run's task, and the
+job is recognized only once the person approves what Requirements understood.
+This module also reads only the active stage's assistant reply, never tool
+output or reasoning. A partial reply carries no planning authority.
 """
 
 from __future__ import annotations
@@ -17,102 +19,83 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_task_input as task_input
+    from . import autocode_workflows as workflows
 except ImportError:
+    import autocode_requirements_review as requirements_review
     import autocode_task_input as task_input
+    import autocode_workflows as workflows
 
-INTRO = "requirements-intro"
-GREETING = "Hi! What would you like to work on today?"
 STAGE = "requirements_gather"
-RECOGNIZE = "recognize_workflow"
-
-
-GREETINGS = {"hi", "hello", "hey", "hi there", "hello there", "good morning", "good afternoon", "good evening"}
 
 
 def enabled(state: RunState):
     return bool((state.get("settings") or {}).get("spec_first") and not state.get("goal_contract"))
 
 
-def _is_greeting(text):
-    return str(text or "").strip().casefold().rstrip("!?. ") in GREETINGS
+def _first_conversation(state: RunState):
+    return enabled(state) and not state.get("turns") and "workflow" in state
 
 
-def _greeted(state: RunState):
-    return bool(
-        enabled(state)
-        and _is_greeting(state.get("task"))
-        and not state.get("requirements_handoff")
-        and not state.get("stages")
-        and not (state.get("workflow") or {}).get("kind")
-    )
+def gather_first(state: RunState):
+    """A new chat run talks with Requirements before the job is recognized, whatever its first message says."""
+    if not _first_conversation(state) or state.get("stages"):
+        return False
+    intake = state.get("design_intake") or {}
+    if intake.get("status") == "PENDING":
+        intake["return_stage"] = STAGE
+    else:
+        state["next_stage"] = STAGE
+    return True
 
 
-def greeting(state: RunState):
-    """The bare greeting a run opened with, kept as task:0 after the first reply became the task."""
+def opener(state: RunState):
+    """The message a chat run opened with, kept as task:0 after a later reply became the task."""
+    if not (state.get("settings") or {}).get("spec_first"):
+        return None
     tasks = [row for row in state.get("source_log") or [] if str(row.get("id", "")).startswith("task:")]
-    if len(tasks) == 1 and tasks[0].get("kind") == "task" and _is_greeting(tasks[0].get("text")):
+    if len(tasks) == 1 and tasks[0].get("kind") == "task" and tasks[0].get("text"):
         return str(tasks[0]["text"])
     return None
 
 
-def opening(state: RunState):
-    return _greeted(state) and not state.get("user_events")
-
-
 def adopt_reply(state: RunState):
-    """The person's first reply to the opening names the work: it becomes the task, then the job is recognized."""
-    if not _greeted(state):
+    """Until Requirements finds work in the conversation, the person's newest reply becomes the task."""
+    report = (state.get("requirements_handoff") or {}).get("report")
+    if not _first_conversation(state) or not isinstance(report, dict) or report.get("requirements"):
         return False
     events = state.get("user_events") or []
-    if len(events) != 1 or events[0].get("actor") != "user_cli":
+    event = events[-1] if events else {}
+    if event.get("actor") != "user_cli" or event.get("kind") not in ("brief_feedback", "answer"):
         return False
-    event = events[0]
-    if not (event.get("kind") == "brief_feedback" or event.get("question_id") == INTRO):
+    if str(event.get("question_id", "")).startswith(requirements_review.PREFIX):
         return False
     text = str(event.get("text") or "").strip()
-    if not text:
+    if not text or text == state.get("task"):
         return False
-    # The source log keeps the greeting as task:0; the reply is saved there as its own source.
+    # The source log keeps the opening message as task:0; the reply is saved there as its own source.
     task_input.assign(state, text)
-    state.update({"next_stage": RECOGNIZE, "phase": "DISCOVERING"})
+    state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
     return True
 
 
-def question():
-    return {
-        "id": INTRO,
-        "question": GREETING,
-        "why": "Understand your goal before planning or running any models.",
-        "options": [],
-        "proposed_default": "",
-        "kind": "decision",
-        "category": "requested_outcome",
-        "delegable": False,
-    }
-
-
-def accepts(state: RunState, proposal):
-    return bool(
-        opening(state)
-        and proposal.get("scope") == "clarification"
-        and proposal.get("next_stage") == STAGE
-        and proposal.get("origin") == {"stage": STAGE, "kind": "conversation_opening"}
-        and proposal.get("questions") == [question()]
-    )
-
-
-def queue_opening(state: RunState, queue):
-    if not opening(state):
+def recognize_after_approval(state: RunState):
+    """Once the person approves what Requirements understood, recognize the job before planning it."""
+    if not _first_conversation(state) or state.get("pending_questions"):
         return False
-    queue(
-        state,
-        "clarification",
-        {"stage": STAGE, "kind": "conversation_opening"},
-        questions=[question()],
-        phase="DISCOVERING",
-        next_stage=STAGE,
-    )
+    if state.get("next_stage") != requirements_review.NEXT or not state.get("requirements_handoff"):
+        return False
+    answer = (state.get("answers") or {}).get(requirements_review.review_question(state)["id"]) or {}
+    if str(answer.get("text", "")).strip().lower() != requirements_review.APPROVE:
+        return False
+    kind = state["workflow"].get("kind")
+    if kind is None:
+        workflows.begin(state, requirements_review.NEXT)
+    elif kind in workflows.FIRST_STAGE:
+        state["next_stage"] = workflows.FIRST_STAGE[kind]
+    else:
+        return False
     return True
 
 
