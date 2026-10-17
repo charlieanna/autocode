@@ -27,8 +27,13 @@ export const chatStyles = /* css */ `
   #model-summary { color: var(--vscode-foreground); }
   #telemetry-body { max-height: 30vh; overflow: auto; padding: 0 8px 8px; border-top: 1px solid var(--vscode-panel-border); }
   #model-info { padding-top: 6px; }
-  .model-caption { font-size: .7rem; margin-bottom: 3px; }
-  .model-card { margin-bottom: 8px; }
+  .model-caption { font-weight: 600; color: var(--vscode-foreground); margin-bottom: 4px; }
+  .model-note { font-size: .7rem; margin-bottom: 6px; }
+  .model-section { margin-bottom: 12px; }
+  .model-card { padding: 6px 0; border-bottom: 1px solid var(--vscode-panel-border); }
+  .model-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
+  .model-job { font-weight: 600; color: var(--vscode-foreground); }
+  .model-meta { font-size: .7rem; margin-top: 2px; }
   .model-value { color: var(--vscode-foreground); overflow-wrap: anywhere; }
   #usage-breakdown { padding-top: 6px; }
   .telemetry-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 3px 0; }

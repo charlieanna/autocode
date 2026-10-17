@@ -15,6 +15,11 @@ starts another conversation; **History** switches to the Runs list so you can
 reopen one. **Back to Chat** returns to the current conversation and its draft.
 The selected conversation and each unsent draft survive reopening VS Code.
 
+The first status is **Understanding your request** while the core chooses the
+workflow (build, fix, review, design or discuss). Requirements gathering follows
+when the chosen workflow needs it. The detailed model history retains the
+canonical **Job recognizer** stage name.
+
 The thread shows your messages, saved answers and completed-turn replies, with
 Markdown and code blocks for assistant replies. A fixed composer grows with your
 draft. New output follows the bottom until you scroll up or select text;
@@ -22,11 +27,16 @@ draft. New output follows the bottom until you scroll up or select text;
 are adapted from Kilo Code's open-source UI; the exact revision and attribution
 are in [THIRD_PARTY_NOTICES.md](../vscode-extension/THIRD_PARTY_NOTICES.md).
 
-**Model & usage** stays above the composer and starts expanded, showing the full
-model route, provider, reasoning **Variant** (such as medium or high), tokens
-and cost breakdown. It shows the current attempt, or **Last used** after it
-finishes. Collapse it to a summary that still shows the model, variant, tokens
-and cost. Your expanded/collapsed preference survives polling, History navigation
+**Models & usage** stays above the composer and starts expanded. **Configured
+models** lists every saved role assignment with its full model ID, provider and
+reasoning **Variant** (such as medium or high), even before that role runs.
+**Models used** groups recorded attempts by job, model, provider and variant,
+including retries and earlier models. Several stages or slots can serve the same
+job; configured assignments do not imply that all those stages will run.
+
+Collapse the panel to a summary that still shows the current attempt (or **Last
+used**), variant, configured-role count, tokens and cost. Your expanded/collapsed
+preference survives polling, History navigation
 and reopening the chat. Values refresh with status polling and cover the whole
 run. Cache and reasoning are already included in input/output totals. Partial
 counts are labeled; unreported usage stays unknown.
@@ -34,7 +44,9 @@ counts are labeled; unreported usage stays unknown.
 Provider-reported cost and the core's historical comparison estimates are shown
 separately. These estimates are not current API prices or your token-plan bill.
 The extension reads the public accounting view and does not calculate its own
-prices. A new chat shows model information once its first attempt is recorded.
+prices. A new chat shows configured models once the core creates the run; actual
+model history appears as attempts are recorded. Older cores without the new
+display metadata still show available model IDs and leave missing variants unknown.
 
 When a plan is ready, its criteria, verification methods, constraints and
 permissions appear in the thread. Send **plan feedback and continue** to revise

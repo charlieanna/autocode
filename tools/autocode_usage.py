@@ -14,7 +14,7 @@ built-in claude provider writes it), "estimated" (tokens at the flat comparison 
 for models listed there) and unknown. An estimate is never added to a reported cost without being
 shown separately, and unknown is never zero: `complete` is false while any stage lacks a cost.
 A stage that only the runner executed costs nothing. Imports only the standard library and
-autocode_request_usage; RunState is imported for type checking only.
+the request accounting, role catalogue and utilities; RunState is type checking only.
 `metrics.provider_tokens_partial` marks known consumption from an interrupted stream as a lower bound.
 """
 
@@ -37,9 +37,11 @@ from pathlib import Path
 
 try:
     from . import autocode_request_usage as request_usage
+    from . import autocode_roles as roles
     from . import autocode_util as util
 except ImportError:
     import autocode_request_usage as request_usage
+    import autocode_roles as roles
     import autocode_util as util
 
 # Historical comparison rates, USD per 1M inclusive input/output tokens.
@@ -303,6 +305,7 @@ def accounting(state: RunState):
                 "worker_attempt": record.get("worker_attempt"),
                 "stage": record.get("stage"),
                 "role": record.get("role"),
+                "job": roles.screen_name(record.get("stage") or "", state),
                 "model": model,
                 **({"prompts_hash": record["prompts_hash"]} if "prompts_hash" in record else {}),
                 "original_stage": record.get("original_stage"),

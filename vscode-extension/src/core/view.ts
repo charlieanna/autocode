@@ -9,7 +9,7 @@
  * No VS Code API, so it is unit-testable in-process.
  */
 
-import { usageDisplay, type Usage } from "./telemetry";
+import { usageDisplay, type ModelRoute, type Usage } from "./telemetry";
 
 export interface Needs {
   kind: string;
@@ -113,6 +113,7 @@ export interface StatusView {
   progress?: Progress | null;
   usage?: Usage | null;
   provider?: string | null;
+  routes?: Record<string, ModelRoute> | null;
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
   recovery?: Record<string, unknown> | null;
   current_task?: { id?: string; objective?: string } | null;

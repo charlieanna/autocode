@@ -100,6 +100,24 @@ class TotalsTests(unittest.TestCase):
         view = run_view.view({"status": "RUNNING", "stages": [stage("terra", "terra", "m", cost=0.3)]})
         self.assertEqual(0.3, view["usage"]["cost_usd"]["reported"])
 
+    def test_actual_models_keep_stage_jobs_and_launch_variants_after_a_route_change(self):
+        state = {
+            "status": "RUNNING",
+            "settings": {"workflow": {"mode": "glm_first_v1"}, "roles": {"completion": {"model": "next-model"}}},
+            "stages": [
+                stage("astra_challenge", "astra", "review-model", launch_route={"reasoning_effort": "high"}),
+                stage(
+                    "astra_checkpoint_report_repair", "astra", "test-model", launch_route={"reasoning_effort": "medium"}
+                ),
+            ],
+        }
+        view = run_view.view(state)
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertEqual(["Plan Reviewer", "Tester"], [row["job"] for row in attempts])
+        self.assertEqual(["review-model", "test-model"], [row["model"] for row in attempts])
+        self.assertEqual(["high", "medium"], [row["launch_route"]["reasoning_effort"] for row in attempts])
+        self.assertEqual("next-model", view["routes"]["completion"]["model"])
+
 
 class StageMetricsTests(unittest.TestCase):
     def test_a_stage_records_the_cost_its_provider_reported(self):

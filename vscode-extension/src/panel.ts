@@ -409,8 +409,8 @@ export function panelHtml(chat = false): string {
 ${chat ? '<nav class="chat-toolbar"><button id="history" class="secondary">History</button><button id="details" class="secondary">Run details</button><button id="new-chat" class="secondary">New chat</button></nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>' : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
-<section id="telemetry" aria-label="Model and usage">
-<details id="usage-details" open><summary id="telemetry-summary"><span class="telemetry-heading">Model &amp; usage</span>
+<section id="telemetry" aria-label="Models and usage">
+<details id="usage-details" open><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
 <span id="model-summary">Model not reported</span><span id="usage-summary">Tokens not reported · Cost not reported</span></summary>
 <div id="telemetry-body"><div id="model-info"></div><div id="usage-breakdown"></div></div></details>
 </section>
@@ -713,22 +713,34 @@ function renderTelemetry(info) {
   if (host.dataset.content === signature) return;
   host.dataset.content = signature;
   host.textContent = '';
-  document.getElementById('model-summary').textContent = info && info.models.length
-    ? info.models.map((item) => item.model.split('/').pop() + ' · ' + item.variant).join(' / ')
-    : 'Model not reported';
-  if (!info || !info.models.length) host.appendChild(el('span', 'model-placeholder', info ? 'Model and variant not reported' : 'Model available after the first stage starts'));
-  else {
-    host.appendChild(el('div', 'model-caption', info.modelLabel));
-    info.models.forEach((item) => {
+  const configured = info ? info.configuredModels : [];
+  const summary = [];
+  if (info && info.models.length) summary.push(info.modelLabel + ': ' + info.models.map((item) => item.job + ' · ' + item.model.split('/').pop() + ' · ' + item.variant).join(' / '));
+  if (configured.length) summary.push(configured.length + ' configured roles');
+  document.getElementById('model-summary').textContent = summary.join(' · ') || 'Model not reported';
+  function modelSection(id, title, note, items) {
+    const section = el('div', 'model-section'); section.id = id;
+    section.appendChild(el('div', 'model-caption', title));
+    if (note) section.appendChild(el('div', 'model-note', note));
+    items.forEach((item) => {
       const model = el('div', 'model-card');
-      [['Model', item.model], ['Provider', item.provider], ['Variant', item.variant]].forEach(([label, value]) => {
-        const row = el('div', 'telemetry-row');
-        row.appendChild(el('span', 'telemetry-label', label));
-        row.appendChild(el('span', 'model-value', value));
-        model.appendChild(row);
-      });
-      host.appendChild(model);
+      const heading = el('div', 'model-heading');
+      heading.appendChild(el('span', 'model-job', item.job));
+      heading.appendChild(el('span', 'model-variant', 'Variant: ' + item.variant));
+      model.appendChild(heading);
+      model.appendChild(el('div', 'model-value', item.model));
+      const meta = ['Provider: ' + item.provider];
+      if (item.attempts) meta.push(item.attempts + (item.attempts === 1 ? ' attempt' : ' attempts'));
+      if (item.active) meta.push('Active');
+      model.appendChild(el('div', 'model-meta', meta.join(' · ')));
+      section.appendChild(model);
     });
+    host.appendChild(section);
+  }
+  if (configured.length) modelSection('configured-models', 'Configured models', 'Saved role assignments. Several stages can share a model; an assignment does not mean it has run.', configured);
+  if (info && info.stagesUsed.length) modelSection('used-models', 'Models used', 'Recorded attempts, including retries and earlier model variants.', info.stagesUsed);
+  else {
+    host.appendChild(el('span', 'model-placeholder', info ? 'No model attempts reported yet.' : 'Configured models appear when a run starts.'));
   }
   document.getElementById('usage-summary').textContent = info ? info.tokens + ' · ' + info.cost : 'Tokens not reported · Cost not reported';
   const details = document.getElementById('usage-breakdown');

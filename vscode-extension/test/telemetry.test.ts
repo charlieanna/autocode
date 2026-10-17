@@ -49,7 +49,7 @@ test("model and variant come from the actual attempt, and a retained finished at
     model: "xiaomi-token-plan-sgp/mimo-v2.6-pro", active: true,
     launch_route: { model: "older-route", reasoning_effort: "high", engine: "opencode" },
   }] } } };
-  assert.deepEqual(telemetry(view).models, [{ model: "xiaomi-token-plan-sgp/mimo-v2.6-pro", variant: "high", provider: "kilocode" }]);
+  assert.deepEqual(telemetry(view).models, [{ job: "Stage not reported", model: "xiaomi-token-plan-sgp/mimo-v2.6-pro", variant: "high", provider: "kilocode" }]);
   assert.equal(telemetry(view).modelLabel, "Current attempt");
   const usage: Usage = view.usage;
   usage.accounting!.attempts![0]!.finished_at = "2026-10-17T00:51:55Z";
@@ -72,4 +72,36 @@ test("parallel models remain visible and missing variants are not invented", () 
 test("completed known zero tokens are distinct from unknown usage", () => {
   assert.equal(usageDisplay({ accounting: { tokens: { input_tokens: quantity(0), output_tokens: quantity(0) } } }).tokens, "0 tokens");
   assert.equal(usageDisplay().tokens, "Tokens not reported");
+});
+
+test("all configured roles are visible before launch, including shared models and missing variants", () => {
+  const display = telemetry({ done: false, provider: "kilocode", routes: {
+    requirements: { job: "Requirements", model: "zai/glm", engine: "opencode", reasoning_effort: "medium" },
+    terra: { job: "Builder", model: "xiaomi/mimo", provider: "kilocode", reasoning_effort: "high" },
+    sol: { job: "Tester", model: "zai/glm", engine: "opencode" },
+    completion: { job: "Completion Reviewer", model: "other", provider: "claude" },
+  } });
+  assert.deepEqual(display.configuredModels.map((row) => [row.job, row.model, row.variant, row.provider]), [
+    ["Requirements", "zai/glm", "medium", "kilocode"], ["Builder", "xiaomi/mimo", "high", "kilocode"],
+    ["Tester", "zai/glm", "Not reported", "kilocode"], ["Completion Reviewer", "other", "Not reported", "claude"],
+  ]);
+  assert.deepEqual(display.models, []);
+  assert.deepEqual(display.stagesUsed, []);
+});
+
+test("stage history retains every used model and variant independently of future route assignments", () => {
+  const result = telemetry({ done: false, routes: { terra: { job: "Builder", model: "future-model" } }, usage: { accounting: { attempts: [
+    { job: "Job recognizer", model: "small", finished_at: "t" },
+    { job: "Builder", model: "old", launch_route: { reasoning_effort: "medium" }, finished_at: "t" },
+    { job: "Builder", model: "old", launch_route: { reasoning_effort: "medium" }, interrupted: true },
+    { job: "Builder", model: "new", launch_route: { reasoning_effort: "high" }, active: true },
+    { job: "Tester", model: "tester", launch_route: { reasoning_effort: "high" }, active: true, finished_at: "t" },
+    { model: "runner", runner_owned: true },
+  ] } } });
+  assert.deepEqual(result.stagesUsed.map((row) => [row.job, row.model, row.variant, row.attempts, row.active]), [
+    ["Job recognizer", "small", "Not reported", 1, false], ["Builder", "old", "medium", 2, false],
+    ["Builder", "new", "high", 1, true], ["Tester", "tester", "high", 1, false],
+  ]);
+  assert.equal(result.models[0]!.model, "new");
+  assert.equal(result.configuredModels[0]!.model, "future-model");
 });

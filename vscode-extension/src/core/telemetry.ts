@@ -9,6 +9,8 @@ export interface Quantity {
 type TokenKey = "input_tokens" | "output_tokens" | "cached_input_tokens" | "cache_write_tokens" | "reasoning_output_tokens";
 
 export interface Attempt {
+  stage?: string | null;
+  job?: string | null;
   model?: string;
   engine?: string;
   active?: boolean;
@@ -19,6 +21,21 @@ export interface Attempt {
   runner_owned?: boolean;
   usage_basis?: string;
   launch_route?: { model?: string; engine?: string; provider?: string | null; reasoning_effort?: string | null };
+}
+
+export interface ModelRoute {
+  job?: string | null;
+  model?: string | null;
+  engine?: string | null;
+  provider?: string | null;
+  reasoning_effort?: string | null;
+}
+
+interface ModelDisplay {
+  job: string;
+  model: string;
+  variant: string;
+  provider: string;
 }
 
 export interface Usage {
@@ -44,7 +61,9 @@ export interface UsageDisplay {
 
 export interface Telemetry extends UsageDisplay {
   modelLabel: string;
-  models: { model: string; variant: string; provider: string }[];
+  models: ModelDisplay[];
+  configuredModels: ModelDisplay[];
+  stagesUsed: (ModelDisplay & { attempts: number; active: boolean })[];
 }
 
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -110,21 +129,40 @@ export function usageDisplay(usage?: Usage | null): UsageDisplay {
   return result;
 }
 
-export function telemetry(view: { usage?: Usage | null; provider?: string | null; done: boolean }): Telemetry {
+export function telemetry(view: { usage?: Usage | null; provider?: string | null; routes?: Record<string, ModelRoute> | null; done: boolean }): Telemetry {
   const attempts = (view.usage?.accounting?.attempts ?? []).filter((row) => !row.runner_owned && row.usage_basis !== "runner");
   const current = view.done ? [] : attempts.filter((row) => row.active && !row.finished_at && !row.interrupted && !row.timed_out && !row.rejected);
   const selected = current.length ? current : attempts.slice(-1);
+  const describe = (row: Attempt): ModelDisplay => {
+    const route = row.launch_route;
+    const engine = route?.engine || row.engine;
+    return {
+      // Human job names are supplied by the core, never a second client-side table.
+      job: row.job || row.stage || "Stage not reported",
+      model: row.model || route?.model || "Model not reported",
+      variant: route?.reasoning_effort || "Not reported",
+      provider: route?.provider || (engine === "opencode" ? view.provider : engine) || "Not reported",
+    };
+  };
+  const used = new Map<string, Telemetry["stagesUsed"][number]>();
+  for (const row of attempts) {
+    const model = describe(row);
+    const key = JSON.stringify(model);
+    const item = used.get(key) ?? { ...model, attempts: 0, active: false };
+    item.attempts++;
+    item.active ||= current.includes(row);
+    used.set(key, item);
+  }
   return {
     ...usageDisplay(view.usage),
     modelLabel: current.length ? (current.length > 1 ? "Current attempts" : "Current attempt") : "Last used",
-    models: selected.map((row) => {
-      const route = row.launch_route;
-      const engine = route?.engine || row.engine;
-      return {
-        model: row.model || route?.model || "Model not reported",
-        variant: route?.reasoning_effort || "Not reported",
-        provider: route?.provider || (engine === "opencode" ? view.provider : engine) || "Not reported",
-      };
-    }),
+    models: selected.map(describe),
+    configuredModels: Object.entries(view.routes ?? {}).filter(([, route]) => route && typeof route === "object").map(([role, route]) => ({
+      job: route.job || role,
+      model: route.model || "Model not reported",
+      variant: route.reasoning_effort || "Not reported",
+      provider: route.provider || (route.engine === "opencode" ? view.provider : route.engine) || "Not reported",
+    })),
+    stagesUsed: [...used.values()],
   };
 }

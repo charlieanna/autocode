@@ -180,7 +180,13 @@ def select(paths: list[str], *, full: bool = False) -> dict[str, bool]:
             selected["dashboard"] = True
         # The VS Code client is TypeScript over the CLI, so it has its own Node gate
         # rather than the dashboard's (#884).
-        if path.startswith(("vscode-extension/", "tools/autocode_chat_")) or path == "tools/autocode_run_view.py":
+        if path.startswith(("vscode-extension/", "tools/autocode_chat_")) or path in (
+            "tools/autocode_run_view.py",
+            "tools/autocode_quota_route.py",
+            "tools/autocode_roles.py",
+            "tools/autocode_usage.py",
+            "tools/autocode_progress_view.py",
+        ):
             selected["extension"] = True
         if path.startswith(("tools/autocode_visual", "tools/autocode_image", "tests/test_visual", "tests/test_image")):
             selected["visual"] = True

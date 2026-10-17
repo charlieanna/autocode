@@ -15,10 +15,19 @@ reuse, not a fork of Kilo's provider/runtime or a claim of complete UI parity.
 
 Focused checks on this change:
 
-- `npm test` in `vscode-extension`: 68 passed, including controller/webview chat,
+- `npm test` in `vscode-extension`: 71 passed, including controller/webview chat,
   stale approval, same-run follow-up, Markdown safety, reading-position retention,
   composer sizing, local undo and IME/newline behavior.
 - `npm run typecheck` and `npm run build`: passed.
+- All-role model display: `python -m unittest tests.test_roles tests.test_quota_route
+  tests.test_usage tests.test_taskrun.RunViewTests tests.test_architecture` passed
+  91 tests in 14.378 s. The public status regressions cover roles before launch,
+  mixed providers, unspecified variants and actual stage history after a route change.
+- Recognition wording: `python -m unittest tests.test_progress_view` passed
+  27 tests. The active headline says **Understanding your request**, while
+  finished/stopped states and the detailed stage identity remain accurate.
+- `tests.test_ci_scope` verifies that model/usage/role/progress contract changes
+  select the extension's Node checks as a public CLI consumer.
 - Repository venv, `python -m unittest tests.test_chat_view
   tests.test_taskrun.RunViewTests tests.test_ci_scope tests.test_ci_test_selection
   tests.test_run_state tests.test_architecture tests.test_follow_up`: 111 passed
@@ -94,6 +103,13 @@ the full model route and provider remain available without opening run details.
 In VS Code, collapsing the panel, opening History and returning to chat preserved
 the collapsed state; expanding restored all rows. The saved preference also
 survives draft edits, polling and webview recreation in the regression test.
+
+The latest expansion lists every configured role and separately groups actual
+attempts by job, model, provider and variant. It retains older models after a
+route change and does not imply that an unstarted role has run. The current
+editor window is running an earlier extension build with a live task; the new
+all-role layout has deterministic renderer coverage but its native editor recheck
+is still pending. No new paid run was needed for these display-only changes.
 
 ## Live token-plan attempt
 

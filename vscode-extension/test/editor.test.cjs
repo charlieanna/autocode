@@ -379,7 +379,7 @@ test('composer model, variant and usage update on polling without losing the dra
   field.focus(); field.setSelectionRange(5, 10);
   const details = ui.document.querySelector('#usage-details');
   assert.equal(details.open, true, 'model details start expanded');
-  assert.match(ui.document.querySelector('#model-info').textContent, /zai-coding-plan\/glm-5.3.*Providerkilocode.*Variantmedium/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /Variant: medium.*zai-coding-plan\/glm-5.3.*Provider: kilocode/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /1,200 tokens.*\$0.0500.*est\./);
   const next = structuredClone(initial);
   next.usage.accounting.attempts[0] = { model: 'xiaomi-token-plan-sgp/mimo-v2.6-pro<script>bad()</script>', active: true,
@@ -387,15 +387,45 @@ test('composer model, variant and usage update on polling without losing the dra
   next.usage.accounting.tokens.output_tokens = q(400);
   await ui.poll(next);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /1,400 tokens/);
-  assert.match(ui.document.querySelector('#model-info').textContent, /Varianthigh/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /Variant: high/);
   assert.equal(ui.document.querySelector('#model-info script'), null);
   assert.equal(ui.document.activeElement, field);
   assert.equal(field.value, 'Keep my unsent feedback');
   assert.equal(field.selectionStart, 5);
   assert.equal(details.open, true);
   ui.chat.show(); await flush();
-  assert.match(ui.document.querySelector('#model-info').textContent, /after the first stage/);
+  assert.match(ui.document.querySelector('#model-info').textContent, /when a run starts/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
+});
+
+test('all configured jobs render before use and polling keeps historical models separate', async (t) => {
+  const initial = { ...chatView(), provider: 'kilocode', routes: {
+    requirements: { job: 'Requirements', model: 'zai/glm', reasoning_effort: 'medium', engine: 'opencode' },
+    plan_reviewer: { job: 'Plan Reviewer', model: 'xiaomi/mimo', reasoning_effort: 'high', engine: 'opencode' },
+    terra: { job: 'Builder', model: 'xiaomi/mimo', reasoning_effort: 'medium', engine: 'opencode' },
+    sol: { job: 'Tester', model: 'zai/glm', reasoning_effort: 'high', engine: 'opencode' },
+    completion: { job: 'Completion Reviewer', model: 'zai/glm', reasoning_effort: 'medium', engine: 'opencode' },
+  } };
+  const ui = await openChat(t, initial);
+  assert.deepEqual([...ui.document.querySelectorAll('#configured-models .model-job')].map((node) => node.textContent),
+    ['Requirements', 'Plan Reviewer', 'Builder', 'Tester', 'Completion Reviewer']);
+  assert.match(ui.document.querySelector('#model-summary').textContent, /5 configured roles/);
+  assert.equal(ui.document.querySelector('#used-models'), null);
+  ui.type('Keep my draft while all models update');
+  const disclosure = ui.document.querySelector('#usage-details');
+  disclosure.open = false;
+  disclosure.dispatchEvent(new ui.window.Event('toggle'));
+  const next = structuredClone(initial);
+  next.routes.terra.model = 'next-model<script>bad()</script>';
+  next.usage = { accounting: { attempts: [{ job: 'Builder', model: 'xiaomi/mimo', active: true,
+    launch_route: { provider: 'kilocode', reasoning_effort: 'high' } }] } };
+  await ui.poll(next);
+  assert.match(ui.document.querySelector('#configured-models').textContent, /next-model<script>/);
+  assert.match(ui.document.querySelector('#used-models').textContent, /BuilderVariant: highxiaomi\/mimo.*Active/);
+  assert.match(ui.document.querySelector('#model-summary').textContent, /Builder · mimo · high.*5 configured roles/);
+  assert.equal(ui.document.querySelector('#configured-models script'), null);
+  assert.equal(disclosure.open, false);
+  assert.equal(ui.document.querySelector('#message').value, 'Keep my draft while all models update');
 });
 
 test('model details remember expansion across polling, draft edits and webview recreation', async (t) => {

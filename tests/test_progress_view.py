@@ -54,6 +54,19 @@ def states(view):
 
 
 class ProgressLineTests(unittest.TestCase):
+    def test_recognition_explains_the_activity_but_keeps_the_stage_and_stop_truthful(self):
+        saved = state(active_stage={"stage": "recognize_workflow"})
+        view = project(saved, stage="Job recognizer")
+        self.assertEqual("Understanding your request", view["headline"])
+        self.assertTrue(view["line"].startswith("Understanding your request ·"))
+        self.assertEqual("Job recognizer", view["stage"])
+        self.assertEqual("Job recognizer finished", project(saved, stage="Job recognizer", finished=True)["headline"])
+        self.assertEqual(
+            "Job recognizer stopped without saving a report",
+            project(saved, stage="Job recognizer", stopped="Inspect the failed attempt")["headline"],
+        )
+        self.assertEqual("Builder working", project(state())["headline"])
+
     def test_a_finished_run(self):
         saved = state(
             status="TASK_COMPLETE",

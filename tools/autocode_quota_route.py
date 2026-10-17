@@ -754,10 +754,22 @@ def record_resume_change(
 
 
 def routes(state: RunState) -> dict:
-    """{role: {model, engine}} for every configured role: the routes the next launch uses."""
+    """Every saved model slot, with display metadata; not evidence a stage ran."""
     settings = state.get("settings") or {}
     return {
-        role: {"model": config.get("model"), "engine": engine(settings, role)}
+        role: {
+            "model": config.get("model"),
+            "engine": engine(settings, role),
+            "job": roles.route_name(role, state),
+            "reasoning_effort": config.get("reasoning_effort"),
+            "provider": (
+                config.get("provider")
+                if config.get("provider") not in (None, "openai", "opencode")
+                else settings.get("provider") or "opencode"
+            )
+            if engine(settings, role) == "opencode"
+            else engine(settings, role),
+        }
         for role, config in sorted((settings.get("roles") or {}).items())
         if isinstance(config, dict)
     }

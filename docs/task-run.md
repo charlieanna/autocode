@@ -927,8 +927,17 @@ history: an approval stays listed after a newer plan or a rejection replaces it,
 is in force from `approved_contract` and `evidence.acceptance[].human_reviewed`. It is empty
 until the first record.
 
-`routes` maps every configured role to the `model` and `engine` its next launch
-uses. `provider` names the provider those OpenCode-engine routes launch through
+`routes` maps every configured role to its saved `model` and `engine`, plus
+`reasoning_effort` (null when unspecified), resolved per-role `provider`, and
+`job` (its primary job's screen name from `autocode_roles`). These are configured
+assignments, not evidence a stage ran or a prediction of conditional routing or
+escalation. Several slots can serve the same job. The actual history is in
+`usage.accounting.attempts`: each attempt now also includes `job`, derived from
+its stage and workflow, alongside its recorded model and `launch_route`.
+Clients must keep configured assignments separate from actual attempts; changing
+a saved route does not rewrite an earlier attempt's model or reasoning effort.
+
+The top-level `provider` names the provider those OpenCode-engine routes launch through
 (`opencode`, `claude` for the [built-in Claude Code provider](providers.md#claude-code-provider),
 or a configured tool's name); it is null when every role runs on Codex. `route_assignments` lists, oldest first, every model a person named for a
 role after its quota ran out or its provider's content filter refused it: `kind` (always `route_assignment`), `role`, `job`,

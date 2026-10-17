@@ -35,7 +35,15 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual({"docs"}, self.enabled("docs/testing.md"))
 
     def test_chat_contract_changes_select_the_extension_consumer(self):
-        for path in ("vscode-extension/src/chat.ts", "tools/autocode_chat_view.py", "tools/autocode_run_view.py"):
+        for path in (
+            "vscode-extension/src/chat.ts",
+            "tools/autocode_chat_view.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_quota_route.py",
+            "tools/autocode_roles.py",
+            "tools/autocode_usage.py",
+            "tools/autocode_progress_view.py",
+        ):
             self.assertIn("extension", self.enabled(path))
 
     def test_dashboard_and_visual_changes_keep_their_real_browser_jobs(self):
