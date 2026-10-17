@@ -52,6 +52,8 @@ TANGLED: frozenset[str] = frozenset()
 # 2026-10-16: queuing a report-only repair moved to autocode_report_repair_queue (#1257).
 # 2026-10-16: annotating commit_boundary_candidate's state as RunState (#695) pushed its signature past
 # the line length, and ruff format wrapped it onto three lines: autocode.py +2, no new behavior.
+# 2026-10-17: the --auto-select flag's parser entry raised autocode_args.py (#1426); its action lives in
+# autocode_configure._auto_select.
 # 2026-10-17: stamping open escalations on --accept-completion (#612) added route_ladder import and
 # record_outcome call: autocode.py +3.
 MAX_LINES = {
@@ -60,7 +62,7 @@ MAX_LINES = {
     "autocode_support.py": 620,
     "autopilot.py": 1513,
     "autocode_run_actions.py": 366,
-    "autocode_args.py": 1020,
+    "autocode_args.py": 1028,
     "autocode_verify.py": 3333,
 }
 
