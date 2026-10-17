@@ -27,6 +27,12 @@
     "views": {
       "autocode": [
         {
+          "id": "autocode.chat",
+          "name": "Chat",
+          "type": "webview",
+          "contextualTitle": "AutoCode chat"
+        },
+        {
           "id": "autocode.runs",
           "name": "Runs",
           "contextualTitle": "AutoCode runs"
@@ -36,7 +42,7 @@
     "commands": [
       {
         "command": "autocode.startRun",
-        "title": "Start Run…",
+        "title": "New Chat",
         "category": "AutoCode",
         "icon": "$(plus)"
       },
@@ -78,6 +84,11 @@
         "command": "autocode.showLog",
         "title": "Show AutoCode Output",
         "category": "AutoCode"
+      },
+      {
+        "command": "autocode.openDetails",
+        "title": "Open Run Details",
+        "category": "AutoCode"
       }
     ],
     "menus": {
@@ -91,6 +102,11 @@
           "command": "autocode.refresh",
           "when": "view == autocode.runs",
           "group": "navigation@2"
+        },
+        {
+          "command": "autocode.startRun",
+          "when": "view == autocode.chat",
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -162,5 +178,8 @@
     "esbuild": "^0.24.0",
     "jsdom": "26.1.0",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "marked": "15.0.12"
   }
 }

@@ -2,44 +2,46 @@
 
 [← Back to README](../README.md)
 
-A thin client for AutoCode task runs (issue #884, roadmap #1006). It is a client
-of the [task-run interface](task-run.md) and nothing else: it starts the
-`autocode` CLI, reads `--status`, and takes the action the status view names. It
-imports no module from `tools/`, never reads `state.json`, and does not parse the
-CLI's prose to decide what to do.
+Chat with AutoCode in the sidebar (issue #884). The extension starts the CLI,
+reads `--status` and `registry list --json`, and takes the actions the public
+[task-run interface](task-run.md) names. It imports no runner internals and never
+reads `state.json`.
 
-## What it does today
+## Chat in the sidebar
 
-- **Start Run…** picks a workspace, takes the task in your words, names a fresh
-  run directory with `--new-run-dir`, and launches
-  `autocode "BRIEF" --in-place --no-chat` as a background process. Its own output
-  goes to the *AutoCode* channel.
-- **Runs** lists the local run registry (`autocode registry list --json`),
-  grouped by workspace, and keeps a stale pointer visible with its reason instead
-  of dropping it.
-- The **run panel** shows what the view says: `progress.line`, the milestone
-  tasks, each acceptance criterion's state, the open findings, cost so far
-  (unknown cost is shown as unknown, never as zero), and what the run is waiting
-  for.
-- **Take the named action** runs `view.next_command`. Because that command is
-  formatted by AutoCode from `view.needs`, one generic path covers approval,
-  answers, review acceptance, resumes, retries and job retries — the same set the
-  headless conformance client (#1012) exercises.
+Open **AutoCode → Chat**, type a request, and press Enter. Shift+Enter adds a
+newline. **New chat** starts another conversation; **History** focuses the Runs
+list so you can reopen one. The selected conversation and each unsent draft
+survive reopening VS Code.
 
-## What it will not do
+The thread shows your messages, saved answers and completed-turn replies, with
+Markdown and code blocks for assistant replies. A fixed composer grows with your
+draft. New output follows the bottom until you scroll up or select text;
+**Latest messages** returns to the bottom. These composer and scrolling components
+are adapted from Kilo Code's open-source UI; the exact revision and attribution
+are in [THIRD_PARTY_NOTICES.md](../vscode-extension/THIRD_PARTY_NOTICES.md).
 
-- It never launches a model by itself. Starting a run and continuing one each
-  ask you to confirm, because both spend your allowance.
-- It cannot approve a plan it has not displayed. `displayed_plan` appears in the
-  view only while the last displayed token matches the current sealed contract,
-  and the approval is bound to that token: a plan revised while the panel sat
-  open is refused, and you are asked to review the new one.
-- An answer to a `blocker` or an `operational_exhaustion` request, a `resume`, a
-  `retry_job` and a `recover_source` stop are the run asking a person. The client
-  asks again before taking them (`autocode.confirmPersonOnly`).
-- Issued tokens never go on a command line — `/proc/<pid>/cmdline` is
-  world-readable. They travel in the child's environment, the way the CLI
-  formats them with the `-` selector.
+When a plan is ready, its criteria, verification methods, constraints and
+permissions appear in the thread. Send **plan feedback and continue** to revise
+it. **Approve and build** approves only the displayed plan, then continues the
+same run. A stale click is refused and the revised plan must be reviewed.
+Answer cards handle questions and model replacement choices.
+
+After completion, sending a **follow-up and continue** reopens the same run for
+the next turn. Earlier messages and completed replies remain visible. A new
+build plan requires its own approval. While AutoCode works, you can compose a
+draft; sending becomes available when the core offers a message action.
+
+**Run details** opens the detailed progress panel. The Runs list reads the local
+registry and retains unavailable pointers with their diagnostic. Both surfaces
+use the core's named commands, including the optional `view.chat.input` offer.
+Commands use argument arrays; issued tokens stay in the child environment.
+
+Starting a new chat asks you to confirm model spend. Buttons that save an input
+and then advance explicitly say **and continue**; advancing uses your configured
+provider and per-role routes. Person-only recovery decisions still require their
+separate confirmation (`autocode.confirmPersonOnly`). Free text cannot bypass an
+operational stop or approve a plan.
 
 ## Run it from a checkout
 
@@ -47,21 +49,20 @@ CLI's prose to decide what to do.
 cd vscode-extension
 npm ci
 npm run build
-npm test          # helpers, controller/commands and the webview DOM; no providers
+npm test
 code .
 ```
 
-In the debug window (`F5`) the AutoCode view appears in the Activity Bar. Point
-`autocode.cliPath` at your `autocode`, or set `autocode.cliArgs` to run it from a
-source checkout, e.g. `cliPath: python3`,
-`cliArgs: ["/path/to/autocode/tools/autocode.py"]`.
+Press F5 to launch the configured Extension Development Host. The AutoCode view
+appears in the Activity Bar. Point `autocode.cliPath` at your `autocode`, or set
+`cliPath: python3`, `cliArgs: ["/path/to/autocode/tools/autocode.py"]` for a source
+checkout. Provider execution needs a supported host; see [testing.md](testing.md).
 
-The extension remains a draft pending both an actual VS Code flow and the owner's
-live-model qualification. The automated tests substitute the VS Code host and
-render the webview in jsdom; passing them does not establish either qualification.
-
-`autocode.provider` is the route your models bill to. Check it before a live run:
-AutoCode refuses to spend without it landing where you meant.
+PR #1425 remains draft until the actual editor flow and the owner's live-model
+qualification both pass. The editor fixture flow has been exercised; the Kilo
+token-plan live attempt stopped on a MiMo network failure before building.
+See the [qualification record](bugs/2026-10-16-vscode-chat-qualification.md).
+The jsdom tests alone establish neither editor-host nor live-provider compatibility.
 
 ## Settings
 
@@ -71,12 +72,18 @@ AutoCode refuses to spend without it landing where you meant.
 | `autocode.cliArgs` | `[]` | Leading arguments, for a source checkout. |
 | `autocode.provider` | `""` | `--provider` when starting or advancing a run. |
 | `autocode.extraOptions` | `[]` | Extra engine and model flags on advancing calls. |
-| `autocode.pollSeconds` | `5` | Seconds between `--status` reads. A read never rewrites the checkpoint or launches a provider. |
+| `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
 
-## Not yet
+## Remaining scope
 
-Follow-ups, the conversation surface, plan editing (`--edit-goal`), recovery
-grants, checkpoint compare/restore and dependency binding all need decisions the
-view leaves open — a `GOAL_FILE` or a recovery `N` is not something a client may
-invent. The panel names them as a gap and points you at the command instead.
+This is an AutoCode chat client with selected Kilo UI adaptations, not the full
+Kilo, Cline or ZooCode extension. It displays saved task replies and status
+updates; token-by-token model output, file attachments, inline edit/diff
+acceptance and editing arbitrary plan files are not implemented.
+
+Plan editing (`--edit-goal`), recovery grants and other actions with unresolved
+`GOAL_FILE`, recovery `N` or explanatory placeholders remain explicit gaps.
+The client cannot invent those decisions. The separate core Requirements
+conversation journal is documented in [task-run.md](task-run.md); this client
+uses ordinary task runs and their additive chat projection.

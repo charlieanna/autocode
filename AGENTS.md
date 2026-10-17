@@ -28,6 +28,8 @@ a change that breaks the dashboard breaks the app. The core must not import the
 dashboard.
 
 **VS Code client, approved 2026-10-15 for #884, in `vscode-extension/`.**
+The owner expanded PR #1425 on 2026-10-16 to include sidebar chat, plan
+feedback and follow-ups, reusing Kilo UI components where practical.
 It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:
 
@@ -35,7 +37,8 @@ It is a client of the
   `--status` and `registry list --json`;
 - it never imports a module from `tools/`, never reads `state.json`, and never
   parses the CLI's prose to decide what to do;
-- it takes only the action the status view names (`view.next_command`), so it can
+- it takes only the action the status view names (`view.next_command` or the
+  optional `view.chat.input.next_command` message offer), so it can
   do nothing the headless conformance client (#1012,
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the
   client could take, that is a gap in the CLI or the view: report it, never work

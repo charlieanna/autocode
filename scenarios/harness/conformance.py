@@ -196,6 +196,17 @@ class ConformanceDriver(Driver):
             filled.append(word)
         return filled
 
+    def message_command(self, view: dict, text: str) -> tuple[list[str], dict, str]:
+        """A person's feedback/follow-up through the optional chat input offer (#884)."""
+        offered = (view.get("chat") or {}).get("input") or {}
+        flag = {"feedback": "--feedback", "follow_up": "--follow-up"}.get(offered.get("kind"))
+        if not flag or not text.strip() or not offered.get("next_command"):
+            raise ConformanceGap("The view names no message action at this checkpoint")
+        words, env, _ = self.named_command({**view, "next_command": offered["next_command"]})
+        if words != [flag, "MESSAGE"] or env:
+            raise ConformanceGap("Unsupported chat message command")
+        return [flag, text], {}, "chat.input.next_command"
+
     def answer_for(self, need: dict, question_id: str, placeholder: str) -> str:
         if question_id in self.explicit_answers:
             answer = self.explicit_answers[question_id]

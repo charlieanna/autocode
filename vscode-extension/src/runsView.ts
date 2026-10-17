@@ -49,7 +49,7 @@ export class RunItem extends vscode.TreeItem {
 
 export class RunsProvider implements vscode.TreeDataProvider<RunNode> {
   private readonly changed = new vscode.EventEmitter<RunNode[] | undefined>();
-  readonly onDidTreeChange = this.changed.event;
+  readonly onDidChangeTreeData = this.changed.event;
 
   constructor(private readonly controller: RunController) {}
 

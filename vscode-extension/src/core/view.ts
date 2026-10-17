@@ -60,7 +60,7 @@ export interface Progress {
     awaiting_review?: number;
     reviewed?: number;
     total?: number;
-    items?: { id: string; criterion: string; state: string }[];
+    items?: { id: string; criterion?: string; label?: string; state: string }[];
   };
   problems?: { open?: number; items?: { id: string; finding: string; severity?: string; blocking?: boolean }[] };
   for_earlier_request?: boolean;
@@ -121,6 +121,11 @@ export interface StatusView {
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
   recovery?: Record<string, unknown> | null;
   current_task?: { id?: string; objective?: string } | null;
+  chat?: {
+    messages: { id: string; role: string; text: string }[];
+    context: string;
+    input: { kind: "feedback" | "follow_up"; label: string; next_command: string } | null;
+  };
 }
 
 /** The envelope `autocode --status` prints: the view sits under `"view"`. */

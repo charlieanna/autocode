@@ -11,6 +11,8 @@ import { ClientGap, leavesForPerson } from "./core/next-command";
 import type { AcceptanceCriterion, Question, StatusView } from "./core/view";
 import { approvalToken, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
+import { markdown, type TextNode } from "./chat-markdown";
+import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
 
 export interface Decision {
   questionId: string;
@@ -21,6 +23,8 @@ export interface Decision {
 }
 
 export interface PanelState {
+  chat?: StatusView["chat"];
+  formattedMessages?: Record<string, TextNode[]>;
   workspace: string;
   runDir: string;
   status: string;
@@ -83,8 +87,10 @@ export class RunPanel {
   ) {
     this.panel.onDidDispose(() => this.dispose());
     this.panel.onDidChangeViewState(() => {
-      if (this.panel.visible) void this.update();
-      else this.stop();
+      if (this.panel.visible) {
+        void this.update();
+        this.start();
+      } else this.stop();
     });
     this.panel.webview.onDidReceiveMessage((message) => void this.onMessage(message));
   }
@@ -105,7 +111,7 @@ export class RunPanel {
     const instance = new RunPanel(panel, run, controller);
     RunPanel.open.set(key, instance);
     RunPanel.last = instance;
-    panel.webview.html = html();
+    panel.webview.html = panelHtml();
     void instance.update();
     instance.start();
     return instance;
@@ -207,6 +213,8 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
   }
   const requirements = progress?.requirements;
   return {
+    chat: view.chat,
+    formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant").map((row) => [row.id, markdown(row.text)])),
     workspace: run.workspace,
     runDir: run.runDir,
     status: view.status,
@@ -233,7 +241,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     })),
     requirements: (requirements?.items ?? []).map((row) => ({
       id: row.id,
-      criterion: row.criterion,
+      criterion: row.criterion ?? row.label ?? row.id,
       state: row.state,
     })),
     requirementCounts: requirements
@@ -353,7 +361,7 @@ function trim(text: string, max: number): string {
 }
 
 /** The webview script. It renders with textContent only: untrusted text never becomes markup. */
-function html(): string {
+export function panelHtml(chat = false): string {
   return /* html */ `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -390,13 +398,24 @@ function html(): string {
   .notice { border-left-color: var(--vscode-textLink-foreground, #3794ff); background: transparent; }
   .actions { display: flex; gap: 8px; margin-top: 14px; }
   .muted { opacity: .65; }
+  ${chat ? chatStyles : ""}
 </style>
 </head>
 <body>
-<div id="app" class="muted">Loading…</div>
+${chat ? '<nav class="chat-toolbar"><button id="history" class="secondary">History</button><button id="details" class="secondary">Run details</button><button id="new-chat" class="secondary">New chat</button></nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>' : ""}
+<div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
+${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button><form id="composer">
+<label for="message" id="send-hint">Message AutoCode</label>
+<textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
+<div id="chat-error" role="alert"></div>
+<div class="actions"><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
+<button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
+const chatMode = ${chat};
+let chatEnvelope = null;
+const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
 let answers = Object.create(null);
 let renderedState = '';
@@ -436,19 +455,19 @@ function render(state) {
   app.textContent = '';
   app.classList.remove('muted');
   app.appendChild(el('h1', null, state.headline));
-  app.appendChild(el('div', 'line', state.line));
+  if (!chatMode || state.line !== state.headline) app.appendChild(el('div', 'line', state.line));
   const meta = [
-    state.status,
+    !chatMode ? state.status : null,
     state.workflow ? state.workflow + ' workflow' : null,
     state.turn ? 'turn ' + state.turn : null,
-    state.iteration ? 'iteration ' + state.iteration : null,
-    state.nextStage ? 'next: ' + state.nextStage : null,
+    !chatMode && state.iteration ? 'iteration ' + state.iteration : null,
+    !chatMode && state.nextStage ? 'next: ' + state.nextStage : null,
     state.pause ? 'pause: ' + state.pause : null,
     state.usage,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
 
-  if (state.task) {
+  if (state.task && !chatMode) {
     app.appendChild(el('h2', null, 'Request'));
     app.appendChild(el('pre', null, state.task));
   }
@@ -562,11 +581,13 @@ function render(state) {
 
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
-    var label = state.taking ? 'Taking…' : (approving ? 'Approve this plan' : (state.needKind === 'review' ? 'Accept the reviewed criteria' : 'Take the named action'));
+    var label = state.taking ? 'Working…' : (approving ? (chatMode ? 'Approve and build' : 'Approve this plan')
+      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (chatMode ? (state.decisions.length ? 'Send answers and continue' : 'Continue') : 'Take the named action')));
     const take = el('button', null, label);
     take.id = 'take-action';
     take.addEventListener('click', () => {
-      vscode.postMessage({ type: 'take', answers: { ...answers }, token: state.token || null });
+      vscode.postMessage({ type: 'take', answers: { ...answers }, token: state.token || null,
+        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext });
     });
     actions.appendChild(take);
     const again = el('button', 'secondary', 'Refresh');
@@ -590,7 +611,7 @@ function render(state) {
     }
   }
 
-  if (state.commandText) {
+  if (state.commandText && !chatMode) {
     app.appendChild(el('h2', null, 'Command the view named'));
     app.appendChild(el('pre', null, state.commandText));
   }
@@ -613,7 +634,99 @@ function updateActionButton() {
 window.addEventListener('message', (event) => {
   const data = event.data;
   if (data && data.type === 'state') render(data.state);
+  if (data && data.type === 'chat') renderChat(data);
+  if (data && data.type === 'sent' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
+    const field = document.getElementById('message');
+    if (field.value === data.text) field.value = '';
+    saveDraft(); updateComposer(); chatBehavior.resize();
+  }
 });
+
+function saveDraft() {
+  if (!chatMode || !chatEnvelope) return;
+  const saved = vscode.getState() || {};
+  const drafts = saved.drafts || {};
+  drafts[chatEnvelope.runKey] = document.getElementById('message').value;
+  vscode.setState({ drafts });
+}
+
+function updateComposer() {
+  if (!chatEnvelope) return;
+  const input = chatEnvelope.state && chatEnvelope.state.chat && chatEnvelope.state.chat.input;
+  const allowed = !chatEnvelope.runKey || Boolean(input);
+  document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || !document.getElementById('message').value.trim();
+  document.getElementById('send-message').textContent = 'Send ↑';
+  document.getElementById('send-message').setAttribute('aria-label', input ? input.label + ' and continue' : 'Send message');
+  document.getElementById('send-hint').textContent = !chatEnvelope.runKey ? 'Message AutoCode'
+    : input ? input.label + ' and continue'
+    : chatEnvelope.busy ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
+  document.getElementById('chat-error').textContent = chatEnvelope.error || '';
+}
+
+function renderChat(data) {
+  const thread = document.getElementById('thread');
+  const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
+  if (!same) {
+    saveDraft();
+    const saved = vscode.getState() || {};
+    document.getElementById('message').value = (saved.drafts || {})[data.runKey] || '';
+    current = null; renderedState = ''; answers = Object.create(null);
+  }
+  chatEnvelope = data;
+  const messages = document.getElementById('messages');
+  const rows = data.state && data.state.chat ? data.state.chat.messages
+    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [];
+  const serialized = JSON.stringify(rows);
+  if (messages.dataset.content !== serialized) {
+    messages.dataset.content = serialized; messages.textContent = '';
+    rows.forEach((row) => {
+      const item = el('div', 'message ' + (row.role === 'user' ? 'user' : 'assistant'));
+      item.appendChild(el('div', 'speaker', row.role === 'user' ? 'You' : 'AutoCode'));
+      const body = el('div', 'message-content');
+      const formatted = data.state && data.state.formattedMessages && data.state.formattedMessages[row.id];
+      if (row.role === 'assistant' && formatted) appendFormatted(body, formatted);
+      else body.textContent = row.text;
+      item.appendChild(body); messages.appendChild(item);
+    });
+  }
+  if (data.state) render(data.state);
+  else { app.textContent = data.busy ? 'Starting AutoCode…' : 'Describe what you want to build, fix, review, or discuss.'; }
+  updateComposer();
+  chatBehavior.resize();
+  if (!same) chatBehavior.resume();
+}
+
+function appendFormatted(parent, nodes) {
+  const allowed = new Set(['p','h2','h3','h4','h5','h6','strong','em','del','code','pre','blockquote','br','hr','ol','ul','li','table','thead','tbody','tr','th','td','a','span']);
+  nodes.forEach((node) => {
+    const child = node.tag && allowed.has(node.tag) ? document.createElement(node.tag) : document.createTextNode(node.text || '');
+    if (node.tag) {
+      child.textContent = node.text || '';
+      if (node.tag === 'a' && /^https?:\\/\\//i.test(node.href || '')) {
+        child.setAttribute('href', node.href); child.setAttribute('rel', 'noreferrer noopener'); child.setAttribute('target', '_blank');
+      }
+      if (node.children) appendFormatted(child, node.children);
+    }
+    parent.appendChild(child);
+  });
+}
+
+if (chatMode) {
+  document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
+  document.getElementById('details').addEventListener('click', () => vscode.postMessage({ type: 'details' }));
+  document.getElementById('message').addEventListener('input', () => { saveDraft(); updateComposer(); });
+  document.getElementById('composer').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (document.getElementById('send-message').disabled) return;
+    chatBehavior.resume();
+    vscode.postMessage({ type: 'send', text: document.getElementById('message').value,
+      runKey: chatEnvelope.runKey, context: chatEnvelope.state && chatEnvelope.state.chat && chatEnvelope.state.chat.context });
+  });
+  document.getElementById('message').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('composer').requestSubmit(); }
+  });
+  document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+}
 
 vscode.postMessage({ type: 'ready' });
 </script>

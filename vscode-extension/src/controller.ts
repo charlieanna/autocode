@@ -71,12 +71,13 @@ export class RunController {
    * created, not whichever one a parallel session happened to start. AutoCode
    * refuses an existing directory or a symlink before a provider launches.
    */
-  async start(workspace: string, brief: string): Promise<RunRef> {
+  async start(workspace: string, brief: string, created?: (run: RunRef) => void): Promise<RunRef> {
     const runDir = freshRunDir(workspace);
     const settings = this.settings;
     const args = [brief, "--in-place", "--no-chat", ...settings.runOptions, "--workspace", workspace, "--new-run-dir", runDir];
     this.log.show(true);
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
+    created?.({ workspace, runDir });
     const result = await stream({ ...settings, cwd: workspace }, args, {}, (chunk) => this.log.append(chunk));
     if (result.rejected || (result.code !== 0 && result.code !== 2)) throw new Error(tail(result));
     this.log.appendLine(`[autocode exited ${result.code}]`);
@@ -154,12 +155,31 @@ export class RunController {
     const result = await stream(this.settings, args, action.env, (chunk) => this.log.append(chunk));
     this.log.appendLine(`[autocode exited ${result.code}]`);
     if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
+    if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
     return result;
   }
 
   /** The command a person can paste into a terminal instead of letting the client run it. */
   commandText(view: StatusView, run: RunRef): string {
     return this.named(view, run).shown || `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat`;
+  }
+
+  /** The optional message action is named by the core, never inferred from chat text. */
+  async sendMessage(view: StatusView, run: RunRef, text: string, shownContext: string): Promise<void> {
+    if (!text.trim()) throw new ClientGap("Enter a message first");
+    const input = view.chat?.input;
+    if (!input || view.chat?.context !== shownContext) {
+      throw new ClientGap("This conversation changed; review its current state before sending");
+    }
+    const parsed = parseNamedCommand(input.next_command, run);
+    const flag = input.kind === "feedback" ? "--feedback" : input.kind === "follow_up" ? "--follow-up" : null;
+    // A message may only fill the single advertised text value. It cannot
+    // approve, grant recovery, resume a pause or smuggle another CLI action.
+    if (!flag || parsed.argv.length !== 2 || parsed.argv[0] !== flag || parsed.argv[1] !== "MESSAGE"
+      || Object.keys(parsed.env).length) throw new ClientGap("Unsupported message action from AutoCode");
+    const result = await stream({ ...this.settings, cwd: run.workspace },
+      [flag, text, "--workspace", run.workspace, "--run-dir", run.runDir]);
+    if (result.code !== 0) throw new Error(tail(result));
   }
 }
 

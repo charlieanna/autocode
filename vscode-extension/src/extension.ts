@@ -11,6 +11,7 @@ import * as vscode from "vscode";
 import { RunController, type RunRef } from "./controller";
 import { RunPanel } from "./panel";
 import { RunsProvider, type RunItem } from "./runsView";
+import { ChatView } from "./chat";
 
 type RunTarget = RunRef | RunItem;
 
@@ -31,7 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const showRun = (run: RunRef): void => {
     active = run;
-    RunPanel.show(vscode.ViewColumn.One, run, controller);
+    chat.show(run);
     void refresh();
   };
 
@@ -56,29 +57,25 @@ export function activate(context: vscode.ExtensionContext): void {
     await updateStatus();
   };
 
+  const chat = new ChatView(controller, context.workspaceState, {
+    pickWorkspace, confirmStart: confirmSpend,
+    changed: () => { void refresh(); },
+    selected: (run) => { active = run; void updateStatus(); },
+  });
+
   context.subscriptions.push(
     log,
     runs,
     status,
+    chat,
+    vscode.window.registerWebviewViewProvider("autocode.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),
     vscode.window.createTreeView("autocode.runs", { treeDataProvider: runs, showCollapseAll: true }),
     vscode.commands.registerCommand("autocode.startRun", async () => {
-      const folder = await pickWorkspace();
-      if (!folder) return;
-      const brief = await vscode.window.showInputBox({
-        title: `Start an AutoCode run in ${basename(folder)}`,
-        prompt: "The task, in your words. AutoCode recognizes the kind of job from it.",
-        placeHolder: "Fix the failing test in tests/test_login.py",
-        ignoreFocusOut: true,
-      });
-      if (!brief) return;
-      if (!(await confirmSpend())) return;
-      try {
-        showRun(await controller.start(folder, brief));
-      } catch (error) {
-        void vscode.window
-          .showErrorMessage(`AutoCode could not start the run: ${messageOf(error)}`, "Open output")
-          .then((choice) => (choice === "Open output" ? log.show() : undefined));
-      }
+      chat.show();
+    }),
+    vscode.commands.registerCommand("autocode.openDetails", (run?: RunTarget) => {
+      const target = targetOf(run);
+      if (target) RunPanel.show(vscode.ViewColumn.One, target, controller);
     }),
 
     vscode.commands.registerCommand("autocode.refresh", () => refresh()),
@@ -178,10 +175,6 @@ async function confirmSpend(): Promise<boolean> {
 
 function pollSeconds(): number {
   return Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
-}
-
-function basename(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? path;
 }
 
 function messageOf(error: unknown): string {

@@ -155,6 +155,33 @@ visible in the additive `task_preflight` status field. See
 [task-preflight.md](task-preflight.md) for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.
 
+## Chat projection for ordinary task runs
+
+The additive `view.chat` contains `messages` (stable `id`, `role`, `text`),
+an opaque `context`, and an optional `input` offer. Messages project existing
+human receipts and saved completed replies. At a follow-up, the prior reply is
+retained under that turn's historical record; display text grants no approval
+and does not become a new requirement. Status reads do not write a transcript.
+
+`input` is null when free text is not an admitted action. Otherwise it names
+`kind` (`feedback` or `follow_up`), a display `label`, and `next_command` with
+one literal `MESSAGE` placeholder. A client replaces that argument with the
+person's text, checks that the command names the same workspace/run, and runs it
+as an argument array without a shell. The headless conformance client's
+`message_command()` implements this same parsing boundary.
+
+A client compares the displayed `context` with a fresh status before submitting;
+if it changed, retain the draft and ask the person to review the new checkpoint.
+The ordinary CLI independently rechecks admission when saving the action.
+Saving feedback or a follow-up launches no model. A button explicitly offering
+to send **and continue** may then follow the ordinary `needs.kind=continue`
+action. It may never infer a plan approval, answer another question or release
+an operational pause. Approval remains bound to the displayed plan token.
+Older cores without `chat` leave free-text input disabled for an existing run.
+
+This projection is separate from the explicit Requirements journal below:
+ordinary run clients do not create or drive a second conversation controller.
+
 ## Core Requirements conversations
 
 `TaskRun.start_conversation(workspace, text, request_id="first-message")` starts a

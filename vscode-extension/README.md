@@ -4,8 +4,10 @@ A thin client for AutoCode task runs. It starts the `autocode` CLI, reads the
 status view, and takes the action the view names. It imports nothing from
 `tools/` and never reads `state.json`.
 
-Start a run, follow its progress, and answer what it asks without leaving the
-editor. It never launches a model on its own, cannot approve a plan it has not
+Chat in the sidebar, give plan feedback, approve a reviewed plan, and continue
+with follow-up messages in the same run. Composer and scroll behavior adapt
+selected Kilo Code components; see [attribution](THIRD_PARTY_NOTICES.md).
+It never launches a model on its own, cannot approve a plan it has not
 displayed, and keeps issued tokens in the child's environment rather than on the
 command line.
 
@@ -22,6 +24,9 @@ code .          # then F5 for the Extension Development Host
 
 `npm test` runs the CLI-facing helper tests plus controller and registered-command
 regressions with a substituted VS Code host. It also executes the generated webview
-script in jsdom, covering plan approval, polling while typing, and model selection.
+script in jsdom, covering chat history, feedback/follow-ups, stale approval,
+polling while typing, model selection, Markdown, and composer/scroll behavior.
 These tests launch no providers. They do not qualify the actual VS Code host or a
 live model route; both remain required before this draft is ready.
+
+Current editor and live results: [qualification record](../docs/bugs/2026-10-16-vscode-chat-qualification.md).
