@@ -136,8 +136,8 @@
     "sha256": "6a84eef2cddac10fdfb263b25da0b0f8f74ed278b184badfe0afaa9748fe8ba1"
   },
   "full-repair/requirements_gather": {
-    "bytes": 12057,
-    "sha256": "fb117873b885d4668fca82d3933e351934b9b43cd88803fceb869b105c21c649"
+    "bytes": 12626,
+    "sha256": "882fb56bfa2ca7d710120d0447678a9618ce2ef8e8f9520a9bf7260b0cef86ed"
   },
   "full-repair/sol": {
     "bytes": 5683,
@@ -448,24 +448,24 @@
     "sha256": "081a55df786f52238978e032f4db353dbb4092a5665638a75b2932134009f30c"
   },
   "planning/requirements_gather/adaptive": {
-    "bytes": 11949,
-    "sha256": "58728eb845a688baba0a3a88ba0af06edcdc3e3a641642980206fe6ccb42eeca"
+    "bytes": 13562,
+    "sha256": "dd8f340c657c3416578629595146f755a998a2198db69040fd6c2f52cc6bec22"
   },
   "planning/requirements_gather/design": {
-    "bytes": 13037,
-    "sha256": "bbfb55c542d367cc02ea99697ccad18cb2a9bef02ccaf9a333ca88fc9cc28128"
+    "bytes": 14650,
+    "sha256": "24a077d4eddecef719d0cb6d23e3fbd4f343f2e351192fb69dc7a8c04d9768f3"
   },
   "planning/requirements_gather/figma": {
-    "bytes": 12841,
-    "sha256": "3b5b9ed35e0351d517a832bb9a9cabda0d7e664ddeeedee550f6093a3157b3c9"
+    "bytes": 14454,
+    "sha256": "5c619dd65ece231be38841e111c272aa0e36f99cc6cda01dea0b188cbfcf714b"
   },
   "planning/requirements_gather/investigation": {
-    "bytes": 12884,
-    "sha256": "cdf8e8cb606f1b81c4ad2aa3f256f1a62a1a294179fafb9f426ed18df2f288e4"
+    "bytes": 14497,
+    "sha256": "5215da064ba436c805f1b9a8dec4dfe5b652979949be09c43046264fb9c021a1"
   },
   "planning/requirements_gather/ordinary": {
-    "bytes": 11949,
-    "sha256": "58728eb845a688baba0a3a88ba0af06edcdc3e3a641642980206fe6ccb42eeca"
+    "bytes": 13562,
+    "sha256": "dd8f340c657c3416578629595146f755a998a2198db69040fd6c2f52cc6bec22"
   },
   "progressive/astra_checkpoint": {
     "bytes": 11863,
@@ -516,8 +516,8 @@
     "sha256": "7c6c2451e26ebbaa94d9a600c424fb72138a8a4c9b309774e011fc5400b6fd16"
   },
   "repair/baseline/requirements_gather": {
-    "bytes": 318,
-    "sha256": "98c31d0adad939d6f36e27c1daa02f7bc5b1382836526082cfb6940072561fc8"
+    "bytes": 796,
+    "sha256": "150ae411edd782951e6af11d37bd5680da4f39539505273cb9402252bca17f4b"
   },
   "repair/baseline/sol": {
     "bytes": 162,

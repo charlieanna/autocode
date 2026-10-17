@@ -47,6 +47,7 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/prompts/fragments/report-repair-context/requirements-corrections.md", ("tests.test_report_repair",)),
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
     ("tools/prompts/requirements-gather.md", ("tests.test_chat_cli", "tests.test_requirements_review")),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),

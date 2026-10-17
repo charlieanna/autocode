@@ -75,6 +75,9 @@ class RequirementsChatTests(unittest.TestCase):
                 target.write(json.dumps({"type": "autocode_chat_reply", "reply": "Who will use it?"}) + "\n")
             shown = view.project(state, {"status": "RUNNING", "needs": {"kind": "continue"}}, run_dir=root)
             self.assertEqual("Who will use it?", shown["messages"][-1]["text"])
+            state["pending_report_repair"] = {"original": dict(state["active_stage"])}
+            state["active_stage"] = {"stage": chat.STAGE + "_report_repair", "events": str(root / "repair.jsonl")}
+            self.assertEqual("Who will use it?", chat.streaming_reply(state, root))
             self.assertEqual("", chat.streaming_reply(state, root / "other-run"))
             state["active_stage"]["stage"] = "astra_challenge"
             self.assertEqual("", chat.streaming_reply(state, root))

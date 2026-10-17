@@ -352,7 +352,7 @@ class RunState(TypedDict, total=False):
     # execute_report_repair runs it, repaired_result, the resume and recovery archives and native
     # PlanningCalls.archive_rerouted_repair (its route changed) consume it;
     # stuck_job holds and restores it around an investigation.
-    pending_report_repair: dict
+    pending_report_repair: dict  # Requirements chat reads original.events for provisional display during repair.
     uncertain_artifacts: list  # attempts whose cleanup is unverified
     job_failure: dict  # job_failure writes the classified failure; quota_route reads it
     failure_history: dict  # failure identity -> attempts (builder_failure)

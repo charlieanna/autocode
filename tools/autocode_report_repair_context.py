@@ -26,8 +26,33 @@ PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
 DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
 
 
+def requirements_sources(state: RunState, stage: str) -> dict:
+    """Give a Requirements repair the saved IDs needed to cite a user correction."""
+    if stage != "requirements_gather":
+        return {"previous_requirements": None}
+    sources = [
+        {"basis": "user_feedback", "event_id": event["id"], "text": event.get("text", "")}
+        for event in state.get("brief_feedback", [])
+        if event.get("id") and event in state.get("user_events", [])
+    ]
+    sources.extend(
+        {"basis": "user_answer", "event_id": key, "text": value.get("text", "") if isinstance(value, dict) else value}
+        for key, value in (state.get("answers") or {}).items()
+    )
+    return {
+        "previous_requirements": copy.deepcopy(
+            ((state.get("requirements_handoff") or {}).get("report") or {}).get("requirements", [])
+        ),
+        "requirements_correction_sources": sources,
+    }
+
+
 def baseline_instruction(stage: str) -> str:
     """Distinguish planning and proposed tasks from immutable execution history."""
+    if stage == "requirements_gather":
+        return prompts.get("fragments/report-repair-context/baseline-instruction-02.md") + prompts.get(
+            "fragments/report-repair-context/requirements-corrections.md"
+        )
     if stage in PLANNING_STAGES:
         return prompts.get("fragments/report-repair-context/baseline-instruction-02.md")
     if stage in DECISION_STAGES:

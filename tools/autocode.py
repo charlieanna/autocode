@@ -1289,11 +1289,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                 ]
                 if original["stage"] == "requirements_gather"
                 else None,
-                "previous_requirements": ((state.get("requirements_handoff") or {}).get("report") or {}).get(
-                    "requirements", []
-                )
-                if original["stage"] == "requirements_gather"
-                else None,
+                **report_repair_context.requirements_sources(state, original["stage"]),
                 **({"clarification_context": clarification} if original["stage"] == "astra_finalize" else {}),
                 "investigation_context": stuck_repair_context.context(
                     state, original["stage"], run_dir / "state.json", workspace, (original_source, rejected_source)

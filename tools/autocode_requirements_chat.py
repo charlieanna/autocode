@@ -113,6 +113,10 @@ def partial_string(text):
 
 def streaming_reply(state: RunState, run_dir):
     active = state.get("active_stage") or {}
+    if active.get("stage") == STAGE + "_report_repair":
+        # Keep the already displayed reply provisional while its structured
+        # report is repaired. This grants no approval or report authority.
+        active = (state.get("pending_report_repair") or {}).get("original") or {}
     if not enabled(state) or active.get("stage") != STAGE or not run_dir or not active.get("events"):
         return ""
     root = Path(run_dir).resolve()

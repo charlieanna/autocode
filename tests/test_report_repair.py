@@ -413,7 +413,9 @@ class RepairTests(unittest.TestCase):
 
     def test_requirements_repair_receives_authoritative_user_sources(self):
         self.state["task"] = "Build a planner."
-        self.state["brief_feedback"] = [{"text": "Declare the test file in M2."}]
+        correction = {"id": "feedback-user-correction", "text": "Declare the test file in M2."}
+        self.state["brief_feedback"] = [correction]
+        self.state["user_events"] = [correction]
         self.state["current_task"] = {"requirements": ["Fix an existing test race."]}
         self.state["settings"]["roles"]["requirements"] = {"model": "requirements-model"}
         self.state["next_stage"] = "requirements_gather"
@@ -422,6 +424,10 @@ class RepairTests(unittest.TestCase):
         data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
         self.assertEqual(["Build a planner.", "Declare the test file in M2."], data["source_texts"])
         self.assertNotIn("Fix an existing test race.", data["source_texts"])
+        self.assertEqual(
+            [{"basis": "user_feedback", "event_id": correction["id"], "text": correction["text"]}],
+            data["requirements_correction_sources"],
+        )
         self.assertIn("current Builder task and approved contract are inherited obligations", prompt)
 
     def test_planner_repair_receives_the_requirements_its_trace_must_cover(self):
