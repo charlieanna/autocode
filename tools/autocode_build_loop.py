@@ -116,6 +116,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             workspace,
             checkpoint=lambda: runner.write_json(state_path, state),
             before_probe=before_probe,
+            selection=(state.get("settings") or {}).get("route_selection"),
         )
     except runner.orchestrator.LoopExit as stopped:
         return stopped.code

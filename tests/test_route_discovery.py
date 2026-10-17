@@ -181,3 +181,116 @@ class VariantOmissionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AutoSelectConfigureTests(unittest.TestCase):
+    """--auto-select: the flag-gated wiring that makes selection a launch choice (#1426)."""
+
+    def setUp(self):
+        from . import test_planning
+
+        test_planning.PlanningTests.setUp(self)
+        for name in ("planning", "milestones", "autopilot", "support", "runner"):
+            setattr(self, name, test_planning.__dict__.get(name) or __import__(f"autocode_{name}" if name != "runner" else "autocode") if name != "runner" else __import__("autocode"))
+        self.planning = test_planning.planning
+        self.milestones = test_planning.milestones
+        self.autopilot = test_planning.autopilot
+        import autocode as runner
+        import autocode_configure
+        import autocode_support as support
+
+        self.runner = runner
+        self.configure_module = autocode_configure
+        self.support = support
+
+    def args(self, **overrides):
+        from . import test_planning
+
+        return test_planning.PlanningTests.configure_args(self, **overrides)
+
+    def configure(self, args, state=None):
+        state = state if state is not None else {"workspace": "/tmp/fixture", "iteration": 0}
+        with (
+            mock.patch.object(self.support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+            mock.patch.object(self.runner.opencode, "local_settings", return_value={"engine": "opencode"}),
+        ):
+            return self.configure_module.configure(
+                args, state, planning=self.planning, milestones=self.milestones, autopilot=self.autopilot
+            )
+
+    def gateway_found(self):
+        return {
+            "tool": "opencode",
+            "accounts": [
+                {"name": "Kilo Gateway", "mode": "oauth", "billing": "pay per token", "prefixes": ["kilo/"]}
+            ],
+            "candidates": [
+                {
+                    "model": model,
+                    "tool": "opencode",
+                    "account": "Kilo Gateway",
+                    "billing": "pay per token",
+                    "levels": None,
+                    "probe": None,
+                }
+                for model in (
+                    "kilo/z-ai/glm-5.3",
+                    "kilo/deepseek/deepseek-v4.1-flash",
+                    "kilo/openai/gpt-6-sol",
+                    "kilo/openai/gpt-6-astra",
+                )
+            ],
+        }
+
+    def test_the_selection_becomes_the_runs_routes_and_origins(self):
+        with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
+            settings = self.configure(self.args(auto_select=True))
+        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["roles"]["terra"]["model"])
+        self.assertEqual("kilo/z-ai/glm-5.3", settings["roles"]["glm"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-astra", settings["roles"]["astra"]["model"])
+        self.assertEqual("auto_selected", settings["route_origins"]["terra"])
+        self.assertEqual(
+            "kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["routes"]["terra"]["model"]
+        )
+        self.assertIn("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["probe"])
+
+    def test_a_role_flag_wins_over_the_selection(self):
+        with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
+            settings = self.configure(self.args(auto_select=True, terra_model="openai/gpt-6-sol"))
+        self.assertEqual("openai/gpt-6-sol", settings["roles"]["terra"]["model"])
+        self.assertEqual("user_explicit", settings["route_origins"]["terra"])
+        self.assertEqual("user_explicit", settings["route_selection"]["routes"]["terra"]["origin"])
+
+    def test_a_selection_that_cannot_field_a_checker_refuses_to_start(self):
+        one_family = {
+            "tool": "opencode",
+            "accounts": [
+                {"name": "Z.AI Coding Plan", "mode": "api", "billing": "subscription", "prefixes": ["zai-coding-plan/"]}
+            ],
+            "candidates": [
+                {
+                    "model": "zai-coding-plan/glm-5.3",
+                    "tool": "opencode",
+                    "account": "Z.AI Coding Plan",
+                    "billing": "subscription",
+                    "levels": None,
+                    "probe": None,
+                }
+            ],
+        }
+        with mock.patch.object(discovery, "discover", return_value=one_family):
+            with self.assertRaisesRegex(ValueError, "Connect a second model family"):
+                self.configure(self.args(auto_select=True))
+
+    def test_saved_runs_and_single_model_refuse_the_flag(self):
+        saved = {"workspace": "/tmp/fixture", "iteration": 3, "settings": {"engine": "opencode", "roles": {}}}
+        with self.assertRaisesRegex(ValueError, "saved run keeps the routes"):
+            self.configure(self.args(auto_select=True), state=saved)
+        with self.assertRaisesRegex(ValueError, "--single-model"):
+            self.configure(self.args(auto_select=True, single_model="openai/gpt-6-sol"))
+
+    def test_without_the_flag_nothing_changes(self):
+        settings = self.configure(self.args())
+        self.assertNotIn("route_selection", settings)
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        self.assertEqual("runner_default", settings["route_origins"]["terra"])

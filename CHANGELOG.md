@@ -52,6 +52,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `--auto-select` (#1426, step 11's flag-gated form): a new run chooses every role's model from the tool's
+  connected accounts - discovery, the selector, and the selection-driven access probe all run for real. Per-role
+  model flags, `--single-model`, role-provider flags and conversation history still win; a saved run refuses the
+  flag and keeps its routes; the chosen routes, levels and probe debt are saved under `route_selection`, origins
+  record `auto_selected`, and a selection that cannot field an independent checker refuses to start in account
+  terms. Selection is not yet the default for new runs.
 - `autocode models --selection` (#1426 step 10): automatic selection explained. Local listings only - no model
   calls: the command shows the logins the tool reports, the route chosen for each role with its price and
   reasoning level, why every other qualified model lost (not connected, a cheaper qualified route won, or it

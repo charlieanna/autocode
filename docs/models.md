@@ -165,11 +165,15 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 ## Choosing models automatically
 
 Automatic selection (#1426) chooses each role's model from the accounts you have
-connected, so you never route roles by hand. It is built in steps; the choice itself
-(`tools/autocode_route_selector.py`) and the discovery that feeds it
-(`tools/autocode_route_discovery.py`, reading the tool's own model and login
-listings) are in place, and the wiring that makes selection the default for new
-runs lands in later steps of the same issue. Until they do,
+connected, so you never route roles by hand. It is built in steps; the choice itself (`tools/autocode_route_selector.py`), the
+discovery that feeds it (`tools/autocode_route_discovery.py`, reading the tool's own
+model and login listings) and the flag that turns it on for a new run are in place.
+Start a new run with `--auto-select` and every role whose model no flag named is
+chosen from the tool's connected accounts; the choice, its reasoning levels and the
+routes the access check still owes are saved with the run. Saved runs never
+re-select, and `--single-model` and per-role flags keep winning. Selection is not
+yet the default for new runs; that flip, and recovery inside the permitted set on
+quota stops, are the remaining steps of the issue. Until they do,
 new runs use the [default models](#default-models) above unless you name your own.
 
 The rules the choice keeps:
