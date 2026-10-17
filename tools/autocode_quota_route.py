@@ -583,6 +583,7 @@ def assign(
     attempt: dict | None = None,
     request_id: str | None = None,
     current: str | None = None,
+    actor: str = "user_cli",
 ) -> dict:
     """Set the role's model, drop its session and append the route_assignment record; return the record.
 
@@ -592,7 +593,7 @@ def assign(
     route = settings["roles"][role]
     record = {
         "kind": KIND,
-        "actor": "user_cli",
+        "actor": actor,
         "at": at,
         "via": via,
         "role": role,

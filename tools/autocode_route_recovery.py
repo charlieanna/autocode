@@ -1,0 +1,67 @@
+"""Switch a stopped model's role to its next permitted route (#1426 step 9).
+
+Rule 4 of the reopened issue: on a quota, content-filter or output stop, AutoCode
+moves the role on its own to the next qualified model on an account the run was
+already permitted to bill — checkers stay independent — and asks only when no such
+model remains, which is the pause that has always stood (#184). Only a run that
+saved its permitted set (``--auto-select``, ``route_selection.candidates``) can do
+this: every other run keeps today's question. Native runs and workflow jobs keep
+asking too — a retained native attempt grants no automatic recovery, and a job's
+retry is bound to its exact token (#463).
+
+The move is the same recorded ``route_assignment`` a person's answer applies
+(``autocode_quota_route.assign``), via ``runner``, so the route record reads it as
+``quota_assigned`` like any answered switch. Imports only lower-level modules; the
+runtime is passed in, keeping this below the controller.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+try:
+    from . import autocode_quota_route as quota_route
+    from . import autocode_route_selector as route_selector
+    from . import autocode_support as support
+except ImportError:
+    import autocode_quota_route as quota_route
+    import autocode_route_selector as route_selector
+    import autocode_support as support
+
+
+def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
+    """One quota-class stop, one automatic switch; False leaves the pause standing."""
+    if getattr(runtime, "native_calls", None) is not None:
+        return False
+    if error.status not in quota_route.STATUSES:
+        return False
+    selection = (state.get("settings") or {}).get("route_selection") or {}
+    if not selection.get("candidates"):
+        return False
+    stopped = quota_route.stopped_attempt(state, failure_status=support.failure_status)
+    if not stopped or not stopped.get("active"):
+        return False
+    role = stopped.get("role")
+    if role not in quota_route.ROLES:
+        return False
+    route = ((state.get("settings") or {}).get("roles") or {}).get(role) or {}
+    dead = stopped.get("model") or route.get("model")
+    if not dead:
+        return False
+    switched = route_selector.next_route(selection, role, dead)
+    if switched is None:
+        return False
+    quota_route.assign(state, role, switched["model"], at=runtime.now(), via="runner", attempt=stopped, actor="runner")
+    route["reasoning_effort"] = switched.get("reasoning_effort")
+    # Keep the saved selection current so a later stop re-selects against what runs now.
+    selection.setdefault("routes", {})[role] = {**switched, "origin": "quota_assigned"}
+    job = quota_route.roles.screen_name(stopped.get("stage") or role, state)
+    account = switched.get("account") or "the run's tool"
+    print(
+        f"{job}: {dead} stopped ({error.status}); switched to {switched['model']} on {account} without asking",
+        flush=True,
+    )
+    return True

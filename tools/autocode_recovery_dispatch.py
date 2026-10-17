@@ -22,10 +22,12 @@ try:
     from . import autocode_job_failure as job_failure
     from . import autocode_network_retry as network_retry
     from . import autocode_provider_recovery as provider_recovery
+    from . import autocode_route_recovery as route_recovery
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_network_retry as network_retry
     import autocode_provider_recovery as provider_recovery
+    import autocode_route_recovery as route_recovery
 
 
 def _runtime_first(module, name):
@@ -50,6 +52,9 @@ RECOVERY_CHAIN = (
     ("job_failure", _runtime_first(job_failure, "recover")),
     ("network", _runtime_first(network_retry, "recover")),
     ("startup", _runtime_first(provider_recovery, "recover_startup")),
+    # A permitted-set run switches a stopped model on its own (#1426 step 9); every
+    # other quota stop falls through to the pause that asks the person (#184).
+    ("route", _runtime_first(route_recovery, "recover")),
     ("truncated_review", _on_runtime("automatically_recover_truncated_review")),
     ("capacity", _on_runtime("automatically_recover_capacity_stage")),
     ("timeout", _on_runtime("automatically_recover_timed_out_stage")),

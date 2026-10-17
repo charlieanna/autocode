@@ -51,7 +51,12 @@ PR template asks for an entry here; a change without one is incomplete.
   recorded as releasing the pause, matching the Builder's stronger attempt (#611).
 
 ### Added
-
+- Step 9 complete (#1426): a run that chose its routes with `--auto-select` now switches a stopped model's role
+  on its own. A quota, content-filter or output stop enters the shared recovery chain first as a `route` row
+  (`autocode_route_recovery`): the next qualified model from the run's saved permitted set, checkers kept
+  independent, applied as the usual recorded `route_assignment` (actor `runner`) with the saved selection kept
+  current, and the run continues without asking. When no permitted model remains, the long-standing question
+  stands exactly as before (#184); runs without a permitted set, native runs and workflow jobs keep asking.
 - Step 9's decision logic (#1426): an `--auto-select` run saves its permitted set - every qualified, connected
   candidate for each role, all on accounts the launch already used - under `route_selection.candidates`, and
   `autocode_route_selector.next_route` answers "where does this role go when its model stopped?" from it:
