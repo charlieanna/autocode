@@ -74,7 +74,9 @@ export class RunController {
   async start(workspace: string, brief: string, created?: (run: RunRef) => void): Promise<RunRef> {
     const runDir = freshRunDir(workspace);
     const settings = this.settings;
-    const args = [brief, "--in-place", "--no-chat", ...settings.runOptions, "--workspace", workspace, "--new-run-dir", runDir];
+    // Sidebar conversations gather and confirm requirements before planning.
+    // Creation flags stay off later actions, which use the run's saved flow.
+    const args = [brief, "--in-place", "--no-chat", "--joint-planning", "--spec-first", ...settings.runOptions, "--workspace", workspace, "--new-run-dir", runDir];
     this.log.show(true);
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
     created?.({ workspace, runDir });

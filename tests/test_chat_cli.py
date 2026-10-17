@@ -48,6 +48,30 @@ class ChatCliTests(unittest.TestCase):
             "PYTHONDONTWRITEBYTECODE": "1",
         }
 
+    def test_greeting_asks_for_the_outcome_and_a_reply_returns_to_requirements_before_any_plan(self):
+        # An unrelated existing file must not force code inspection/citations
+        # before the user has even named a goal.
+        (self.workspace / "README.md").write_text("# Existing project\n")
+        run = taskrun.TaskRun.start(
+            self.workspace, "hi", options=(*FIXTURE_OPTIONS, "--spec-first"), env=self.env, timeout=300
+        )
+        view = run.status()
+        self.assertEqual("answer", view["needs"]["kind"])
+        questions = view["needs"]["questions"]
+        self.assertEqual(1, len(questions), questions)
+        self.assertIn("What would you like to build", questions[0]["question"])
+        self.assertIsNone(view.get("displayed_plan"))
+        self.assertEqual("Send reply", view["chat"]["input"]["label"])
+        self.assertNotIn("--approve-goal", view["next_command"])
+        self.assertFalse(list(run.run_dir.glob("iterations/*/discovery-*.jsonl")))
+        run.answer(questions[0]["id"], BRIEF, resolver_token=view["needs"]["resolver_token"])
+        clarified = run.advance_until_input()
+        self.assertEqual("answer", clarified["needs"]["kind"])
+        self.assertTrue(clarified["needs"]["questions"][-1]["id"].startswith("requirements-review-"))
+        self.assertEqual(2, len(list(run.run_dir.glob("iterations/*/requirements-gather-*.jsonl"))))
+        self.assertFalse(list(run.run_dir.glob("iterations/*/discovery-*.jsonl")))
+        self.assertIn(BRIEF, [row["text"] for row in clarified["chat"]["messages"]])
+
     def test_chat_named_feedback_and_followup_keep_one_run_and_require_fresh_approval(self):
         run = taskrun.TaskRun.start(
             self.workspace, BRIEF, options=(*FIXTURE_OPTIONS, "--no-adaptive-planning"), env=self.env, timeout=300

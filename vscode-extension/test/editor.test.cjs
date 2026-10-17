@@ -14,6 +14,20 @@ const controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
 
+test('status polling uses the core-recognized read-only command grammar', async (t) => {
+  const { EventEmitter } = require('node:events');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+  const spawn = t.mock.method(require('node:child_process'), 'spawn', () => {
+    setImmediate(() => { child.stdout.emit('data', Buffer.from('{"view":{"status":"RUNNING"}}')); child.emit('close', 0); });
+    return child;
+  });
+  const result = await cli.readStatus({ command: 'python3', prefix: ['/core/autocode.py'] }, run.workspace, run.runDir, JSON.parse);
+  assert.equal(result.view.status, 'RUNNING');
+  assert.deepEqual(spawn.mock.calls[0].arguments[1], ['/core/autocode.py', '--status', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.equal(spawn.mock.calls[0].arguments[2].shell, false);
+});
+
 afterEach(() => {
   RunPanel.disposeAll();
   mock.restoreAll();
@@ -33,6 +47,8 @@ test('start passes the selected workspace to the CLI regardless of the host dire
   assert.equal(args[args.indexOf('--new-run-dir') + 1], created.runDir);
   assert.ok(created.runDir.startsWith(`${selected}/.autocode/runs/`));
   assert.equal(args[args.indexOf('--provider') + 1], 'chosen-route');
+  assert.ok(args.includes('--joint-planning'));
+  assert.ok(args.includes('--spec-first'), 'chat must gather and confirm requirements before planning');
 });
 
 test('start reports an input rejection instead of returning a nonexistent run', async (t) => {

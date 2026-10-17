@@ -172,6 +172,14 @@ def prompt(
     text = (
         PROMPT
         + adaptive.recognizer_rule(state)
+        + (
+            "\nREQUIREMENTS-FIRST CONVERSATION: If the message is only a greeting or otherwise names no "
+            "engineering outcome (for example 'hi'), select build with clarity vague so Requirements can ask "
+            "what the user wants to build or change. Do not invent a task or treat the greeting as a "
+            "completed discuss job. Explicit questions, reviews, fixes and designs keep their ordinary workflow.\n"
+            if (state.get("settings") or {}).get("spec_first")
+            else ""
+        )
         + "\nCURRENT HANDOFF DATA\n"
         + json.dumps(packet(state, inventory, engine), indent=2)
     )
