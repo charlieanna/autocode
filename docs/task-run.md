@@ -169,12 +169,14 @@ have `streaming: true`; its text is provisional display content from the active
 Requirements attempt, never an answer, approval, report or tool receipt. Kilo
 text deltas are filtered to the current assistant message; reasoning and tool
 output are excluded. Requirements reuses its own saved provider session while
-independent plan reviewers retain separate sessions. A bare greeting asks for
-the outcome without dispatching a provider. The first reply to that question
-becomes the task; the source log keeps the greeting and the reply as separate
-sources. The Job recognizer classifies the reply, and a build continues in
-Requirements. Model access probes for planning and execution roles wait until
-the user confirms the requirements.
+independent plan reviewers retain separate sessions. Requirements answers
+the first message of a spec-first run, whatever it says: a greeting or an
+off-topic question gets a short answer and a question about what to build or
+change. Until Requirements finds work to do, the person's newest reply becomes
+the task; the source log keeps the first message and each reply as separate
+sources. The Job recognizer runs once the person approves what Requirements
+understood, and judges the job from that understanding. Model access probes for
+planning and execution roles wait until the user confirms the requirements.
 
 When the only pending question is the core's current requirements review,
 `review` offers its `question_id`, exact `answer`, `label` and bound `summary`.
@@ -1053,7 +1055,8 @@ sealed evidence pauses before dispatch. Every assigned repair still requires
 fresh verification and independent completion acceptance.
 
 `workflow` is the kind of job AutoCode recognized from the request, decided by
-the first stage of every new run (`recognize_workflow`): one of `build`,
+the first stage of every new run (`recognize_workflow`; in a spec-first run, once
+the person approves the requirements): one of `build`,
 `bugfix`, `review`, `design` or `discuss` (see `scenarios/README.md`,
 "Workflows"). It is `null` until that stage has run, and for runs that predate
 it. `workflow_source` is `"model"` when the recognizer decided it and `"user"`

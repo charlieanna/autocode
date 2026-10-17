@@ -52,11 +52,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
-- Requirements is a conversation in chat. A spec-first run that starts with a bare greeting asks what you want
-  without calling a model; your reply becomes the task, the Job recognizer classifies it, and for a build the
-  Requirements agent replies in its own words (`assistant_reply`), keeps one provider session across your answers
-  and streams its text to the status view. When it understands the job, it shows a summary to approve or correct
-  before planning starts. The VS Code chat shows the conversation without the empty task dashboard, and offers
+- Requirements is a conversation in chat. In a spec-first run the Requirements agent answers the first message,
+  whatever it says (a greeting or an off-topic question gets a short answer and a question about what to build),
+  in its own words (`assistant_reply`). It keeps one provider session across your answers and streams its text to
+  the status view. Until it finds work, your newest reply becomes the task. When it understands the job, it shows a
+  summary to approve or correct; the Job recognizer then classifies the job from that understanding before
+  planning starts. The VS Code chat shows the conversation without the empty task dashboard, and offers
   **Continue** when a Requirements step has stopped instead of showing "Thinking…" forever (#1516).
 - An end-to-end acceptance test for the chat client: `test_scenario_client_browser_ui.js` types a catalog
   scenario's brief (parallel-diamond) in chat, attaches the project, approves and builds the plan, and checks in
