@@ -163,6 +163,30 @@ human receipts and saved completed replies. At a follow-up, the prior reply is
 retained under that turn's historical record; display text grants no approval
 and does not become a new requirement. Status reads do not write a transcript.
 
+During spec-first Requirements chat, `phase: "requirements"` lets clients show
+the conversation without the empty task dashboard. An assistant message may
+have `streaming: true`; its text is provisional display content from the active
+Requirements attempt, never an answer, approval, report or tool receipt. Kilo
+text deltas are filtered to the current assistant message; reasoning and tool
+output are excluded. Requirements reuses its own saved provider session while
+independent plan reviewers retain separate sessions. Requirements answers
+the first message of a spec-first run, whatever it says: a greeting or an
+off-topic question gets a short answer and a question about what to build or
+change. Until Requirements finds work to do, the person's newest reply becomes
+the task; the source log keeps the first message and each reply as separate
+sources. The Job recognizer runs once the person approves what Requirements
+understood, and judges the job from that understanding. Model access probes for
+planning and execution roles wait until the user confirms the requirements.
+
+When the only pending question is the core's current requirements review,
+`review` offers its `question_id`, exact `answer`, `label` and bound `summary`.
+A client may display that summary and submit the ordinary named answer action.
+This confirms the understanding and releases plan preparation and review.
+The resulting execution plan still needs its own displayed-token approval.
+The optional `notice` explains a stop or ongoing work in ordinary language;
+chat clients keep diagnostic headings, empty counts and pause categories in
+Run details. A notice never grants an action beyond the view's named command.
+
 `input` is null when free text is not an admitted action. Otherwise it names
 `kind` (`feedback` or `follow_up`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
@@ -1031,7 +1055,8 @@ sealed evidence pauses before dispatch. Every assigned repair still requires
 fresh verification and independent completion acceptance.
 
 `workflow` is the kind of job AutoCode recognized from the request, decided by
-the first stage of every new run (`recognize_workflow`): one of `build`,
+the first stage of every new run (`recognize_workflow`; in a spec-first run, once
+the person approves the requirements): one of `build`,
 `bugfix`, `review`, `design` or `discuss` (see `scenarios/README.md`,
 "Workflows"). It is `null` until that stage has run, and for runs that predate
 it. `workflow_source` is `"model"` when the recognizer decided it and `"user"`

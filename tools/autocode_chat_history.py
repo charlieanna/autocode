@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
+try:
+    from . import autocode_requirements_chat as requirements_chat
+except ImportError:
+    import autocode_requirements_chat as requirements_chat
+
 
 def response(state: RunState) -> str:
     """The completed turn's saved result, without reading report files or logs."""
@@ -31,6 +36,8 @@ def response(state: RunState) -> str:
 def messages(state: RunState, *, completed=False) -> list[dict]:
     turns = state.get("turns") or []
     initial = (turns[0].get("previous") or {}).get("task") if turns else state.get("task")
+    # A chat shows the message it opened with, not a later reply that became the task.
+    initial = requirements_chat.opener(state) or initial
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     for index, event in enumerate(state.get("user_events") or []):
@@ -40,7 +47,9 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         if prior.get(ident):
             rows.append({"id": f"{ident}-response", "role": "assistant", "text": prior[ident]})
         question = event.get("question")
-        if isinstance(question, dict) and question.get("question"):
+        if event.get("assistant_reply"):
+            rows.append({"id": f"{ident}-reply", "role": "assistant", "text": event["assistant_reply"]})
+        elif isinstance(question, dict) and question.get("question"):
             rows.append({"id": f"{ident}-question", "role": "assistant", "text": question["question"]})
         rows.append({"id": ident, "role": "user", "text": event["text"]})
     if completed:

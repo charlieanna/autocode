@@ -2143,6 +2143,8 @@ def report_for(stage: str, data: dict) -> dict:
         }
         if CONFIG.get("fault") == "project_memory":
             return scripted_fault("project_memory_provider.py")["requirements"](report, data)
+        if data.get("spec_first"):
+            report["assistant_reply"] = "Here is what I understand: " + report["intended_outcome"]
         return report
     # An adaptive-planning Planner drafts the complete plan, initial_task included.
     adaptive = "ADAPTIVE PLANNING" in PROMPT or "initial_task" in OUTPUT_SCHEMA.get("properties", {}).get(

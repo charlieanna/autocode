@@ -125,6 +125,7 @@ afterEach(() => {
 
 test('start passes the selected workspace to the CLI regardless of the host directory', async (t) => {
   host.config.set('provider', 'chosen-route');
+  const revealLog = t.mock.method(host.log, 'show', () => {});
   const launch = t.mock.method(cli, 'stream', async () => ok);
   const selected = '/different workspace/project';
   const created = await controller.start(selected, 'Build the requested CLI');
@@ -136,6 +137,7 @@ test('start passes the selected workspace to the CLI regardless of the host dire
   assert.equal(args[args.indexOf('--provider') + 1], 'chosen-route');
   assert.ok(args.includes('--joint-planning'));
   assert.ok(args.includes('--spec-first'), 'chat must gather and confirm requirements before planning');
+  assert.equal(revealLog.mock.callCount(), 0, 'starting chat must not open the diagnostic console');
 });
 
 test('start reports an input rejection instead of returning a nonexistent run', async (t) => {
@@ -473,7 +475,20 @@ test('sidebar sends core-named feedback verbatim then continues, and retains the
 });
 
 test('chat approval uses the displayed plan token and advances only when the core offers continue', async (t) => {
-  const ui = await openChat(t, approvalView());
+  const approval = approvalView();
+  approval.pause_category = 'your_decision';
+  approval.pause_category_label = 'Your decision';
+  const ui = await openChat(t, approval);
+  const planText = ui.document.querySelector('#app').textContent;
+  for (const expected of ['Plan to approve', 'Preserve user data', 'You check this one yourself', 'Never delete the original data', 'Only edit app.py']) {
+    assert.ok(planText.includes(expected), expected);
+  }
+  assert.ok(!planText.includes('Plan the approval is bound to'));
+  assert.ok(!planText.includes('Human review: not required'));
+  assert.ok(!planText.includes('Run migration test'));
+  assert.ok(!planText.includes('Compare export fixture'));
+  assert.ok(!planText.includes('I couldn’t finish this step.'));
+  assert.ok(!planText.includes('Open Run details to see what needs attention.'));
   assert.equal(ui.document.querySelector('#take-action').textContent, 'Approve and build');
   const launch = t.mock.method(cli, 'stream', async (_options, args) => {
     if (args.includes('--approve-goal')) {
@@ -513,7 +528,7 @@ test('chat shows the plan to approve in plain words, without revision, criterion
   assert.equal(ui.document.querySelector('#take-action').disabled, false);
 });
 
-test('chat lists review criteria and open problems without their internal IDs', async (t) => {
+test('chat shows review criteria but keeps internal problem diagnostics out of the conversation', async (t) => {
   const ui = await openChat(t, { ...chatView(), status: 'WAITING_FOR_USER',
     needs: { kind: 'review', criteria: [{ id: 'AC7', criterion: 'Export matches the saved fixture' }] },
     progress: { headline: 'Review output', problems: { items: [
@@ -522,7 +537,8 @@ test('chat lists review criteria and open problems without their internal IDs', 
   });
   const text = ui.document.querySelector('#app').textContent;
   assert.ok(text.includes('Export matches the saved fixture'));
-  assert.ok(text.includes('Export drops the header row'));
+  assert.ok(!text.includes('Export drops the header row'));
+  assert.ok(!text.includes('Open problems'));
   assert.ok(!text.includes('AC7'), 'criterion ID shown in chat');
   assert.ok(!text.includes('F12'), 'finding ID shown in chat');
 });
@@ -734,9 +750,81 @@ test('new chat shows the selected run while its first provider call is still pen
   assert.equal(start.mock.callCount(), 1);
   assert.equal(start.mock.calls[0].arguments[0], run.workspace);
   assert.ok(ui.document.querySelector('#messages').textContent.includes('Build something'));
-  assert.ok(ui.document.body.textContent.includes('Starting AutoCode'));
+  assert.ok(ui.document.body.textContent.includes('Thinking…'));
   ui.setView(chatView()); finish(); await flush(); await flush();
   assert.ok(ui.document.body.textContent.includes('Approve and build'));
+});
+
+test('a greeting waits for Requirements to answer instead of a canned reply', async (t) => {
+  const ui = await openChat(t, null, undefined);
+  ui.chat.show(); await flush();
+  t.mock.method(controller, 'start', async (workspace, brief, created) => {
+    created(run);
+    return new Promise(() => {});
+  });
+  ui.type('hi'); ui.submit(); await flush();
+  const rows = [...ui.document.querySelectorAll('#messages .message')].map((row) => row.textContent);
+  assert.deepEqual(rows, ['Youhi']);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
+});
+
+test('requirements chat streams replies without an empty task dashboard and keeps typed text', async (t) => {
+  const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }, { id: 'live', role: 'assistant', text: 'Who will', streaming: true }],
+  } };
+  const ui = await openChat(t, value);
+  ui.type('It is just for me');
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Who will'));
+  assert.equal(ui.document.querySelectorAll('#app h1, #app h2').length, 0);
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('nothing needed'));
+  const next = structuredClone(value); next.chat.messages[1].text = 'Who will use it?';
+  await ui.poll(next);
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Who will use it?'));
+  assert.equal(ui.document.querySelector('#message').value, 'It is just for me');
+});
+
+test('requirements chat offers Continue when no step is running instead of thinking forever', async (t) => {
+  const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
+    liveness: { kind: 'unknown' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`, chat: {
+      phase: 'requirements', context: 'stopped', input: null,
+      messages: [{ id: 'u1', role: 'user', text: 'A book app' }] } };
+  const ui = await openChat(t, value);
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const resume = [...ui.document.querySelectorAll('#app button')].find((button) => button.textContent === 'Continue');
+  assert.ok(resume, 'a stopped requirements step needs a way to continue');
+  resume.click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  assert.ok(!launch.mock.calls[0].arguments[1].includes('--approve-goal'));
+});
+
+test('requirements chat shows only Thinking while a step is running', async (t) => {
+  const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, chat: { phase: 'requirements', context: 'live', input: null,
+      messages: [{ id: 'u1', role: 'user', text: 'A book app' }] } };
+  const ui = await openChat(t, value);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(ui.document.querySelectorAll('#app button').length, 0);
+});
+
+test('requirements approval sends only the core-offered answer and never approves a build', async (t) => {
+  const value = { status: 'WAITING_FOR_USER', done: false, pause_category: 'your_decision', pause_category_label: 'Your decision', needs: { kind: 'answer', resolver_token: 'bound-summary',
+    questions: [{ id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' }] },
+    next_command: `autocode --answer requirements-review-current=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'summary', input: null,
+      review: { question_id: 'requirements-review-current', answer: 'plan', label: 'Approve understanding and prepare plan' },
+      messages: [{ id: 'summary', role: 'assistant', text: 'A personal reading list. Is that right?' }] },
+  };
+  const ui = await openChat(t, value);
+  assert.equal(ui.document.querySelectorAll('#app h1, #app h2, #app input').length, 0);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const approve = [...ui.document.querySelectorAll('#app button')].find((button) => button.textContent.includes('Approve understanding'));
+  approve.click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  const args = launch.mock.calls[0].arguments[1];
+  assert.ok(args.includes('requirements-review-current=plan'));
+  assert.ok(!args.includes('--approve-goal'));
 });
 
 test('missing message action disables free text instead of bypassing a person-only pause', async (t) => {
@@ -745,6 +833,31 @@ test('missing message action disables free text instead of bypassing a person-on
   ui.type('go ahead'); ui.submit(); await flush();
   assert.equal(ui.document.querySelector('#send-message').disabled, true);
   assert.equal(launch.mock.callCount(), 0);
+});
+
+test('chat replaces pause dashboards with a useful explanation and keeps recovery gated', async (t) => {
+  const ui = await openChat(t, {
+    status: 'PAUSED_TRANSPORT_CHANGED', done: false, turn: 1,
+    pause_category_label: 'Your environment',
+    progress: { headline: 'Paused', line: 'Paused · no task list yet · no requirements yet · 0 open problems · inspect the pause, then resume', needs_you: 'inspect the pause, then resume' },
+    needs: { kind: 'resume', reason: 'A joint-planning CLI/auth/provider configuration changed' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused`,
+    chat: { messages: [], context: 'connection-stop', input: null,
+      notice: 'Your model connection settings changed. Check Connections before continuing.' },
+  });
+  const text = ui.document.querySelector('#app').textContent;
+  assert.ok(text.includes('Check Connections before continuing.'));
+  for (const internal of ['Paused', 'no task list', 'no requirements', '0 open problems', 'turn 1', 'Your environment', 'Waiting for']) {
+    assert.ok(!text.includes(internal), internal);
+  }
+  assert.equal(ui.document.querySelector('#send-message').disabled, true);
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Continue');
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(prompt.mock.calls[0].arguments[0], 'Continue AutoCode?');
+  assert.match(prompt.mock.calls[0].arguments[1].detail, /Check Connections/);
+  assert.equal(launch.mock.callCount(), 0, 'cancelling still leaves recovery gated');
 });
 
 test('message actions cannot name another run or append approval flags', async (t) => {

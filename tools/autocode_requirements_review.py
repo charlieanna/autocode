@@ -82,13 +82,14 @@ def review_question(state: RunState) -> dict:
     ]
     text = "\n".join(
         [
-            "Requirements understood this. Answer 'plan' to start planning, or say what to change.",
+            "Here’s what I understand. Does this match what you want?",
             f"Outcome: {str(report.get('intended_outcome', '')).strip()}",
             *_lines("Behaviors", report.get("required_behaviors")),
             *_lines("Acceptance examples", report.get("acceptance_tests")),
             *_lines("Constraints", report.get("constraints")),
             *_lines("Left out", report.get("ignored_statements")),
             *_lines("Assumptions", assumptions),
+            "Approve this understanding to prepare a reviewed plan, or tell me what to change.",
         ]
     )
     return {

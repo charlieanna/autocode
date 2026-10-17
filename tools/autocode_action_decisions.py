@@ -40,6 +40,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_program_guidance as program_guidance
+    from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_human as resolver_human
     from . import autocode_review_rejection as review_rejection
@@ -65,6 +66,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_program_guidance as program_guidance
+    import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
     import autocode_resolver_human as resolver_human
     import autocode_review_rejection as review_rejection
@@ -290,6 +292,7 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
             if args.delegate_all:
                 goals.delegate_all(candidate, args.review_token)
             requirements_review.after_answers(candidate)
+            requirements_chat.recognize_after_approval(candidate)
             for assumption_id in args.reject_assumption:
                 goals.reject_assumption(candidate, assumption_id, args.review_token)
             if args.feedback is not None:
@@ -297,6 +300,7 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
                 if refusal:
                     raise ValueError(refusal)
                 goals.feedback(candidate, args.feedback)
+            requirements_chat.adopt_reply(candidate)
             if args.program_guidance is not None:
                 program_guidance.apply(candidate, args.program_guidance, args.review_token)
             if args.follow_up is not None:

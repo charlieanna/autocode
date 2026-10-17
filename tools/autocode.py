@@ -507,12 +507,10 @@ def run_role(
     if fallback_route:
         route_role = fallback_route["role"]
     adapter, supports_sessions = role_transport.session_adapter(state, route_role, opencode, workspace)
-    configured_tool = getattr(adapter, "CONFIGURED", False)
-    session = resume_session or (
-        None
-        if joint_stage or report_only or not supports_sessions
-        else state.setdefault("sessions", {}).get(route_role)
+    session = role_transport.resume_session(
+        state, route_role, original_stage, joint_stage, report_only, supports_sessions, resume_session
     )
+    configured_tool = getattr(adapter, "CONFIGURED", False)
     engine = planning.engine_for(state["settings"], route_role)
     transport_args = support.transport_arguments(state["settings"])
     route = fallback_route or state["settings"]["roles"][route_role]
@@ -1291,11 +1289,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                 ]
                 if original["stage"] == "requirements_gather"
                 else None,
-                "previous_requirements": ((state.get("requirements_handoff") or {}).get("report") or {}).get(
-                    "requirements", []
-                )
-                if original["stage"] == "requirements_gather"
-                else None,
+                **report_repair_context.requirements_sources(state, original["stage"]),
                 **({"clarification_context": clarification} if original["stage"] == "astra_finalize" else {}),
                 "investigation_context": stuck_repair_context.context(
                     state, original["stage"], run_dir / "state.json", workspace, (original_source, rejected_source)

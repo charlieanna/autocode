@@ -57,6 +57,8 @@ export interface PanelState {
   commandText: string;
   personOnly: boolean;
   taking: boolean;
+  /** This client is acting, or AutoCode reports a live model step. */
+  working: boolean;
   /** The plan the current token asks to approve, only when the view shows it. */
   plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
@@ -271,6 +273,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     commandText: safeCommandText(view, run, controller),
     personOnly: leavesForPerson(need),
     taking,
+    working: taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? ""),
     plan,
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
@@ -345,6 +348,7 @@ function emptyState(run: RunRef): PanelState {
     commandText: "",
     personOnly: false,
     taking: false,
+    working: false,
     plan: null,
     token: null,
     canApprove: true,
@@ -465,8 +469,33 @@ function render(state) {
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
-  app.appendChild(el('h1', null, state.headline));
-  if (!chatMode || state.line !== state.headline) app.appendChild(el('div', 'line', state.line));
+  if (chatMode && state.chat && state.chat.phase === 'requirements' && !state.gap
+      && (!state.pause || state.needKind === 'answer')) {
+    // The conversation carries the questions. Operational details remain in
+    // Run details, and approval is the exact answer offered by the core.
+    if (state.chat.review) {
+      const review = state.chat.review;
+      if (review.summary) app.appendChild(el('pre', 'understanding', review.summary));
+      const approve = el('button', null, review.label);
+      approve.disabled = state.taking;
+      approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
+        answers: { [review.question_id]: review.answer }, token: null,
+        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+      app.appendChild(approve);
+    } else if (state.needKind === 'continue' && state.working) {
+      app.appendChild(el('div', 'line', 'Thinking…'));
+    } else if (state.needKind === 'continue') {
+      // The step stopped between model calls; nothing will advance it unless asked.
+      const resume = el('button', null, 'Continue');
+      resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
+        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+      app.appendChild(resume);
+    }
+    return;
+  }
+  if (!chatMode) {
+    app.appendChild(el('h1', null, state.headline));
+    app.appendChild(el('div', 'line', state.line));
   const meta = [
     !chatMode ? state.status : null,
     state.workflow ? state.workflow + ' workflow' : null,
@@ -477,18 +506,23 @@ function render(state) {
     !chatMode ? state.usage : null,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
+  } else if (state.chat && state.chat.notice) {
+    app.appendChild(el('div', 'notice', state.chat.notice));
+  } else if (state.pause) {
+    app.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
+  }
 
   if (state.task && !chatMode) {
     app.appendChild(el('h2', null, 'Request'));
     app.appendChild(el('pre', null, state.task));
   }
 
-  if (state.tasks.length) {
+  if (state.tasks.length && !chatMode) {
     app.appendChild(el('h2', null, 'Tasks'));
     state.tasks.forEach(stateRow);
   }
 
-  if (state.requirements.length) {
+  if (state.requirements.length && !chatMode) {
     app.appendChild(el('h2', null, 'Requirements'));
     if (state.requirementCounts) {
       const c = state.requirementCounts;
@@ -502,7 +536,7 @@ function render(state) {
     state.requirements.forEach(stateRow);
   }
 
-  if (state.problems.length) {
+  if (state.problems.length && !chatMode) {
     app.appendChild(el('h2', null, 'Open problems'));
     state.problems.forEach((item) => {
       const row = el('div', 'row');
@@ -553,7 +587,7 @@ function render(state) {
     }
   }
 
-  if (!state.done) {
+  if (!state.done && !chatMode) {
     app.appendChild(el('h2', null, 'Waiting for'));
     app.appendChild(el('div', 'line', state.needsYou || state.needSummary || state.needKind || '—'));
     if (state.needReason) app.appendChild(el('div', 'why', state.needReason));
@@ -630,7 +664,7 @@ function render(state) {
       app.appendChild(notice);
     }
 
-    if (state.personOnly) {
+    if (state.personOnly && !chatMode) {
       app.appendChild(el('div', 'notice',
         'This pause is AutoCode asking a person. The extension will ask before acting on it.'));
     }
@@ -704,8 +738,9 @@ function renderChat(data) {
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');
+  const welcome = { id: 'welcome', role: 'assistant', text: 'Hi! What would you like to work on today?' };
   const rows = data.state && data.state.chat ? data.state.chat.messages
-    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [];
+    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [welcome];
   const serialized = JSON.stringify(rows);
   if (messages.dataset.content !== serialized) {
     messages.dataset.content = serialized; messages.textContent = '';
@@ -720,7 +755,7 @@ function renderChat(data) {
     });
   }
   if (data.state) render(data.state);
-  else { app.textContent = data.busy ? 'Starting AutoCode…' : 'Describe what you want to build, fix, review, or discuss.'; }
+  else { app.textContent = data.busy ? 'Thinking…' : ''; }
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();

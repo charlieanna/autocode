@@ -18,9 +18,27 @@ if TYPE_CHECKING:
 try:
     from . import autocode_chat_history as history
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_requirements_chat as requirements_chat
+    from . import autocode_requirements_review as requirements_review
 except ImportError:
     import autocode_chat_history as history
     import autocode_pause_authority as pause_authority
+    import autocode_requirements_chat as requirements_chat
+    import autocode_requirements_review as requirements_review
+
+
+def notice(public):
+    """Explain the next human step without exposing the diagnostic dashboard."""
+    status = public.get("status") or ""
+    if status == "PAUSED_TRANSPORT_CHANGED":
+        return "Your model connection settings changed. Check Connections before continuing."
+    if status == "PAUSED_PROVIDER_UNCERTAIN":
+        return "I couldn’t confirm the model connection. Check Connections, then try again."
+    if status.startswith("PAUSED"):
+        return "I couldn’t finish this step. Open Run details to see what needs attention."
+    if status == "RUNNING":
+        return "Working on your request…"
+    return None
 
 
 def project(state: RunState, public, *, run_dir=None, workspace=None):
@@ -29,6 +47,15 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     messages = history.messages(state, completed=public.get("done", False))
 
     need = public.get("needs") or {}
+    text = requirements_chat.streaming_reply(state, run_dir)
+    if text:
+        messages.append({"id": "requirements-live", "role": "assistant", "text": text, "streaming": True})
+    elif need.get("kind") == "answer" and requirements_chat.enabled(state):
+        spoken = requirements_chat.reply(state)
+        if not spoken:
+            spoken = "\n\n".join(q.get("question", "") for q in need.get("questions", []))
+        if spoken:
+            messages.append({"id": "requirements-question", "role": "assistant", "text": spoken})
     status = public.get("status")
     action = None
     # A completed stage record may remain as active_stage: use the public
@@ -60,4 +87,27 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
                 ["autocode", "--workspace", str(workspace), "--run-dir", str(run_dir), flag, "MESSAGE"]
             ),
         }
-    return {"messages": messages, "context": context, "input": message_input}
+    review = None
+    questions = need.get("questions") or []
+    if (
+        need.get("kind") == "answer"
+        and state.get("requirements_handoff")
+        and len(questions) == 1
+        and questions[0].get("id") == requirements_review.review_question(state)["id"]
+    ):
+        review = {
+            "question_id": questions[0]["id"],
+            "answer": "plan",
+            "label": "Approve understanding and prepare plan",
+            "summary": requirements_review.review_question(state)["question"],
+        }
+    return {
+        "messages": messages,
+        "context": context,
+        "input": message_input,
+        "review": review,
+        "notice": notice(public),
+        "phase": "requirements"
+        if requirements_chat.enabled(state) and state.get("next_stage") in ("requirements_gather", "astra_discovery")
+        else None,
+    }

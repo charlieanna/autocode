@@ -1,7 +1,9 @@
 """Workflow recognition: what kind of engineering job a request is.
 
 AutoPilot runs ``STAGE`` first on every new run, before any requirements or
-planning stage, and saves the answer under ``state["workflow"]``; the status
+planning stage; a chat run (spec-first) runs it once the person approves what
+Requirements understood (autocode_requirements_chat), and the recognizer is
+then given that understanding. The answer is saved under ``state["workflow"]``; the status
 view reports it as ``workflow`` (docs/task-run.md). There are five kinds,
 described in scenarios/README.md ("Workflows"). Normally the request itself is
 read; ``--workflow KIND`` names the kind instead (``pin``), before the recognizer
@@ -18,7 +20,10 @@ State key written here (and read by autocode_run_view, autopilot):
                "clarity": "clear" | "vague", only in adaptive-planning runs,
                "requirements_skipped": bool, only where clarity decides whether Requirements
                runs (an adaptive build recognized with Requirements next and no approved
-               design); read by autocode_adaptive_planning.view for the status view}
+               design); read by autocode_adaptive_planning.view for the status view,
+               "requirements_approved": True, only between a chat run's approval and its
+               recognition (autocode_requirements_chat); apply then plans a build instead of
+               gathering it again}
 """
 
 from __future__ import annotations
@@ -115,7 +120,16 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "saved_answers": {},
         # A request with a Figma design is still recognized by what the user wants back.
         **({"figma_file": state["settings"]["figma_file"]} if (state.get("settings") or {}).get("figma_file") else {}),
+        **({"confirmed_understanding": understanding} if (understanding := confirmed_understanding(state)) else {}),
     }
+
+
+def confirmed_understanding(state: RunState) -> str:
+    """In a chat run, the outcome the person approved with Requirements before the job is recognized."""
+    if not (state.get("settings") or {}).get("spec_first") or state.get("turns"):
+        return ""
+    report = (state.get("requirements_handoff") or {}).get("report") or {}
+    return str(report.get("intended_outcome") or "").strip()
 
 
 def follow_up(state: RunState) -> dict | None:
@@ -173,11 +187,10 @@ def prompt(
         PROMPT
         + adaptive.recognizer_rule(state)
         + (
-            "\nREQUIREMENTS-FIRST CONVERSATION: If the message is only a greeting or otherwise names no "
-            "engineering outcome (for example 'hi'), select build with clarity vague so Requirements can ask "
-            "what the user wants to build or change. Do not invent a task or treat the greeting as a "
-            "completed discuss job. Explicit questions, reviews, fixes and designs keep their ordinary workflow.\n"
-            if (state.get("settings") or {}).get("spec_first")
+            "\nCONFIRMED UNDERSTANDING: The user has already talked with Requirements and approved "
+            "confirmed_understanding as what they want. Recognize the job from it, with task as the "
+            "user's own words; do not ask again what they want.\n"
+            if confirmed_understanding(state)
             else ""
         )
         + "\nCURRENT HANDOFF DATA\n"
@@ -198,7 +211,8 @@ def apply(state: RunState, value: dict, record: dict) -> None:
         raise ValueError(f"Unknown workflow {value.get('workflow')!r}; expected one of {WORKFLOWS}")
     # ``then`` stays the build pipeline's entry stage: a workflow with its own first
     # stage (FIRST_STAGE) may still hand over to the build pipeline afterwards.
-    then = (state.get("workflow") or {}).get("then") or "requirements_gather"
+    previous = state.get("workflow") or {}
+    then = previous.get("then") or "requirements_gather"
     state["workflow"] = {
         "kind": value["workflow"],
         "reason": value.get("reason", ""),
@@ -216,6 +230,9 @@ def apply(state: RunState, value: dict, record: dict) -> None:
     if adaptive.enabled(state) and value["workflow"] == "build" and not design and then == "requirements_gather":
         # Saved where clarity decides it; the status view shows it as planning_depth.requirements_skipped (#697).
         state["workflow"]["requirements_skipped"] = first != then
+    if previous.get("requirements_approved") and first == then:
+        # A chat run's Requirements spoke and was approved before recognition (autocode_requirements_chat).
+        first = planner_stage(state)
     state.update(
         {
             "status": "RUNNING",

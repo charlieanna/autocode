@@ -116,9 +116,13 @@ export interface StatusView {
   routes?: Record<string, ModelRoute> | null;
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
   recovery?: Record<string, unknown> | null;
+  liveness?: { kind?: string } | null;
   current_task?: { id?: string; objective?: string } | null;
   chat?: {
-    messages: { id: string; role: string; text: string }[];
+    messages: { id: string; role: string; text: string; streaming?: boolean }[];
+    phase?: "requirements" | null;
+    notice?: string | null;
+    review?: { question_id: string; answer: string; label: string; summary?: string } | null;
     context: string;
     input: { kind: "feedback" | "follow_up"; label: string; next_command: string } | null;
   };
@@ -231,7 +235,9 @@ export function needsSummary(view: StatusView): string {
 
 /** A short label for a stopped run's cause, so a person can tell whose decision it is. */
 export function pauseLabel(view: StatusView): string | null {
-  if (!view.pause_category) return null;
+  // Normal user checkpoints (for example, plan approval) can also carry a
+  // pause category. Only stopped runs should be presented as unable to continue.
+  if (!view.status.startsWith("PAUSED") || !view.pause_category) return null;
   return view.pause_category_label || view.pause_category;
 }
 

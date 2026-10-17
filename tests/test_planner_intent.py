@@ -210,6 +210,10 @@ class PlannerIntentTests(unittest.TestCase):
             for ref in ("runner.py:1-3 (past end)", "runner.py:2-1", "runner.py:0", "runner.py:bogus"):
                 with self.subTest(ref=ref), self.assertRaises(ValueError):
                     autopilot._check_code_refs(current, [ref])
+            # A live Requirements report cited 1-18 of a 17-line file and both repairs repeated it:
+            # the rejection says how long the file is, so a repair can correct the range.
+            with self.assertRaisesRegex(ValueError, r"runner\.py:1-3 points past the end of the file \(2 lines\)"):
+                autopilot._check_code_refs(current, ["runner.py:1-3"])
 
     def test_an_explanation_after_an_existing_path_is_not_a_rejection(self):
         # A live glm_revise was rejected, costing a report repair, for a path followed by prose.

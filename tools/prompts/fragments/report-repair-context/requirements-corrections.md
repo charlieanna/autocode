@@ -1,0 +1,2 @@
+
+For Requirements corrections, requirements_correction_sources supplies the exact saved event IDs and basis values. Preserve unchanged prior IDs and quotes. To replace a prior requirement after a user correction, cite that source in ignored_requirements (requirement_id, reason, basis, event_id) and add the replacement with a fresh ID. Copy each requirement_coverage_checklist sentence in full as a source_quote; multiple shorter clause quotes do not cover the whole sentence.

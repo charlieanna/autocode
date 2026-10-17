@@ -35,7 +35,13 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     """Install ``value`` as the requirements handoff; ``queue`` is resolver_human.queue for the spec-first stop."""
     questions = value["open_questions"]
     clarification_only = requirements_review.enabled(state) and bool(questions)
-    if not value["intended_outcome"].strip() or (
+    intake_only = clarification_only and not any(
+        value[key] for key in ("requirements", "required_behaviors", "acceptance_tests")
+    )
+    # A chat that has not named any software outcome yet ("what is your name?")
+    # may say so honestly, provided it asks the person for that outcome.
+    asks_outcome = intake_only and any(question.get("category") == "requested_outcome" for question in questions)
+    if (not value["intended_outcome"].strip() and not asks_outcome) or (
         not clarification_only and (not value["required_behaviors"] or not value["acceptance_tests"])
     ):
         raise ValueError("Requirements handoff needs an outcome, behaviors, and acceptance tests")
@@ -53,9 +59,6 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     local_refs = [
         ref for ref in value["source_refs"] if ref not in input_refs and not ref.startswith(("https://", "http://"))
     ]
-    intake_only = clarification_only and not any(
-        value[key] for key in ("requirements", "required_behaviors", "acceptance_tests")
-    )
     # Asking the user for a goal makes no code claim. Do not demand a citation
     # to unrelated editor settings merely because this is a nonempty checkout.
     if local_refs or not intake_only:
