@@ -163,6 +163,22 @@ human receipts and saved completed replies. At a follow-up, the prior reply is
 retained under that turn's historical record; display text grants no approval
 and does not become a new requirement. Status reads do not write a transcript.
 
+During spec-first Requirements chat, `phase: "requirements"` lets clients show
+the conversation without the empty task dashboard. An assistant message may
+have `streaming: true`; its text is provisional display content from the active
+Requirements attempt, never an answer, approval, report or tool receipt. Kilo
+text deltas are filtered to the current assistant message; reasoning and tool
+output are excluded. Requirements reuses its own saved provider session while
+independent plan reviewers retain separate sessions. A bare greeting asks for
+the outcome without dispatching a provider; classification and model probes
+wait until the user confirms the requirements.
+
+When the only pending question is the core's current requirements review,
+`review` offers its `question_id`, exact `answer`, `label` and bound `summary`.
+A client may display that summary and submit the ordinary named answer action.
+This confirms the understanding and releases plan preparation and review.
+The resulting execution plan still needs its own displayed-token approval.
+
 `input` is null when free text is not an admitted action. Otherwise it names
 `kind` (`feedback` or `follow_up`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
