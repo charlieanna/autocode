@@ -162,6 +162,43 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 > names are in saved run state. They are not model choices: `--terra-model
 > zai-coding-plan/glm-5.3` selects the model used for the Builder role.
 
+## Choosing models automatically
+
+Automatic selection (#1426) chooses each role's model from the accounts you have
+connected, so you never route roles by hand. It is built in steps; the choice itself
+(`tools/autocode_route_selector.py`) is in place, and the discovery and wiring that
+make it the default for new runs land in later steps of the same issue. Until they do,
+new runs use the [default models](#default-models) above unless you name your own.
+
+The rules the choice keeps:
+
+- **A minimum standard per role.** A model is only ever chosen for a role when the
+  dated qualification table (`tools/autocode_route_qualification.json`) lists it for
+  that role, with the evidence that admitted it: AutoCode's own runs qualify a model,
+  and a public benchmark admits it only provisionally until such a run confirms it.
+  The table changes by pull request, like the price table it is priced from. A model
+  not in the table is never chosen automatically, however cheap.
+- **Within a role's qualified models, the cheapest route wins.** A subscription route
+  counts as cheaper than any pay-per-token one, then the price-table cost orders them,
+  and a route whose access is already proven beats one that would need a probe. The
+  checkers are never downgraded to save money: they start on their cheapest *qualified*
+  model, and only a failure ever moves a role up.
+- **Independence is never lowered quietly.** Every producer and checker pair stays on
+  different model families (`tools/autocode_verifier_independence.py`); when the
+  connected accounts cannot provide that, the run stops before any work and says what
+  is missing in account terms ("connect a second model family"), never by suggesting
+  `--single-model`.
+- **No invented reasoning levels.** A route gets a reasoning level only when the model
+  advertises it; otherwise the model uses its own default.
+- **Explicit choices win.** `--<role>-model`, `--provider`, `--role-transport` and
+  `--single-model` constrain or replace the automatic choice, and saved runs keep the
+  routes they were started with.
+
+The choice is one deterministic function from the discovered candidates and the
+accounts you allow to one route per role, or a stop that names what is missing. Each
+chosen route is recorded with its origin (`auto_selected`) in the route record the
+status view shows.
+
 ## Builder retry policy
 
 New standard-workflow runs use a persisted Builder retry policy per approved milestone:
