@@ -144,6 +144,28 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
                     self.assertIn("fake_opencode: invalid current output schema", result.stderr)
                     self.assertNotIn("delegate must not launch", result.stderr)
 
+    def test_a_report_cites_each_relayed_command_by_its_opencode_part(self):
+        # The scenario harness names each milestone check after its command (event:check-<slug>).
+        # OpenCode events carry the part id, so the relayed report must cite that same part.
+        self.delegate.write_text(
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "sys.stdin.read()\n"
+            "for name in ('check', 'check-python3-unit'):\n"
+            "    print(json.dumps({'type': 'item.completed', 'item': {'id': name, 'type': 'command_execution',"
+            " 'command': 'true', 'exit_code': 0, 'aggregated_output': ''}}))\n"
+            "Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps("
+            "{'evidence_refs': ['event:check', 'event:check-python3-unit', 'event:check-never-run']}))\n"
+        )
+        result = self.invoke(self.rendered({"execution_engine": "opencode", "stage": "terra"}, {"type": "object"}))
+        parts = [row["part"]["id"] for row in map(json.loads, result.stdout.splitlines()) if row["type"] == "tool_use"]
+        self.assertEqual(["prt_check", "prt_check-python3-unit"], parts)
+        # A reference to a command that never ran stays as written, for the runner to refuse.
+        self.assertEqual(
+            ["event:prt_check", "event:prt_check-python3-unit", "event:check-never-run"],
+            self.report(result)["evidence_refs"],
+        )
+
     def test_a_contained_launch_relays_its_contract_only_from_the_qualified_fixture(self):
         # A contained launch follows the contract with the boundary instructions (#709).
         prompt = provider_launch.containment_prompt(

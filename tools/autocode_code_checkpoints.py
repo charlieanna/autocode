@@ -275,8 +275,31 @@ def builder_execution(state: RunState, accepted, implementation):
     return original
 
 
+def _integrated_batch(state: RunState, task, implementation):
+    """The parallel batch whose verified integration is this implementation, with its built members.
+
+    The orchestrator applies the members' runner-observed patch as one source change, so no
+    Builder stage row carries the integrated revision; the saved batch record is its provenance.
+    """
+    for batch in reversed(state.get("orchestration_history") or []):
+        if (
+            batch.get("status") != "INTEGRATED"
+            or "task-" + str(batch.get("id")) != task["id"]
+            or batch.get("contract_hash") != implementation["contract_hash"]
+            or (batch.get("expected") or {}).get("revision") != implementation["source_revision"]
+        ):
+            continue
+        members = [
+            {"milestone_id": row.get("milestone_id"), "changed_files": deepcopy(row.get("changed_files") or [])}
+            for row in batch.get("workers") or []
+            if row.get("status") == "BUILT"
+        ]
+        return (batch, members) if members else None
+    return None
+
+
 def update(state: RunState, run_dir):
-    """Called only from the runner's durable writer after an applied Builder step."""
+    """Called only from the runner's durable writer after an applied Builder step or batch integration."""
     implementation = state.get("implementation") or {}
     task = state.get("current_task") or {}
     if (
@@ -307,7 +330,8 @@ def update(state: RunState, run_dir):
             ),
             {},
         )
-        if not stage:
+        integrated = None if stage else _integrated_batch(state, task, implementation)
+        if not stage and not integrated:
             return
         base = {
             "id": ident,
@@ -315,18 +339,25 @@ def update(state: RunState, run_dir):
             "contract_hash": implementation["contract_hash"],
             "source_revision": implementation["source_revision"],
             "iteration": state.get("iteration"),
-            "at": stage.get("finished_at") or util.now(),
+            "at": (integrated[0] if integrated else stage).get("finished_at") or util.now(),
             "label": task.get("objective") or "Saved code change",
-            "milestone_id": task.get("milestone_id"),
+            # A batch served several milestones; its members name each one with its own files.
+            "milestone_id": None if integrated else task.get("milestone_id"),
             "changed_files": [],
             "finding_ids": [row["id"] for row in state.get("findings_ledger", []) if row.get("id")],
             "recorded_check": None,
         }
+        if integrated:
+            base["members"] = integrated[1]
         try:
-            execution = builder_execution(state, stage, implementation)
-            if not execution.get("changed_files"):
+            changed = (
+                integrated[0].get("changed_files")
+                if integrated
+                else builder_execution(state, stage, implementation).get("changed_files")
+            )
+            if not changed:
                 return
-            base["changed_files"] = deepcopy(execution["changed_files"])
+            base["changed_files"] = deepcopy(changed)
             source = source_scope.snapshot(state["workspace"], state)
             if source["revision"] != implementation["source_revision"]:
                 return
@@ -428,6 +459,7 @@ def project(state: RunState):
                     "at",
                     "label",
                     "milestone_id",
+                    "members",
                     "changed_files",
                     "source_revision",
                     "commit",

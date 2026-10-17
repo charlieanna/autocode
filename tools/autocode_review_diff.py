@@ -221,7 +221,7 @@ def criterion_diffs(workspace, view, only=None):
     for criterion in attribution.get("criteria") or []:
         if isinstance(criterion, dict) and (only is None or criterion.get("id") in only):
             result["criteria"].append(
-                {key: deepcopy(criterion.get(key)) for key in ("id", "checkpoints", "overlapping")}
+                {key: deepcopy(criterion.get(key)) for key in ("id", "checkpoints", "files", "overlapping")}
             )
     wanted = list(
         dict.fromkeys(
@@ -248,6 +248,13 @@ def criterion_diffs(workspace, view, only=None):
         else:
             row = rows[index]
             step.update(milestone_id=row.get("milestone_id"), label=row.get("label"))
+            members = [
+                member.get("milestone_id")
+                for member in row.get("members") or []
+                if isinstance(member, dict) and isinstance(member.get("milestone_id"), str)
+            ]
+            if members:
+                step["milestones"] = members
             step["reason"] = _step_reason(rows, index, base)
             if step["reason"] is None:
                 names = [name for name in row.get("changed_files") or [] if isinstance(name, str)]

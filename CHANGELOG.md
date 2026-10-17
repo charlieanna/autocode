@@ -11,6 +11,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The dashboard offered no plan approval when the Plan Reviewer accepted a draft during its challenge
+  (adaptive review). The runner accepts that plan for approval, but the dashboard only recognized a plan
+  finalized by a separate finalize step, so the task showed "Planning checkpoint · not currently ready for
+  approval" and the chat had no Approve & build button. Plans from adaptive review and Builder-led
+  finalization are now ready for approval too (#730).
+- Requirements served by parallel Builders now show their saved changes. An integrated parallel batch recorded
+  no code checkpoint, so `changes_by_criterion` attributed nothing to its milestones' requirements and their
+  diffs were missing. The batch's integration is now one saved step whose `members` name each milestone with
+  the files its Builder changed, and each requirement counts only its own member's files (#730).
+- `autocode review` and the dashboard's **Checks** pane showed every file of a shared parallel step under each
+  of its requirements. Each requirement now shows only the files its own milestone changed in that step, names
+  the ones left out, and the step names the milestones it served (#730).
 - A step held for no causal progress (a recovery novelty hold) now offers "Retry the held step once" on its
   recovery card, running the `--resume-paused --retry-failed-stage` that `needs.retry_action` names with the
   card's token. The dashboard could previously only inspect the AutoResolver request, so it could not grant
@@ -34,6 +46,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- An end-to-end acceptance test for the chat client: `test_scenario_client_browser_ui.js` types a catalog
+  scenario's brief (parallel-diamond) in chat, attaches the project, approves and builds the plan, and checks in
+  **Checks** that each requirement shows its reference solution's hunks and only its own files of the shared
+  parallel step, at desktop, tablet and phone widths. The task runs the real runner against fake providers. It
+  runs in CI's browser step (#730).
 - Each action on the status view's recovery card that runs a control names its exact CLI flags in `args`, for
   example `["--resume-paused", "--retry-builder", "M3"]`. The dashboard's recovery buttons run those flags, bound to
   the inspected pause's token, instead of keeping their own table of action kinds; an action that names no flags

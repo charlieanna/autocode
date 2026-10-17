@@ -130,7 +130,11 @@ diff against the saved step before it (`GET /api/criterion-diffs`, which calls
 `autocode_review_diff.criterion_diffs` on that same status view and reads committed
 Git objects, never the working tree). The changes are labelled as attribution, not
 proof that the requirement is met. A requirement whose steps also changed files
-another requirement's milestone changed is marked as overlapping. When a requirement
+another requirement's milestone changed is marked as overlapping. Parallel Builders'
+integrated work is one saved step that served several milestones; it is headed with
+all of them (`milestones B, C`), and each requirement shows only its own milestone's
+files of it, naming the files it leaves out ("Not shown, changed in this step for
+another milestone"). When a requirement
 has no attributed step, or the run's status is unavailable, it says so and offers
 **View all run changes**, which opens **Changes**. The pane is read once per run
 until a step is saved or its attribution changes.
@@ -176,6 +180,12 @@ CI runs the Python suite and the Node tests on macOS and Linux, except
 `agent-browser` CLI and need it installed.
 
 The browser fixture uses disposable workspaces and cannot launch agents. The
+exception is the chat client's acceptance test, `test_scenario_client_browser_ui.js`:
+it types the parallel-diamond scenario's brief in chat, attaches a project, approves
+and builds the plan, and checks each requirement's changes against the scenario's
+reference solution at three viewport sizes. Its fixture runs the real runner on the fake
+OpenCode client, which hands each stage to the scenario harness's scripted model, so no
+model is called. The
 packaged-import regression tests the installed entry-point layout, not just the
 source-directory import path. Updating files does not reload a running dashboard:
 restart only its server at an idle boundary, preserving the same environment and

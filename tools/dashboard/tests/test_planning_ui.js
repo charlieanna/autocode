@@ -21,6 +21,9 @@ assert.equal(context.stageName({...joint,stage:'astra_review'}),'Completion Revi
 assert.equal(context.planReady({...joint,status:'WAITING_FOR_USER',goal:{origin:'glm_draft'}}),false);
 assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{origin:'glm_revise'}}),false);
 assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{origin:'astra_finalize'}}),true);
+// The Plan Reviewer can accept a draft during its challenge (adaptive review) instead of finalizing it.
+assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{origin:'adaptive_review_approval'}}),true);
+assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{origin:'plan_finalize'}}),true);
 const gocodeJoint={model_settings:{joint_planning:true,engine:'gocode'}};
 assert.equal(context.planningSpeaker({...joint,goal:{origin:'glm_draft'}}),'Planner');
 assert.equal(context.planningSpeaker({...joint,goal:{origin:'astra_finalize'}}),'Plan Reviewer');

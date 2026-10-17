@@ -79,6 +79,49 @@ class AttributeTests(unittest.TestCase):
         self.assertEqual(["code-1"], c1["checkpoints"])
         self.assertTrue(c1["overlapping"])
 
+    def test_a_parallel_batch_step_gives_each_member_milestone_only_its_own_files(self):
+        batch = {
+            "id": "code-2",
+            "milestone_id": None,
+            "changed_files": ["cli.py", "greet.py"],
+            "members": [
+                {"milestone_id": "M1", "changed_files": ["greet.py"]},
+                {"milestone_id": "M2", "changed_files": ["cli.py"]},
+            ],
+            "commit": "b" * 40,
+        }
+        result = criterion_changes.attribute(BODY, [row("code-1", "M1", ["app.py"]), batch])
+        by_id = {item["id"]: item for item in result["criteria"]}
+        self.assertEqual(
+            {"checkpoints": ["code-1", "code-2"], "files": ["app.py", "greet.py"], "overlapping": False},
+            {k: by_id["C1"][k] for k in ("checkpoints", "files", "overlapping")},
+        )
+        self.assertEqual(
+            {"checkpoints": ["code-2"], "files": ["cli.py"], "overlapping": False},
+            {k: by_id["C2"][k] for k in ("checkpoints", "files", "overlapping")},
+        )
+        # C3 belongs to both members, and the shared step is listed once.
+        self.assertEqual(["code-1", "code-2"], by_id["C3"]["checkpoints"])
+        self.assertEqual(["app.py", "cli.py", "greet.py"], by_id["C3"]["files"])
+        self.assertEqual([], result["unattributed"])
+
+    def test_a_batch_member_outside_the_plan_is_unattributed_once(self):
+        batch = {
+            "id": "code-1",
+            "milestone_id": None,
+            "changed_files": ["greet.py", "x.py", "y.py"],
+            "members": [
+                {"milestone_id": "M1", "changed_files": ["greet.py"]},
+                {"milestone_id": "M9", "changed_files": ["x.py"]},
+                {"milestone_id": "M8", "changed_files": ["y.py"]},
+                "broken",
+            ],
+        }
+        result = criterion_changes.attribute(BODY, [batch])
+        self.assertEqual(["code-1"], result["unattributed"])
+        c1 = next(item for item in result["criteria"] if item["id"] == "C1")
+        self.assertEqual((["code-1"], ["greet.py"], False), (c1["checkpoints"], c1["files"], c1["overlapping"]))
+
     def test_malformed_rows_and_milestones_are_skipped(self):
         body = {
             "acceptance_criteria": [{"id": "C1"}, "C2", {"id": 3}],

@@ -64,6 +64,20 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in selected})
                 self.assertIn("tests.test_completion_status", kept)
 
+    def test_parallel_batch_attribution_selects_its_orchestrated_cli_consumer_even_when_slow(self):
+        for path in (
+            "tools/autocode_dispatch.py",
+            "tools/autocode_code_checkpoints.py",
+            "tools/autocode_criterion_changes.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("tests.test_parallel_criterion_changes", dependencies.dependencies(path))
+                selected = run_suite.select_tests(
+                    [path], {"tests.test_parallel_criterion_changes": "", "tests.test_unrelated": ""}
+                )
+                kept, _ = run_suite.drop_slow(selected, {"tests.test_parallel_criterion_changes": "26s"})
+                self.assertEqual(["tests.test_parallel_criterion_changes"], list(kept))
+
     def test_package_launch_wiring_selects_the_package_cli_consumer(self):
         # --package is checked at launch in autocode_run_setup.resolve, a change outside the package stops
         # the run at completion (autocode_package_writes, run by the regression proof before each review

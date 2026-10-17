@@ -359,6 +359,106 @@ class CodeCheckpoints(unittest.TestCase):
         self.assertEqual(self.ident, payload["checkpoint_id"])
 
 
+class IntegratedBatchCheckpoint(unittest.TestCase):
+    """An integrated parallel batch is one saved step whose members keep their own milestone and files."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.workspace = Path(temp.name).resolve() / "project"
+        self.workspace.mkdir()
+        checkpoints.git(self.workspace, "init", "-q")
+        (self.workspace / "base.txt").write_text("base\n")
+        checkpoints.git(self.workspace, "add", ".")
+        checkpoints.git(self.workspace, "-c", "user.name=F", "-c", "user.email=f@example.test", "commit", "-qm", "base")
+        self.run = self.workspace / ".autocode/runs/fixture"
+        self.run.mkdir(parents=True)
+        (self.workspace / ".autocode/.gitignore").write_text("*\n")
+        contract = {"task_id": "run-task", "revision": 1, "body": body()}
+        contract["hash"] = util.digest(contract)
+        approval = {"kind": "goal_approval", "actor": "user_cli", "token": identity.token(contract), "at": util.now()}
+        contract.update(approval_status="approved", approval_event=approval, origin="astra_discovery")
+        (self.workspace / "server.py").write_text("server\n")
+        (self.workspace / "client.py").write_text("client\n")
+        revision = util.snapshot(self.workspace)["revision"]
+        self.state = {
+            "task_id": "run-task",
+            "workspace": str(self.workspace),
+            "iteration": 4,
+            "user_events": [approval],
+            "goal_contract": contract,
+            "findings_ledger": [],
+            "stages": [
+                {"stage": "terra", "task_id": "task-b", "batch_id": "batch1", "exit_code": 0, "source_revision": "w1"},
+                {"stage": "terra", "task_id": "task-c", "batch_id": "batch1", "exit_code": 0, "source_revision": "w2"},
+                {"stage": "orchestrator", "batch_id": "batch1"},
+            ],
+            "current_task": {
+                "id": "task-batch1",
+                "milestone_id": "B",
+                "milestone_ids": ["B", "C"],
+                "objective": "Integrate and verify: B; C",
+            },
+            "implementation": {
+                "task_id": "task-batch1",
+                "source_revision": revision,
+                "contract_hash": contract["hash"],
+            },
+            "orchestration_history": [
+                {
+                    "id": "batch1",
+                    "status": "INTEGRATED",
+                    "contract_hash": contract["hash"],
+                    "finished_at": "2026-10-17T00:00:00+00:00",
+                    "expected": {"revision": revision},
+                    "changed_files": ["client.py", "server.py"],
+                    "workers": [
+                        {"milestone_id": "B", "status": "BUILT", "changed_files": ["server.py"]},
+                        {"milestone_id": "C", "status": "BUILT", "changed_files": ["client.py"]},
+                    ],
+                }
+            ],
+        }
+
+    def test_one_restorable_row_names_each_member_milestone_and_its_files(self):
+        checkpoints.update(self.state, self.run)
+        [row] = self.state["code_checkpoints"]
+        self.assertTrue(row["available"], row)
+        self.assertEqual(
+            {
+                "task_id": "task-batch1",
+                "milestone_id": None,
+                "label": "Integrate and verify: B; C",
+                "at": "2026-10-17T00:00:00+00:00",
+                "changed_files": ["client.py", "server.py"],
+                "members": [
+                    {"milestone_id": "B", "changed_files": ["server.py"]},
+                    {"milestone_id": "C", "changed_files": ["client.py"]},
+                ],
+            },
+            {key: row[key] for key in ("task_id", "milestone_id", "label", "at", "changed_files", "members")},
+        )
+        self.assertEqual("server\n", checkpoints.git(self.workspace, "show", row["commit"] + ":server.py").decode())
+        self.assertEqual(row["members"], checkpoints.project(self.state)["rows"][0]["members"])
+        checkpoints.update(self.state, self.run)
+        self.assertEqual(1, len(self.state["code_checkpoints"]))
+
+    def test_a_batch_that_is_not_the_integrated_implementation_records_nothing(self):
+        cases = {
+            "not integrated": lambda batch: batch.update(status="READY_TO_INTEGRATE"),
+            "other revision": lambda batch: batch["expected"].update(revision="other"),
+            "other contract": lambda batch: batch.update(contract_hash="other"),
+            "other batch": lambda batch: batch.update(id="batch2"),
+            "no built member": lambda batch: [row.update(status="SERIAL") for row in batch["workers"]],
+        }
+        for name, change in cases.items():
+            with self.subTest(name):
+                state = copy.deepcopy(self.state)
+                change(state["orchestration_history"][0])
+                checkpoints.update(state, self.run)
+                self.assertEqual([], state.get("code_checkpoints", []))
+
+
 class RealCheckpointFlow(unittest.TestCase):
     def test_report_only_builder_repair_preserves_a_public_restorable_checkpoint(self):
         fixture = test_subprocess.SubprocessFlow()

@@ -217,11 +217,13 @@ with tempfile.TemporaryDirectory(dir=fixture_root) as temp:
                 print(json.dumps({"type": "error", "sessionID": session, "error": event["error"]}), flush=True)
         print(result.stderr, file=sys.stderr)
         raise SystemExit(result.returncode)
+    relayed = []
     for line in result.stdout.splitlines():
         event = json.loads(line)
         if event.get("type") != "item.completed":
             continue
         item = event["item"]
+        relayed.append(item["id"])
         emit(
             "tool_use",
             {
@@ -238,6 +240,9 @@ with tempfile.TemporaryDirectory(dir=fixture_root) as temp:
             },
         )
     final = report.read_text().replace('"event:check"', '"event:prt_check"')
+    # The delegate cites its commands by Codex item id; this client relayed each as part prt_<id>.
+    for item_id in relayed:
+        final = final.replace(json.dumps("event:" + item_id), json.dumps("event:prt_" + item_id))
     if os.environ.get("AUTOCODE_FIXTURE_INVALID_INVESTIGATOR") and data.get("stage") == "investigate_stuck":
         value = json.loads(final)
         value.pop("diagnosis")
