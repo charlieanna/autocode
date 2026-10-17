@@ -568,6 +568,15 @@ def project(state: RunState, need=None):
                 "Only a currently authorized question, plan or evidence card can accept a response in chat. This action does not answer or approve it.",
             )
         )
+        # A recovery novelty hold also admits one explicit retry; needs names it only when it applies (#1012).
+        if need.get("retry_action") == " ".join(_args("retry_failed_stage", {}) or ()):
+            actions.append(
+                _action(
+                    "retry_failed_stage",
+                    "Retry the held step once",
+                    "Authorize one more attempt of the held step without new information. Saved attempts and evidence are kept; existing limits, approvals and verification gates still apply.",
+                )
+            )
     elif (
         cause
         in (

@@ -143,6 +143,20 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   const accepted=data('()=>latestRun.actions.at(-1).command');
   assert.deepEqual(accepted.slice(-2),['--resume-paused','--accept-source-edit']);
   assert.equal(accepted.includes('-'),true,'The token travels privately, not in argv');
+  open('held');
+  // A recovery novelty hold admits one scoped retry; the card offers exactly the flags needs names (#730, #1012).
+  const heldFile=path.join(data('()=>latestRun.run'),'state.json'),heldBefore=fs.readFileSync(heldFile);
+  assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','decision','retry_failed_stage','feedback']);
+  assert.equal(data('()=>document.querySelector('+JSON.stringify(button('retry_failed_stage'))+').textContent'),'Retry the held step once');
+  assert.equal(data('()=>document.querySelector('+JSON.stringify(button('retry_failed_stage'))+').disabled'),true,'Retrying waits for inspection');
+  click(inspect);wait('!document.querySelector('+JSON.stringify(button('retry_failed_stage'))+').disabled');
+  assert.deepEqual(fs.readFileSync(heldFile),heldBefore,'Inspection does not retry');
+  data('()=>{document.querySelector('+JSON.stringify(button('retry_failed_stage'))+').scrollIntoView({block:"center"});return true}');
+  browser('screenshot',path.join(evidence,viewport+'-held-retry.png'));
+  click(button('retry_failed_stage'));wait('latestRun.status==="RUNNING"');
+  const heldRetry=data('()=>latestRun.actions.at(-1).command');
+  assert.deepEqual(heldRetry.slice(-2),['--resume-paused','--retry-failed-stage']);
+  assert.equal(heldRetry.includes('-'),true,'The token travels privately, not in argv');
   open('internal');
   const internalFile=path.join(data('()=>latestRun.run'),'state.json'),internalBefore=fs.readFileSync(internalFile);
   assert.match(data('()=>document.querySelector("#task-attention").textContent'),/Awaiting Resolver/);
@@ -152,7 +166,7 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   open('stopped');assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','new_conversation']);
   assert.equal(data('()=>document.documentElement.scrollWidth>innerWidth'),false);
   assert.deepEqual(fs.readFileSync(kept),originalWork);
-  results.push({viewport,geometry,builder_command:sent,recovery_command:recovered,quota_command:quotaCommand,quota_resume:quotaResume,accept_source_command:accepted});
+  results.push({viewport,geometry,builder_command:sent,recovery_command:recovered,quota_command:quotaCommand,quota_resume:quotaResume,accept_source_command:accepted,held_retry_command:heldRetry});
  }
  fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify(results,null,2));
  console.log('Exact recovery, separate resume, stale refusal and preserved work passed in three browser sizes. '+evidence);

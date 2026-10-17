@@ -113,6 +113,25 @@ class BlockerNeedTests(unittest.TestCase):
         self.state["uncertain_artifacts"] = ["iterations/002/builder-01.json"]
         self.assertNotIn("retry_action", self.needs())
 
+    def card_actions(self):
+        return {row["id"]: row for row in run_view.view(self.state)["recovery"]["actions"]}
+
+    def test_the_recovery_card_offers_the_held_steps_scoped_retry(self):
+        # The card runs the same flags needs.retry_action names, so a client never maps kinds (#730).
+        self.publish_no_progress()
+        actions = self.card_actions()
+        self.assertIn("decision", actions)
+        retry = actions["retry_failed_stage"]
+        self.assertEqual(self.needs()["retry_action"], " ".join(retry["args"]))
+        self.assertEqual(["--resume-paused", "--retry-failed-stage"], retry["args"])
+
+    def test_the_card_offers_no_scoped_retry_without_a_hold_or_with_an_unsettled_attempt(self):
+        self.publish_no_progress(held=False)
+        self.assertNotIn("retry_failed_stage", self.card_actions())
+        self.publish_no_progress()
+        self.state["uncertain_artifacts"] = ["iterations/002/builder-01.json"]
+        self.assertNotIn("retry_failed_stage", self.card_actions())
+
     def test_a_requirements_question_keeps_its_answer_path(self):
         self.queue_question()
         self.assertEqual("escalate", human.evaluate(self.state))

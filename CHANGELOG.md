@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A step held for no causal progress (a recovery novelty hold) now offers "Retry the held step once" on its
+  recovery card, running the `--resume-paused --retry-failed-stage` that `needs.retry_action` names with the
+  card's token. The dashboard could previously only inspect the AutoResolver request, so it could not grant
+  the one retry the hold allows (#730, #1012).
 - A repair paused because its source was edited (`PAUSED_STALE_HANDOFF`) now offers "Accept the edited source"
   on its recovery card, running `--resume-paused --accept-source-edit` with the card's token. The dashboard
   could previously only inspect or send feedback, so such a run could not be continued there (#730).
