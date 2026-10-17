@@ -36,4 +36,4 @@ def require(state: "RunState", refs, field="code_refs", *, planning_unit):
             end = int(citation[2] or citation[1])
             count = len(target.read_text(errors="replace").splitlines())
             if line < 1 or end < line or end > max(count, 1):
-                raise ValueError(f"{field} entry {ref} points past the end of the file")
+                raise ValueError(f"{field} entry {ref} points past the end of the file ({count} lines)")
