@@ -712,7 +712,9 @@ function roleDisplayName(name) {
   const catalogue=globalThis.AUTOCODE_ROLE_NAMES,key=String(name||'').trim().toLowerCase().replaceAll('_',' ');
   return catalogue.roles[catalogue.aliases[key]||name]||human(name);
 }
-function planReady(run) { return !jointPlanning(run) || (run.status==='AWAITING_GOAL_APPROVAL' && run.goal?.origin==='astra_finalize'); }
+// The origins of a plan the Plan Reviewer has finished with, as the runner's approval gate accepts them.
+const FINAL_PLAN_ORIGINS=['astra_finalize','plan_finalize','adaptive_review_approval'];
+function planReady(run) { return !jointPlanning(run) || (run.status==='AWAITING_GOAL_APPROVAL' && FINAL_PLAN_ORIGINS.includes(run.goal?.origin)); }
 function stageName(run) {
   const stage=String(run.stage||'').replace(/_report_repair$/,''),catalogue=globalThis.AUTOCODE_ROLE_NAMES;
   const entry=catalogue.modes[run.monitor?.workflow_mode]?.[stage]||catalogue.stages[stage];

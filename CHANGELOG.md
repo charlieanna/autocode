@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The dashboard offered no plan approval when the Plan Reviewer accepted a draft during its challenge
+  (adaptive review). The runner accepts that plan for approval, but the dashboard only recognized a plan
+  finalized by a separate finalize step, so the task showed "Planning checkpoint · not currently ready for
+  approval" and the chat had no Approve & build button. Plans from adaptive review and Builder-led
+  finalization are now ready for approval too (#730).
 - Requirements served by parallel Builders now show their saved changes. An integrated parallel batch recorded
   no code checkpoint, so `changes_by_criterion` attributed nothing to its milestones' requirements and their
   diffs were missing. The batch's integration is now one saved step whose `members` name each milestone with
