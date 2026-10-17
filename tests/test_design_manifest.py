@@ -2156,9 +2156,10 @@ class CompletePlanningInputTests(unittest.TestCase):
         projected = manifest.planning_context(self.settings, role="requirements")
         references = {projected[key]["path"]: projected[key]["sha256"] for key in ("body", "catalog")}
         for operation in ("context", "pins"):
-            with self.subTest(operation=operation), patch.object(
-                design_inventory, "catalog", wraps=design_inventory.catalog
-            ) as build_catalog:
+            with (
+                self.subTest(operation=operation),
+                patch.object(design_inventory, "catalog", wraps=design_inventory.catalog) as build_catalog,
+            ):
                 if operation == "context":
                     self.assertEqual(expected, manifest.context(self.settings)["catalog"])
                 else:
