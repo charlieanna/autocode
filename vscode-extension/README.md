@@ -1,4 +1,4 @@
-# AutoCode for VS Code
+# AutoCode Task Chat for VS Code
 
 Early preview. Install from the Marketplace as `ankurkothari.autocode-task-chat`.
 
