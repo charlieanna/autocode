@@ -929,3 +929,121 @@ A version the offline conformance suite has not been run against is
 | kilocode | registered-adapter | kilocode | n/a | n/a | known-good | 2026-10-03 | `b96a633e` | Registered KiloCode adapter; see docs/provider-conformance.md. |
 
 <!-- END provider conformance matrix -->
+
+### Connection setup and company backends
+
+`autocode connections list --json` lists built-in Kilo, OpenCode and Claude Code
+and user-registered providers. `connections check --provider NAME --json` checks
+credentials without model traffic. `connections login --provider NAME` opens the
+backend's own interactive sign-in. AutoCode does not store a second copy of keys,
+SSO sessions, or AWS credentials. Kilo/OpenCode login lets the backend choose its
+supported API-key or browser flow; existing route/billing checks still apply
+before a task launches.
+
+A company GoCode adapter can keep its corporate authentication and Bedrock
+routing. AutoCode does not require it to go through Kilo or OpenCode. In a
+registered provider's user-level TOML, optionally add:
+
+```toml
+[connection]
+login_command = ["your-company-cli", "its-documented-login-command"]
+status_command = ["your-company-cli", "its-documented-login-status-command"]
+```
+
+These are argument arrays executed without a shell. Use the company's documented
+commands; the names above are placeholders, not GoCode commands. The status
+command must make no inference requests: exit 0 for credentials present, 1 for
+sign-in required, and another code for a failed check. Its stdout/stderr is
+withheld from clients. The interactive login command owns its terminal output.
+Without these optional commands AutoCode reports login as unchecked and offers
+no guessed sign-in command. Provider files are trusted user configuration; files
+in a project are never discovered as connection definitions.
+
+### AutoCode direct connections (issue #1493)
+
+AutoCode includes its own text/tool runtime. It does not require Kilo, OpenCode,
+Codex, Claude Code, or another coding-agent executable. In VS Code open
+**Connections → AutoCode · Direct connection → Set up AutoCode**, or run:
+
+```sh
+autocode connections setup
+autocode connections check --provider autocode --json
+autocode "hi" --provider autocode --joint-planning --spec-first
+```
+
+Setup is interactive in a terminal and launches no model. Choose **mimo**,
+**zai**, **openai**, **claude**, or a custom **compatible** API. One direct
+provider/endpoint is selected for a connection; mixed-provider routing remains
+available through the existing Kilo backend.
+
+| API choice | Protocol | Authentication | Response limit field |
+| --- | --- | --- | --- |
+| MiMo | Chat Completions | `api-key` | `max_completion_tokens` |
+| Z.ai | Chat Completions | Bearer key | `max_tokens` |
+| OpenAI / custom compatible | Chat Completions | Bearer key | `max_completion_tokens` |
+| Claude | Anthropic Messages | `x-api-key`, version `2023-06-01` | `max_tokens` |
+
+MiMo and Z.ai require an explicit base URL, including its version path. Use the
+exact endpoint and matching key for your billing route: ordinary API access and
+Token/Coding Plan subscriptions have separate endpoints. Setup shows the API
+examples and requires you to choose; it never falls back to another billing
+route. OpenAI defaults to `https://api.openai.com/v1`; Claude defaults to
+`https://api.anthropic.com/v1`. Endpoint overrides require HTTPS (HTTP is allowed
+only for loopback fixtures). This setup accepts API keys, not ChatGPT or Claude
+subscription logins. Kilo continues to own its separate sign-in and routes.
+
+MiMo/Z.ai assistant messages retain `reasoning_content` across tool turns.
+Claude uses native `tool_use`/`tool_result` blocks and replays signed thinking
+blocks in order. Unsupported content and incomplete responses fail closed.
+Nonempty Chat Completions effort overrides are sent as `reasoning_effort` and
+must be supported by that model. Claude effort overrides are currently refused;
+its default reasoning is used. Redirects are refused, with no automatic
+parameter change, retry or provider fallback. Bedrock is outside this scope.
+
+Model IDs are those the endpoint accepts, not Kilo/OpenCode routing aliases.
+Setup groups Planner/Builder/Requirements and independent reviewers/testers; the
+existing verifier-independence rules still apply. Reopening setup with blank
+model answers preserves every saved role assignment. `models --provider autocode`
+lists the configured roster; unconfigured model escalation is refused.
+
+The API key lives in a separate `auth.json` file, mode `0600`, under
+`$XDG_CONFIG_HOME/autocode/direct/` (default `~/.config/autocode/direct/`), whose
+mode is `0700`. This is a private local file, not an OS keychain. The credential
+is bound to the API endpoint: changing the endpoint requires an explicit key for
+that destination. Status and launch arguments never contain key values. Listing
+connections reads metadata only; **Check setup** validates local setup, not live
+model access. `configured` and `setup_required` are distinct.
+Key rotation for the same endpoint preserves transport identity; changes to the
+API provider, endpoint, models or runtime change it and trigger the saved
+run's existing drift checks. Configuration is never read from project files.
+
+Select **Use for new chats** after setup. This does not replace an existing
+Kilo/GoCode connection or change its model routes. CLI callers explicitly pass
+`--provider autocode`; setup does not silently change the global default.
+
+The existing supported-Linux provider supervisor owns each launch and cleanup.
+Model-requested commands run only through AutoCode's existing kernel shell
+boundary, with credentials removed, no network, protected run files, and the
+stage's read/write authority. Read-only execution uses the existing verification
+copy mechanism. There are at most 32 model responses per stage and eight tool
+calls per response, an 8192-token requested response cap, a 60-second HTTP read
+bound, and a 90-second tool bound; outer task/stage/spend limits still apply.
+Tool output is bounded at 65536 bytes and explicitly marked when truncated.
+Actual tool output and exit codes supply evidence; model prose cannot manufacture
+command events. Reported input/output usage is retained across requests, including failed turns;
+output counts include reasoning. A separate reasoning-token breakdown is not yet
+reported by this runtime. Missing token fields and prices remain unknown.
+
+This initial runtime supports text and shell tools with a fresh context per
+stage. It does not provide native image qualification, in-process file tools,
+MCP tools, or external-agent session resumption. Local HTTP fixtures and
+supported-Linux task tests verify protocol and safety behavior; they do not
+establish live model access. The implementation stays draft
+pending live qualification with an explicitly configured connection.
+
+Protocol references: [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
+[MiMo API and Token Plan setup](https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call),
+[MiMo Chat Completions](https://mimo.mi.com/docs/en-US/api/chat/openai-api),
+[Z.ai Chat Completions](https://docs.z.ai/api-reference/llm/chat-completion),
+[Z.ai thinking replay](https://docs.z.ai/guides/capabilities/thinking-mode),
+and [Claude Messages](https://platform.claude.com/docs/en/api/messages/create).

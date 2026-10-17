@@ -12,6 +12,7 @@ import { RunController, type RunRef } from "./controller";
 import { RunPanel } from "./panel";
 import { RunsProvider, type RunItem } from "./runsView";
 import { ChatView } from "./chat";
+import { ConnectionsPanel } from "./connections";
 
 type RunTarget = RunRef | RunItem;
 
@@ -19,6 +20,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel("AutoCode", { log: true });
   const controller = new RunController(log);
   const runs = new RunsProvider(controller);
+  const connections = new ConnectionsPanel(context.workspaceState);
   let active: RunRef | undefined;
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
@@ -68,6 +70,10 @@ export function activate(context: vscode.ExtensionContext): void {
     runs,
     status,
     chat,
+    connections,
+    vscode.commands.registerCommand("autocode.connections", () => connections.show().catch((error) => {
+      void vscode.window.showErrorMessage(`AutoCode Connections: ${messageOf(error)}`);
+    })),
     vscode.window.registerWebviewViewProvider("autocode.chat", chat, { webviewOptions: { retainContextWhenHidden: true } }),
     vscode.window.createTreeView("autocode.runs", { treeDataProvider: runs, showCollapseAll: true }),
     vscode.commands.registerCommand("autocode.showChat", () => chat.focus()),

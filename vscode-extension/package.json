@@ -6,6 +6,18 @@
   "private": true,
   "publisher": "autocode",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/charlieanna/autocode.git",
+    "directory": "vscode-extension"
+  },
+  "files": [
+    "dist/extension.js",
+    "media/autocode.svg",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE"
+  ],
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -97,6 +109,12 @@
         "command": "autocode.openDetails",
         "title": "Open Run Details",
         "category": "AutoCode"
+      },
+      {
+        "command": "autocode.connections",
+        "title": "Connections",
+        "category": "AutoCode",
+        "icon": "$(plug)"
       }
     ],
     "menus": {
@@ -118,6 +136,11 @@
         },
         {
           "command": "autocode.startRun",
+          "when": "view == autocode.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "autocode.connections",
           "when": "view == autocode.chat",
           "group": "navigation@1"
         }
@@ -154,7 +177,7 @@
         "autocode.provider": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Value for `--provider` when the extension starts or continues a run. Leave empty to use AutoCode's default. This is the route your models bill to, so check it before a live run."
+          "markdownDescription": "Value for `--provider` for new chats. Existing chats keep their saved provider. Leave empty to use AutoCode's default. This is the route your models bill to, so check it before a live run."
         },
         "autocode.extraOptions": {
           "type": "array",
@@ -162,7 +185,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Extra engine and model flags passed whenever the extension starts or advances a run, for example `[\"--engine\", \"codex\"]`."
+          "markdownDescription": "Extra engine and model flags for new chats, for example `[\"--engine\", \"codex\"]`."
         },
         "autocode.pollSeconds": {
           "type": "number",
@@ -181,6 +204,7 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.mjs",
+    "package": "vsce package --no-dependencies",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js test/*.test.cjs"
@@ -188,7 +212,8 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.90.0",
-    "esbuild": "^0.24.0",
+    "@vscode/vsce": "4.0.0",
+    "esbuild": "0.25.12",
     "jsdom": "26.1.0",
     "typescript": "^5.7.0"
   },

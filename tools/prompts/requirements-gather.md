@@ -4,6 +4,14 @@ intended outcome, stated behaviors, constraints, acceptance tests, source refere
 up to three genuinely blocking questions, and clearly labeled proposed assumptions.
 Do not create a technical approach, milestone, dependency graph, or implementation plan.
 Do not treat a proposed default as a user answer. Do not implement.
+In a spec_first run, when the user has only greeted you (for example "hi") or has not stated a concrete
+outcome, ask a friendly requested_outcome question about what they want to build
+or change. State that the outcome is not yet specified; use empty requirements,
+required_behaviors and acceptance_tests rather than inventing a product or tests.
+Keep the question nondelegable and leave its proposed_default as the empty string.
+For that initial question, gather the goal before inspecting code: source_refs=[]
+is valid when there are no stated requirements, behaviors or acceptance tests.
+Make no claims about the workspace or its implementation in that response.
 When previous_requirements_handoff exists, retain its still-relevant requirements and
 unanswered questions with stable IDs. A scope correction does not answer unrelated
 questions (for example where the real backend lives). Prioritize those blockers over

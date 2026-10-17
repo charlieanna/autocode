@@ -13,13 +13,15 @@ function editor() {
   const workspaceState = { get: (key) => storage.get(key), update: async (key, value) => { storage.set(key, value); } };
   const log = { show() {}, append() {}, appendLine() {}, dispose() {} };
   const vscode = {
-    workspace: { getConfiguration: () => ({ get: (key, fallback) => config.get(key) ?? fallback }) },
+    workspace: { getConfiguration: () => ({ get: (key, fallback) => config.get(key) ?? fallback,
+      update: async (key, value) => { config.set(key, value); } }) },
     window: {
       createOutputChannel: () => log,
       createStatusBarItem: () => ({ hide() {}, show() {}, dispose() {} }),
       createTreeView: () => ({ dispose() {} }),
       registerWebviewViewProvider: (id, provider) => { providers.set(id, provider); return { dispose() {} }; },
       showInformationMessage() {},
+      createTerminal: () => ({ show() {} }),
       showErrorMessage: async (message) => { errors.push(message); },
       showWarningMessage: async (_message, _options, choice) => choice,
       createWebviewPanel: (_type, title) => {
@@ -48,7 +50,7 @@ function editor() {
       registerCommand: (name, handler) => { commands.set(name, handler); return { dispose() {} }; },
       executeCommand: async () => {},
     },
-    StatusBarAlignment: { Left: 1 }, ViewColumn: { One: 1 },
+    StatusBarAlignment: { Left: 1 }, ViewColumn: { One: 1 }, ConfigurationTarget: { Global: 1, Workspace: 2 },
     TreeItem: class {}, TreeItemCollapsibleState: { None: 0, Expanded: 2 },
     Uri: { file: (value) => value }, MarkdownString: class {}, ThemeIcon: class {}, ThemeColor: class {},
     EventEmitter: class {

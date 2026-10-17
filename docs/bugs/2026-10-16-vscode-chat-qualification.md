@@ -2,7 +2,10 @@
 
 The owner requested a Kilo-like sidebar, plan feedback and same-run follow-ups,
 and required both an actual editor flow and a live token-plan task before ready.
-The editor flow passed. **Live qualification did not pass; keep the PR draft.**
+The editor flow and live greeting intake passed. PR #1425 was merged in another
+operation on October 16 at 7:27 PM PDT, before the final greeting result. The
+post-merge Requirements fix is tracked in a draft follow-up. **Full live
+build/test/completion qualification has not passed; keep that follow-up draft.**
 
 ## Implementation evidence
 
@@ -15,7 +18,7 @@ reuse, not a fork of Kilo's provider/runtime or a claim of complete UI parity.
 
 Focused checks on this change:
 
-- `npm test` in `vscode-extension`: 71 passed, including controller/webview chat,
+- `npm test` in `vscode-extension`: 72 passed, including controller/webview chat,
   stale approval, same-run follow-up, Markdown safety, reading-position retention,
   composer sizing, local undo and IME/newline behavior.
 - `npm run typecheck` and `npm run build`: passed.
@@ -106,16 +109,103 @@ survives draft edits, polling and webview recreation in the regression test.
 
 The latest expansion lists every configured role and separately groups actual
 attempts by job, model, provider and variant. It retains older models after a
-route change and does not imply that an unstarted role has run. The current
-editor window is running an earlier extension build with a live task; the new
-all-role layout has deterministic renderer coverage but its native editor recheck
-is still pending. No new paid run was needed for these display-only changes.
+route change and does not imply that an unstarted role has run.
 
-## Live token-plan attempt
+The owner then requested updating the open editor while preserving its chat.
+The deployed UI uses runtime revision `62ba45078cc95a2bfb3c91657170cce3a86ab916`
+with the open demo's local controller and read-only polling fixes preserved.
+That combined deployment passed 72 extension tests, typecheck and build. The
+additive model/progress projections were updated in the demo's CLI; existing
+requirements-flow edits and saved run data were preserved. Original deployment
+files were backed up under ignored scenario artifacts.
+
+In the actual Extension Development Host, History reopened the same conversation
+`20261017-192528-vscode-5b9bed` with its original `hi` message and pending
+Requirements question. The expanded panel exposed all eight configured roles,
+full GLM/MiMo model IDs, Kilo provider, high/medium variants, recorded model
+history, 68,263 tokens and a $0.0376 historical estimate. The composer remained at
+the bottom. Before/after public status snapshots had identical chat messages and
+`WAITING_FOR_USER` status. No message, approval, retry or model launch was issued.
+This verifies the new UI on the preserved chat. The controller's greeting
+qualification is recorded below; full live build/test/completion remains pending.
+
+## Real greeting conversation
+
+The earlier development window was wired to `fixture-cli.py`, which returned a
+sample approval for every new message. That window was closed. The replacement
+workspace uses a forwarding bridge to the real CLI in the task-owned Linux
+container, with Kilo CLI 7.8.3 and only the owner's ZAI/Xiaomi token-plan logins.
+The backend remains connected for the user's next reply; no credentials are
+stored in the repository or extension settings.
+
+New sidebar chats pass `--joint-planning --spec-first`. The recognizer sends a
+greeting without an engineering outcome to Requirements. A clarification-only
+handoff can ask for the goal without inventing behaviors, tests or source
+citations. Outstanding questions come before the requirements review; answering
+them refreshes Requirements before any plan. Status polling now puts `--status`
+first, matching the core's read-only process grammar instead of appearing to be
+a competing writer.
+
+**PASS**, actual VS Code Enter → confirmation → Kilo → real Requirements:
+run `20261017-192528-vscode-5b9bed`, **214.058 s wall**. Input: `hi`.
+The final native sidebar, including the latest model panel, showed:
+
+> Hi! What would you like to build or change? A short description of the outcome you want is all I need to start.
+
+The public checkpoint is `WAITING_FOR_USER`, `needs.kind=answer`, with one
+question and `displayed_plan=null`. There are exactly two task-stage event
+streams: `recognize-workflow-01.jsonl` and `requirements-gather-01.jsonl`.
+Both used `zai-coding-plan/glm-5.3`, medium effort, through provider `kilocode`,
+and exited 0. No report repair, Planner, Plan Reviewer, Builder or Tester ran.
+The model preflights used MiMo/low (24.389 s) and GLM/low (13.497 s);
+recognition took 132.182 s and Requirements 24.581 s. The later-stage model
+assignments and role pins remain those in the full command below.
+
+Command: `autocode "hi" --in-place --no-chat --joint-planning --spec-first
+--workspace "$PROJECT" --new-run-dir "$RUN"`, with the same provider, per-role
+model/effort flags and pins listed below, and bounded overrides
+`--max-seconds 900 --max-stage-seconds 300 --max-idle-seconds 300
+--max-tool-seconds 300 --max-cost-usd 3`. The operator confirmed the live start
+in VS Code. Native accounting records four provider requests, 68,263 inclusive
+input/output tokens and a historical comparison estimate of $0.037568;
+provider-reported cost and the token-plan invoice are unknown.
+
+Redacted bundle manifest SHA-256:
+`98b00a47111ad6dfb7317e849acaa277241f6874a8eced572e1d637b9cb5ce76`.
+Artifacts remain ignored under `.scenario-runs/pr1425-real-requirements-20261016/`.
+
+Preserved editor attempts: `20261017-191312-vscode-0f869b` refused before any
+model call in 2.527 s because polling looked like a writer;
+`20261017-191542-vscode-a46471` reached the question in 116.657 s after a
+format repair (the new prompt initially said null instead of the schema's empty
+string); `20261017-191916-vscode-2c7689` rejected an empty citation list, then
+was explicitly interrupted during investigation at 283.588 s once that defect
+was identified. The final run above exercised the corrected prompt and intake
+gate with no repairs or source inspection.
+
+Verification for this follow-up: 72 extension tests, typecheck and build passed;
+145 focused Python checks passed across the chat, requirements, workflow,
+architecture, CI selection, prompt and adaptive-planning modules. Only five
+Requirements prompt golden entries changed, verified to differ solely by the
+reviewed greeting-policy paragraph. Ruff and mypy passed. Supported Linux
+`python3 -m unittest tests.test_chat_cli.ChatCliTests.test_greeting_asks_for_the_outcome_and_a_reply_returns_to_requirements_before_any_plan`
+passed in 26.202 s on the integrated PR code and 17.248 s after rebasing the
+follow-up onto merged master: a greeting asks for an outcome even
+in an existing workspace, a real saved answer refreshes Requirements, and no
+plan is displayed or Planner dispatched. The seven existing
+`tests.test_requirements_review` checks also passed. Failed offline setup/schema
+attempts were retained; the final citation regression first passed in 21.657 s
+before integration.
+
+This qualifies greeting intake. Full live build/test/completion remains the
+separate unfinished readiness condition below.
+
+## Earlier full-task token-plan attempt
 
 The native VS Code Start action drove the real CLI through a Linux bridge, using
 Kilo CLI 7.8.3. The runner source was `51383962c65d66c88364e5b6eb5e00373c7fc491`;
-the later chat projection/UI changes have no passing live qualification.
+that attempt did not qualify the later chat projection/UI changes. The greeting
+check above supplies the bounded intake evidence for this follow-up.
 Only the owner's ZAI and Xiaomi token-plan routes were enabled. Kilo Gateway and
 ChatGPT routes were not used.
 
@@ -167,3 +257,41 @@ All task artifacts stay under ignored `.scenario-runs/pr1425-editor-live-2026101
 The redacted Kilo bundle's manifest SHA-256 is
 `cfec6db8df6503b09002aab519ee4944a360d8f3662a5510d22df184cd33dfd0`.
 No logs, credentials or bundles are committed.
+
+## Connections follow-up
+
+The owner approved a Connections screen with backend-owned authentication. The
+core now publishes `connections list --json`, named check/login actions, and
+optional `[connection]` commands for registered company tools. The VS Code client
+renders those offers and starts login as the terminal executable with argv; it
+never collects credentials or invokes Kilo directly. Selecting a backend applies
+to new chats, with per-backend route overrides preserved. Existing task actions
+use saved runtime settings instead of reapplying the editor's current selection.
+
+Focused verification for this addition:
+
+- `npm test`: 75 passed, including delegated login arguments, unoffered-action
+  refusal, safe rendering, Kilo route restoration, and unchanged saved-run actions.
+- `npm run typecheck` and `npm run build`: passed.
+- Venv unittest: `tests.test_connections tests.test_architecture
+  tests.test_cli_documentation tests.test_cli_surface tests.test_shell_completion
+  tests.test_ci_test_selection`: 64 tests, 63 passed, one shell-dependent skip,
+  14.126 seconds. This includes a real CLI subprocess with a deterministic
+  company login-status helper; no model stage or task directory is created.
+- `tests.test_command_provider.CommandProviderTests`: 31 passed, 0.632 seconds.
+- Ruff and mypy for the new core module passed; `git diff --check` passed.
+
+Native VS Code verification used the existing task-owned Linux CLI bridge:
+Connections listed Kilo/OpenCode, disabled unavailable Claude Code, retained Kilo
+as selected, and **Check connection** reported saved credentials through the real
+Kilo CLI. **Sign in / Reconnect** opened a real Kilo interactive terminal showing
+its provider selector (Xiaomi Token Plan, Z.AI Coding Plan, Other). The prompt was
+cancelled before choosing a provider or entering credentials. No inference or
+account change was needed. The bridge forwards a TTY for this login action.
+
+The host has a `gocode.toml` registration but no GoCode executable on PATH. Its
+company login/status commands and Bedrock access remain unverified; no command
+names were guessed and no AWS credential flow was substituted. The supported
+configuration contract is documented in `docs/providers.md`. Full live
+build/test/completion qualification remains a separate outstanding readiness
+condition, so the follow-up PR stays draft.

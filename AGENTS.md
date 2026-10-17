@@ -30,11 +30,16 @@ dashboard.
 **VS Code client, approved 2026-10-15 for #884, in `vscode-extension/`.**
 The owner expanded PR #1425 on 2026-10-16 to include sidebar chat, plan
 feedback and follow-ups, reusing Kilo UI components where practical.
+The owner also approved Connections setup: backend selection and delegated
+sign-in through the core connection interface, with credentials owned by the backend.
+Issue #1493 extends that approval to AutoCode-owned direct MiMo, Z.ai, OpenAI and Claude API setup and
+a first-party core runtime when no external coding-agent backend is installed.
+The editor still launches only the core CLI and renders its named actions.
 It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:
 
 - it starts `autocode` as an argument array with no shell, and reads only
-  `--status` and `registry list --json`;
+  `--status`, `registry list --json`, and `connections list --json`;
 - it never imports a module from `tools/`, never reads `state.json`, and never
   parses the CLI's prose to decide what to do;
 - it takes only the action the status view names (`view.next_command` or the
@@ -43,6 +48,8 @@ It is a client of the
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the
   client could take, that is a gap in the CLI or the view: report it, never work
   around it here;
+- connection checks and sign-in take only the connection view's named
+  `actions[].next_command` argument array (`docs/task-run.md#connections-for-clients`);
 - it never launches a model on its own, and binds an approval to the plan token
   it displayed, so it cannot approve a plan nobody read.
 

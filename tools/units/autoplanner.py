@@ -941,6 +941,7 @@ def context(state: RunState, stage, state_path):
         "workspace": state["workspace"],
         "state_file": str(state_path),
         "joint_planning": True,
+        **({"spec_first": True} if stage == "requirements_gather" and state["settings"].get("spec_first") else {}),
         "execution_engine": engine_for(state["settings"], route_for(state, stage)),
         "stage": stage,
         "goal_contract": None if stage == "requirements_gather" else state.get("goal_contract"),

@@ -53,7 +53,7 @@ export const chatStyles = /* css */ `
   #latest { align-self: center; margin-top: -34px; margin-bottom: 6px; z-index: 1;
     border-radius: 16px; font-size: .75rem; box-shadow: 0 2px 8px var(--vscode-widget-shadow); }
   #latest[hidden] { display: none; }
-  .chat-toolbar { display: flex; justify-content: flex-end; padding: 4px 8px; gap: 8px; }
+  .chat-toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; justify-content: flex-end; padding: 4px 8px; gap: 8px; }
   .chat-toolbar button { font-size: .8rem; }
   .keyboard-hint { font-size: .7rem; color: var(--vscode-descriptionForeground); }
 `;

@@ -47,6 +47,7 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/prompts/requirements-gather.md", ("tests.test_chat_cli", "tests.test_requirements_review")),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_kilo_image_delivery.mjs", ("tests.test_kilo_image_delivery", "tests.test_native_image")),
@@ -67,6 +68,22 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/autocode_direct_", "tools/providers/direct.py", "tools/autocode_connections.py"),
+        ("tests.test_direct_connections", "tests.test_direct_connections_cli"),
+    ),
+    (
+        ("tools/autocode_connections.py", "tools/autocode_subcommands.py", "tools/providers/command.py"),
+        ("tests.test_connections",),
+    ),
+    (
+        (
+            "tools/autocode_requirements_handoff.py",
+            "tools/autocode_requirements_review.py",
+            "tools/autocode_workflows.py",
+        ),
+        ("tests.test_chat_cli", "tests.test_requirements_review"),
+    ),
     (("tools/autocode_chat_", "tools/autocode_run_view.py", "tools/autocode_follow_up.py"), ("tests.test_chat_cli",)),
     (("tools/autocode.py", "tools/autopilot.py", "tools/autocode_taskrun.py"), ("tests.test_launch_state_cli",)),
     (

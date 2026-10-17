@@ -19,10 +19,17 @@ its own selected run and drafts, so switching tasks in one window does not
 change the conversation shown in another. The Runs list in each window can
 still open any task registered for that workspace.
 
-The first status is **Understanding your request** while the core chooses the
+Before recognition starts, the status is **Next: Understand your request**.
+It becomes **Understanding your request** while the core chooses the
 workflow (build, fix, review, design or discuss). Requirements gathering follows
 when the chosen workflow needs it. The detailed model history retains the
 canonical **Job recognizer** stage name.
+
+New sidebar chats enable joint planning and the core's `--spec-first` flow.
+A greeting such as **hi** asks what you want to build or change. Requirements
+collects missing decisions and shows its understanding before planning; reply
+**plan** to the requirements review only when that understanding is correct.
+Plan approval appears later, after a concrete plan has been reviewed.
 
 The thread shows your messages, saved answers and completed-turn replies, with
 Markdown and code blocks for assistant replies. A fixed composer grows with your
@@ -69,7 +76,7 @@ use the core's named commands, including the optional `view.chat.input` offer.
 Commands use argument arrays; issued tokens stay in the child environment.
 
 Starting a new chat asks you to confirm model spend. Buttons that save an input
-and then advance explicitly say **and continue**; advancing uses your configured
+and then advance explicitly say **and continue**; advancing uses the run’s saved
 provider and per-role routes. Person-only recovery decisions still require their
 separate confirmation (`autocode.confirmPersonOnly`). Free text cannot bypass an
 operational stop or approve a plan.
@@ -89,9 +96,18 @@ appears in the Activity Bar. Point `autocode.cliPath` at your `autocode`, or set
 `cliPath: python3`, `cliArgs: ["/path/to/autocode/tools/autocode.py"]` for a source
 checkout. Provider execution needs a supported host; see [testing.md](testing.md).
 
-PR #1425 remains draft until the actual editor flow and the owner's live-model
-qualification both pass. The editor fixture flow has been exercised; the Kilo
-token-plan live attempt stopped on a MiMo network failure before building.
+For Kilo, set `autocode.provider` to `kilocode`, connect the selected providers
+with `kilo auth`, and put your per-role model routes in `autocode.extraOptions`.
+The CLI and Kilo must run on the same supported backend host. A Docker or remote
+wrapper must forward the argument array and issued token environment, and expose
+the same workspace paths. Point `cliPath`/`cliArgs` at that real CLI or wrapper;
+the qualification fixture is only a UI test backend and cannot conduct a model
+conversation.
+
+PR #1425 was merged before full live qualification finished. Its draft
+Requirements follow-up has passed a real Kilo/token-plan greeting conversation;
+full build/test/completion qualification remains outstanding. The earlier full
+task attempt stopped on a MiMo network failure before building.
 See the [qualification record](bugs/2026-10-16-vscode-chat-qualification.md).
 The jsdom tests alone establish neither editor-host nor live-provider compatibility.
 
@@ -101,8 +117,8 @@ The jsdom tests alone establish neither editor-host nor live-provider compatibil
 | --- | --- | --- |
 | `autocode.cliPath` | `autocode` | The CLI to start. |
 | `autocode.cliArgs` | `[]` | Leading arguments, for a source checkout. |
-| `autocode.provider` | `""` | `--provider` when starting or advancing a run. |
-| `autocode.extraOptions` | `[]` | Extra engine and model flags on advancing calls. |
+| `autocode.provider` | `""` | `--provider` for new chats. |
+| `autocode.extraOptions` | `[]` | Extra engine and model flags for new chats. |
 | `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
 
@@ -118,3 +134,34 @@ Plan editing (`--edit-goal`), recovery grants and other actions with unresolved
 The client cannot invent those decisions. The separate core Requirements
 conversation journal is documented in [task-run.md](task-run.md); this client
 uses ordinary task runs and their additive chat projection.
+
+### Connections
+
+Open **Connections** from the chat toolbar or **AutoCode: Connections** in the
+command palette. It lists installed and registered backends in the AutoCode CLI
+environment. **Check connection** checks saved credentials without launching a
+model. **Sign in / Reconnect** runs the backend's own sign-in in a terminal;
+finish there and check again. AutoCode does not ask you to paste credentials into
+chat. Credential presence does not establish selected-model access or a passing
+live qualification.
+
+**Use for new chats** changes the default backend. Each backend's role/model
+options are saved separately, so switching back to Kilo restores its token-plan
+routes. Existing chats retain their saved backend, models and budgets. Company
+providers such as GoCode appear when registered; their optional connection
+commands are described in [Providers](providers.md#connection-setup-and-company-backends).
+
+### No Kilo or OpenCode installed
+
+The **AutoCode · Direct connection** card is always available in Connections.
+Choose **Set up AutoCode** to select MiMo, Z.ai, OpenAI or Claude and enter its
+API endpoint/key in a terminal, then refresh Connections. **Use for new chats** is enabled after
+local setup is complete; it does not mean live model access was verified.
+See
+[AutoCode direct connections](providers.md#autocode-direct-connections-issue-1493)
+for credential storage, protocol support and qualification limits.
+
+Credentials are never entered into the chat or its webview. Existing chats keep
+their saved backend. Model overrides, explicit external role transports and
+backend-specific containment options are kept with their original backend when
+switching connections, so Kilo settings do not become direct API settings.

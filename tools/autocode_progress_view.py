@@ -109,7 +109,13 @@ def progress(
             else f"{stage} working"
         )
     elif stage:
-        headline = f"Next: {stage}"
+        # Preflight can leave recognition queued for a while. Explain the next
+        # activity here too, without claiming a model has already started.
+        headline = (
+            "Next: Understand your request"
+            if status == "RUNNING" and state.get("next_stage") == "recognize_workflow"
+            else f"Next: {stage}"
+        )
     else:
         headline = status.replace("_", " ").capitalize() or "Not started"
     line = " · ".join(

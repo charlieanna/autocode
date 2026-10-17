@@ -1320,3 +1320,39 @@ command's liveness. A legacy unbound marker or unavailable
 ownership remains held; status does not reconcile it, grant a retry or establish
 test success. Use the displayed supported recovery action and retain interrupted
 receipts separately from fresh verification.
+
+## Connections for clients
+
+Connection setup is a core interface alongside task runs. A client may read
+`autocode connections list --json` before starting a task. The version-1 object
+contains `connections`, each with `id`, `label`, `connection_status`, `detail`, and `actions`.
+An action has `id`, `label`, and `next_command`: an argument array following
+`autocode`, not shell text. Clients execute only offered actions. Listing reads
+user-level provider configuration and executable availability; it never launches
+models, reads credential stores, or runs backend commands.
+
+`connections check --provider NAME --json` checks the backend without inference.
+Its result is one connection object. `credentials_present` means the backend
+reported credentials, not that every model, billing route or live task passed.
+Other statuses are `not_checked`, `unavailable`, `sign_in_required`, and
+`check_failed`. Status-command output and credential values are never returned.
+
+`connections login --provider NAME` delegates interactive login to the backend
+in a terminal, inheriting its input and output. The core resolves the offered
+backend command again; the client supplies no credentials or executable. Login
+does not alter a task or start inference. After login the person checks again.
+A remote CLI wrapper must forward a terminal for interactive login (for example,
+a container transport needs a TTY). Connections are checked in the CLI's own
+execution environment, which may differ from the editor host.
+
+Changing a client's selected backend applies to new chats. Existing task actions
+use their saved provider, models and budgets. Backend-specific role overrides
+must not be copied onto a different backend.
+
+The always-present `autocode` connection advertises a `setup` action with
+`next_command=["connections", "setup"]`. Execute it interactively in a terminal,
+with no credential arguments or webview input. Its additional setup states are
+`setup_required` and `configured`; clients must not describe
+`configured` as authenticated live access. The core setup action neither chooses
+a client's default backend nor launches a model. Discovery reads its nonsecret
+metadata; an explicit check validates its private local credential setup.

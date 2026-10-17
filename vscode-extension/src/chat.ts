@@ -111,6 +111,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private async receive(message: ChatMessage): Promise<void> {
+    if (message.type === "connections") { await vscode.commands.executeCommand("autocode.connections"); return; }
     if (message.type === "history") {
       await vscode.commands.executeCommand("setContext", "autocode.showHistory", true);
       await vscode.commands.executeCommand("autocode.runs.focus");

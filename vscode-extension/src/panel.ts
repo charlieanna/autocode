@@ -406,7 +406,7 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? '<nav class="chat-toolbar"><button id="history" class="secondary">History</button><button id="details" class="secondary">Run details</button><button id="new-chat" class="secondary">New chat</button></nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>' : ""}
+${chat ? '<nav class="chat-toolbar"><button id="connections" class="secondary">Connections</button><button id="history" class="secondary">History</button><button id="details" class="secondary">Run details</button><button id="new-chat" class="secondary">New chat</button></nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>' : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <section id="telemetry" aria-label="Models and usage">
@@ -783,6 +783,7 @@ if (chatMode) {
     vscode.setState({ ...(vscode.getState() || {}), modelDetailsOpen: disclosure.open });
   });
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
+  document.getElementById('connections').addEventListener('click', () => vscode.postMessage({ type: 'connections' }));
   document.getElementById('details').addEventListener('click', () => vscode.postMessage({ type: 'details' }));
   document.getElementById('message').addEventListener('input', () => { saveDraft(); updateComposer(); });
   document.getElementById('composer').addEventListener('submit', (event) => {

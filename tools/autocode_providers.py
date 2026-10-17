@@ -1,6 +1,6 @@
 """Provider discovery and run-boundary selection.
 
-The workflow engine calls one provider facade. OpenCode and Claude Code are
+The workflow engine calls one provider facade. OpenCode, Claude Code and AutoCode's direct runtime are
 built in. Every other name loads a TOML config; there is no Python plug-in path.
 A user config named after a built-in is never read.
 """
@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 _PROVIDER_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
-BUILT_IN = ("opencode", "claude")
+BUILT_IN = ("opencode", "claude", "autocode")
 
 
 def resolve(name: str):
@@ -27,6 +27,12 @@ def resolve(name: str):
         except ImportError:  # Script-style execution from tools/.
             from providers import opencode
         return opencode
+    if name == "autocode":
+        try:
+            from .providers import direct
+        except ImportError:
+            from providers import direct
+        return direct.load()
     if name == "claude":
         try:
             from .providers import claude

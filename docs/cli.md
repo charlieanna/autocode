@@ -585,6 +585,7 @@ also accepts `-h` / `--help`.
 
 | Command | Flags | Meaning |
 | --- | --- | --- |
+| `autocode connections` | `--json`, `--provider` | List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with `setup`. See [Connections for clients](task-run.md#connections-for-clients). |
 | `autocode conversation` | `--workspace`, `--run-dir`, `--text`, `--title`, `--request-id`, `--expected-revision`, `--supersedes-request-id`, `--question-id`, `--resolver-token`, `--expected-plan-token`, `--timeout` | Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow `--`. On `send`, `--supersedes-request-id` queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON. |
 | `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See [Standalone verification](verify.md). |
 | `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
@@ -800,3 +801,5 @@ Review controls are `--engine`, `--provider`, `--model`, `--reasoning-effort`,
 command. `--json` emits the verdict and evidence metadata. See
 [Standalone verification](verify.md) for the criteria format, proof modes and
 exit codes.
+
+`autocode connections list|check|login|setup` manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. See [Connections for clients](task-run.md#connections-for-clients).
