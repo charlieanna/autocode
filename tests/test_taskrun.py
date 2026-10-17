@@ -57,6 +57,20 @@ FIXTURE_OPTIONS = (
 
 
 class RunViewTests(unittest.TestCase):
+    def test_source_inventory_pause_names_reconciliation_without_discarding_the_retained_result(self):
+        state = {
+            "status": "PAUSED_SOURCE_UNAVAILABLE",
+            "stop_reason": "Git could not inventory source",
+            "active_stage": {"iteration": 1, "output": "/runs/r1/iterations/001/plan-challenge-01.json"},
+        }
+        shown = run_view.view(state, workspace=Path("/project"), run_dir=Path("/runs/r1"))
+        self.assertEqual("resume", shown["needs"]["kind"])
+        self.assertNotIn("abandon_stage", shown["needs"])
+        self.assertIn("--resume-paused", shown["next_command"])
+        self.assertNotIn("--abandon-stage", shown["next_command"])
+        self.assertFalse(shown["done"])
+        self.assertIsNone(shown.get("displayed_plan"))
+
     def test_explicit_report_retry_bypasses_automatic_escalation(self):
         self.assertTrue(
             action_authority.explicit_recovery_requested(SimpleNamespace(retry_report="001/sol_report_repair-02"), None)

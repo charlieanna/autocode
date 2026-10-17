@@ -553,12 +553,24 @@ def _other_entry(path):
     return None
 
 
+def _snapshot_git(root, *args, text=False):
+    try:
+        return subprocess.check_output(["git", *args], cwd=root, text=text, stderr=subprocess.PIPE)
+    except (subprocess.CalledProcessError, OSError) as error:
+        detail = getattr(error, "stderr", None) or str(error)
+        if isinstance(detail, bytes):
+            detail = detail.decode("utf-8", errors="replace")
+        raise Paused(
+            "PAUSED_SOURCE_UNAVAILABLE",
+            f"Cannot snapshot source in {root}: git {' '.join(args)} failed: {detail.strip()[:2000]}. "
+            "Fix repository access or ownership, then resume. No source snapshot was accepted.",
+        ) from error
+
+
 def snapshot(workspace):
     """Hash current source content, executable modes and nested Git worktrees."""
     root = Path(workspace)
-    names = git_names(
-        subprocess.check_output(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root)
-    )
+    names = git_names(_snapshot_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"))
     hashes = _CONTENT_HASHES
     key = os.path.abspath(root)
     known, settled_before, epoch = hashes.begin(key)
@@ -581,7 +593,7 @@ def snapshot(workspace):
             files[name] = ("executable:" if info.st_mode & 0o111 else "") + content
         elif (entry := _other_entry(root / name)) is not None:
             files[name] = entry
-    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    head = _snapshot_git(root, "rev-parse", "HEAD", text=True).strip()
     hashes.finish(key, kept, epoch)
     return {"head": head, "files": files, "revision": digest({"head": head, "files": files})}
 

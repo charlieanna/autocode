@@ -292,6 +292,10 @@ TABLE: dict[str, tuple[str, str]] = {
         "The run was interrupted; saved work is intact.",
         "--resume-paused continues from the last saved step.",
     ),
+    "PAUSED_SOURCE_UNAVAILABLE": (
+        "Git could not inventory the workspace source; no new source evidence was accepted.",
+        "Fix repository access or ownership, then --resume-paused re-checks the source before proceeding.",
+    ),
     "PAUSED_UNCERTAIN_STAGE": (
         "A stage ended with an uncertain result; it is not treated as proof.",
         "--resume-paused retries the stage.",
