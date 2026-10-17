@@ -25,6 +25,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Each action on the status view's recovery card that runs a control names its exact CLI flags in `args`, for
+  example `["--resume-paused", "--retry-builder", "M3"]`. The dashboard's recovery buttons run those flags, bound to
+  the inspected pause's token, instead of keeping their own table of action kinds; an action that names no flags
+  runs nothing (#730).
 - The dashboard's **Checks** pane shows, under each requirement's **Inspect**, the diff of each saved Builder step
   attributed to it, labelled as attribution rather than proof and marked when it overlaps another requirement. A
   requirement with no attributed step offers **View all run changes** instead (#730).
