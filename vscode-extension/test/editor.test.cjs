@@ -225,6 +225,9 @@ test('approval renders structured criteria, verification, human review, constrai
     'AC2', 'Compare export fixture', 'Human review: not required', 'Never delete the original data', 'Only edit app.py']) {
     assert.ok(text.includes(expected), `missing approval content: ${expected}`);
   }
+  const headings = [...ui.document.querySelectorAll('h2')].map((node) => node.textContent);
+  assert.ok(headings.includes('Plan to approve · revision 1'), headings.join(' | '));
+  assert.ok(!text.includes('bound to'));
   assert.ok(!text.includes('[object Object]'));
   assert.equal(ui.document.querySelectorAll('script').length, 1, 'model text must not become markup');
   assert.equal(ui.take().disabled, false);
@@ -490,6 +493,46 @@ test('chat approval uses the displayed plan token and advances only when the cor
   assert.ok(!approveArgs.includes('r1:abc'));
   assert.ok(launch.mock.calls[1].arguments[1].includes('--no-chat'));
   assert.equal(ui.document.querySelector('#send-message').disabled, true, 'a later person-only stop is not bypassed');
+});
+
+test('chat shows the plan to approve in plain words, without revision, criterion IDs or verification commands', async (t) => {
+  const ui = await openChat(t, chatView());
+  const app = ui.document.querySelector('#app');
+  const headings = [...app.querySelectorAll('h2')].map((node) => node.textContent);
+  assert.ok(headings.includes('Plan to approve'), headings.join(' | '));
+  const text = app.textContent;
+  for (const expected of ['Preserve user data <script>bad()</script>', 'Keep export stable', 'You check this one yourself',
+    'Never delete the original data', 'Only edit app.py']) {
+    assert.ok(text.includes(expected), `missing plan content: ${expected}`);
+  }
+  for (const hidden of ['AC1', 'AC2', 'revision', 'bound to', 'Run migration test', 'Compare export fixture',
+    'Verification', 'Human review', 'acceptance criteria', 'permission boundaries']) {
+    assert.ok(!text.includes(hidden), `chat shows plan internals: ${hidden}`);
+  }
+  assert.equal(ui.document.querySelectorAll('script').length, 1, 'model text must not become markup');
+  assert.equal(ui.document.querySelector('#take-action').disabled, false);
+});
+
+test('chat lists review criteria and open problems without their internal IDs', async (t) => {
+  const ui = await openChat(t, { ...chatView(), status: 'WAITING_FOR_USER',
+    needs: { kind: 'review', criteria: [{ id: 'AC7', criterion: 'Export matches the saved fixture' }] },
+    progress: { headline: 'Review output', problems: { items: [
+      { id: 'F12', finding: 'Export drops the header row', severity: 'high', blocking: true },
+    ] } },
+  });
+  const text = ui.document.querySelector('#app').textContent;
+  assert.ok(text.includes('Export matches the saved fixture'));
+  assert.ok(text.includes('Export drops the header row'));
+  assert.ok(!text.includes('AC7'), 'criterion ID shown in chat');
+  assert.ok(!text.includes('F12'), 'finding ID shown in chat');
+});
+
+test('chat explains an unloaded plan without token jargon or a CLI command', async (t) => {
+  const ui = await openChat(t, { ...chatView(), displayed_plan: undefined });
+  const text = ui.document.querySelector('#app').textContent;
+  assert.equal(ui.document.querySelector('#take-action').disabled, true);
+  assert.match(text, /plan has not loaded here yet/i);
+  assert.ok(!/token|binds to|--status/.test(text), text);
 });
 
 test('stale chat submission is rejected and preserves the unsent draft', async (t) => {

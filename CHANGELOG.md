@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The VS Code chat showed plan-approval internals: "Plan the approval is bound to (revision 3)",
+  criterion IDs (`AC1`, `AC2`), each verification command and a token notice with a raw CLI command.
+  The chat now lists what the plan will deliver under "Plan to approve", marks the items you check
+  yourself, and drops IDs from review criteria and open problems. Run details keeps the technical view
+  under "Plan to approve · revision N". Approval is still refused for a plan that changed after it was
+  shown (#1518).
 - The dashboard offered no plan approval when the Plan Reviewer accepted a draft during its challenge
   (adaptive review). The runner accepts that plan for approval, but the dashboard only recognized a plan
   finalized by a separate finalize step, so the task showed "Planning checkpoint · not currently ready for
