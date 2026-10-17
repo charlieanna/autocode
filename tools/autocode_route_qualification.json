@@ -1,0 +1,106 @@
+{
+  "as_of": "2026-10-17",
+  "basis": "The minimum standard per role (#1426): automatic selection never chooses a model this table does not list for the role. An entry is qualified by AutoCode's own runs (a shipped default route, or a live qualification profile in scenarios/harness/profiles.py); a public benchmark admits a model only provisionally until such a run confirms it, and selection treats both alike until then. Every entry names its evidence. Routes list the spellings the tools record for the same weights, so one entry covers every tool that serves the model. Updated by pull request, like the price table.",
+  "roles": {
+    "requirements": [
+      {
+        "model": "zai-coding-plan/glm-5.3",
+        "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
+        "effort": "medium",
+        "provenance": "qualified",
+        "evidence": "Today's default Requirements route (tools/providers/opencode.py DEFAULT_MODELS) and the Requirements route of the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+      }
+    ],
+    "glm": [
+      {
+        "model": "zai-coding-plan/glm-5.3",
+        "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
+        "effort": "high",
+        "provenance": "qualified",
+        "evidence": "Today's default Planner route (DEFAULT_MODELS, 'Requirements medium -> Planner high') and the planner route of the live glm53-mimo and glm-mimo-kilo profiles."
+      }
+    ],
+    "terra": [
+      {
+        "model": "zai-coding-plan/glm-5.3",
+        "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
+        "effort": "medium",
+        "provenance": "qualified",
+        "evidence": "Today's default Builder route, 'the cheap model does the volume' (DEFAULT_MODELS, user 2026-09-29)."
+      },
+      {
+        "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        "routes": ["xiaomi-token-plan-sgp/mimo-v2.6-pro"],
+        "effort": "medium",
+        "provenance": "qualified",
+        "evidence": "Built in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py), checked by GLM validation and completion."
+      },
+      {
+        "model": "kilo/deepseek/deepseek-v4.1-flash",
+        "routes": ["kilo/deepseek/deepseek-v4.1-flash"],
+        "effort": "medium",
+        "provenance": "provisional",
+        "evidence": "The owner's starting table for #1426 (issue comment, 2026-10-17): KiloBench 75.3% at $2.58 per task. Admitted provisionally until an AutoCode run confirms it.",
+        "benchmark": {"name": "KiloBench", "score": 75.3, "source": "issue #1426 comment, 2026-10-17", "retrieved": "2026-10-17"}
+      }
+    ],
+    "plan_reviewer": [
+      {
+        "model": "openai/gpt-6-sol",
+        "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],
+        "effort": "high",
+        "provenance": "qualified",
+        "evidence": "Today's default Plan Reviewer route (DEFAULT_MODELS, user 2026-09-28) and the plan reviewer of the default OpenCode qualification runs."
+      },
+      {
+        "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        "routes": ["xiaomi-token-plan-sgp/mimo-v2.6-pro"],
+        "effort": "high",
+        "provenance": "qualified",
+        "evidence": "Reviewed plans in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py), checking GLM planning work."
+      }
+    ],
+    "sol": [
+      {
+        "model": "openai/gpt-6-sol",
+        "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],
+        "effort": "high",
+        "provenance": "qualified",
+        "evidence": "Today's default Tester route (DEFAULT_MODELS, 'the expensive one judges it')."
+      },
+      {
+        "model": "zai-coding-plan/glm-5.3",
+        "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
+        "effort": "high",
+        "provenance": "qualified",
+        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+      }
+    ],
+    "completion": [
+      {
+        "model": "openai/gpt-6-sol",
+        "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],
+        "effort": "medium",
+        "provenance": "qualified",
+        "evidence": "Today's default Completion Reviewer route (DEFAULT_MODELS)."
+      },
+      {
+        "model": "zai-coding-plan/glm-5.3",
+        "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
+        "effort": "medium",
+        "provenance": "qualified",
+        "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+      }
+    ],
+    "astra": [
+      {
+        "model": "openai/gpt-6-astra",
+        "routes": ["openai/gpt-6-astra", "kilo/openai/gpt-6-astra"],
+        "effort": "high",
+        "provenance": "qualified",
+        "evidence": "Today's default astra route - the per-task Planner and the Resolver's starting route (DEFAULT_MODELS, user 2026-09-28). KiloBench 79.3%, the top score in the owner's #1426 table.",
+        "benchmark": {"name": "KiloBench", "score": 79.3, "source": "issue #1426 comment, 2026-10-17", "retrieved": "2026-10-17"}
+      }
+    ]
+  }
+}

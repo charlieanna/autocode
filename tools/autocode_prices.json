@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-15",
+  "as_of": "2026-10-17",
   "currency": "USD",
   "basis": "Standard list price per million text tokens for metered API use, read from each provider's own pricing pages. Not an invoice: a subscription or coding-plan route is billed by its plan, so its row is the metered API price of the same model. Updated by pull request.",
   "models": {
@@ -82,6 +82,38 @@
       "source": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro",
       "retrieved": "2026-10-14",
       "note": "The Token Plan route is a subscription metered in credits; this is Xiaomi's pay-as-you-go price (CNY 3 / 0.025 / 6). No Singapore-specific price was found."
+    },
+    "kilo/z-ai/glm-5.3": {
+      "input": 1.4,
+      "cached_input": 0.26,
+      "output": 4.4,
+      "source": "https://docs.z.ai/guides/overview/pricing",
+      "retrieved": "2026-10-17",
+      "note": "Kilo Gateway charges the vendor's API rate with no markup; Z.ai's metered price of GLM-5.3, billed in prepaid Gateway credits, unlike the subscription coding-plan routes."
+    },
+    "kilo/openai/gpt-6-sol": {
+      "input": 2.0,
+      "cached_input": 0.2,
+      "output": 10.0,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "retrieved": "2026-10-17",
+      "note": "Kilo Gateway charges OpenAI's API rate with no markup. Through Kilo's OpenAI OAuth login the same model bills the ChatGPT subscription instead."
+    },
+    "kilo/openai/gpt-6-astra": {
+      "input": 10.0,
+      "cached_input": 1.0,
+      "output": 50.0,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "retrieved": "2026-10-17",
+      "note": "Kilo Gateway charges OpenAI's API rate with no markup; the long-context premium of the direct route applies the same way."
+    },
+    "kilo/deepseek/deepseek-v4.1-flash": {
+      "input": 0.3,
+      "cached_input": 0.006,
+      "output": 1.2,
+      "source": "https://api-docs.deepseek.com/quick_start/pricing",
+      "retrieved": "2026-10-17",
+      "note": "Kilo Gateway charges DeepSeek's API rate with no markup. DeepSeek bills peak and off-peak tiers; this is the peak rate (off-peak is half: 0.15 / 0.003 / 0.6)."
     },
     "kilo/anthropic/claude-opus-5.5": {
       "input": 4.0,

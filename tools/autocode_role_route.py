@@ -53,7 +53,9 @@ USER_EXPLICIT = "user_explicit"
 SINGLE_MODEL = "single_model"
 RUNNER_DEFAULT = "runner_default"
 CATALOGUE_REPLACEMENT = "catalogue_replacement"
-CONFIGURED_ORIGINS = (USER_EXPLICIT, SINGLE_MODEL, RUNNER_DEFAULT, CATALOGUE_REPLACEMENT)
+# The automatic selector's own choice (#1426 step 7, autocode_route_selector)
+AUTO_SELECTED = "auto_selected"
+CONFIGURED_ORIGINS = (USER_EXPLICIT, SINGLE_MODEL, RUNNER_DEFAULT, CATALOGUE_REPLACEMENT, AUTO_SELECTED)
 # A flag that also names another role's route, so that route is the person's choice too
 # (autocode_configure.configure_joint). tests/test_role_route.py pins the pairing.
 ALSO_NAMED_BY = {"requirements": ("glm_model",)}
