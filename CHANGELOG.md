@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Chat questions about a reviewed plan now receive an explanation without invalidating its approval
+  token. Requirements distinguishes questions from requested changes; changes still need a refreshed
+  review and explicit approval (#1522).
+
 - Joint planning keeps technical questions with recommended defaults inside AutoCode, including
   test-fixture and command details that previously interrupted the VS Code chat with criterion IDs.
   Internal decisions remain separate from human answers; behavior, authorization and plan approval

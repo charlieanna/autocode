@@ -12,6 +12,10 @@ class DynamicDependenciesTests(unittest.TestCase):
         for path in ("tools/autocode_chat_view.py", "tools/autocode_run_view.py"):
             self.assertIn("tests.test_chat_cli", dependencies.dependencies(path))
 
+    def test_plan_chat_and_its_prompt_select_the_public_regression(self):
+        for path in ("tools/autocode_plan_chat.py", "tools/prompts/plan-chat.md"):
+            self.assertIn("tests.test_plan_chat_cli", dependencies.dependencies(path))
+
     def select(self, path):
         consumers = {
             *dependencies.PROMPT_CONSUMERS,

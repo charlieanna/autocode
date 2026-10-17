@@ -70,7 +70,13 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         and (state.get("user_request") or {}).get("kind") != "human_review"
         and not pause_authority.feedback_refusal(state)
     ):
-        action = ("feedback", "Send reply" if need.get("kind") == "answer" else "Send plan feedback", "--feedback")
+        action = (
+            "feedback",
+            "Send reply"
+            if need.get("kind") == "answer"
+            else ("Send message" if (state.get("settings") or {}).get("spec_first") else "Send plan feedback"),
+            "--feedback",
+        )
     context = hashlib.sha256(
         json.dumps(
             [status, len(turns), need, state.get("displayed_goal"), len(state.get("user_events") or [])],

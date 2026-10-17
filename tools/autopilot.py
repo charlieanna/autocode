@@ -500,6 +500,8 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         state["discovery_summary"] = value["summary"]
         planning_artifacts.record_prepared(state, prepared)
         return
+    if stage == "requirements_gather" and requirements_handoff.accept_chat(state, value, record, queue=human.queue):
+        return
     checked = value
     if stage == "requirements_gather" and isinstance(value.get("proposed_assumptions"), list):
         # A pre-structured report's plain-string assumptions stay readable as legacy.

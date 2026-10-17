@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 try:
+    from . import autocode_plan_chat as plan_chat
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_plan_chat as plan_chat
     import autocode_prompts as prompts
     import autocode_roles as roles
-
 
 import copy
 import json
@@ -709,7 +710,7 @@ def initial_decision(body):
     }
 
 
-def feedback(state: RunState, text):
+def feedback(state: RunState, text, *, interpret=True):
     """A free-form brief correction is input to the Plan Reviewer, never authorization to build."""
     if state.get("status") == "PAUSED_COMPONENT_PLAN":
         need = component_plan.recovery(
@@ -726,6 +727,8 @@ def feedback(state: RunState, text):
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if cast(dict, state.get("user_request", {})).get("kind") == "human_review":
         raise ValueError("Record the artifact review with --approve-review or --reject-review, not brief feedback")
+    if interpret and plan_chat.begin(state, text):
+        return
     contract = state.get("goal_contract")
     event = {
         "kind": "brief_feedback",

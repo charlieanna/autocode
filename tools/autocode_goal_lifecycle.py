@@ -57,6 +57,7 @@ try:
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
+    from . import autocode_plan_chat as plan_chat
     from . import autocode_planning_cycle as planning_cycle
     from . import autocode_progressive_state as progressive_state
     from . import autocode_proof_declarations as proof_declarations
@@ -103,6 +104,7 @@ except ImportError:
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
+    import autocode_plan_chat as plan_chat
     import autocode_planning_cycle as planning_cycle
     import autocode_progressive_state as progressive_state
     import autocode_proof_declarations as proof_declarations
@@ -837,7 +839,8 @@ def render(state: RunState, run_dir=None):
 
 def present(state: RunState, run_dir=None):
     public = human.current(state)
-    state.pop("displayed_goal", None)
+    if not plan_chat.pending(state):
+        state.pop("displayed_goal", None)
     # Preserve the historical display acknowledgement for exact, already-recorded
     # review replays. Rendering still hides controls without current authority.
     recorded_review = any(

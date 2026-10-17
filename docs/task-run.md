@@ -197,6 +197,15 @@ as an argument array without a shell. The headless conformance client's
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.
+In spec-first chat runs, a message at plan approval is interpreted by the saved Requirements
+route when the client continues. Questions receive an assistant reply while preserving the reviewed
+plan and its token; requested or mixed corrections enter normal requirements/review again and need
+fresh approval. Free text, including approval-like messages, never approves the plan. The existing
+`--feedback` action and `feedback` input kind remain the client contract; no client intent parsing
+is needed. Exchanges are stored as `plan_message` user-event receipts (ID, original text, contract
+token, return stage, then intent and `reply_after`). They are not requirement sources unless a change
+is forwarded once as ordinary brief feedback. Legacy nonchat feedback keeps its correction behavior.
+
 Saving feedback or a follow-up launches no model. A button explicitly offering
 to send **and continue** may then follow the ordinary `needs.kind=continue`
 action. It may never infer a plan approval, answer another question or release
