@@ -2276,7 +2276,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6eea997b421d003fb02c34669c34608db0372fb5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/8b93d471740a41a8e533c0942753a1741ae465d5/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2568,7 +2568,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/6eea997b421d003fb02c34669c34608db0372fb5/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/8b93d471740a41a8e533c0942753a1741ae465d5/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3633,7 +3633,10 @@ but cannot authorize an exact retry. Inspect the retained work and current chang
 before starting a new run. No automatic restart or budget reset occurs.</p>
 <h3 id="saved-code-checkpoints">Saved code checkpoints<a class="headerlink" href="#saved-code-checkpoints" title="Permanent link">&para;</a></h3>
 <p><code>status()["code_checkpoints"]</code> adds immutable source receipts for recorded,
-code-changing Builder steps. Historical step metadata without source objects
+code-changing Builder steps. A parallel batch's verified integration is one
+saved step: its <code>milestone_id</code> is <code>null</code> and <code>members</code> names each milestone it
+served with the files that milestone's Builder changed (<code>members</code> is <code>null</code> on
+other steps). Historical step metadata without source objects
 is inspectable but cannot be restored. <code>recorded_check</code> is historical, never
 current proof. This interface does not silently materialize snapshots for old runs.</p>
 <p>Use <code>compare_checkpoint(id)</code> to inspect all changed paths and a bounded textual
@@ -3660,7 +3663,8 @@ interface, places confirmation in chat and comparison in the Changes pane.</p>
 <p><code>status()["changes_by_criterion"]</code> attributes those saved steps to the approved
 plan's acceptance criteria. Each criterion lists the plan milestones that cover
 it, the checkpoint ids of their saved Builder steps and the union of the files
-those steps changed. <code>overlapping</code> is true when a step outside the criterion's
+those steps changed; a parallel batch's step counts only each member's own files
+toward that member's milestone. <code>overlapping</code> is true when a step outside the criterion's
 milestones also changed one of those files, so the file's diff may hold other
 work. <code>unattributed</code> lists steps whose milestone is not in the plan. It is
 attribution, not proof: it says where to look, not that the changes satisfy the

@@ -2000,7 +2000,7 @@
 
 
 <h1 id="browser-dashboard">Browser dashboard<a class="headerlink" href="#browser-dashboard" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6eea997b421d003fb02c34669c34608db0372fb5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/8b93d471740a41a8e533c0942753a1741ae465d5/README.md">← Back to README</a></p>
 <p>Autocode includes a local browser dashboard for planning work with the Requirements Planner, approving
 the lead-reviewed plan, choosing each execution role's model and reasoning level,
 following active tasks, and sending feedback or a pause
@@ -2103,7 +2103,11 @@ diff against the saved step before it (<code>GET /api/criterion-diffs</code>, wh
 <code>autocode_review_diff.criterion_diffs</code> on that same status view and reads committed
 Git objects, never the working tree). The changes are labelled as attribution, not
 proof that the requirement is met. A requirement whose steps also changed files
-another requirement's milestone changed is marked as overlapping. When a requirement
+another requirement's milestone changed is marked as overlapping. Parallel Builders'
+integrated work is one saved step that served several milestones; it is headed with
+all of them (<code>milestones B, C</code>), and each requirement shows only its own milestone's
+files of it, naming the files it leaves out ("Not shown, changed in this step for
+another milestone"). When a requirement
 has no attributed step, or the run's status is unavailable, it says so and offers
 <strong>View all run changes</strong>, which opens <strong>Changes</strong>. The pane is read once per run
 until a step is saved or its attribution changes.</p>
@@ -2138,6 +2142,12 @@ python3 tools/dashboard/tests/unified_browser_fixture.py
 <code>test_m3_lifecycle_browser_ui.js</code> and <code>test_shell_a11y_ui.js</code>, which drive the
 <code>agent-browser</code> CLI and need it installed.</p>
 <p>The browser fixture uses disposable workspaces and cannot launch agents. The
+exception is the chat client's acceptance test, <code>test_scenario_client_browser_ui.js</code>:
+it types the parallel-diamond scenario's brief in chat, attaches a project, approves
+and builds the plan, and checks each requirement's changes against the scenario's
+reference solution at three viewport sizes. Its fixture runs the real runner on the fake
+OpenCode client, which hands each stage to the scenario harness's scripted model, so no
+model is called. The
 packaged-import regression tests the installed entry-point layout, not just the
 source-directory import path. Updating files does not reload a running dashboard:
 restart only its server at an idle boundary, preserving the same environment and
