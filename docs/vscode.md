@@ -59,10 +59,12 @@ prices. A new chat shows configured models once the core creates the run; actual
 model history appears as attempts are recorded. Older cores without the new
 display metadata still show available model IDs and leave missing variants unknown.
 
-When a plan is ready, its criteria, verification methods, constraints and
-permissions appear in the thread. Send **plan feedback and continue** to revise
-it. **Approve and build** approves only the displayed plan, then continues the
-same run. A stale click is refused and the revised plan must be reviewed.
+When a plan is ready, the thread lists what it will deliver, marks the items you
+check yourself, and shows its constraints and what it may do. Criterion IDs,
+verification commands and the plan revision stay in **Run details**. Send
+**plan feedback and continue** to revise it. **Approve and build** approves only
+the displayed plan, then continues the same run. A stale click is refused and
+the revised plan must be reviewed.
 Answer cards handle questions and model replacement choices.
 
 After completion, sending a **follow-up and continue** reopens the same run for

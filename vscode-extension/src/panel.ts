@@ -507,18 +507,28 @@ function render(state) {
     state.problems.forEach((item) => {
       const row = el('div', 'row');
       row.appendChild(el('span', 'state ' + (item.blocking ? 'blocking' : ''), item.severity || 'finding'));
-      row.appendChild(el('span', null, item.id + ': ' + item.finding));
+      row.appendChild(el('span', null, chatMode ? item.finding : item.id + ': ' + item.finding));
       app.appendChild(row);
     });
   }
 
   if (state.criteria.length) {
     app.appendChild(el('h2', null, 'Criteria to accept'));
-    state.criteria.forEach((row) => app.appendChild(el('div', 'row', row.id + ': ' + row.criterion)));
+    state.criteria.forEach((row) => app.appendChild(el('div', 'row', chatMode ? row.criterion : row.id + ': ' + row.criterion)));
   }
 
-  if (state.plan) {
-    app.appendChild(el('h2', null, 'Plan the approval is bound to (revision ' + (state.plan.revision === null ? '?' : state.plan.revision) + ')'));
+  // Chat shows what will be built. Run details keeps the revision, criterion IDs
+  // and verification commands; approval still uses the token of the shown plan.
+  if (state.plan && chatMode) {
+    app.appendChild(el('h2', null, 'Plan to approve'));
+    state.plan.criteria.forEach((criterion) => {
+      const item = el('div', 'row');
+      item.appendChild(el('span', null, criterion.criterion));
+      if (criterion.human_review) item.appendChild(el('span', 'why', 'You check this one yourself'));
+      app.appendChild(item);
+    });
+  } else if (state.plan) {
+    app.appendChild(el('h2', null, 'Plan to approve · revision ' + (state.plan.revision === null ? '?' : state.plan.revision)));
     app.appendChild(el('div', 'why',
       state.plan.criteria.length + ' acceptance criteria  ·  '
       + state.plan.constraints.length + ' constraints  ·  '
@@ -531,6 +541,8 @@ function render(state) {
       item.appendChild(el('div', 'why', 'Human review: ' + (criterion.human_review ? 'required' : 'not required')));
       app.appendChild(item);
     });
+  }
+  if (state.plan) {
     if (state.plan.constraints.length) {
       app.appendChild(el('h2', null, 'Constraints'));
       state.plan.constraints.forEach((text) => app.appendChild(el('div', 'row', text)));
@@ -607,7 +619,9 @@ function render(state) {
     app.appendChild(actions);
     updateActionButton();
 
-    if (!state.canApprove && state.needKind === 'approve_plan') {
+    if (!state.canApprove && state.needKind === 'approve_plan' && chatMode) {
+      app.appendChild(el('div', 'notice', 'The plan has not loaded here yet, so there is nothing to approve. Refresh to load it.'));
+    } else if (!state.canApprove && state.needKind === 'approve_plan') {
       const notice = el('div', 'notice');
       notice.appendChild(el('div', null,
         'AutoCode has not shown this client the plan its approval token binds to, so approving here would '
