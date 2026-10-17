@@ -199,7 +199,15 @@ The rules the choice keeps:
 The choice is one deterministic function from the discovered candidates and the
 accounts you allow to one route per role, or a stop that names what is missing. Each
 chosen route is recorded with its origin (`auto_selected`) in the route record the
-status view shows.
+status view shows. `autocode models --selection` shows the whole reasoning: the
+logins the tool reports, the route chosen for each role with its cost, and why every
+other qualified model lost (not connected on any login, a cheaper qualified route
+won, or it would check its own family's work).
+
+Before the first stage, the [model-access preflight](#when-a-model-is-not-in-your-plans)
+probes exactly the chosen routes that are still unproven, one tiny call each at the
+role's own reasoning level, within the run's cost cap — including built-in OpenCode
+routes, which saved-run probes never touched.
 
 ## Builder retry policy
 

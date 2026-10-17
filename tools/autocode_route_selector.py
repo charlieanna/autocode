@@ -205,6 +205,16 @@ def _clashes(role, model, assigned):
     return None
 
 
+def explains_clash(role, model, routes) -> str | None:
+    """Why ``model`` could not take ``role`` against a finished assignment, or None.
+
+    The public face of the search's clash check, for `autocode models --selection`:
+    ``routes`` is a finished selection's ``routes`` mapping of role -> route dict.
+    """
+    assigned = {other: route.get("model") for other, route in (routes or {}).items()}
+    return _clashes(role, model, assigned)
+
+
 def _search(order, options, assigned):
     """The cheapest independent assignment over ``order`` as role -> model, or None.
 

@@ -408,3 +408,85 @@ class PricesCliTest(unittest.TestCase):
             {"model": "local/unpriced-model", "priced_as": None, "rate": None}, report["defaults"]["terra"]
         )
         self.assertIn("openai/gpt-6-sol", report["models"])
+
+
+class SelectionViewTest(unittest.TestCase):
+    """`autocode models --selection`: the choice and its exclusions, from local listings only."""
+
+    FOUND = {
+        "tool": "kilocode",
+        "accounts": [
+            {"name": "Kilo Gateway", "mode": "oauth", "billing": "pay per token", "prefixes": ["kilo/"]},
+        ],
+        "candidates": [
+            {
+                "model": model,
+                "tool": "kilocode",
+                "account": "Kilo Gateway",
+                "billing": "pay per token",
+                "levels": None,
+                "probe": None,
+            }
+            for model in (
+                "kilo/z-ai/glm-5.3",
+                "kilo/deepseek/deepseek-v4.1-flash",
+                "kilo/openai/gpt-6-sol",
+                "kilo/openai/gpt-6-astra",
+            )
+        ],
+    }
+
+    def run_selection(self, found=FOUND):
+        import autocode_route_discovery as discovery
+
+        out = io.StringIO()
+        with patch.object(discovery, "discover", return_value=found):
+            with redirect_stdout(out):
+                code = mc.cli(["--selection", "--provider", "kilocode"])
+        return code, out.getvalue()
+
+    def test_the_choice_and_every_exclusion_is_printed(self):
+        code, text = self.run_selection()
+        self.assertEqual(0, code)
+        self.assertIn("Automatic selection on kilocode", text)
+        self.assertIn("Kilo Gateway (oauth, pay per token)", text)
+        self.assertIn("Builder: kilo/deepseek/deepseek-v4.1-flash", text)
+        # An unconnected qualified model says so in account terms.
+        self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", text)
+        self.assertIn("not connected", text)
+        # The probe debt is named.
+        self.assertIn("Still to prove", text)
+
+    def test_a_stopped_selection_prints_the_stop_and_fails(self):
+        one_family = {
+            "tool": "kilocode",
+            "accounts": [
+                {"name": "Z.AI Coding Plan", "mode": "api", "billing": "subscription", "prefixes": ["zai-coding-plan/"]},
+            ],
+            "candidates": [
+                {
+                    "model": "zai-coding-plan/glm-5.3",
+                    "tool": "kilocode",
+                    "account": "Z.AI Coding Plan",
+                    "billing": "subscription",
+                    "levels": None,
+                    "probe": None,
+                }
+            ],
+        }
+        code, text = self.run_selection(one_family)
+        self.assertEqual(1, code)
+        self.assertIn("Connect a second model family", text)
+
+    def test_json_mode_carries_the_result_and_the_accounts(self):
+        import autocode_route_discovery as discovery
+        import json as jsonlib
+
+        out = io.StringIO()
+        with patch.object(discovery, "discover", return_value=self.FOUND):
+            with redirect_stdout(out):
+                code = mc.cli(["--selection", "--provider", "kilocode", "--json"])
+        self.assertEqual(0, code)
+        payload = jsonlib.loads(out.getvalue())
+        self.assertEqual("kilocode", payload["tool"])
+        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", payload["routes"]["terra"]["model"])

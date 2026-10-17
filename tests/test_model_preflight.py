@@ -479,6 +479,118 @@ class MixedProviderPreflightTests(unittest.TestCase):
         self.assertEqual([], list(self.run_dir.iterdir()))
 
 
+class SelectionPreflightTests(unittest.TestCase):
+    """The automatic selector's access check (#1426 step 8)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.run_dir = self.root / "run"
+        self.run_dir.mkdir()
+        # Built-in OpenCode routes have no [auth] table: saved-run probes skip them,
+        # selection probes must not.
+        self.adapter = types.SimpleNamespace(
+            NAME="opencode",
+            check_subscription_routes=lambda roles, workspace=None, env=None: None,
+        )
+        self.state = {"settings": {"engine": "opencode", "roles": {}}}
+        self.calls = []
+
+    def fake_execute(self, events_by_model):
+        def execute(**kwargs):
+            model = kwargs["model"]
+            self.calls.append((model, kwargs.get("effort")))
+            kwargs["directory"].mkdir(parents=True, exist_ok=True)
+            rows = events_by_model[model]
+            (kwargs["directory"] / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            return {"exit_code": 0, "timed_out": False, "report": None, "rows": rows, "report_error": None, "metrics": {}}
+
+        return execute
+
+    def selection(self, *, probe=None):
+        routes = {
+            "requirements": {
+                "model": "zai-coding-plan/glm-5.3",
+                "tool": "opencode",
+                "reasoning_effort": "medium",
+            },
+            "terra": {
+                "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+                "tool": "opencode",
+                "reasoning_effort": "medium",
+            },
+            "sol": {"model": "openai/gpt-6-sol", "tool": "opencode", "reasoning_effort": None},
+        }
+        unknown = sorted({route["model"] for route in routes.values()})
+        return {"routes": routes, "probe": probe if probe is not None else unknown, "stop": None}
+
+    def check(self, events_by_model, selection):
+        runner = types.SimpleNamespace(opencode=self.adapter)
+        with patch.object(preflight.transport, "execute", side_effect=self.fake_execute(events_by_model)):
+            return preflight.check(runner, self.state, self.run_dir, self.root, selection=selection)
+
+    def test_unknown_routes_probe_at_their_roles_own_levels(self):
+        models = ("zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2.6-pro", "openai/gpt-6-sol")
+        events = {model: OK_EVENTS for model in models}
+        self.assertTrue(self.check(events, self.selection()))
+        self.assertEqual(
+            [
+                ("openai/gpt-6-sol", None),
+                ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "medium"),
+                ("zai-coding-plan/glm-5.3", "medium"),
+            ],
+            sorted(self.calls),
+        )
+        # A second check of the same selection reuses the receipts: no new calls.
+        self.assertFalse(self.check(events, self.selection()))
+        self.assertEqual(3, len(self.calls))
+        (saved,) = receipt_sets(self.run_dir)
+        self.assertEqual("opencode", saved["identity"]["provider"])
+        self.assertEqual({"ok"}, {row["status"] for row in saved["probed"].values()})
+
+    def test_routes_the_selection_knows_are_not_probed(self):
+        selection = self.selection(probe=["openai/gpt-6-sol"])
+        events = {"openai/gpt-6-sol": OK_EVENTS}
+        self.assertTrue(self.check(events, selection))
+        self.assertEqual([("openai/gpt-6-sol", None)], self.calls)
+
+    def test_a_blocking_failure_stops_before_any_stage_spend(self):
+        events = {
+            "openai/gpt-6-sol": OK_EVENTS,
+            "zai-coding-plan/glm-5.3": PAYWALL_EVENTS,
+            "xiaomi-token-plan-sgp/mimo-v2.6-pro": OK_EVENTS,
+        }
+        with self.assertRaises(support.Paused) as caught:
+            self.check(events, self.selection())
+        self.assertEqual("PAUSED_BUDGET", caught.exception.status)
+
+    def test_saved_route_probes_still_run_at_low_and_skip_non_billing_tools(self):
+        # The legacy path is unchanged: low effort, and an adapter without [auth] is not probed.
+        runner = types.SimpleNamespace(opencode=self.adapter)
+        state = {"settings": {"engine": "opencode", "roles": {"terra": {"model": "zai-coding-plan/glm-5.3"}}}}
+        events = {"zai-coding-plan/glm-5.3": OK_EVENTS}
+        with patch.object(preflight.transport, "execute", side_effect=self.fake_execute(events)) as execute:
+            self.assertFalse(preflight.check(runner, state, self.run_dir, self.root))
+        execute.assert_not_called()
+
+    def test_selection_groups_resolve_each_tool_and_keep_identities_apart(self):
+        selection = self.selection()
+        selection["routes"]["terra"] = {
+            "model": "kilo/deepseek/deepseek-v4.1-flash",
+            "tool": "kilocode",
+            "reasoning_effort": "medium",
+        }
+        runner = types.SimpleNamespace(opencode=self.adapter)
+        with patch("providers.command.load") as load:
+            load.return_value = types.SimpleNamespace(NAME="kilocode", _config={"command": ["kilo"]})
+            groups = preflight._selection_groups(runner, selection, self.root)
+        load.assert_called_once_with("kilocode")
+        by_provider = {group[2]["provider"]: group for group in groups}
+        self.assertEqual({"opencode", "kilocode"}, set(by_provider))
+        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", by_provider["kilocode"][1]["terra"]["model"])
+
+
 class OwnedPreflightTests(unittest.TestCase):
     """Exercise real probe formatting/admission with no subprocess or model."""
 

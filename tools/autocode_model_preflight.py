@@ -19,6 +19,12 @@ Writes ``run_dir/model-preflight.json`` and one evidence directory per probe. Th
 marker keeps one receipt set per tool identity (provider name plus saved transport
 digest), so a later invocation re-probes only models that have not yet passed on
 that same tool. Imports nothing from the controller; the runner is passed in.
+
+The automatic selector's access check (#1426 step 8) is the same machinery with a
+different source of routes: pass ``check(..., selection=...)`` the selector's result
+and exactly the routes it marks unknown are probed, each at its role's own reasoning
+level, through the tool that will run it — including built-in OpenCode routes, which
+saved-run probes never touch.
 """
 
 from __future__ import annotations
@@ -149,9 +155,24 @@ def _classify(events_path: Path) -> tuple[str | None, str]:
 
 
 def probe(
-    adapter, model, workspace, run_dir, *, timeout=TIMEOUT_SECONDS, directory=None, checkpoint=None, deadline=None
+    adapter,
+    model,
+    workspace,
+    run_dir,
+    *,
+    effort="low",
+    timeout=TIMEOUT_SECONDS,
+    directory=None,
+    checkpoint=None,
+    deadline=None,
 ) -> dict:
-    """One tiny read-only call for ``model``; returns its recorded outcome."""
+    """One tiny read-only call for ``model``; returns its recorded outcome.
+
+    A saved route probes at ``low``, the cheapest proof of access. A route the
+    automatic selector chose probes at the role's own reasoning level, because the
+    level is part of the route: a variant that does not exist fails there, not three
+    stages in (#1426 step 8). ``None`` sends no level and the model uses its default.
+    """
     directory = directory or run_dir / "model-preflight" / model.replace("/", "__") / f"attempt-{uuid.uuid4().hex}"
     started = time.monotonic()
     try:
@@ -160,7 +181,7 @@ def probe(
             workspace=workspace,
             directory=directory,
             model=model,
-            effort="low",
+            effort=effort,
             session=None,
             allow_write=False,
             prompt=PROMPT,
@@ -217,13 +238,65 @@ def _allowance(runner, state: RunState, run_dir, workspace, timeout):
     return min(timeout, remaining) if timeout is not None and remaining is not None else remaining or timeout
 
 
+def _selection_groups(runner, selection, workspace) -> list[tuple]:
+    """(facade, routes, identity) per tool an automatic selection routes through.
+
+    Unlike saved routes, a selection's groups are not filtered by ``billing_aware``:
+    built-in OpenCode routes are probed too, because the selector chose them and a
+    login the engine holds is exactly what a probe proves (#1426 step 8). Identity is
+    the tool itself — the provider's own configuration digest — so a receipt earned
+    on one tool is never reused for another, and a config change re-probes.
+    """
+    try:
+        from providers import command as command_provider
+    except ImportError:
+        from .providers import command as command_provider
+    by_tool: dict[str, dict] = {}
+    for role, route in (selection.get("routes") or {}).items():
+        tool = route.get("tool") or "opencode"
+        by_tool.setdefault(tool, {})[role] = {
+            "model": route.get("model"),
+            "reasoning_effort": route.get("reasoning_effort"),
+        }
+    groups: list[tuple] = []
+    for tool in sorted(by_tool):
+        if tool == "opencode":
+            facade = getattr(runner, "opencode", None)
+            if facade is None:
+                continue
+            identity = _receipt_identity(facade, {"engine": "opencode"})
+        else:
+            try:
+                facade = command_provider.load(tool)
+            except (RuntimeError, ValueError, OSError):
+                continue
+            identity = _receipt_identity(facade, facade._config)
+        groups.append((facade, by_tool[tool], identity))
+    return groups
+
+
+def _selected_efforts(routes) -> dict:
+    """model -> the reasoning level to probe it at: its first role's own level."""
+    efforts: dict[str, str | None] = {}
+    for role in sorted(routes):
+        route = routes[role] or {}
+        model = route.get("model")
+        if isinstance(model, str) and model and model not in efforts:
+            efforts[model] = route.get("reasoning_effort")
+    return efforts
+
+
 def check(
-    runner, state: RunState, run_dir, workspace, *, timeout=TIMEOUT_SECONDS, checkpoint=None, before_probe=None
+    runner, state: RunState, run_dir, workspace, *, timeout=TIMEOUT_SECONDS, checkpoint=None, before_probe=None,
+    selection=None,
 ) -> bool:
     """Run admitted, charged probes; unbound legacy passes are probed again.
 
     checkpoint durably saves the caller's state. before_probe consumes queued
     human input under the caller's existing lock, including after the last call.
+    ``selection`` is an automatic selector's result (#1426 step 8): exactly the
+    routes it lists as still unknown are probed, each at its role's own reasoning
+    level, through the tool that will run it, within the same cost cap and receipts.
     """
     if getattr(runner, "native_calls", None) is not None:
         # Native calls require their original held, accounted launch authority.
@@ -237,9 +310,15 @@ def check(
         # requested model calls. Future execution roles are probed when
         # approved requirements release planning; do not make the user wait.
         return False
-    groups = _billing_groups(runner, state.get("settings") or {}, workspace)
+    groups = (
+        _selection_groups(runner, selection, workspace)
+        if selection is not None
+        else _billing_groups(runner, state.get("settings") or {}, workspace)
+    )
     if not groups:
         return False
+    # A selection says which of its routes are still unknown; nothing else is probed.
+    unknown = set(selection.get("probe") or ()) if selection is not None else None
     checkpoint = checkpoint or (lambda: None)
     before_probe = before_probe or (lambda: None)
     run_dir = Path(run_dir)
@@ -261,15 +340,18 @@ def check(
                 if record.get("preflight_identity") == identity:
                     probed[record["model"]] = record["preflight_outcome"]
         wanted = [
-            model for model in distinct_models({"roles": routes}) if (probed.get(model) or {}).get("status") != "ok"
+            model
+            for model in distinct_models({"roles": routes})
+            if (probed.get(model) or {}).get("status") != "ok" and (unknown is None or model in unknown)
         ]
-        receipts.append((facade, routes, identity, probed, wanted))
-    if not any(wanted for *_, wanted in receipts):
+        efforts = _selected_efforts(routes) if selection is not None else {}
+        receipts.append((facade, routes, identity, probed, wanted, efforts))
+    if not any(wanted for *_front, wanted, _efforts in receipts):
         return False
     before_probe()
     _allowance(runner, state, run_dir, workspace, timeout)
     # Every tool that will receive a request proves its login before the first one.
-    for facade, routes, _identity, _probed, wanted in receipts:
+    for facade, routes, _identity, _probed, wanted, _efforts in receipts:
         if not wanted:
             continue
         try:
@@ -281,15 +363,18 @@ def check(
             ) from error
 
     def publish():
-        rows = [{"identity": identity, "probed": probed} for _facade, _routes, identity, probed, _wanted in receipts]
+        rows = [
+            {"identity": identity, "probed": probed}
+            for _facade, _routes, identity, probed, _wanted, _efforts in receipts
+        ]
         atomic_json(marker, {"version": MARKER_VERSION, "receipts": rows})
 
     pending = [
-        (adapter, identity, probed, model)
-        for adapter, _routes, identity, probed, wanted in receipts
+        (adapter, identity, probed, model, efforts.get(model, "low"))
+        for adapter, _routes, identity, probed, wanted, efforts in receipts
         for model in wanted
     ]
-    for adapter, identity, probed, model in pending:
+    for adapter, identity, probed, model, effort in pending:
         # A role bound with --role-transport names its tool; the same model may also be on the run's tool.
         where = "" if adapter is getattr(runner, "opencode", None) else f" on {(identity or {}).get('provider')}"
         before_probe()
@@ -311,6 +396,7 @@ def check(
                 model,
                 workspace,
                 run_dir,
+                effort=effort,
                 timeout=allowed,
                 directory=attempt.directory,
                 checkpoint=attempt.admit,

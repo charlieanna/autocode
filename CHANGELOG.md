@@ -52,6 +52,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode models --selection` (#1426 step 10): automatic selection explained. Local listings only - no model
+  calls: the command shows the logins the tool reports, the route chosen for each role with its price and
+  reasoning level, why every other qualified model lost (not connected, a cheaper qualified route won, or it
+  would check its own family's work), and which chosen routes the access check still has to prove. A run whose
+  accounts cannot field an independent checker prints the account-terms stop instead.
+- The selector's access check (#1426 step 8): `check(selection=...)` probes exactly the routes automatic
+  selection marks unknown, each at its role's own reasoning level (None sends no level), through the tool that
+  runs it, inside the existing cost cap, receipts and crash-safe attempt accounting. Built-in OpenCode routes
+  are probed too; saved-run probes keep their `low`-effort behavior and still skip non-billing tools.
 - Route discovery (#1426 steps 4-5): reading a tool's own local listings - `kilo models` with
   `kilo auth list`, `opencode models` with `opencode auth list` - into the candidate list the
   automatic selector consumes, with no model calls and no credentials touched. A configured
