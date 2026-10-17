@@ -67,10 +67,12 @@ PR template asks for an entry here; a change without one is incomplete.
 - A novelty hold's stop also states the run's active time against its time limit and, with milestone checkpoints
   on, the current milestone's time against its budget, after the spend against the cost cap; a limit or budget
   changed at the hold is the one the stop then states (#611).
-- The status view's `routes` names, for every role, the tool that launches it, the account its model bills, the
-  reasoning level a launch passes and the `origin` of the route: `user_explicit`, `single_model`, `runner_default`,
-  `catalogue_replacement`, `quota_assigned`, `stronger_attempt`, `escalated`, `derived`, or `unrecorded` for a run
-  saved before the record existed (#1426).
+- The status view's `routes` names, for every role, the `account` its model bills — the model ID's billing segment,
+  null when the engine's own login decides — and the `origin` of the route: `user_explicit`, `single_model`,
+  `runner_default`, `catalogue_replacement`, `quota_assigned`, `stronger_attempt`, `escalated`, `derived`, or
+  `unrecorded` for a run saved before the record existed. The whole record, those two beside the `model`, `engine`,
+  `job`, `reasoning_effort` and `provider` it already carried, is now built in one place (`autocode_role_route`)
+  instead of in the status view (#1426).
 
 - Opt-in blind tests via `--blind-tests` execute acceptance tests written by the Tester in a separate candidate
   scratch tree without exposing test implementations or file paths to the Builder's workspace or prompt (#702).

@@ -405,10 +405,10 @@ Every change, through the answer or the resume flag, is appended to the run's
 `user_events` as a `route_assignment` (role, job, from, to, engine, stage, attempt,
 events path, time, `via` answer or resume_flag). A resume flag the launch refuses
 (another engine's format, a cross-model clash) is not recorded. The status view shows each role's
-current route under `routes` — its `engine` and `model`, the `tool` that launches it, the
-`account` its model bills (null when the engine's own login decides), the `reasoning_effort` a
-launch passes (null for the model's own default) and the `origin`, why the route is what it is —
-and the changes under `route_assignments`; while the
+current route under `routes` — its `model`, `engine`, the `job` it runs, the `reasoning_effort` a
+launch passes (null for the model's own default), the `provider` tool that launches it, the
+`account` its model bills (null when the engine's own login decides) and the `origin`, why the
+route is what it is — and the changes under `route_assignments`; while the
 question is open, `needs.route` names the role and its current model. The new model
 stays on the role until you change it again, including past the next milestone.
 
