@@ -221,37 +221,75 @@ class ScopedIntakeTests(unittest.TestCase):
         original = copy.deepcopy(self.body)
         source = self.path.parent / original["files"][0]["pages"][0]["source_json"]["path"]
         original_source = json.loads(source.read_text())
+        full_path, full_body = inventory_bundle(self.root / "unscoped")
+        full_source = full_path.parent / full_body["files"][0]["pages"][0]["source_json"]["path"]
+        full_receipt = json.loads(full_source.read_text())
 
-        def load_action(action):
-            self.body = copy.deepcopy(original)
-            receipt = copy.deepcopy(original_source)
+        def load_action(action, *, used=True, scoped=True):
+            self.body = copy.deepcopy(original if scoped else full_body)
+            receipt = copy.deepcopy(original_source if scoped else full_receipt)
+            selected_source = source if scoped else full_source
+            selected_path = self.path if scoped else full_path
             transition = self.body["files"][0]["transitions"][0]
-            transition.update(action=action, target_node_id=action.get("destinationId") or "")
+            transition.update(
+                source_node_id="1:6" if scoped and used else "1:2",
+                action=action,
+                target_node_id=action.get("destinationId") or "",
+            )
+            if scoped:
+                self.body["cases"][0]["inventory_refs"]["transitions"] = [transition["id"]] if used else []
+            for row in receipt["nodes"]:
+                row["transitions"] = [value for value in row["transitions"] if value["id"] != transition["id"]]
             node = next(row for row in receipt["nodes"] if row["id"] == transition["source_node_id"])
             node["transitions"] = [
                 {key: transition[key] for key in ("id", "target_node_id", "trigger", "action")}
             ]
-            source.write_text(json.dumps(receipt))
-            self.body["files"][0]["pages"][0]["source_json"]["sha256"] = util.file_hash(source)
-            self.path.write_text(json.dumps(self.body))
-            self.write_authority()
-            return manifest.load(self.path, **self.arguments())
+            selected_source.write_text(json.dumps(receipt))
+            self.body["files"][0]["pages"][0]["source_json"]["sha256"] = util.file_hash(selected_source)
+            selected_path.write_text(json.dumps(self.body))
+            if scoped:
+                self.write_authority()
+            return manifest.load(selected_path, **self.arguments() if scoped else {})
+
+        def conditional(action):
+            for _ in range(2):
+                action = {"type": "CONDITIONAL", "conditionalBlocks": [{"actions": [action]}]}
+            return action
 
         for navigation in ("NAVIGATE", "CHANGE_TO"):
             for destination in (None, "", "omitted"):
                 action = {"type": "NODE", "navigation": navigation}
                 if destination != "omitted":
                     action["destinationId"] = destination
-                with self.subTest(action=action), self.assertRaisesRegex(ValueError, "NODE action omits.*destination"):
-                    load_action(action)
+                for source_action in (action, conditional(action)):
+                    for scoped in (False, True):
+                        with self.subTest(action=source_action, scoped=scoped):
+                            with self.assertRaisesRegex(ValueError, "NODE action.*destination"):
+                                load_action(source_action, scoped=scoped)
         for action in (
             {"type": "NODE", "navigation": "NAVIGATE", "destinationId": "1:6"},
+            conditional({"type": "NODE", "navigation": "NAVIGATE", "destinationId": "1:6"}),
             {"type": "BACK"},
             {"type": "URL", "url": "https://example.test/"},
+            {"type": "UPDATE_MEDIA_RUNTIME", "destinationId": None, "mediaAction": "PLAY"},
         ):
-            with self.subTest(action=action):
-                loaded = load_action(action)
-                self.assertEqual(action, loaded["body"]["files"][0]["transitions"][0]["action"])
+            for scoped in (False, True):
+                with self.subTest(action=action, scoped=scoped):
+                    loaded = load_action(action, scoped=scoped)
+                    self.assertEqual(action, loaded["body"]["files"][0]["transitions"][0]["action"])
+
+        unresolved = {"type": "NODE", "navigation": "NAVIGATE", "destinationId": None}
+        for index, action in enumerate((unresolved, conditional(unresolved))):
+            with self.subTest(excluded_action=action):
+                loaded = load_action(action, used=False)
+                target = self.workspace / ("excluded-" + str(index))
+                target.mkdir()
+                record = manifest.retain(loaded, target, **self.arguments())
+                catalog = manifest.context({"design_manifest": record})["catalog"]
+                retained = catalog["scope_partition"]["retained_resources"]["transitions"]
+                self.assertEqual(["home-details"], [row["id"] for row in retained])
+                self.assertEqual("outside approved product scope", retained[0]["scope_reason"])
+                self.assertEqual(action, retained[0]["action"])
 
     def test_full_missing_resources_remain_blockers_but_unused_delivery_is_separate(self):
         file = self.body["files"][1]

@@ -423,19 +423,7 @@ def validate(body, root, *, admission=None, _partition=None):
 
         file_page_ids = {page["id"] for page in file["pages"]}
         for transition in file["transitions"]:
-            destinations = set()
-
-            def destinations_in(value):
-                if isinstance(value, list):
-                    for item in value:
-                        destinations_in(item)
-                elif isinstance(value, dict):
-                    if value.get("destinationId"):
-                        destinations.add(value["destinationId"])
-                    for item in value.values():
-                        destinations_in(item)
-
-            destinations_in(transition["action"])
+            destinations = sources.prototype_destinations(transition["action"], require_resolved=admission is None)
             for node_id in {transition["source_node_id"], *destinations}:
                 page_id = next((page for page in file_page_ids if node_id in node_tables[(file["key"], page)][0]), None)
                 if page_id is None:
