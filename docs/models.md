@@ -166,8 +166,10 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 
 Automatic selection (#1426) chooses each role's model from the accounts you have
 connected, so you never route roles by hand. It is built in steps; the choice itself
-(`tools/autocode_route_selector.py`) is in place, and the discovery and wiring that
-make it the default for new runs land in later steps of the same issue. Until they do,
+(`tools/autocode_route_selector.py`) and the discovery that feeds it
+(`tools/autocode_route_discovery.py`, reading the tool's own model and login
+listings) are in place, and the wiring that makes selection the default for new
+runs lands in later steps of the same issue. Until they do,
 new runs use the [default models](#default-models) above unless you name your own.
 
 The rules the choice keeps:

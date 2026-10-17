@@ -21,10 +21,11 @@ Candidates arrive as dicts the discovery steps define: ``model`` (the id exactly
 tool lists it), ``tool``, ``account`` (the login that bills it, e.g. "Kilo Gateway"),
 ``billing`` ("subscription", "pay per token", or None when unknown), ``levels`` (the
 reasoning levels the model advertises, when discovery could read them) and ``probe``
-("known" when access is already proven). A level the candidate does not advertise is
-never invented: the route gets None and the model uses its own default. Candidates from
-one tool only — selection works one tool per run (#1426 answer 1), so the wiring scopes
-the candidate list to the run's tool before calling.
+("known" when access is already proven). The qualification table's reasoning level is
+the level AutoCode's qualifying runs used, so it is passed as recorded unless discovery
+reports the model lacks it; a model with no recorded level runs at its own default.
+Candidates from one tool only — selection works one tool per run (#1426 answer 1), so
+the wiring scopes the candidate list to the run's tool before calling.
 """
 
 from __future__ import annotations
@@ -156,12 +157,19 @@ def _rank(candidate, entry):
 
 
 def _effort(entry, candidate):
-    """The level to pass, or None for the model's own default; never an invented level."""
+    """The level to pass, or None for the model's own default; never an invented level.
+
+    The table's level is the level AutoCode's qualifying runs used on that model, so it
+    is evidence, not invention; discovery's advertised levels exist to veto it when a
+    tool reports the model lacks the level. Without either, the model's own default.
+    """
     wanted = (entry or {}).get("effort")
-    levels = candidate.get("levels")
-    if not wanted or not isinstance(levels, (list, tuple)) or not levels:
+    if not wanted:
         return None
-    return wanted if wanted in levels else None
+    levels = candidate.get("levels")
+    if isinstance(levels, (list, tuple)) and levels and wanted not in levels:
+        return None
+    return wanted
 
 
 def _options(role, candidates, permitted):

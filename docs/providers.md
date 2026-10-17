@@ -777,9 +777,20 @@ forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
 
 [[auth.routes]]
 models = "openai/"
+name = "OpenAI"
+billing = "subscription"
 pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
 expect = "oauth"
 ```
+
+A route may also carry `name` (the login name the tool itself prints; defaults to
+the prefix) and `billing` (`"subscription"` or `"pay per token"`; unknown when
+unset). These feed automatic route selection (#1426): the discovery step reads the
+same listing to learn which accounts are connected and which models each one can
+bill, so a model no connected login serves is never offered to the selector. A
+command template whose `{effort}` arguments (like Kilo's `--variant {effort}`) get
+no reasoning level omits those arguments instead of passing an empty value, and the
+model uses its own default level.
 
 A tool that reports a subscription usage limit or runs out of pay-as-you-go
 credit pauses the run with `PAUSED_BUDGET`.

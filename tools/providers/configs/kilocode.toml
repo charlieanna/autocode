@@ -28,6 +28,8 @@ forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
 
 [[auth.routes]]
 models = "openai/"
+name = "OpenAI"
+billing = "subscription"
 pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
 expect = "oauth"
 
@@ -36,6 +38,8 @@ expect = "oauth"
 # DeepSeek, GLM, Kimi and MiniMax, so a verifier can come from a different vendor than its producer.
 [[auth.routes]]
 models = "alibaba-token-plan/"
+name = "Alibaba Token Plan"
+billing = "subscription"
 pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
@@ -44,6 +48,8 @@ expect = "api"
 # Kilo Gateway instead and needs prepaid credits.
 [[auth.routes]]
 models = "xiaomi-token-plan-sgp/"
+name = "Xiaomi Token Plan (Singapore)"
+billing = "subscription"
 pattern = "^\\s*[●•]\\s+Xiaomi Token Plan \\(Singapore\\)\\s+(\\S+)\\s*$"
 expect = "api"
 
@@ -51,22 +57,30 @@ expect = "api"
 # zai-coding-plan/... models depends on the installed Kilo and configured account.
 [[auth.routes]]
 models = "zai-coding-plan/"
+name = "Z.AI Coding Plan"
+billing = "subscription"
 pattern = "^\\s*[●•]\\s+Z\\.AI Coding Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
 # The default GLM route uses the separate Zhipu AI Coding Plan login.
 [[auth.routes]]
 models = "zhipuai-coding-plan/"
+name = "Zhipu AI Coding Plan"
+billing = "subscription"
 pattern = "^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$"
 expect = "api"
 
 [[auth.routes]]
 models = "kilo/"
+name = "Kilo Gateway"
+billing = "pay per token"
 pattern = "^\\s*[●•]\\s+Kilo Gateway\\s+(\\S+)\\s*$"
 expect = "oauth"
 
 # Direct Anthropic uses Kilo's native API login; never route it through the Kilo Gateway.
 [[auth.routes]]
 models = "anthropic/"
+name = "Anthropic"
+billing = "pay per token"
 pattern = "^\\s*[●•]\\s+Anthropic\\s+(\\S+)\\s*$"
 expect = "api"

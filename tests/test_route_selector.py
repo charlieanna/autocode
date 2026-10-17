@@ -175,15 +175,18 @@ class SelectionTests(unittest.TestCase):
         known = [dict(c, probe="known") for c in gateway_only()]
         self.assertEqual([], selector.select(ALL_ROLES, known)["probe"])
 
-    def test_a_level_the_model_does_not_advertise_is_never_invented(self):
+    def test_the_tables_level_is_used_unless_discovery_reports_the_model_lacks_it(self):
         advertised = [dict(c, levels=["low", "medium", "high"]) for c in coding_plans()]
         routes = selector.select(ALL_ROLES, advertised)["routes"]
         self.assertEqual("medium", routes["requirements"]["reasoning_effort"])
         self.assertEqual("high", routes["plan_reviewer"]["reasoning_effort"])
-        silent = coding_plans()  # discovery could not read any level list
+        # Discovery could not read any level list: the table's level stands, because
+        # it is the level AutoCode's qualifying runs used on that model.
+        silent = coding_plans()
         routes = selector.select(ALL_ROLES, silent)["routes"]
-        self.assertIsNone(routes["requirements"]["reasoning_effort"])
-        partial = [dict(c, levels=["low"]) for c in coding_plans()]  # advertises only low
+        self.assertEqual("medium", routes["requirements"]["reasoning_effort"])
+        # Discovery reports the model lacks the table's level: the model's own default.
+        partial = [dict(c, levels=["low"]) for c in coding_plans()]
         routes = selector.select(ALL_ROLES, partial)["routes"]
         self.assertIsNone(routes["requirements"]["reasoning_effort"])
 

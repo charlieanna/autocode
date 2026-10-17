@@ -52,6 +52,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Route discovery (#1426 steps 4-5): reading a tool's own local listings - `kilo models` with
+  `kilo auth list`, `opencode models` with `opencode auth list` - into the candidate list the
+  automatic selector consumes, with no model calls and no credentials touched. A configured
+  tool's `[auth]` routes now also carry the login's display `name` and how it `billing`s
+  (subscription or pay per token); a model no connected login can bill is never offered. A
+  command template's `{effort}` arguments (Kilo's `--variant`) are omitted when a route has no
+  reasoning level, instead of passing an empty `--variant ""`. Verified in-process against the
+  real kilo 7.8.3 and opencode logins on the build machine: discovery plus the Step-7 selector
+  reproduce the live glm53-mimo family split from the account state alone.
 - The automatic route selector (#1426 step 7): one deterministic function from the models a tool's
   connected accounts actually offer to one route per role, or a stop that names what is missing in
   account terms. A model is eligible only when the new dated qualification table
