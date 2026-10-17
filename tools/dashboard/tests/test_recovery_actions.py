@@ -19,6 +19,7 @@ class RecoveryActionTests(unittest.TestCase):
     action = fixtures.RegistryInterventionTests.action
 
     def prepare(self, kind, **fields):
+        # A card action names its exact flags in args (#730); the dashboard never maps kinds.
         action = {"id": kind, "kind": kind, "label": "Reviewed recovery", "effect": "Keeps history", **fields}
         self.card = {"version": 1, "status": "PAUSED_REQUESTED", "token": "recovery-v1:exact", "actions": [action]}
         self.status.update(status="PAUSED_REQUESTED", view={"recovery": self.card})
@@ -26,7 +27,7 @@ class RecoveryActionTests(unittest.TestCase):
         return {"recovery_token": self.card["token"], "recovery_action": kind}
 
     def check(self, kind, tail, **fields):
-        payload = self.prepare(kind, **fields)
+        payload = self.prepare(kind, args=tail, **fields)
         before = (self.run / "state.json").read_bytes()
         with patch.object(self.console.pool, "submit", wraps=self.console.pool.submit) as submit:
             result = self.action("recover_pause", **payload)
@@ -106,8 +107,29 @@ class RecoveryActionTests(unittest.TestCase):
     def test_repeated_failure_button_grants_an_explicit_attempt(self):
         self.check("retry_failed_stage", ["--resume-paused", "--retry-failed-stage"])
 
+    def test_an_action_the_dashboard_has_never_seen_runs_exactly_its_named_flags(self):
+        self.check("retry_future", ["--resume-paused", "--retry-future", "M4"])
+
+    def test_an_action_without_well_formed_flags_runs_nothing(self):
+        for args in (
+            None,
+            [],
+            "--resume-paused",
+            ["resume"],
+            ["--resume-paused", ""],
+            ["--resume-paused", 3],
+            ["--resume-paused", "--run-dir", "/elsewhere"],
+            ["--resume-paused", "--workspace", "/elsewhere"],
+            ["--resume-paused", "--expected-recovery-token", "forged"],
+        ):
+            with self.subTest(args=args):
+                payload = self.prepare("resume", **({} if args is None else {"args": args}))
+                with self.assertRaisesRegex(ValueError, "does not run"):
+                    self.action("recover_pause", **payload)
+        self.assertEqual([], self.console.action_log(self.workspace, self.run))
+
     def test_stale_token_action_removal_unavailable_status_and_nonexecution_actions_refuse(self):
-        payload = self.prepare("resume")
+        payload = self.prepare("resume", args=["--resume-paused"])
         self.console.view(self.workspace, self.run)  # prime cached status
         self.card["token"] = "new-token"
         self.save("status.json", self.status)
@@ -127,7 +149,7 @@ class RecoveryActionTests(unittest.TestCase):
         self.assertEqual([], self.console.action_log(self.workspace, self.run))
 
     def test_busy_workspace_refuses_duplicate_recovery_and_client_cannot_supply_flags(self):
-        payload = self.prepare("retry_builder", milestone_ids=["M1"])
+        payload = self.prepare("retry_builder", milestone_ids=["M1"], args=["--resume-paused", "--retry-builder", "M1"])
         self.console.workspace_busy.add(str(self.workspace))
         with self.assertRaisesRegex(ValueError, "already queued or running"):
             self.action("recover_pause", **payload)
@@ -169,7 +191,7 @@ class RecoveryActionTests(unittest.TestCase):
         self.assertEqual([], self.console.action_log(self.workspace, self.run))
 
     def test_projected_card_is_from_supported_status_and_absent_on_inspection_failure(self):
-        self.prepare("resume")
+        self.prepare("resume", args=["--resume-paused"])
         self.state["recovery"] = {"token": "private-stale"}
         self.write_state()
         view = self.console.view(self.workspace, self.run)

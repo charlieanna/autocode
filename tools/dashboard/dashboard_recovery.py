@@ -1,8 +1,9 @@
-"""Map exact, freshly inspected recovery cards to existing CLI controls."""
+"""Run the exact CLI controls a freshly inspected recovery card names."""
 
 from copy import deepcopy
 
-EXECUTION_ACTIONS = {"resume", "abandon", "retry_builder", "retry_job", "retry_report", "retry_failed_stage"}
+# The dashboard binds the run and the inspected pause itself; a card cannot rebind them.
+BOUND_FLAGS = {"--run-dir", "--workspace", "--expected-recovery-token"}
 
 
 def projection(data):
@@ -52,36 +53,17 @@ def projection(data):
 
 
 def command(card, selected):
-    """Construct an argument vector from the runner's card, never client arguments."""
-    kind = selected.get("kind")
-    if kind not in EXECUTION_ACTIONS:
+    """Run the flags the runner's card names for this action (#730), never client arguments."""
+    args = selected.get("args")
+    if (
+        not isinstance(args, list)
+        or not args
+        or any(not isinstance(word, str) or not word for word in args)
+        or not args[0].startswith("--")
+        or BOUND_FLAGS.intersection(word.split("=", 1)[0] for word in args)
+    ):
         raise ValueError("This card action does not run a recovery command")
-    args = ["--no-chat", "--expected-recovery-token", card["token"]]
-    if kind == "abandon":
-        attempt = selected.get("attempt_id")
-        if not isinstance(attempt, str) or not attempt:
-            raise ValueError("The interrupted attempt is unavailable")
-        return [*args, "--abandon-stage", attempt]
-    args.append("--resume-paused")
-    if kind == "retry_builder":
-        members = selected.get("milestone_ids")
-        if not isinstance(members, list) or not members or any(not isinstance(mid, str) or not mid for mid in members):
-            raise ValueError("The stopped Builder task is unavailable")
-        for member in members:
-            args.extend(["--retry-builder", member])
-    elif kind == "retry_job":
-        retry_token = selected.get("job_retry_token")
-        if not isinstance(retry_token, str) or not retry_token:
-            raise ValueError("The inspected failure token is unavailable")
-        args.extend(["--retry-failed-stage", "--job-retry-token", retry_token])
-    elif kind == "retry_report":
-        attempt = selected.get("attempt_id")
-        if not isinstance(attempt, str) or not attempt:
-            raise ValueError("The rejected report is unavailable")
-        args.extend(["--retry-report", attempt])
-    elif kind == "retry_failed_stage":
-        args.append("--retry-failed-stage")
-    return args
+    return ["--no-chat", "--expected-recovery-token", card["token"], *args]
 
 
 class RecoveryActionsMixin:

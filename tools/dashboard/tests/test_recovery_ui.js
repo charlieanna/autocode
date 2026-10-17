@@ -25,7 +25,7 @@ vm.runInContext(source.slice(source.indexOf('function runProjectWorkspace('),sou
 assert.equal(context.runProjectWorkspace({run:'/owned/fixture/run',workspace:'/owned/worktree',project_workspace:'/owned/project'}),'/owned/project','An explicit project identity takes precedence over its execution worktree');
 assert.equal(context.runProjectWorkspace({run:'/owned/fixture/run',workspace:'/owned/worktree'}, {conversations:[{attachment:{status:'linked',run:'/owned/fixture/run',project_workspace:'/owned/project'}}]}),'/owned/project','A linked conversation retains its original project identity');
 const all=root=>[root,...root.children.flatMap(all)],text=root=>all(root).map(e=>e.textContent).join(' ');
-const actions=['resume','abandon','retry_builder','retry_job','retry_report','retry_failed_stage'].map(kind=>({id:kind,kind,label:kind,effect:'The exact inspected action.'}));
+const actions=['resume','abandon','retry_builder','retry_job','retry_report','retry_failed_stage'].map(kind=>({id:kind,kind,label:kind,effect:'The exact inspected action.',args:['--resume-paused']}));
 const recovery={version:1,token:'exact',status:'PAUSED_REQUESTED',title:'Task paused',what_happened:'The current step stopped.',retained:'Saved plan and history remain.',failure_groups:[],actions:[{id:'inspect',kind:'inspect',label:'Inspect saved work',effect:'Read only.'},...actions,{id:'feedback',kind:'feedback',label:'Explain what should change',effect:'Draft information.'}]};
 const run={run:'/owned/fixture/run',workspace:'/owned/fixture',status:recovery.status,interventions:{mode:'capable',recovery}};
 context.fixture=run;vm.runInContext('latestRun=fixture',context);
@@ -71,6 +71,24 @@ context.openWorkspaceSetup=()=>calls.push(['setup']);
 const environment=new Element('div');context.renderRecoveryCard(environment,{...run,status:'PAUSED_TRANSPORT_CHANGED'},{...recovery,cause:'PAUSED_TRANSPORT_CHANGED',actions:[]});
 all(environment).find(e=>e.dataset.setupRecovery==='true').onclick();assert.deepEqual(calls.at(-1),['setup']);
 assert.match(text(environment),/task stays paused/);
+
+// Execution follows the runner's named flags, never a dashboard list of kinds (#730).
+const named={...recovery,token:'named',actions:[
+ {id:'retry_future',kind:'retry_future',label:'Future retry',effect:'Runs the flags the runner named.',args:['--resume-paused','--retry-future']},
+ {id:'resume',kind:'resume',label:'Resume',effect:'Names no command.'},
+]};
+context.namedRun={...run,interventions:{...run.interventions,recovery:named}};vm.runInContext('latestRun=namedRun;taskReadError="";',context);
+const namedHost=new Element('div');context.renderRecoveryCard(namedHost,context.namedRun,named);
+const future=all(namedHost).find(e=>e.dataset.recoveryAction==='retry_future'),bare=all(namedHost).find(e=>e.dataset.recoveryAction==='resume');
+assert.equal(future.disabled,true,'An action naming flags waits for inspection like any execution control');
+assert.notEqual(bare.disabled,true,'An action naming no flags is not an execution control');
+assert.doesNotMatch(bare['aria-describedby'],/recovery-card-inspection/);
+const namedInspection=all(namedHost).find(e=>e.tag==='details');namedInspection.open=true;namedInspection.listeners.toggle();
+const sent=calls.length;future.onclick();
+assert.equal(calls.length,sent+1);assert.equal(calls.at(-1)[1],'recover_pause');
+assert.deepEqual({...calls.at(-1)[2]},{recovery_token:'named',recovery_action:'retry_future'},'An unfamiliar action runs by its id; the server reads its flags from fresh status');
+bare.onclick();assert.equal(calls.length,sent+1,'A kind without named flags cannot submit a recovery command');
+console.log('Recovery execution follows the card args, not a client list of action kinds.');
 
 // A native summary click changes .open before its queued toggle event. Exercise
 // the shipped disclosure and both renderers across that deferred event boundary.

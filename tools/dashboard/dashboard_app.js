@@ -3114,7 +3114,8 @@ function renderRecoveryCard(host,run,recovery){
   const actions=card('','lifecycle-actions'),mutations=[];
   for(const item of recovery.actions||[]){
     if(item.kind==='decision'&&requestInfo?.group!=='attention')continue;
-    const execute=['resume','abandon','retry_builder','retry_job','retry_report','retry_failed_stage'].includes(item.kind);
+    // The runner names the exact flags an action runs; the dashboard never maps kinds to commands (#730).
+    const execute=Array.isArray(item.args)&&item.args.length>0;
     const control=focusKey(button(item.label,()=>{
       if(execute){
         const current=latestRun?.run===run.run?latestRun:run;
