@@ -170,9 +170,11 @@ class VariantOmissionTests(unittest.TestCase):
 
     def test_bad_route_names_and_billings_are_refused(self):
         with self.assertRaisesRegex(ValueError, "name"):
-            command._validate_auth(
-                {"command": ["x"], "routes": [{"models": "a/", "pattern": "(a)", "expect": "api", "name": " "}]}
-            ),
+            (
+                command._validate_auth(
+                    {"command": ["x"], "routes": [{"models": "a/", "pattern": "(a)", "expect": "api", "name": " "}]}
+                ),
+            )
         with self.assertRaisesRegex(ValueError, "billing"):
             command._validate_auth(
                 {"command": ["x"], "routes": [{"models": "a/", "pattern": "(a)", "expect": "api", "billing": "free"}]}
@@ -191,7 +193,13 @@ class AutoSelectConfigureTests(unittest.TestCase):
 
         test_planning.PlanningTests.setUp(self)
         for name in ("planning", "milestones", "autopilot", "support", "runner"):
-            setattr(self, name, test_planning.__dict__.get(name) or __import__(f"autocode_{name}" if name != "runner" else "autocode") if name != "runner" else __import__("autocode"))
+            setattr(
+                self,
+                name,
+                test_planning.__dict__.get(name) or __import__(f"autocode_{name}" if name != "runner" else "autocode")
+                if name != "runner"
+                else __import__("autocode"),
+            )
         self.planning = test_planning.planning
         self.milestones = test_planning.milestones
         self.autopilot = test_planning.autopilot
@@ -221,9 +229,7 @@ class AutoSelectConfigureTests(unittest.TestCase):
     def gateway_found(self):
         return {
             "tool": "opencode",
-            "accounts": [
-                {"name": "Kilo Gateway", "mode": "oauth", "billing": "pay per token", "prefixes": ["kilo/"]}
-            ],
+            "accounts": [{"name": "Kilo Gateway", "mode": "oauth", "billing": "pay per token", "prefixes": ["kilo/"]}],
             "candidates": [
                 {
                     "model": model,
@@ -249,9 +255,7 @@ class AutoSelectConfigureTests(unittest.TestCase):
         self.assertEqual("kilo/z-ai/glm-5.3", settings["roles"]["glm"]["model"])
         self.assertEqual("kilo/openai/gpt-6-astra", settings["roles"]["astra"]["model"])
         self.assertEqual("auto_selected", settings["route_origins"]["terra"])
-        self.assertEqual(
-            "kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["routes"]["terra"]["model"]
-        )
+        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["routes"]["terra"]["model"])
         self.assertIn("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["probe"])
 
     def test_a_role_flag_wins_over_the_selection(self):

@@ -583,9 +583,7 @@ def render_selection(result: dict, found: dict) -> str:
         lines.append(f"  login: {account['name']} ({account['mode']}, {billing}) serves {prefixes}")
     lines.append("")
     chosen = result["routes"]
-    connected = {
-        model_identity.identity(candidate["model"]): candidate for candidate in found["candidates"]
-    }
+    connected = {model_identity.identity(candidate["model"]): candidate for candidate in found["candidates"]}
     for role in route_selector.PIPELINE_ROLES:
         if role not in chosen:
             continue
@@ -628,13 +626,13 @@ def cli(argv: list[str]) -> int:
         # the selector is a pure function; neither launches a model.
         try:
             try:
+                from . import autocode_providers
                 from . import autocode_route_discovery as discovery
                 from . import autocode_route_selector as route_selector
-                from . import autocode_providers
             except ImportError:
+                import autocode_providers
                 import autocode_route_discovery as discovery
                 import autocode_route_selector as route_selector
-                import autocode_providers
             name = args.provider or autocode_providers.default_name()
             provider = autocode_providers.resolve(name)
             found = discovery.discover(provider, args.workspace)

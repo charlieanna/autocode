@@ -504,7 +504,14 @@ class SelectionPreflightTests(unittest.TestCase):
             kwargs["directory"].mkdir(parents=True, exist_ok=True)
             rows = events_by_model[model]
             (kwargs["directory"] / "events.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-            return {"exit_code": 0, "timed_out": False, "report": None, "rows": rows, "report_error": None, "metrics": {}}
+            return {
+                "exit_code": 0,
+                "timed_out": False,
+                "report": None,
+                "rows": rows,
+                "report_error": None,
+                "metrics": {},
+            }
 
         return execute
 

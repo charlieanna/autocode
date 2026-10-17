@@ -287,7 +287,14 @@ def _selected_efforts(routes) -> dict:
 
 
 def check(
-    runner, state: RunState, run_dir, workspace, *, timeout=TIMEOUT_SECONDS, checkpoint=None, before_probe=None,
+    runner,
+    state: RunState,
+    run_dir,
+    workspace,
+    *,
+    timeout=TIMEOUT_SECONDS,
+    checkpoint=None,
+    before_probe=None,
     selection=None,
 ) -> bool:
     """Run admitted, charged probes; unbound legacy passes are probed again.

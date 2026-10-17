@@ -461,7 +461,12 @@ class SelectionViewTest(unittest.TestCase):
         one_family = {
             "tool": "kilocode",
             "accounts": [
-                {"name": "Z.AI Coding Plan", "mode": "api", "billing": "subscription", "prefixes": ["zai-coding-plan/"]},
+                {
+                    "name": "Z.AI Coding Plan",
+                    "mode": "api",
+                    "billing": "subscription",
+                    "prefixes": ["zai-coding-plan/"],
+                },
             ],
             "candidates": [
                 {
@@ -479,8 +484,9 @@ class SelectionViewTest(unittest.TestCase):
         self.assertIn("Connect a second model family", text)
 
     def test_json_mode_carries_the_result_and_the_accounts(self):
-        import autocode_route_discovery as discovery
         import json as jsonlib
+
+        import autocode_route_discovery as discovery
 
         out = io.StringIO()
         with patch.object(discovery, "discover", return_value=self.FOUND):
