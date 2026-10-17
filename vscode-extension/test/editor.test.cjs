@@ -23,6 +23,24 @@ const connectionRows = [
   { id: 'company', label: 'Company', connection_status: 'not_checked', detail: 'Installed', actions: [] },
 ];
 
+test('AutoCode setup is offered without Kilo and opens only the core setup terminal', async (t) => {
+  const direct = { id: 'autocode', label: 'AutoCode · Direct connection', connection_status: 'setup_required',
+    detail: 'No external coding agent required', actions: [{ id: 'setup', label: 'Set up AutoCode', next_command: ['connections', 'setup'] }] };
+  t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ version: 1, connections: [direct] }) }));
+  const terminal = t.mock.method(host.vscode.window, 'createTerminal', () => ({ show() {} }));
+  const connections = new ConnectionsPanel(host.workspaceState);
+  t.after(() => connections.dispose());
+  await connections.show();
+  const panel = host.panels.at(-1);
+  panel.webview.receive({ type: 'select', provider: 'autocode' }); await flush();
+  assert.ok(panel.webview.messages.at(-1).error.includes('Finish'));
+  panel.webview.receive({ type: 'action', provider: 'autocode', action: 'setup' }); await flush();
+  const options = terminal.mock.calls[0].arguments[0];
+  assert.equal(options.shellPath, 'autocode');
+  assert.deepEqual(options.shellArgs, ['connections', 'setup']);
+  assert.equal(host.config.get('provider'), undefined, 'setup does not silently replace the selected backend');
+});
+
 test('connections delegates login using only the core offer and no shell text', async (t) => {
   const calls = [];
   t.mock.method(cli, 'invoke', async (_settings, argv) => {
@@ -50,7 +68,7 @@ test('connections delegates login using only the core offer and no shell text', 
 test('connection switching restores Kilo routes and cannot reroute an existing chat', async (t) => {
   t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({ version: 1, connections: connectionRows }) }));
   host.config.set('provider', 'kilocode');
-  const routes = ['--requirements-model', 'zai-coding-plan/glm-5.3', '--astra-model=xiaomi-token-plan-sgp/mimo-v2.6-pro', '--pin-model-role', 'astra'];
+  const routes = ['--requirements-model', 'zai-coding-plan/glm-5.3', '--astra-model=xiaomi-token-plan-sgp/mimo-v2.6-pro', '--pin-model-role', 'astra', '--role-transport', 'terra=companytool', '--allow-uncontained-tools'];
   host.config.set('extraOptions', ['--max-cost-usd', '3', ...routes]);
   const storage = new Map();
   const connections = new ConnectionsPanel({ get: (key) => storage.get(key), update: async (key, value) => { storage.set(key, value); } });

@@ -14,8 +14,10 @@ import shutil
 import subprocess
 
 try:
+    from . import autocode_direct_config as direct
     from .providers import command
 except ImportError:
+    import autocode_direct_config as direct
     from providers import command
 
 BUILTINS = {
@@ -35,6 +37,7 @@ def parser():
     check.add_argument("--json", action="store_true")
     login = actions.add_parser("login", help="Run the backend's own interactive sign-in in this terminal")
     login.add_argument("--provider", required=True)
+    actions.add_parser("setup", help="Configure AutoCode's direct API/Bedrock connection in this terminal")
     return result
 
 
@@ -53,6 +56,8 @@ def _definition(name):
 
 def connection_view(name, *, check=False):
     """One additive, JSON-safe connection view with core-owned action argv."""
+    if name == "autocode":
+        return direct.describe(check=check)
     row = {
         "id": name,
         "label": name,
@@ -139,7 +144,7 @@ def connection_view(name, *, check=False):
 
 def view():
     """Discover connection metadata only; no backend subprocesses or model calls."""
-    names = set(BUILTINS)
+    names = {*BUILTINS, "autocode"}
     root = command.user_config_path("discovery").parent
     names.update(path.stem for path in root.glob("*.toml") if command._NAME.fullmatch(path.stem))
     return {"version": 1, "connections": [connection_view(name) for name in sorted(names)]}
@@ -147,6 +152,12 @@ def view():
 
 def cli(argv):
     args = parser().parse_args(argv)
+    if args.action == "setup":
+        try:
+            return direct.setup()
+        except (KeyboardInterrupt, EOFError):
+            print("\nAutoCode setup cancelled.")
+            return 130
     if args.action == "list":
         result = view()
     elif args.action == "check":

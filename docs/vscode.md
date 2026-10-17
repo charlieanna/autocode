@@ -146,3 +146,18 @@ options are saved separately, so switching back to Kilo restores its token-plan
 routes. Existing chats retain their saved backend, models and budgets. Company
 providers such as GoCode appear when registered; their optional connection
 commands are described in [Providers](providers.md#connection-setup-and-company-backends).
+
+### No Kilo or OpenCode installed
+
+The **AutoCode · Direct connection** card is always available in Connections.
+Choose **Set up AutoCode** to select MiMo, Z.ai, OpenAI or Claude and enter its
+API endpoint/key in a terminal, then refresh Connections. **Use for new chats** is enabled after
+local setup is complete; it does not mean live model access was verified.
+See
+[AutoCode direct connections](providers.md#autocode-direct-connections-issue-1493)
+for credential storage, protocol support and qualification limits.
+
+Credentials are never entered into the chat or its webview. Existing chats keep
+their saved backend. Model overrides, explicit external role transports and
+backend-specific containment options are kept with their original backend when
+switching connections, so Kilo settings do not become direct API settings.
