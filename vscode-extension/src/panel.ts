@@ -424,6 +424,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 const chatMode = ${chat};
+const initialWebviewState = vscode.getState?.() || {};
 let chatEnvelope = null;
 const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
@@ -644,7 +645,12 @@ function updateActionButton() {
 window.addEventListener('message', (event) => {
   const data = event.data;
   if (data && data.type === 'state') render(data.state);
-  if (data && data.type === 'chat') renderChat(data);
+  if (data && data.type === 'chat') {
+    if (data.persistSelection) {
+      vscode.setState?.({ ...(vscode.getState?.() || {}), selectedRun: data.selectedRun || null });
+    }
+    renderChat(data);
+  }
   if (data && data.type === 'sent' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
     const field = document.getElementById('message');
     if (field.value === data.text) field.value = '';
@@ -772,8 +778,7 @@ function appendFormatted(parent, nodes) {
 
 if (chatMode) {
   const disclosure = document.getElementById('usage-details');
-  const saved = vscode.getState() || {};
-  disclosure.open = saved.modelDetailsOpen !== false;
+  disclosure.open = initialWebviewState.modelDetailsOpen !== false;
   disclosure.addEventListener('toggle', () => {
     vscode.setState({ ...(vscode.getState() || {}), modelDetailsOpen: disclosure.open });
   });
@@ -793,7 +798,11 @@ if (chatMode) {
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
 }
 
-vscode.postMessage({ type: 'ready' });
+vscode.postMessage({
+  type: 'ready',
+  hasSelectedRun: chatMode && Object.prototype.hasOwnProperty.call(initialWebviewState, 'selectedRun'),
+  selectedRun: chatMode ? initialWebviewState.selectedRun || null : null,
+});
 </script>
 </body>
 </html>`;

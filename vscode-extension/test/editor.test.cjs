@@ -260,10 +260,11 @@ function chatView(base = approvalView(), kind = 'feedback', context = 'chat-1') 
   } };
 }
 
-async function openChat(t, initial, selected = run) {
-  t.mock.timers.enable({ apis: ['setInterval'] });
+async function openChat(t, initial, selected = run, options = {}) {
+  if (!options.timersEnabled) t.mock.timers.enable({ apis: ['setInterval'] });
   let value = initial;
-  t.mock.method(controller, 'status', async () => structuredClone(value));
+  const chatController = options.controller || controller;
+  t.mock.method(chatController, 'status', async () => structuredClone(value));
   let receive;
   let visibility;
   const webview = {
@@ -272,14 +273,14 @@ async function openChat(t, initial, selected = run) {
     postMessage: async (data) => { webview.deliver?.(data); return true; },
   };
   const view = { visible: true, webview, onDidChangeVisibility: (callback) => { visibility = callback; }, onDidDispose() {} };
-  const saved = new Map();
-  const storage = { get: () => undefined, update: async (key, value) => { saved.set(key, value); } };
-  const chat = new ChatView(controller, storage, {
+  const saved = options.storageValues || new Map();
+  const storage = options.storage || { get: (key) => saved.get(key), update: async (key, value) => { saved.set(key, value); } };
+  let persisted = options.webviewState;
+  const chat = new ChatView(chatController, storage, {
     pickWorkspace: async () => run.workspace, confirmStart: async () => true, changed() {}, selected() {},
   });
   chat.resolveWebviewView(view);
   const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
-  let persisted;
   const sent = [];
   dom.window.acquireVsCodeApi = () => ({
     postMessage: (message) => { sent.push(message); receive(message); },
@@ -287,7 +288,8 @@ async function openChat(t, initial, selected = run) {
   });
   webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
   dom.window.eval(dom.window.document.querySelector('script').textContent);
-  chat.show(selected);
+  await flush();
+  if (selected !== false) chat.show(selected);
   await flush();
   t.after(() => { chat.dispose(); dom.window.close(); });
   return {
@@ -362,7 +364,37 @@ test('chat drafts survive polling, hidden view restoration and switching runs', 
   ui.type('other run draft');
   ui.chat.show(run); await flush();
   assert.equal(field.value, 'a draft for this run');
-  assert.equal(ui.saved.get('autocode.chat.run').runDir, run.runDir);
+  assert.equal(ui.webviewState.selectedRun.runDir, run.runDir);
+  assert.equal(ui.saved.get('autocode.chat.run'), undefined, 'selected runs no longer race through workspace state');
+});
+
+test('separate VS Code windows keep independent selected tasks and drafts', async (t) => {
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-window' };
+  const workspaceValues = new Map([['autocode.chat.run', run]]);
+  const workspaceStorage = {
+    get: (key) => workspaceValues.get(key),
+    update: async (key, value) => { workspaceValues.set(key, value); },
+  };
+  const firstController = new RunController(host.log);
+  const secondController = new RunController(host.log);
+  const first = await openChat(t, chatView(), run, { storage: workspaceStorage, controller: firstController });
+  const second = await openChat(t, chatView(), other, { storage: workspaceStorage, controller: secondController, timersEnabled: true });
+
+  first.type('Draft for the first VS Code window');
+  second.type('Draft for the second VS Code window');
+  assert.deepEqual(first.webviewState.selectedRun, run);
+  assert.deepEqual(second.webviewState.selectedRun, other);
+  assert.equal(first.webviewState.drafts[`${run.workspace}\n${run.runDir}`], 'Draft for the first VS Code window');
+  assert.equal(second.webviewState.drafts[`${other.workspace}\n${other.runDir}`], 'Draft for the second VS Code window');
+  assert.equal(workspaceValues.get('autocode.chat.run'), undefined);
+
+  const restoredFirst = await openChat(t, chatView(), false, {
+    storage: workspaceStorage, controller: new RunController(host.log), webviewState: first.webviewState, timersEnabled: true,
+  });
+  assert.deepEqual(restoredFirst.chat.run, run);
+  assert.equal(restoredFirst.document.querySelector('#message').value, 'Draft for the first VS Code window');
+  assert.deepEqual(second.chat.run, other);
+  assert.equal(second.document.querySelector('#message').value, 'Draft for the second VS Code window');
 });
 
 test('composer model, variant and usage update on polling without losing the draft or open breakdown', async (t) => {
@@ -474,7 +506,7 @@ test('history replaces chat instead of splitting the sidebar and returning prese
   assert.deepEqual(visible(), ['autocode.chat']);
   assert.equal(focused, 'autocode.chat');
   assert.equal(ui.document.querySelector('#message').value, 'Keep this unsent plan feedback');
-  assert.deepEqual(ui.saved.get('autocode.chat.run'), run);
+  assert.deepEqual(ui.webviewState.selectedRun, run);
   assert.equal(launch.mock.callCount(), 0, 'browsing history must never advance a run');
 });
 

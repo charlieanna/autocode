@@ -9,6 +9,8 @@ interface ChatMessage {
   type?: string;
   text?: string;
   runKey?: string;
+  hasSelectedRun?: boolean;
+  selectedRun?: unknown;
   context?: string;
   decisionContext?: string;
   token?: string | null;
@@ -25,6 +27,9 @@ interface Actions {
 export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
   private run: RunRef | undefined;
+  private readonly legacyRun: RunRef | undefined;
+  private hasExplicitSelection = false;
+  private migratedLegacySelection = false;
   private status: StatusView | undefined;
   private error = "";
   private readError = "";
@@ -36,7 +41,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly timer: NodeJS.Timeout;
 
   constructor(private readonly controller: RunController, private readonly storage: vscode.Memento, private readonly actions: Actions) {
-    this.run = storage.get<RunRef>("autocode.chat.run");
+    // Keep the pre-multi-window selection only for one-time migration. The
+    // selected run now lives in this window's webview state; workspaceState is
+    // shared by windows opened on the same workspace.
+    this.legacyRun = storage.get<RunRef>("autocode.chat.run");
     const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
     this.timer = setInterval(() => void this.refresh(), seconds * 1000);
   }
@@ -55,14 +63,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   show(run?: RunRef): void {
     this.sequence++;
     this.run = run;
+    this.hasExplicitSelection = true;
     this.status = undefined;
     this.pendingBrief = "";
     this.error = "";
     this.readError = "";
-    void this.storage.update("autocode.chat.run", run);
     if (run) this.actions.selected(run);
     void this.focus();
-    this.post();
+    this.post(true);
     void this.refresh();
   }
 
@@ -75,10 +83,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
   private key(run = this.run): string { return run ? `${run.workspace}\n${run.runDir}` : ""; }
 
-  private post(): void {
+  private post(persistSelection = false): void {
     const busy = this.starting || this.busy.has(this.key());
     void this.view?.webview.postMessage({
       type: "chat", runKey: this.key(), busy, error: this.error || this.readError, pendingBrief: this.pendingBrief,
+      selectedRun: this.run ?? null, persistSelection,
       state: this.run && this.status ? stateFor(this.status, this.run, this.controller, busy) : null,
     });
   }
@@ -108,7 +117,23 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (message.type === "details") { if (this.run) await vscode.commands.executeCommand("autocode.openDetails", this.run); return; }
-    if (message.type === "ready" || message.type === "refresh") { await this.refresh(); return; }
+    if (message.type === "ready") {
+      if (!this.hasExplicitSelection) {
+        this.run = message.hasSelectedRun ? asRunRef(message.selectedRun) : this.legacyRun;
+      }
+      this.hasExplicitSelection = false;
+      if (!this.migratedLegacySelection) {
+        this.migratedLegacySelection = true;
+        await this.storage.update("autocode.chat.run", undefined);
+      }
+      this.sequence++;
+      this.status = undefined;
+      if (this.run) this.actions.selected(this.run);
+      this.post(true);
+      await this.refresh();
+      return;
+    }
+    if (message.type === "refresh") { await this.refresh(); return; }
     if (message.type === "new") { if (!this.starting) this.show(); return; }
     if (message.type !== "send" && message.type !== "take") return;
     if (message.runKey !== this.key() || this.starting || this.busy.has(this.key())) return;
@@ -166,14 +191,14 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (!workspace || !(await this.actions.confirmStart())) return;
       await this.controller.start(workspace, text, (run) => {
         this.run = run;
+        this.hasExplicitSelection = true;
         this.status = undefined;
         this.sequence++;
         this.pendingBrief = text;
-        void this.storage.update("autocode.chat.run", run);
         this.actions.selected(run);
         // Clear only the submitted draft, preserving a message typed meanwhile.
         void this.view?.webview.postMessage({ type: "sent", runKey: "", text });
-        this.post();
+        this.post(true);
       });
     } catch (error) { this.error = messageOf(error); }
     finally {
@@ -186,3 +211,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 }
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+function asRunRef(value: unknown): RunRef | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<RunRef>;
+  if (typeof candidate.workspace !== "string" || !candidate.workspace.trim()) return undefined;
+  if (typeof candidate.runDir !== "string" || !candidate.runDir.trim()) return undefined;
+  return { workspace: candidate.workspace, runDir: candidate.runDir };
+}

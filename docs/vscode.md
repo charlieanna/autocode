@@ -14,6 +14,10 @@ newline. Chat fills the sidebar, keeping the composer at the bottom. **New chat*
 starts another conversation; **History** switches to the Runs list so you can
 reopen one. **Back to Chat** returns to the current conversation and its draft.
 The selected conversation and each unsent draft survive reopening VS Code.
+When the same workspace is open in multiple VS Code windows, each window keeps
+its own selected run and drafts, so switching tasks in one window does not
+change the conversation shown in another. The Runs list in each window can
+still open any task registered for that workspace.
 
 The first status is **Understanding your request** while the core chooses the
 workflow (build, fix, review, design or discuss). Requirements gathering follows
