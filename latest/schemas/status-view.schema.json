@@ -26,7 +26,7 @@
         "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
         "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
         "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
-        "efficiency", "conversation"
+        "efficiency", "conversation", "chat"
       ],
       "properties": {
         "schema": {"type": "integer", "enum": [2], "description": "The view's version; it changes only if a field's meaning changes."},
@@ -161,6 +161,19 @@
         "job_report_recovery": {"type": ["object", "null"]},
         "efficiency": {"type": ["object", "null"]},
         "conversation": {"type": ["object", "null"]},
+        "chat": {
+          "type": "object",
+          "required": ["messages", "context", "input"],
+          "properties": {
+            "messages": {"type": "array", "items": {
+              "type": "object", "required": ["id", "role", "text"],
+              "properties": {"id": {"type": "string"}, "role": {"enum": ["user", "assistant"]}, "text": {"type": "string"}}
+            }},
+            "context": {"type": "string"},
+            "input": {"type": ["object", "null"], "required": ["kind", "label", "next_command"],
+              "properties": {"kind": {"enum": ["feedback", "follow_up"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
+          }
+        },
         "displayed_plan": {"type": "object", "description": "Present while a sealed plan is displayed for approval."},
         "approved_contract": {"type": "object", "description": "Present once a plan is approved."}
       }

@@ -16,7 +16,7 @@
         <link rel="prev" href="../reliability-campaign/">
       
       
-        <link rel="next" href="../agent-step/">
+        <link rel="next" href="../vscode/">
       
       
         
@@ -1487,6 +1487,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#chat-projection-for-ordinary-task-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat projection for ordinary task runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#core-requirements-conversations" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1672,6 +1683,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2002,6 +2041,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#chat-projection-for-ordinary-task-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat projection for ordinary task runs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#core-requirements-conversations" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2204,7 +2254,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b1a3e06f7093f468cdde17f843571a3e4ba0a4a8/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/d09539e51aa90aa4089eea9f883154cbda7ff0a6/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2339,6 +2389,28 @@ in <code>start_options</code>. A failed prerequisite pauses before paid dispatch
 visible in the additive <code>task_preflight</code> status field. See
 <a href="../task-preflight/">task-preflight.md</a> for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.</p>
+<h2 id="chat-projection-for-ordinary-task-runs">Chat projection for ordinary task runs<a class="headerlink" href="#chat-projection-for-ordinary-task-runs" title="Permanent link">&para;</a></h2>
+<p>The additive <code>view.chat</code> contains <code>messages</code> (stable <code>id</code>, <code>role</code>, <code>text</code>),
+an opaque <code>context</code>, and an optional <code>input</code> offer. Messages project existing
+human receipts and saved completed replies. At a follow-up, the prior reply is
+retained under that turn's historical record; display text grants no approval
+and does not become a new requirement. Status reads do not write a transcript.</p>
+<p><code>input</code> is null when free text is not an admitted action. Otherwise it names
+<code>kind</code> (<code>feedback</code> or <code>follow_up</code>), a display <code>label</code>, and <code>next_command</code> with
+one literal <code>MESSAGE</code> placeholder. A client replaces that argument with the
+person's text, checks that the command names the same workspace/run, and runs it
+as an argument array without a shell. The headless conformance client's
+<code>message_command()</code> implements this same parsing boundary.</p>
+<p>A client compares the displayed <code>context</code> with a fresh status before submitting;
+if it changed, retain the draft and ask the person to review the new checkpoint.
+The ordinary CLI independently rechecks admission when saving the action.
+Saving feedback or a follow-up launches no model. A button explicitly offering
+to send <strong>and continue</strong> may then follow the ordinary <code>needs.kind=continue</code>
+action. It may never infer a plan approval, answer another question or release
+an operational pause. Approval remains bound to the displayed plan token.
+Older cores without <code>chat</code> leave free-text input disabled for an existing run.</p>
+<p>This projection is separate from the explicit Requirements journal below:
+ordinary run clients do not create or drive a second conversation controller.</p>
 <h2 id="core-requirements-conversations">Core Requirements conversations<a class="headerlink" href="#core-requirements-conversations" title="Permanent link">&para;</a></h2>
 <p><code>TaskRun.start_conversation(workspace, text, request_id="first-message")</code> starts a
 core-owned journal and one ordinary task run. <code>attach_conversation(workspace,
@@ -2474,7 +2546,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/b1a3e06f7093f468cdde17f843571a3e4ba0a4a8/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/d09539e51aa90aa4089eea9f883154cbda7ff0a6/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3143,8 +3215,16 @@ null for a record saved before AutoCode kept it and for a workflow-policy approv
 history: an approval stays listed after a newer plan or a rejection replaces it, so read what
 is in force from <code>approved_contract</code> and <code>evidence.acceptance[].human_reviewed</code>. It is empty
 until the first record.</p>
-<p><code>routes</code> maps every configured role to the <code>model</code> and <code>engine</code> its next launch
-uses. <code>provider</code> names the provider those OpenCode-engine routes launch through
+<p><code>routes</code> maps every configured role to its saved <code>model</code> and <code>engine</code>, plus
+<code>reasoning_effort</code> (null when unspecified), resolved per-role <code>provider</code>, and
+<code>job</code> (its primary job's screen name from <code>autocode_roles</code>). These are configured
+assignments, not evidence a stage ran or a prediction of conditional routing or
+escalation. Several slots can serve the same job. The actual history is in
+<code>usage.accounting.attempts</code>: each attempt now also includes <code>job</code>, derived from
+its stage and workflow, alongside its recorded model and <code>launch_route</code>.
+Clients must keep configured assignments separate from actual attempts; changing
+a saved route does not rewrite an earlier attempt's model or reasoning effort.</p>
+<p>The top-level <code>provider</code> names the provider those OpenCode-engine routes launch through
 (<code>opencode</code>, <code>claude</code> for the <a href="../providers/#claude-code-provider">built-in Claude Code provider</a>,
 or a configured tool's name); it is null when every role runs on Codex. <code>route_assignments</code> lists, oldest first, every model a person named for a
 role after its quota ran out or its provider's content filter refused it: <code>kind</code> (always <code>route_assignment</code>), <code>role</code>, <code>job</code>,
