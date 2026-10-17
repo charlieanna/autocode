@@ -116,6 +116,7 @@ export interface StatusView {
   routes?: Record<string, ModelRoute> | null;
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
   recovery?: Record<string, unknown> | null;
+  liveness?: { kind?: string } | null;
   current_task?: { id?: string; objective?: string } | null;
   chat?: {
     messages: { id: string; role: string; text: string; streaming?: boolean }[];

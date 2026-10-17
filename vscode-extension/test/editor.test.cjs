@@ -771,6 +771,30 @@ test('requirements chat streams replies without an empty task dashboard and keep
   assert.equal(ui.document.querySelector('#message').value, 'It is just for me');
 });
 
+test('requirements chat offers Continue when no step is running instead of thinking forever', async (t) => {
+  const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
+    liveness: { kind: 'unknown' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`, chat: {
+      phase: 'requirements', context: 'stopped', input: null,
+      messages: [{ id: 'u1', role: 'user', text: 'A book app' }] } };
+  const ui = await openChat(t, value);
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const resume = [...ui.document.querySelectorAll('#app button')].find((button) => button.textContent === 'Continue');
+  assert.ok(resume, 'a stopped requirements step needs a way to continue');
+  resume.click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  assert.ok(!launch.mock.calls[0].arguments[1].includes('--approve-goal'));
+});
+
+test('requirements chat shows only Thinking while a step is running', async (t) => {
+  const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, chat: { phase: 'requirements', context: 'live', input: null,
+      messages: [{ id: 'u1', role: 'user', text: 'A book app' }] } };
+  const ui = await openChat(t, value);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(ui.document.querySelectorAll('#app button').length, 0);
+});
+
 test('requirements approval sends only the core-offered answer and never approves a build', async (t) => {
   const value = { status: 'WAITING_FOR_USER', done: false, pause_category: 'your_decision', pause_category_label: 'Your decision', needs: { kind: 'answer', resolver_token: 'bound-summary',
     questions: [{ id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' }] },

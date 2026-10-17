@@ -57,6 +57,8 @@ export interface PanelState {
   commandText: string;
   personOnly: boolean;
   taking: boolean;
+  /** This client is acting, or AutoCode reports a live model step. */
+  working: boolean;
   /** The plan the current token asks to approve, only when the view shows it. */
   plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[] } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
@@ -271,6 +273,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     commandText: safeCommandText(view, run, controller),
     personOnly: leavesForPerson(need),
     taking,
+    working: taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? ""),
     plan,
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
@@ -345,6 +348,7 @@ function emptyState(run: RunRef): PanelState {
     commandText: "",
     personOnly: false,
     taking: false,
+    working: false,
     plan: null,
     token: null,
     canApprove: true,
@@ -478,8 +482,14 @@ function render(state) {
         answers: { [review.question_id]: review.answer }, token: null,
         runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
       app.appendChild(approve);
-    } else if (state.needKind === 'continue') {
+    } else if (state.needKind === 'continue' && state.working) {
       app.appendChild(el('div', 'line', 'Thinking…'));
+    } else if (state.needKind === 'continue') {
+      // The step stopped between model calls; nothing will advance it unless asked.
+      const resume = el('button', null, 'Continue');
+      resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
+        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+      app.appendChild(resume);
     }
     return;
   }
