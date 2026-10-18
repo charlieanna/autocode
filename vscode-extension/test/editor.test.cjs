@@ -690,7 +690,7 @@ test('composer model, variant and usage update on polling without losing the dra
   const field = ui.document.querySelector('#message');
   field.focus(); field.setSelectionRange(5, 10);
   const details = ui.document.querySelector('#usage-details');
-  assert.equal(details.open, true, 'model details start expanded');
+  assert.equal(details.open, false, 'model details start collapsed');
   assert.match(ui.document.querySelector('#model-info').textContent, /Variant: medium.*zai-coding-plan\/glm-5.3.*Provider: kilocode/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /1,200 tokens.*\$0.0500.*est\./);
   const next = structuredClone(initial);
@@ -704,7 +704,7 @@ test('composer model, variant and usage update on polling without losing the dra
   assert.equal(ui.document.activeElement, field);
   assert.equal(field.value, 'Keep my unsent feedback');
   assert.equal(field.selectionStart, 5);
-  assert.equal(details.open, true);
+  assert.equal(details.open, false);
   ui.chat.show(); await flush();
   assert.match(ui.document.querySelector('#model-info').textContent, /when a run starts/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
@@ -743,8 +743,8 @@ test('all configured jobs render before use and polling keeps historical models 
 test('model details remember expansion across polling, draft edits and webview recreation', async (t) => {
   const ui = await openChat(t, chatView());
   const disclosure = ui.document.querySelector('#usage-details');
-  assert.equal(disclosure.open, true);
-  for (const open of [false, true]) {
+  assert.equal(disclosure.open, false);
+  for (const open of [true, false]) {
     disclosure.open = open;
     disclosure.dispatchEvent(new ui.window.Event('toggle'));
     ui.type('Keep both the draft and my display preference');
@@ -1022,4 +1022,37 @@ test('Kilo composer grows with text and keeps undo inside the webview', async (t
   field.dispatchEvent(new ui.window.KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
   await flush();
   assert.equal(submit.mock.callCount(), 0, 'newline and IME confirmation are not submissions');
+});
+
+test('chat renders decision card and sticky action strip without button restlessness on poll', async (t) => {
+  const ui = await openChat(t, approvalView());
+  const card = ui.document.querySelector('#app .decision-card');
+  assert.ok(card, 'decision card renders in app');
+  assert.equal(card.querySelector('.speaker').textContent, 'AutoCode');
+  assert.ok(card.querySelector('.message-content').textContent.includes('Plan to approve'));
+
+  const strip = ui.document.querySelector('#app #action-strip');
+  assert.ok(strip, 'action strip renders in app');
+  assert.equal(strip.querySelector('.action-prompt').textContent, 'AutoCode is waiting for you');
+  const actionButton = strip.querySelector('#take-action');
+  assert.equal(actionButton.textContent, 'Approve and build');
+
+  // Polling usage and telemetry must not recreate or move the action button
+  const pollView = structuredClone(approvalView());
+  pollView.usage = { accounting: { tokens: { input_tokens: 5000, output_tokens: 200 } } };
+  await ui.poll(pollView);
+  assert.equal(ui.document.querySelector('#take-action'), actionButton, 'polling usage preserves action button identity');
+});
+
+test('chat renders review criteria in decision card with sticky action strip', async (t) => {
+  const ui = await openChat(t, {
+    ...chatView(),
+    status: 'WAITING_FOR_USER',
+    needs: { kind: 'review', criteria: [{ id: 'AC1', criterion: 'All unit tests pass' }] },
+  });
+  const card = ui.document.querySelector('#app .decision-card');
+  assert.ok(card, 'decision card renders');
+  assert.ok(card.querySelector('.message-content').textContent.includes('All unit tests pass'));
+  assert.equal(ui.document.querySelector('#action-strip .action-prompt').textContent, 'AutoCode is waiting for you');
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Accept the reviewed criteria');
 });
