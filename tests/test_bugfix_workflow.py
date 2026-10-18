@@ -41,7 +41,9 @@ EXECUTION = ["orchestrator", "terra", "regression_proof", "sol", "astra_review"]
 
 
 class BugfixWorkflow(unittest.TestCase):
-    launch = test_subprocess.SubprocessFlow.launch
+    # These regression/protected-oracle flows exercise a fixed planning route,
+    # not automatic model selection or its runner-owned access probes.
+    launch = test_planning.JointFlow.launch
     saved = test_subprocess.SubprocessFlow.saved
     prepare = test_planning.JointFlow.prepare
     draft = test_planning.JointFlow.draft
