@@ -52,6 +52,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The automatic route selector (#1426 step 7): one deterministic function from the models a tool's
+  connected accounts actually offer to one route per role, or a stop that names what is missing in
+  account terms. A model is eligible only when the new dated qualification table
+  (`tools/autocode_route_qualification.json`) lists it for the role with the evidence that admitted
+  it — AutoCode's own runs qualify, a benchmark admits provisionally — and within a role the cheapest
+  qualified route wins (subscription before pay per token, proven access before a probe, then the
+  price table). Producer and checker families stay independent, no reasoning level is invented, and
+  the choice is recorded as the `auto_selected` origin in the route record. New Kilo Gateway price
+  rows (GLM 5.3, GPT-6 Sol, GPT-6 Astra, DeepSeek V4.1 Flash) price those routes. Not yet the
+  default for new runs: discovery and wiring are the next steps of #1426.
 - Requirements is a conversation in chat. In a spec-first run the Requirements agent answers the first message,
   whatever it says (a greeting or an off-topic question gets a short answer and a question about what to build),
   in its own words (`assistant_reply`). It keeps one provider session across your answers and streams its text to
