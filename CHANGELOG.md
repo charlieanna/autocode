@@ -20,6 +20,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Applied Pause requests survive deferred plan-approval normalization until explicit resume, retaining the pending proposal and saved evidence (#1561).
+
 - Malformed saved activity records no longer crash chat status or its provisional reply view (#1522).
 
 - Resolver blocker questions now offer a request-bound reply in task chat. Approved build plans can

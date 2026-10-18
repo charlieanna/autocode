@@ -120,6 +120,17 @@ def normalize_human_boundary(state: RunState, run_dir):
         state.pop("user_request", None)
         state["pending_questions"] = []
         return
+    pause = state.get("pause_intent") or {}
+    if pause and not pause.get("acknowledged_at"):
+        # A report may leave a proposal for adjudication at the same boundary
+        # that consumes a queued Pause. Keep both until explicit resume; an
+        # older writer may already have drifted the status back to RUNNING.
+        run_status.pause(
+            state,
+            "PAUSED_INTERVENTION",
+            state.get("stop_reason") or "Queued pause was applied; explicitly resume when ready.",
+        )
+        return
     if (state.get("active_stage") or state.get("uncertain_artifacts")) and (
         cast(dict, state.get(resolver_human.PRIVATE, {})).get("scope") != "operational_exhaustion"
     ):
