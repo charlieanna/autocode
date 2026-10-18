@@ -1035,6 +1035,88 @@ test('operational reply offer shows a usable composer without a false no-action 
   assert.ok(!ui.document.querySelector('#app').textContent.includes('No action the client can take'));
   ui.type('Leave this run blocked');
   assert.equal(ui.document.querySelector('#send-message').disabled, false);
+  assert.equal(ui.document.querySelector('#send-message').getAttribute('aria-label'), 'Send recovery reply');
+  assert.equal(ui.document.querySelector('#send-hint').textContent, 'Send recovery reply');
+});
+
+for (const surface of ['chat', 'Run details']) {
+  test(`durable Stop is explained in ${surface} without offering a resume`, async (t) => {
+    const view = {
+      status: 'PAUSED_INTERVENTION', done: false, needs: { kind: 'resume' }, next_command: null,
+      recovery: { category: 'stopped', title: 'Stopped at your request',
+        what_happened: 'The current step finished and saved. This conversation will launch no more stages.',
+        retained: 'Saved plan, messages and evidence remain available.',
+        actions: [{ kind: 'inspect', label: 'Inspect saved work' },
+          { kind: 'new_conversation', label: 'Start a new conversation' }] },
+    };
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    const text = ui.document.querySelector('#app').textContent;
+    for (const expected of ['Stopped at your request', 'launch no more stages', 'evidence remain available']) {
+      assert.ok(text.includes(expected), expected);
+    }
+    assert.ok(!text.includes('No action the client can take'));
+    assert.ok(!text.includes('I couldn’t finish this step'));
+    assert.equal(ui.document.querySelector('#take-action'), null);
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const execute = t.mock.method(host.vscode.commands, 'executeCommand', async () => {});
+    ui.document.querySelector('#start-new-conversation').click(); await flush();
+    if (surface === 'chat') assert.equal(ui.chat.run, undefined);
+    else assert.equal(execute.mock.calls.at(-1).arguments[0], 'autocode.startRun');
+    assert.equal(launch.mock.callCount(), 0, 'opening a fresh chat must launch no provider');
+  });
+
+  test(`${surface} applies polling interval changes without reload and disposes the listener`, async (t) => {
+    const view = { status: 'RUNNING', done: false, needs: { kind: 'continue' } };
+    const ui = surface === 'chat' ? await openChat(t, view) : await openPanel(t, view);
+    await host.vscode.workspace.getConfiguration('autocode').update('pollSeconds', 30);
+    const before = controller.status.mock.callCount();
+    t.mock.timers.tick(5000); await flush();
+    assert.equal(controller.status.mock.callCount(), before, 'the old five-second timer was replaced');
+    t.mock.timers.tick(25000); await flush();
+    assert.equal(controller.status.mock.callCount(), before + 1, 'the new interval polls once');
+    if (surface === 'chat') ui.chat.dispose();
+    else RunPanel.disposeAll();
+    await host.vscode.workspace.getConfiguration('autocode').update('pollSeconds', 1);
+    const disposed = controller.status.mock.callCount();
+    t.mock.timers.tick(30000); await flush();
+    assert.equal(controller.status.mock.callCount(), disposed, 'configuration cannot restart a disposed view');
+  });
+}
+
+test('chat distinguishes saved-attempt reconciliation from the separately confirmed resume', async (t) => {
+  const base = { status: 'PAUSED_PROVIDER_UNCERTAIN', done: false, needs: { kind: 'resume' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --abandon-stage 001/requirements-01`,
+    recovery: { actions: [{ kind: 'abandon', args: ['--abandon-stage', '001/requirements-01'],
+      label: 'Recover saved work', effect: 'Keep partial work. Resume is a separate action.' }] } };
+  const ui = await openChat(t, base);
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Recover saved work');
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Continue');
+  const launch = t.mock.method(cli, 'stream', async () => {
+    ui.setView({ ...base, status: 'PAUSED_STAGE_ABANDONED',
+      next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused`,
+      recovery: { actions: [{ kind: 'resume', args: ['--resume-paused'],
+        label: 'Continue from saved pause', effect: 'Launch the next step under the saved limits.' }] } });
+    return ok;
+  });
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'reconciliation cannot silently resume the run');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['--abandon-stage', '001/requirements-01', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.equal(prompt.mock.calls[0].arguments[0], 'Recover saved work?');
+  assert.match(prompt.mock.calls[0].arguments[1].detail, /Resume is a separate action/);
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Continue from saved pause');
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 2);
+  assert.equal(prompt.mock.calls[1].arguments[0], 'Continue from saved pause?');
+  assert.ok(launch.mock.calls[1].arguments[1].includes('--resume-paused'));
+});
+
+test('a recovery description cannot relabel a different named command', async (t) => {
+  const view = { status: 'PAUSED_PROVIDER_UNCERTAIN', done: false, needs: { kind: 'resume' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --abandon-stage 001/current`,
+    recovery: { actions: [{ kind: 'resume', args: ['--resume-paused'], label: 'Incorrect resume label' }] } };
+  const ui = await openChat(t, view);
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Continue');
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('Incorrect resume label'));
 });
 
 test('operational chat reply uses only the current named Resolver binding', async (t) => {
@@ -1056,6 +1138,24 @@ test('operational chat reply uses only the current named Resolver binding', asyn
     await assert.rejects(controller.sendMessage(view, run, 'reply', 'chat-1'), /Unsupported message action/);
   }
   assert.equal(launch.mock.callCount(), 1);
+});
+
+test('Run details points to the bound operational reply instead of claiming no action exists', async (t) => {
+  const view = chatView({ status: 'WAITING_FOR_USER', done: false, needs: {
+    kind: 'answer', resolver_scope: 'operational_exhaustion', resolver_request_id: 'req-1', resolver_token: 'current-token',
+  }, next_command: 'AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message "WHAT CHANGED"' });
+  view.chat.input = { kind: 'resolver_response', label: 'Send recovery reply',
+    next_command: 'AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE' };
+  const ui = await openPanel(t, view);
+  const text = ui.document.querySelector('#app').textContent;
+  assert.ok(text.includes('conversation can accept a recovery reply'));
+  assert.ok(!text.includes('No action the client can take'));
+  assert.equal(ui.document.querySelector('#take-action'), null);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const execute = t.mock.method(host.vscode.commands, 'executeCommand', async () => {});
+  ui.document.querySelector('#open-recovery-conversation').click(); await flush();
+  assert.deepEqual(execute.mock.calls.at(-1).arguments, ['autocode.openRun', run]);
+  assert.equal(launch.mock.callCount(), 0, 'navigation cannot submit a reply or launch a provider');
 });
 
 test('a CLI failure is surfaced instead of continuing as if the action succeeded', async (t) => {

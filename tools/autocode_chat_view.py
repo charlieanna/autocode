@@ -50,16 +50,27 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
     messages = history.messages(state, completed=public.get("done", False))
 
     need = public.get("needs") or {}
+    status = public.get("status")
+    resolver_reply = (
+        status == "WAITING_FOR_USER"
+        and need.get("kind") == "answer"
+        and need.get("resolver_scope") in ("blocker", "operational_exhaustion")
+        and need.get("resolver_request_id")
+        and need.get("resolver_token")
+        and not need.get("route")
+        and (state.get("user_request") or {}).get("kind") != "human_review"
+        and run_dir is not None
+        and workspace is not None
+    )
     text = requirements_chat.streaming_reply(state, run_dir)
     if text:
         messages.append({"id": "requirements-live", "role": "assistant", "text": text, "streaming": True})
-    elif need.get("kind") == "answer" and requirements_chat.enabled(state):
+    elif need.get("kind") == "answer" and not resolver_reply and requirements_chat.enabled(state):
         spoken = requirements_chat.reply(state)
         if not spoken:
             spoken = "\n\n".join(q.get("question", "") for q in need.get("questions", []))
         if spoken:
             messages.append({"id": "requirements-question", "role": "assistant", "text": spoken})
-    status = public.get("status")
     action = None
     # A completed stage record may remain as active_stage: use the public
     # checkpoint, never infer liveness from the presence of a retained attempt.
@@ -96,21 +107,21 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
                 ["autocode", "--workspace", str(workspace), "--run-dir", str(run_dir), flag, "MESSAGE"]
             ),
         }
-    if (
-        status == "WAITING_FOR_USER"
-        and need.get("kind") == "answer"
-        and need.get("resolver_scope") in ("blocker", "operational_exhaustion")
-        and need.get("resolver_request_id")
-        and need.get("resolver_token")
-        and not need.get("route")
-        and (state.get("user_request") or {}).get("kind") != "human_review"
-        and run_dir is not None
-        and workspace is not None
-    ):
+    if resolver_reply:
         question_text = "\n\n".join(
             "\n".join(filter(None, [q.get("question"), q.get("why"), *q.get("options", [])]))
             for q in need.get("questions", [])
         )
+        # Operational requests retain their full question/options in needs.
+        # Chat names the recorded cause and the reply's effect once, rather
+        # than repeating terminal recovery instructions as a requirements ask.
+        cause = (state.get("user_request") or {}).get("discovered")
+        if need.get("resolver_scope") == "operational_exhaustion" and isinstance(cause, str) and cause.strip():
+            question_text = cause.strip() + (
+                "\n\nYour saved work and evidence are kept. Reply with what changed so recovery can be reviewed. "
+                "Sending a reply does not authorize a retry or change your limits; the run stays paused until "
+                "you take its next recovery action."
+            )
         if question_text:
             messages.append(
                 {"id": "resolver-" + need["resolver_request_id"], "role": "assistant", "text": question_text}
