@@ -1403,3 +1403,174 @@ test('aborted launch when selection changes during workspace or confirmation (#1
   assert.equal(startCalled, false, 'start must not launch when selection changed during pre-launch');
   assert.deepEqual(ui.chat.run, runB, 'run B remains selected');
 });
+
+test('Chat #details toolbar button is disabled without an active run and enabled with one (#1543)', async (t) => {
+  const ui = await openChat(t, chatView(), run);
+  const detailsBtn = ui.document.querySelector('#details');
+  assert.equal(detailsBtn.disabled, false, '#details must be enabled when a run is active');
+
+  detailsBtn.click();
+  await flush();
+  assert.equal(ui.sent.filter((m) => m.type === 'details').length, 1);
+
+  // Switching to new chat disables #details
+  ui.chat.show();
+  await flush();
+  assert.equal(detailsBtn.disabled, true, '#details must become disabled on new chat');
+
+  // Clicking while disabled sends nothing
+  detailsBtn.click();
+  await flush();
+  assert.equal(ui.sent.filter((m) => m.type === 'details').length, 1);
+
+  // Switching back to active run enables #details again
+  ui.chat.show(run);
+  await flush();
+  assert.equal(detailsBtn.disabled, false, '#details must become enabled when run is active again');
+});
+
+test('Command palette run commands show "Select a run first." when no run is selected (#1543)', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const messages = [];
+  t.mock.method(host.vscode.window, 'showInformationMessage', (msg) => { messages.push(msg); });
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  await host.commands.get('autocode.openDetails')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.showCliCommand')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.continueRun')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.watchRun')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.openRun')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.takeAction')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+});
+
+test('autocode.watchRun toggles watching off/on, switches watched runs, and updates status bar immediately (#1543)', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let statusVisible = false;
+  let statusText = '';
+  const mockStatus = {
+    show() { statusVisible = true; },
+    hide() { statusVisible = false; },
+    dispose() {},
+    get text() { return statusText; },
+    set text(val) { statusText = val; },
+    command: undefined,
+    tooltip: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'status', async (target) => ({
+    status: 'RUNNING',
+    done: false,
+    needs: { kind: 'continue' },
+    progress: { headline: target.runDir.endsWith('other') ? 'Other running' : 'Main running' },
+  }));
+
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  const other = { ...run, runDir: '/ws/.autocode/runs/other' };
+
+  // 1. Open run: status bar is shown for run
+  await host.commands.get('autocode.openRun')(run);
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Main running'));
+
+  // 2. Watch/unwatch toggles watching off on same run
+  await host.commands.get('autocode.watchRun')(run);
+  assert.equal(statusVisible, false, 'status bar must hide immediately when unwatched');
+
+  // 3. active selection is preserved after unwatching
+  const copied = [];
+  t.mock.method(host.vscode.env.clipboard, 'writeText', async (text) => { copied.push(text); });
+  await host.commands.get('autocode.showCliCommand')();
+  assert.equal(copied.length, 1, 'active run target must be preserved for commands when unwatched');
+
+  // 4. Invoking watchRun again without arguments watches the active run
+  await host.commands.get('autocode.watchRun')();
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Main running'));
+
+  // 5. Switching watched run to other
+  await host.commands.get('autocode.watchRun')(other);
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Other running'));
+
+  // 6. Unwatching other
+  await host.commands.get('autocode.watchRun')(other);
+  assert.equal(statusVisible, false);
+});
+
+test('delayed status resolution does not re-show unwatched run or replace newly watched run (#1543)', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let statusVisible = false;
+  let statusText = '';
+  const mockStatus = {
+    show() { statusVisible = true; },
+    hide() { statusVisible = false; },
+    dispose() {},
+    get text() { return statusText; },
+    set text(val) { statusText = val; },
+    command: undefined,
+    tooltip: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+
+  let resolveMain;
+  t.mock.method(RunController.prototype, 'status', async (target) => {
+    if (target.runDir.endsWith('other')) {
+      return { status: 'RUNNING', done: false, progress: { headline: 'Other running' } };
+    }
+    return new Promise((resolve) => {
+      resolveMain = () => resolve({ status: 'RUNNING', done: false, progress: { headline: 'Main running' } });
+    });
+  });
+
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  // 1. Open run: status fetch starts and is pending
+  await host.commands.get('autocode.openRun')(run);
+  assert.equal(statusVisible, false, 'status should not be visible while pending');
+
+  // 2. Unwatch while status read is still in-flight
+  await host.commands.get('autocode.watchRun')(run);
+  assert.equal(statusVisible, false);
+
+  // 3. In-flight status resolves: must NOT show unwatched run
+  resolveMain();
+  await flush();
+  assert.equal(statusVisible, false, 'delayed status resolution must not re-show unwatched run');
+
+  // 4. Test switching watched runs during delayed status
+  const other = { ...run, runDir: '/ws/.autocode/runs/other' };
+  // Start in-flight for run again
+  await host.commands.get('autocode.watchRun')(run);
+  // Switch to other before main resolves
+  await host.commands.get('autocode.watchRun')(other);
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Other running'));
+
+  // Main resolves late: must NOT replace Other
+  resolveMain();
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Other running'), 'late resolution must not replace newer watched run');
+});
