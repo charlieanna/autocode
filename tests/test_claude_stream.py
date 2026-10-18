@@ -326,7 +326,7 @@ class FailClosedTests(TempMixin, unittest.TestCase):
             "authentication": (
                 [allowed, api_error("authentication_failed", "Invalid API key · Please run /login")],
                 {"api_error_status": 401},
-                "PAUSED_PROVIDER_UNCERTAIN",
+                "PAUSED_AUTH",
             ),
             "server": (  # a rate_limit_event arrives on every live call: a failure row must not read as one
                 [allowed, api_error("server_error", "API Error: 500")],
@@ -342,6 +342,10 @@ class FailClosedTests(TempMixin, unittest.TestCase):
                 self.assertEqual(1, code)
                 path = self.write(rows)
                 self.assertEqual(status, support.failure_status(path), rows[-1])
+                # An access probe can identify rejected authentication; a
+                # launched stage still requires partial-work reconciliation.
+                stage_status = "PAUSED_PROVIDER_UNCERTAIN" if name == "authentication" else status
+                self.assertEqual(stage_status, support.failure_status(path, record={"stage": "requirements_gather"}))
                 hint = provider_env.authentication_hint(rows, ["CLAUDE_CODE_OAUTH_TOKEN"])
                 self.assertEqual(name == "authentication", bool(hint))
         rows, _ = translate(sample(RUN)[:4])  # init, status, rate_limit_event with overageStatus "rejected"
@@ -469,7 +473,14 @@ class FailClosedTests(TempMixin, unittest.TestCase):
                 last = rows[-1]
                 self.assertEqual("turn.failed", last["type"])
                 self.assertIn("429", json.dumps([last["usage"], last["cost_usd"]]))
-                self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.write(rows)), last)
+                path = self.write(rows)
+                status = "PAUSED_AUTH" if name == "authentication" else "PAUSED_PROVIDER_UNCERTAIN"
+                self.assertEqual(status, support.failure_status(path), last)
+                self.assertEqual(
+                    "PAUSED_PROVIDER_UNCERTAIN",
+                    support.failure_status(path, record={"stage": "requirements_gather"}),
+                    last,
+                )
                 self.assertEqual(last["cost_usd"], autocode_usage.reported_cost(rows))  # still counted
 
     def test_an_api_key_source_stops_the_stage(self):
