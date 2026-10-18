@@ -13,6 +13,7 @@ import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, type CliResult } from "./core/cli";
 import {
   applyDecisions,
+  commandInputs,
   findUnsupplied,
   isAdvancing,
   openDecisions,
@@ -115,19 +116,20 @@ export class RunController {
    */
   plan(view: StatusView, run: RunRef): ActionPlan {
     const { argv, env, shown } = this.named(view, run);
+    const inputs = commandInputs(view, { argv, env });
     return {
       env,
       shown,
       advancing: isAdvancing(argv),
-      decisions: openDecisions(argv),
-      unsupplied: findUnsupplied(argv),
+      decisions: openDecisions(argv, inputs),
+      unsupplied: findUnsupplied(argv, inputs),
     };
   }
 
   /** The named action with a person's decisions filled in, ready to run. */
   prepare(view: StatusView, run: RunRef, answers: Record<string, string>): PreparedAction {
     const { argv, env } = this.named(view, run);
-    const filled = applyDecisions(argv, answers);
+    const filled = applyDecisions(argv, answers, commandInputs(view, { argv, env }));
     const advancing = isAdvancing(filled);
     // Existing runs own their saved backend, models and limits. Changing the
     // Connections selection for a new chat must not reroute a paused run.

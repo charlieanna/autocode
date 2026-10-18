@@ -725,6 +725,34 @@ missing original source or immutable caller binding offers inspection. A termina
 stop or dependency wait offers no recovery command. CLI gates still validate
 freshness and authority when a person executes any displayed command.
 
+For the exact finite total-time recovery, `needs.command_inputs` describes the
+person's numeric decision additively:
+
+```json
+{"id":"max_seconds","kind":"integer","flag":"--max-seconds","placeholder":"N",
+ "arg_index":2,"label":"Total active time (seconds)","current":2700,"elapsed":2800.5,
+ "minimum":2801,"maximum":9007199254740991}
+```
+
+The field is an array containing this one descriptor, and is offered only when
+the named action requires `--resume-paused --max-seconds N`. `arg_index` counts
+the arguments after removing the executable and owned `--run-dir`/`--workspace`
+pairs. The complete remaining command must be `--resume-paused --max-seconds N
+--expected-recovery-token -`, with the current `recovery.token` in
+`AUTOCODE_EXPECTED_RECOVERY_TOKEN`. A client validates the exact command,
+descriptor and token binding before substituting that one argument. A person
+must enter a whole number between `minimum` and `maximum`; there is no default
+and no extraction of numbers from chat. The minimum exceeds both the saved cap
+and consumed active time. An empty, zero, fractional, unsafe or out-of-range
+value grants nothing. Other unresolved `N` placeholders remain client gaps.
+
+This choice changes only the total active-time cap. It neither changes other
+limits or model routes nor approves a plan. Recovery freshness is rechecked
+under the run lock, including the saved active-time accounting. Ordinary CLI
+callers retain the existing `--max-seconds 0` behavior; this finite input does
+not expose disabling the guard. Corrective information still authorizes no
+allowance: its pending deterministic review must first reach the held decision.
+
 `evidence` is what the run agreed to deliver and what supports it, for reports
 made outside the runner (such as a pull request body, docs/issues.md):
 the approved contract's intended outcome, the base commit, one row per

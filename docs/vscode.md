@@ -137,8 +137,14 @@ Kilo, Cline or ZooCode extension. It displays saved task replies and status
 updates; token-by-token model output, file attachments, inline edit/diff
 acceptance and editing arbitrary plan files are not implemented.
 
+At a total active-time pause, the core can name a finite total-time decision.
+Enter the desired total seconds explicitly in the blank field and confirm that
+total. It must exceed the saved cap and active time already consumed; chat text
+does not supply or authorize it. Other limits, models and plan approval still
+apply.
+
 Plan editing (`--edit-goal`), recovery grants and other actions with unresolved
-`GOAL_FILE`, recovery `N` or explanatory placeholders remain explicit gaps.
+`GOAL_FILE`, untyped recovery `N` or explanatory placeholders remain explicit gaps.
 The client cannot invent those decisions. The separate core Requirements
 conversation journal is documented in [task-run.md](task-run.md); this client
 uses ordinary task runs and their additive chat projection.

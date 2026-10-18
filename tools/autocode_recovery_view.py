@@ -41,6 +41,7 @@ BOUND_FIELDS = (
     "status",
     "next_stage",
     "iteration",
+    "active_seconds",
     "current_task",
     "goal_contract",
     "settings",

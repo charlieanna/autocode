@@ -20,6 +20,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Native chat can request an explicit finite total active-time limit from a typed,
+  recovery-token-bound core offer. The selected total preserves other caps, model
+  routes and plan approval; unsupported numeric recovery controls still report a gap (#1579).
+
 - Authentication preflight stops retain names-only guidance for credential variables actually
   withheld from the probe, without exposing secret values or enabling pass-through (#1577).
 

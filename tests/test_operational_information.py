@@ -173,6 +173,61 @@ class OperationalInformationCLITests(unittest.TestCase):
             self.assertEqual(first, self.status()["information_review"])
         self.assertEqual(1, len(self.evaluations()))
 
+    def test_named_finite_total_keeps_other_limits_and_unapproved_plan(self):
+        # A real CLI creates and displays the plan, but nobody approves it.
+        self.launch(["Build greeting", "--no-chat"], 2)
+        self.run, _ = self.saved()
+        self.launch(["--run-dir", str(self.run), "--answer", "Q1=CLI", "--resume-paused", "--no-chat"], 2)
+        self.assertEqual("approve_plan", self.status()["needs"]["kind"])
+        plan = self.status()["displayed_plan"]
+        # Only this owned fixture is seeded at the exhausted active-time boundary.
+        _, state = self.saved()
+        state["settings"]["limits"].update(
+            max_seconds=2700,
+            stage_timeout_seconds=600,
+            idle_timeout_seconds=300,
+            tool_timeout_seconds=600,
+            max_cost_usd=2,
+        )
+        state["settings"].setdefault("budget_origins", {})["max_seconds"] = "user_explicit"
+        state.update(status="PAUSED_TIME_LIMIT", active_seconds=2800, stop_reason="Saved active-time limit reached")
+        self.assertTrue(
+            runner.resolver_runtime.record_operational_exhaustion(
+                runner, state, self.run, support.Paused(state["status"], state["stop_reason"])
+            )
+        )
+        runner.write_json(self.run / "state.json", state)
+        initial = json.loads(self.launch(["--run-dir", str(self.run), "--status"], 0).stdout)["settings"]
+        self.inform(self.status(), "Use total 5400 seconds; preserve every other setting and require plan approval")
+        pending = self.status()
+        self.assertEqual("pending", pending["information_review"]["status"])
+        self.assertNotIn("command_inputs", pending["needs"])
+        code, launched, output = self.resume()
+        self.assertEqual((2, False), (code, launched), output)
+        held = self.status()
+        self.assertEqual("held", held["information_review"]["status"])
+        self.assertEqual(2801, held["needs"]["command_inputs"][0]["minimum"])
+        unchanged = json.loads(self.launch(["--run-dir", str(self.run), "--status"], 0).stdout)["settings"]
+        self.assertEqual(initial, unchanged, "Corrective information and its review grant no setting change")
+        client = object.__new__(ConformanceDriver)
+        client.project, client.run_dir = self.project, self.run
+        words, env, _ = client.named_command(held)
+        selected = client.decide(held["needs"], words, command_inputs={"max_seconds": "5400"}, view=held, env=env)
+        bad = {**env, "AUTOCODE_EXPECTED_RECOVERY_TOKEN": env["AUTOCODE_EXPECTED_RECOVERY_TOKEN"] + "stale"}
+        code, launched, output = self.invoke(*selected, env=bad)
+        self.assertEqual((2, False), (code, launched), output)
+        self.assertIn("saved pause changed", output)
+        code, launched, output = self.invoke(*selected, env=env)
+        self.assertEqual((2, False), (code, launched), output)
+        current = self.status()
+        self.assertEqual("approve_plan", current["needs"]["kind"])
+        self.assertEqual(plan, current["displayed_plan"])
+        self.assertFalse((self.project / "greet.py").exists(), "A total-time decision cannot approve the plan")
+        after = json.loads(self.launch(["--run-dir", str(self.run), "--status"], 0).stdout)["settings"]
+        expected = copy.deepcopy(initial)
+        expected["limits"]["max_seconds"] = 5400
+        self.assertEqual(expected, after, "Only the explicitly selected total changes")
+
     def test_stale_or_replayed_information_launches_nothing(self):
         view = self.issue_checkpoint()
         state_file = self.run / "state.json"
