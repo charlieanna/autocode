@@ -94,7 +94,7 @@ export class RunController {
   private named(view: StatusView, run: RunRef): { argv: string[]; env: Record<string, string>; shown: string } {
     const shown = view.next_command ?? "";
     if (shown) {
-      const parsed = parseNamedCommand(shown, { runDir: run.runDir, workspace: run.workspace });
+      const parsed = parseNamedCommand(shown, effective(view, run));
       return { argv: parsed.argv, env: parsed.env, shown };
     }
     if (view.needs?.kind === "continue") return { argv: ["--no-chat"], env: {}, shown: "" };
@@ -153,7 +153,8 @@ export class RunController {
       throw new ClientGap("the complete plan is unavailable; review the plan before approving it");
     }
     const action = this.prepare(view, run, answers);
-    const args = [...action.argv, "--workspace", run.workspace, "--run-dir", run.runDir];
+    const own = effective(view, run);
+    const args = [...action.argv, "--workspace", own.workspace, "--run-dir", own.runDir];
     this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
     const result = await stream(this.settings, args, action.env, (chunk) => this.log.append(chunk));
     this.log.appendLine(`[autocode exited ${result.code}]`);
@@ -164,7 +165,8 @@ export class RunController {
 
   /** The command a person can paste into a terminal instead of letting the client run it. */
   commandText(view: StatusView, run: RunRef): string {
-    return this.named(view, run).shown || `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat`;
+    const own = effective(view, run);
+    return this.named(view, run).shown || `autocode --workspace ${own.workspace} --run-dir ${own.runDir} --no-chat`;
   }
 
   /** The optional message action is named by the core, never inferred from chat text. */
@@ -174,7 +176,7 @@ export class RunController {
     if (!input || view.chat?.context !== shownContext) {
       throw new ClientGap("This conversation changed; review its current state before sending");
     }
-    const parsed = parseNamedCommand(input.next_command, run);
+    const parsed = parseNamedCommand(input.next_command, effective(view, run));
     const flag = input.kind === "feedback" ? "--feedback" : input.kind === "follow_up" ? "--follow-up" : null;
     const need = view.needs;
     const expected = ["--resolver-request", need?.resolver_request_id, "--resolver-token", "-",
@@ -188,8 +190,9 @@ export class RunController {
     // request binding; they cannot grant a retry or resume a pause themselves.
     if (!operational && (!flag || parsed.argv.length !== 2 || parsed.argv[0] !== flag || parsed.argv[1] !== "MESSAGE"
       || Object.keys(parsed.env).length)) throw new ClientGap("Unsupported message action from AutoCode");
+    const own = effective(view, run);
     const result = await stream({ ...this.settings, cwd: run.workspace },
-      [...parsed.argv.slice(0, -1), text, "--workspace", run.workspace, "--run-dir", run.runDir], parsed.env);
+      [...parsed.argv.slice(0, -1), text, "--workspace", own.workspace, "--run-dir", own.runDir], parsed.env);
     if (result.code !== 0) throw new Error(tail(result));
   }
 
@@ -201,7 +204,8 @@ export class RunController {
       throw new ClientGap(`AutoCode named no ${actionId} action for saved code change ${checkpointId}`);
     }
     const flag = actionId === "compare" ? "--compare" : "--restore";
-    const expected = ["checkpoint", "--workspace", run.workspace, "--run-dir", run.runDir, flag, checkpointId,
+    const own = effective(view, run);
+    const expected = ["checkpoint", "--workspace", own.workspace, "--run-dir", own.runDir, flag, checkpointId,
       ...(actionId === "restore" ? ["--expected-token", "-", "--request-id", "REQUEST_ID"] : [])];
     if (JSON.stringify(action.next_command) !== JSON.stringify(expected)) {
       throw new ClientGap("Unsupported checkpoint action from AutoCode");
@@ -254,6 +258,17 @@ export interface CheckpointRestoreResult {
   preserved_branch?: string;
   status?: string;
   message?: string;
+}
+
+/**
+ * The run's effective location as the view names it.
+ *
+ * A chat that started in a plain, non-empty folder names its run under that
+ * folder; AutoCode bootstraps a project inside it and the view reports the
+ * project's paths. Named commands carry those, so compare against them.
+ */
+function effective(view: StatusView, run: RunRef): { workspace: string; runDir: string } {
+  return { workspace: view.workspace ?? run.workspace, runDir: view.run_dir ?? run.runDir };
 }
 
 /** AutoCode's own run-directory shape, under the workspace's runs directory. */

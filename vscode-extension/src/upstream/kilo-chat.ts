@@ -110,6 +110,12 @@ export const chatStyles = /* css */ `
   #composer .chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .keyboard-hint { font-size: .7rem; color: var(--vscode-descriptionForeground); }
+  /* The hint's min-content width plus the engine chip and Send need ~215px; below that
+     the nowrap row pushed Send out of the webview, so the hint yields first. */
+  @media (max-width: 240px) {
+    #composer .actions { flex-wrap: wrap; }
+    .keyboard-hint { display: none; }
+  }
 `;
 
 /** Self-contained so its compiled source can be embedded in the webview. */
