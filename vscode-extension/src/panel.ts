@@ -904,6 +904,18 @@ window.addEventListener('message', (event) => {
     if (field.value === data.text) field.value = '';
     saveDraft(); updateComposer(); chatBehavior.resize();
   }
+  if (data && data.type === 'restore_draft') {
+    const saved = vscode.getState() || {};
+    const drafts = saved.drafts || {};
+    const key = data.runKey || '';
+    if (!drafts[key]) drafts[key] = data.text;
+    vscode.setState({ ...saved, drafts });
+    const field = document.getElementById('message');
+    if (chatEnvelope && key === chatEnvelope.runKey && !field.value.trim() && data.text) {
+      field.value = data.text;
+      saveDraft(); updateComposer(); chatBehavior.resize();
+    }
+  }
   if (data && data.type === 'checkpoint_compare') {
     checkpointCompare[data.checkpoint] = data.error ? { error: data.error } : { comparison: data.comparison };
     renderedState = '';
