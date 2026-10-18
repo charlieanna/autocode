@@ -26,8 +26,12 @@ class ChatViewTests(unittest.TestCase):
                 self.assertNotIn("no task list", text)
 
     def test_running_notice_gates_on_live_supervision_only(self):
-        self.assertEqual("Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "supervised"}}))
-        self.assertEqual("Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "unsupervised"}}))
+        self.assertEqual(
+            "Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "supervised"}})
+        )
+        self.assertEqual(
+            "Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "unsupervised"}})
+        )
         self.assertIsNone(chat.notice({"status": "RUNNING", "liveness": {"kind": "unknown"}}))
         self.assertIsNone(chat.notice({"status": "RUNNING", "liveness": {"kind": "stopped"}}))
         self.assertIsNone(chat.notice({"status": "RUNNING"}))
