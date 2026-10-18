@@ -2,7 +2,7 @@
   "name": "autocode-task-chat",
   "displayName": "AutoCode Task Chat",
   "description": "Drive AutoCode task runs from VS Code: start a run, follow its progress, and take the action the status view names.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "publisher": "ankurkothari",
   "license": "Apache-2.0",
@@ -22,6 +22,8 @@
     "vscode": "^1.90.0"
   },
   "categories": [
+    "AI",
+    "Chat",
     "Other"
   ],
   "main": "./dist/extension.js",
@@ -210,5 +212,12 @@
   "dependencies": {
     "marked": "15.0.12"
   },
-  "preview": true
+  "preview": true,
+  "keywords": [
+    "autocode",
+    "agent",
+    "planning",
+    "code review",
+    "tasks"
+  ]
 }
