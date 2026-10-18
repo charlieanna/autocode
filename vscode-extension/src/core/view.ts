@@ -21,6 +21,7 @@ export interface Needs {
   question?: string;
   resolver_scope?: string;
   resolver_token?: string;
+  resolver_request_id?: string;
   request_id?: string;
   route?: Route;
   retry_action?: string;
@@ -124,7 +125,7 @@ export interface StatusView {
     notice?: string | null;
     review?: { question_id: string; answer: string; label: string; summary?: string } | null;
     context: string;
-    input: { kind: "feedback" | "follow_up"; label: string; next_command: string } | null;
+    input: { kind: "feedback" | "follow_up" | "resolver_response"; label: string; next_command: string } | null;
   };
 }
 

@@ -469,6 +469,10 @@ function render(state) {
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
+  if (chatMode && state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
+    app.appendChild(el('div', 'notice', 'Reply above with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
+    return;
+  }
   if (chatMode && state.chat && state.chat.phase === 'requirements' && !state.gap
       && (!state.pause || state.needKind === 'answer')) {
     // The conversation carries the questions. Operational details remain in

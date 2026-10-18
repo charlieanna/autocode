@@ -57,6 +57,42 @@ class ClientDecisionTests(unittest.TestCase):
         self.assertEqual((["--approve-goal", "-"], {"AUTOCODE_APPROVE_GOAL_TOKEN": "r2:abc"}), (words, env))
         self.assertEqual("next_command", source)
 
+    def test_operational_message_fills_only_bound_person_reply(self):
+        need = {
+            "kind": "answer",
+            "resolver_scope": "blocker",
+            "resolver_request_id": "req-1",
+            "resolver_token": "current-token",
+        }
+        command = "AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE"
+        public = view(**need)
+        public["chat"] = {"input": {"kind": "resolver_response", "next_command": command}}
+        args, env, source = self.client.message_command(public, "I corrected the fixture")
+        self.assertEqual(
+            [
+                "--resolver-request",
+                "req-1",
+                "--resolver-token",
+                "-",
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "I corrected the fixture",
+            ],
+            args,
+        )
+        self.assertEqual({"AUTOCODE_RESOLVER_TOKEN": "current-token"}, env)
+        self.assertEqual("chat.input.next_command", source)
+        for bad in (
+            command.replace("req-1", "req-old"),
+            command.replace("current-token", "old-token"),
+            command + " --resume-paused",
+            command.replace("provide_information", "retry"),
+        ):
+            public["chat"]["input"]["next_command"] = bad
+            with self.assertRaises(ConformanceGap):
+                self.client.message_command(public, "reply")
+
     def test_a_command_for_another_run_is_a_gap(self):
         with self.assertRaisesRegex(ConformanceGap, "not this run"):
             self.named("autocode --run-dir /elsewhere/run --approve-goal -")

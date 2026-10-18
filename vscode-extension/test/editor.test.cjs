@@ -872,6 +872,37 @@ test('message actions cannot name another run or append approval flags', async (
   assert.equal(launch.mock.callCount(), 0);
 });
 
+test('operational reply offer shows a usable composer without a false no-action warning', async (t) => {
+  const view = chatView({ status: 'WAITING_FOR_USER', needs: { kind: 'answer', resolver_scope: 'blocker' },
+    next_command: 'autocode --resolver-message \"WHAT CHANGED\"' });
+  view.chat.input = { kind: 'resolver_response', label: 'Send recovery reply', next_command: 'bound offer' };
+  const ui = await openChat(t, view);
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('No action the client can take'));
+  ui.type('Leave this run blocked');
+  assert.equal(ui.document.querySelector('#send-message').disabled, false);
+});
+
+test('operational chat reply uses only the current named Resolver binding', async (t) => {
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const view = chatView({ status: 'WAITING_FOR_USER', needs: {
+    kind: 'answer', resolver_scope: 'blocker', resolver_request_id: 'req-1', resolver_token: 'current-token',
+  } });
+  const command = 'AUTOCODE_RESOLVER_TOKEN=current-token autocode --resolver-request req-1 --resolver-token - --resolver-response provide_information --resolver-message MESSAGE';
+  view.chat.input = { kind: 'resolver_response', label: 'Send recovery reply', next_command: command };
+  await controller.sendMessage(view, run, 'I corrected the fixture', 'chat-1');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], [
+    '--resolver-request', 'req-1', '--resolver-token', '-', '--resolver-response', 'provide_information',
+    '--resolver-message', 'I corrected the fixture', '--workspace', run.workspace, '--run-dir', run.runDir,
+  ]);
+  assert.equal(launch.mock.calls[0].arguments[2].AUTOCODE_RESOLVER_TOKEN, 'current-token');
+  for (const bad of [command.replace('req-1', 'req-old'), command.replace('current-token', 'old-token'),
+    command + ' --resume-paused', command.replace('provide_information', 'retry')]) {
+    view.chat.input.next_command = bad;
+    await assert.rejects(controller.sendMessage(view, run, 'reply', 'chat-1'), /Unsupported message action/);
+  }
+  assert.equal(launch.mock.callCount(), 1);
+});
+
 test('a CLI failure is surfaced instead of continuing as if the action succeeded', async (t) => {
   t.mock.method(cli, 'stream', async () => ({ ...ok, code: 1, stderr: 'provider unavailable' }));
   await assert.rejects(controller.take({ status: 'RUNNING', done: false, needs: { kind: 'continue' } }, run), /provider unavailable/);

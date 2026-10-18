@@ -188,7 +188,7 @@ chat clients keep diagnostic headings, empty counts and pause categories in
 Run details. A notice never grants an action beyond the view's named command.
 
 `input` is null when free text is not an admitted action. Otherwise it names
-`kind` (`feedback` or `follow_up`), a display `label`, and `next_command` with
+`kind` (`feedback`, `follow_up`, or `resolver_response`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
 as an argument array without a shell. The headless conformance client's
@@ -197,6 +197,9 @@ as an argument array without a shell. The headless conformance client's
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.
+An operational `resolver_response` offer binds `provide_information` to the current
+Resolver request ID and token in `needs`. It supplies corrective information only;
+retry grants, scope changes, model routing and resuming remain separate actions.
 In spec-first chat runs, a message at plan approval is interpreted by the saved Requirements
 route when the client continues. Questions receive an assistant reply while preserving the reviewed
 plan and its token; requested or mixed corrections enter normal requirements/review again and need

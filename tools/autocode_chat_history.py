@@ -58,6 +58,17 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         rows.append({"id": ident, "role": "user", "text": event["text"]})
         if event.get("reply_after"):
             rows.append({"id": f"{ident}-reply-after", "role": "assistant", "text": event["reply_after"]})
+    resolver = state.get("resolver") or {}
+    for event in resolver.get("human_responses", []):
+        if event.get("actor") != "user_cli" or not event.get("text"):
+            continue
+        ident = "resolver-" + event["request_id"]
+        entry = (resolver.get("human_escalations") or {}).get(event["request_id"], {})
+        request = ((entry.get("identity") or {}).get("proposal") or {}).get("request") or {}
+        question = "\n\n".join(q.get("question", "") for q in request.get("questions", []))
+        if question:
+            rows.append({"id": ident + "-question", "role": "assistant", "text": question})
+        rows.append({"id": ident + "-response", "role": "user", "text": event["text"]})
     if completed:
         rows.append({"id": f"response-{len(turns)}", "role": "assistant", "text": response(state)})
     return rows
