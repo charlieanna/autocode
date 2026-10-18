@@ -817,7 +817,7 @@ test('a greeting waits for Requirements to answer instead of a canned reply', as
   });
   ui.type('hi'); ui.submit(); await flush();
   const rows = [...ui.document.querySelectorAll('#messages .message')].map((row) => row.textContent);
-  assert.deepEqual(rows, ['Youhi']);
+  assert.deepEqual(rows, ['AutoCodeHi! What would you like to work on today?', 'Youhi']);
   assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
 });
 
@@ -973,6 +973,21 @@ test('a rejected chat start retains the request and original error across pollin
   assert.equal(ui.document.querySelector('#message').value, 'Do not lose this request');
   assert.equal(ui.document.querySelector('#send-message').disabled, false);
   assert.equal(ui.webviewState?.selectedRun, null);
+});
+
+test('a failed start leaves the thread holding the greeting, the request, and the failure (#1550)', async (t) => {
+  const ui = await openChat(t, null);
+  ui.chat.show(); await flush();
+  t.mock.method(controller, 'status', async () => { throw new Error('Run not found'); });
+  t.mock.method(controller, 'start', async (_workspace, _text, created) => { created(run); throw new Error('Input rejected: invalid option'); });
+  ui.type('Do not lose this request'); ui.submit(); await flush(); await flush();
+  const rows = [...ui.document.querySelectorAll('#messages .message')];
+  assert.equal(rows.length, 3, 'greeting, the request, and the failure notice');
+  assert.match(rows[0].textContent, /Hi! What would you like to work on today\?/);
+  assert.match(rows[1].textContent, /Do not lose this request/);
+  assert.ok(rows[2].classList.contains('notice'), 'the failure is a thread notice');
+  assert.match(rows[2].textContent, /Input rejected: invalid option/);
+  assert.equal(ui.document.querySelector('#send-message').disabled, false, 'the restored draft stays sendable');
 });
 
 test('assistant replies render Markdown while HTML and executable links stay inert', async (t) => {
