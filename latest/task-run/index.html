@@ -2310,7 +2310,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/b6548da1e516a122dd35c87c0485a45d942e473a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/9f025145c0144556b594a9442f73e299400c1cf1/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2332,6 +2332,12 @@ immediate child of <code>workspace/.autocode/runs</code>. Existing directories a
 are refused before a provider launches. The optional destination is used by
 <a href="../replay/">saved-run replay</a>; the run is created there without moving bound
 artifacts afterward.</p>
+<p>When the workspace is a plain, non-empty folder, the core bootstraps a task
+project inside <code>workspace/autocode-projects/</code> and runs there. A destination
+named under the selected folder's <code>.autocode/runs</code> keeps its name: the run is
+created under the bootstrapped project instead, and commands may keep using the
+selected folder and that name as the run's handle. The status view names the
+effective <code>workspace</code> and <code>run_dir</code>.</p>
 <p>This example accepts the displayed plan and chooses question defaults or the first
 listed option. An interactive client should collect the person’s answer instead,
 using the token from the view they saw. Operational recovery needs a separate decision.</p>
@@ -2494,8 +2500,10 @@ a Git write and cannot silently satisfy the completion gate.</p>
 <code>kind</code> (<code>feedback</code>, <code>follow_up</code>, or <code>resolver_response</code>), a display <code>label</code>, and <code>next_command</code> with
 one literal <code>MESSAGE</code> placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
-as an argument array without a shell. The headless conformance client's
-<code>message_command()</code> implements this same parsing boundary.</p>
+as an argument array without a shell. Compare against the view's <code>workspace</code> and
+<code>run_dir</code> fields: after bootstrap relocation they name the run's effective
+location, which can differ from the handle the client started with. The headless
+conformance client's <code>message_command()</code> implements this same parsing boundary.</p>
 <p>A client compares the displayed <code>context</code> with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.
@@ -2659,7 +2667,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/b6548da1e516a122dd35c87c0485a45d942e473a/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/9f025145c0144556b594a9442f73e299400c1cf1/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
