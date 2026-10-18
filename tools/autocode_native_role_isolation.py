@@ -82,6 +82,16 @@ FLAGS = {
 }
 
 
+def _flags(model):
+    flags = dict(FLAGS)
+    if model.startswith("openai/"):
+        # OpenCode's compiled-in CodexAuthPlugin owns ChatGPT OAuth. Disabling
+        # it hides subscription models even with valid saved credentials.
+        # External plugins remain restricted to the pinned staged config/SDK.
+        flags.pop("OPENCODE_DISABLE_DEFAULT_PLUGINS")
+    return flags
+
+
 def _require(value, reason):
     if not value:
         raise ValueError("Native role isolation: " + reason)
@@ -399,7 +409,7 @@ class NativeRoleIsolation:
         final["permission"] = {"external_directory": {str(Path(data) / "opencode" / "tool-output") + "/*": "deny"}}
         final["agent"][agent]["model"] = self._route["model"]
         final["agent"].update({name: {"disable": True} for name in ("title", "summary", "compaction")})
-        child.update(FLAGS)
+        child.update(_flags(self._route["model"]))
         child.update(
             XDG_DATA_HOME=data,
             OPENCODE_CONFIG=str(empty),
@@ -509,7 +519,7 @@ class NativeRoleIsolation:
             "files": pins,
             "child_identity": identity,
             "configuration_sources": sources,
-            "flags": deepcopy(FLAGS),
+            "flags": _flags(self._route["model"]),
             "native_data_path_only": prepared["native_data_path_only"],
             "sdk_source": str(self._sdk),
             "sdk_manifest_sha256": self._sdk_hash,
@@ -738,7 +748,10 @@ class NativeRoleIsolation:
             _require(environment.get(key) == descriptor["configuration_sources"][key], "isolated directory changed")
             folder = _path(path.parent, environment[key])
             _require(folder.is_dir() and not folder.is_symlink(), "isolated directory changed kind")
-        _require(all(environment.get(key) == value for key, value in FLAGS.items()), "isolation flags changed")
+        _require(
+            all(environment.get(key) == value for key, value in _flags(self._route["model"]).items()),
+            "isolation flags changed",
+        )
         # No new agent/plugin/config entries may appear in the exclusive staged
         # config tree. SDK content is separately checked against its full manifest.
         destination = _path(path.parent, environment["OPENCODE_CONFIG_DIR"])
