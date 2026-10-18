@@ -45,18 +45,22 @@ except ImportError:
     from autocode_util import atomic_json, digest
 
 try:
+    from . import autocode_agent_env as agent_env
     from . import autocode_cost as cost
     from . import autocode_preflight_attempts as attempts
     from . import autocode_process as processes
     from . import autocode_provider_auth as provider_auth
+    from . import autocode_provider_env as provider_env
     from . import autocode_role_transport as role_transport
     from . import autocode_support as support
     from . import provider_conformance_transport as transport
 except ImportError:
+    import autocode_agent_env as agent_env
     import autocode_cost as cost
     import autocode_preflight_attempts as attempts
     import autocode_process as processes
     import autocode_provider_auth as provider_auth
+    import autocode_provider_env as provider_env
     import autocode_role_transport as role_transport
     import autocode_support as support
     import provider_conformance_transport as transport
@@ -141,7 +145,7 @@ def distinct_models(settings) -> list[str]:
     return models
 
 
-def _classify(events_path: Path) -> tuple[str | None, str]:
+def _classify(events_path: Path, *, withheld_env=()) -> tuple[str | None, str]:
     rows = support.events(events_path) if events_path.is_file() else []
     failures = [row for row in rows if row.get("type") in ("error", "turn.failed")]
     if not failures and not rows:
@@ -150,7 +154,8 @@ def _classify(events_path: Path) -> tuple[str | None, str]:
         return None, ""
     status = support.failure_status(events_path, record=None)
     if auth := provider_auth.authentication_reason(failures):
-        return status, auth
+        hint = provider_env.authentication_hint(rows, withheld_env)
+        return status, f"{auth}. {hint}" if hint else auth
     message = ""
     error = failures[-1].get("error")
     if isinstance(error, dict):
@@ -179,6 +184,8 @@ def probe(
     """
     directory = directory or run_dir / "model-preflight" / model.replace("/", "__") / f"attempt-{uuid.uuid4().hex}"
     started = time.monotonic()
+    launch_env = dict(os.environ)
+    withheld_env = agent_env.withheld(launch_env)
     try:
         result = transport.execute(
             adapter=adapter,
@@ -190,7 +197,7 @@ def probe(
             allow_write=False,
             prompt=PROMPT,
             schema=SCHEMA,
-            env=dict(os.environ),
+            env=launch_env,
             timeout=timeout,
             supervised=True,
             checkpoint=checkpoint,
@@ -207,7 +214,7 @@ def probe(
     if result.get("timed_out"):
         status, message = "PAUSED_PROVIDER_UNCERTAIN", f"probe timed out after {timeout} seconds"
     else:
-        status, message = _classify(events_path)
+        status, message = _classify(events_path, withheld_env=withheld_env)
         if status is None and result.get("exit_code"):
             status, message = "PAUSED_PROVIDER_UNCERTAIN", f"provider exited {result['exit_code']}"
     return {

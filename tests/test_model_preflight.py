@@ -259,6 +259,65 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertTrue(probed(self.run_dir)["plan/glm"]["blocking"])
         self.assertNotIn("private-test-canary", probed(self.run_dir)["plan/glm"]["detail"])
 
+    def test_authentication_hint_names_only_actual_withheld_probe_environment(self):
+        canary = "private-probe-credential-canary"
+        rejection = [
+            {
+                "type": "error",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "statusCode": 401,
+                        "message": canary,
+                        "responseBody": canary,
+                    },
+                },
+            }
+        ]
+        for index, (passed, expected) in enumerate(
+            (
+                ("", ["FIXTURE_API_KEY", "OTHER_PASSWORD"]),
+                ("FIXTURE_API_KEY", ["OTHER_PASSWORD"]),
+                ("FIXTURE_API_KEY,OTHER_PASSWORD", []),
+            )
+        ):
+            with self.subTest(passed=passed):
+                env = {
+                    "FIXTURE_API_KEY": canary,
+                    "OTHER_PASSWORD": canary,
+                    "AUTOCODE_RESOLVER_TOKEN": canary,
+                    "AUTOCODE_PASS_ENV": passed,
+                }
+                with (
+                    patch.dict(preflight.os.environ, env, clear=True),
+                    patch.object(
+                        preflight.transport, "execute", side_effect=self.fake_execute({"plan/glm": rejection})
+                    ) as execute,
+                ):
+                    outcome = preflight.probe(
+                        self.adapter,
+                        "plan/glm",
+                        self.root,
+                        self.run_dir,
+                        directory=self.root / f"probe-{index}",
+                    )
+                self.assertEqual(env, execute.call_args.kwargs["env"])
+                self.assertEqual("PAUSED_AUTH", outcome["status"])
+                self.assertTrue(outcome["blocking"])
+                detail = outcome["detail"]
+                self.assertIn("HTTP 401", detail)
+                self.assertNotIn(canary, detail)
+                self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", detail)
+                if expected:
+                    self.assertIn("Credential-like environment variables were withheld: ", detail)
+                    names = detail.split("Credential-like environment variables were withheld: ", 1)[1].split(
+                        ". If this provider", 1
+                    )[0]
+                    self.assertEqual(expected, names.split(", "))
+                    self.assertIn("AUTOCODE_PASS_ENV", detail)
+                else:
+                    self.assertNotIn("AUTOCODE_PASS_ENV", detail)
+
     def test_resume_reprobes_a_route_that_failed_until_it_passes(self):
         with self.assertRaises(support.Paused):
             self.check({"plan/glm": OK_EVENTS, "plan/mimo": PAYWALL_EVENTS})
