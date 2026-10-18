@@ -27,7 +27,7 @@ interface Actions {
   pickWorkspace(): Promise<string | undefined>;
   confirmStart(): Promise<boolean>;
   changed(): void;
-  selected(run: RunRef): void;
+  selected(run?: RunRef): void;
 }
 
 export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -77,7 +77,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.error = "";
     this.readError = "";
     this.comparisons.clear();
-    if (run) this.actions.selected(run);
+    this.actions.selected(run);
     void this.focus();
     this.post(true);
     void this.refresh();
@@ -268,29 +268,85 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private async start(text: string): Promise<void> {
+    if (this.starting) return;
     this.starting = true;
     this.error = "";
     this.post();
+    const launchSequence = this.sequence;
+    let allocatedRun: RunRef | undefined;
+    let allocatedKey = "";
     try {
       const workspace = await this.actions.pickWorkspace();
-      if (!workspace || !(await this.actions.confirmStart())) return;
+      if (!workspace || this.sequence !== launchSequence) return;
+      const confirmed = await this.actions.confirmStart();
+      if (!confirmed || this.sequence !== launchSequence) return;
       await this.controller.start(workspace, text, (run) => {
-        this.run = run;
-        this.hasExplicitSelection = true;
-        this.status = undefined;
-        this.sequence++;
-        this.pendingBrief = text;
-        this.actions.selected(run);
-        // Clear only the submitted draft, preserving a message typed meanwhile.
-        void this.view?.webview.postMessage({ type: "sent", runKey: "", text });
-        this.post(true);
+        allocatedRun = run;
+        allocatedKey = this.key(run);
+        this.busy.add(allocatedKey);
+        this.starting = false;
+        if (this.sequence === launchSequence) {
+          this.run = run;
+          this.hasExplicitSelection = true;
+          this.status = undefined;
+          this.pendingBrief = text;
+          this.actions.selected(run);
+          // Clear only the submitted draft, preserving a message typed meanwhile.
+          void this.view?.webview.postMessage({ type: "sent", runKey: "", text });
+          this.post(true);
+        }
       });
-    } catch (error) { this.error = messageOf(error); }
-    finally {
+      if (allocatedRun) {
+        try {
+          const view = await this.controller.status(allocatedRun);
+          if (this.sequence === launchSequence && this.key() === allocatedKey) {
+            this.status = view;
+            this.pendingBrief = "";
+          }
+          if (!view.done && view.needs?.kind === "continue") {
+            await this.controller.take(view, allocatedRun);
+          }
+        } catch {
+          // Status read failure handled on next poll
+        }
+      }
+    } catch (error) {
+      const errMessage = messageOf(error);
+      let established = false;
+      if (allocatedRun) {
+        try {
+          await this.controller.status(allocatedRun);
+          established = true;
+        } catch {
+          established = false;
+        }
+      }
+      if (!established) {
+        if (allocatedKey) this.busy.delete(allocatedKey);
+        if (this.sequence === launchSequence) {
+          this.run = undefined;
+          this.status = undefined;
+          this.pendingBrief = text;
+          this.actions.selected(undefined);
+          this.error = errMessage;
+          void this.view?.webview.postMessage({ type: "restore_draft", runKey: "", text });
+          this.post(true);
+        }
+      } else {
+        if (this.sequence === launchSequence) {
+          this.error = errMessage;
+        } else {
+          void vscode.window.showErrorMessage(`AutoCode (${allocatedRun?.runDir}): ${errMessage}`);
+        }
+      }
+    } finally {
       this.starting = false;
+      if (allocatedKey) this.busy.delete(allocatedKey);
       this.actions.changed();
-      await this.refresh();
-      this.post();
+      if (this.sequence === launchSequence) {
+        await this.refresh();
+        this.post();
+      }
     }
   }
 }

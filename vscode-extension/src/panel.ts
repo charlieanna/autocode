@@ -904,6 +904,18 @@ window.addEventListener('message', (event) => {
     if (field.value === data.text) field.value = '';
     saveDraft(); updateComposer(); chatBehavior.resize();
   }
+  if (data && data.type === 'restore_draft') {
+    const saved = vscode.getState() || {};
+    const drafts = saved.drafts || {};
+    const key = data.runKey || '';
+    if (!drafts[key]) drafts[key] = data.text;
+    vscode.setState({ ...saved, drafts });
+    const field = document.getElementById('message');
+    if (chatEnvelope && key === chatEnvelope.runKey && !field.value.trim() && data.text) {
+      field.value = data.text;
+      saveDraft(); updateComposer(); chatBehavior.resize();
+    }
+  }
   if (data && data.type === 'checkpoint_compare') {
     checkpointCompare[data.checkpoint] = data.error ? { error: data.error } : { comparison: data.comparison };
     renderedState = '';
@@ -954,13 +966,17 @@ function renderChat(data) {
   const messages = document.getElementById('messages');
   const welcome = { id: 'welcome', role: 'assistant', text: 'Hi! What would you like to work on today?' };
   const rows = data.state && data.state.chat ? data.state.chat.messages
-    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [welcome];
+    : [welcome, ...(data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [])];
+  // A start that never reached a run leaves no transcript. The thread must still
+  // hold what happened: the greeting, the request, and why it did not start.
+  if (!data.state && data.error) rows.push({ role: 'notice', text: data.error });
   const serialized = JSON.stringify(rows);
   if (messages.dataset.content !== serialized) {
     messages.dataset.content = serialized; messages.textContent = '';
     rows.forEach((row) => {
-      const item = el('div', 'message ' + (row.role === 'user' ? 'user' : 'assistant'));
-      item.appendChild(el('div', 'speaker', row.role === 'user' ? 'You' : 'AutoCode'));
+      const notice = row.role === 'notice';
+      const item = el('div', 'message ' + (notice ? 'notice' : row.role === 'user' ? 'user' : 'assistant'));
+      item.appendChild(el('div', 'speaker', notice ? 'Notice' : row.role === 'user' ? 'You' : 'AutoCode'));
       const body = el('div', 'message-content');
       const formatted = data.state && data.state.formattedMessages && data.state.formattedMessages[row.id];
       if (row.role === 'assistant' && formatted) appendFormatted(body, formatted);

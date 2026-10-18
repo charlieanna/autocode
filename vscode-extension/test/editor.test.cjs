@@ -537,6 +537,7 @@ async function openChat(t, initial, selected = run, options = {}) {
   let persisted = options.webviewState;
   const chat = new ChatView(chatController, storage, {
     pickWorkspace: async () => run.workspace, confirmStart: async () => true, changed() {}, selected() {},
+    ...options.actions,
   });
   chat.resolveWebviewView(view);
   const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
@@ -872,7 +873,7 @@ test('a greeting waits for Requirements to answer instead of a canned reply', as
   });
   ui.type('hi'); ui.submit(); await flush();
   const rows = [...ui.document.querySelectorAll('#messages .message')].map((row) => row.textContent);
-  assert.deepEqual(rows, ['Youhi']);
+  assert.deepEqual(rows, ['AutoCodeHi! What would you like to work on today?', 'Youhi']);
   assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
 });
 
@@ -1019,12 +1020,30 @@ test('a CLI failure is surfaced instead of continuing as if the action succeeded
 test('a rejected chat start retains the request and original error across polling', async (t) => {
   const ui = await openChat(t, null);
   ui.chat.show(); await flush();
+  t.mock.method(controller, 'status', async () => { throw new Error('Run not found'); });
   t.mock.method(controller, 'start', async (_workspace, _text, created) => { created(run); throw new Error('Input rejected: invalid option'); });
   ui.type('Do not lose this request'); ui.submit(); await flush(); await flush();
-  t.mock.method(controller, 'status', async () => { throw new Error('Run not found'); });
   await ui.poll();
   assert.ok(ui.document.querySelector('#messages').textContent.includes('Do not lose this request'));
   assert.match(ui.document.querySelector('#chat-error').textContent, /Input rejected: invalid option/);
+  assert.equal(ui.document.querySelector('#message').value, 'Do not lose this request');
+  assert.equal(ui.document.querySelector('#send-message').disabled, false);
+  assert.equal(ui.webviewState?.selectedRun, null);
+});
+
+test('a failed start leaves the thread holding the greeting, the request, and the failure (#1550)', async (t) => {
+  const ui = await openChat(t, null);
+  ui.chat.show(); await flush();
+  t.mock.method(controller, 'status', async () => { throw new Error('Run not found'); });
+  t.mock.method(controller, 'start', async (_workspace, _text, created) => { created(run); throw new Error('Input rejected: invalid option'); });
+  ui.type('Do not lose this request'); ui.submit(); await flush(); await flush();
+  const rows = [...ui.document.querySelectorAll('#messages .message')];
+  assert.equal(rows.length, 3, 'greeting, the request, and the failure notice');
+  assert.match(rows[0].textContent, /Hi! What would you like to work on today\?/);
+  assert.match(rows[1].textContent, /Do not lose this request/);
+  assert.ok(rows[2].classList.contains('notice'), 'the failure is a thread notice');
+  assert.match(rows[2].textContent, /Input rejected: invalid option/);
+  assert.equal(ui.document.querySelector('#send-message').disabled, false, 'the restored draft stays sendable');
 });
 
 test('assistant replies render Markdown while HTML and executable links stay inert', async (t) => {
@@ -1255,6 +1274,190 @@ test('Run details disables Take action while a stage is actively running (#1530)
   await panelUi.poll({ ...runningView, liveness: { kind: 'unknown' } });
   assert.equal(panelUi.take().textContent, 'Take the named action');
   assert.equal(panelUi.take().disabled, false);
+});
+
+test('unestablished start failure rolls back provisional run, restores editable retry, and stops polling (#1539)', async (t) => {
+  const ui = await openChat(t, null);
+  ui.chat.show();
+  await flush();
+
+  let startCount = 0;
+  t.mock.method(controller, 'start', async (_workspace, text, created) => {
+    startCount++;
+    if (startCount === 1) {
+      created(run);
+      const err = new Error('spawn autocode ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    }
+    created(run);
+    return run;
+  });
+
+  let statusCalls = 0;
+  t.mock.method(controller, 'status', async () => {
+    statusCalls++;
+    throw new Error('Run not found');
+  });
+
+  ui.type('Draft my first task');
+  ui.submit();
+  await flush();
+  await flush();
+
+  // 1. Provisional run was rolled back
+  assert.equal(ui.chat.run, undefined, 'unestablished run must be rolled back');
+  assert.equal(ui.webviewState?.selectedRun, null, 'persisted selection must be cleared');
+
+  // 2. Draft is restored in composer and Send is enabled
+  assert.equal(ui.document.querySelector('#message').value, 'Draft my first task');
+  assert.equal(ui.document.querySelector('#send-message').disabled, false, 'send button must be enabled');
+  assert.equal(ui.document.querySelector('#send-hint').textContent, 'Message AutoCode');
+  assert.match(ui.document.querySelector('#chat-error').textContent, /ENOENT/);
+
+  // 3. Polling does not poll the unestablished run
+  const callsBeforePoll = statusCalls;
+  await ui.poll();
+  assert.equal(statusCalls, callsBeforePoll, 'polling must not query nonexistent run');
+
+  // 4. User can edit the prompt and retry successfully
+  ui.type('Draft my edited task');
+  ui.submit();
+  await flush();
+  await flush();
+  assert.equal(startCount, 2, 'retrying must invoke start again');
+});
+
+test('established run with subsequent status failure does not roll back run (#1539)', async (t) => {
+  const ui = await openChat(t, null);
+  ui.chat.show();
+  await flush();
+
+  const establishedView = { status: 'RUNNING', done: false, needs: { kind: 'continue' } };
+  t.mock.method(controller, 'start', async (_workspace, _text, created) => {
+    created(run);
+    return run;
+  });
+
+  let shouldFail = false;
+  t.mock.method(controller, 'status', async () => {
+    if (shouldFail) throw new Error('Temporary provider outage');
+    return establishedView;
+  });
+
+  ui.type('Task with transient status failure');
+  ui.submit();
+  await flush();
+  await flush();
+
+  assert.deepEqual(ui.chat.run, run, 'established run must be retained');
+
+  // Subsequent transient status failure
+  shouldFail = true;
+  await ui.poll();
+  assert.deepEqual(ui.chat.run, run, 'temporary read failure must not roll back an established run');
+});
+
+test('in-flight start does not block New Chat or actions on other runs (#1540)', async (t) => {
+  const runA = { workspace: '/ws', runDir: '/ws/.autocode/runs/run-a' };
+  const runB = { workspace: '/ws', runDir: '/ws/.autocode/runs/run-b' };
+
+  const ui = await openChat(t, null);
+  ui.chat.show();
+  await flush();
+
+  let resolveStartA;
+  let rejectStartA;
+  t.mock.method(controller, 'start', async (_workspace, _text, created) => {
+    created(runA);
+    return new Promise((resolve, reject) => {
+      resolveStartA = () => resolve(runA);
+      rejectStartA = (err) => reject(err);
+    });
+  });
+
+  // 1. Submit run A
+  ui.type('Long running task A');
+  ui.submit();
+  await flush();
+
+  assert.equal(ui.chat.run.runDir, runA.runDir);
+  assert.equal(ui.document.querySelector('#send-hint').textContent, 'AutoCode is working. You can keep a draft here.');
+
+  // 2. Click New Chat (+) while run A is in flight: allowed!
+  ui.document.getElementById('new-chat').click();
+  await flush();
+  assert.equal(ui.chat.run, undefined, 'New Chat must open even while run A is in flight');
+  assert.equal(ui.document.querySelector('#send-hint').textContent, 'Message AutoCode');
+
+  // 3. Switch to existing run B
+  const viewB = {
+    ...questionView(),
+    next_command: `autocode --workspace ${runB.workspace} --run-dir ${runB.runDir} --answer q1=ANSWER`,
+  };
+  t.mock.method(controller, 'status', async (r) => {
+    if (r.runDir === runB.runDir) return viewB;
+    throw new Error('Not found');
+  });
+  ui.chat.show(runB);
+  await flush();
+  await flush();
+
+  assert.equal(ui.chat.run.runDir, runB.runDir);
+  // Run B is NOT marked busy by run A's in-flight turn!
+  const take = ui.document.querySelector('#take-action');
+  assert.ok(take, 'take action exists on run B');
+  assert.notEqual(take.textContent, 'Working…');
+
+  // 4. Action on run B is not blocked
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const input = ui.document.querySelector('input');
+  if (input) {
+    input.value = 'answer for B';
+    input.dispatchEvent(new ui.window.Event('input'));
+  }
+  take.click();
+  await flush();
+  assert.equal(launch.mock.callCount(), 1, 'action on run B must execute while run A is in flight');
+
+  // 5. Run A fails: error must NOT leak onto run B!
+  rejectStartA(new Error('Run A startup rejected: bad config'));
+  await flush();
+  await flush();
+
+  assert.equal(ui.chat.run.runDir, runB.runDir, 'run B remains selected');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '', 'run A error must not leak onto run B');
+});
+
+test('aborted launch when selection changes during workspace or confirmation (#1540)', async (t) => {
+  const runB = { workspace: '/ws', runDir: '/ws/.autocode/runs/run-b' };
+  let resolveWorkspace;
+  const actions = {
+    pickWorkspace: () => new Promise((resolve) => { resolveWorkspace = () => resolve(run.workspace); }),
+  };
+
+  const ui = await openChat(t, null, false, { actions });
+  ui.chat.show();
+  await flush();
+
+  let startCalled = false;
+  t.mock.method(controller, 'start', async () => { startCalled = true; return run; });
+
+  ui.type('Task aborted during prompt');
+  ui.submit();
+  await flush();
+
+  // User switches to run B before picking workspace completes
+  ui.chat.show(runB);
+  await flush();
+
+  // Workspace prompt finishes
+  resolveWorkspace();
+  await flush();
+  await flush();
+
+  assert.equal(startCalled, false, 'start must not launch when selection changed during pre-launch');
+  assert.deepEqual(ui.chat.run, runB, 'run B remains selected');
 });
 
 test('Chat #details toolbar button is disabled without an active run and enabled with one (#1543)', async (t) => {
