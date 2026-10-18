@@ -2276,7 +2276,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/44c5449e6a8c83fc06603ed19526683a0d52883c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1314782433dd6099eb7b9458bd01945bfb5c7a81/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2439,8 +2439,25 @@ The resulting execution plan still needs its own displayed-token approval.
 The optional <code>notice</code> explains a stop or ongoing work in ordinary language;
 chat clients keep diagnostic headings, empty counts and pause categories in
 Run details. A notice never grants an action beyond the view's named command.</p>
+<p>A build plan can explicitly request local delivery with
+<code>git_delivery: {"kind": "atomic_commit", "message": "…"}</code>. Use null when no local
+commit is requested; older reports may omit the field without granting delivery
+authority. This field is part of
+the sealed plan and is shown alongside its approval. A fresh passing runner
+regression proof allows the controller to create the scoped commit before the
+independent Tester inspects it. The committed revision receives fresh runner proof
+and independent verification before completion. Plans without executable regression
+cases retain the final completion boundary. Existing Git hooks are honored.
+Stage workers still cannot commit. Push, merge and deployment are separate actions.</p>
+<p>Delivery refuses preexisting dirty launch work, staged changes, changes outside
+the approved affected paths, or a moved HEAD. A durable receipt prevents repeating
+a successful commit after a lost response. Uncertain Git writes or source changes
+in a hook stop for reconciliation. The initial supported route is the ordinary
+build review workflow. Older plans promising an atomic commit only in prose require
+a revised, explicitly approved structured delivery contract; prose cannot authorize
+a Git write and cannot silently satisfy the completion gate.</p>
 <p><code>input</code> is null when free text is not an admitted action. Otherwise it names
-<code>kind</code> (<code>feedback</code> or <code>follow_up</code>), a display <code>label</code>, and <code>next_command</code> with
+<code>kind</code> (<code>feedback</code>, <code>follow_up</code>, or <code>resolver_response</code>), a display <code>label</code>, and <code>next_command</code> with
 one literal <code>MESSAGE</code> placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
 as an argument array without a shell. The headless conformance client's
@@ -2448,7 +2465,18 @@ as an argument array without a shell. The headless conformance client's
 <p>A client compares the displayed <code>context</code> with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.
-Saving feedback or a follow-up launches no model. A button explicitly offering
+An operational <code>resolver_response</code> offer binds <code>provide_information</code> to the current
+Resolver request ID and token in <code>needs</code>. It supplies corrective information only;
+retry grants, scope changes, model routing and resuming remain separate actions.
+In spec-first chat runs, a message at plan approval is interpreted by the saved Requirements
+route when the client continues. Questions receive an assistant reply while preserving the reviewed
+plan and its token; requested or mixed corrections enter normal requirements/review again and need
+fresh approval. Free text, including approval-like messages, never approves the plan. The existing
+<code>--feedback</code> action and <code>feedback</code> input kind remain the client contract; no client intent parsing
+is needed. Exchanges are stored as <code>plan_message</code> user-event receipts (ID, original text, contract
+token, return stage, then intent and <code>reply_after</code>). They are not requirement sources unless a change
+is forwarded once as ordinary brief feedback. Legacy nonchat feedback keeps its correction behavior.</p>
+<p>Saving feedback or a follow-up launches no model. A button explicitly offering
 to send <strong>and continue</strong> may then follow the ordinary <code>needs.kind=continue</code>
 action. It may never infer a plan approval, answer another question or release
 an operational pause. Approval remains bound to the displayed plan token.
@@ -2477,6 +2505,13 @@ boundary, then advances the same controller to its next question or approval
 stop. A question refresh also supplies its <code>question_id</code> and current
 <code>resolver_token</code>; exact answer and operational-recovery rules still apply.
 Stale revisions, conflicting request IDs and stale question tokens are refused.</p>
+<p>During joint planning, technical decisions with a proposed default are resolved internally and
+sent through drafting and review again. They are retained as <code>user_events</code> receipts with
+<code>actor=autocode</code> and <code>kind=technical_decision</code>, outside the human <code>answers</code> ledger and chat history.
+They cannot authorize a protected contract change or approve a plan. Genuine questions about the
+requested outcome, behavior, cost, permissions or side effects still require a human answer, as do
+unresolved facts and rejected assumptions. A repeated identical technical question goes to report
+repair instead of another planning loop. Non-joint runs keep their existing question path.</p>
 <p><code>handoff_conversation(expected_revision=..., expected_plan_token=...)</code> records the
 reviewed current draft's handoff to that same run. It does not approve the plan or
 start a second task. Read the current plan and use the separate <code>approve_plan()</code>
@@ -2590,7 +2625,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/44c5449e6a8c83fc06603ed19526683a0d52883c/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/1314782433dd6099eb7b9458bd01945bfb5c7a81/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
