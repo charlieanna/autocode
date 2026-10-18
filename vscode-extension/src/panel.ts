@@ -59,6 +59,9 @@ export interface PanelState {
   taking: boolean;
   /** This client is acting, or AutoCode reports a live model step. */
   working: boolean;
+  /** Saved code changes and the actions the view named for them (#1532). */
+  checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
+  checkpointsBlocked: string | null;
   /** The plan the current token asks to approve, only when the view shows it. */
   plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; delivery: string | null } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
@@ -274,6 +277,17 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     personOnly: leavesForPerson(need),
     taking,
     working: taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? ""),
+    checkpoints: (view.code_checkpoints?.rows ?? []).map((row) => ({
+      id: row.id,
+      label: row.label ?? row.id,
+      at: row.at ?? null,
+      files: row.changed_files?.length ?? 0,
+      available: row.available !== false,
+      reason: row.reason ?? null,
+      verdict: row.recorded_check?.verdict ?? null,
+      actions: (row.actions ?? []).map((action) => ({ id: action.id, label: action.label })),
+    })),
+    checkpointsBlocked: view.code_checkpoints?.blocked_reason ?? null,
     plan,
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
@@ -350,6 +364,8 @@ function emptyState(run: RunRef): PanelState {
     personOnly: false,
     taking: false,
     working: false,
+    checkpoints: [],
+    checkpointsBlocked: null,
     plan: null,
     token: null,
     canApprove: true,
@@ -452,6 +468,8 @@ const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
 let answers = Object.create(null);
 let renderedState = '';
+let checkpointCompare = Object.create(null);
+let checkpointResult = null;
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -637,6 +655,49 @@ function render(state) {
 
     if (cardContent.childNodes.length > 0) app.appendChild(card);
     if (strip.childNodes.length > 0) app.appendChild(strip);
+    if (chatMode && state.checkpoints && state.checkpoints.length) {
+      app.appendChild(el('h2', null, 'Saved code changes'));
+      if (state.checkpointsBlocked) app.appendChild(el('div', 'why', state.checkpointsBlocked));
+      state.checkpoints.forEach((cp) => {
+        const box = el('div', 'decision');
+        const title = cp.label + (cp.verdict ? ' · ' + cp.verdict : '');
+        box.appendChild(el('div', 'q', title));
+        if (cp.available) {
+          box.appendChild(el('div', 'why', cp.files + ' file(s) changed' + (cp.at ? ' · ' + new Date(cp.at).toLocaleDateString() : '')));
+          cp.actions.forEach((action) => {
+            const button = el('button', action.id === 'restore' ? null : 'secondary', action.label);
+            button.dataset.checkpointAction = action.id;
+            button.dataset.checkpointId = cp.id;
+            button.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint', action: action.id,
+              checkpoint: cp.id, runKey: state.workspace + '\\n' + state.runDir }));
+            box.appendChild(button);
+          });
+        } else {
+          box.appendChild(el('div', 'why', cp.reason || 'The saved source for this step is not retained.'));
+        }
+        const compare = checkpointCompare[cp.id];
+        if (compare && compare.error) {
+          box.appendChild(el('div', 'why', 'Comparison failed: ' + compare.error));
+        } else if (compare) {
+          const comparison = compare.comparison || {};
+          const files = (comparison.changed_files || []).length;
+          box.appendChild(el('div', 'why', files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
+          const patch = el('pre');
+          patch.textContent = comparison.patch || 'The files match this checkpoint.';
+          box.appendChild(patch);
+        }
+        if (checkpointResult && checkpointResult.checkpoint === cp.id && checkpointResult.result) {
+          const result = checkpointResult.result;
+          box.appendChild(el('div', 'notice',
+            'Restored on a new branch: ' + (result.branch || 'created') + '. The original branch and later work stay intact.'));
+          const open = el('button', 'secondary', 'Open restored candidate');
+          open.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint_open',
+            workspace: result.workspace, runDir: result.run_dir }));
+          box.appendChild(open);
+        }
+        app.appendChild(box);
+      });
+    }
     updateActionButton();
     if (focusedQuestion) {
       const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
@@ -843,6 +904,16 @@ window.addEventListener('message', (event) => {
     if (field.value === data.text) field.value = '';
     saveDraft(); updateComposer(); chatBehavior.resize();
   }
+  if (data && data.type === 'checkpoint_compare') {
+    checkpointCompare[data.checkpoint] = data.error ? { error: data.error } : { comparison: data.comparison };
+    renderedState = '';
+    if (current) render(current);
+  }
+  if (data && data.type === 'checkpoint_result') {
+    checkpointResult = data;
+    renderedState = '';
+    if (current) render(current);
+  }
 });
 
 function saveDraft() {
@@ -875,6 +946,7 @@ function renderChat(data) {
     const saved = vscode.getState() || {};
     document.getElementById('message').value = (saved.drafts || {})[data.runKey] || '';
     current = null; renderedState = ''; answers = Object.create(null);
+    checkpointCompare = Object.create(null); checkpointResult = null;
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');

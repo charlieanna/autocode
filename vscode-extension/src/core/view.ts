@@ -96,6 +96,39 @@ export interface DisplayedPlan {
   git_delivery?: { kind: "atomic_commit"; message: string } | null;
 }
 
+/** A named checkpoint action, in the same shape as a connection action. */
+export interface CheckpointAction {
+  id: string;
+  label: string;
+  next_command: string[];
+}
+
+export interface CodeCheckpointRow {
+  id: string;
+  task_id?: string;
+  iteration?: number | null;
+  at?: string | null;
+  label?: string | null;
+  milestone_id?: string | null;
+  members?: { milestone_id: string; changed_files: string[] }[] | null;
+  changed_files?: string[];
+  source_revision?: string;
+  commit?: string;
+  available?: boolean;
+  reason?: string | null;
+  recorded_check?: { verdict?: string; at?: string; scope?: string } | null;
+  actions?: CheckpointAction[];
+}
+
+/** `code_checkpoints` in the status view: saved code steps and their named actions. */
+export interface CodeCheckpoints {
+  version?: number;
+  blocked_reason?: string | null;
+  rows?: CodeCheckpointRow[];
+  continuation?: Record<string, unknown> | null;
+  restores?: Record<string, unknown>[] | null;
+}
+
 export interface StatusView {
   schema?: number;
   status: string;
@@ -120,6 +153,7 @@ export interface StatusView {
   recovery?: Record<string, unknown> | null;
   liveness?: { kind?: string } | null;
   current_task?: { id?: string; objective?: string } | null;
+  code_checkpoints?: CodeCheckpoints | null;
   chat?: {
     messages: { id: string; role: string; text: string; streaming?: boolean }[];
     phase?: "requirements" | null;

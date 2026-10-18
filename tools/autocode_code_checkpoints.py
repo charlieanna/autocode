@@ -444,32 +444,80 @@ def blocked_reason(state: RunState):
     return None
 
 
-def project(state: RunState):
+def row_actions(row, *, restorable, run_dir=None, workspace=None):
+    """The actions a client may run on this row, as argv after `autocode`.
+
+    The shape follows the connections contract (docs/task-run.md): clients
+    execute only offered actions. The restore's token travels through
+    AUTOCODE_CHECKPOINT_EXPECTED_TOKEN (the `-` selector), and only a fresh
+    compare of the same checkpoint returns it; `REQUEST_ID` is the caller's
+    stable confirmation id, which makes replay idempotent.
+    """
+    if not row.get("available"):
+        return []
+    prefix = [
+        "checkpoint",
+        "--workspace",
+        str(workspace) if workspace else "WORKSPACE",
+        "--run-dir",
+        str(run_dir) if run_dir else "RUN_DIR",
+    ]
+    actions = [
+        {
+            "id": "compare",
+            "label": "Show what changed since here",
+            "next_command": [*prefix, "--compare", row["id"]],
+        }
+    ]
+    if restorable:
+        actions.append(
+            {
+                "id": "restore",
+                "label": "Go back to here",
+                "next_command": [
+                    *prefix,
+                    "--restore",
+                    row["id"],
+                    "--expected-token",
+                    "-",
+                    "--request-id",
+                    "REQUEST_ID",
+                ],
+            }
+        )
+    return actions
+
+
+def project(state: RunState, *, run_dir=None, workspace=None):
     reason = blocked_reason(state)
+    rows = []
+    for row in state.get("code_checkpoints", []):
+        projected = {
+            key: deepcopy(row.get(key))
+            for key in (
+                "id",
+                "task_id",
+                "iteration",
+                "at",
+                "label",
+                "milestone_id",
+                "members",
+                "changed_files",
+                "source_revision",
+                "commit",
+                "available",
+                "reason",
+                "recorded_check",
+            )
+        }
+        # Only a row with verified source objects is actionable; a restore is
+        # named only where the pause reconciles (blocked_reason is None).
+        projected["actions"] = row_actions(row, restorable=reason is None, run_dir=run_dir, workspace=workspace)
+        rows.append(projected)
     return {
         "version": 1,
         "blocked_reason": reason,
-        "rows": [
-            {
-                key: deepcopy(row.get(key))
-                for key in (
-                    "id",
-                    "task_id",
-                    "iteration",
-                    "at",
-                    "label",
-                    "milestone_id",
-                    "members",
-                    "changed_files",
-                    "source_revision",
-                    "commit",
-                    "available",
-                    "reason",
-                    "recorded_check",
-                )
-            }
-            for row in state.get("code_checkpoints", [])
-        ],
+        "rows": rows,
         "continuation": deepcopy(state.get("checkpoint_continuation")),
         "restores": deepcopy(state.get("checkpoint_restores", [])),
     }
