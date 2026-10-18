@@ -14,7 +14,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - New CLI and TaskRun runs select qualified models from connected accounts automatically,
   preserving explicit overrides and saved routes. OpenCode/Kilo metadata governs supported
   reasoning levels; preflight receipts distinguish levels and actual tools. Automatic
-  escalation stays inside saved accounts, and installed wheels include the qualification
+  escalation and stuck-run investigation stay inside saved accounts. Discovery shares its roster
+  with admission, and installed wheels include the qualification
   table. `--no-auto-select` retains fixed defaults (#1426).
 
 ### Fixed

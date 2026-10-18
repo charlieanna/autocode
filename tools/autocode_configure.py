@@ -190,7 +190,7 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
         return None
 
     try:
-        found = discovery.discover(provider_mod, Path(workspace))
+        found = discovery.discover(provider_mod, Path(workspace), inventory=getattr(args, "_model_inventory", None))
     except Exception as error:  # noqa: BLE001 - any failure of a defaulted listing is a fallback
         return soft(f"the tool's listings could not be read ({error}).")
     # The run's full role set, not the four DEFAULT_ROLE_MODELS the roles dict

@@ -53,7 +53,7 @@ OPENCODE_FREE_ACCOUNT = "OpenCode Zen"
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
-def discover(provider, workspace=None, *, env=None) -> dict:
+def discover(provider, workspace=None, *, env=None, inventory=None) -> dict:
     """The candidates and accounts ``provider`` offers: ``{tool, candidates, accounts}``.
 
     ``candidates`` are the selector's dicts (model, tool, account, billing, levels,
@@ -63,9 +63,9 @@ def discover(provider, workspace=None, *, env=None) -> dict:
     stopping.
     """
     if callable(getattr(provider, "auth_table", None)):
-        return _from_command_provider(provider, workspace, env)
+        return _from_command_provider(provider, workspace, env, inventory)
     if callable(getattr(provider, "auth_logins", None)):
-        return _from_opencode(workspace, env)
+        return _from_opencode(workspace, env, inventory)
     name = getattr(provider, "NAME", "the provider")
     raise RuntimeError(f"Cannot discover models for {name}; it lists neither routes nor logins")
 
@@ -75,7 +75,7 @@ def candidates(provider, workspace=None, *, env=None) -> list:
     return discover(provider, workspace, env=env)["candidates"]
 
 
-def _from_command_provider(provider, workspace, env):
+def _from_command_provider(provider, workspace, env, inventory=None):
     table = provider.auth_table()
     if not table["command"] or not table["routes"]:
         return {"tool": table["name"], "candidates": [], "accounts": []}
@@ -85,7 +85,7 @@ def _from_command_provider(provider, workspace, env):
         found = re.findall(route["pattern"], summary, re.MULTILINE)
         if found and route["expect"] in found:
             connected.append(route)
-    models = _models(provider, workspace, env)
+    models = _models(provider, workspace, env, inventory)
     return {
         "tool": table["name"],
         "candidates": _candidates(models, table["name"], connected, _levels(provider, workspace, env)),
@@ -101,7 +101,7 @@ def _from_command_provider(provider, workspace, env):
     }
 
 
-def _from_opencode(workspace, env):
+def _from_opencode(workspace, env, inventory=None):
     logins = opencode.auth_logins(workspace, env=env)
     if logins is None:
         raise RuntimeError("Cannot read OpenCode's logins; run `opencode auth list`; no agent was launched")
@@ -117,7 +117,7 @@ def _from_opencode(workspace, env):
         routes.extend({"models": prefix, "name": name, "billing": billing} for prefix in prefixes.split())
     # The free tier needs no login, so it is a route every listing serves.
     routes.append({"models": OPENCODE_FREE_PREFIX, "name": OPENCODE_FREE_ACCOUNT, "billing": "pay per token"})
-    models = opencode.available_models(workspace, env=env)
+    models = _models(opencode, workspace, env, inventory)
     accounts = {}
     for route in routes:
         account = accounts.setdefault(
@@ -176,8 +176,12 @@ def _levels(provider, workspace, env):
         return {}
 
 
-def _models(provider, workspace, env):
-    listed = provider.available_models(workspace, env=env)
+def _models(provider, workspace, env, inventory=None):
+    listed = (
+        inventory.available_models(workspace)
+        if inventory is not None
+        else provider.available_models(workspace, env=env)
+    )
     if listed is None:
         raise RuntimeError("Cannot read the tool's model listing; automatic selection cannot guess availability")
     return listed

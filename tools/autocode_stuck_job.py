@@ -298,7 +298,8 @@ def add_arguments(parser) -> None:
     parser.add_argument(
         "--investigator-model",
         help="Pin the stuck-stage Investigator's model for this run; a provider/model id "
-        "(e.g. openai/gpt-6-sol) runs it through OpenCode. Default: Claude Opus 5.5 in "
+        "(e.g. openai/gpt-6-sol) runs it through OpenCode. Automatic runs reuse an independent "
+        "permitted reviewer route. Fixed-route default: Claude Opus 5.5 in "
         "kilocode runs, otherwise GPT-6 Sol (GLM 5.3 when the stuck stage runs on Sol)",
     )
     parser.add_argument(
