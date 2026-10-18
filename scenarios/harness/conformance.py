@@ -200,10 +200,32 @@ class ConformanceDriver(Driver):
         """A person's feedback/follow-up through the optional chat input offer (#884)."""
         offered = (view.get("chat") or {}).get("input") or {}
         flag = {"feedback": "--feedback", "follow_up": "--follow-up"}.get(offered.get("kind"))
-        if not flag or not text.strip() or not offered.get("next_command"):
+        if not text.strip() or not offered.get("next_command"):
             raise ConformanceGap("The view names no message action at this checkpoint")
         words, env, _ = self.named_command({**view, "next_command": offered["next_command"]})
-        if words != [flag, "MESSAGE"] or env:
+        need = view.get("needs") or {}
+        if offered.get("kind") == "resolver_response":
+            expected = [
+                "--resolver-request",
+                need.get("resolver_request_id"),
+                "--resolver-token",
+                "-",
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "MESSAGE",
+            ]
+            if (
+                need.get("kind") == "answer"
+                and need.get("resolver_scope") in ("blocker", "operational_exhaustion")
+                and not need.get("route")
+                and need.get("resolver_request_id")
+                and need.get("resolver_token")
+                and words == expected
+                and env == {"AUTOCODE_RESOLVER_TOKEN": need["resolver_token"]}
+            ):
+                return [*words[:-1], text], env, "chat.input.next_command"
+        if not flag or words != [flag, "MESSAGE"] or env:
             raise ConformanceGap("Unsupported chat message command")
         return [flag, text], {}, "chat.input.next_command"
 

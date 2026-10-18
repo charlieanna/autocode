@@ -20,6 +20,18 @@ import autocode_workflows as workflows
 
 
 class RequirementsChatTests(unittest.TestCase):
+    def test_malformed_active_or_repair_stage_has_no_streamed_reply(self):
+        for active in (None, "terra", ["requirements_gather"], True, 42):
+            for repair in (False, True):
+                state = {"settings": {"spec_first": True}, "active_stage": active}
+                if repair:
+                    state["active_stage"] = {"stage": chat.STAGE + "_report_repair"}
+                    state["pending_report_repair"] = {"original": active}
+                before = copy.deepcopy(state)
+                with self.subTest(active=active, repair=repair):
+                    self.assertEqual("", chat.streaming_reply(state, "/run"))
+                    self.assertEqual(before, state)
+
     def test_requirements_uses_its_saved_session_without_reusing_independent_review_sessions(self):
         state = {"settings": {"spec_first": True}, "sessions": {"requirements": "saved-chat", "reviewer": "separate"}}
         self.assertEqual("saved-chat", transport.resume_session(state, "requirements", chat.STAGE, True, False, True))

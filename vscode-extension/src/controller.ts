@@ -176,12 +176,20 @@ export class RunController {
     }
     const parsed = parseNamedCommand(input.next_command, run);
     const flag = input.kind === "feedback" ? "--feedback" : input.kind === "follow_up" ? "--follow-up" : null;
-    // A message may only fill the single advertised text value. It cannot
-    // approve, grant recovery, resume a pause or smuggle another CLI action.
-    if (!flag || parsed.argv.length !== 2 || parsed.argv[0] !== flag || parsed.argv[1] !== "MESSAGE"
-      || Object.keys(parsed.env).length) throw new ClientGap("Unsupported message action from AutoCode");
+    const need = view.needs;
+    const expected = ["--resolver-request", need?.resolver_request_id, "--resolver-token", "-",
+      "--resolver-response", "provide_information", "--resolver-message", "MESSAGE"];
+    const operational = input.kind === "resolver_response" && need?.kind === "answer"
+      && ["blocker", "operational_exhaustion"].includes(need.resolver_scope ?? "") && !need.route
+      && !!need.resolver_request_id && !!need.resolver_token
+      && JSON.stringify(parsed.argv) === JSON.stringify(expected)
+      && Object.keys(parsed.env).length === 1 && parsed.env.AUTOCODE_RESOLVER_TOKEN === need.resolver_token;
+    // Fill only the advertised text. Operational replies carry the current
+    // request binding; they cannot grant a retry or resume a pause themselves.
+    if (!operational && (!flag || parsed.argv.length !== 2 || parsed.argv[0] !== flag || parsed.argv[1] !== "MESSAGE"
+      || Object.keys(parsed.env).length)) throw new ClientGap("Unsupported message action from AutoCode");
     const result = await stream({ ...this.settings, cwd: run.workspace },
-      [flag, text, "--workspace", run.workspace, "--run-dir", run.runDir]);
+      [...parsed.argv.slice(0, -1), text, "--workspace", run.workspace, "--run-dir", run.runDir], parsed.env);
     if (result.code !== 0) throw new Error(tail(result));
   }
 }

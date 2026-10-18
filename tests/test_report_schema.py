@@ -330,3 +330,42 @@ class ProjectConventionsReportCompatibilityTests(unittest.TestCase):
             runner.load_stage_report(record)
         self.assertEqual({}, json.loads(output.read_text()))
         self.assertNotIn("reported_output", record)
+
+
+class GitDeliveryReportCompatibilityTests(unittest.TestCase):
+    def test_loader_defaults_only_absent_nullable_delivery_and_preserves_raw(self):
+        import autocode_git_delivery_policy as delivery
+
+        for nested in (False, True):
+            for stage in ("astra_discovery", "astra_plan", "glm_revise_report_repair"):
+                with self.subTest(nested=nested, stage=stage), tempfile.TemporaryDirectory() as tmp:
+                    body = role_schema.obj({"git_delivery": copy.deepcopy(delivery.SCHEMA)})
+                    schema = model_output_schema(role_schema.obj({"contract": body}) if nested else body)
+                    raw = {"contract": {}} if nested else {}
+                    expected = {"contract": {"git_delivery": None}} if nested else {"git_delivery": None}
+                    output, schema_path = Path(tmp) / "out.json", Path(tmp) / "schema.json"
+                    output.write_text(json.dumps(raw))
+                    schema_path.write_text(json.dumps(schema))
+                    record = {"stage": stage, "output": str(output), "schema": str(schema_path)}
+                    result = runner.load_stage_report(record)
+                    self.assertEqual(expected, result)
+                    self.assertEqual(raw, json.loads(Path(record["reported_output"]).read_text()))
+                    self.assertEqual(expected, runner.load_stage_report(record))
+
+    def test_normalizer_preserves_supplied_delivery_and_nonnullable_or_older_schemas(self):
+        import autocode_git_delivery_policy as delivery
+        from autocode_report_schema import normalize_absent_authority
+
+        nullable = copy.deepcopy(delivery.SCHEMA)
+        nullable["type"] = ["object", "null"]
+        schema = role_schema.obj({"contract": role_schema.obj({"git_delivery": nullable})})
+        for supplied in (None, {"kind": "atomic_commit", "message": "Deliver"}, {}, "commit"):
+            raw = {"contract": {"git_delivery": supplied}}
+            before = copy.deepcopy(raw)
+            self.assertEqual(before, normalize_absent_authority(raw, schema, {"stage": "astra_plan"}))
+            self.assertEqual(before, raw)
+        for old in ({}, {"properties": {"git_delivery": {"type": "object"}}}):
+            raw = {"contract": {}}
+            self.assertEqual(raw, normalize_absent_authority(raw, old, {"stage": "astra_plan"}))
+        for raw in ({}, {"contract": None}, {"contract": "invalid"}):
+            self.assertEqual(raw, normalize_absent_authority(raw, schema, {"stage": "astra_plan"}))

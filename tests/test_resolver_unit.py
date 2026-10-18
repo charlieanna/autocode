@@ -474,12 +474,84 @@ class ResolverTests(unittest.TestCase):
         optional = {}
         for key in sorted(set(schema["properties"]) - set(schema["required"])):
             spec = schema["properties"][key]
-            optional[key] = spec["enum"][0] if "enum" in spec else {"object": {}}[spec["type"]]
+            optional[key] = (
+                spec["enum"][0]
+                if "enum" in spec
+                else None
+                if isinstance(spec["type"], list) and "null" in spec["type"]
+                else {"object": {}}[spec["type"]]
+            )
             with self.subTest(key=key):
                 self.assertEqual(
                     "continue", r.resolve(request(contract=snapshot({**body(), key: optional[key]})))[0].action
                 )
         self.assertEqual("continue", r.resolve(request(contract=snapshot({**body(), **optional})))[0].action)
+
+    def test_approved_git_delivery_and_no_delivery_remain_resolvable(self):
+        for delivery in (None, {"kind": "atomic_commit", "message": "Deliver verified changes"}):
+            with self.subTest(delivery=delivery):
+                approved = {**body(), "git_delivery": delivery}
+                decision, receipt = r.resolve(request(contract=snapshot(approved)))
+                self.assertEqual((decision.action, receipt.attempt), ("continue", 1))
+
+    def test_malformed_git_delivery_escalates_without_dispatch_or_budget_consumption(self):
+        for delivery in (
+            {},
+            [],
+            "atomic_commit",
+            {"kind": "push", "message": "Deliver"},
+            {"kind": "atomic_commit", "message": " "},
+            {"kind": "atomic_commit", "message": 42},
+            {"kind": "atomic_commit", "message": "bad\x00message"},
+            {"kind": "atomic_commit", "message": "Deliver", "push": True},
+        ):
+            with self.subTest(delivery=delivery):
+                calls = []
+                req = request(
+                    contract=snapshot({**body(), "git_delivery": delivery}),
+                    propose=lambda _: calls.append("proposal"),
+                    review=lambda *_: calls.append("review"),
+                    proposed_resolution=None,
+                )
+                decision, receipt = r.resolve(req)
+                self.assertEqual((decision.action, receipt.attempt), ("escalate", None))
+                self.assertFalse(calls)
+                self.assertFalse(req.ledger.attempts)
+
+    def test_bounded_replan_preserves_approved_git_delivery_authority(self):
+        delivery = {"kind": "atomic_commit", "message": "Deliver verified changes"}
+        for initial in (None, delivery):
+            approved = {**body(), "git_delivery": initial}
+            candidate = {**copy.deepcopy(approved), "technical_approach": ["Revised approach"]}
+            decision, _ = r.resolve(
+                request(
+                    contract=snapshot(approved),
+                    proposed_resolution=r.Proposal("replan", {"body": candidate}, "Within approved scope"),
+                )
+            )
+            with self.subTest(initial=initial, change="approach"):
+                self.assertEqual(decision.action, "replan")
+                self.assertEqual(decision.payload["body"]["git_delivery"], initial)
+            for replacement in (None, delivery, {**delivery, "message": "Different commit"}):
+                if replacement == initial:
+                    continue
+                with self.subTest(initial=initial, replacement=replacement):
+                    changed = {**candidate, "git_delivery": replacement}
+                    decision, receipt = r.resolve(
+                        request(
+                            contract=snapshot(approved),
+                            proposed_resolution=r.Proposal("replan", {"body": changed}, "Change authority"),
+                        )
+                    )
+                    self.assertEqual((decision.action, receipt.rationale), ("retry", "protected contract change"))
+            candidate.pop("git_delivery")
+            decision, receipt = r.resolve(
+                request(
+                    contract=snapshot(approved),
+                    proposed_resolution=r.Proposal("replan", {"body": candidate}, "Drop authority"),
+                )
+            )
+            self.assertEqual((decision.action, receipt.rationale), ("retry", "invalid candidate body"))
 
     def test_source_purity_and_constants(self):
         source = pathlib.Path(r.__file__).read_text()

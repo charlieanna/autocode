@@ -147,6 +147,15 @@ Set `AUTOCODE_TEST_CLI=/path/to/installed/autocode` to test the installed packag
 These tests prove runner behavior, not a model's interviewing quality or semantic
 review accuracy. See [`VALIDATION.md`](../VALIDATION.md) for measured results and remaining limits.
 
+Runner-owned verification copies keep a detached HEAD at the source snapshot's actual commit and
+an independent pack of its reachable history. Current uncommitted source still overlays that
+history. This lets delivery checks such as `git diff-tree -r HEAD` inspect the delivered commit.
+The copy imports no original configuration, hooks, replacement refs, other branches or object
+alternates, and retains the source's shallow boundary when present. Its complete Git metadata is
+covered by the same immutable-copy manifest as the source files. History export shares the existing
+preparation deadline; an export failure cannot publish a usable verification copy. Worktree-status
+checks remain unsuitable for clean replay, whose index represents the copied source.
+
 A few tests read historical commits from local Git objects, so they need the
 repository's full history, not a shallow clone (CI checks out with
 `fetch-depth: 0`): `tests.test_catalogue_t14` replays a saved regression from

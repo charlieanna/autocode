@@ -187,8 +187,27 @@ The optional `notice` explains a stop or ongoing work in ordinary language;
 chat clients keep diagnostic headings, empty counts and pause categories in
 Run details. A notice never grants an action beyond the view's named command.
 
+A build plan can explicitly request local delivery with
+`git_delivery: {"kind": "atomic_commit", "message": "…"}`. Use null when no local
+commit is requested; older reports may omit the field without granting delivery
+authority. This field is part of
+the sealed plan and is shown alongside its approval. A fresh passing runner
+regression proof allows the controller to create the scoped commit before the
+independent Tester inspects it. The committed revision receives fresh runner proof
+and independent verification before completion. Plans without executable regression
+cases retain the final completion boundary. Existing Git hooks are honored.
+Stage workers still cannot commit. Push, merge and deployment are separate actions.
+
+Delivery refuses preexisting dirty launch work, staged changes, changes outside
+the approved affected paths, or a moved HEAD. A durable receipt prevents repeating
+a successful commit after a lost response. Uncertain Git writes or source changes
+in a hook stop for reconciliation. The initial supported route is the ordinary
+build review workflow. Older plans promising an atomic commit only in prose require
+a revised, explicitly approved structured delivery contract; prose cannot authorize
+a Git write and cannot silently satisfy the completion gate.
+
 `input` is null when free text is not an admitted action. Otherwise it names
-`kind` (`feedback` or `follow_up`), a display `label`, and `next_command` with
+`kind` (`feedback`, `follow_up`, or `resolver_response`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
 as an argument array without a shell. The headless conformance client's
@@ -197,6 +216,18 @@ as an argument array without a shell. The headless conformance client's
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
 The ordinary CLI independently rechecks admission when saving the action.
+An operational `resolver_response` offer binds `provide_information` to the current
+Resolver request ID and token in `needs`. It supplies corrective information only;
+retry grants, scope changes, model routing and resuming remain separate actions.
+In spec-first chat runs, a message at plan approval is interpreted by the saved Requirements
+route when the client continues. Questions receive an assistant reply while preserving the reviewed
+plan and its token; requested or mixed corrections enter normal requirements/review again and need
+fresh approval. Free text, including approval-like messages, never approves the plan. The existing
+`--feedback` action and `feedback` input kind remain the client contract; no client intent parsing
+is needed. Exchanges are stored as `plan_message` user-event receipts (ID, original text, contract
+token, return stage, then intent and `reply_after`). They are not requirement sources unless a change
+is forwarded once as ordinary brief feedback. Legacy nonchat feedback keeps its correction behavior.
+
 Saving feedback or a follow-up launches no model. A button explicitly offering
 to send **and continue** may then follow the ordinary `needs.kind=continue`
 action. It may never infer a plan approval, answer another question or release
@@ -230,6 +261,14 @@ boundary, then advances the same controller to its next question or approval
 stop. A question refresh also supplies its `question_id` and current
 `resolver_token`; exact answer and operational-recovery rules still apply.
 Stale revisions, conflicting request IDs and stale question tokens are refused.
+
+During joint planning, technical decisions with a proposed default are resolved internally and
+sent through drafting and review again. They are retained as `user_events` receipts with
+`actor=autocode` and `kind=technical_decision`, outside the human `answers` ledger and chat history.
+They cannot authorize a protected contract change or approve a plan. Genuine questions about the
+requested outcome, behavior, cost, permissions or side effects still require a human answer, as do
+unresolved facts and rejected assumptions. A repeated identical technical question goes to report
+repair instead of another planning loop. Non-joint runs keep their existing question path.
 
 `handoff_conversation(expected_revision=..., expected_plan_token=...)` records the
 reviewed current draft's handoff to that same run. It does not approve the plan or

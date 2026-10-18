@@ -20,6 +20,25 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Malformed saved activity records no longer crash chat status or its provisional reply view (#1522).
+
+- Resolver blocker questions now offer a request-bound reply in task chat. Approved build plans can
+  request a controller-owned atomic local commit, followed by independent verification on that commit.
+  Plans without Git delivery keep the ordinary build flow and gain no commit authority. Resolver
+  recovery accepts both forms while preserving their approved delivery authority (#1522).
+
+- Isolated verification copies retain the delivered Git commit and its reachable history, so atomic
+  delivery checks inspect the real commit instead of an unrelated synthetic root. Current source
+  changes remain in the copy; original Git configuration, hooks and other refs stay excluded (#1522).
+
+- Chat questions about a reviewed plan now receive an explanation without invalidating its approval
+  token. Requirements distinguishes questions from requested changes; changes still need a refreshed
+  review and explicit approval (#1522).
+
+- Joint planning keeps technical questions with recommended defaults inside AutoCode, including
+  test-fixture and command details that previously interrupted the VS Code chat with criterion IDs.
+  Internal decisions remain separate from human answers; behavior, authorization and plan approval
+  still require their existing checks (#1522).
 - Automatic model selection preserves explicit reasoning-effort flags and models using their default
   level. Automatic quota recovery retains and accounts for the stopped attempt before retrying,
   and remembers exhausted alternatives across restarts instead of cycling between them (#1426).

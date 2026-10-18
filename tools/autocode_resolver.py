@@ -11,8 +11,10 @@ from types import MappingProxyType
 from typing import Any
 
 try:
+    from . import autocode_git_delivery_policy as git_delivery
     from . import autocode_workflows as workflows
 except ImportError:
+    import autocode_git_delivery_policy as git_delivery
     import autocode_workflows as workflows
 
 ACTIONS = frozenset({"continue", "retry", "replan", "escalate"})
@@ -53,7 +55,7 @@ _REQUIRED = frozenset(
 # each must be an object, and they are never ALLOWED_FIELDS, so a replan cannot change one.
 _RUNNER_OWNED = frozenset({"brief_acceptance", "risk_acceptance", "source_trace"})
 # Known-but-optional body keys combine freely; unknown keys still fail closed.
-_KNOWN = _REQUIRED | {"initial_task"} | _RUNNER_OWNED
+_KNOWN = _REQUIRED | {"initial_task", "git_delivery"} | _RUNNER_OWNED
 _FORBIDDEN_PAYLOAD_KEYS = frozenset(
     {
         "body",
@@ -224,6 +226,11 @@ def _validate_body(body: Any) -> bool:
         return False
     if any(not isinstance(body[key], Mapping) for key in _RUNNER_OWNED & keys):
         return False
+    if body.get("git_delivery") is not None:
+        try:
+            git_delivery.requirement(body)
+        except ValueError:
+            return False
     if body.get("task_kind", "build") not in ("build", "bugfix"):  # optional job type (autocode_goals.TASK_KINDS)
         return False
     if not all(isinstance(body.get(key), str) and body[key].strip() for key in ("intended_outcome", "intended_user")):

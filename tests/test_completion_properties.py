@@ -91,6 +91,13 @@ class CompletionGateProperties(unittest.TestCase):
     def test_the_unmutated_state_completes(self):
         self.assertTrue(self.ready())
 
+    def test_required_git_delivery_cannot_be_omitted_from_completion(self):
+        self.state["goal_contract"] = {
+            "body": {"git_delivery": {"kind": "atomic_commit", "message": "Deliver changes"}}
+        }
+        self.assertFalse(self.ready())
+        self.assertIn("Git delivery", completion_gate.rejection(self.state))
+
     def test_every_required_rule_mutation_refuses_completion(self):
         mutations = []
         for status in ("FAIL", "NOT_VERIFIED", "UNVERIFIED", "", "verified"):

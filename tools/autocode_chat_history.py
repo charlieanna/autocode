@@ -41,7 +41,11 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     for index, event in enumerate(state.get("user_events") or []):
-        if event.get("kind") not in ("brief_feedback", "answer") or not event.get("text"):
+        if (
+            event.get("kind") not in ("brief_feedback", "answer", "plan_message")
+            or not event.get("text")
+            or event.get("forwarded")
+        ):
             continue
         ident = event.get("id") or f"event-{index}"
         if prior.get(ident):
@@ -52,6 +56,19 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
         elif isinstance(question, dict) and question.get("question"):
             rows.append({"id": f"{ident}-question", "role": "assistant", "text": question["question"]})
         rows.append({"id": ident, "role": "user", "text": event["text"]})
+        if event.get("reply_after"):
+            rows.append({"id": f"{ident}-reply-after", "role": "assistant", "text": event["reply_after"]})
+    resolver = state.get("resolver") or {}
+    for event in resolver.get("human_responses", []):
+        if event.get("actor") != "user_cli" or not event.get("text"):
+            continue
+        ident = "resolver-" + event["request_id"]
+        entry = (resolver.get("human_escalations") or {}).get(event["request_id"], {})
+        request = ((entry.get("identity") or {}).get("proposal") or {}).get("request") or {}
+        question = "\n\n".join(q.get("question", "") for q in request.get("questions", []))
+        if question:
+            rows.append({"id": ident + "-question", "role": "assistant", "text": question})
+        rows.append({"id": ident + "-response", "role": "user", "text": event["text"]})
     if completed:
         rows.append({"id": f"response-{len(turns)}", "role": "assistant", "text": response(state)})
     return rows

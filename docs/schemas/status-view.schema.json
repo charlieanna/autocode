@@ -171,7 +171,7 @@
             }},
             "context": {"type": "string"},
             "input": {"type": ["object", "null"], "required": ["kind", "label", "next_command"],
-              "properties": {"kind": {"enum": ["feedback", "follow_up"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
+              "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
           }
         },
         "displayed_plan": {"type": "object", "description": "Present while a sealed plan is displayed for approval."},

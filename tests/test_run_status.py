@@ -76,6 +76,16 @@ class PauseTests(unittest.TestCase):
         self.assertIs(result, state)
         self.assertEqual({"status": "RUNNING", "phase": "EXECUTING", "next_stage": "terra"}, state)
 
+    def test_awaiting_approval_returns_to_the_human_gate_without_granting_it(self):
+        state = {"status": "RUNNING", "phase": "PLANNING", "stop_reason": "old", "next_stage": "requirements_gather"}
+        result = run_status.awaiting_approval(state, next_stage="astra_plan")
+        self.assertIs(result, state)
+        self.assertEqual(
+            {"status": "AWAITING_GOAL_APPROVAL", "phase": "AWAITING_GOAL_APPROVAL", "next_stage": "astra_plan"}, state
+        )
+        with self.assertRaises(TypeError):
+            run_status.awaiting_approval({}, status="TASK_COMPLETE")
+
     def test_transition_fields_cannot_replace_owned_fields(self):
         with self.assertRaises(TypeError):
             run_status.pause({}, "PAUSED_INVALID_OUTPUT", stop_reason="bypass")

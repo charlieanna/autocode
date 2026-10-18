@@ -17,10 +17,12 @@ try:
     from . import autocode_component_plan as component_plan
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
+    from . import autocode_technical_questions as technical_questions
 except ImportError:
     import autocode_component_plan as component_plan
     import autocode_roles as roles
     import autocode_source_scope as source_scope
+    import autocode_technical_questions as technical_questions
 
 
 import copy
@@ -55,6 +57,7 @@ try:
     from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
     from . import autocode_operational_change as operational_change
+    from . import autocode_plan_chat as plan_chat
     from . import autocode_planning_cycle as planning_cycle
     from . import autocode_progressive_state as progressive_state
     from . import autocode_proof_declarations as proof_declarations
@@ -101,6 +104,7 @@ except ImportError:
     import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
     import autocode_operational_change as operational_change
+    import autocode_plan_chat as plan_chat
     import autocode_planning_cycle as planning_cycle
     import autocode_progressive_state as progressive_state
     import autocode_proof_declarations as proof_declarations
@@ -286,6 +290,10 @@ def apply_requirements(state: RunState, body, *, artifact_sha256, record=None):
     state["pending_questions"] = []
     state.pop("user_request", None)
     questions = copy.deepcopy(body["open_blocking_questions"])
+    remaining = technical_questions.settle(state, questions, state["requirements_artifact_token"])
+    if len(remaining) != len(questions):
+        state.update({"status": "RUNNING", "phase": "DISCOVERING", "next_stage": "requirements"})
+        return
     if questions:
         record = record or {}
         origin = {
@@ -378,6 +386,21 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
     joint = state.get("settings", {}).get("joint_planning")
     if not queue_human:
         return
+    remaining = technical_questions.settle(state, questions, token(contract))
+    if len(remaining) != len(questions):
+        contract["body"]["open_blocking_questions"] = copy.deepcopy(remaining)
+        contract["hash"] = s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
+        questions = remaining
+        if not questions:
+            # The default is planning input, never a ready or approved plan.
+            state.update(
+                {
+                    "status": "RUNNING",
+                    "phase": "DISCOVERING",
+                    "next_stage": "requirements" if roles.planning_flow(state) == "v2" else "astra_discovery",
+                }
+            )
+            return
     if (
         joint
         and not questions
@@ -569,7 +592,7 @@ def migrate(state: RunState, *, fresh=False):
         body: dict = {
             k: []
             for k in BODY_SCHEMA["properties"]
-            if k not in ("task_kind", "brief_acceptance", "risk_acceptance", "source_trace")
+            if k not in ("task_kind", "brief_acceptance", "risk_acceptance", "source_trace", "git_delivery")
         }
         body.update(
             intended_outcome=state["task"],
@@ -672,12 +695,13 @@ def render(state: RunState, run_dir=None):
         "important_failure_cases",
         "acceptance_criteria",
         "technical_approach",
+        "git_delivery",
         "milestones",
         "initial_task",
         "open_blocking_questions",
     )
     for key in display_order:
-        if key not in body:
+        if key not in body or body[key] is None:
             continue
         value = body[key]
         lines += ["", key.replace("_", " ").capitalize() + ":"]
@@ -816,7 +840,8 @@ def render(state: RunState, run_dir=None):
 
 def present(state: RunState, run_dir=None):
     public = human.current(state)
-    state.pop("displayed_goal", None)
+    if not plan_chat.pending(state):
+        state.pop("displayed_goal", None)
     # Preserve the historical display acknowledgement for exact, already-recorded
     # review replays. Rendering still hides controls without current authority.
     recorded_review = any(

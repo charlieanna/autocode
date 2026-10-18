@@ -12,6 +12,10 @@ class DynamicDependenciesTests(unittest.TestCase):
         for path in ("tools/autocode_chat_view.py", "tools/autocode_run_view.py"):
             self.assertIn("tests.test_chat_cli", dependencies.dependencies(path))
 
+    def test_plan_chat_and_its_prompt_select_the_public_regression(self):
+        for path in ("tools/autocode_plan_chat.py", "tools/prompts/plan-chat.md"):
+            self.assertIn("tests.test_plan_chat_cli", dependencies.dependencies(path))
+
     def select(self, path):
         consumers = {
             *dependencies.PROMPT_CONSUMERS,
@@ -187,3 +191,18 @@ class DynamicDependenciesTests(unittest.TestCase):
             [],
             sorted(module for module in declared if not root.joinpath(*module.split(".")).with_suffix(".py").is_file()),
         )
+
+    def test_internal_question_wiring_selects_its_public_cli_regression(self):
+        consumer = "tests.test_technical_questions_cli"
+        for path in (
+            "tools/autocode_technical_questions.py",
+            "tools/autocode_goal_lifecycle.py",
+            "tools/autocode_contract_revision.py",
+            "tools/autocode_requirements_handoff.py",
+            "tools/autopilot.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "11 seconds"})
+                self.assertIn(consumer, kept)
+                self.assertNotIn("tests.test_unrelated", kept)

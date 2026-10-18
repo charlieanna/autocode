@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 try:
+    from .. import autocode_plan_chat as plan_chat
     from .. import autocode_prompts as prompts
 except ImportError:
+    import autocode_plan_chat as plan_chat
     import autocode_prompts as prompts
 
 
@@ -921,6 +923,8 @@ RISK_OBSERVATION_REVIEW_RULE = prompts.get("fragments/autoplanner/risk-observati
 
 
 def context(state: RunState, stage, state_path):
+    if stage == "requirements_gather" and plan_chat.pending(state):
+        return plan_chat.context(state)
     predecessor = None
     if stage in V2_STAGES:
         predecessor = artifacts.verify_predecessor(state, stage, Path(state_path).parent)
@@ -1271,6 +1275,8 @@ def prepare(state: RunState, stage, state_path, schema_dir):
 
 def schema_for(state: RunState, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
+    if stage == "requirements_gather" and plan_chat.pending(state):
+        return plan_chat.SCHEMA
     if stage == RECOGNIZE:
         return adaptive.recognizer_schema(state, SCHEMAS[stage])
     return design_plan.report_schema(
