@@ -1056,3 +1056,41 @@ test('chat renders review criteria in decision card with sticky action strip', a
   assert.equal(ui.document.querySelector('#action-strip .action-prompt').textContent, 'AutoCode is waiting for you');
   assert.equal(ui.document.querySelector('#take-action').textContent, 'Accept the reviewed criteria');
 });
+
+test('non-requirements running stage shows Thinking in chat without offering Continue (#1530)', async (t) => {
+  const runningView = {
+    status: 'RUNNING', done: false,
+    liveness: { kind: 'supervised' },
+    needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { context: 'ctx-1', messages: [{ id: 'm1', role: 'assistant', text: 'Building it now.' }], input: null },
+    progress: { line: 'Builder · writing the export' },
+  };
+  const chatUi = await openChat(t, runningView);
+  assert.ok(chatUi.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(chatUi.document.querySelector('#take-action'), null, 'active build step must not offer Continue');
+  assert.equal(chatUi.document.querySelectorAll('#app button').length, 0);
+  assert.equal(chatUi.document.querySelector('#send-hint').textContent, 'AutoCode is working. You can keep a draft here.');
+
+  // Once the step stops, Continue is offered again
+  await chatUi.poll({ ...runningView, liveness: { kind: 'unknown' } });
+  assert.ok(!chatUi.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(chatUi.document.querySelector('#take-action').textContent, 'Continue');
+  assert.equal(chatUi.document.querySelector('#take-action').disabled, false);
+});
+
+test('Run details disables Take action while a stage is actively running (#1530)', async (t) => {
+  const runningView = {
+    status: 'RUNNING', done: false,
+    liveness: { kind: 'supervised' },
+    needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    progress: { line: 'Builder · writing the export' },
+  };
+  const panelUi = await openPanel(t, runningView);
+  assert.equal(panelUi.take().textContent, 'Working…');
+  assert.equal(panelUi.take().disabled, true);
+  await panelUi.poll({ ...runningView, liveness: { kind: 'unknown' } });
+  assert.equal(panelUi.take().textContent, 'Take the named action');
+  assert.equal(panelUi.take().disabled, false);
+});

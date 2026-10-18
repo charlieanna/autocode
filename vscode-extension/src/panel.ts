@@ -514,7 +514,7 @@ function render(state) {
         if (review.summary) cardContent.appendChild(el('pre', 'understanding', review.summary));
         const approve = el('button', null, review.label);
         approve.id = 'take-action';
-        approve.disabled = state.taking;
+        approve.disabled = state.taking || state.working;
         approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
           answers: { [review.question_id]: review.answer }, token: null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
@@ -576,6 +576,8 @@ function render(state) {
         + 'status view (#1012), not something the extension should work around.'));
       box.appendChild(el('pre', null, state.gap));
       cardContent.appendChild(box);
+    } else if (!state.done && state.needKind === 'continue' && state.working) {
+      cardContent.appendChild(el('div', 'line', 'Thinking…'));
     } else if (!state.done) {
       if (state.decisions.length > 0) {
         const form = el('div');
@@ -614,7 +616,7 @@ function render(state) {
       }
 
       var approving = state.needKind === 'approve_plan';
-      var label = state.taking ? 'Working…' : (approving ? 'Approve and build'
+      var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
         : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.length ? 'Send answers and continue' : 'Continue')));
       const take = el('button', null, label);
       take.id = 'take-action';
@@ -777,7 +779,7 @@ function render(state) {
 
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
-    var label = state.taking ? 'Working…' : (approving ? 'Approve this plan'
+    var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve this plan'
       : (state.needKind === 'review' ? 'Accept the reviewed criteria' : 'Take the named action'));
     const take = el('button', null, label);
     take.id = 'take-action';
@@ -824,7 +826,7 @@ function updateActionButton() {
   const take = document.getElementById('take-action');
   if (!take || !current) return;
   const missing = current.decisions.some((decision) => !(answers[decision.questionId] || '').trim());
-  take.disabled = current.taking || missing || !current.canApprove;
+  take.disabled = current.taking || current.working || missing || !current.canApprove;
 }
 
 window.addEventListener('message', (event) => {
@@ -860,7 +862,7 @@ function updateComposer() {
   document.getElementById('send-message').setAttribute('aria-label', input ? input.label + ' and continue' : 'Send message');
   document.getElementById('send-hint').textContent = !chatEnvelope.runKey ? 'Message AutoCode'
     : input ? input.label + ' and continue'
-    : chatEnvelope.busy ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
+    : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
 }
 
