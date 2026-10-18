@@ -51,6 +51,11 @@ PR template asks for an entry here; a change without one is incomplete.
   recorded as releasing the pause, matching the Builder's stronger attempt (#611).
 
 ### Added
+- The soft-default machinery for automatic selection (#1426 step 11's second half): an internal
+  `auto_select=None` launch selects and, when the tool's listings cannot be read or its accounts cannot field
+  a checker, prints why in account terms and uses the fixed default routes instead of refusing - a defaulted
+  launch is never blocked. Shipped opt-in (`--auto-select`); flipping the visible default waits on step 12's
+  qualification, because it would otherwise make the suite read a machine's real logins.
 - Step 9 complete (#1426): a run that chose its routes with `--auto-select` now switches a stopped model's role
   on its own. A quota, content-filter or output stop enters the shared recovery chain first as a `route` row
   (`autocode_route_recovery`): the next qualified model from the run's saved permitted set, checkers kept

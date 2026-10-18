@@ -147,7 +147,7 @@ def check_subscription(identity):
 
 
 def _auto_select(args, roles, provider_mod, single_model, history_models, history_providers, engine, workspace):
-    """--auto-select: choose routes from the tool's connected accounts (#1426).
+    """Choose routes from the tool's connected accounts (#1426) — the default for new runs.
 
     Explicit choices win: a role whose model a flag or this conversation named, or
     whose tool a flag named, keeps that route and only has its independence checked.
@@ -155,20 +155,45 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     that cannot field an independent checker refuses to start, in account terms.
     The result is stored under ``route_selection`` for the access check and the
     route record; saved runs never re-select.
+
+    ``--no-auto-select`` (``auto_select`` False) keeps the fixed default routes; an
+    explicit ``--auto-select`` (True) insists on selection. The default (None) also
+    selects, but softly: when the tool's listings cannot be read, or its accounts
+    cannot field an independent checker — a scripted test provider, a custom tool,
+    an offline tool — the run prints why and falls back to the fixed default routes
+    rather than refusing, because a defaulted attempt must never block a launch; the
+    usual catalogue and launch checks still guard those routes.
     """
-    if not getattr(args, "auto_select", False):
+    # Opt-in until #1426 step 12's qualification flips the default: an absent flag keeps
+    # the fixed routes (so the suite never reads a machine's real logins); an explicit
+    # ``auto_select=None`` is the soft default that flip will ship.
+    requested = getattr(args, "auto_select", False)
+    if requested is False or single_model or engine != "opencode":
+        if requested is True and single_model:
+            raise ValueError("--auto-select cannot be combined with --single-model")
+        if requested is True and engine != "opencode":
+            raise ValueError(
+                "--auto-select chooses among the OpenCode engine's tools; --engine codex keeps its own routes"
+            )
         return None
-    if single_model:
-        raise ValueError("--auto-select cannot be combined with --single-model")
-    if engine != "opencode":
-        raise ValueError("--auto-select chooses among the OpenCode engine's tools; --engine codex keeps its own routes")
     try:
         from . import autocode_route_discovery as discovery
         from . import autocode_route_selector as route_selector
     except ImportError:
         import autocode_route_discovery as discovery
         import autocode_route_selector as route_selector
-    found = discovery.discover(provider_mod, Path(workspace))
+
+    def soft(story):
+        # A defaulted attempt falls back to the fixed routes; an insisted one refuses.
+        if requested is True:
+            raise ValueError(story)
+        print(f"Automatic model selection is off for this run: {story} Using the fixed default routes.", flush=True)
+        return None
+
+    try:
+        found = discovery.discover(provider_mod, Path(workspace))
+    except Exception as error:  # noqa: BLE001 - any failure of a defaulted listing is a fallback
+        return soft(f"the tool's listings could not be read ({error}).")
     # The run's full role set, not the four DEFAULT_ROLE_MODELS the roles dict
     # holds here: joint planning adds Requirements, Planner and Plan Reviewer.
     pinned = {}
@@ -182,7 +207,7 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
             pinned[role] = (roles.get(role) or {}).get("model") or provider_mod.DEFAULT_MODELS.get(role)
     result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"], pinned=pinned)
     if result["stop"]:
-        raise ValueError(result["stop"])
+        return soft(result["stop"])
     # The permitted set a quota stop may switch within without asking (#1426 step 9):
     # every qualified, connected candidate, all on accounts this launch already used.
     result["candidates"] = route_selector.permitted_set(found["candidates"])
@@ -228,7 +253,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         raise ValueError("--single-model cannot be combined with --builder-strong-model")
     if started:
         utility_route.configure({}, args, started=True)  # refuses --utility-model on a saved run
-    if started and getattr(args, "auto_select", False):
+    if started and getattr(args, "auto_select", None) is True:
         raise ValueError("--auto-select is a new-run choice; a saved run keeps the routes it started with")
     if started and getattr(args, "builder_strong_model", None):
         raise ValueError(

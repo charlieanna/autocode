@@ -263,10 +263,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--auto-select",
-        action="store_true",
-        help="New runs: choose each role's model from the tool's connected accounts "
-        "(#1426), cheapest qualified route per role with checkers independent; per-role "
-        "model flags still win. See `autocode models --selection` before you start",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="New run: choose each role's model from the tool's connected accounts (#1426): "
+        "cheapest qualified route per role, checkers independent, per-role model flags still winning. "
+        "A selection that cannot field a checker refuses to start, in account terms. See "
+        "`autocode models --selection` first",
     )
     parser.add_argument(
         "--glm-reasoning-effort",

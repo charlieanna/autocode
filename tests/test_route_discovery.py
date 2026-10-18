@@ -293,8 +293,43 @@ class AutoSelectConfigureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--single-model"):
             self.configure(self.args(auto_select=True, single_model="openai/gpt-6-sol"))
 
-    def test_without_the_flag_nothing_changes(self):
-        settings = self.configure(self.args())
+    def test_the_soft_default_selects_and_the_flag_opts_in_and_out(self):
+        with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
+            settings = self.configure(self.args())  # no flag yet: opt-in, fixed routes
+        self.assertNotIn("route_selection", settings)
+        with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
+            settings = self.configure(self.args(auto_select=None))  # the soft default
+        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["roles"]["terra"]["model"])
+        self.assertEqual("auto_selected", settings["route_origins"]["terra"])
+        with mock.patch.object(discovery, "discover", return_value=self.gateway_found()) as probe:
+            settings = self.configure(self.args(auto_select=False))  # the explicit opt-out
+        probe.assert_not_called()
         self.assertNotIn("route_selection", settings)
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
         self.assertEqual("runner_default", settings["route_origins"]["terra"])
+
+    def test_a_soft_default_falls_back_when_the_accounts_field_no_checker(self):
+        nothing = {"tool": "opencode", "accounts": [], "candidates": []}
+        with mock.patch.object(discovery, "discover", return_value=nothing):
+            settings = self.configure(self.args(auto_select=None))  # the stop is printed, run proceeds
+        self.assertNotIn("route_selection", settings)
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        with mock.patch.object(discovery, "discover", return_value=nothing):
+            with self.assertRaisesRegex(ValueError, "no qualified model"):  # insisted: refuses
+                self.configure(self.args(auto_select=True))
+
+    def test_a_soft_default_falls_back_to_fixed_routes_when_listings_cannot_be_read(self):
+        broken = mock.Mock(side_effect=RuntimeError("cannot verify kilocode login"))
+        with mock.patch.object(discovery, "discover", broken):
+            settings = self.configure(self.args(auto_select=None))  # soft default: fallback
+        self.assertNotIn("route_selection", settings)
+        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        with mock.patch.object(discovery, "discover", broken):
+            with self.assertRaisesRegex(ValueError, "listings could not be read"):  # insisted: refuses
+                self.configure(self.args(auto_select=True))
+
+    def test_single_model_skips_selection_without_error(self):
+        with mock.patch.object(discovery, "discover") as probe:
+            settings = self.configure(self.args(single_model="openai/gpt-6-sol"))
+        probe.assert_not_called()
+        self.assertTrue(settings["single_model_mode"])
