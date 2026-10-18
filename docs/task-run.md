@@ -188,7 +188,9 @@ chat clients keep diagnostic headings, empty counts and pause categories in
 Run details. A notice never grants an action beyond the view's named command.
 
 A build plan can explicitly request local delivery with
-`git_delivery: {"kind": "atomic_commit", "message": "…"}`. This field is part of
+`git_delivery: {"kind": "atomic_commit", "message": "…"}`. Use null when no local
+commit is requested; older reports may omit the field without granting delivery
+authority. This field is part of
 the sealed plan and is shown alongside its approval. A fresh passing runner
 regression proof allows the controller to create the scoped commit before the
 independent Tester inspects it. The committed revision receives fresh runner proof

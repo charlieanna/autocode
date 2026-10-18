@@ -3,14 +3,14 @@
 import re
 
 SCHEMA = {
-    "type": "object",
+    "type": ["object", "null"],
     "additionalProperties": False,
     "required": ["kind", "message"],
     "properties": {
         "kind": {"type": "string", "enum": ["atomic_commit"]},
         "message": {"type": "string", "minLength": 1},
     },
-    "description": "Required when the requested plan promises a local atomic commit. The controller commits only approved scoped changes after verification, then independently verifies the committed revision. No push or merge authority.",
+    "description": "Null when no local commit is requested. Required when the requested plan promises a local atomic commit. The controller commits only approved scoped changes after verification, then independently verifies the committed revision. No push or merge authority.",
 }
 
 

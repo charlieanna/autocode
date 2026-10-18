@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Resolver blocker questions now offer a request-bound reply in task chat. Approved build plans can
+  request a controller-owned atomic local commit, followed by independent verification on that commit.
+  Plans without Git delivery keep the ordinary build flow and gain no commit authority (#1522).
+
 - Isolated verification copies retain the delivered Git commit and its reachable history, so atomic
   delivery checks inspect the real commit instead of an unrelated synthetic root. Current source
   changes remain in the copy; original Git configuration, hooks and other refs stay excluded (#1522).

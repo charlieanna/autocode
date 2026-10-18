@@ -24,6 +24,13 @@ def normalize_absent_authority(value, schema, record):
     """
     result = copy.deepcopy(value)
     properties = schema.get("properties", {})
+    for target, fields in (
+        (result, properties),
+        (result.get("contract"), properties.get("contract", {}).get("properties", {})),
+    ):
+        kind = fields.get("git_delivery", {}).get("type")
+        if isinstance(target, dict) and isinstance(kind, list) and "null" in kind:
+            target.setdefault("git_delivery", None)
     if "recovery_change" in properties:
         result.setdefault("recovery_change", None)
     stage = str(record.get("original_stage") or record.get("stage", "")).removesuffix("_report_repair")

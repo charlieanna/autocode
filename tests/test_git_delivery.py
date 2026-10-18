@@ -29,6 +29,22 @@ class DeliveryPolicyTests(unittest.TestCase):
             delivery.requirement({"technical_approach": ["Create one atomic commit containing production and tests."]})
         self.assertIsNone(delivery.requirement({"technical_approach": ["Do not create an atomic commit."]}))
 
+    def test_strict_provider_can_explicitly_request_no_git_delivery(self):
+        schema = util.model_output_schema(goals.BODY_SCHEMA)["properties"]["git_delivery"]
+        util.validate_schema(None, schema)
+        self.assertIsNone(delivery.requirement({"git_delivery": None}))
+        self.assertIn("null", schema["type"])
+
+    def test_null_delivery_renders_like_an_ordinary_plan_without_delivery(self):
+        plan = body()
+        state = {
+            "status": "AWAITING_GOAL_APPROVAL",
+            "goal_contract": {"revision": 1, "hash": "hash", "body": plan, "approval_status": "pending"},
+        }
+        expected = lifecycle.render(state)
+        plan["git_delivery"] = None
+        self.assertEqual(expected, lifecycle.render(state))
+
     def test_plan_schema_and_display_preserve_delivery_authority(self):
         plan = body()
         plan["git_delivery"] = {"kind": "atomic_commit", "message": "Add JSON export"}

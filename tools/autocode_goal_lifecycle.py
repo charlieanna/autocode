@@ -701,7 +701,7 @@ def render(state: RunState, run_dir=None):
         "open_blocking_questions",
     )
     for key in display_order:
-        if key not in body:
+        if key not in body or body[key] is None:
             continue
         value = body[key]
         lines += ["", key.replace("_", " ").capitalize() + ":"]
