@@ -22,18 +22,45 @@ class ProviderAuthCLI(unittest.TestCase):
             (self.root / name).mkdir()
 
     def assert_auth_failure_is_named_and_retry_completes(self, fault, *details):
-        from harness.driver import DriveError, Driver, default_autocode, fake_setup, leaves_for_person
+        from harness.driver import FAKE_PROVIDER, DriveError, Driver, default_autocode, fake_setup, leaves_for_person
         from harness.project import materialize
 
         project = materialize(self.scenario.seed, self.root / "project")
         flags, env = fake_setup(self.scenario, self.root, self.scenario.reference)
-        env.update(CODEX_HOME=str(self.root / "codex-home"), **{fault: "investigate_bug:1"})
+        env.update(CODEX_HOME=str(self.root / "codex-home"))
+        if fault == "SCENARIO_FAKE_LOGIN_REJECTED":
+            # This error belongs to this regression, not the shared scenario
+            # fault catalog. Keep the ordinary fake, timeout behavior and real
+            # scenario checks unchanged after the one rejected login.
+            (self.root / "bin" / "codex").write_text(
+                "#!/usr/bin/env python3\n"
+                "import os\nimport runpy\nfrom pathlib import Path\n"
+                f"fixture = runpy.run_path({str(FAKE_PROVIDER)!r})\n"
+                "owner = fixture['main'].__globals__\n"
+                "ordinary_timeout = owner['auth_timeout_once']\n"
+                "def reject_once(stage):\n"
+                "    marker = Path(os.environ['SCENARIO_FAKE_CONFIG']).with_name('fake-login-rejected-investigate_bug')\n"
+                "    if stage != 'investigate_bug' or marker.exists():\n"
+                "        return ordinary_timeout(stage)\n"
+                "    marker.touch()\n"
+                "    owner['emit']({'type': 'error', 'sessionID': 'ses_rejected_login',\n"
+                "        'error': {'name': 'APIError', 'data': {'statusCode': 401, 'message': 'Invalid API key'}}})\n"
+                "    return 1\n"
+                "owner['auth_timeout_once'] = reject_once\n"
+                "raise SystemExit(fixture['main']())\n"
+            )
+        else:
+            env[fault] = "investigate_bug:1"
         driver = Driver(project, self.root, flags, env, autocode=default_autocode(), max_steps=40, timeout_seconds=600)
         driver.call("start", task=self.scenario.brief)
         runs = project / ".autocode" / "runs"
         candidates = sorted(runs.glob("*/state.json"), key=lambda path: path.stat().st_mtime)
         if not candidates:
-            raise DriveError("the first CLI call did not create a run")
+            last = driver.steps[-1]
+            raise DriveError(
+                "the first CLI call did not create a run: "
+                + (last["stderr_tail"] or last["stdout_tail"]).strip()[-500:]
+            )
         driver.run_dir = candidates[-1].parent
         view = driver.until_stopped()
         self.assertEqual("PAUSED_JOB_FAILURE", view.get("status"), view.get("stop_reason"))
