@@ -151,7 +151,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (opened) this.show(opened);
       return;
     }
-    if (message.type === "engine") { await pickEngine(); return; }
+    if (message.type === "engine") {
+      await pickEngine();
+      this.post();
+      return;
+    }
     if (message.type === "new") { if (!this.starting) this.show(); return; }
     if (message.type !== "send" && message.type !== "take") return;
     if (message.runKey !== this.key() || this.starting || this.busy.has(this.key())) return;
