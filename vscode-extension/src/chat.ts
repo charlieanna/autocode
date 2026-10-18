@@ -1,4 +1,9 @@
-/** Sidebar conversation over the public status view and its named actions. */
+/** Sidebar conversation over the public status view and its named actions.
+ *
+ * One window holds several chats at once (#1558): each tab is one run or one
+ * fresh not-yet-started chat. Only the active tab polls; every tab keeps its
+ * own draft (keyed by tab key in the webview), status and errors.
+ */
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { RunController, type CheckpointComparison, type RunRef } from "./controller";
@@ -21,6 +26,10 @@ interface ChatMessage {
   action?: "compare" | "restore";
   workspace?: string;
   runDir?: string;
+  /** Tab messages (#1558): the webview addresses tabs by their key. */
+  tabKey?: string;
+  tabs?: { key?: string; run?: unknown }[];
+  activeKey?: string;
 }
 
 interface Actions {
@@ -30,27 +39,45 @@ interface Actions {
   selected(run?: RunRef): void;
 }
 
+/** One open chat: a run, or a fresh chat that has not started yet. */
+interface ChatTab {
+  /** The run key for a run tab; a generated `new-…` key for a fresh chat. */
+  key: string;
+  run?: RunRef;
+  status?: StatusView;
+  error: string;
+  readError: string;
+  pendingBrief: string;
+  starting: boolean;
+  /** Compare results this tab already holds, by checkpoint id. */
+  readonly comparisons: Map<string, CheckpointComparison>;
+}
+
+function newTab(key: string, run?: RunRef): ChatTab {
+  return { key, run, error: "", readError: "", pendingBrief: "", starting: false, comparisons: new Map() };
+}
+
+function tabName(tab: ChatTab): string {
+  if (!tab.run) return "New chat";
+  const name = tab.run.runDir.split("/").filter(Boolean).pop() ?? tab.run.runDir;
+  return name.length > 22 ? `${name.slice(0, 21)}…` : name;
+}
+
 export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
-  private run: RunRef | undefined;
+  private tabs: ChatTab[] = [newTab("new")];
+  private activeKey = "new";
   private readonly legacyRun: RunRef | undefined;
   private hasExplicitSelection = false;
   private migratedLegacySelection = false;
-  private status: StatusView | undefined;
-  private error = "";
-  private readError = "";
-  private starting = false;
-  private pendingBrief = "";
   private readonly busy = new Set<string>();
   private sequence = 0;
   private refreshing = false;
   private readonly timer: NodeJS.Timeout;
-  /** Compare results this window already holds, by checkpoint id. */
-  private readonly comparisons = new Map<string, CheckpointComparison>();
 
   constructor(private readonly controller: RunController, private readonly storage: vscode.Memento, private readonly actions: Actions) {
     // Keep the pre-multi-window selection only for one-time migration. The
-    // selected run now lives in this window's webview state; workspaceState is
+    // open tabs now live in this window's webview state; workspaceState is
     // shared by windows opened on the same workspace.
     this.legacyRun = storage.get<RunRef>("autocode.chat.run");
     const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
@@ -64,23 +91,51 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     view.onDidChangeVisibility(() => { if (view.visible) void this.refresh(); });
     view.onDidDispose(() => { if (this.view === view) this.view = undefined; });
     view.webview.html = panelHtml(true);
-    if (this.run) this.actions.selected(this.run);
+    if (this.active.run) this.actions.selected(this.active.run);
     void this.refresh();
   }
 
+  /** Open (or focus) a tab for `run`; without one, open another fresh chat tab. */
   show(run?: RunRef): void {
+    if (run) {
+      const existing = this.tabs.find((tab) => tab.key === runKey(run));
+      if (existing) this.activate(existing.key);
+      else {
+        // The boot placeholder ("new", never used) is adopted by the first run
+        // opened; explicit "+" tabs (new-…) stay until closed.
+        this.tabs = this.tabs.filter((tab) => tab.key !== "new");
+        const tab = newTab(runKey(run), run);
+        this.tabs.push(tab);
+        this.activate(tab.key);
+      }
+      return;
+    }
+    const tab = newTab(`new-${randomBytes(4).toString("hex")}`);
+    this.tabs.push(tab);
+    this.activate(tab.key);
+  }
+
+  private activate(key: string): void {
+    if (!this.tabs.some((tab) => tab.key === key)) return;
     this.sequence++;
-    this.run = run;
+    this.activeKey = key;
     this.hasExplicitSelection = true;
-    this.status = undefined;
-    this.pendingBrief = "";
-    this.error = "";
-    this.readError = "";
-    this.comparisons.clear();
-    this.actions.selected(run);
+    this.actions.selected(this.active.run);
     void this.focus();
     this.post(true);
     void this.refresh();
+  }
+
+  private close(key: string): void {
+    const index = this.tabs.findIndex((tab) => tab.key === key);
+    if (index < 0 || this.tabs.length === 1) return;
+    this.tabs.splice(index, 1);
+    if (this.activeKey === key) {
+      const neighbor = this.tabs[Math.min(index, this.tabs.length - 1)] ?? this.tabs[0]!;
+      this.activate(neighbor.key);
+    } else {
+      this.post(true);
+    }
   }
 
   async focus(): Promise<void> {
@@ -90,29 +145,35 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
   dispose(): void { clearInterval(this.timer); }
 
-  private key(run = this.run): string { return run ? `${run.workspace}\n${run.runDir}` : ""; }
+  private get active(): ChatTab { return this.tabs.find((tab) => tab.key === this.activeKey) ?? this.tabs[0]!; }
+
+  /** The run the active tab holds; the window's status bar follows it. */
+  get run(): RunRef | undefined { return this.active.run; }
 
   private post(persistSelection = false): void {
-    const busy = this.starting || this.busy.has(this.key());
+    const tab = this.active;
+    const busy = tab.starting || this.busy.has(tab.key);
     void this.view?.webview.postMessage({
-      type: "chat", runKey: this.key(), busy, error: this.error || this.readError, pendingBrief: this.pendingBrief,
-      selectedRun: this.run ?? null, persistSelection,
+      type: "chat", runKey: tab.key, busy, error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
+      selectedRun: tab.run ?? null, persistSelection,
+      tabs: this.tabs.map((row) => ({ key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null })),
+      activeKey: this.activeKey,
       engine: engineOf(readSettings()),
-      state: this.run && this.status ? stateFor(this.status, this.run, this.controller, busy) : null,
+      state: tab.run && tab.status ? stateFor(tab.status, tab.run, this.controller, busy) : null,
     });
   }
 
   async refresh(): Promise<void> {
     if (!this.view?.visible || this.refreshing) return;
-    const run = this.run;
+    const tab = this.active;
     const sequence = this.sequence;
-    if (!run) { this.post(); return; }
+    if (!tab.run) { this.post(); return; }
     this.refreshing = true;
     try {
-      const status = await this.controller.status(run);
-      if (sequence === this.sequence) { this.status = status; this.readError = ""; }
+      const status = await this.controller.status(tab.run);
+      if (sequence === this.sequence && this.activeKey === tab.key) { tab.status = status; tab.readError = ""; }
     } catch (error) {
-      if (sequence === this.sequence && !this.starting) this.readError = messageOf(error);
+      if (sequence === this.sequence && this.activeKey === tab.key && !tab.starting) tab.readError = messageOf(error);
     } finally {
       this.refreshing = false;
       if (sequence === this.sequence) this.post();
@@ -127,24 +188,23 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       await vscode.commands.executeCommand("autocode.runs.focus");
       return;
     }
-    if (message.type === "details") { if (this.run) await vscode.commands.executeCommand("autocode.openDetails", this.run); return; }
+    if (message.type === "details") { if (this.active.run) await vscode.commands.executeCommand("autocode.openDetails", this.active.run); return; }
     if (message.type === "ready") {
-      if (!this.hasExplicitSelection) {
-        this.run = message.hasSelectedRun ? asRunRef(message.selectedRun) : this.legacyRun;
-      }
-      this.hasExplicitSelection = false;
+      this.restoreTabs(message);
       if (!this.migratedLegacySelection) {
         this.migratedLegacySelection = true;
         await this.storage.update("autocode.chat.run", undefined);
       }
       this.sequence++;
-      this.status = undefined;
-      if (this.run) this.actions.selected(this.run);
+      for (const tab of this.tabs) tab.status = undefined;
+      if (this.active.run) this.actions.selected(this.active.run);
       this.post(true);
       await this.refresh();
       return;
     }
     if (message.type === "refresh") { await this.refresh(); return; }
+    if (message.type === "select_tab" && message.tabKey) { this.activate(message.tabKey); return; }
+    if (message.type === "close_tab" && message.tabKey) { this.close(message.tabKey); return; }
     if (message.type === "checkpoint") { await this.checkpoint(message); return; }
     if (message.type === "checkpoint_open") {
       const opened = asRunRef({ workspace: message.workspace, runDir: message.runDir });
@@ -156,17 +216,18 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       this.post();
       return;
     }
-    if (message.type === "new") { if (!this.starting) this.show(); return; }
+    if (message.type === "new") { if (!this.active.starting) this.show(); return; }
     if (message.type !== "send" && message.type !== "take") return;
-    if (message.runKey !== this.key() || this.starting || this.busy.has(this.key())) return;
-    if (!this.run) {
-      if (message.type === "send" && typeof message.text === "string" && message.text.trim()) await this.start(message.text);
+    const tab = this.active;
+    if (message.runKey !== tab.key || tab.starting || this.busy.has(tab.key)) return;
+    if (!tab.run) {
+      if (message.type === "send" && typeof message.text === "string" && message.text.trim()) await this.start(tab, message.text);
       return;
     }
-    const run = this.run;
-    const key = this.key(run);
+    const run = tab.run;
+    const key = tab.key;
     this.busy.add(key);
-    this.error = "";
+    tab.error = "";
     this.post();
     try {
       const view = await this.controller.status(run);
@@ -191,12 +252,34 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         if (view.needs?.kind === "approve_plan" || state.decisions.length) await this.advanceAfterInput(run);
       }
     } catch (error) {
-      if (this.key() === key) this.error = messageOf(error);
+      if (this.activeKey === key) tab.error = messageOf(error);
       else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
     } finally {
       this.busy.delete(key);
       this.actions.changed();
       await this.refresh();
+    }
+  }
+
+  /** Tabs remembered by this window's webview; an older state held one selectedRun. */
+  private restoreTabs(message: ChatMessage): void {
+    if (this.hasExplicitSelection) {
+      this.hasExplicitSelection = false;
+      return;
+    }
+    const saved = (message.tabs ?? [])
+      .map((row) => ({ key: typeof row.key === "string" ? row.key : "", run: asRunRef(row.run) }))
+      .filter((row) => row.key && (row.run || row.key.startsWith("new")));
+    if (saved.length) {
+      this.tabs = saved.map((row) => newTab(row.key, row.run));
+      this.activeKey = this.tabs.some((tab) => tab.key === message.activeKey)
+        ? message.activeKey! : this.tabs[0]!.key;
+      return;
+    }
+    const restored = message.hasSelectedRun ? asRunRef(message.selectedRun) : this.legacyRun;
+    if (restored) {
+      this.tabs = [newTab(runKey(restored), restored)];
+      this.activeKey = this.tabs[0]!.key;
     }
   }
 
@@ -210,27 +293,28 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
    * person's confirmed decision, always gated on the comparison it quotes.
    */
   private async checkpoint(message: ChatMessage): Promise<void> {
-    const run = this.run;
+    const tab = this.active;
+    const run = tab.run;
     const checkpointId = message.checkpoint ?? "";
-    if (!run || !checkpointId || message.runKey !== this.key(run) || this.busy.has(this.key(run))) return;
-    const key = this.key(run);
+    if (!run || !checkpointId || message.runKey !== tab.key || this.busy.has(tab.key)) return;
+    const key = tab.key;
     this.busy.add(key);
     try {
       if (message.action === "compare") {
         const comparison = await this.controller.compareCheckpoint(run, checkpointId);
-        this.comparisons.set(checkpointId, comparison);
+        tab.comparisons.set(checkpointId, comparison);
         void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, comparison });
         return;
       }
       if (message.action !== "restore") return;
-      let comparison = this.comparisons.get(checkpointId);
+      let comparison = tab.comparisons.get(checkpointId);
       if (!comparison) {
         comparison = await this.controller.compareCheckpoint(run, checkpointId);
-        this.comparisons.set(checkpointId, comparison);
+        tab.comparisons.set(checkpointId, comparison);
         void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, comparison });
       }
       if (comparison.blocked_reason) throw new Error(comparison.blocked_reason);
-      const label = (this.status?.code_checkpoints?.rows ?? []).find((row) => row.id === checkpointId)?.label ?? checkpointId;
+      const label = (tab.status?.code_checkpoints?.rows ?? []).find((row) => row.id === checkpointId)?.label ?? checkpointId;
       const files = comparison.changed_files?.length ?? 0;
       const proceed = await vscode.window.showWarningMessage(
         `Restore "${label}" on a new branch?`,
@@ -241,7 +325,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (proceed !== "Restore") return;
       const requestId = await this.checkpointRequestId(key);
       const result = await this.controller.restoreCheckpoint(run, checkpointId, comparison.expected_token ?? "", requestId);
-      this.comparisons.delete(checkpointId);
+      tab.comparisons.delete(checkpointId);
       await this.clearCheckpointRequest(key);
       void this.view?.webview.postMessage({ type: "checkpoint_result", runKey: key, checkpoint: checkpointId, result });
     } catch (error) {
@@ -271,12 +355,13 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     await this.storage.update("autocode.checkpoint.requests", saved);
   }
 
-  private async start(text: string): Promise<void> {
-    if (this.starting) return;
-    this.starting = true;
-    this.error = "";
+  private async start(tab: ChatTab, text: string): Promise<void> {
+    if (tab.starting) return;
+    tab.starting = true;
+    tab.error = "";
     this.post();
     const launchSequence = this.sequence;
+    const freshKey = tab.key;
     let allocatedRun: RunRef | undefined;
     let allocatedKey = "";
     try {
@@ -286,26 +371,35 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (!confirmed || this.sequence !== launchSequence) return;
       await this.controller.start(workspace, text, (run) => {
         allocatedRun = run;
-        allocatedKey = this.key(run);
+        allocatedKey = runKey(run);
         this.busy.add(allocatedKey);
-        this.starting = false;
+        tab.starting = false;
         if (this.sequence === launchSequence) {
-          this.run = run;
-          this.hasExplicitSelection = true;
-          this.status = undefined;
-          this.pendingBrief = text;
+          // The fresh tab becomes this run's tab. If that run already has a
+          // tab, fold into it instead of creating a duplicate key.
+          const existing = this.tabs.find((row) => row.key === allocatedKey && row !== tab);
+          const target = existing ?? tab;
+          if (existing) {
+            this.tabs.splice(this.tabs.indexOf(tab), 1);
+            target.pendingBrief = text;
+          } else {
+            tab.key = allocatedKey;
+            tab.run = run;
+            tab.status = undefined;
+            tab.pendingBrief = text;
+          }
+          this.activeKey = allocatedKey;
           this.actions.selected(run);
-          // Clear only the submitted draft, preserving a message typed meanwhile.
-          void this.view?.webview.postMessage({ type: "sent", runKey: "", text });
+          void this.view?.webview.postMessage({ type: "sent", runKey: freshKey, text });
           this.post(true);
         }
       });
       if (allocatedRun) {
         try {
           const view = await this.controller.status(allocatedRun);
-          if (this.sequence === launchSequence && this.key() === allocatedKey) {
-            this.status = view;
-            this.pendingBrief = "";
+          if (this.sequence === launchSequence && this.active.key === allocatedKey) {
+            this.active.status = view;
+            this.active.pendingBrief = "";
           }
           if (!view.done && view.needs?.kind === "continue") {
             await this.controller.take(view, allocatedRun);
@@ -325,26 +419,29 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           established = false;
         }
       }
+      const tabNow = this.tabs.find((row) => row.key === (allocatedKey || freshKey)) ?? tab;
       if (!established) {
         if (allocatedKey) this.busy.delete(allocatedKey);
         if (this.sequence === launchSequence) {
-          this.run = undefined;
-          this.status = undefined;
-          this.pendingBrief = text;
+          tabNow.run = undefined;
+          tabNow.status = undefined;
+          tabNow.key = freshKey;
+          this.activeKey = freshKey;
+          tabNow.pendingBrief = text;
           this.actions.selected(undefined);
-          this.error = errMessage;
-          void this.view?.webview.postMessage({ type: "restore_draft", runKey: "", text });
+          tabNow.error = errMessage;
+          void this.view?.webview.postMessage({ type: "restore_draft", runKey: freshKey, text });
           this.post(true);
         }
       } else {
         if (this.sequence === launchSequence) {
-          this.error = errMessage;
+          tabNow.error = errMessage;
         } else {
           void vscode.window.showErrorMessage(`AutoCode (${allocatedRun?.runDir}): ${errMessage}`);
         }
       }
     } finally {
-      this.starting = false;
+      tab.starting = false;
       if (allocatedKey) this.busy.delete(allocatedKey);
       this.actions.changed();
       if (this.sequence === launchSequence) {
@@ -354,6 +451,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 }
+
+function runKey(run: RunRef): string { return `${run.workspace}\n${run.runDir}`; }
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
