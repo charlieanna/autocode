@@ -2110,3 +2110,52 @@ test('a recreated webview restores its tabs and active chat (#1558)', async (t) 
   const names = [...restored.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent);
   assert.deepEqual(names, ['test', 'other-run']);
 });
+
+test('switching tabs preserves each tab reading position (#1558)', async (t) => {
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-run' };
+  const ui = await openChat(t, chatView());
+  const thread = ui.document.querySelector('#thread');
+  Object.defineProperties(thread, { scrollHeight: { value: 2000, configurable: true }, clientHeight: { value: 500 } });
+  thread.scrollTop = 900;
+  thread.dispatchEvent(new ui.window.WheelEvent('wheel', { deltaY: -100 }));
+  ui.chat.show(other);
+  await flush();
+  assert.equal(thread.scrollTop, 2000, 'a tab opened for the first time starts at the latest messages');
+  ui.chat.show(run);
+  await flush();
+  assert.equal(thread.scrollTop, 900, 'returning restores the tab reading position');
+  const next = chatView();
+  next.chat.messages.push({ id: 'new', role: 'assistant', text: 'A new result arrives.' });
+  await ui.poll(next);
+  assert.equal(thread.scrollTop, 900, 'polling the restored tab does not pull the reader to the bottom');
+});
+
+test('a busy tab shows its mark in the strip (#1558)', async (t) => {
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-run' };
+  const ui = await openChat(t, chatView());
+  ui.chat.show(other);
+  await flush();
+  let release;
+  const done = new Promise((resolve) => { release = resolve; });
+  t.mock.method(controller, 'sendMessage', async () => { await done; });
+  ui.type('a message that stays in flight');
+  ui.submit();
+  await flush();
+  assert.ok(ui.document.querySelector('.chat-tab.active .dot'), 'the working tab carries a busy mark');
+  release();
+  await flush();
+  assert.equal(ui.document.querySelector('.chat-tab .dot'), null, 'the mark clears when the action settles');
+});
+
+test('a second run starts beside an open run and both tabs remain (#1558)', async (t) => {
+  const second = { workspace: '/ws', runDir: '/ws/.autocode/runs/second-run' };
+  const ui = await openChat(t, chatView());
+  t.mock.method(controller, 'start', async (_workspace, _brief, created) => { created(second); });
+  ui.chat.show();
+  await flush();
+  ui.type('a second task while the first run stays open');
+  ui.submit();
+  await flush();
+  assert.deepEqual([...ui.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent), ['test', 'second-run']);
+  assert.equal(ui.chat.run.runDir, second.runDir, 'the new run\'s tab is active');
+});

@@ -510,6 +510,7 @@ let answers = Object.create(null);
 let renderedState = '';
 let checkpointCompare = Object.create(null);
 let checkpointResult = null;
+const tabScroll = Object.create(null);
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -1032,6 +1033,7 @@ function renderChat(data) {
   renderTabs(data);
   const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
   if (!same) {
+    if (chatEnvelope) tabScroll[chatEnvelope.runKey] = thread.scrollTop;
     saveDraft();
     const saved = vscode.getState() || {};
     document.getElementById('message').value = (saved.drafts || {})[data.runKey] || '';
@@ -1077,7 +1079,17 @@ function renderChat(data) {
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();
-  if (!same) chatBehavior.resume();
+  if (!same) {
+    // Each tab remembers where its reader was (#1558); a first open starts at
+    // the latest messages. A remembered position pauses the follow behavior,
+    // so a poll cannot yank the reader to the bottom.
+    const remembered = tabScroll[data.runKey];
+    if (remembered === undefined) chatBehavior.resume();
+    else {
+      thread.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+      thread.scrollTop = remembered;
+    }
+  }
 }
 
 function renderTelemetry(info) {
