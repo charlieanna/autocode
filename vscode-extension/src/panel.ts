@@ -398,8 +398,8 @@ const ICONS = {
   tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
 };
 
-function iconButton(id: string, label: string, svg: string): string {
-  return `<button type="button" id="${id}" class="icon" title="${label}" aria-label="${label}">${svg}</button>`;
+function iconButton(id: string, label: string, svg: string, disabled = false): string {
+  return `<button type="button" id="${id}" class="icon" title="${label}" aria-label="${label}"${disabled ? ' disabled' : ''}>${svg}</button>`;
 }
 
 /** The webview script. It renders with textContent only: untrusted text never becomes markup. */
@@ -444,7 +444,7 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <section id="telemetry" aria-label="Models and usage">
@@ -940,6 +940,8 @@ function updateComposer() {
 function renderChat(data) {
   const thread = document.getElementById('thread');
   document.getElementById('engine-name').textContent = data.engine || 'opencode';
+  const detailsBtn = document.getElementById('details');
+  if (detailsBtn) detailsBtn.disabled = !data.runKey;
   const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
   if (!same) {
     saveDraft();
@@ -1057,7 +1059,9 @@ if (chatMode) {
   });
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
   document.getElementById('connections').addEventListener('click', () => vscode.postMessage({ type: 'connections' }));
-  document.getElementById('details').addEventListener('click', () => vscode.postMessage({ type: 'details' }));
+  document.getElementById('details').addEventListener('click', () => {
+    if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'details' });
+  });
   document.getElementById('message').addEventListener('input', () => { saveDraft(); updateComposer(); });
   document.getElementById('composer').addEventListener('submit', (event) => {
     event.preventDefault();
