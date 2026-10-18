@@ -20,6 +20,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode --version` and `autocode doctor` again start when psutil is missing, including
+  through the grader imports used by Git delivery. Process supervision still requires the
+  dependency and reports its repair instructions (#1571).
+
 - Applied Pause requests survive deferred plan-approval normalization until explicit resume, retaining the pending proposal and saved evidence (#1561).
 
 - Malformed saved activity records no longer crash chat status or its provisional reply view (#1522).

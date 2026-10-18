@@ -69,6 +69,38 @@ class WithoutPsutilTests(unittest.TestCase):
         self.assertEqual(1, proc.returncode, proc.stderr)
         self.assertIn("✖ psutil", proc.stdout)
 
+    def test_grader_process_use_still_requires_the_missing_dependency(self):
+        # Startup may import the grader, but observing/supervising processes may
+        # never silently proceed without the dependency, in either import mode.
+        program = """
+import importlib, os, sys
+from types import SimpleNamespace
+sys.path.insert(0, sys.argv[1])
+grader = importlib.import_module(sys.argv[2])
+try:
+    grader.running(SimpleNamespace(pid=os.getpid()))
+except ModuleNotFoundError as error:
+    print(error)
+else:
+    raise AssertionError("Grader process use must require psutil")
+"""
+        for source, module in (
+            (REPO_ROOT / "tools", "autocode_grader_process"),
+            (REPO_ROOT, "tools.autocode_grader_process"),
+        ):
+            with self.subTest(module=module):
+                proc = subprocess.run(
+                    [sys.executable, "-c", program, str(source), module],
+                    cwd=REPO_ROOT,
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                self.assertEqual(0, proc.returncode, proc.stderr)
+                self.assertIn("psutil", proc.stdout)
+                self.assertIn("autocode doctor", proc.stdout)
+
     def test_using_the_missing_module_names_the_fix(self):
         missing = util.MissingModule("psutil", ImportError("No module named 'psutil'"))
         with self.assertRaisesRegex(ModuleNotFoundError, "autocode doctor"):

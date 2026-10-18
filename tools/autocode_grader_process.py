@@ -12,12 +12,15 @@ import os
 import signal
 import time  # only time.ctime for a saved row; monotonic/sleep go through the #704 seam
 
-import psutil
-
 try:
     from . import autocode_util as util
 except ImportError:  # direct-script mode has no package parent
     import autocode_util as util
+
+try:
+    import psutil
+except ImportError as missing:  # Metadata and doctor commands import this module too (#1571).
+    psutil = util.MissingModule("psutil", missing)
 
 try:
     from . import autocode_process as processes
