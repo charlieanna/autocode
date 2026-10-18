@@ -11,6 +11,7 @@ const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
 const { activate } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
+const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEngine } = host.load('settings.js');
 const controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
@@ -1676,4 +1677,180 @@ test('delayed status resolution does not re-show unwatched run or replace newly 
   await flush();
   assert.equal(statusVisible, true);
   assert.ok(mockStatus.text.includes('Other running'), 'late resolution must not replace newer watched run');
+});
+
+test('engineOf and routeKeyOf support equals syntax, CLI precedence, and registered providers (#1541)', () => {
+  assert.equal(engineOf({ runOptions: ['--engine=codex'] }), 'codex');
+  assert.equal(routeKeyOf({ runOptions: ['--engine=codex'] }), 'codex');
+  assert.equal(engineOf({ runOptions: ['--engine=claude'] }), 'claude');
+  assert.equal(routeKeyOf({ runOptions: ['--engine=claude'] }), 'claude');
+  assert.equal(engineOf({ runOptions: ['--engine=opencode'] }), 'opencode');
+  assert.equal(routeKeyOf({ runOptions: ['--engine=opencode'] }), 'opencode');
+
+  // Provider-only Claude Code maps to Claude engine and route identity
+  assert.equal(engineOf({ runOptions: ['--provider', 'claude'] }), 'claude');
+  assert.equal(routeKeyOf({ runOptions: ['--provider', 'claude'] }), 'claude');
+  assert.equal(engineOf({ runOptions: ['--provider=claude'] }), 'claude');
+  assert.equal(routeKeyOf({ runOptions: ['--provider=claude'] }), 'claude');
+
+  // Provider-only selections (including user-level registered providers) surface their provider name
+  assert.equal(engineOf({ runOptions: ['--provider', 'kilocode'] }), 'kilocode');
+  assert.equal(routeKeyOf({ runOptions: ['--provider', 'kilocode'] }), 'kilocode');
+  assert.equal(engineOf({ runOptions: ['--provider', 'kilo_glm_mimo_gpt'] }), 'kilo_glm_mimo_gpt');
+  assert.equal(routeKeyOf({ runOptions: ['--provider', 'kilo_glm_mimo_gpt'] }), 'kilo_glm_mimo_gpt');
+
+  // Explicit --engine on top of a provider shows the explicit engine while keeping the provider route key
+  assert.equal(engineOf({ runOptions: ['--provider', 'kilocode', '--engine', 'opencode'] }), 'opencode');
+  assert.equal(routeKeyOf({ runOptions: ['--provider', 'kilocode', '--engine', 'opencode'] }), 'kilocode');
+
+  // CLI precedence: later flag overrides earlier flag
+  assert.equal(engineOf({ runOptions: ['--engine=codex', '--engine=opencode'] }), 'opencode');
+  assert.equal(engineOf({ runOptions: ['--engine=opencode', '--engine=codex'] }), 'codex');
+  assert.equal(engineOf({ runOptions: ['--engine', 'codex', '--engine=claude'] }), 'claude');
+});
+
+test('picking an engine or configuring a registered provider immediately updates the chat engine chip and QuickPick (#1541)', async (t) => {
+  host.config.set('provider', '');
+  host.config.set('extraOptions', []);
+  const ui = await openChat(t, chatView());
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'opencode');
+
+  // Registered provider with no --engine displays the provider in #engine-name and QuickPick
+  host.config.set('provider', 'kilo_glm_mimo_gpt');
+  ui.chat.post();
+  await flush();
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'kilo_glm_mimo_gpt');
+  let placeholder = '';
+  t.mock.method(host.vscode.window, 'showQuickPick', async (_items, opts) => { placeholder = opts.placeHolder; return undefined; });
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+  assert.ok(placeholder.includes('kilo_glm_mimo_gpt'), `placeholder "${placeholder}" must name registered provider as current`);
+
+  // Pick Codex
+  t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.engine === 'codex'));
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+
+  // Engine chip is immediately updated to codex without waiting for poll
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'codex');
+  assert.equal(host.config.get('extraOptions').includes('--engine'), true);
+
+  // Subsequent click names Codex as current
+  placeholder = '';
+  t.mock.method(host.vscode.window, 'showQuickPick', async (_items, opts) => { placeholder = opts.placeHolder; return undefined; });
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+  assert.ok(placeholder.includes('Codex'), `placeholder "${placeholder}" must name Codex as current`);
+});
+
+test('Connections round-trip: Codex -> Kilo -> OpenCode preserves routes and prevents contamination (#1541)', async (t) => {
+  const connections = new ConnectionsPanel(host.workspaceState);
+  const rows = [...connectionRows, { id: 'opencode', label: 'OpenCode', connection_status: 'not_checked', detail: 'Default', actions: [] }];
+  t.mock.method(cli, 'invoke', async () => ({ code: 0, stdout: JSON.stringify({ version: 1, connections: rows }), stderr: '' }));
+  t.after(() => connections.dispose());
+
+  // 1. Start on Codex
+  host.config.set('extraOptions', ['--engine', 'codex', '--max-cost-usd', '10']);
+  host.config.set('provider', '');
+  await connections.show();
+  const panel = host.panels.at(-1);
+
+  // Connections post should have selected: 'codex'
+  const posted = panel.webview.messages.at(-1);
+  assert.equal(posted.selected, 'codex');
+
+  // 2. Select Kilo
+  panel.webview.receive({ type: 'select', provider: 'kilocode' });
+  await flush();
+  assert.equal(host.config.get('provider'), 'kilocode');
+  // Extra options for Kilo must NOT include --engine codex
+  assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '10']);
+  // Codex routes must be preserved in storage under codex, NOT opencode
+  const saved = host.workspaceState.get('autocode.connection.routes');
+  assert.deepEqual(saved.codex, ['--engine', 'codex']);
+  assert.ok(!saved.opencode || !saved.opencode.includes('codex'), 'opencode routes must not contain codex');
+
+  // 3. Select OpenCode
+  panel.webview.receive({ type: 'select', provider: 'opencode' });
+  await flush();
+  assert.equal(host.config.get('provider'), 'opencode');
+  // OpenCode options must remain clean without --engine codex
+  assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '10']);
+});
+
+test('Direct Codex -> OpenCode switch works and cleans contaminated storage (#1541)', async (t) => {
+  const connections = new ConnectionsPanel(host.workspaceState);
+  const rows = [...connectionRows, { id: 'opencode', label: 'OpenCode', connection_status: 'not_checked', detail: 'Default', actions: [] }];
+  t.mock.method(cli, 'invoke', async () => ({ code: 0, stdout: JSON.stringify({ version: 1, connections: rows }), stderr: '' }));
+  t.after(() => connections.dispose());
+
+  // Seed storage with previously contaminated opencode routes
+  await host.workspaceState.update('autocode.connection.routes', {
+    opencode: ['--engine', 'codex', '--model', 'custom/plan'],
+  });
+
+  // Start on Codex
+  host.config.set('extraOptions', ['--engine', 'codex', '--max-cost-usd', '5']);
+  host.config.set('provider', '');
+  await connections.show();
+  const panel = host.panels.at(-1);
+
+  // Directly select OpenCode from Codex
+  panel.webview.receive({ type: 'select', provider: 'opencode' });
+  await flush();
+
+  assert.equal(host.config.get('provider'), 'opencode');
+  assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '5', '--model', 'custom/plan']);
+
+  // Saved routes in storage are cleansed: codex routes rescued, opencode routes clean
+  const saved = host.workspaceState.get('autocode.connection.routes');
+  assert.deepEqual(saved.codex, ['--engine', 'codex']);
+  assert.deepEqual(saved.opencode, ['--model', 'custom/plan']);
+});
+
+test('Claude through Connections and Engine picker updates engine chip and settings (#1541)', async (t) => {
+  const connections = new ConnectionsPanel(host.workspaceState);
+  const rows = [...connectionRows, { id: 'claude', label: 'Claude Code', connection_status: 'not_checked', detail: 'Built-in', actions: [] }];
+  t.mock.method(cli, 'invoke', async () => ({ code: 0, stdout: JSON.stringify({ version: 1, connections: rows }), stderr: '' }));
+  t.after(() => connections.dispose());
+
+  // Select Claude in Connections
+  await connections.show();
+  const panel = host.panels.at(-1);
+  panel.webview.receive({ type: 'select', provider: 'claude' });
+  await flush();
+  assert.equal(host.config.get('provider'), 'claude');
+
+  // Chat view reflects claude engine
+  const ui = await openChat(t, chatView());
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'claude');
+
+  // Picker names Claude Code as current
+  let placeholder = '';
+  t.mock.method(host.vscode.window, 'showQuickPick', async (_items, opts) => { placeholder = opts.placeHolder; return undefined; });
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+  assert.ok(placeholder.includes('Claude Code'), `placeholder "${placeholder}" must name Claude Code`);
+});
+
+test('confirmSpend names codex, claude, provider or its default correctly (#1541)', () => {
+  // 1. Explicit --engine codex
+  assert.equal(spendTarget({ runOptions: ['--engine', 'codex'] }), 'codex');
+  assert.equal(spendTarget({ runOptions: ['--engine=codex'] }), 'codex');
+
+  // 2. Explicit --engine claude
+  assert.equal(spendTarget({ runOptions: ['--engine', 'claude'] }), 'claude');
+  assert.equal(spendTarget({ runOptions: ['--engine=claude'] }), 'claude');
+
+  // 3. Provider kilocode
+  host.config.set('provider', 'kilocode');
+  assert.equal(spendTarget({ runOptions: ['--provider', 'kilocode'] }), 'kilocode');
+
+  // 4. Provider claude
+  host.config.set('provider', 'claude');
+  assert.equal(spendTarget({ runOptions: ['--provider', 'claude'] }), 'claude');
+
+  // 5. Default
+  host.config.set('provider', '');
+  assert.equal(spendTarget({ runOptions: [] }), 'its default');
 });

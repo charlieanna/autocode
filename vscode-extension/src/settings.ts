@@ -52,11 +52,78 @@ export function partitionOptions(options: string[]): { shared: string[]; routes:
   return { shared: result, routes };
 }
 
-/** The engine new chats will run on; the core's default is opencode. */
-export function engineOf(settings: Settings): Engine {
-  const index = settings.runOptions.indexOf("--engine");
-  const named = index >= 0 ? settings.runOptions[index + 1] : undefined;
-  return typeof named === "string" && (ENGINES as readonly string[]).includes(named) ? (named as Engine) : "opencode";
+/**
+ * Shared interpretation of launch selection: distinguishes engine identity from backend/route identity.
+ * Evaluates flags left-to-right with CLI precedence (later arguments override earlier ones,
+ * supporting both `--flag value` and `--flag=value` forms).
+ */
+export function launchTarget(settings: Settings): { engine: string; routeKey: string } {
+  let explicitEngine: Engine | undefined;
+  let explicitProvider: string | undefined;
+
+  for (let i = 0; i < settings.runOptions.length; i++) {
+    const word = settings.runOptions[i]!;
+    if (word === "--engine" && i + 1 < settings.runOptions.length) {
+      const val = settings.runOptions[++i]!;
+      if ((ENGINES as readonly string[]).includes(val)) explicitEngine = val as Engine;
+    } else if (word.startsWith("--engine=")) {
+      const val = word.slice("--engine=".length);
+      if ((ENGINES as readonly string[]).includes(val)) explicitEngine = val as Engine;
+    } else if (word === "--provider" && i + 1 < settings.runOptions.length) {
+      explicitProvider = settings.runOptions[++i]!.trim();
+    } else if (word.startsWith("--provider=")) {
+      explicitProvider = word.slice("--provider=".length).trim();
+    }
+  }
+
+  const engine = explicitEngine || explicitProvider || "opencode";
+
+  let routeKey: string;
+  if (explicitEngine === "codex") {
+    routeKey = "codex";
+  } else if (explicitEngine === "claude") {
+    routeKey = "claude";
+  } else {
+    routeKey = explicitProvider || "opencode";
+  }
+
+  return { engine, routeKey };
+}
+
+/** The engine or registered provider new chats will run on; the core's default is opencode. */
+export function engineOf(settings: Settings): string {
+  return launchTarget(settings).engine;
+}
+
+/** The backend identity for route persistence and Connections panel selection. */
+export function routeKeyOf(settings: Settings): string {
+  return launchTarget(settings).routeKey;
+}
+
+/** The provider or engine name to display when confirming live model spend. */
+export function spendTarget(settings: Settings): string {
+  const target = launchTarget(settings);
+  if (target.engine === "codex") return "codex";
+  const configProvider = vscode.workspace.getConfiguration("autocode").get<string>("provider", "").trim();
+  if (configProvider) return configProvider;
+  if (target.engine === "claude") return "claude";
+  return "its default";
+}
+
+/**
+ * Filter out contaminated routes belonging to a different backend identity.
+ * For example, OpenCode routes must never contain `--engine codex` or `--engine=codex`.
+ */
+export function sanitizeRoutes(routes: string[], key?: string): string[] {
+  if (key === "opencode") {
+    return routes.filter((word, i) => {
+      if (word === "--engine=codex") return false;
+      if (word === "--engine" && routes[i + 1] === "codex") return false;
+      if (word === "codex" && routes[i - 1] === "--engine") return false;
+      return true;
+    });
+  }
+  return routes;
 }
 
 /**
