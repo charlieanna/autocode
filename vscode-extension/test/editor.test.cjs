@@ -242,6 +242,15 @@ test('approval renders structured criteria, verification, human review, constrai
   assert.ok(!args.includes('r1:abc'));
 });
 
+for (const surface of ['chat', 'Run details']) {
+  test(`the approved local commit is visible in ${surface}`, async (t) => {
+    const view = approvalView();
+    view.displayed_plan.git_delivery = { kind: 'atomic_commit', message: 'Add JSON export' };
+    const ui = surface === 'chat' ? await openChat(t, chatView(view)) : await openPanel(t, view);
+    assert.ok(ui.document.body.textContent.includes('Create one local atomic commit: Add JSON export'));
+  });
+}
+
 test('approval stays disabled for missing, malformed or stale displayed plans', async (t) => {
   const base = approvalView();
   const ui = await openPanel(t, { ...base, displayed_plan: undefined });

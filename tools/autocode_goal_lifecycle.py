@@ -592,7 +592,7 @@ def migrate(state: RunState, *, fresh=False):
         body: dict = {
             k: []
             for k in BODY_SCHEMA["properties"]
-            if k not in ("task_kind", "brief_acceptance", "risk_acceptance", "source_trace")
+            if k not in ("task_kind", "brief_acceptance", "risk_acceptance", "source_trace", "git_delivery")
         }
         body.update(
             intended_outcome=state["task"],
@@ -695,6 +695,7 @@ def render(state: RunState, run_dir=None):
         "important_failure_cases",
         "acceptance_criteria",
         "technical_approach",
+        "git_delivery",
         "milestones",
         "initial_task",
         "open_blocking_questions",

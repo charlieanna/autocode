@@ -6,10 +6,16 @@ try:
     from . import autocode_plan_chat as plan_chat
     from . import autocode_prompts as prompts
     from . import autocode_roles as roles
+    from .autocode_role_schema import STRING, STRINGS, obj
+    from .autocode_role_schema import USER_REQUEST as USER_REQUEST
+    from .autocode_role_schema import role_schema as role_schema
 except ImportError:
     import autocode_plan_chat as plan_chat
     import autocode_prompts as prompts
     import autocode_roles as roles
+    from autocode_role_schema import STRING, STRINGS, obj
+    from autocode_role_schema import USER_REQUEST as USER_REQUEST
+    from autocode_role_schema import role_schema as role_schema
 
 import copy
 import json
@@ -42,6 +48,7 @@ try:
     from .autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
     from .autocode_contract_revision import revision_guard as revision_guard
     from .autocode_contract_revision import saved_user_basis as _saved_user_basis
+    from .autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
     from .autocode_requirement_coverage import missing_sentences
     from .autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
@@ -64,6 +71,7 @@ except ImportError:
     from autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
     from autocode_contract_revision import revision_guard as revision_guard
     from autocode_contract_revision import saved_user_basis as _saved_user_basis
+    from autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
     from autocode_requirement_coverage import missing_sentences
     from autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
@@ -76,12 +84,6 @@ RESOLVER_PROPOSAL_KEY: Final = "resolver_human_proposal"
 RESOLVER_REQUEST_KEY: Final = "resolver_human_request"
 
 
-def obj(properties):
-    return {"type": "object", "additionalProperties": False, "required": list(properties), "properties": properties}
-
-
-STRING = {"type": "string"}
-STRINGS = {"type": "array", "items": STRING}
 QUESTION = obj({"id": STRING, "question": STRING, "why": STRING, "options": STRINGS, "proposed_default": STRING})
 # Optional classification of an unknown; absent reports (and any question the
 # runner itself generates, e.g. permission/blocker checkpoints) are read as
@@ -217,14 +219,10 @@ for _schema in (LEGACY_BODY_SCHEMA, REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANN
     _schema["properties"]["risk_acceptance"] = {"type": "object"}
 for _schema in (REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANNING_BODY_SCHEMA):
     _schema["properties"]["source_trace"] = {"type": "object"}
+for _schema in (BODY_SCHEMA, PLANNING_BODY_SCHEMA):
+    _schema["properties"]["git_delivery"] = GIT_DELIVERY
 DISCOVERY_SCHEMA = obj({"contract": BODY_SCHEMA, "summary": STRING})
 JOB_TYPE_POLICY = prompts.get("fragments/goals/job-type-policy.md")
-try:
-    from .autocode_role_schema import USER_REQUEST as USER_REQUEST
-    from .autocode_role_schema import role_schema as role_schema
-except ImportError:
-    from autocode_role_schema import USER_REQUEST as USER_REQUEST
-    from autocode_role_schema import role_schema as role_schema
 
 
 try:

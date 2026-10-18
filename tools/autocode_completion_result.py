@@ -83,6 +83,28 @@ def apply(
         if not regression_complete(state, current["revision"], all_due=True):
             raise paused("PAUSED_COMPLETION_GATE", regression_rejection(state))
         raise paused("PAUSED_COMPLETION_GATE", completion_rejection(state))
+    try:
+        from . import autocode_git_delivery as delivery
+        from . import autocode_workflow as workflow
+    except ImportError:
+        import autocode_git_delivery as delivery
+        import autocode_workflow as workflow
+    try:
+        delivered = delivery.prepare(state, workspace, current)
+    except (OSError, ValueError) as error:
+        raise paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
+    if delivered:
+        commit_fields(
+            {
+                "status": "RUNNING",
+                "next_stage": workflow.review_stage(state),
+                "phase": "EXECUTING",
+                "iteration": state.get("iteration", 0) + 1,
+            }
+        )
+        record_decision(state, decision)
+        save_record(state, record)
+        return True
     commit_fields({"status": "TASK_COMPLETE", "completed_at": now(), "final_decision": decision, "next_stage": None})
     if milestones_enabled(state):
         accept_milestone(

@@ -93,6 +93,7 @@ export interface DisplayedPlan {
   acceptance_criteria?: AcceptanceCriterion[];
   constraints?: string[];
   permission_boundaries?: string[];
+  git_delivery?: { kind: "atomic_commit"; message: string } | null;
 }
 
 export interface StatusView {

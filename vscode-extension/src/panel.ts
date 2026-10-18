@@ -60,7 +60,7 @@ export interface PanelState {
   /** This client is acting, or AutoCode reports a live model step. */
   working: boolean;
   /** The plan the current token asks to approve, only when the view shows it. */
-  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[] } | null;
+  plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; delivery: string | null } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
   token: string | null;
   /** False when the action would be an approval of a plan this client never displayed. */
@@ -289,6 +289,7 @@ function planShape(view: StatusView): PanelState["plan"] {
     criteria: plan.acceptance_criteria ?? [],
     constraints: plan.constraints ?? [],
     boundaries: plan.permission_boundaries ?? [],
+    delivery: plan.git_delivery ? "Create one local atomic commit: " + plan.git_delivery.message : null,
   };
 }
 
@@ -553,6 +554,10 @@ function render(state) {
   if (state.criteria.length) {
     app.appendChild(el('h2', null, 'Criteria to accept'));
     state.criteria.forEach((row) => app.appendChild(el('div', 'row', chatMode ? row.criterion : row.id + ': ' + row.criterion)));
+  }
+
+  if (state.plan && state.plan.delivery) {
+    app.appendChild(el('div', 'row', state.plan.delivery));
   }
 
   // Chat shows what will be built. Run details keeps the revision, criterion IDs

@@ -77,6 +77,7 @@ KEYS: frozenset[str] = frozenset(
         "checkpoint_restores",
         "clarification_episode",
         "code_checkpoints",
+        "git_delivery",
         "completed_at",
         "completion_archive",
         "completion_actor",
@@ -553,6 +554,7 @@ class RunState(TypedDict, total=False):
     session_rotations: Any
     skeleton: Any
     source_revision: Any
+    git_delivery: Any  # controller-owned commit + receipt pin; completion gate reads it
     source_snapshot: Any
     stop_intent: Any
     targeted_consultation: Any

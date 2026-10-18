@@ -187,6 +187,21 @@ The optional `notice` explains a stop or ongoing work in ordinary language;
 chat clients keep diagnostic headings, empty counts and pause categories in
 Run details. A notice never grants an action beyond the view's named command.
 
+A build plan can explicitly request local delivery with
+`git_delivery: {"kind": "atomic_commit", "message": "…"}`. This field is part of
+the sealed plan and is shown alongside its approval. After all pre-delivery checks
+pass, the controller creates one scoped commit, honors existing Git hooks, and
+runs independent verification on the committed revision before completing.
+Stage workers still cannot commit. Push, merge and deployment are separate actions.
+
+Delivery refuses preexisting dirty launch work, staged changes, changes outside
+the approved affected paths, or a moved HEAD. A durable receipt prevents repeating
+a successful commit after a lost response. Uncertain Git writes or source changes
+in a hook stop for reconciliation. The initial supported route is the ordinary
+build review workflow. Older plans promising an atomic commit only in prose require
+a revised, explicitly approved structured delivery contract; prose cannot authorize
+a Git write and cannot silently satisfy the completion gate.
+
 `input` is null when free text is not an admitted action. Otherwise it names
 `kind` (`feedback`, `follow_up`, or `resolver_response`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the

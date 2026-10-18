@@ -1331,7 +1331,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
                 blocking_entries=findings_ledger.blocking_entries,
                 ledger_rejection=completion_gate.ledger_rejection,
                 missing_human_reviews=goals.missing_human_reviews,
-                completion_ready=completion_gate.completion_ready,
+                completion_ready=lambda s, d, c: completion_gate.completion_ready(s, d, c, require_delivery=False),
                 regression_complete=regression.complete,
                 regression_rejection=regression.rejection,
                 completion_rejection=completion_gate.rejection,
