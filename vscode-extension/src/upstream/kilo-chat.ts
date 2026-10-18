@@ -21,9 +21,10 @@ export const chatStyles = /* css */ `
   #chat-error { padding: 0 8px; font-size: .8rem; color: var(--vscode-errorForeground); }
   #telemetry { flex-shrink: 0; margin: 0 6px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
     font-size: .75rem; color: var(--vscode-descriptionForeground); background: var(--vscode-sideBar-background); }
-  #telemetry-summary { cursor: pointer; padding: 6px 8px; line-height: 1.5; overflow-wrap: anywhere; }
+  #telemetry-summary { cursor: pointer; padding: 5px 8px; line-height: 1.4; overflow-wrap: anywhere; font-size: .75rem; }
   .telemetry-heading { color: var(--vscode-foreground); font-weight: 600; }
-  #model-summary, #usage-summary { display: block; padding-left: 12px; }
+  #model-summary, #usage-summary { display: inline; }
+  #model-summary::before, #usage-summary::before { content: "  ·  "; color: var(--vscode-descriptionForeground); }
   #model-summary { color: var(--vscode-foreground); }
   #telemetry-body { max-height: 30vh; overflow: auto; padding: 0 8px 8px; border-top: 1px solid var(--vscode-panel-border); }
   #model-info { padding-top: 6px; }
@@ -48,13 +49,66 @@ export const chatStyles = /* css */ `
   .message ul, .message ol { padding-left: 22px; }
   .message table { border-collapse: collapse; display: block; overflow: auto; }
   .message th, .message td { padding: 4px 8px; border: 1px solid var(--vscode-panel-border); }
-  #app { border-left: 2px solid var(--vscode-textLink-foreground); padding: 0 0 0 10px; margin-bottom: 14px; }
+  #app { display: contents; }
+  #app.muted { display: block; border-left: 2px solid var(--vscode-textLink-foreground); padding: 0 0 0 10px; margin-bottom: 14px; }
   #app:empty { display: none; }
-  #latest { align-self: center; margin-top: -34px; margin-bottom: 6px; z-index: 1;
+  .decision-card {
+    background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+    border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; line-height: 1.5; overflow-wrap: anywhere;
+  }
+  .decision-card .speaker { font-size: .75rem; font-weight: 600; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
+  .decision-card h2 { font-size: .85rem; font-weight: 600; text-transform: none; letter-spacing: normal;
+    opacity: 1; margin: 12px 0 6px; color: var(--vscode-foreground); }
+  .decision-card h2:first-child { margin-top: 0; }
+  .decision-card .row { padding: 4px 0; border-bottom: 0; font-size: .85rem; }
+  .decision-card .row + .row { border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,.1)); }
+  .decision-card .why { font-size: .75rem; color: var(--vscode-descriptionForeground); opacity: 1; margin-top: 2px; }
+  .decision-card pre.understanding { white-space: pre-wrap; word-break: normal; font-family: inherit;
+    font-size: .85rem; line-height: 1.45; background: var(--vscode-textCodeBlock-background);
+    padding: 8px 10px; border-radius: 6px; margin: 6px 0; }
+  .decision-card .decision { margin: 10px 0; }
+  .decision-card .decision .q { font-weight: 600; font-size: .85rem; }
+  .decision-card select, .decision-card input[type="text"] { box-sizing: border-box; width: 100%; margin-top: 4px;
+    padding: 6px 8px; font: inherit; font-size: .85rem; background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px; }
+  .decision-card select:focus, .decision-card input[type="text"]:focus { border-color: var(--vscode-focusBorder); outline: none; }
+  .decision-card .notice { border-left: 3px solid var(--vscode-textLink-foreground, #3794ff);
+    background: var(--vscode-textCodeBlock-background, rgba(128,128,128,.1)); padding: 8px 10px;
+    margin: 10px 0; font-size: .84rem; border-radius: 0 4px 4px 0; }
+  .decision-card .gap { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
+    background: var(--vscode-inputValidation-warningBackground, rgba(204,136,0,.12)); padding: 8px 10px;
+    margin: 10px 0; font-size: .84rem; border-radius: 0 4px 4px 0; }
+  .action-strip {
+    position: sticky; bottom: -12px; z-index: 2; display: flex; align-items: center; flex-wrap: wrap;
+    gap: 8px; padding: 8px 16px; margin: 8px -16px -12px; background: var(--vscode-sideBar-background);
+    border-top: 1px solid var(--vscode-panel-border); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+  }
+  .action-strip .action-prompt { font-size: .75rem; font-weight: 600; color: var(--vscode-descriptionForeground); margin-right: auto; }
+  .action-strip button { display: inline-flex; align-items: center; justify-content: center;
+    padding: 5px 12px; font-size: .8rem; font-weight: 500; border-radius: 4px;
+    border: 1px solid var(--vscode-button-border, transparent); background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground); cursor: pointer; }
+  .action-strip button:hover { background: var(--vscode-button-hoverBackground); }
+  .action-strip button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+  .action-strip button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+  .action-strip button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+  .action-strip button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #latest { align-self: center; margin-top: -34px; margin-bottom: 6px; z-index: 3;
     border-radius: 16px; font-size: .75rem; box-shadow: 0 2px 8px var(--vscode-widget-shadow); }
   #latest[hidden] { display: none; }
-  .chat-toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; justify-content: flex-end; padding: 4px 8px; gap: 8px; }
-  .chat-toolbar button { font-size: .8rem; }
+  .chat-toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; justify-content: flex-end; padding: 2px 8px; gap: 2px; }
+  .chat-toolbar button.icon, #composer .chip { display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; border: 0; border-radius: 5px; background: transparent;
+    color: var(--vscode-foreground); cursor: pointer; }
+  .chat-toolbar button.icon:hover, #composer .chip:hover { background: var(--vscode-toolbar-hover); }
+  .chat-toolbar button.icon:focus-visible, #composer .chip:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+  .chat-toolbar svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
+    stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  #composer .chip { width: auto; gap: 4px; padding: 0 8px; font-size: .7rem; color: var(--vscode-descriptionForeground); }
+  #composer .chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor;
+    stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .keyboard-hint { font-size: .7rem; color: var(--vscode-descriptionForeground); }
 `;
 

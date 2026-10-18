@@ -86,6 +86,49 @@ test('connection switching restores Kilo routes and cannot reroute an existing c
   assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '5', ...routes]);
 });
 
+test('toolbar buttons are icons with accessible names and unchanged ids', async (t) => {
+  const ui = await openChat(t, chatView());
+  for (const [id, label] of [['connections', 'Connections'], ['history', 'History'], ['details', 'Run details'], ['new-chat', 'New chat']]) {
+    const button = ui.document.getElementById(id);
+    assert.ok(button, `#${id} is missing`);
+    assert.equal(button.getAttribute('aria-label'), label);
+    assert.equal(button.textContent.trim(), '', `#${id} must render no text`);
+    assert.ok(button.querySelector('svg'), `#${id} has no icon`);
+  }
+});
+
+test('engine chip shows the engine new chats will use and opens the picker', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'codex', '--max-cost-usd', '3']);
+  const ui = await openChat(t, chatView());
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'codex');
+  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.engine === 'codex'));
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+  assert.equal(ui.sent.at(-1).type, 'engine');
+  const [items, options] = picker.mock.calls[0].arguments;
+  assert.deepEqual(items.map((item) => item.label), ['OpenCode', 'Codex', 'Claude Code', 'Connections…', 'Configure in Settings…']);
+  assert.ok(options.placeHolder.includes('Codex'), 'names the current engine');
+});
+
+test('picking an engine applies the CLI consistency rules to new-chat settings', async (t) => {
+  const ui = await openChat(t, chatView());
+  const pick = async (engine) => {
+    t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.engine === engine));
+    ui.document.getElementById('engine-picker').click();
+    await flush();
+  };
+  host.config.set('provider', 'kilocode');
+  host.config.set('extraOptions', ['--engine', 'claude', '--requirements-model', 'zai-coding-plan/glm-5.3']);
+  await pick('codex');
+  assert.deepEqual(host.config.get('extraOptions'), ['--requirements-model', 'zai-coding-plan/glm-5.3', '--engine', 'codex']);
+  assert.equal(host.config.get('provider'), '', 'codex refuses a provider');
+  await pick('claude');
+  assert.deepEqual(host.config.get('extraOptions'), ['--requirements-model', 'zai-coding-plan/glm-5.3', '--engine', 'claude']);
+  assert.equal(host.config.get('provider'), 'claude', 'claude is the built-in Claude Code connection');
+  await pick('opencode');
+  assert.equal(host.config.get('provider'), 'claude', 'opencode leaves the chosen backend alone');
+});
+
 test('connections renders backend text safely and sends only provider and action IDs', () => {
   const sent = [];
   const dom = new JSDOM(connectionsHtml(), { runScripts: 'dangerously', beforeParse(window) {
@@ -647,7 +690,7 @@ test('composer model, variant and usage update on polling without losing the dra
   const field = ui.document.querySelector('#message');
   field.focus(); field.setSelectionRange(5, 10);
   const details = ui.document.querySelector('#usage-details');
-  assert.equal(details.open, true, 'model details start expanded');
+  assert.equal(details.open, false, 'model details start collapsed');
   assert.match(ui.document.querySelector('#model-info').textContent, /Variant: medium.*zai-coding-plan\/glm-5.3.*Provider: kilocode/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /1,200 tokens.*\$0.0500.*est\./);
   const next = structuredClone(initial);
@@ -661,7 +704,7 @@ test('composer model, variant and usage update on polling without losing the dra
   assert.equal(ui.document.activeElement, field);
   assert.equal(field.value, 'Keep my unsent feedback');
   assert.equal(field.selectionStart, 5);
-  assert.equal(details.open, true);
+  assert.equal(details.open, false);
   ui.chat.show(); await flush();
   assert.match(ui.document.querySelector('#model-info').textContent, /when a run starts/);
   assert.match(ui.document.querySelector('#usage-summary').textContent, /Tokens not reported/);
@@ -700,8 +743,8 @@ test('all configured jobs render before use and polling keeps historical models 
 test('model details remember expansion across polling, draft edits and webview recreation', async (t) => {
   const ui = await openChat(t, chatView());
   const disclosure = ui.document.querySelector('#usage-details');
-  assert.equal(disclosure.open, true);
-  for (const open of [false, true]) {
+  assert.equal(disclosure.open, false);
+  for (const open of [true, false]) {
     disclosure.open = open;
     disclosure.dispatchEvent(new ui.window.Event('toggle'));
     ui.type('Keep both the draft and my display preference');
@@ -1085,4 +1128,37 @@ test('opening the restored candidate switches the chat to it', async (t) => {
   open.click();
   await flush();
   assert.deepEqual(show.mock.calls.at(-1).arguments[0], { workspace: run.workspace, runDir: '/ws/.autocode/runs/child' });
+});
+
+test('chat renders decision card and sticky action strip without button restlessness on poll', async (t) => {
+  const ui = await openChat(t, approvalView());
+  const card = ui.document.querySelector('#app .decision-card');
+  assert.ok(card, 'decision card renders in app');
+  assert.equal(card.querySelector('.speaker').textContent, 'AutoCode');
+  assert.ok(card.querySelector('.message-content').textContent.includes('Plan to approve'));
+
+  const strip = ui.document.querySelector('#app #action-strip');
+  assert.ok(strip, 'action strip renders in app');
+  assert.equal(strip.querySelector('.action-prompt').textContent, 'AutoCode is waiting for you');
+  const actionButton = strip.querySelector('#take-action');
+  assert.equal(actionButton.textContent, 'Approve and build');
+
+  // Polling usage and telemetry must not recreate or move the action button
+  const pollView = structuredClone(approvalView());
+  pollView.usage = { accounting: { tokens: { input_tokens: 5000, output_tokens: 200 } } };
+  await ui.poll(pollView);
+  assert.equal(ui.document.querySelector('#take-action'), actionButton, 'polling usage preserves action button identity');
+});
+
+test('chat renders review criteria in decision card with sticky action strip', async (t) => {
+  const ui = await openChat(t, {
+    ...chatView(),
+    status: 'WAITING_FOR_USER',
+    needs: { kind: 'review', criteria: [{ id: 'AC1', criterion: 'All unit tests pass' }] },
+  });
+  const card = ui.document.querySelector('#app .decision-card');
+  assert.ok(card, 'decision card renders');
+  assert.ok(card.querySelector('.message-content').textContent.includes('All unit tests pass'));
+  assert.equal(ui.document.querySelector('#action-strip .action-prompt').textContent, 'AutoCode is waiting for you');
+  assert.equal(ui.document.querySelector('#take-action').textContent, 'Accept the reviewed criteria');
 });

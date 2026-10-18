@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { RunController, type CheckpointComparison, type RunRef } from "./controller";
 import { leavesForPerson } from "./core/next-command";
 import type { StatusView } from "./core/view";
+import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
 import { panelHtml, stateFor } from "./panel";
 
 interface ChatMessage {
@@ -96,6 +97,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     void this.view?.webview.postMessage({
       type: "chat", runKey: this.key(), busy, error: this.error || this.readError, pendingBrief: this.pendingBrief,
       selectedRun: this.run ?? null, persistSelection,
+      engine: engineOf(readSettings()),
       state: this.run && this.status ? stateFor(this.status, this.run, this.controller, busy) : null,
     });
   }
@@ -149,6 +151,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (opened) this.show(opened);
       return;
     }
+    if (message.type === "engine") { await pickEngine(); return; }
     if (message.type === "new") { if (!this.starting) this.show(); return; }
     if (message.type !== "send" && message.type !== "take") return;
     if (message.runKey !== this.key() || this.starting || this.busy.has(this.key())) return;
@@ -293,6 +296,35 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 }
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+const ENGINE_LABELS: Record<Engine, string> = { opencode: "OpenCode", codex: "Codex", claude: "Claude Code" };
+
+/**
+ * The engine new chats run on. This client's own launch option, chosen the same
+ * way the Connections backend is: existing chats keep their saved engine.
+ */
+async function pickEngine(): Promise<void> {
+  const current = engineOf(readSettings());
+  const choices: Array<{ label: string; description?: string; engine?: Engine; command?: string }> = [
+    ...ENGINES.map((engine) => ({
+      label: ENGINE_LABELS[engine],
+      description: engine === current ? "current" : undefined,
+      engine,
+    })),
+    { label: "Connections…", description: "choose the backend", command: "autocode.connections" },
+    { label: "Configure in Settings…", command: "workbench.action.openSettings" },
+  ];
+  const picked = await vscode.window.showQuickPick(choices, {
+    placeHolder: `Engine for new chats (current: ${ENGINE_LABELS[current] ?? current})`,
+  });
+  if (!picked) return;
+  if (picked.engine) {
+    await applyEngine(picked.engine);
+    return;
+  }
+  if (picked.command === "autocode.connections") return void vscode.commands.executeCommand(picked.command);
+  if (picked.command) return void vscode.commands.executeCommand(picked.command, "autocode");
+}
 
 function asRunRef(value: unknown): RunRef | undefined {
   if (!value || typeof value !== "object") return undefined;

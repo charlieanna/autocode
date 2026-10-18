@@ -21,6 +21,7 @@ function editor() {
       createTreeView: () => ({ dispose() {} }),
       registerWebviewViewProvider: (id, provider) => { providers.set(id, provider); return { dispose() {} }; },
       showInformationMessage() {},
+      showQuickPick: async () => undefined,
       createTerminal: () => ({ show() {} }),
       showErrorMessage: async (message) => { errors.push(message); },
       showWarningMessage: async (_message, _options, choice) => choice,
