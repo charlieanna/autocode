@@ -12,9 +12,23 @@ function editor() {
   const storage = new Map();
   const workspaceState = { get: (key) => storage.get(key), update: async (key, value) => { storage.set(key, value); } };
   const log = { show() {}, append() {}, appendLine() {}, dispose() {} };
+  const configListeners = new Set();
   const vscode = {
-    workspace: { getConfiguration: () => ({ get: (key, fallback) => config.get(key) ?? fallback,
-      update: async (key, value) => { config.set(key, value); } }) },
+    workspace: {
+      getConfiguration: () => ({
+        get: (key, fallback) => config.get(key) ?? fallback,
+        update: async (key, value) => {
+          config.set(key, value);
+          for (const listener of configListeners) {
+            listener({ affectsConfiguration: (section) => section.startsWith("autocode") });
+          }
+        },
+      }),
+      onDidChangeConfiguration: (listener) => {
+        configListeners.add(listener);
+        return { dispose: () => configListeners.delete(listener) };
+      },
+    },
     window: {
       createOutputChannel: () => log,
       createStatusBarItem: () => ({ hide() {}, show() {}, dispose() {} }),

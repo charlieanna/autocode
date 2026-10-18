@@ -13,6 +13,7 @@ import { RunPanel } from "./panel";
 import { RunsProvider, type RunItem } from "./runsView";
 import { ChatView } from "./chat";
 import { ConnectionsPanel } from "./connections";
+import { readSettings, spendTarget } from "./settings";
 
 type RunTarget = RunRef | RunItem;
 
@@ -90,6 +91,11 @@ export function activate(context: vscode.ExtensionContext): void {
     status,
     chat,
     connections,
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("autocode")) {
+        void refresh();
+      }
+    }),
     vscode.commands.registerCommand("autocode.connections", () => connections.show().catch((error) => {
       void vscode.window.showErrorMessage(`AutoCode Connections: ${messageOf(error)}`);
     })),
@@ -198,7 +204,7 @@ async function pickWorkspace(): Promise<string | undefined> {
  * extension never decides on its own to start paid work.
  */
 async function confirmSpend(): Promise<boolean> {
-  const provider = vscode.workspace.getConfiguration("autocode").get<string>("provider", "").trim() || "its default";
+  const provider = spendTarget(readSettings());
   const choice = await vscode.window.showWarningMessage(
     `Start a live AutoCode run through provider "${provider}"? It spends your model allowance and can run for a long time.`,
     { modal: true },

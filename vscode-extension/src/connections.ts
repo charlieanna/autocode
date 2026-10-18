@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { invoke, tail } from "./core/cli";
-import { partitionOptions, readSettings } from "./settings";
+import { partitionOptions, readSettings, routeKeyOf, sanitizeRoutes } from "./settings";
 
 interface ConnectionAction { id: string; label: string; next_command: string[] }
 interface Connection { id: string; label: string; connection_status: string; detail: string; actions: ConnectionAction[] }
@@ -35,7 +35,7 @@ export class ConnectionsPanel implements vscode.Disposable {
 
   private post(): void {
     void this.panel?.webview.postMessage({ connections: this.rows, busy: this.busy, error: this.error,
-      selected: vscode.workspace.getConfiguration("autocode").get<string>("provider", "").trim() || "opencode" });
+      selected: routeKeyOf(readSettings()) });
   }
 
   private async refresh(): Promise<void> {
@@ -83,14 +83,28 @@ export class ConnectionsPanel implements vscode.Disposable {
 
   private async select(provider: string): Promise<void> {
     const config = vscode.workspace.getConfiguration("autocode");
-    const current = config.get<string>("provider", "").trim() || "opencode";
+    const settings = readSettings();
+    const current = routeKeyOf(settings);
     if (provider === current) return;
     const options = config.get<string[]>("extraOptions", []);
     // Preserve each backend's exact token-plan overrides, including when the
     // person switches away and back. New backends use their own role defaults.
     const saved = this.storage.get<Record<string, string[]>>("autocode.connection.routes") ?? {};
-    saved[current] = partitionOptions(options).routes;
-    const next = [...withoutRoutes(options), ...(saved[provider] ?? [])];
+
+    // Recover from previous bug where opencode routes were contaminated with codex
+    if (saved.opencode?.some((w) => w === "--engine=codex" || w === "codex")) {
+      if (!saved.codex || saved.codex.length === 0) {
+        saved.codex = saved.opencode.filter((w, i) =>
+          w === "--engine=codex" || (w === "--engine" && saved.opencode![i + 1] === "codex") || (w === "codex" && saved.opencode![i - 1] === "--engine")
+        );
+      }
+      saved.opencode = sanitizeRoutes(saved.opencode, "opencode");
+    }
+
+    saved[current] = sanitizeRoutes(partitionOptions(options).routes, current);
+    const targetRoutes = sanitizeRoutes(saved[provider] ?? [], provider);
+    saved[provider] = targetRoutes;
+    const next = [...withoutRoutes(options), ...targetRoutes];
     await this.storage.update("autocode.connection.routes", saved);
     const target = vscode.workspace.workspaceFolders?.length ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
     await config.update("extraOptions", next, target);
