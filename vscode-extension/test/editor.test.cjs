@@ -224,13 +224,18 @@ afterEach(() => {
 });
 
 test('start passes the selected workspace to the CLI regardless of the host directory', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-start-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
   host.config.set('provider', 'chosen-route');
   const revealLog = t.mock.method(host.log, 'show', () => {});
   const launch = t.mock.method(cli, 'stream', async () => ok);
-  const selected = '/different workspace/project';
-  const created = await controller.start(selected, 'Build the requested CLI');
+  const selected = fs.realpathSync(folder);
+  const created = await controller.start(folder, 'Build the requested CLI');
   const [options, args] = launch.mock.calls[0].arguments;
-  assert.equal(args[args.indexOf('--workspace') + 1], selected);
+  assert.equal(args[args.indexOf('--workspace') + 1], selected, 'the core resolves the workspace; the client sends the resolved path');
   assert.equal(options.cwd, selected);
   assert.equal(args[args.indexOf('--new-run-dir') + 1], created.runDir);
   assert.ok(created.runDir.startsWith(`${selected}/.autocode/runs/`));
@@ -240,9 +245,49 @@ test('start passes the selected workspace to the CLI regardless of the host dire
   assert.equal(revealLog.mock.callCount(), 0, 'starting chat must not open the diagnostic console');
 });
 
+test('start resolves a symlinked workspace so the core accepts the run destination (#1555)', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-symlink-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'real'));
+  const real = fs.realpathSync(path.join(root, 'real'));
+  const link = path.join(root, 'link');
+  fs.symlinkSync(real, link);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const created = await controller.start(link, 'A task');
+  const [, args] = launch.mock.calls[0].arguments;
+  assert.equal(args[args.indexOf('--workspace') + 1], real);
+  assert.ok(args[args.indexOf('--new-run-dir') + 1].startsWith(`${real}/.autocode/runs/`),
+    'the destination must be an immediate child of the resolved workspace/.autocode/runs');
+  assert.equal(created.workspace, real);
+});
+
+test('an action still completes when the child exits while a grandchild holds stdio open (#1556)', async (t) => {
+  const { EventEmitter } = require('node:events');
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  const spawn = t.mock.method(require('node:child_process'), 'spawn', () => child);
+  const action = cli.stream({ command: 'autocode', prefix: [] }, ['--resume-paused'], {}, undefined, 20);
+  child.emit('exit', 2);
+  const result = await action;
+  assert.equal(spawn.mock.callCount(), 1);
+  assert.equal(result.code, 2, 'exit alone settles the action after the grace period');
+  assert.equal(result.rejected, false, 'a pause boundary is not a rejection');
+  child.emit('close', 2);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+});
+
 test('start reports an input rejection instead of returning a nonexistent run', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-reject-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
   t.mock.method(cli, 'stream', async () => ({ ...ok, code: 2, rejected: true, stderr: 'Input rejected: invalid destination' }));
-  await assert.rejects(controller.start('/ws', 'A task'), /invalid destination/);
+  await assert.rejects(controller.start(folder, 'A task'), /invalid destination/);
 });
 
 test('tree actions use the clicked run with no active run and with another run active', async (t) => {

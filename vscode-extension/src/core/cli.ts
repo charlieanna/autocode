@@ -41,11 +41,16 @@ export function invoke(options: CliOptions, args: string[], env: Record<string, 
  * A rejection is a `usage:` or `Input rejected:` exit 2, which must not be
  * mistaken for a pause awaiting input (docs/task-run.md).
  */
+/** After the child exits, how long its pipes may stay open (a detached
+ * grandchild can hold them forever) before the action is complete anyway. */
+export const EXIT_GRACE_MS = 2000;
+
 export function stream(
   options: CliOptions,
   args: string[],
   env: Record<string, string> = {},
   onOutput?: (chunk: string) => void,
+  exitGraceMs = EXIT_GRACE_MS,
 ): Promise<CliResult> {
   const { file, args: argv } = buildArgv(options, args);
   return new Promise((resolve, reject) => {
@@ -56,6 +61,14 @@ export function stream(
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let grace: NodeJS.Timeout | undefined;
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      if (grace) clearTimeout(grace);
+      resolve({ code, stdout, stderr, rejected: isRejection(code, stderr) });
+    };
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
       onOutput?.(chunk.toString());
@@ -66,11 +79,15 @@ export function stream(
     });
     child.on("error", (error: NodeJS.ErrnoException) => {
       const hint = error.code === "ENOENT" ? `Is ${file} on PATH? Set "autocode.cliPath" in settings.` : error.message;
+      if (!settled) { settled = true; if (grace) clearTimeout(grace); }
       reject(new Error(`${file} could not start: ${hint}`));
     });
-    child.on("close", (code) => {
-      resolve({ code, stdout, stderr, rejected: isRejection(code, stderr) });
+    // A controller that exits at a pause boundary may leave a provider child
+    // holding stdio open; the action is over when the process is gone (#1556).
+    child.on("exit", (code) => {
+      grace = setTimeout(() => finish(code), exitGraceMs);
     });
+    child.on("close", (code) => finish(code));
   });
 }
 

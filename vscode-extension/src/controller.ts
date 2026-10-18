@@ -9,6 +9,7 @@
  */
 
 import * as vscode from "vscode";
+import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, type CliResult } from "./core/cli";
 import {
   applyDecisions,
@@ -72,17 +73,21 @@ export class RunController {
    * refuses an existing directory or a symlink before a provider launches.
    */
   async start(workspace: string, brief: string, created?: (run: RunRef) => void): Promise<RunRef> {
-    const runDir = freshRunDir(workspace);
+    // The core resolves the workspace before validating the run destination
+    // (autocode_run_destination.reserve); a symlinked folder such as macOS
+    // /tmp must not make the two paths disagree (#1555).
+    const runWorkspace = await realpath(workspace);
+    const runDir = freshRunDir(runWorkspace);
     const settings = this.settings;
     // Sidebar conversations gather and confirm requirements before planning.
     // Creation flags stay off later actions, which use the run's saved flow.
-    const args = [brief, "--in-place", "--no-chat", "--joint-planning", "--spec-first", ...settings.runOptions, "--workspace", workspace, "--new-run-dir", runDir];
+    const args = [brief, "--in-place", "--no-chat", "--joint-planning", "--spec-first", ...settings.runOptions, "--workspace", runWorkspace, "--new-run-dir", runDir];
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
-    created?.({ workspace, runDir });
-    const result = await stream({ ...settings, cwd: workspace }, args, {}, (chunk) => this.log.append(chunk));
+    created?.({ workspace: runWorkspace, runDir });
+    const result = await stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk));
     if (result.rejected || (result.code !== 0 && result.code !== 2)) throw new Error(tail(result));
     this.log.appendLine(`[autocode exited ${result.code}]`);
-    return { workspace, runDir };
+    return { workspace: runWorkspace, runDir };
   }
 
   /**
