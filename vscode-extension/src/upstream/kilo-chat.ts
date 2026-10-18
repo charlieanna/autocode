@@ -39,6 +39,9 @@ export const chatStyles = /* css */ `
   #usage-breakdown { padding-top: 6px; }
   .telemetry-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 3px 0; }
   .message { overflow-wrap: anywhere; margin: 0 0 20px; line-height: 1.5; }
+  .message.notice { border-left: 3px solid var(--vscode-errorForeground, #a1260d); border-radius: 0 8px 8px 0;
+    padding: 10px 12px; background: var(--vscode-inputValidation-errorBackground, rgba(161, 18, 13, .12)); }
+  .message.notice .speaker { color: var(--vscode-errorForeground, #a1260d); }
   .message.user { white-space: pre-wrap; padding: 10px 12px; border-radius: 8px;
     background: var(--vscode-textCodeBlock-background); }
   .speaker { font-size: .75rem; font-weight: 600; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
