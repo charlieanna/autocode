@@ -23,6 +23,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode --version` and `autocode doctor` again start when psutil is missing, including
   through the grader imports used by Git delivery. Process supervision still requires the
   dependency and reports its repair instructions (#1571).
+- Fixed-model CLI qualification explicitly retains fixed routes, and liveness checks cover
+  their intended working notice without weakening status, action or evidence assertions (#1573).
 
 - Applied Pause requests survive deferred plan-approval normalization until explicit resume, retaining the pending proposal and saved evidence (#1561).
 

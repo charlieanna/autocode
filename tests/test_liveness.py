@@ -276,7 +276,7 @@ class LivenessViewTests(unittest.TestCase):
                 self.assertIn("usage", result)
                 self.assertEqual(before, state)
 
-    def test_liveness_is_additive_and_does_not_change_old_status_or_action_fields(self):
+    def test_liveness_changes_only_its_projection_and_the_working_notice(self):
         saved = metadata()
         state = {
             "status": "RUNNING",
@@ -289,6 +289,7 @@ class LivenessViewTests(unittest.TestCase):
         before = copy.deepcopy(state)
         baseline = run_view.view(state)
         baseline.pop("liveness")
+        self.assertIsNone(baseline["chat"].pop("notice"))
         for current in (
             inspection(saved),
             inspection(saved, owner=False),
@@ -296,7 +297,15 @@ class LivenessViewTests(unittest.TestCase):
         ):
             with self.subTest(inspection=current):
                 result = run_view.view(state, liveness=current)
-                self.assertEqual(liveness.classify(saved, current), result.pop("liveness"))
+                observed = result.pop("liveness")
+                self.assertEqual(liveness.classify(saved, current), observed)
+                # #1538 intentionally derives this display-only notice from
+                # fresh liveness. Status, actions and every other field retain
+                # their existing contract, including when ownership is lost.
+                expected_notice = (
+                    "Working on your request…" if observed["kind"] in ("supervised", "unsupervised") else None
+                )
+                self.assertEqual(expected_notice, result["chat"].pop("notice"))
                 self.assertEqual(baseline, result)
                 self.assertEqual(
                     ("RUNNING", False, {"kind": "continue"}), (result["status"], result["done"], result["needs"])

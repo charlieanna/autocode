@@ -80,7 +80,7 @@ class UnitFlow(unittest.TestCase):
 
 class JointPlannerUnit(unittest.TestCase):
     setUp = UnitFlow.setUp
-    launch = UnitFlow.launch
+    launch = test_planning.JointFlow.launch
     saved = UnitFlow.saved
     select = UnitFlow.select
     new_run_engine_args = ()
