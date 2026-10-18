@@ -131,6 +131,10 @@ export interface CodeCheckpoints {
 
 export interface StatusView {
   schema?: number;
+  /** The run's effective workspace: may differ from a client handle named before bootstrap relocation. */
+  workspace?: string | null;
+  /** The run's effective directory, paired with `workspace`. */
+  run_dir?: string | null;
   status: string;
   done: boolean;
   phase?: string | null;
@@ -243,10 +247,11 @@ export function progressLine(view: StatusView): string {
 }
 
 /** Plain-language description of what the run is waiting for, from the view alone. */
-export function needsSummary(view: StatusView): string {
+export function needsSummary(view: StatusView, working?: boolean): string {
   const need = view.needs;
   if (!need) return "nothing; the run is complete";
   if (view.progress?.needs_you) return view.progress.needs_you;
+  const isWorking = working ?? ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "");
   switch (need.kind) {
     case "approve_plan":
       return "approval of the plan AutoCode displayed";
@@ -257,7 +262,7 @@ export function needsSummary(view: StatusView): string {
     case "planning_budget":
       return `a decision on more plan-review calls${need.reason ? `: ${need.reason}` : ""}`;
     case "continue":
-      return "nothing; the run can simply proceed";
+      return isWorking ? "a stage is currently running" : "nothing; the run can simply proceed";
     case "retry_job":
       return "inspection of a stopped workflow job";
     case "recover_source":

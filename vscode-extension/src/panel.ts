@@ -247,6 +247,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     }
   }
   const requirements = progress?.requirements;
+  const working = taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "");
   return {
     chat: view.chat,
     formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant").map((row) => [row.id, markdown(row.text)])),
@@ -267,7 +268,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     telemetry: telemetry(view),
     pause: pauseLabel(view),
     needKind: need?.kind ?? null,
-    needSummary: view.done ? null : needsSummary(view),
+    needSummary: view.done ? null : needsSummary(view, working),
     needReason: need?.reason ?? null,
     tasks: (progress?.tasks?.items ?? []).map((task) => ({
       id: task.id,
@@ -315,7 +316,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     commandText: safeCommandText(view, run, controller),
     personOnly: leavesForPerson(need),
     taking,
-    working: taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? ""),
+    working,
     checkpoints: (view.code_checkpoints?.rows ?? []).map((row) => ({
       id: row.id,
       label: row.label ?? row.id,
@@ -437,8 +438,8 @@ const ICONS = {
   tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
 };
 
-function iconButton(id: string, label: string, svg: string): string {
-  return `<button type="button" id="${id}" class="icon" title="${label}" aria-label="${label}">${svg}</button>`;
+function iconButton(id: string, label: string, svg: string, disabled = false): string {
+  return `<button type="button" id="${id}" class="icon" title="${label}" aria-label="${label}"${disabled ? ' disabled' : ''}>${svg}</button>`;
 }
 
 /** The webview script. It renders with textContent only: untrusted text never becomes markup. */
@@ -483,7 +484,7 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <section id="telemetry" aria-label="Models and usage">
@@ -592,7 +593,7 @@ function render(state) {
       return;
     }
 
-    if (state.chat && state.chat.notice) {
+    if (state.chat && state.chat.notice && state.chat.notice !== 'Working on your request…') {
       cardContent.appendChild(el('div', 'notice', state.chat.notice));
     } else if (state.pause) {
       cardContent.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
@@ -943,6 +944,18 @@ window.addEventListener('message', (event) => {
     if (field.value === data.text) field.value = '';
     saveDraft(); updateComposer(); chatBehavior.resize();
   }
+  if (data && data.type === 'restore_draft') {
+    const saved = vscode.getState() || {};
+    const drafts = saved.drafts || {};
+    const key = data.runKey || '';
+    if (!drafts[key]) drafts[key] = data.text;
+    vscode.setState({ ...saved, drafts });
+    const field = document.getElementById('message');
+    if (chatEnvelope && key === chatEnvelope.runKey && !field.value.trim() && data.text) {
+      field.value = data.text;
+      saveDraft(); updateComposer(); chatBehavior.resize();
+    }
+  }
   if (data && data.type === 'checkpoint_compare') {
     checkpointCompare[data.checkpoint] = data.error ? { error: data.error } : { comparison: data.comparison };
     renderedState = '';
@@ -979,6 +992,8 @@ function updateComposer() {
 function renderChat(data) {
   const thread = document.getElementById('thread');
   document.getElementById('engine-name').textContent = data.engine || 'opencode';
+  const detailsBtn = document.getElementById('details');
+  if (detailsBtn) detailsBtn.disabled = !data.runKey;
   const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
   if (!same) {
     saveDraft();
@@ -991,13 +1006,17 @@ function renderChat(data) {
   const messages = document.getElementById('messages');
   const welcome = { id: 'welcome', role: 'assistant', text: 'Hi! What would you like to work on today?' };
   const rows = data.state && data.state.chat ? data.state.chat.messages
-    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [welcome];
+    : [welcome, ...(data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [])];
+  // A start that never reached a run leaves no transcript. The thread must still
+  // hold what happened: the greeting, the request, and why it did not start.
+  if (!data.state && data.error) rows.push({ role: 'notice', text: data.error });
   const serialized = JSON.stringify(rows);
   if (messages.dataset.content !== serialized) {
     messages.dataset.content = serialized; messages.textContent = '';
     rows.forEach((row) => {
-      const item = el('div', 'message ' + (row.role === 'user' ? 'user' : 'assistant'));
-      item.appendChild(el('div', 'speaker', row.role === 'user' ? 'You' : 'AutoCode'));
+      const notice = row.role === 'notice';
+      const item = el('div', 'message ' + (notice ? 'notice' : row.role === 'user' ? 'user' : 'assistant'));
+      item.appendChild(el('div', 'speaker', notice ? 'Notice' : row.role === 'user' ? 'You' : 'AutoCode'));
       const body = el('div', 'message-content');
       const formatted = data.state && data.state.formattedMessages && data.state.formattedMessages[row.id];
       if (row.role === 'assistant' && formatted) appendFormatted(body, formatted);
@@ -1096,7 +1115,9 @@ if (chatMode) {
   });
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
   document.getElementById('connections').addEventListener('click', () => vscode.postMessage({ type: 'connections' }));
-  document.getElementById('details').addEventListener('click', () => vscode.postMessage({ type: 'details' }));
+  document.getElementById('details').addEventListener('click', () => {
+    if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'details' });
+  });
   document.getElementById('message').addEventListener('input', () => { saveDraft(); updateComposer(); });
   document.getElementById('composer').addEventListener('submit', (event) => {
     event.preventDefault();

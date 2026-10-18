@@ -86,6 +86,52 @@ test('connection switching restores Kilo routes and cannot reroute an existing c
   assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '5', ...routes]);
 });
 
+test('a relocated run takes the command the view names, not the start handle', () => {
+  const relocated = { workspace: '/real/project', runDir: '/real/project/.autocode/runs/test' };
+  const view = {
+    status: 'AWAITING_GOAL_APPROVAL', done: false,
+    workspace: relocated.workspace, run_dir: relocated.runDir,
+    needs: { kind: 'approve_plan', token: 'r1:abc' },
+    next_command: `AUTOCODE_APPROVE_GOAL_TOKEN=r1:abc autocode --workspace ${relocated.workspace} --run-dir ${relocated.runDir} --approve-goal -`,
+  };
+  const prepared = controller.prepare(view, run, {});
+  assert.deepEqual(prepared.argv, ['--approve-goal', '-']);
+  assert.deepEqual(prepared.env, { AUTOCODE_APPROVE_GOAL_TOKEN: 'r1:abc' });
+  assert.throws(() => controller.prepare({ ...view, workspace: '/elsewhere' }, run, {}), /not this run/);
+});
+
+test('a relocated run accepts the checkpoint action the view names', async (t) => {
+  const relocated = { workspace: '/real/project', runDir: '/real/project/.autocode/runs/test' };
+  const checkpoint = (flag, extra = []) => [
+    'checkpoint', '--workspace', relocated.workspace, '--run-dir', relocated.runDir, flag, 'cp1', ...extra,
+  ];
+  const view = {
+    status: 'PAUSED', done: false, workspace: relocated.workspace, run_dir: relocated.runDir,
+    code_checkpoints: { rows: [{ id: 'cp1', actions: [
+      { id: 'compare', next_command: checkpoint('--compare') },
+      { id: 'restore', next_command: checkpoint('--restore', ['--expected-token', '-', '--request-id', 'REQUEST_ID']) },
+    ] }] },
+  };
+  const invoked = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{}' }));
+  t.mock.method(RunController.prototype, 'status', async () => view);
+  assert.deepEqual(await controller.compareCheckpoint(run, 'cp1'), {});
+  assert.deepEqual(invoked.mock.calls[0].arguments[1], checkpoint('--compare'));
+});
+
+test('a relocated run sends its message to the paths the view names', async (t) => {
+  const relocated = { workspace: '/real/project', runDir: '/real/project/.autocode/runs/test' };
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const view = chatView();
+  view.workspace = relocated.workspace;
+  view.run_dir = relocated.runDir;
+  view.chat.input.next_command =
+    `autocode --workspace ${relocated.workspace} --run-dir ${relocated.runDir} --feedback MESSAGE`;
+  await controller.sendMessage(view, run, 'hello', 'chat-1');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], [
+    '--feedback', 'hello', '--workspace', relocated.workspace, '--run-dir', relocated.runDir,
+  ]);
+});
+
 test('toolbar buttons are icons with accessible names and unchanged ids', async (t) => {
   const ui = await openChat(t, chatView());
   for (const [id, label] of [['connections', 'Connections'], ['history', 'History'], ['details', 'Run details'], ['new-chat', 'New chat']]) {
@@ -95,6 +141,16 @@ test('toolbar buttons are icons with accessible names and unchanged ids', async 
     assert.equal(button.textContent.trim(), '', `#${id} must render no text`);
     assert.ok(button.querySelector('svg'), `#${id} has no icon`);
   }
+});
+
+test('a narrow sidebar hides the keyboard hint and lets the composer row wrap so Send stays reachable', async (t) => {
+  const ui = await openChat(t, chatView());
+  const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+  const narrow = rules.find((rule) => rule.conditionText === '(max-width: 240px)');
+  assert.ok(narrow, 'chat styles need a narrow-composer rule');
+  const nested = [...narrow.cssRules];
+  assert.equal(nested.find((rule) => rule.selectorText === '.keyboard-hint').style.display, 'none');
+  assert.equal(nested.find((rule) => rule.selectorText === '#composer .actions').style.getPropertyValue('flex-wrap'), 'wrap');
 });
 
 test('engine chip shows the engine new chats will use and opens the picker', async (t) => {
@@ -481,6 +537,7 @@ async function openChat(t, initial, selected = run, options = {}) {
   let persisted = options.webviewState;
   const chat = new ChatView(chatController, storage, {
     pickWorkspace: async () => run.workspace, confirmStart: async () => true, changed() {}, selected() {},
+    ...options.actions,
   });
   chat.resolveWebviewView(view);
   const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
@@ -816,7 +873,7 @@ test('a greeting waits for Requirements to answer instead of a canned reply', as
   });
   ui.type('hi'); ui.submit(); await flush();
   const rows = [...ui.document.querySelectorAll('#messages .message')].map((row) => row.textContent);
-  assert.deepEqual(rows, ['Youhi']);
+  assert.deepEqual(rows, ['AutoCodeHi! What would you like to work on today?', 'Youhi']);
   assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
 });
 
@@ -963,12 +1020,30 @@ test('a CLI failure is surfaced instead of continuing as if the action succeeded
 test('a rejected chat start retains the request and original error across polling', async (t) => {
   const ui = await openChat(t, null);
   ui.chat.show(); await flush();
+  t.mock.method(controller, 'status', async () => { throw new Error('Run not found'); });
   t.mock.method(controller, 'start', async (_workspace, _text, created) => { created(run); throw new Error('Input rejected: invalid option'); });
   ui.type('Do not lose this request'); ui.submit(); await flush(); await flush();
-  t.mock.method(controller, 'status', async () => { throw new Error('Run not found'); });
   await ui.poll();
   assert.ok(ui.document.querySelector('#messages').textContent.includes('Do not lose this request'));
   assert.match(ui.document.querySelector('#chat-error').textContent, /Input rejected: invalid option/);
+  assert.equal(ui.document.querySelector('#message').value, 'Do not lose this request');
+  assert.equal(ui.document.querySelector('#send-message').disabled, false);
+  assert.equal(ui.webviewState?.selectedRun, null);
+});
+
+test('a failed start leaves the thread holding the greeting, the request, and the failure (#1550)', async (t) => {
+  const ui = await openChat(t, null);
+  ui.chat.show(); await flush();
+  t.mock.method(controller, 'status', async () => { throw new Error('Run not found'); });
+  t.mock.method(controller, 'start', async (_workspace, _text, created) => { created(run); throw new Error('Input rejected: invalid option'); });
+  ui.type('Do not lose this request'); ui.submit(); await flush(); await flush();
+  const rows = [...ui.document.querySelectorAll('#messages .message')];
+  assert.equal(rows.length, 3, 'greeting, the request, and the failure notice');
+  assert.match(rows[0].textContent, /Hi! What would you like to work on today\?/);
+  assert.match(rows[1].textContent, /Do not lose this request/);
+  assert.ok(rows[2].classList.contains('notice'), 'the failure is a thread notice');
+  assert.match(rows[2].textContent, /Input rejected: invalid option/);
+  assert.equal(ui.document.querySelector('#send-message').disabled, false, 'the restored draft stays sendable');
 });
 
 test('assistant replies render Markdown while HTML and executable links stay inert', async (t) => {
@@ -1163,29 +1238,61 @@ test('chat renders review criteria in decision card with sticky action strip', a
   assert.equal(ui.document.querySelector('#take-action').textContent, 'Accept the reviewed criteria');
 });
 
-test('non-requirements running stage shows Thinking in chat without offering Continue (#1530)', async (t) => {
+test('non-requirements running stage shows Thinking in chat without offering Continue (#1530, #1538)', async (t) => {
   const runningView = {
     status: 'RUNNING', done: false,
     liveness: { kind: 'supervised' },
     needs: { kind: 'continue' },
     next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
-    chat: { context: 'ctx-1', messages: [{ id: 'm1', role: 'assistant', text: 'Building it now.' }], input: null },
+    chat: {
+      context: 'ctx-1',
+      messages: [{ id: 'm1', role: 'assistant', text: 'Building it now.' }],
+      input: null,
+      notice: 'Working on your request…',
+    },
     progress: { line: 'Builder · writing the export' },
   };
   const chatUi = await openChat(t, runningView);
   assert.ok(chatUi.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(chatUi.document.querySelector('.decision-card .notice'), null, 'active build step must not duplicate Working on your request notice in decision card');
   assert.equal(chatUi.document.querySelector('#take-action'), null, 'active build step must not offer Continue');
   assert.equal(chatUi.document.querySelectorAll('#app button').length, 0);
   assert.equal(chatUi.document.querySelector('#send-hint').textContent, 'AutoCode is working. You can keep a draft here.');
 
-  // Once the step stops, Continue is offered again
-  await chatUi.poll({ ...runningView, liveness: { kind: 'unknown' } });
+  // Unsupervised running stage also renders one progress indicator without offering Continue
+  await chatUi.poll({ ...runningView, liveness: { kind: 'unsupervised' } });
+  assert.ok(chatUi.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(chatUi.document.querySelector('.decision-card .notice'), null);
+  assert.equal(chatUi.document.querySelector('#take-action'), null);
+
+  // Once the step stops, Continue is offered and no contradictory working notice is displayed
+  await chatUi.poll({ ...runningView, liveness: { kind: 'unknown' }, chat: { ...runningView.chat, notice: null } });
   assert.ok(!chatUi.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(chatUi.document.querySelector('.decision-card .notice'), null, 'stopped continue checkpoint must not show working notice');
   assert.equal(chatUi.document.querySelector('#take-action').textContent, 'Continue');
   assert.equal(chatUi.document.querySelector('#take-action').disabled, false);
+  assert.equal(chatUi.document.querySelector('#action-strip .action-prompt').textContent, 'AutoCode is waiting for you');
+
+  // Even if a stale view retains a working notice string at a stopped checkpoint, the client suppresses it
+  await chatUi.poll({ ...runningView, liveness: { kind: 'unknown' }, chat: { ...runningView.chat, notice: 'Working on your request…' } });
+  assert.equal(chatUi.document.querySelector('.decision-card .notice'), null);
+  assert.equal(chatUi.document.querySelector('#take-action').textContent, 'Continue');
+
+  // Existing pause explanations are preserved
+  await chatUi.poll({
+    ...runningView,
+    status: 'PAUSED_TRANSPORT_CHANGED',
+    pause_category: 'environment',
+    pause_category_label: 'Your environment',
+    liveness: { kind: 'unknown' },
+    chat: { ...runningView.chat, notice: 'Your model connection settings changed. Check Connections before continuing.' },
+  });
+  const noticeEl = chatUi.document.querySelector('.decision-card .notice');
+  assert.ok(noticeEl, 'pause notice should be rendered');
+  assert.equal(noticeEl.textContent, 'Your model connection settings changed. Check Connections before continuing.');
 });
 
-test('Run details disables Take action while a stage is actively running (#1530)', async (t) => {
+test('Run details disables Take action while a stage is actively running (#1530, #1538)', async (t) => {
   const runningView = {
     status: 'RUNNING', done: false,
     liveness: { kind: 'supervised' },
@@ -1196,9 +1303,379 @@ test('Run details disables Take action while a stage is actively running (#1530)
   const panelUi = await openPanel(t, runningView);
   assert.equal(panelUi.take().textContent, 'Working…');
   assert.equal(panelUi.take().disabled, true);
+  assert.ok(panelUi.document.querySelector('#app').textContent.includes('a stage is currently running'));
+  assert.ok(!panelUi.document.querySelector('#app').textContent.includes('nothing; the run can simply proceed'));
+
+  await panelUi.poll({ ...runningView, liveness: { kind: 'unsupervised' } });
+  assert.equal(panelUi.take().textContent, 'Working…');
+  assert.equal(panelUi.take().disabled, true);
+  assert.ok(panelUi.document.querySelector('#app').textContent.includes('a stage is currently running'));
+
   await panelUi.poll({ ...runningView, liveness: { kind: 'unknown' } });
   assert.equal(panelUi.take().textContent, 'Take the named action');
   assert.equal(panelUi.take().disabled, false);
+  assert.ok(panelUi.document.querySelector('#app').textContent.includes('nothing; the run can simply proceed'));
+  assert.ok(!panelUi.document.querySelector('#app').textContent.includes('a stage is currently running'));
+
+  await panelUi.poll({ ...runningView, liveness: { kind: 'stopped' } });
+  assert.equal(panelUi.take().textContent, 'Take the named action');
+  assert.equal(panelUi.take().disabled, false);
+  assert.ok(panelUi.document.querySelector('#app').textContent.includes('nothing; the run can simply proceed'));
+});
+
+test('unestablished start failure rolls back provisional run, restores editable retry, and stops polling (#1539)', async (t) => {
+  const ui = await openChat(t, null);
+  ui.chat.show();
+  await flush();
+
+  let startCount = 0;
+  t.mock.method(controller, 'start', async (_workspace, text, created) => {
+    startCount++;
+    if (startCount === 1) {
+      created(run);
+      const err = new Error('spawn autocode ENOENT');
+      err.code = 'ENOENT';
+      throw err;
+    }
+    created(run);
+    return run;
+  });
+
+  let statusCalls = 0;
+  t.mock.method(controller, 'status', async () => {
+    statusCalls++;
+    throw new Error('Run not found');
+  });
+
+  ui.type('Draft my first task');
+  ui.submit();
+  await flush();
+  await flush();
+
+  // 1. Provisional run was rolled back
+  assert.equal(ui.chat.run, undefined, 'unestablished run must be rolled back');
+  assert.equal(ui.webviewState?.selectedRun, null, 'persisted selection must be cleared');
+
+  // 2. Draft is restored in composer and Send is enabled
+  assert.equal(ui.document.querySelector('#message').value, 'Draft my first task');
+  assert.equal(ui.document.querySelector('#send-message').disabled, false, 'send button must be enabled');
+  assert.equal(ui.document.querySelector('#send-hint').textContent, 'Message AutoCode');
+  assert.match(ui.document.querySelector('#chat-error').textContent, /ENOENT/);
+
+  // 3. Polling does not poll the unestablished run
+  const callsBeforePoll = statusCalls;
+  await ui.poll();
+  assert.equal(statusCalls, callsBeforePoll, 'polling must not query nonexistent run');
+
+  // 4. User can edit the prompt and retry successfully
+  ui.type('Draft my edited task');
+  ui.submit();
+  await flush();
+  await flush();
+  assert.equal(startCount, 2, 'retrying must invoke start again');
+});
+
+test('established run with subsequent status failure does not roll back run (#1539)', async (t) => {
+  const ui = await openChat(t, null);
+  ui.chat.show();
+  await flush();
+
+  const establishedView = { status: 'RUNNING', done: false, needs: { kind: 'continue' } };
+  t.mock.method(controller, 'start', async (_workspace, _text, created) => {
+    created(run);
+    return run;
+  });
+
+  let shouldFail = false;
+  t.mock.method(controller, 'status', async () => {
+    if (shouldFail) throw new Error('Temporary provider outage');
+    return establishedView;
+  });
+
+  ui.type('Task with transient status failure');
+  ui.submit();
+  await flush();
+  await flush();
+
+  assert.deepEqual(ui.chat.run, run, 'established run must be retained');
+
+  // Subsequent transient status failure
+  shouldFail = true;
+  await ui.poll();
+  assert.deepEqual(ui.chat.run, run, 'temporary read failure must not roll back an established run');
+});
+
+test('in-flight start does not block New Chat or actions on other runs (#1540)', async (t) => {
+  const runA = { workspace: '/ws', runDir: '/ws/.autocode/runs/run-a' };
+  const runB = { workspace: '/ws', runDir: '/ws/.autocode/runs/run-b' };
+
+  const ui = await openChat(t, null);
+  ui.chat.show();
+  await flush();
+
+  let resolveStartA;
+  let rejectStartA;
+  t.mock.method(controller, 'start', async (_workspace, _text, created) => {
+    created(runA);
+    return new Promise((resolve, reject) => {
+      resolveStartA = () => resolve(runA);
+      rejectStartA = (err) => reject(err);
+    });
+  });
+
+  // 1. Submit run A
+  ui.type('Long running task A');
+  ui.submit();
+  await flush();
+
+  assert.equal(ui.chat.run.runDir, runA.runDir);
+  assert.equal(ui.document.querySelector('#send-hint').textContent, 'AutoCode is working. You can keep a draft here.');
+
+  // 2. Click New Chat (+) while run A is in flight: allowed!
+  ui.document.getElementById('new-chat').click();
+  await flush();
+  assert.equal(ui.chat.run, undefined, 'New Chat must open even while run A is in flight');
+  assert.equal(ui.document.querySelector('#send-hint').textContent, 'Message AutoCode');
+
+  // 3. Switch to existing run B
+  const viewB = {
+    ...questionView(),
+    next_command: `autocode --workspace ${runB.workspace} --run-dir ${runB.runDir} --answer q1=ANSWER`,
+  };
+  t.mock.method(controller, 'status', async (r) => {
+    if (r.runDir === runB.runDir) return viewB;
+    throw new Error('Not found');
+  });
+  ui.chat.show(runB);
+  await flush();
+  await flush();
+
+  assert.equal(ui.chat.run.runDir, runB.runDir);
+  // Run B is NOT marked busy by run A's in-flight turn!
+  const take = ui.document.querySelector('#take-action');
+  assert.ok(take, 'take action exists on run B');
+  assert.notEqual(take.textContent, 'Working…');
+
+  // 4. Action on run B is not blocked
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const input = ui.document.querySelector('input');
+  if (input) {
+    input.value = 'answer for B';
+    input.dispatchEvent(new ui.window.Event('input'));
+  }
+  take.click();
+  await flush();
+  assert.equal(launch.mock.callCount(), 1, 'action on run B must execute while run A is in flight');
+
+  // 5. Run A fails: error must NOT leak onto run B!
+  rejectStartA(new Error('Run A startup rejected: bad config'));
+  await flush();
+  await flush();
+
+  assert.equal(ui.chat.run.runDir, runB.runDir, 'run B remains selected');
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '', 'run A error must not leak onto run B');
+});
+
+test('aborted launch when selection changes during workspace or confirmation (#1540)', async (t) => {
+  const runB = { workspace: '/ws', runDir: '/ws/.autocode/runs/run-b' };
+  let resolveWorkspace;
+  const actions = {
+    pickWorkspace: () => new Promise((resolve) => { resolveWorkspace = () => resolve(run.workspace); }),
+  };
+
+  const ui = await openChat(t, null, false, { actions });
+  ui.chat.show();
+  await flush();
+
+  let startCalled = false;
+  t.mock.method(controller, 'start', async () => { startCalled = true; return run; });
+
+  ui.type('Task aborted during prompt');
+  ui.submit();
+  await flush();
+
+  // User switches to run B before picking workspace completes
+  ui.chat.show(runB);
+  await flush();
+
+  // Workspace prompt finishes
+  resolveWorkspace();
+  await flush();
+  await flush();
+
+  assert.equal(startCalled, false, 'start must not launch when selection changed during pre-launch');
+  assert.deepEqual(ui.chat.run, runB, 'run B remains selected');
+});
+
+test('Chat #details toolbar button is disabled without an active run and enabled with one (#1543)', async (t) => {
+  const ui = await openChat(t, chatView(), run);
+  const detailsBtn = ui.document.querySelector('#details');
+  assert.equal(detailsBtn.disabled, false, '#details must be enabled when a run is active');
+
+  detailsBtn.click();
+  await flush();
+  assert.equal(ui.sent.filter((m) => m.type === 'details').length, 1);
+
+  // Switching to new chat disables #details
+  ui.chat.show();
+  await flush();
+  assert.equal(detailsBtn.disabled, true, '#details must become disabled on new chat');
+
+  // Clicking while disabled sends nothing
+  detailsBtn.click();
+  await flush();
+  assert.equal(ui.sent.filter((m) => m.type === 'details').length, 1);
+
+  // Switching back to active run enables #details again
+  ui.chat.show(run);
+  await flush();
+  assert.equal(detailsBtn.disabled, false, '#details must become enabled when run is active again');
+});
+
+test('Command palette run commands show "Select a run first." when no run is selected (#1543)', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const messages = [];
+  t.mock.method(host.vscode.window, 'showInformationMessage', (msg) => { messages.push(msg); });
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  await host.commands.get('autocode.openDetails')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.showCliCommand')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.continueRun')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.watchRun')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.openRun')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+
+  await host.commands.get('autocode.takeAction')();
+  assert.equal(messages.at(-1), 'Select a run first.');
+});
+
+test('autocode.watchRun toggles watching off/on, switches watched runs, and updates status bar immediately (#1543)', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let statusVisible = false;
+  let statusText = '';
+  const mockStatus = {
+    show() { statusVisible = true; },
+    hide() { statusVisible = false; },
+    dispose() {},
+    get text() { return statusText; },
+    set text(val) { statusText = val; },
+    command: undefined,
+    tooltip: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  t.mock.method(RunController.prototype, 'status', async (target) => ({
+    status: 'RUNNING',
+    done: false,
+    needs: { kind: 'continue' },
+    progress: { headline: target.runDir.endsWith('other') ? 'Other running' : 'Main running' },
+  }));
+
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  const other = { ...run, runDir: '/ws/.autocode/runs/other' };
+
+  // 1. Open run: status bar is shown for run
+  await host.commands.get('autocode.openRun')(run);
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Main running'));
+
+  // 2. Watch/unwatch toggles watching off on same run
+  await host.commands.get('autocode.watchRun')(run);
+  assert.equal(statusVisible, false, 'status bar must hide immediately when unwatched');
+
+  // 3. active selection is preserved after unwatching
+  const copied = [];
+  t.mock.method(host.vscode.env.clipboard, 'writeText', async (text) => { copied.push(text); });
+  await host.commands.get('autocode.showCliCommand')();
+  assert.equal(copied.length, 1, 'active run target must be preserved for commands when unwatched');
+
+  // 4. Invoking watchRun again without arguments watches the active run
+  await host.commands.get('autocode.watchRun')();
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Main running'));
+
+  // 5. Switching watched run to other
+  await host.commands.get('autocode.watchRun')(other);
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Other running'));
+
+  // 6. Unwatching other
+  await host.commands.get('autocode.watchRun')(other);
+  assert.equal(statusVisible, false);
+});
+
+test('delayed status resolution does not re-show unwatched run or replace newly watched run (#1543)', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let statusVisible = false;
+  let statusText = '';
+  const mockStatus = {
+    show() { statusVisible = true; },
+    hide() { statusVisible = false; },
+    dispose() {},
+    get text() { return statusText; },
+    set text(val) { statusText = val; },
+    command: undefined,
+    tooltip: undefined,
+  };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+
+  let resolveMain;
+  t.mock.method(RunController.prototype, 'status', async (target) => {
+    if (target.runDir.endsWith('other')) {
+      return { status: 'RUNNING', done: false, progress: { headline: 'Other running' } };
+    }
+    return new Promise((resolve) => {
+      resolveMain = () => resolve({ status: 'RUNNING', done: false, progress: { headline: 'Main running' } });
+    });
+  });
+
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+
+  // 1. Open run: status fetch starts and is pending
+  await host.commands.get('autocode.openRun')(run);
+  assert.equal(statusVisible, false, 'status should not be visible while pending');
+
+  // 2. Unwatch while status read is still in-flight
+  await host.commands.get('autocode.watchRun')(run);
+  assert.equal(statusVisible, false);
+
+  // 3. In-flight status resolves: must NOT show unwatched run
+  resolveMain();
+  await flush();
+  assert.equal(statusVisible, false, 'delayed status resolution must not re-show unwatched run');
+
+  // 4. Test switching watched runs during delayed status
+  const other = { ...run, runDir: '/ws/.autocode/runs/other' };
+  // Start in-flight for run again
+  await host.commands.get('autocode.watchRun')(run);
+  // Switch to other before main resolves
+  await host.commands.get('autocode.watchRun')(other);
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Other running'));
+
+  // Main resolves late: must NOT replace Other
+  resolveMain();
+  await flush();
+  assert.equal(statusVisible, true);
+  assert.ok(mockStatus.text.includes('Other running'), 'late resolution must not replace newer watched run');
 });
 
 test('Run details guards against concurrent clicks during status and modal confirmation (#1542)', async (t) => {
