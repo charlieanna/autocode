@@ -25,6 +25,9 @@ PR template asks for an entry here; a change without one is incomplete.
   dependency and reports its repair instructions (#1571).
 - Fixed-model CLI qualification explicitly retains fixed routes, and liveness checks cover
   their intended working notice without weakening status, action or evidence assertions (#1573).
+- Verification falls back to fresh checks when an editable AutoCode package cannot be
+  snapshotted. Incomplete controller identities never authorize cached checks; unavailable
+  task source and unrelated pause reasons still stop verification (#1572).
 
 - Applied Pause requests survive deferred plan-approval normalization until explicit resume, retaining the pending proposal and saved evidence (#1561).
 

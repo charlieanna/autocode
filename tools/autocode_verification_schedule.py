@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -32,6 +33,17 @@ except ImportError:
     import autocode_util as util
     import autocode_verification_preparation as preparation
     import autocode_verification_recovery as recovery
+
+
+def optional_editable_unavailable(error):
+    """Only optional controller identity failures permit fresh verification.
+
+    This policy never applies to the task's source snapshot. An incomplete
+    editable identity disables reuse; unrelated pause authorities still stop.
+    """
+    if isinstance(error, util.Paused):
+        return error.status == "PAUSED_SOURCE_UNAVAILABLE"
+    return isinstance(error, (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError))
 
 
 def tree_identity(root, *, excluded=()):
