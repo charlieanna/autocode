@@ -1782,7 +1782,9 @@ def execution_identity(
                                 ".DS_Store",
                             },
                         )
-            except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError):
+            except Exception as error:
+                if not schedule.optional_editable_unavailable(error):
+                    raise
                 unbound_editables.append(str(metadata))
     full = full and not unbound_editables
     dependency_roots = test_env.dependency_roots(dependencies_from or workspace) if full else []
