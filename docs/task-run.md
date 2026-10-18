@@ -28,6 +28,13 @@ are refused before a provider launches. The optional destination is used by
 [saved-run replay](replay.md); the run is created there without moving bound
 artifacts afterward.
 
+When the workspace is a plain, non-empty folder, the core bootstraps a task
+project inside `workspace/autocode-projects/` and runs there. A destination
+named under the selected folder's `.autocode/runs` keeps its name: the run is
+created under the bootstrapped project instead, and commands may keep using the
+selected folder and that name as the run's handle. The status view names the
+effective `workspace` and `run_dir`.
+
 This example accepts the displayed plan and chooses question defaults or the first
 listed option. An interactive client should collect the person’s answer instead,
 using the token from the view they saw. Operational recovery needs a separate decision.
@@ -210,8 +217,10 @@ a Git write and cannot silently satisfy the completion gate.
 `kind` (`feedback`, `follow_up`, or `resolver_response`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
-as an argument array without a shell. The headless conformance client's
-`message_command()` implements this same parsing boundary.
+as an argument array without a shell. Compare against the view's `workspace` and
+`run_dir` fields: after bootstrap relocation they name the run's effective
+location, which can differ from the handle the client started with. The headless
+conformance client's `message_command()` implements this same parsing boundary.
 
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.

@@ -65,6 +65,7 @@ function editor() {
       registerCommand: (name, handler) => { commands.set(name, handler); return { dispose() {} }; },
       executeCommand: async () => {},
     },
+    env: { clipboard: { writeText: async () => {}, readText: async () => '' } },
     StatusBarAlignment: { Left: 1 }, ViewColumn: { One: 1 }, ConfigurationTarget: { Global: 1, Workspace: 2 },
     TreeItem: class {}, TreeItemCollapsibleState: { None: 0, Expanded: 2 },
     Uri: { file: (value) => value }, MarkdownString: class {}, ThemeIcon: class {}, ThemeColor: class {},

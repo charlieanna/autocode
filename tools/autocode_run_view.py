@@ -170,6 +170,11 @@ def view(
         "dependency": state.get("dependency_wait"),
         "verification_obligation": deepcopy(verification_obligation),
         "schema": SCHEMA,
+        # The run this view describes. A client's own handle may name the folder
+        # it selected before AutoCode bootstrapped a child project there; the
+        # effective location is what named commands carry.
+        "workspace": str(workspace) if workspace is not None else state.get("workspace"),
+        "run_dir": str(run_dir) if run_dir is not None else None,
         "controller": deepcopy(controller),
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),

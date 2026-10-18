@@ -39,6 +39,9 @@ export const chatStyles = /* css */ `
   #usage-breakdown { padding-top: 6px; }
   .telemetry-row { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; padding: 3px 0; }
   .message { overflow-wrap: anywhere; margin: 0 0 20px; line-height: 1.5; }
+  .message.notice { border-left: 3px solid var(--vscode-errorForeground, #a1260d); border-radius: 0 8px 8px 0;
+    padding: 10px 12px; background: var(--vscode-inputValidation-errorBackground, rgba(161, 18, 13, .12)); }
+  .message.notice .speaker { color: var(--vscode-errorForeground, #a1260d); }
   .message.user { white-space: pre-wrap; padding: 10px 12px; border-radius: 8px;
     background: var(--vscode-textCodeBlock-background); }
   .speaker { font-size: .75rem; font-weight: 600; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
@@ -110,6 +113,12 @@ export const chatStyles = /* css */ `
   #composer .chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .keyboard-hint { font-size: .7rem; color: var(--vscode-descriptionForeground); }
+  /* The hint's min-content width plus the engine chip and Send need ~215px; below that
+     the nowrap row pushed Send out of the webview, so the hint yields first. */
+  @media (max-width: 240px) {
+    #composer .actions { flex-wrap: wrap; }
+    .keyboard-hint { display: none; }
+  }
 `;
 
 /** Self-contained so its compiled source can be embedded in the webview. */
