@@ -53,10 +53,9 @@ def rejection(state: RunState) -> str:
     milestone's validation left out the accepted milestone's criteria, and the Completion Owner
     could not tell what was missing or how to ask for it."""
     try:
-        if (
-            git_delivery.requirement((state.get("goal_contract") or {}).get("body") or {}) is not None
-            and not git_delivery.ready(state, source_scope.snapshot(state["workspace"], state))
-        ):
+        if git_delivery.requirement(
+            (state.get("goal_contract") or {}).get("body") or {}
+        ) is not None and not git_delivery.ready(state, source_scope.snapshot(state["workspace"], state)):
             return "Git delivery requires the approved scoped commit and fresh verification of its exact revision."
     except (OSError, ValueError, KeyError) as error:
         return "Git delivery required: " + str(error)

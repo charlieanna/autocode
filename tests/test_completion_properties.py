@@ -92,7 +92,9 @@ class CompletionGateProperties(unittest.TestCase):
         self.assertTrue(self.ready())
 
     def test_required_git_delivery_cannot_be_omitted_from_completion(self):
-        self.state["goal_contract"] = {"body": {"git_delivery": {"kind": "atomic_commit", "message": "Deliver changes"}}}
+        self.state["goal_contract"] = {
+            "body": {"git_delivery": {"kind": "atomic_commit", "message": "Deliver changes"}}
+        }
         self.assertFalse(self.ready())
         self.assertIn("Git delivery", completion_gate.rejection(self.state))
 
