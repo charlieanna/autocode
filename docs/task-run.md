@@ -1395,7 +1395,8 @@ New runs automatically select qualified models from the chosen tool's connected
 accounts, preferring subscriptions and preserving independent checking. No per-role
 model flags are needed, including with `TaskRun.start(workspace, brief)`.
 Explicit model, effort and tool overrides win; saved runs keep their choices.
-`--no-auto-select` retains fixed defaults. `--auto-select` requires selection to
+`--no-auto-select` retains fixed defaults; conversation creation accepts both selection
+switches too. `--auto-select` requires selection to
 succeed instead of falling back when discovery or an independent checker is unavailable.
 See [automatic model selection](models.md#choosing-models-automatically) for discovery,
 reasoning levels, bounded preflight, recovery and the read-only selection preview.

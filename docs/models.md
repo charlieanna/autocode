@@ -181,7 +181,8 @@ OpenCode and Kilo reasoning variants come from their local verbose model listing
 An unsupported qualified level is omitted so the model uses its default. When older
 tools cannot report variants, the recorded qualification level is used. Preflight
 proves each distinct model/effort on its actual tool within the run's time/cost cap;
-receipts survive resume. Recovery stays within the saved connected accounts, and
+receipts survive resume. Recovery checks independence against the current saved routes, including explicit
+assignments and catalogue substitutions. It stays within the saved connected accounts, and
 exhaustion asks for intervention. A stuck-run Investigator reuses an independent saved
 reviewer route and its supported level; it cannot silently use a fixed paid-gateway
 default. Explicit `--investigator-model` remains an override. A newly connected account

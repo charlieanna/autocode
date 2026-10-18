@@ -702,7 +702,8 @@ class NetworkRetryCliTests(unittest.TestCase):
         cli.write_text("ROOT=" + repr(str(source)) + "\nFAULT=" + repr(str(fault)) + "\n" + BOOTSTRAP)
         self.command = (sys.executable, str(cli), str(source / "tools/autocode.py"))
         self.env.update(NETWORK_FIXTURE_ROOT=str(self.root), NETWORK_FIXTURE_MODE="once")
-        self.options = ("--engine", "opencode", "--workflow", "build", "--unit", "autoplanner")
+        # This fixture tests stage retries and does not implement access probes.
+        self.options = ("--engine", "opencode", "--no-auto-select", "--workflow", "build", "--unit", "autoplanner")
 
     def start(self):
         return TaskRun.start(

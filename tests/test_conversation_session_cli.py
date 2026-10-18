@@ -673,7 +673,8 @@ class ConversationSessionCliTests(unittest.TestCase):
             self.workspace,
             BRIEF,
             request_id="route-start",
-            start_options=OPTIONS,
+            # Exercise the fixed-route human question, not automatic recovery.
+            start_options=(*OPTIONS, "--no-auto-select"),
             command=self.command,
             env=self.env,
             timeout=300,
@@ -770,7 +771,8 @@ class ConversationSessionCliTests(unittest.TestCase):
             self.workspace,
             BRIEF,
             request_id="crash-route-start",
-            start_options=OPTIONS,
+            # Exercise the fixed-route human question, not automatic recovery.
+            start_options=(*OPTIONS, "--no-auto-select"),
             command=self.command,
             env=self.env,
             timeout=300,

@@ -91,6 +91,19 @@ class RouteRecoveryTests(unittest.TestCase):
         self.assertEqual(SOL, record["to"])
         self.assertEqual("quota_assigned", state["settings"]["route_selection"]["routes"]["sol"]["origin"])
 
+    def test_replacement_checks_actual_routes_after_catalogue_substitution(self):
+        state = self.state()
+        # The saved selection still names MiMo, but the actual Builder now uses
+        # Sol. Moving the stopped GLM Tester to Sol would grade its own work.
+        state["settings"]["roles"]["terra"]["model"] = SOL
+        before = json.dumps(state, sort_keys=True)
+        self.assertFalse(
+            route_recovery.recover(self.runtime, state, self.root, self.root, support.Paused("PAUSED_BUDGET", "quota"))
+        )
+        self.assertEqual(before, json.dumps(state, sort_keys=True))
+        self.runtime.abandon_stage.assert_not_called()
+        self.runtime.count_automatic_recovery.assert_not_called()
+
     def test_exhausted_alternatives_pause_even_after_a_restart(self):
         state = self.state()
         error = support.Paused("PAUSED_BUDGET", "quota")

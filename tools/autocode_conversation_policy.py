@@ -63,6 +63,8 @@ CREATION_VALUES = frozenset(
 CREATION_SWITCHES = frozenset(
     {
         "--joint-planning",
+        "--auto-select",
+        "--no-auto-select",
         "--adaptive-planning",
         "--no-adaptive-planning",
         "--planning-v2",

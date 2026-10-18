@@ -363,15 +363,6 @@ def _escalate(state: RunState, current, config, route):
         if tool
         else route_ladder.format_model(route_ladder.normalize_model(config["strong_model"]), engine)
     )
-    if not permission.allows(state["settings"], "terra", model, config["strong_reasoning_effort"]):
-        return "pause", {}, "The stronger Builder route is outside this run's saved accounts or supported levels"
-    replacement = config.get("checker_model") or DEFAULTS["checker_model"]
-    for checker in colliding_checkers(state, model):
-        checker_route = state["settings"]["roles"][checker]
-        effort = checker_route.get("reasoning_effort")
-        effort = effort if effort in CHECKER_EFFORTS else "high"
-        if not permission.allows(state["settings"], checker, replacement, effort):
-            return "pause", {}, "The stronger Builder attempt needs a checker outside this run's saved routes"
     # Never undo explicit pins or silently change provider/transport.
     if route.get("model_pinned") or route.get("provider") not in (None, "openai"):
         return "pause", {}, EXHAUSTED
@@ -391,6 +382,15 @@ def _escalate(state: RunState, current, config, route):
     problem = tool and _tool_swap_problem(state, config, model)
     if problem:
         return "pause", {}, CHECKER_STUCK.format(model=model, why=problem)
+    if not permission.allows(state["settings"], "terra", model, config["strong_reasoning_effort"]):
+        return "pause", {}, "The stronger Builder route is outside this run's saved accounts or supported levels"
+    replacement = config.get("checker_model") or DEFAULTS["checker_model"]
+    for checker in colliding_checkers(state, model):
+        checker_route = state["settings"]["roles"][checker]
+        effort = checker_route.get("reasoning_effort")
+        effort = effort if effort in CHECKER_EFFORTS else "high"
+        if not permission.allows(state["settings"], checker, replacement, effort):
+            return "pause", {}, "The stronger Builder attempt needs a checker outside this run's saved routes"
     route.update(model=model, reasoning_effort=config["strong_reasoning_effort"])
     return "escalate", swap_checkers(state, current, config, model), None
 
