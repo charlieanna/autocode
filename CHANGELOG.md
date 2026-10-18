@@ -20,6 +20,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Authentication preflight stops retain names-only guidance for credential variables actually
+  withheld from the probe, without exposing secret values or enabling pass-through (#1577).
+
 - `autocode --version` and `autocode doctor` again start when psutil is missing, including
   through the grader imports used by Git delivery. Process supervision still requires the
   dependency and reports its repair instructions (#1571).
