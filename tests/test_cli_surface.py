@@ -76,6 +76,16 @@ class CliSurfaceTests(unittest.TestCase):
                 self.assertEqual(0, code, err)
                 self.assertIn("usage:", out)
 
+    def test_a_user_error_names_the_problem_without_the_option_dump(self):
+        code, out, err = self.invoke("Build a greeting CLI", "--new-run-dir", "/tmp/fresh-run")
+        self.assertEqual(2, code)
+        self.assertEqual("", out)
+        self.assertTrue(err.startswith("usage: autocode [TASK] [OPTIONS]\n"), err)
+        self.assertLessEqual(len(err.splitlines()), 2, err)
+        self.assertIn("--new-run-dir requires a fresh --in-place task invocation", err)
+        for internal in ("--review-token", "--close-finding", "--accept-completion", "--resolver-token"):
+            self.assertNotIn(internal, err)
+
     def test_sysargv_entry_restores_arguments_after_help_or_failure(self):
         original = ["autocode", "dashboard", "--help"]
         for error in (None, ValueError("failure"), SystemExit(0)):

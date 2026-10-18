@@ -131,6 +131,10 @@ export interface CodeCheckpoints {
 
 export interface StatusView {
   schema?: number;
+  /** The run's effective workspace: may differ from a client handle named before bootstrap relocation. */
+  workspace?: string | null;
+  /** The run's effective directory, paired with `workspace`. */
+  run_dir?: string | null;
   status: string;
   done: boolean;
   phase?: string | null;

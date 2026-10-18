@@ -86,6 +86,52 @@ test('connection switching restores Kilo routes and cannot reroute an existing c
   assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '5', ...routes]);
 });
 
+test('a relocated run takes the command the view names, not the start handle', () => {
+  const relocated = { workspace: '/real/project', runDir: '/real/project/.autocode/runs/test' };
+  const view = {
+    status: 'AWAITING_GOAL_APPROVAL', done: false,
+    workspace: relocated.workspace, run_dir: relocated.runDir,
+    needs: { kind: 'approve_plan', token: 'r1:abc' },
+    next_command: `AUTOCODE_APPROVE_GOAL_TOKEN=r1:abc autocode --workspace ${relocated.workspace} --run-dir ${relocated.runDir} --approve-goal -`,
+  };
+  const prepared = controller.prepare(view, run, {});
+  assert.deepEqual(prepared.argv, ['--approve-goal', '-']);
+  assert.deepEqual(prepared.env, { AUTOCODE_APPROVE_GOAL_TOKEN: 'r1:abc' });
+  assert.throws(() => controller.prepare({ ...view, workspace: '/elsewhere' }, run, {}), /not this run/);
+});
+
+test('a relocated run accepts the checkpoint action the view names', async (t) => {
+  const relocated = { workspace: '/real/project', runDir: '/real/project/.autocode/runs/test' };
+  const checkpoint = (flag, extra = []) => [
+    'checkpoint', '--workspace', relocated.workspace, '--run-dir', relocated.runDir, flag, 'cp1', ...extra,
+  ];
+  const view = {
+    status: 'PAUSED', done: false, workspace: relocated.workspace, run_dir: relocated.runDir,
+    code_checkpoints: { rows: [{ id: 'cp1', actions: [
+      { id: 'compare', next_command: checkpoint('--compare') },
+      { id: 'restore', next_command: checkpoint('--restore', ['--expected-token', '-', '--request-id', 'REQUEST_ID']) },
+    ] }] },
+  };
+  const invoked = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{}' }));
+  t.mock.method(RunController.prototype, 'status', async () => view);
+  assert.deepEqual(await controller.compareCheckpoint(run, 'cp1'), {});
+  assert.deepEqual(invoked.mock.calls[0].arguments[1], checkpoint('--compare'));
+});
+
+test('a relocated run sends its message to the paths the view names', async (t) => {
+  const relocated = { workspace: '/real/project', runDir: '/real/project/.autocode/runs/test' };
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  const view = chatView();
+  view.workspace = relocated.workspace;
+  view.run_dir = relocated.runDir;
+  view.chat.input.next_command =
+    `autocode --workspace ${relocated.workspace} --run-dir ${relocated.runDir} --feedback MESSAGE`;
+  await controller.sendMessage(view, run, 'hello', 'chat-1');
+  assert.deepEqual(launch.mock.calls[0].arguments[1], [
+    '--feedback', 'hello', '--workspace', relocated.workspace, '--run-dir', relocated.runDir,
+  ]);
+});
+
 test('toolbar buttons are icons with accessible names and unchanged ids', async (t) => {
   const ui = await openChat(t, chatView());
   for (const [id, label] of [['connections', 'Connections'], ['history', 'History'], ['details', 'Run details'], ['new-chat', 'New chat']]) {
@@ -95,6 +141,16 @@ test('toolbar buttons are icons with accessible names and unchanged ids', async 
     assert.equal(button.textContent.trim(), '', `#${id} must render no text`);
     assert.ok(button.querySelector('svg'), `#${id} has no icon`);
   }
+});
+
+test('a narrow sidebar hides the keyboard hint and lets the composer row wrap so Send stays reachable', async (t) => {
+  const ui = await openChat(t, chatView());
+  const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+  const narrow = rules.find((rule) => rule.conditionText === '(max-width: 240px)');
+  assert.ok(narrow, 'chat styles need a narrow-composer rule');
+  const nested = [...narrow.cssRules];
+  assert.equal(nested.find((rule) => rule.selectorText === '.keyboard-hint').style.display, 'none');
+  assert.equal(nested.find((rule) => rule.selectorText === '#composer .actions').style.getPropertyValue('flex-wrap'), 'wrap');
 });
 
 test('engine chip shows the engine new chats will use and opens the picker', async (t) => {
