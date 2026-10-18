@@ -319,7 +319,7 @@ async function pickEngine(): Promise<void> {
     { label: "Configure in Settings…", command: "workbench.action.openSettings" },
   ];
   const picked = await vscode.window.showQuickPick(choices, {
-    placeHolder: `Engine for new chats (current: ${ENGINE_LABELS[current] ?? current})`,
+    placeHolder: `Engine for new chats (current: ${ENGINE_LABELS[current as Engine] ?? current})`,
   });
   if (!picked) return;
   if (picked.engine) {

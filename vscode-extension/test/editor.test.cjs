@@ -1202,7 +1202,7 @@ test('Run details disables Take action while a stage is actively running (#1530)
   assert.equal(panelUi.take().disabled, false);
 });
 
-test('engineOf and routeKeyOf support equals syntax, CLI precedence, and provider-only Claude (#1541)', () => {
+test('engineOf and routeKeyOf support equals syntax, CLI precedence, and registered providers (#1541)', () => {
   assert.equal(engineOf({ runOptions: ['--engine=codex'] }), 'codex');
   assert.equal(routeKeyOf({ runOptions: ['--engine=codex'] }), 'codex');
   assert.equal(engineOf({ runOptions: ['--engine=claude'] }), 'claude');
@@ -1216,9 +1216,15 @@ test('engineOf and routeKeyOf support equals syntax, CLI precedence, and provide
   assert.equal(engineOf({ runOptions: ['--provider=claude'] }), 'claude');
   assert.equal(routeKeyOf({ runOptions: ['--provider=claude'] }), 'claude');
 
-  // Provider-only Kilo runs on OpenCode engine with kilocode route identity
-  assert.equal(engineOf({ runOptions: ['--provider', 'kilocode'] }), 'opencode');
+  // Provider-only selections (including user-level registered providers) surface their provider name
+  assert.equal(engineOf({ runOptions: ['--provider', 'kilocode'] }), 'kilocode');
   assert.equal(routeKeyOf({ runOptions: ['--provider', 'kilocode'] }), 'kilocode');
+  assert.equal(engineOf({ runOptions: ['--provider', 'kilo_glm_mimo_gpt'] }), 'kilo_glm_mimo_gpt');
+  assert.equal(routeKeyOf({ runOptions: ['--provider', 'kilo_glm_mimo_gpt'] }), 'kilo_glm_mimo_gpt');
+
+  // Explicit --engine on top of a provider shows the explicit engine while keeping the provider route key
+  assert.equal(engineOf({ runOptions: ['--provider', 'kilocode', '--engine', 'opencode'] }), 'opencode');
+  assert.equal(routeKeyOf({ runOptions: ['--provider', 'kilocode', '--engine', 'opencode'] }), 'kilocode');
 
   // CLI precedence: later flag overrides earlier flag
   assert.equal(engineOf({ runOptions: ['--engine=codex', '--engine=opencode'] }), 'opencode');
@@ -1226,11 +1232,22 @@ test('engineOf and routeKeyOf support equals syntax, CLI precedence, and provide
   assert.equal(engineOf({ runOptions: ['--engine', 'codex', '--engine=claude'] }), 'claude');
 });
 
-test('picking an engine immediately updates the chat engine chip and names the engine in QuickPick (#1541)', async (t) => {
+test('picking an engine or configuring a registered provider immediately updates the chat engine chip and QuickPick (#1541)', async (t) => {
   host.config.set('provider', '');
   host.config.set('extraOptions', []);
   const ui = await openChat(t, chatView());
   assert.equal(ui.document.getElementById('engine-name').textContent, 'opencode');
+
+  // Registered provider with no --engine displays the provider in #engine-name and QuickPick
+  host.config.set('provider', 'kilo_glm_mimo_gpt');
+  ui.chat.post();
+  await flush();
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'kilo_glm_mimo_gpt');
+  let placeholder = '';
+  t.mock.method(host.vscode.window, 'showQuickPick', async (_items, opts) => { placeholder = opts.placeHolder; return undefined; });
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+  assert.ok(placeholder.includes('kilo_glm_mimo_gpt'), `placeholder "${placeholder}" must name registered provider as current`);
 
   // Pick Codex
   t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.engine === 'codex'));
@@ -1242,7 +1259,7 @@ test('picking an engine immediately updates the chat engine chip and names the e
   assert.equal(host.config.get('extraOptions').includes('--engine'), true);
 
   // Subsequent click names Codex as current
-  let placeholder = '';
+  placeholder = '';
   t.mock.method(host.vscode.window, 'showQuickPick', async (_items, opts) => { placeholder = opts.placeHolder; return undefined; });
   ui.document.getElementById('engine-picker').click();
   await flush();
