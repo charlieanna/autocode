@@ -86,6 +86,49 @@ test('connection switching restores Kilo routes and cannot reroute an existing c
   assert.deepEqual(host.config.get('extraOptions'), ['--max-cost-usd', '5', ...routes]);
 });
 
+test('toolbar buttons are icons with accessible names and unchanged ids', async (t) => {
+  const ui = await openChat(t, chatView());
+  for (const [id, label] of [['connections', 'Connections'], ['history', 'History'], ['details', 'Run details'], ['new-chat', 'New chat']]) {
+    const button = ui.document.getElementById(id);
+    assert.ok(button, `#${id} is missing`);
+    assert.equal(button.getAttribute('aria-label'), label);
+    assert.equal(button.textContent.trim(), '', `#${id} must render no text`);
+    assert.ok(button.querySelector('svg'), `#${id} has no icon`);
+  }
+});
+
+test('engine chip shows the engine new chats will use and opens the picker', async (t) => {
+  host.config.set('extraOptions', ['--engine', 'codex', '--max-cost-usd', '3']);
+  const ui = await openChat(t, chatView());
+  assert.equal(ui.document.getElementById('engine-name').textContent, 'codex');
+  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.engine === 'codex'));
+  ui.document.getElementById('engine-picker').click();
+  await flush();
+  assert.equal(ui.sent.at(-1).type, 'engine');
+  const [items, options] = picker.mock.calls[0].arguments;
+  assert.deepEqual(items.map((item) => item.label), ['OpenCode', 'Codex', 'Claude Code', 'Connections…', 'Configure in Settings…']);
+  assert.ok(options.placeHolder.includes('Codex'), 'names the current engine');
+});
+
+test('picking an engine applies the CLI consistency rules to new-chat settings', async (t) => {
+  const ui = await openChat(t, chatView());
+  const pick = async (engine) => {
+    t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.engine === engine));
+    ui.document.getElementById('engine-picker').click();
+    await flush();
+  };
+  host.config.set('provider', 'kilocode');
+  host.config.set('extraOptions', ['--engine', 'claude', '--requirements-model', 'zai-coding-plan/glm-5.3']);
+  await pick('codex');
+  assert.deepEqual(host.config.get('extraOptions'), ['--requirements-model', 'zai-coding-plan/glm-5.3', '--engine', 'codex']);
+  assert.equal(host.config.get('provider'), '', 'codex refuses a provider');
+  await pick('claude');
+  assert.deepEqual(host.config.get('extraOptions'), ['--requirements-model', 'zai-coding-plan/glm-5.3', '--engine', 'claude']);
+  assert.equal(host.config.get('provider'), 'claude', 'claude is the built-in Claude Code connection');
+  await pick('opencode');
+  assert.equal(host.config.get('provider'), 'claude', 'opencode leaves the chosen backend alone');
+});
+
 test('connections renders backend text safely and sends only provider and action IDs', () => {
   const sent = [];
   const dom = new JSDOM(connectionsHtml(), { runScripts: 'dangerously', beforeParse(window) {

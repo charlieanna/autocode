@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { invoke, tail } from "./core/cli";
-import { readSettings } from "./settings";
+import { partitionOptions, readSettings } from "./settings";
 
 interface ConnectionAction { id: string; label: string; next_command: string[] }
 interface Connection { id: string; label: string; connection_status: string; detail: string; actions: ConnectionAction[] }
@@ -10,23 +10,6 @@ interface Connection { id: string; label: string; connection_status: string; det
 /** Route overrides belong to a backend. Budgets and other run options remain shared. */
 export function withoutRoutes(options: string[]): string[] {
   return partitionOptions(options).shared;
-}
-
-function partitionOptions(options: string[]): { shared: string[]; routes: string[] } {
-  const result: string[] = [];
-  const routes: string[] = [];
-  for (let i = 0; i < options.length; i++) {
-    const flag = options[i]!.split("=", 1)[0]!;
-    if (/^--(?:provider|engine|model|reasoning-effort|pin-model-role|role-transport|builder-strong-model|allow-uncontained-tools|(?:astra|terra|sol|completion|glm|requirements|plan-reviewer|resolver|investigator)-(?:model|reasoning-effort))$/.test(flag)) {
-      // provider is owned by the picker, never a hidden extraOptions override.
-      if (flag !== "--provider") routes.push(options[i]!);
-      if (!options[i]!.includes("=") && flag !== "--allow-uncontained-tools") {
-        i++;
-        if (flag !== "--provider" && i < options.length) routes.push(options[i]!);
-      }
-    } else result.push(options[i]!);
-  }
-  return { shared: result, routes };
 }
 
 export class ConnectionsPanel implements vscode.Disposable {

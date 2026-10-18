@@ -53,8 +53,17 @@ export const chatStyles = /* css */ `
   #latest { align-self: center; margin-top: -34px; margin-bottom: 6px; z-index: 1;
     border-radius: 16px; font-size: .75rem; box-shadow: 0 2px 8px var(--vscode-widget-shadow); }
   #latest[hidden] { display: none; }
-  .chat-toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; justify-content: flex-end; padding: 4px 8px; gap: 8px; }
-  .chat-toolbar button { font-size: .8rem; }
+  .chat-toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; justify-content: flex-end; padding: 2px 8px; gap: 2px; }
+  .chat-toolbar button.icon, #composer .chip { display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; border: 0; border-radius: 5px; background: transparent;
+    color: var(--vscode-foreground); cursor: pointer; }
+  .chat-toolbar button.icon:hover, #composer .chip:hover { background: var(--vscode-toolbar-hover); }
+  .chat-toolbar button.icon:focus-visible, #composer .chip:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+  .chat-toolbar svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
+    stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  #composer .chip { width: auto; gap: 4px; padding: 0 8px; font-size: .7rem; color: var(--vscode-descriptionForeground); }
+  #composer .chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor;
+    stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .keyboard-hint { font-size: .7rem; color: var(--vscode-descriptionForeground); }
 `;
 

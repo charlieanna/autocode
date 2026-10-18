@@ -369,6 +369,23 @@ function trim(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+/**
+ * Toolbar and composer icons: inline SVG in the house style of `media/autocode.svg`
+ * (24×24, stroke currentColor). The webview CSP loads no fonts or images, so
+ * inline markup is the only icon path; codicon names exist only in host UI.
+ */
+const ICONS = {
+  plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>`,
+  clock: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25" /><path d="M12 7.5V12l3 2" /></svg>`,
+  panel: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M15 4.5v15" /></svg>`,
+  plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4" /></svg>`,
+  tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
+};
+
+function iconButton(id: string, label: string, svg: string): string {
+  return `<button type="button" id="${id}" class="icon" title="${label}" aria-label="${label}">${svg}</button>`;
+}
+
 /** The webview script. It renders with textContent only: untrusted text never becomes markup. */
 export function panelHtml(chat = false): string {
   return /* html */ `<!DOCTYPE html>
@@ -411,7 +428,7 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? '<nav class="chat-toolbar"><button id="connections" class="secondary">Connections</button><button id="history" class="secondary">History</button><button id="details" class="secondary">Run details</button><button id="new-chat" class="secondary">New chat</button></nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>' : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <section id="telemetry" aria-label="Models and usage">
@@ -423,7 +440,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <label for="message" id="send-hint">Message AutoCode</label>
 <textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
-<div class="actions"><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
+<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
 <button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
@@ -738,6 +755,7 @@ function updateComposer() {
 
 function renderChat(data) {
   const thread = document.getElementById('thread');
+  document.getElementById('engine-name').textContent = data.engine || 'opencode';
   const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
   if (!same) {
     saveDraft();
@@ -855,6 +873,7 @@ if (chatMode) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('composer').requestSubmit(); }
   });
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+  document.getElementById('engine-picker').addEventListener('click', () => vscode.postMessage({ type: 'engine' }));
 }
 
 vscode.postMessage({
