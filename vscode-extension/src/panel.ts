@@ -219,6 +219,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     }
   }
   const requirements = progress?.requirements;
+  const working = taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "");
   return {
     chat: view.chat,
     formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant").map((row) => [row.id, markdown(row.text)])),
@@ -239,7 +240,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     telemetry: telemetry(view),
     pause: pauseLabel(view),
     needKind: need?.kind ?? null,
-    needSummary: view.done ? null : needsSummary(view),
+    needSummary: view.done ? null : needsSummary(view, working),
     needReason: need?.reason ?? null,
     tasks: (progress?.tasks?.items ?? []).map((task) => ({
       id: task.id,
@@ -276,7 +277,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     commandText: safeCommandText(view, run, controller),
     personOnly: leavesForPerson(need),
     taking,
-    working: taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? ""),
+    working,
     checkpoints: (view.code_checkpoints?.rows ?? []).map((row) => ({
       id: row.id,
       label: row.label ?? row.id,
@@ -553,7 +554,7 @@ function render(state) {
       return;
     }
 
-    if (state.chat && state.chat.notice) {
+    if (state.chat && state.chat.notice && state.chat.notice !== 'Working on your request…') {
       cardContent.appendChild(el('div', 'notice', state.chat.notice));
     } else if (state.pause) {
       cardContent.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));

@@ -1163,29 +1163,61 @@ test('chat renders review criteria in decision card with sticky action strip', a
   assert.equal(ui.document.querySelector('#take-action').textContent, 'Accept the reviewed criteria');
 });
 
-test('non-requirements running stage shows Thinking in chat without offering Continue (#1530)', async (t) => {
+test('non-requirements running stage shows Thinking in chat without offering Continue (#1530, #1538)', async (t) => {
   const runningView = {
     status: 'RUNNING', done: false,
     liveness: { kind: 'supervised' },
     needs: { kind: 'continue' },
     next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
-    chat: { context: 'ctx-1', messages: [{ id: 'm1', role: 'assistant', text: 'Building it now.' }], input: null },
+    chat: {
+      context: 'ctx-1',
+      messages: [{ id: 'm1', role: 'assistant', text: 'Building it now.' }],
+      input: null,
+      notice: 'Working on your request…',
+    },
     progress: { line: 'Builder · writing the export' },
   };
   const chatUi = await openChat(t, runningView);
   assert.ok(chatUi.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(chatUi.document.querySelector('.decision-card .notice'), null, 'active build step must not duplicate Working on your request notice in decision card');
   assert.equal(chatUi.document.querySelector('#take-action'), null, 'active build step must not offer Continue');
   assert.equal(chatUi.document.querySelectorAll('#app button').length, 0);
   assert.equal(chatUi.document.querySelector('#send-hint').textContent, 'AutoCode is working. You can keep a draft here.');
 
-  // Once the step stops, Continue is offered again
-  await chatUi.poll({ ...runningView, liveness: { kind: 'unknown' } });
+  // Unsupervised running stage also renders one progress indicator without offering Continue
+  await chatUi.poll({ ...runningView, liveness: { kind: 'unsupervised' } });
+  assert.ok(chatUi.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(chatUi.document.querySelector('.decision-card .notice'), null);
+  assert.equal(chatUi.document.querySelector('#take-action'), null);
+
+  // Once the step stops, Continue is offered and no contradictory working notice is displayed
+  await chatUi.poll({ ...runningView, liveness: { kind: 'unknown' }, chat: { ...runningView.chat, notice: null } });
   assert.ok(!chatUi.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(chatUi.document.querySelector('.decision-card .notice'), null, 'stopped continue checkpoint must not show working notice');
   assert.equal(chatUi.document.querySelector('#take-action').textContent, 'Continue');
   assert.equal(chatUi.document.querySelector('#take-action').disabled, false);
+  assert.equal(chatUi.document.querySelector('#action-strip .action-prompt').textContent, 'AutoCode is waiting for you');
+
+  // Even if a stale view retains a working notice string at a stopped checkpoint, the client suppresses it
+  await chatUi.poll({ ...runningView, liveness: { kind: 'unknown' }, chat: { ...runningView.chat, notice: 'Working on your request…' } });
+  assert.equal(chatUi.document.querySelector('.decision-card .notice'), null);
+  assert.equal(chatUi.document.querySelector('#take-action').textContent, 'Continue');
+
+  // Existing pause explanations are preserved
+  await chatUi.poll({
+    ...runningView,
+    status: 'PAUSED_TRANSPORT_CHANGED',
+    pause_category: 'environment',
+    pause_category_label: 'Your environment',
+    liveness: { kind: 'unknown' },
+    chat: { ...runningView.chat, notice: 'Your model connection settings changed. Check Connections before continuing.' },
+  });
+  const noticeEl = chatUi.document.querySelector('.decision-card .notice');
+  assert.ok(noticeEl, 'pause notice should be rendered');
+  assert.equal(noticeEl.textContent, 'Your model connection settings changed. Check Connections before continuing.');
 });
 
-test('Run details disables Take action while a stage is actively running (#1530)', async (t) => {
+test('Run details disables Take action while a stage is actively running (#1530, #1538)', async (t) => {
   const runningView = {
     status: 'RUNNING', done: false,
     liveness: { kind: 'supervised' },
@@ -1196,7 +1228,22 @@ test('Run details disables Take action while a stage is actively running (#1530)
   const panelUi = await openPanel(t, runningView);
   assert.equal(panelUi.take().textContent, 'Working…');
   assert.equal(panelUi.take().disabled, true);
+  assert.ok(panelUi.document.querySelector('#app').textContent.includes('a stage is currently running'));
+  assert.ok(!panelUi.document.querySelector('#app').textContent.includes('nothing; the run can simply proceed'));
+
+  await panelUi.poll({ ...runningView, liveness: { kind: 'unsupervised' } });
+  assert.equal(panelUi.take().textContent, 'Working…');
+  assert.equal(panelUi.take().disabled, true);
+  assert.ok(panelUi.document.querySelector('#app').textContent.includes('a stage is currently running'));
+
   await panelUi.poll({ ...runningView, liveness: { kind: 'unknown' } });
   assert.equal(panelUi.take().textContent, 'Take the named action');
   assert.equal(panelUi.take().disabled, false);
+  assert.ok(panelUi.document.querySelector('#app').textContent.includes('nothing; the run can simply proceed'));
+  assert.ok(!panelUi.document.querySelector('#app').textContent.includes('a stage is currently running'));
+
+  await panelUi.poll({ ...runningView, liveness: { kind: 'stopped' } });
+  assert.equal(panelUi.take().textContent, 'Take the named action');
+  assert.equal(panelUi.take().disabled, false);
+  assert.ok(panelUi.document.querySelector('#app').textContent.includes('nothing; the run can simply proceed'));
 });

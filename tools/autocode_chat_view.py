@@ -37,7 +37,10 @@ def notice(public):
     if status.startswith("PAUSED"):
         return "I couldn’t finish this step. Open Run details to see what needs attention."
     if status == "RUNNING":
-        return "Working on your request…"
+        liveness = public.get("liveness") or {}
+        if isinstance(liveness, dict) and liveness.get("kind") in ("supervised", "unsupervised"):
+            return "Working on your request…"
+        return None
     return None
 
 
