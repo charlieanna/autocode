@@ -164,9 +164,8 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     rather than refusing, because a defaulted attempt must never block a launch; the
     usual catalogue and launch checks still guard those routes.
     """
-    # Opt-in until #1426 step 12's qualification flips the default: an absent flag keeps
-    # the fixed routes (so the suite never reads a machine's real logins); an explicit
-    # ``auto_select=None`` is the soft default that flip will ship.
+    # The CLI parser supplies None for default selection. Older programmatic callers
+    # without this field retain their existing fixed-route behavior.
     requested = getattr(args, "auto_select", False)
     if requested is False or single_model or engine != "opencode":
         if requested is True and single_model:
@@ -199,6 +198,8 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     pinned = {}
     for role in route_selector.PIPELINE_ROLES:
         named = getattr(args, f"{role}_model", None) or history_models.get(role)
+        if role == "requirements":
+            named = named or getattr(args, "glm_model", None)
         explicit_tool = getattr(args, f"{role}_provider", None) or history_providers.get(role)
         if named:
             pinned[role] = named

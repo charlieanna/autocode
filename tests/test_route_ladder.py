@@ -129,6 +129,7 @@ class NextRouteTests(unittest.TestCase):
     def test_every_reason_a_role_stays_is_named(self):
         climbed = {"struggle_id": "iteration:3", "escalations": [{"role": "sol", "struggle_id": "iteration:3"}]}
         cases = {
+            "not_permitted": ({**self.settings(), "route_selection": {"candidates": {}}}, "sol", None),
             "fixed_profile": ({**self.settings(), "conversation_profile": "continuous-v1"}, "sol", None),
             "climbed": (self.settings(), "sol", climbed),
             "no_route": (self.settings(), "completion", None),

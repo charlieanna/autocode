@@ -17,14 +17,14 @@ reported and the run continues: the probe proves access, not model obedience.
 
 Writes ``run_dir/model-preflight.json`` and one evidence directory per probe. The
 marker keeps one receipt set per tool identity (provider name plus saved transport
-digest), so a later invocation re-probes only models that have not yet passed on
-that same tool. Imports nothing from the controller; the runner is passed in.
+digest), with reasoning effort included for automatic routes, so a later invocation
+re-probes only model/level pairs that have not yet passed on that same tool. Imports nothing from the controller; the runner is passed in.
 
 The automatic selector's access check (#1426 step 8) is the same machinery with a
 different source of routes: pass ``check(..., selection=...)`` the selector's result
-and exactly the routes it marks unknown are probed, each at its role's own reasoning
-level, through the tool that will run it — including built-in OpenCode routes, which
-saved-run probes never touch.
+and the actual saved routes are probed at each role's own reasoning level, through
+the tool that will run it — including built-in OpenCode routes. Initial selection
+metadata is used only by standalone callers without saved routes.
 """
 
 from __future__ import annotations
@@ -238,7 +238,7 @@ def _allowance(runner, state: RunState, run_dir, workspace, timeout):
     return min(timeout, remaining) if timeout is not None and remaining is not None else remaining or timeout
 
 
-def _selection_groups(runner, selection, workspace) -> list[tuple]:
+def _selection_groups(runner, selection, workspace, settings=None) -> list[tuple]:
     """(facade, routes, identity) per tool an automatic selection routes through.
 
     Unlike saved routes, a selection's groups are not filtered by ``billing_aware``:
@@ -247,6 +247,16 @@ def _selection_groups(runner, selection, workspace) -> list[tuple]:
     the tool itself — the provider's own configuration digest — so a receipt earned
     on one tool is never reused for another, and a config change re-probes.
     """
+    if (settings or {}).get("roles"):
+        # Resolve the actual saved routes: explicit bindings, derived roles and
+        # recovery can differ from the initial selection. The transport layer
+        # verifies immutable bindings before a receipt can be reused.
+        return [
+            (facade, routes, _receipt_identity(facade, transport))
+            for facade, routes, transport in role_transport.groups(
+                settings, getattr(runner, "opencode", None), workspace
+            )
+        ]
     try:
         from providers import command as command_provider
     except ImportError:
@@ -318,14 +328,35 @@ def check(
         # approved requirements release planning; do not make the user wait.
         return False
     groups = (
-        _selection_groups(runner, selection, workspace)
+        _selection_groups(runner, selection, workspace, state.get("settings"))
         if selection is not None
         else _billing_groups(runner, state.get("settings") or {}, workspace)
     )
+    if selection is not None:
+        # A successful low-level probe cannot certify another role's higher level.
+        # Bind the durable receipt (and charged attempt) to the exact effort too.
+        split: list[tuple] = []
+        for facade, routes, identity in groups:
+            by_effort: dict[str | None, dict] = {}
+            for role, route in routes.items():
+                by_effort.setdefault(route.get("reasoning_effort"), {})[role] = route
+            for effort, same_level in by_effort.items():
+                bound = {**identity, "reasoning_effort": effort} if identity is not None else None
+                existing = next((group for group in split if bound is not None and group[2] == bound), None)
+                if existing is None:
+                    split.append((facade, dict(same_level), bound))
+                else:
+                    existing[1].update(same_level)
+        groups = split
     if not groups:
         return False
-    # A selection says which of its routes are still unknown; nothing else is probed.
-    unknown = set(selection.get("probe") or ()) if selection is not None else None
+    # Standalone callers supply unknown routes; saved runs use their actual current
+    # routes, since explicit bindings or recovery may have changed the initial selection.
+    unknown = (
+        set(selection.get("probe") or ())
+        if selection is not None and not (state.get("settings") or {}).get("roles")
+        else None
+    )
     checkpoint = checkpoint or (lambda: None)
     before_probe = before_probe or (lambda: None)
     run_dir = Path(run_dir)

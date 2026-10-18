@@ -27,6 +27,11 @@ import re
 import subprocess
 
 try:
+    from . import autocode_route_levels as route_levels
+except ImportError:
+    import autocode_route_levels as route_levels
+
+try:
     from providers import env_prep, opencode
 except ImportError:
     from .providers import env_prep, opencode
@@ -83,7 +88,7 @@ def _from_command_provider(provider, workspace, env):
     models = _models(provider, workspace, env)
     return {
         "tool": table["name"],
-        "candidates": _candidates(models, table["name"], connected),
+        "candidates": _candidates(models, table["name"], connected, _levels(provider, workspace, env)),
         "accounts": [
             {
                 "name": route["name"],
@@ -128,12 +133,12 @@ def _from_opencode(workspace, env):
             account["prefixes"].append(route["models"])
     return {
         "tool": "opencode",
-        "candidates": _candidates(models, "opencode", routes),
+        "candidates": _candidates(models, "opencode", routes, _levels(opencode, workspace, env)),
         "accounts": [accounts[name] for name in sorted(accounts)],
     }
 
 
-def _candidates(models, tool, routes):
+def _candidates(models, tool, routes, levels=None):
     """One candidate per model a connected route serves, in a stable order."""
     found = []
     for model in sorted(models or []):
@@ -145,7 +150,7 @@ def _candidates(models, tool, routes):
                         "tool": tool,
                         "account": route["name"],
                         "billing": route.get("billing"),
-                        "levels": None,
+                        "levels": (levels or {}).get(model),
                         "probe": None,
                     }
                 )
@@ -153,10 +158,28 @@ def _candidates(models, tool, routes):
     return found
 
 
+def _levels(provider, workspace, env):
+    # Only tools with this documented local-listing format. A custom provider's
+    # arbitrary models command must never be rewritten or treated as a model call.
+    name = getattr(provider, "NAME", "opencode" if provider is opencode else None)
+    config = getattr(provider, "_config", {})
+    command = config.get("models_command") if name == "kilocode" else None
+    if provider is opencode:
+        command = ["opencode", "models"]
+    if command not in (["opencode", "models"], ["kilo", "models"]):
+        return {}
+    try:
+        return route_levels.parse(_run([*command, "--verbose"], name, workspace, env, 30))
+    except RuntimeError:
+        # Older tools may lack verbose metadata. Qualification evidence remains
+        # the fallback; an unreadable optional listing never invents new levels.
+        return {}
+
+
 def _models(provider, workspace, env):
     listed = provider.available_models(workspace, env=env)
     if listed is None:
-        listed = set(provider.DEFAULT_MODELS.values())
+        raise RuntimeError("Cannot read the tool's model listing; automatic selection cannot guess availability")
     return listed
 
 

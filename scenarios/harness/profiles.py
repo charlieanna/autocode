@@ -98,7 +98,7 @@ PROFILES = {
             "completion",
         ],
     },
-    # Runner defaults: no model flags, so AutoCode's DEFAULT_ROLE_MODELS apply.
+    # Runner defaults: no pinned model flags; new runs select from connected accounts.
     "default": {"provider": "opencode", "passthrough": True},
     "glm53": {
         "provider": "kilocode",
