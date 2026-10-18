@@ -34,8 +34,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_route_permission as permission
     from . import autocode_verifier_independence as independence
 except ImportError:
+    import autocode_route_permission as permission
     import autocode_verifier_independence as independence
 
 # Effort rungs per route role (the settings["roles"] key a stage runs on and
@@ -171,6 +173,7 @@ STAYS = {
     "pinned": "a person pinned the role's model",
     "other_provider": "the role runs on a custom provider, which AutoCode never changes",
     "off_ladder": "the role's model and effort are on no rung of its ladder",
+    "not_permitted": "the next rung is outside the saved accounts or supported reasoning levels",
     "ladder_end": "the role is on its ladder's last rung",
 }
 
@@ -214,6 +217,8 @@ def next_route(settings, role, evidence=None):
     if rung is None:
         return {"stay": "ladder_end"}
     model, effort, label = rung
+    if not permission.allows(settings, role, model, effort):
+        return {"stay": "not_permitted"}
     return {
         "model": format_model(model, route.get("engine", settings.get("engine", "codex"))),
         "reasoning_effort": effort,

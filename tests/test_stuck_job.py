@@ -603,6 +603,36 @@ class GuidanceTests(unittest.TestCase):
 
 
 class RouteTests(unittest.TestCase):
+    def test_automatic_investigator_reuses_permitted_reviewer_not_gateway_default(self):
+        state = state_for()
+        state["settings"]["provider"] = "kilocode"
+        state["settings"]["roles"]["plan_reviewer"].update(model="openai/gpt-6-sol", reasoning_effort=None)
+        state["settings"]["route_selection"] = {
+            "candidates": {"plan_reviewer": [{"model": "openai/gpt-6-sol", "levels": []}]}
+        }
+        state["stuck_investigation"] = {"stage": "sol"}
+        with (
+            patch.object(stuck, "prompt", return_value=("diagnose", {})),
+            patch.object(autoresolver.autoplanner, "workspace_inventory", return_value={}),
+        ):
+            autoresolver.prepare_stuck(state, Path(state["workspace"]) / "state.json")
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"][stuck.ROUTE]["model"])
+        self.assertIsNone(state["settings"]["roles"][stuck.ROUTE]["reasoning_effort"])
+
+    def test_automatic_investigator_refuses_when_only_the_stuck_family_is_permitted(self):
+        state = state_for()
+        state["settings"]["route_selection"] = {
+            "candidates": {"sol": [{"model": "zai-coding-plan/glm-5.3", "levels": None}]}
+        }
+        state["stuck_investigation"] = {"stage": "sol"}
+        with (
+            self.assertRaisesRegex(util.Paused, "No independent permitted Investigator"),
+            patch.object(stuck, "prompt") as prompt,
+        ):
+            autoresolver.prepare_stuck(state, Path(state["workspace"]) / "state.json")
+        prompt.assert_not_called()
+        self.assertNotIn(stuck.ROUTE, state["settings"]["roles"])
+
     def test_default_models_never_astra_and_never_the_stuck_stages_model(self):
         roles = state_for()["settings"]["roles"]
         pick = lambda roles, stuck_model, provider=None: tuple(

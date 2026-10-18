@@ -12,6 +12,7 @@ try:
     from . import autocode_climb_cap as climb_cap
     from . import autocode_evidence_ledger as evidence_ledger
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_route_permission as permission
     from . import autocode_run_status as run_status
     from . import autocode_util as s
     from . import autocode_verifier_independence as independence
@@ -20,6 +21,7 @@ except ImportError:
     import autocode_climb_cap as climb_cap
     import autocode_evidence_ledger as evidence_ledger
     import autocode_route_ladder as route_ladder
+    import autocode_route_permission as permission
     import autocode_run_status as run_status
     import autocode_util as s
     import autocode_verifier_independence as independence
@@ -380,6 +382,15 @@ def _escalate(state: RunState, current, config, route):
     problem = tool and _tool_swap_problem(state, config, model)
     if problem:
         return "pause", {}, CHECKER_STUCK.format(model=model, why=problem)
+    if not permission.allows(state["settings"], "terra", model, config["strong_reasoning_effort"]):
+        return "pause", {}, "The stronger Builder route is outside this run's saved accounts or supported levels"
+    replacement = config.get("checker_model") or DEFAULTS["checker_model"]
+    for checker in colliding_checkers(state, model):
+        checker_route = state["settings"]["roles"][checker]
+        effort = checker_route.get("reasoning_effort")
+        effort = effort if effort in CHECKER_EFFORTS else "high"
+        if not permission.allows(state["settings"], checker, replacement, effort):
+            return "pause", {}, "The stronger Builder attempt needs a checker outside this run's saved routes"
     route.update(model=model, reasoning_effort=config["strong_reasoning_effort"])
     return "escalate", swap_checkers(state, current, config, model), None
 

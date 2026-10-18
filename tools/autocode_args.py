@@ -264,10 +264,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--auto-select",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=None,
         help="New run: choose each role's model from the tool's connected accounts (#1426): "
         "cheapest qualified route per role, checkers independent, per-role model flags still winning. "
-        "A selection that cannot field a checker refuses to start, in account terms. See "
+        "Automatic by default, with fixed-route fallback when selection is unavailable; explicitly enabling it refuses instead. See "
         "`autocode models --selection` first",
     )
     parser.add_argument(

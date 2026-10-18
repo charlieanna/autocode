@@ -552,9 +552,25 @@ class SelectionPreflightTests(unittest.TestCase):
         # A second check of the same selection reuses the receipts: no new calls.
         self.assertFalse(self.check(events, self.selection()))
         self.assertEqual(3, len(self.calls))
-        (saved,) = receipt_sets(self.run_dir)
-        self.assertEqual("opencode", saved["identity"]["provider"])
-        self.assertEqual({"ok"}, {row["status"] for row in saved["probed"].values()})
+        for saved in receipt_sets(self.run_dir):
+            self.assertEqual("opencode", saved["identity"]["provider"])
+            self.assertEqual({"ok"}, {row["status"] for row in saved["probed"].values()})
+
+    def test_same_model_at_different_levels_requires_both_receipts(self):
+        selection = self.selection(probe=["openai/gpt-6-sol"])
+        selection["routes"]["completion"] = {
+            "model": "openai/gpt-6-sol",
+            "tool": "opencode",
+            "reasoning_effort": "high",
+        }
+        events = {"openai/gpt-6-sol": OK_EVENTS}
+        self.assertTrue(self.check(events, selection))
+        self.assertEqual({("openai/gpt-6-sol", None), ("openai/gpt-6-sol", "high")}, set(self.calls))
+        self.assertFalse(self.check(events, selection))
+        selection["routes"]["completion"]["reasoning_effort"] = "max"
+        self.assertTrue(self.check(events, selection))
+        self.assertEqual(("openai/gpt-6-sol", "max"), self.calls[-1])
+        self.assertEqual(3, len(self.calls))
 
     def test_routes_the_selection_knows_are_not_probed(self):
         selection = self.selection(probe=["openai/gpt-6-sol"])

@@ -29,6 +29,12 @@ class InvocationInventory:
             return set(self._models)
         return models
 
+    def selection_models(self, workspace):
+        """Share discovery's successful roster with selection before validation consumes it."""
+        if Path(workspace).resolve() == self.workspace and self._models is not None:
+            return set(self._models)
+        return self.available_models(workspace)
+
     def check_models(self, roles):
         models, self._models = self._models, None
         if models is None:

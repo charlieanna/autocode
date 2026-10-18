@@ -769,7 +769,7 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertEqual("COMPLETE", state["phase"])
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
-        result = self.launch(["Greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")
+        result = self.launch(["Greeting tool", "--chat", "--no-auto-select"], 0, answers="CLI\nyes\nyes\n")
         self.assertIn("TEST-ONLY simulated OpenCode transport; no kernel containment", result.stderr)
         _, state = self.saved()
         self.assertEqual("opencode", state["settings"]["engine"])

@@ -165,7 +165,7 @@ class Attempt:
                 "engine": "opencode",
                 "provider": getattr(adapter, "NAME", "opencode"),
                 "model": model,
-                "effort": "low",
+                "effort": (preflight_identity or {}).get("reasoning_effort", "low"),
             },
             "started_at": util.now(),
             "preflight_complete": False,

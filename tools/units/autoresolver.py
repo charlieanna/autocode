@@ -40,6 +40,7 @@ try:
     from .. import autocode_resolver_recommendation as recommendation
     from .. import autocode_resolver_recovery as resolver_recovery
     from .. import autocode_role_transport as role_transport
+    from .. import autocode_route_permission as route_permission
     from .. import autocode_source_scope as source_scope
     from .. import autocode_stuck_job as stuck_job
     from .. import autocode_test_environment as test_environment
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_resolver_recommendation as recommendation
     import autocode_resolver_recovery as resolver_recovery
     import autocode_role_transport as role_transport
+    import autocode_route_permission as route_permission
     import autocode_source_scope as source_scope
     import autocode_stuck_job as stuck_job
     import autocode_test_environment as test_environment
@@ -320,10 +322,18 @@ def prepare_stuck(state: RunState, state_path):
         builder_failure.guard(state, state["stuck_investigation"], state["workspace"])
     roles = state["settings"]["roles"]
     stuck_route = autoplanner.route_for(state, state["stuck_investigation"]["stage"])
-    roles[stuck_job.ROUTE] = stuck_job.pinned_route(state["settings"]) or stuck_job.route(
-        roles, (roles.get(stuck_route) or {}).get("model", ""), state["settings"].get("provider")
-    )
     source = "plan_reviewer" if "plan_reviewer" in roles else "astra"
+    selected = stuck_job.pinned_route(state["settings"])
+    stuck_model = (roles.get(stuck_route) or {}).get("model", "")
+    if selected is None and state["settings"].get("route_selection"):
+        permitted = route_permission.investigator(state["settings"], stuck_model)
+        if permitted is None:
+            raise util.Paused(
+                "PAUSED_INVALID_OUTPUT",
+                "No independent permitted Investigator route remains; choose an Investigator model explicitly",
+            )
+        source, selected = permitted
+    roles[stuck_job.ROUTE] = selected or stuck_job.route(roles, stuck_model, state["settings"].get("provider"))
     role_transport.inherit(state.get("settings"), stuck_job.ROUTE, source)
     state.setdefault("sessions", {}).pop(stuck_job.ROUTE, None)
     identities = state["settings"].setdefault("transport_identities", {})

@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from autocode_cli import autocode_doctor as doctor
+from autocode_cli import autocode_route_selector as selector
 from autocode_cli import provider_matrix
 
 
@@ -24,6 +25,10 @@ class InstalledProviderMatrixTests(unittest.TestCase):
         checkout = Path(__file__).resolve().parents[1]
         if Path.cwd().resolve().is_relative_to(checkout):
             raise AssertionError("Run the wheel smoke outside the source checkout")
+
+    def test_automatic_selection_has_its_shipped_qualification_table(self):
+        self.assertTrue(selector.qualified("terra"))
+        self.assertTrue(selector.qualified("sol"))
 
     def test_shipped_known_row_is_available_to_doctor(self):
         row = provider_matrix.status_for("opencode", "1.18.33")

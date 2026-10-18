@@ -3,9 +3,8 @@
 One pure function from what the accounts offer to one route per role, or a stop that
 names what is missing in account terms. Nothing here lists models, connects an account,
 reads a credential or calls a provider: discovery (steps 4-5) produces the candidates,
-the access check (step 8) probes what this choice marks unknown, and the wiring that
-makes selection the default (step 11) is a later step. Until then the selector runs only
-in its tests.
+the access check probes unknown routes, and new-run configuration persists the choice.
+Saved runs reuse their routes without discovery.
 
 A model is eligible for a role only when the bundled qualification table
 (autocode_route_qualification.json) lists it for that role: the minimum standard, so
@@ -167,7 +166,7 @@ def _effort(entry, candidate):
     if not wanted:
         return None
     levels = candidate.get("levels")
-    if isinstance(levels, (list, tuple)) and levels and wanted not in levels:
+    if isinstance(levels, (list, tuple)) and wanted not in levels:
         return None
     return wanted
 

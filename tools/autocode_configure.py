@@ -164,9 +164,8 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     rather than refusing, because a defaulted attempt must never block a launch; the
     usual catalogue and launch checks still guard those routes.
     """
-    # Opt-in until #1426 step 12's qualification flips the default: an absent flag keeps
-    # the fixed routes (so the suite never reads a machine's real logins); an explicit
-    # ``auto_select=None`` is the soft default that flip will ship.
+    # The CLI parser supplies None for default selection. Older programmatic callers
+    # without this field retain their existing fixed-route behavior.
     requested = getattr(args, "auto_select", False)
     if requested is False or single_model or engine != "opencode":
         if requested is True and single_model:
@@ -191,7 +190,7 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
         return None
 
     try:
-        found = discovery.discover(provider_mod, Path(workspace))
+        found = discovery.discover(provider_mod, Path(workspace), inventory=getattr(args, "_model_inventory", None))
     except Exception as error:  # noqa: BLE001 - any failure of a defaulted listing is a fallback
         return soft(f"the tool's listings could not be read ({error}).")
     # The run's full role set, not the four DEFAULT_ROLE_MODELS the roles dict
@@ -199,12 +198,18 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     pinned = {}
     for role in route_selector.PIPELINE_ROLES:
         named = getattr(args, f"{role}_model", None) or history_models.get(role)
+        if role == "requirements":
+            named = named or getattr(args, "glm_model", None)
         explicit_tool = getattr(args, f"{role}_provider", None) or history_providers.get(role)
         if named:
             pinned[role] = named
         elif explicit_tool:
             # A role pointed at another tool keeps whatever route it already has.
             pinned[role] = (roles.get(role) or {}).get("model") or provider_mod.DEFAULT_MODELS.get(role)
+    if requested is None and set(pinned) == set(route_selector.PIPELINE_ROLES):
+        # A fully pinned profile makes no automatic choice. Keep its existing
+        # preflight and recovery policy instead of saving an empty permitted set.
+        return None
     result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"], pinned=pinned)
     if result["stop"]:
         return soft(result["stop"])

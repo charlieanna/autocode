@@ -164,20 +164,29 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 
 ## Choosing models automatically
 
-Automatic selection (#1426) chooses each role's model from the accounts you have
-connected, so you never route roles by hand. Start a new run with `--auto-select` and every role whose model no flag named is
-chosen from the tool's connected accounts; the choice, its reasoning levels and the
-routes the access check still owes are saved with the run. Saved runs never
-re-select, and `--single-model` and per-role flags keep winning. A selection that
-cannot field an independent checker refuses to start, in account terms. Selection is
-not yet the default for new runs: the soft-fallback behavior a defaulted launch will
-use (fixed default routes, with the reason printed, when the tool's listings cannot
-be read or its accounts cannot field a checker) is implemented and tested, and the
-flip itself waits on the issue's final qualification step. On a quota,
-content-filter or output stop, such a run moves the stopped role on its own to the
-next qualified model on an account it was already permitted to bill, and asks only
-when no such model remains. Until they do,
-new runs use the [default models](#default-models) above unless you name your own.
+New CLI and `TaskRun.start` runs choose models automatically from the selected tool's
+connected accounts. No model flags or pinned profile are needed. One tool serves the
+run by default; explicit per-role tool bindings and model/effort flags still win.
+A fully pinned profile keeps its existing preflight and recovery policy because there
+is no automatic choice to make. `--single-model` keeps its explicit same-model policy. Saved runs retain their routes
+and permitted alternatives without discovering new accounts.
+
+Use `--no-auto-select` to retain fixed defaults. If discovery is unavailable or cannot
+field independent checkers, the default launch prints the reason and tries the fixed
+routes under the normal catalogue, billing and independence guards. Explicit
+`--auto-select` instead refuses before spending. Preview the choices and exclusions
+with `autocode models --selection --provider NAME`; this reads local listings only.
+
+OpenCode and Kilo reasoning variants come from their local verbose model listings.
+An unsupported qualified level is omitted so the model uses its default. When older
+tools cannot report variants, the recorded qualification level is used. Preflight
+proves each distinct model/effort on its actual tool within the run's time/cost cap;
+receipts survive resume. Recovery checks independence against the current saved routes, including explicit
+assignments and catalogue substitutions. It stays within the saved connected accounts, and
+exhaustion asks for intervention. A stuck-run Investigator reuses an independent saved
+reviewer route and its supported level; it cannot silently use a fixed paid-gateway
+default. Explicit `--investigator-model` remains an override. A newly connected account
+is never silently added.
 
 The rules the choice keeps:
 
