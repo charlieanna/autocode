@@ -57,6 +57,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const refresh = async (): Promise<void> => {
     await runs.refresh();
     await updateStatus();
+    await chat.refresh();
   };
 
   const chat = new ChatView(controller, context.workspaceState, {
@@ -82,7 +83,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("autocode.openDetails", (run?: RunTarget) => {
       const target = targetOf(run);
-      if (target) RunPanel.show(vscode.ViewColumn.One, target, controller);
+      if (target) RunPanel.show(vscode.ViewColumn.One, target, controller, refresh);
     }),
 
     vscode.commands.registerCommand("autocode.refresh", () => refresh()),
