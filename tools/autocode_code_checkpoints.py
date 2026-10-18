@@ -512,9 +512,7 @@ def project(state: RunState, *, run_dir=None, workspace=None):
         }
         # Only a row with verified source objects is actionable; a restore is
         # named only where the pause reconciles (blocked_reason is None).
-        projected["actions"] = row_actions(
-            row, restorable=reason is None, run_dir=run_dir, workspace=workspace
-        )
+        projected["actions"] = row_actions(row, restorable=reason is None, run_dir=run_dir, workspace=workspace)
         rows.append(projected)
     return {
         "version": 1,

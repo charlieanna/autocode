@@ -370,10 +370,24 @@ class ProjectedRowActions(CodeCheckpoints):
         self.assertIsNone(projected["blocked_reason"])
         self.assertEqual(
             [
-                {"id": "compare", "label": "Show what changed since here",
-                 "next_command": [*prefix, "--compare", self.ident]},
-                {"id": "restore", "label": "Go back to here",
-                 "next_command": [*prefix, "--restore", self.ident, "--expected-token", "-", "--request-id", "REQUEST_ID"]},
+                {
+                    "id": "compare",
+                    "label": "Show what changed since here",
+                    "next_command": [*prefix, "--compare", self.ident],
+                },
+                {
+                    "id": "restore",
+                    "label": "Go back to here",
+                    "next_command": [
+                        *prefix,
+                        "--restore",
+                        self.ident,
+                        "--expected-token",
+                        "-",
+                        "--request-id",
+                        "REQUEST_ID",
+                    ],
+                },
             ],
             row["actions"],
         )
@@ -403,7 +417,9 @@ class ProjectedRowActions(CodeCheckpoints):
         comparison = self.client.compare_checkpoint(self.ident)
         restore = [
             action
-            for action in checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["rows"][0]["actions"]
+            for action in checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["rows"][0][
+                "actions"
+            ]
             if action["id"] == "restore"
         ][0]["next_command"]
         # A client prepends the autocode executable to the named argv and passes
