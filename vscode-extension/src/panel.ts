@@ -432,7 +432,7 @@ ${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButto
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <section id="telemetry" aria-label="Models and usage">
-<details id="usage-details" open><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
+<details id="usage-details"><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
 <span id="model-summary">Model not reported</span><span id="usage-summary">Tokens not reported · Cost not reported</span></summary>
 <div id="telemetry-body"><div id="model-info"></div><div id="usage-breakdown"></div></div></details>
 </section>
@@ -475,7 +475,12 @@ function stateRow(item) {
 }
 
 function render(state) {
-  const serialized = JSON.stringify(state);
+  const chatSlice = chatMode ? [
+    state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
+    state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
+    state.chat && [state.chat.phase, state.chat.notice, state.chat.review, state.chat.input && state.chat.input.kind],
+  ] : state;
+  const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
   renderedState = serialized;
   const sameRequest = current && current.decisionContext === state.decisionContext;
@@ -487,64 +492,184 @@ function render(state) {
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
-  if (chatMode && state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
-    app.appendChild(el('div', 'notice', 'Reply above with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
-    return;
-  }
-  if (chatMode && state.chat && state.chat.phase === 'requirements' && !state.gap
-      && (!state.pause || state.needKind === 'answer')) {
-    // The conversation carries the questions. Operational details remain in
-    // Run details, and approval is the exact answer offered by the core.
-    if (state.chat.review) {
-      const review = state.chat.review;
-      if (review.summary) app.appendChild(el('pre', 'understanding', review.summary));
-      const approve = el('button', null, review.label);
-      approve.disabled = state.taking;
-      approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
-        answers: { [review.question_id]: review.answer }, token: null,
-        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-      app.appendChild(approve);
-    } else if (state.needKind === 'continue' && state.working) {
-      app.appendChild(el('div', 'line', 'Thinking…'));
-    } else if (state.needKind === 'continue') {
-      // The step stopped between model calls; nothing will advance it unless asked.
-      const resume = el('button', null, 'Continue');
-      resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
-        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-      app.appendChild(resume);
+
+  if (chatMode) {
+    const card = el('div', 'decision-card');
+    const cardContent = el('div', 'message-content');
+    card.appendChild(el('div', 'speaker', 'AutoCode'));
+    card.appendChild(cardContent);
+    const strip = el('div', 'actions action-strip');
+    strip.id = 'action-strip';
+
+    if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
+      cardContent.appendChild(el('div', 'notice', 'Reply above with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
+      app.appendChild(card);
+      return;
+    }
+
+    if (state.chat && state.chat.phase === 'requirements' && !state.gap
+        && (!state.pause || state.needKind === 'answer')) {
+      if (state.chat.review) {
+        const review = state.chat.review;
+        if (review.summary) cardContent.appendChild(el('pre', 'understanding', review.summary));
+        const approve = el('button', null, review.label);
+        approve.id = 'take-action';
+        approve.disabled = state.taking;
+        approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
+          answers: { [review.question_id]: review.answer }, token: null,
+          runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+        strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+        strip.appendChild(approve);
+      } else if (state.needKind === 'continue' && state.working) {
+        cardContent.appendChild(el('div', 'line', 'Thinking…'));
+      } else if (state.needKind === 'continue') {
+        const resume = el('button', null, 'Continue');
+        resume.id = 'take-action';
+        resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
+          runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+        strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+        strip.appendChild(resume);
+      }
+      if (cardContent.childNodes.length > 0) app.appendChild(card);
+      if (strip.childNodes.length > 0) app.appendChild(strip);
+      return;
+    }
+
+    if (state.chat && state.chat.notice) {
+      cardContent.appendChild(el('div', 'notice', state.chat.notice));
+    } else if (state.pause) {
+      cardContent.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
+    }
+
+    if (state.criteria.length) {
+      cardContent.appendChild(el('h2', null, 'Criteria to accept'));
+      state.criteria.forEach((row) => cardContent.appendChild(el('div', 'row', row.criterion)));
+    }
+
+    if (state.plan && state.plan.delivery) {
+      cardContent.appendChild(el('div', 'row', state.plan.delivery));
+    }
+
+    if (state.plan) {
+      cardContent.appendChild(el('h2', null, 'Plan to approve'));
+      state.plan.criteria.forEach((criterion) => {
+        const item = el('div', 'row');
+        item.appendChild(el('span', null, criterion.criterion));
+        if (criterion.human_review) item.appendChild(el('span', 'why', 'You check this one yourself'));
+        cardContent.appendChild(item);
+      });
+      if (state.plan.constraints.length) {
+        cardContent.appendChild(el('h2', null, 'Constraints'));
+        state.plan.constraints.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
+      }
+      if (state.plan.boundaries.length) {
+        cardContent.appendChild(el('h2', null, 'What it may do'));
+        state.plan.boundaries.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
+      }
+    }
+
+    if (state.gap) {
+      cardContent.appendChild(el('h2', null, 'No action the client can take'));
+      const box = el('div', 'gap');
+      box.appendChild(el('div', null,
+        'AutoCode named no action this client is allowed to take. That is a gap in the CLI or the '
+        + 'status view (#1012), not something the extension should work around.'));
+      box.appendChild(el('pre', null, state.gap));
+      cardContent.appendChild(box);
+    } else if (!state.done) {
+      if (state.decisions.length > 0) {
+        const form = el('div');
+        state.decisions.forEach((decision) => {
+          const box = el('div', 'decision');
+          box.appendChild(el('div', 'q', decision.text));
+          if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
+          const name = decision.questionId;
+          let input;
+          if (decision.options.length > 0) {
+            input = document.createElement('select');
+            const blank = document.createElement('option');
+            blank.value = '';
+            blank.textContent = 'Choose…';
+            input.appendChild(blank);
+            decision.options.forEach((option) => {
+              const item = document.createElement('option');
+              item.value = option;
+              item.textContent = option;
+              input.appendChild(item);
+            });
+          } else {
+            input = document.createElement('input');
+            input.type = 'text';
+            if (decision.suggested) input.placeholder = decision.suggested;
+          }
+          input.dataset.question = name;
+          if (answers[name]) input.value = answers[name];
+          const save = () => { answers[name] = input.value; updateActionButton(); };
+          input.addEventListener('change', save);
+          input.addEventListener('input', save);
+          box.appendChild(input);
+          form.appendChild(box);
+        });
+        cardContent.appendChild(form);
+      }
+
+      var approving = state.needKind === 'approve_plan';
+      var label = state.taking ? 'Working…' : (approving ? 'Approve and build'
+        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.length ? 'Send answers and continue' : 'Continue')));
+      const take = el('button', null, label);
+      take.id = 'take-action';
+      take.addEventListener('click', () => {
+        vscode.postMessage({ type: 'take', answers: { ...answers }, token: state.token || null,
+          runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext });
+      });
+      strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+      strip.appendChild(take);
+      const again = el('button', 'secondary', 'Refresh');
+      again.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+      strip.appendChild(again);
+
+      if (!state.canApprove && state.needKind === 'approve_plan') {
+        cardContent.appendChild(el('div', 'notice', 'The plan has not loaded here yet, so there is nothing to approve. Refresh to load it.'));
+      }
+    }
+
+    if (cardContent.childNodes.length > 0) app.appendChild(card);
+    if (strip.childNodes.length > 0) app.appendChild(strip);
+    updateActionButton();
+    if (focusedQuestion) {
+      const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
+      if (input) {
+        input.focus();
+        if (selection && input.tagName === 'INPUT') input.setSelectionRange(...selection);
+      }
     }
     return;
   }
-  if (!chatMode) {
-    app.appendChild(el('h1', null, state.headline));
-    app.appendChild(el('div', 'line', state.line));
+
+  app.appendChild(el('h1', null, state.headline));
+  app.appendChild(el('div', 'line', state.line));
   const meta = [
-    !chatMode ? state.status : null,
+    state.status,
     state.workflow ? state.workflow + ' workflow' : null,
     state.turn ? 'turn ' + state.turn : null,
-    !chatMode && state.iteration ? 'iteration ' + state.iteration : null,
-    !chatMode && state.nextStage ? 'next: ' + state.nextStage : null,
+    state.iteration ? 'iteration ' + state.iteration : null,
+    state.nextStage ? 'next: ' + state.nextStage : null,
     state.pause ? 'pause: ' + state.pause : null,
-    !chatMode ? state.usage : null,
+    state.usage,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
-  } else if (state.chat && state.chat.notice) {
-    app.appendChild(el('div', 'notice', state.chat.notice));
-  } else if (state.pause) {
-    app.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
-  }
 
-  if (state.task && !chatMode) {
+  if (state.task) {
     app.appendChild(el('h2', null, 'Request'));
     app.appendChild(el('pre', null, state.task));
   }
 
-  if (state.tasks.length && !chatMode) {
+  if (state.tasks.length) {
     app.appendChild(el('h2', null, 'Tasks'));
     state.tasks.forEach(stateRow);
   }
 
-  if (state.requirements.length && !chatMode) {
+  if (state.requirements.length) {
     app.appendChild(el('h2', null, 'Requirements'));
     if (state.requirementCounts) {
       const c = state.requirementCounts;
@@ -558,36 +683,26 @@ function render(state) {
     state.requirements.forEach(stateRow);
   }
 
-  if (state.problems.length && !chatMode) {
+  if (state.problems.length) {
     app.appendChild(el('h2', null, 'Open problems'));
     state.problems.forEach((item) => {
       const row = el('div', 'row');
       row.appendChild(el('span', 'state ' + (item.blocking ? 'blocking' : ''), item.severity || 'finding'));
-      row.appendChild(el('span', null, chatMode ? item.finding : item.id + ': ' + item.finding));
+      row.appendChild(el('span', null, item.id + ': ' + item.finding));
       app.appendChild(row);
     });
   }
 
   if (state.criteria.length) {
     app.appendChild(el('h2', null, 'Criteria to accept'));
-    state.criteria.forEach((row) => app.appendChild(el('div', 'row', chatMode ? row.criterion : row.id + ': ' + row.criterion)));
+    state.criteria.forEach((row) => app.appendChild(el('div', 'row', row.id + ': ' + row.criterion)));
   }
 
   if (state.plan && state.plan.delivery) {
     app.appendChild(el('div', 'row', state.plan.delivery));
   }
 
-  // Chat shows what will be built. Run details keeps the revision, criterion IDs
-  // and verification commands; approval still uses the token of the shown plan.
-  if (state.plan && chatMode) {
-    app.appendChild(el('h2', null, 'Plan to approve'));
-    state.plan.criteria.forEach((criterion) => {
-      const item = el('div', 'row');
-      item.appendChild(el('span', null, criterion.criterion));
-      if (criterion.human_review) item.appendChild(el('span', 'why', 'You check this one yourself'));
-      app.appendChild(item);
-    });
-  } else if (state.plan) {
+  if (state.plan) {
     app.appendChild(el('h2', null, 'Plan to approve · revision ' + (state.plan.revision === null ? '?' : state.plan.revision)));
     app.appendChild(el('div', 'why',
       state.plan.criteria.length + ' acceptance criteria  ·  '
@@ -601,8 +716,6 @@ function render(state) {
       item.appendChild(el('div', 'why', 'Human review: ' + (criterion.human_review ? 'required' : 'not required')));
       app.appendChild(item);
     });
-  }
-  if (state.plan) {
     if (state.plan.constraints.length) {
       app.appendChild(el('h2', null, 'Constraints'));
       state.plan.constraints.forEach((text) => app.appendChild(el('div', 'row', text)));
@@ -613,7 +726,7 @@ function render(state) {
     }
   }
 
-  if (!state.done && !chatMode) {
+  if (!state.done) {
     app.appendChild(el('h2', null, 'Waiting for'));
     app.appendChild(el('div', 'line', state.needsYou || state.needSummary || state.needKind || '—'));
     if (state.needReason) app.appendChild(el('div', 'why', state.needReason));
@@ -664,8 +777,8 @@ function render(state) {
 
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
-    var label = state.taking ? 'Working…' : (approving ? (chatMode ? 'Approve and build' : 'Approve this plan')
-      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (chatMode ? (state.decisions.length ? 'Send answers and continue' : 'Continue') : 'Take the named action')));
+    var label = state.taking ? 'Working…' : (approving ? 'Approve this plan'
+      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : 'Take the named action'));
     const take = el('button', null, label);
     take.id = 'take-action';
     take.addEventListener('click', () => {
@@ -679,9 +792,7 @@ function render(state) {
     app.appendChild(actions);
     updateActionButton();
 
-    if (!state.canApprove && state.needKind === 'approve_plan' && chatMode) {
-      app.appendChild(el('div', 'notice', 'The plan has not loaded here yet, so there is nothing to approve. Refresh to load it.'));
-    } else if (!state.canApprove && state.needKind === 'approve_plan') {
+    if (!state.canApprove && state.needKind === 'approve_plan') {
       const notice = el('div', 'notice');
       notice.appendChild(el('div', null,
         'AutoCode has not shown this client the plan its approval token binds to, so approving here would '
@@ -690,13 +801,13 @@ function render(state) {
       app.appendChild(notice);
     }
 
-    if (state.personOnly && !chatMode) {
+    if (state.personOnly) {
       app.appendChild(el('div', 'notice',
         'This pause is AutoCode asking a person. The extension will ask before acting on it.'));
     }
   }
 
-  if (state.commandText && !chatMode) {
+  if (state.commandText) {
     app.appendChild(el('h2', null, 'Command the view named'));
     app.appendChild(el('pre', null, state.commandText));
   }
@@ -782,7 +893,19 @@ function renderChat(data) {
     });
   }
   if (data.state) render(data.state);
-  else { app.textContent = data.busy ? 'Thinking…' : ''; }
+  else {
+    app.textContent = '';
+    renderedState = '';
+    if (data.busy) {
+      app.classList.remove('muted');
+      const card = el('div', 'decision-card');
+      card.appendChild(el('div', 'speaker', 'AutoCode'));
+      card.appendChild(el('div', 'message-content', 'Thinking…'));
+      app.appendChild(card);
+    } else {
+      app.classList.add('muted');
+    }
+  }
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();
@@ -854,7 +977,7 @@ function appendFormatted(parent, nodes) {
 
 if (chatMode) {
   const disclosure = document.getElementById('usage-details');
-  disclosure.open = initialWebviewState.modelDetailsOpen !== false;
+  disclosure.open = initialWebviewState.modelDetailsOpen === true;
   disclosure.addEventListener('toggle', () => {
     vscode.setState({ ...(vscode.getState() || {}), modelDetailsOpen: disclosure.open });
   });
