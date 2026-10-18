@@ -167,7 +167,8 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 New CLI and `TaskRun.start` runs choose models automatically from the selected tool's
 connected accounts. No model flags or pinned profile are needed. One tool serves the
 run by default; explicit per-role tool bindings and model/effort flags still win.
-`--single-model` keeps its explicit same-model policy. Saved runs retain their routes
+A fully pinned profile keeps its existing preflight and recovery policy because there
+is no automatic choice to make. `--single-model` keeps its explicit same-model policy. Saved runs retain their routes
 and permitted alternatives without discovering new accounts.
 
 Use `--no-auto-select` to retain fixed defaults. If discovery is unavailable or cannot

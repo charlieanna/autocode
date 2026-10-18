@@ -206,6 +206,10 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
         elif explicit_tool:
             # A role pointed at another tool keeps whatever route it already has.
             pinned[role] = (roles.get(role) or {}).get("model") or provider_mod.DEFAULT_MODELS.get(role)
+    if requested is None and set(pinned) == set(route_selector.PIPELINE_ROLES):
+        # A fully pinned profile makes no automatic choice. Keep its existing
+        # preflight and recovery policy instead of saving an empty permitted set.
+        return None
     result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"], pinned=pinned)
     if result["stop"]:
         return soft(result["stop"])

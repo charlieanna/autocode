@@ -248,6 +248,22 @@ class AutoSelectConfigureTests(unittest.TestCase):
             ],
         }
 
+    def test_fully_pinned_default_keeps_explicit_profile_policy(self):
+        models = {
+            "astra": "openai/gpt-6-astra",
+            "glm": "zai-coding-plan/glm-5.3",
+            "requirements": "zai-coding-plan/glm-5.3",
+            "terra": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "sol": "zai-coding-plan/glm-5.3",
+            "completion": "zai-coding-plan/glm-5.3",
+            "plan_reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        }
+        with mock.patch.object(discovery, "discover", return_value={"candidates": []}):
+            settings = self.configure(self.args(auto_select=None, **{f"{r}_model": m for r, m in models.items()}))
+        self.assertFalse(settings.get("route_selection"))
+        for role, model in models.items():
+            self.assertEqual(model, settings["roles"][role]["model"])
+
     def test_the_selection_becomes_the_runs_routes_and_origins(self):
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=True))
