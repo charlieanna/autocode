@@ -22,8 +22,14 @@ export function activate(context: vscode.ExtensionContext): void {
   const runs = new RunsProvider(controller);
   const connections = new ConnectionsPanel(context.workspaceState);
   let active: RunRef | undefined;
+  let watched: RunRef | undefined;
+  let statusSequence = 0;
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
+
+  /** True when two run pointers identify the same workspace and run directory. */
+  const sameRun = (a?: RunRef, b?: RunRef): boolean =>
+    Boolean(a && b && a.workspace === b.workspace && a.runDir === b.runDir);
 
   /** The run the panel or the tree last named, or the one a command was invoked on. */
   const targetOf = (passed?: RunTarget): RunRef | undefined => {
@@ -34,23 +40,31 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const showRun = (run: RunRef): void => {
     active = run;
+    watched = run;
     chat.show(run);
     void refresh();
   };
 
   const updateStatus = async (): Promise<void> => {
-    if (!active) {
+    const sequence = ++statusSequence;
+    if (!watched) {
       status.hide();
       return;
     }
+    const currentWatched = watched;
     try {
-      const view = await controller.status(active);
+      const view = await controller.status(currentWatched);
+      if (sequence !== statusSequence || !watched || !sameRun(watched, currentWatched)) {
+        return;
+      }
       status.text = `$(autorenew) AutoCode: ${view.progress?.headline ?? view.status}`;
       status.tooltip = view.progress?.line ?? view.status;
-      status.command = { command: "autocode.openRun", title: "Open Run", arguments: [active] };
+      status.command = { command: "autocode.openRun", title: "Open Run", arguments: [currentWatched] };
       status.show();
     } catch {
-      status.hide();
+      if (sequence === statusSequence && sameRun(watched, currentWatched)) {
+        status.hide();
+      }
     }
   };
 
@@ -62,7 +76,11 @@ export function activate(context: vscode.ExtensionContext): void {
   const chat = new ChatView(controller, context.workspaceState, {
     pickWorkspace, confirmStart: confirmSpend,
     changed: () => { void refresh(); },
-    selected: (run) => { active = run; void updateStatus(); },
+    selected: (run) => {
+      active = run;
+      if (run) watched = run;
+      void updateStatus();
+    },
   });
 
   context.subscriptions.push(
@@ -82,7 +100,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("autocode.openDetails", (run?: RunTarget) => {
       const target = targetOf(run);
-      if (target) RunPanel.show(vscode.ViewColumn.One, target, controller);
+      if (!target) return void vscode.window.showInformationMessage("Select a run first.");
+      RunPanel.show(vscode.ViewColumn.One, target, controller);
     }),
 
     vscode.commands.registerCommand("autocode.refresh", () => refresh()),
@@ -101,7 +120,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("autocode.showCliCommand", async (run?: RunTarget) => {
       const target = targetOf(run);
-      if (!target) return;
+      if (!target) return void vscode.window.showInformationMessage("Select a run first.");
       try {
         const view = await controller.status(target);
         await vscode.env.clipboard.writeText(controller.commandText(view, target));
@@ -115,7 +134,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("autocode.continueRun", async (run?: RunTarget) => {
       const target = targetOf(run);
-      if (!target) return;
+      if (!target) return void vscode.window.showInformationMessage("Select a run first.");
       const proceed = await vscode.window.showWarningMessage(
         "Continue this run? AutoCode will launch its next stage on the configured provider, which spends your model allowance.",
         { modal: true },
@@ -133,7 +152,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("autocode.watchRun", (run?: RunTarget) => {
       const target = targetOf(run);
-      if (target) active = target;
+      if (!target) return void vscode.window.showInformationMessage("Select a run first.");
+      if (sameRun(watched, target)) {
+        watched = undefined;
+      } else {
+        watched = target;
+        active = target;
+      }
+      void updateStatus();
     }),
 
     vscode.commands.registerCommand("autocode.showLog", () => log.show()),
