@@ -19,10 +19,12 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_plan_chat as plan_chat
     from . import autocode_requirements_review as requirements_review
     from . import autocode_task_input as task_input
     from . import autocode_workflows as workflows
 except ImportError:
+    import autocode_plan_chat as plan_chat
     import autocode_requirements_review as requirements_review
     import autocode_task_input as task_input
     import autocode_workflows as workflows
@@ -31,7 +33,9 @@ STAGE = "requirements_gather"
 
 
 def enabled(state: RunState):
-    return bool((state.get("settings") or {}).get("spec_first") and not state.get("goal_contract"))
+    return bool(
+        (state.get("settings") or {}).get("spec_first") and (not state.get("goal_contract") or plan_chat.pending(state))
+    )
 
 
 def _first_conversation(state: RunState):
@@ -150,11 +154,19 @@ def partial_string(text):
 
 def streaming_reply(state: RunState, run_dir):
     active = state.get("active_stage") or {}
+    if not isinstance(active, dict):
+        return ""
     if active.get("stage") == STAGE + "_report_repair":
         # Keep the already displayed reply provisional while its structured
         # report is repaired. This grants no approval or report authority.
         active = (state.get("pending_report_repair") or {}).get("original") or {}
-    if not enabled(state) or active.get("stage") != STAGE or not run_dir or not active.get("events"):
+    if (
+        not isinstance(active, dict)
+        or not enabled(state)
+        or active.get("stage") != STAGE
+        or not run_dir
+        or not active.get("events")
+    ):
         return ""
     root = Path(run_dir).resolve()
     path = Path(active["events"]).resolve()

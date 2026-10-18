@@ -1,10 +1,13 @@
 """The chat surface is a projection of public task history and admitted actions."""
 
 import copy
+import json
 import shlex
 import unittest
+from pathlib import Path
 
 import autocode_chat_view as chat
+import autocode_util as util
 
 
 class ChatViewTests(unittest.TestCase):
@@ -60,6 +63,68 @@ class ChatViewTests(unittest.TestCase):
                 "needs": {"kind": "answer", "resolver_scope": "operational_exhaustion"},
             }
             self.assertIsNone(chat.project(state, public, workspace="/ws", run_dir="/run")["input"])
+
+    def test_pending_operational_request_offers_bound_reply_only(self):
+        state = {"status": "WAITING_FOR_USER", "user_request": {"kind": "blocker"}}
+        need = {
+            "kind": "answer",
+            "resolver_scope": "blocker",
+            "resolver_request_id": "req-1",
+            "resolver_token": "current-token",
+            "questions": [
+                {"id": "q1", "question": "What changed?", "why": "Check the cause", "options": ["Leave blocked"]}
+            ],
+        }
+        public = {"status": state["status"], "needs": need}
+        result = chat.project(state, public, workspace="/ws", run_dir="/run")
+        self.assertEqual("resolver_response", result["input"]["kind"])
+        schema = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
+        util.validate_schema(result, schema["properties"]["view"]["properties"]["chat"])
+        self.assertIn("What changed?", result["messages"][-1]["text"])
+        self.assertIn("Leave blocked", result["messages"][-1]["text"])
+        self.assertEqual(
+            [
+                "AUTOCODE_RESOLVER_TOKEN=current-token",
+                "autocode",
+                "--workspace",
+                "/ws",
+                "--run-dir",
+                "/run",
+                "--resolver-request",
+                "req-1",
+                "--resolver-token",
+                "-",
+                "--resolver-response",
+                "provide_information",
+                "--resolver-message",
+                "MESSAGE",
+            ],
+            shlex.split(result["input"]["next_command"]),
+        )
+        for missing in ("resolver_request_id", "resolver_token"):
+            invalid = {**public, "needs": {k: v for k, v in need.items() if k != missing}}
+            self.assertIsNone(chat.project(state, invalid, workspace="/ws", run_dir="/run")["input"])
+        for change in ({"route": {"role": "sol"}}, {"resolver_scope": "requirements"}):
+            invalid = {**public, "needs": {**need, **change}}
+            self.assertIsNone(chat.project(state, invalid, workspace="/ws", run_dir="/run")["input"])
+        human = {**state, "user_request": {"kind": "human_review"}}
+        self.assertIsNone(chat.project(human, public, workspace="/ws", run_dir="/run")["input"])
+
+    def test_saved_operational_reply_remains_visible_after_request_is_consumed(self):
+        state = {
+            "status": "PAUSED_COMPLETION_GATE",
+            "task": "Build it",
+            "resolver": {
+                "human_responses": [{"request_id": "r1", "text": "Leave this task blocked", "actor": "user_cli"}],
+                "human_escalations": {
+                    "r1": {
+                        "identity": {"proposal": {"request": {"questions": [{"question": "How should we proceed?"}]}}}
+                    }
+                },
+            },
+        }
+        rows = self.project(state, "resume")["messages"]
+        self.assertEqual(["Build it", "How should we proceed?", "Leave this task blocked"], [r["text"] for r in rows])
 
     def test_history_preserves_original_request_answers_feedback_and_followups(self):
         state = {

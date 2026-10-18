@@ -18,17 +18,24 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 import copy
+from pathlib import Path
 
 try:
     from . import autocode_goals as goals
+    from . import autocode_plan_chat as plan_chat
     from . import autocode_project_memory_lifecycle as project_memory
     from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
+    from . import autocode_technical_questions as technical_questions
+    from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
+    import autocode_plan_chat as plan_chat
     import autocode_project_memory_lifecycle as project_memory
     import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
+    import autocode_technical_questions as technical_questions
+    import autocode_util as util
 
 
 def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
@@ -65,5 +72,33 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
     project_memory.capture(state, value)
+    remaining = technical_questions.settle(state, questions, "requirements:" + goals.handoff_ref(state))
+    if len(remaining) != len(questions):
+        run_status.running(state, "DISCOVERING", next_stage="requirements_gather", discovery_summary=value["summary"])
+        return
     run_status.running(state, "PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"])
     requirements_review.wait(state, record, queue)
+
+
+def accept_chat(state: RunState, value: dict, record: dict, *, queue) -> bool:
+    """Answer a plan message or forward an actual correction through normal review."""
+    if not plan_chat.pending(state):
+        return False
+    event = plan_chat.accept(state, value, record)
+    if event["intent"] == "change":
+        goals.feedback(state, event["text"], interpret=False)
+        state["brief_feedback"][-1]["reply_after"] = event["reply_after"]
+        event["forwarded"] = True
+    else:
+        output = record.get("output")
+        evidence = {"hashes": {output: util.file_hash(Path(output))} if output and Path(output).is_file() else {}}
+        queue(
+            state,
+            "goal_approval",
+            {"stage": "requirements_gather", "output": output},
+            evidence=evidence,
+            status="AWAITING_GOAL_APPROVAL",
+            phase="AWAITING_GOAL_APPROVAL",
+            next_stage=event["return_stage"],
+        )
+    return True

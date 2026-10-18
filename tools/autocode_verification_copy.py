@@ -118,6 +118,71 @@ def _inventory(root, source_paths=()):
     return source.inventory(root, paths=source_paths)
 
 
+def _retain_history(root, tree, head, env, *, deadline):
+    """Retain actual HEAD history as owned data, without sharing Git authority.
+
+    Export only objects reachable from the snapshotted commit. No original
+    configuration, refs, hooks, alternates or replacement objects enter the
+    copy. The fixed native setup sequence still creates its own index/config;
+    this trusted preparation step replaces only its synthetic history before
+    the complete copy is sealed and any verification command can run.
+    """
+    environment = {
+        **env,
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_GRAFT_FILE": "/dev/null",
+        "GIT_OPTIONAL_LOCKS": "0",
+    }
+    git = ["/usr/bin/git", "--no-replace-objects", "-c", "core.fsmonitor=false"]
+    command = [*git, "rev-parse", "--git-path", "shallow"]
+    shallow_path = (
+        subprocess.run(
+            command,
+            cwd=root,
+            env=environment,
+            check=True,
+            capture_output=True,
+            timeout=_remaining(deadline, command),
+        )
+        .stdout.decode()
+        .strip()
+    )
+    shallow_path = root / shallow_path
+    shallow = shallow_path.read_bytes() if shallow_path.exists() else None
+    if shallow is not None and any(
+        not re.fullmatch(rb"[0-9a-f]{" + str(len(head)).encode() + rb"}", line) for line in shallow.splitlines()
+    ):
+        raise ValueError("Invalid source Git shallow boundary")
+    command = [
+        *git,
+        "pack-objects",
+        "--revs",
+        "--compression=0",
+        "--window=0",
+        "--threads=1",
+        str(tree / ".git/objects/pack/history"),
+    ]
+    subprocess.run(
+        command,
+        cwd=root,
+        env=environment,
+        input=(head + "\n").encode(),
+        check=True,
+        capture_output=True,
+        timeout=_remaining(deadline, command),
+    )
+    if shallow is not None:
+        (tree / ".git/shallow").write_bytes(shallow)
+    # The index keeps the copied current files, including uncommitted changes.
+    # A detached HEAD exposes the real delivered commit instead of the setup
+    # commit. Remove only metadata freshly created inside this owned copy.
+    for name in ("refs", "logs"):
+        shutil.rmtree(tree / ".git" / name, ignore_errors=True)
+    (tree / ".git/refs").mkdir()
+    (tree / ".git/HEAD").write_text(head + "\n")
+
+
 GIT_SETUP_ARGUMENTS = (
     ("init", "-q"),
     ("config", "maintenance.auto", "false"),
@@ -276,6 +341,11 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
     # that stops every other repository starting detached maintenance (#515)
     # never reaches it; write the keys into the repository instead, or a repack
     # under .git/objects after the manifest walk reads as a changed input.
+    if len(before["head"]) == 64:
+        # Reinitializing this fresh SHA-256 format preserves the exact fixed
+        # setup argv/environment used by the native owner as well.
+        (tree / ".git").mkdir()
+        (tree / ".git/config").write_text("[core]\nrepositoryformatversion = 1\n[extensions]\nobjectformat = sha256\n")
     for index, args in enumerate(GIT_SETUP_ARGUMENTS):
         command = ["/usr/bin/git", *args]
         if setup_executor is None:
@@ -297,6 +367,7 @@ def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=
             result = setup_executor(command, cwd=tree, env=env, timeout=_remaining(deadline, command, ceiling=30))
             if result.get("exit_code") != 0 or result.get("timed_out") or result.get("error"):
                 raise ValueError("Owned verification Git setup failed: " + str(result))
+    _retain_history(root, tree, before["head"], env, deadline=deadline)
     # Match the clean replay's read-only task-local dependency lookup. These
     # links grant no new authority. A contained provider's sandbox also keeps
     # their originals read-only; an uncontained provider gets no such claim.

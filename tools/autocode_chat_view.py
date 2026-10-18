@@ -67,10 +67,16 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         and need.get("kind") in ("approve_plan", "answer")
         and need.get("resolver_scope") not in ("blocker", "operational_exhaustion")
         and need.get("request_kind") != "blocker"
-        and (state.get("user_request") or {}).get("kind") != "human_review"
+        and (state.get("user_request") or {}).get("kind") not in ("human_review", "blocker")
         and not pause_authority.feedback_refusal(state)
     ):
-        action = ("feedback", "Send reply" if need.get("kind") == "answer" else "Send plan feedback", "--feedback")
+        action = (
+            "feedback",
+            "Send reply"
+            if need.get("kind") == "answer"
+            else ("Send message" if (state.get("settings") or {}).get("spec_first") else "Send plan feedback"),
+            "--feedback",
+        )
     context = hashlib.sha256(
         json.dumps(
             [status, len(turns), need, state.get("displayed_goal"), len(state.get("user_events") or [])],
@@ -85,6 +91,48 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             "label": label,
             "next_command": shlex.join(
                 ["autocode", "--workspace", str(workspace), "--run-dir", str(run_dir), flag, "MESSAGE"]
+            ),
+        }
+    if (
+        status == "WAITING_FOR_USER"
+        and need.get("kind") == "answer"
+        and need.get("resolver_scope") in ("blocker", "operational_exhaustion")
+        and need.get("resolver_request_id")
+        and need.get("resolver_token")
+        and not need.get("route")
+        and (state.get("user_request") or {}).get("kind") != "human_review"
+        and run_dir is not None
+        and workspace is not None
+    ):
+        question_text = "\n\n".join(
+            "\n".join(filter(None, [q.get("question"), q.get("why"), *q.get("options", [])]))
+            for q in need.get("questions", [])
+        )
+        if question_text:
+            messages.append(
+                {"id": "resolver-" + need["resolver_request_id"], "role": "assistant", "text": question_text}
+            )
+        message_input = {
+            "kind": "resolver_response",
+            "label": "Send recovery reply",
+            "next_command": shlex.join(["AUTOCODE_RESOLVER_TOKEN=" + need["resolver_token"]])
+            + " "
+            + shlex.join(
+                [
+                    "autocode",
+                    "--workspace",
+                    str(workspace),
+                    "--run-dir",
+                    str(run_dir),
+                    "--resolver-request",
+                    need["resolver_request_id"],
+                    "--resolver-token",
+                    "-",
+                    "--resolver-response",
+                    "provide_information",
+                    "--resolver-message",
+                    "MESSAGE",
+                ]
             ),
         }
     review = None

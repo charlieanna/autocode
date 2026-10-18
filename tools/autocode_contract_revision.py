@@ -129,7 +129,23 @@ def revision_guard(state: RunState, body, changes, origin):
         return changes
     # A new draft may replace an unapproved one. Revising the current draft, or
     # replacing an approved contract, cannot drop protected text on its own.
-    if origin in ("glm_draft", "astra_discovery") and previous_contract.get("approval_status") != "approved":
+    internal_restart = any(
+        event.get("kind") == "technical_decision"
+        and event.get("actor") == "autocode"
+        and str(event.get("contract_token", "")).startswith(f"r{previous_contract.get('revision')}:")
+        for event in state.get("user_events", [])
+    )
+    protected_history = any(
+        revision.get("approval_status") == "approved"
+        or revision.get("approval_event")
+        or revision.get("origin") == "user_cli_edit"
+        for revision in state.get("contract_history", [])
+    )
+    if (
+        origin in ("glm_draft", "astra_discovery")
+        and previous_contract.get("approval_status") != "approved"
+        and not (internal_restart and protected_history)
+    ):
         return changes
     if not isinstance(changes, list):
         raise ValueError("Planner revision needs contract_changes")

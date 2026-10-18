@@ -41,3 +41,11 @@ def running(state: RunState, phase: str, **fields) -> RunState:
     state.update({"status": "RUNNING", "phase": phase, **cast("RunState", fields)})
     state.pop("stop_reason", None)
     return state
+
+
+def awaiting_approval(state: RunState, **fields) -> RunState:
+    """Return to human plan approval without granting approval or execution."""
+    _check_fields(fields)
+    state.update({"status": "AWAITING_GOAL_APPROVAL", "phase": "AWAITING_GOAL_APPROVAL", **cast("RunState", fields)})
+    state.pop("stop_reason", None)
+    return state

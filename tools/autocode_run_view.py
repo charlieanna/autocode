@@ -290,7 +290,7 @@ def view(
                     "token": state["displayed_goal"],
                     **{
                         key: deepcopy(contract["body"].get(key))
-                        for key in ("acceptance_criteria", "constraints", "permission_boundaries")
+                        for key in ("acceptance_criteria", "constraints", "permission_boundaries", "git_delivery")
                     },
                 }
         except (KeyError, TypeError, ValueError):

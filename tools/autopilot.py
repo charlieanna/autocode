@@ -286,7 +286,7 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     runtime.workflow.dispatch_guard(state, stage, workspace)
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
-    regression.before_review(state, stage, workspace, run_dir)
+    completion_result.before_review(state, stage, workspace, run_dir)
     try:
         launch_inputs.guard(state, workspace, run_dir)
     except ValueError as error:
@@ -500,6 +500,8 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         state["discovery_summary"] = value["summary"]
         planning_artifacts.record_prepared(state, prepared)
         return
+    if stage == "requirements_gather" and requirements_handoff.accept_chat(state, value, record, queue=human.queue):
+        return
     checked = value
     if stage == "requirements_gather" and isinstance(value.get("proposed_assumptions"), list):
         # A pre-structured report's plain-string assumptions stay readable as legacy.
@@ -535,7 +537,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
     if stage == "astra_discovery":
         clarification.check_handoff_questions(state, value)
         _bind_plan(state, value, "glm_draft", record)
-        if human.internal_questions(state):
+        if human.internal_questions(state) or value["contract"]["open_blocking_questions"]:
             state["discovery_summary"] = value["summary"]
             return
         # install_draft starts the bounded cycle once clarification is complete.
@@ -555,7 +557,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         if any(not r["evidence_refs"] for r in value["responses"]):
             raise ValueError("Planner responses must cite investigated evidence")
         _bind_plan(state, value, stage, record)
-        if human.internal_questions(state):
+        if human.internal_questions(state) or value["contract"]["open_blocking_questions"]:
             reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
             state["discovery_summary"] = value["summary"]
             return
@@ -1329,7 +1331,7 @@ def _apply_result(runtime, state: RunState, stage, value, record, workspace, run
                 blocking_entries=findings_ledger.blocking_entries,
                 ledger_rejection=completion_gate.ledger_rejection,
                 missing_human_reviews=goals.missing_human_reviews,
-                completion_ready=completion_gate.completion_ready,
+                completion_ready=lambda s, d, c: completion_gate.completion_ready(s, d, c, require_delivery=False),
                 regression_complete=regression.complete,
                 regression_rejection=regression.rejection,
                 completion_rejection=completion_gate.rejection,

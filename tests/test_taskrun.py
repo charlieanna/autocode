@@ -189,6 +189,7 @@ class RunViewTests(unittest.TestCase):
             ],
             "constraints": ["Keep references"],
             "permission_boundaries": ["Only app.html"],
+            "git_delivery": {"kind": "atomic_commit", "message": "Add JSON output"},
         }
         contract = {"task_id": "t1", "revision": 3, "body": body}
         contract["hash"] = util.digest(contract)

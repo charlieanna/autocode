@@ -12,6 +12,40 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 
+def before_review(state: RunState, stage, workspace, run_dir):
+    """A passing runner regression proof can deliver before the judge inspects Git.
+
+    This avoids requiring a judge to claim that an undelivered commit exists.
+    The changed HEAD receives fresh runner proof and ordinary independent review.
+    Plans without executable regression cases retain the final completion gate.
+    """
+    try:
+        from . import autocode_git_delivery as delivery
+        from . import autocode_regression as regression
+        from . import autocode_source_scope as source_scope
+        from .autocode_util import Paused
+    except ImportError:
+        import autocode_git_delivery as delivery
+        import autocode_regression as regression
+        import autocode_source_scope as source_scope
+        from autocode_util import Paused
+    regression.before_review(state, stage, workspace, run_dir)
+    if stage not in ("sol", "astra_checkpoint", "astra_review"):
+        return
+    try:
+        if delivery.requirement((state.get("goal_contract") or {}).get("body") or {}) is None:
+            return
+        current = source_scope.snapshot(workspace, state)
+        if (
+            regression.required(state, all_due=True)
+            and regression.complete(state, current["revision"], all_due=True)
+            and delivery.prepare(state, workspace, current)
+        ):
+            regression.before_review(state, stage, workspace, run_dir)
+    except (OSError, ValueError) as error:
+        raise Paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
+
+
 def apply(
     state: RunState,
     current,
@@ -83,6 +117,28 @@ def apply(
         if not regression_complete(state, current["revision"], all_due=True):
             raise paused("PAUSED_COMPLETION_GATE", regression_rejection(state))
         raise paused("PAUSED_COMPLETION_GATE", completion_rejection(state))
+    try:
+        from . import autocode_git_delivery as delivery
+        from . import autocode_workflow as workflow
+    except ImportError:
+        import autocode_git_delivery as delivery
+        import autocode_workflow as workflow
+    try:
+        delivered = delivery.prepare(state, workspace, current)
+    except (OSError, ValueError) as error:
+        raise paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
+    if delivered:
+        commit_fields(
+            {
+                "status": "RUNNING",
+                "next_stage": workflow.review_stage(state),
+                "phase": "EXECUTING",
+                "iteration": state.get("iteration", 0) + 1,
+            }
+        )
+        record_decision(state, decision)
+        save_record(state, record)
+        return True
     commit_fields({"status": "TASK_COMPLETE", "completed_at": now(), "final_decision": decision, "next_stage": None})
     if milestones_enabled(state):
         accept_milestone(

@@ -15,6 +15,7 @@ from pathlib import Path
 import autocode as runner
 import autocode_source_scope as source_scope
 import autocode_support as support
+from harness.conformance import ConformanceDriver
 
 from . import test_subprocess
 
@@ -122,6 +123,25 @@ class OperationalInformationCLITests(unittest.TestCase):
             state.setdefault("sessions", {})["terra"] = "spent-builder-session"
 
         return edit
+
+    def test_chat_offer_submits_information_without_granting_retry_and_rejects_changed_replay(self):
+        view = self.issue_checkpoint()
+        self.assertEqual("resolver_response", view["chat"]["input"]["kind"])
+        client = object.__new__(ConformanceDriver)
+        client.project, client.run_dir = self.project, self.run
+        words, env, _ = client.message_command(view, "The operator inspected the blocked run")
+        code, launched, output = self.invoke(*words, env=env)
+        self.assertEqual((0, False), (code, launched), output)
+        held = self.status()
+        self.assertFalse(held["done"])
+        self.assertEqual("pending", held["information_review"]["status"])
+        self.assertIsNone(held["chat"]["input"])
+        code, launched, output = self.invoke(*words, env=env)
+        self.assertEqual((0, False), (code, launched), output)
+        self.assertIn("already received", output)
+        code, launched, output = self.invoke(*words[:-1], "Different response", env=env)
+        self.assertEqual((2, False), (code, launched), output)
+        self.assertIn("Input rejected:", output)
 
     def test_accepted_information_is_reevaluated_exactly_once(self):
         def explicit_cap(state):

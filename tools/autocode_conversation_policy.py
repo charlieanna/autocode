@@ -433,7 +433,7 @@ def acknowledge(before, candidate, action, *, source_kind=None):
     if action is None:
         return
     old_count = len(before.get("user_events", []))
-    kinds = ("brief_feedback", "answer") if source_kind is None else (source_kind,)
+    kinds = ("brief_feedback", "answer", "plan_message") if source_kind is None else (source_kind,)
     if source_kind not in (None, "route_assignment"):
         raise ValueError("Unsupported conversation action source")
     sources = [
