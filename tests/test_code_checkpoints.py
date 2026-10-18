@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import autocode_checkpoint_cli as operation
 import autocode_code_checkpoints as checkpoints
 import autocode_contract_identity as identity
+import autocode_run_view as run_view
 import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
 from goal_fixtures import body
@@ -357,6 +358,69 @@ class CodeCheckpoints(unittest.TestCase):
         self.assertEqual(0, code)
         payload = json.loads(out.getvalue())
         self.assertEqual(self.ident, payload["checkpoint_id"])
+
+
+class ProjectedRowActions(CodeCheckpoints):
+    """The projection names the checkpoint actions a CLI client may run (#1532)."""
+
+    def test_a_restorable_pause_names_compare_and_restore_with_real_paths(self):
+        projected = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)
+        [row] = projected["rows"]
+        prefix = ["checkpoint", "--workspace", str(self.workspace), "--run-dir", str(self.run)]
+        self.assertIsNone(projected["blocked_reason"])
+        self.assertEqual(
+            [
+                {"id": "compare", "label": "Show what changed since here",
+                 "next_command": [*prefix, "--compare", self.ident]},
+                {"id": "restore", "label": "Go back to here",
+                 "next_command": [*prefix, "--restore", self.ident, "--expected-token", "-", "--request-id", "REQUEST_ID"]},
+            ],
+            row["actions"],
+        )
+
+    def test_the_status_view_passes_the_runs_own_paths(self):
+        view = run_view.view(self.state, run_dir=self.run, workspace=self.workspace)
+        named = view["code_checkpoints"]["rows"][0]["actions"]
+        self.assertTrue(named[0]["next_command"][2] == str(self.workspace))
+        self.assertTrue(named[1]["next_command"][4] == str(self.run))
+
+    def test_without_paths_the_named_actions_use_the_public_placeholders(self):
+        [row] = checkpoints.project(self.state)["rows"]
+        self.assertEqual("WORKSPACE", row["actions"][0]["next_command"][2])
+        self.assertEqual("RUN_DIR", row["actions"][0]["next_command"][4])
+
+    def test_an_unreconciled_pause_names_compare_only(self):
+        self.state["status"] = "RUNNING"
+        [row] = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["rows"]
+        self.assertEqual(["compare"], [action["id"] for action in row["actions"]])
+
+    def test_a_row_without_verified_source_names_no_actions(self):
+        self.state["code_checkpoints"][0].update(available=False, reason="storage failed")
+        [row] = checkpoints.project(self.state)["rows"]
+        self.assertEqual([], row["actions"])
+
+    def test_the_named_restore_grammar_round_trips_through_the_cli(self):
+        comparison = self.client.compare_checkpoint(self.ident)
+        restore = [
+            action
+            for action in checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["rows"][0]["actions"]
+            if action["id"] == "restore"
+        ][0]["next_command"]
+        # A client prepends the autocode executable to the named argv and passes
+        # the inspected token through its environment variable, never argv.
+        argv = [word if word != "REQUEST_ID" else "view-named-restore-1" for word in restore]
+        import os
+
+        done = subprocess.run(
+            [sys.executable, str(TOOLS / "autocode.py"), *argv],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "AUTOCODE_CHECKPOINT_EXPECTED_TOKEN": comparison["expected_token"]},
+        )
+        self.assertEqual(0, done.returncode, done.stderr)
+        payload = json.loads(done.stdout)
+        self.assertEqual("view-named-restore-1", payload["operation"])
+        self.assertEqual("PAUSED_REQUESTED", payload["status"])
 
 
 class IntegratedBatchCheckpoint(unittest.TestCase):

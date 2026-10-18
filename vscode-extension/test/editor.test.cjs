@@ -980,3 +980,109 @@ test('Kilo composer grows with text and keeps undo inside the webview', async (t
   await flush();
   assert.equal(submit.mock.callCount(), 0, 'newline and IME confirmation are not submissions');
 });
+
+function checkpointView() {
+  return {
+    status: 'PAUSED_REQUESTED', done: false,
+    needs: { kind: 'resume', reason: 'A person asked the run to pause.' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused`,
+    code_checkpoints: {
+      version: 1, blocked_reason: null,
+      rows: [
+        { id: 'cp-1', label: 'Fixture code', at: '2026-10-17T22:00:00Z', changed_files: ['app.txt', 'run.sh'],
+          available: true, recorded_check: { verdict: 'PASS' }, actions: [
+            { id: 'compare', label: 'Show what changed since here',
+              next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1'] },
+            { id: 'restore', label: 'Go back to here',
+              next_command: ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--restore', 'cp-1', '--expected-token', '-', '--request-id', 'REQUEST_ID'] },
+          ] },
+        { id: 'cp-legacy', label: 'Old step', changed_files: [], available: false,
+          reason: 'no restorable source checkpoint', actions: [] },
+      ],
+    },
+    chat: { context: 'ctx-1', messages: [], input: null },
+  };
+}
+
+test('saved code changes render with only the actions the view named', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  const text = ui.document.body.textContent;
+  assert.ok(text.includes('Saved code changes'), 'section missing');
+  assert.ok(text.includes('Fixture code · PASS'));
+  assert.ok(text.includes('2 file(s) changed'));
+  assert.ok(text.includes('no restorable source checkpoint'), 'unavailable rows explain themselves');
+  const buttons = [...ui.document.querySelectorAll('[data-checkpoint-action]')];
+  assert.deepEqual(
+    buttons.map((button) => button.dataset.checkpointId + ':' + button.dataset.checkpointAction),
+    ['cp-1:compare', 'cp-1:restore'],
+    'unavailable rows offer no actions',
+  );
+});
+
+test('compare runs exactly the named argv and renders the returned diff', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ checkpoint_id: 'cp-1', expected_token: 'checkpoint-v1:t', changed_files: ['app.txt'],
+      patch: '--- checkpoint/app.txt\n+++ current/app.txt\n-later work\n', truncated: false, blocked_reason: null }) };
+  });
+  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush();
+  assert.deepEqual(calls, [['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1']]);
+  const text = ui.document.body.textContent;
+  assert.ok(text.includes('1 file(s) differ from this checkpoint'));
+  assert.ok(text.includes('+++ current/app.txt'));
+  assert.ok(!text.includes('checkpoint-v1:t'), 'the inspection token never reaches the conversation');
+});
+
+test('restore asks the person and replays one stable request id', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  const comparison = { checkpoint_id: 'cp-1', expected_token: 'checkpoint-v1:t', changed_files: ['app.txt'],
+    patch: 'diff', blocked_reason: null, source_branch: 'main' };
+  const restore = t.mock.method(controller, 'restoreCheckpoint', async () => {
+    throw new Error('network died');
+  });
+  t.mock.method(controller, 'compareCheckpoint', async () => comparison);
+  const modal = t.mock.method(host.vscode.window, 'showWarningMessage', async (_message, _options, choice) => choice);
+  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
+  await flush();
+  assert.equal(modal.mock.callCount(), 1, 'restore is gated on a person confirming the comparison');
+  assert.equal(restore.mock.calls[0].arguments[2], 'checkpoint-v1:t', 'the token a fresh compare returned');
+  assert.match(String(restore.mock.calls[0].arguments[3]), /^[A-Za-z0-9_-]{8,100}$/);
+  const first = restore.mock.calls[0].arguments[3];
+  restore.mock.restore();
+  const retry = t.mock.method(controller, 'restoreCheckpoint', async () => ({ branch: 'autocode/checkpoint-1',
+    workspace: run.workspace, run_dir: run.runDir + '-child', status: 'PAUSED_REQUESTED', message: 'ok' }));
+  ui.document.querySelector('[data-checkpoint-action="restore"]').click();
+  await flush();
+  assert.equal(retry.mock.calls[0].arguments[3], first, 'a failed restore retries the same request id');
+  const saved = ui.saved.get('autocode.checkpoint.requests');
+  assert.ok(!saved || !saved[run.workspace + '\n' + run.runDir], 'success clears the request id');
+  const text = ui.document.body.textContent;
+  assert.ok(text.includes('Restored on a new branch: autocode/checkpoint-1'));
+  assert.ok(text.includes('Open restored candidate'));
+});
+
+test('a checkpoint action the view did not name exactly is refused without a CLI call', async (t) => {
+  const view = checkpointView();
+  view.code_checkpoints.rows[0].actions[0].next_command.push('--extra');
+  t.mock.method(controller, 'status', async () => structuredClone(view));
+  const invoke = t.mock.method(cli, 'invoke', async () => ok);
+  await assert.rejects(controller.compareCheckpoint(run, 'cp-1'), /Unsupported checkpoint action/);
+  assert.equal(invoke.mock.callCount(), 0);
+  await assert.rejects(controller.compareCheckpoint(run, 'cp-missing'), /named no compare action/);
+});
+
+test('opening the restored candidate switches the chat to it', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  const show = t.mock.method(ChatView.prototype, 'show', () => {});
+  ui.window.dispatchEvent(new ui.window.MessageEvent('message', { data: { type: 'checkpoint_result', runKey: run.workspace + '\n' + run.runDir, checkpoint: 'cp-1',
+    result: { branch: 'b', workspace: run.workspace, run_dir: '/ws/.autocode/runs/child' } } }));
+  await flush();
+  ui.document.getElementById('new-chat'); // webview still alive
+  const open = [...ui.document.querySelectorAll('button')].find((button) => button.textContent === 'Open restored candidate');
+  open.click();
+  await flush();
+  assert.deepEqual(show.mock.calls.at(-1).arguments[0], { workspace: run.workspace, runDir: '/ws/.autocode/runs/child' });
+});

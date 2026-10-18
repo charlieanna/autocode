@@ -1,6 +1,7 @@
 /** Sidebar conversation over the public status view and its named actions. */
 import * as vscode from "vscode";
-import { RunController, type RunRef } from "./controller";
+import { randomBytes } from "node:crypto";
+import { RunController, type CheckpointComparison, type RunRef } from "./controller";
 import { leavesForPerson } from "./core/next-command";
 import type { StatusView } from "./core/view";
 import { panelHtml, stateFor } from "./panel";
@@ -15,6 +16,10 @@ interface ChatMessage {
   decisionContext?: string;
   token?: string | null;
   answers?: Record<string, string>;
+  checkpoint?: string;
+  action?: "compare" | "restore";
+  workspace?: string;
+  runDir?: string;
 }
 
 interface Actions {
@@ -39,6 +44,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private sequence = 0;
   private refreshing = false;
   private readonly timer: NodeJS.Timeout;
+  /** Compare results this window already holds, by checkpoint id. */
+  private readonly comparisons = new Map<string, CheckpointComparison>();
 
   constructor(private readonly controller: RunController, private readonly storage: vscode.Memento, private readonly actions: Actions) {
     // Keep the pre-multi-window selection only for one-time migration. The
@@ -68,6 +75,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.pendingBrief = "";
     this.error = "";
     this.readError = "";
+    this.comparisons.clear();
     if (run) this.actions.selected(run);
     void this.focus();
     this.post(true);
@@ -135,6 +143,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       return;
     }
     if (message.type === "refresh") { await this.refresh(); return; }
+    if (message.type === "checkpoint") { await this.checkpoint(message); return; }
+    if (message.type === "checkpoint_open") {
+      const opened = asRunRef({ workspace: message.workspace, runDir: message.runDir });
+      if (opened) this.show(opened);
+      return;
+    }
     if (message.type === "new") { if (!this.starting) this.show(); return; }
     if (message.type !== "send" && message.type !== "take") return;
     if (message.runKey !== this.key() || this.starting || this.busy.has(this.key())) return;
@@ -182,6 +196,72 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private async advanceAfterInput(run: RunRef): Promise<void> {
     const view = await this.controller.status(run);
     if (!view.done && view.needs?.kind === "continue") await this.controller.take(view, run);
+  }
+
+  /**
+   * A saved code change the person acted on. Compare is a read; restore is a
+   * person's confirmed decision, always gated on the comparison it quotes.
+   */
+  private async checkpoint(message: ChatMessage): Promise<void> {
+    const run = this.run;
+    const checkpointId = message.checkpoint ?? "";
+    if (!run || !checkpointId || message.runKey !== this.key(run) || this.busy.has(this.key(run))) return;
+    const key = this.key(run);
+    this.busy.add(key);
+    try {
+      if (message.action === "compare") {
+        const comparison = await this.controller.compareCheckpoint(run, checkpointId);
+        this.comparisons.set(checkpointId, comparison);
+        void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, comparison });
+        return;
+      }
+      if (message.action !== "restore") return;
+      let comparison = this.comparisons.get(checkpointId);
+      if (!comparison) {
+        comparison = await this.controller.compareCheckpoint(run, checkpointId);
+        this.comparisons.set(checkpointId, comparison);
+        void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, comparison });
+      }
+      if (comparison.blocked_reason) throw new Error(comparison.blocked_reason);
+      const label = (this.status?.code_checkpoints?.rows ?? []).find((row) => row.id === checkpointId)?.label ?? checkpointId;
+      const files = comparison.changed_files?.length ?? 0;
+      const proceed = await vscode.window.showWarningMessage(
+        `Restore "${label}" on a new branch?`,
+        { modal: true,
+          detail: `${files} file(s) differ from this checkpoint. The current branch and later work stay intact; every milestone needs fresh verification, and the new candidate stays paused until you resume it.` },
+        "Restore",
+      );
+      if (proceed !== "Restore") return;
+      const requestId = await this.checkpointRequestId(key);
+      const result = await this.controller.restoreCheckpoint(run, checkpointId, comparison.expected_token ?? "", requestId);
+      this.comparisons.delete(checkpointId);
+      await this.clearCheckpointRequest(key);
+      void this.view?.webview.postMessage({ type: "checkpoint_result", runKey: key, checkpoint: checkpointId, result });
+    } catch (error) {
+      void this.view?.webview.postMessage({ type: "checkpoint_compare", runKey: key, checkpoint: checkpointId, error: messageOf(error) });
+    } finally {
+      this.busy.delete(key);
+      this.actions.changed();
+      await this.refresh();
+    }
+  }
+
+  /** A stable request id per run: replaying it reconciles a candidate instead of creating another. */
+  private async checkpointRequestId(key: string): Promise<string> {
+    const saved = this.storage.get<Record<string, string>>("autocode.checkpoint.requests") ?? {};
+    const existing = saved[key];
+    if (existing && /^[A-Za-z0-9_-]{8,100}$/.test(existing)) return existing;
+    const id = `vscode-${randomBytes(12).toString("hex")}`;
+    saved[key] = id;
+    await this.storage.update("autocode.checkpoint.requests", saved);
+    return id;
+  }
+
+  private async clearCheckpointRequest(key: string): Promise<void> {
+    const saved = this.storage.get<Record<string, string>>("autocode.checkpoint.requests") ?? {};
+    if (!(key in saved)) return;
+    delete saved[key];
+    await this.storage.update("autocode.checkpoint.requests", saved);
   }
 
   private async start(text: string): Promise<void> {

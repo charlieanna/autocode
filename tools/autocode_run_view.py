@@ -187,7 +187,7 @@ def view(
         "needs": need,
         "recovery": recovery_view.project(state, need),
         "verification": verification_view.project(state),
-        "code_checkpoints": code_checkpoints.project(state),
+        "code_checkpoints": code_checkpoints.project(state, run_dir=run_dir, workspace=workspace),
         # Which saved checkpoints built each approved criterion's milestones (#730): attribution, not proof.
         "changes_by_criterion": criterion_changes.attribute((plan or {}).get("body"), state.get("code_checkpoints")),
         # The run's development server as the caller inspected it (autocode_dev_server.inspect, #730).

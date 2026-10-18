@@ -1338,6 +1338,20 @@ The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --expected-token TOKEN --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
 
+Each row of `code_checkpoints` that still has verified source objects also
+names the actions a client may take, in the same shape as a connection
+(`actions` with `id`, `label` and `next_command`: an argument array following
+`autocode`). A client executes only offered actions. The `compare` action is
+always named on an available row. The `restore` action is named only where
+restoration is currently allowed (`blocked_reason` is null); it carries
+`--expected-token -`, which reads `AUTOCODE_CHECKPOINT_EXPECTED_TOKEN` and is
+supplied only by a fresh `compare` of that same checkpoint (a stale token is
+refused), and the `REQUEST_ID` placeholder, which the client replaces with its
+own stable id for this confirmation — replaying the same id reconciles its
+candidate instead of creating another. Without the run's paths the array uses
+the `WORKSPACE` and `RUN_DIR` placeholders; the status view supplies the real
+ones.
+
 `status()["changes_by_criterion"]` attributes those saved steps to the approved
 plan's acceptance criteria. Each criterion lists the plan milestones that cover
 it, the checkpoint ids of their saved Builder steps and the union of the files
