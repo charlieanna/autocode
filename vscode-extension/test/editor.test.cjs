@@ -6,7 +6,7 @@ const { editor, flush } = require('./helpers/editor.cjs');
 const host = editor();
 const cli = host.load('core/cli.js');
 const { RunController } = host.load('controller.js');
-const { RunPanel, panelHtml } = host.load('panel.js');
+const { RunPanel, panelHtml, stateFor } = host.load('panel.js');
 const { ChatView } = host.load('chat.js');
 const { RunItem, RunsProvider } = host.load('runsView.js');
 const { activate } = host.load('extension.js');
@@ -299,11 +299,11 @@ function questionView(model = false) {
   };
 }
 
-async function openPanel(t, initial) {
+async function openPanel(t, initial, onAction) {
   t.mock.timers.enable({ apis: ['setInterval'] });
   let view = initial;
   t.mock.method(controller, 'status', async () => structuredClone(view));
-  const panel = RunPanel.show(1, run, controller);
+  const panel = RunPanel.show(1, run, controller, onAction);
   const webview = host.panels.at(-1).webview;
   const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
   const messages = [];
@@ -414,7 +414,7 @@ test('a click on an old displayed plan cannot approve a newly fetched revision',
   ui.take().click();
   await flush();
   assert.equal(launch.mock.callCount(), 0);
-  assert.match(host.errors.at(-1), /plan changed/);
+  assert.match(host.errors.at(-1), /plan changed|action changed/);
 });
 
 test('status polling preserves a draft, focus and selection and submits the exact answer', async (t) => {
@@ -1678,6 +1678,141 @@ test('delayed status resolution does not re-show unwatched run or replace newly 
   assert.equal(statusVisible, true);
   assert.ok(mockStatus.text.includes('Other running'), 'late resolution must not replace newer watched run');
 });
+
+test('Run details guards against concurrent clicks during status and modal confirmation (#1542)', async (t) => {
+  const view = questionView();
+  view.needs.resolver_scope = 'blocker'; // Triggers person-only confirmation modal
+  let resolveStatus;
+  let blockStatus = false;
+  const statusCalled = [];
+  t.mock.method(controller, 'status', async () => {
+    if (blockStatus) {
+      statusCalled.push(Date.now());
+      return new Promise((resolve) => { resolveStatus = () => resolve(structuredClone(view)); });
+    }
+    return structuredClone(view);
+  });
+  const panel = RunPanel.show(1, run, controller);
+  const webview = host.panels.at(-1).webview;
+  const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
+  const messages = [];
+  dom.window.acquireVsCodeApi = () => ({ postMessage: (message) => { messages.push(message); webview.receive(message); } });
+  webview.deliver = (data) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  dom.window.eval(dom.window.document.querySelector('script').textContent);
+  t.after(() => dom.window.close());
+
+  // Deliver state manually to simulate loaded panel
+  const initial = { ...stateFor(view, run, controller), decisions: [{ questionId: 'q1', kind: 'answer', text: 'Which?', options: [], suggested: null }] };
+  webview.deliver({ type: 'state', state: initial });
+  await flush();
+
+  blockStatus = true;
+  const take = [...dom.window.document.querySelectorAll('button')].find((b) => b.textContent !== 'Refresh');
+  assert.ok(take, 'take action button exists');
+  const input = dom.window.document.querySelector('input');
+  input.value = 'my answer';
+  input.dispatchEvent(new dom.window.Event('input'));
+
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  let resolveModal;
+  const modalCalled = [];
+  t.mock.method(host.vscode.window, 'showWarningMessage', () => {
+    modalCalled.push(Date.now());
+    return new Promise((resolve) => { resolveModal = () => resolve('Take it anyway'); });
+  });
+
+  // First click: begins status check
+  take.click();
+  await flush();
+  assert.equal(statusCalled.length, 1);
+
+  // Second and third clicks while status is pending: dropped by taking guard
+  take.click();
+  take.click();
+  await flush();
+  assert.equal(statusCalled.length, 1, 'concurrent clicks during status must be dropped');
+
+  // Resolve status -> enters warning modal
+  resolveStatus();
+  await flush();
+  assert.equal(modalCalled.length, 1);
+
+  // Fourth click while modal is open: dropped by taking guard
+  take.click();
+  await flush();
+  assert.equal(modalCalled.length, 1, 'clicks while modal is open must be dropped');
+
+  // Resolve modal -> proceeds to take
+  resolveModal();
+  await flush();
+  await flush();
+  assert.equal(launch.mock.callCount(), 1, 'only one take call executed');
+});
+
+test('Run details releases in-flight taking guard on cancellation or error (#1542)', async (t) => {
+  const view = questionView();
+  view.needs.resolver_scope = 'blocker';
+  let modalResponse = 'Cancel';
+  t.mock.method(host.vscode.window, 'showWarningMessage', async () => modalResponse);
+  const panelUi = await openPanel(t, view);
+  const input = panelUi.document.querySelector('input');
+  input.value = 'answer 1';
+  input.dispatchEvent(new panelUi.window.Event('input'));
+
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+
+  // First attempt: user cancels modal
+  panelUi.take().click();
+  await flush();
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'cancelled modal does not launch command');
+
+  // Second attempt: user confirms modal -> taking guard was released, so click succeeds
+  modalResponse = 'Take it anyway';
+  panelUi.take().click();
+  await flush();
+  await flush();
+  assert.equal(launch.mock.callCount(), 1, 'taking guard was released and second attempt succeeded');
+});
+
+test('Run details validates decisionContext and rejects changed retry bindings (#1542)', async (t) => {
+  const retryView = {
+    status: 'PAUSED_JOB_FAILURE', done: false,
+    needs: { kind: 'retry_job', reason: 'Stopped', job_retry_token: 'secret-token-1' },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=secret-token-1 autocode --resume-paused --retry-failed-stage --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const panelUi = await openPanel(t, retryView);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+
+  // While panel is open displaying secret-token-1, the run updates with secret-token-2
+  const updatedView = {
+    ...retryView,
+    needs: { ...retryView.needs, job_retry_token: 'secret-token-2' },
+    next_command: `AUTOCODE_JOB_RETRY_TOKEN=secret-token-2 autocode --resume-paused --retry-failed-stage --job-retry-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  panelUi.setView(updatedView);
+
+  panelUi.take().click();
+  await flush();
+  assert.equal(launch.mock.callCount(), 0, 'stale retry token must not be taken');
+  assert.match(host.errors.at(-1), /action changed/);
+});
+
+test('Run details notifies host refresh callback after taking action (#1542)', async (t) => {
+  const view = questionView();
+  const refreshed = [];
+  const panelUi = await openPanel(t, view, () => { refreshed.push('refreshed'); });
+  const input = panelUi.document.querySelector('input');
+  input.value = 'choice';
+  input.dispatchEvent(new panelUi.window.Event('input'));
+
+  t.mock.method(cli, 'stream', async () => ok);
+  panelUi.take().click();
+  await flush();
+  await flush();
+  assert.equal(refreshed.length, 1, 'onAction host refresh callback was called on take');
+});
+
 
 test('engineOf and routeKeyOf support equals syntax, CLI precedence, and registered providers (#1541)', () => {
   assert.equal(engineOf({ runOptions: ['--engine=codex'] }), 'codex');

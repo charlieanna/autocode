@@ -86,12 +86,15 @@ export class RunPanel {
 
   private timer: NodeJS.Timeout | undefined;
   private taking = false;
+  private onAction?: () => void | Promise<void>;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly run: RunRef,
     private readonly controller: RunController,
+    onAction?: () => void | Promise<void>,
   ) {
+    this.onAction = onAction;
     this.panel.onDidDispose(() => this.dispose());
     this.panel.onDidChangeViewState(() => {
       if (this.panel.visible) {
@@ -102,11 +105,17 @@ export class RunPanel {
     this.panel.webview.onDidReceiveMessage((message) => void this.onMessage(message));
   }
 
-  static show(column: vscode.ViewColumn, run: RunRef, controller: RunController): RunPanel {
+  static show(
+    column: vscode.ViewColumn,
+    run: RunRef,
+    controller: RunController,
+    onAction?: () => void | Promise<void>,
+  ): RunPanel {
     const key = `${run.workspace}\n${run.runDir}`;
     const existing = RunPanel.open.get(key);
     if (existing) {
       RunPanel.last = existing;
+      if (onAction) existing.onAction = onAction;
       existing.panel.reveal(column);
       return existing;
     }
@@ -115,7 +124,7 @@ export class RunPanel {
       retainContextWhenHidden: true,
       localResourceRoots: [],
     });
-    const instance = new RunPanel(panel, run, controller);
+    const instance = new RunPanel(panel, run, controller, onAction);
     RunPanel.open.set(key, instance);
     RunPanel.last = instance;
     panel.webview.html = panelHtml();
@@ -138,6 +147,7 @@ export class RunPanel {
   dispose(): void {
     this.stop();
     RunPanel.open.delete(`${this.run.workspace}\n${this.run.runDir}`);
+    if (RunPanel.last === this) RunPanel.last = undefined;
   }
 
   async refresh(): Promise<void> {
@@ -161,36 +171,54 @@ export class RunPanel {
     void this.panel.webview.postMessage({ type: "state", state });
   }
 
-  private async onMessage(message: { type?: string; answers?: Record<string, string>; token?: string | null }): Promise<void> {
+  private async onMessage(message: {
+    type?: string;
+    answers?: Record<string, string>;
+    token?: string | null;
+    decisionContext?: string;
+  }): Promise<void> {
     if (message.type === "refresh") {
       await this.update();
       return;
     }
     if (message.type !== "take") return;
-    let view: StatusView;
-    try {
-      view = await this.controller.status(this.run);
-    } catch (error) {
-      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
-      return;
-    }
-    if (leavesForPerson(view.needs ?? null) && confirmPersonOnly()) {
-      const proceed = await vscode.window.showWarningMessage(
-        `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
-        { modal: true, detail: needsSummary(view) },
-        "Take it anyway",
-      );
-      if (proceed !== "Take it anyway") return;
-    }
+    if (this.taking) return;
     this.taking = true;
-    this.post(stateFor(view, this.run, this.controller, true));
     try {
-      await this.controller.take(view, this.run, message.answers ?? {}, message.token ?? null);
-    } catch (error) {
-      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+      let view: StatusView;
+      try {
+        view = await this.controller.status(this.run);
+      } catch (error) {
+        void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+        return;
+      }
+      const state = stateFor(view, this.run, this.controller, true);
+      if (message.decisionContext && message.decisionContext !== state.decisionContext) {
+        void vscode.window.showErrorMessage("AutoCode: The requested action changed; review it before continuing");
+        return;
+      }
+      if (leavesForPerson(view.needs ?? null) && confirmPersonOnly()) {
+        const proceed = await vscode.window.showWarningMessage(
+          `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
+          { modal: true, detail: needsSummary(view) },
+          "Take it anyway",
+        );
+        if (proceed !== "Take it anyway") return;
+      }
+      this.post(state);
+      try {
+        await this.controller.take(view, this.run, message.answers ?? {}, message.token ?? null);
+      } catch (error) {
+        void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+      }
     } finally {
       this.taking = false;
       await this.update();
+      try {
+        await this.onAction?.();
+      } catch {
+        // Ignored
+      }
     }
   }
 }
@@ -270,8 +298,19 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     criteria: (need?.criteria ?? []).map((row) => ({ id: row.id, criterion: row.criterion ?? "" })),
     decisions,
     decisionContext: JSON.stringify([
-      run.workspace, run.runDir, view.current_task?.id, view.turn, need?.kind,
-      need?.request_id, need?.resolver_token, need?.token, need?.route, decisions,
+      run.workspace,
+      run.runDir,
+      view.current_task?.id,
+      view.turn,
+      need?.kind,
+      need?.request_id,
+      need?.resolver_token,
+      need?.resolver_request_id,
+      need?.token,
+      need?.job_retry_token,
+      need?.route,
+      decisions,
+      view.next_command ?? "",
     ]),
     gap,
     commandText: safeCommandText(view, run, controller),

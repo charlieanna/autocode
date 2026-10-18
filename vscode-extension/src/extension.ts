@@ -108,7 +108,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("autocode.openDetails", (run?: RunTarget) => {
       const target = targetOf(run);
       if (!target) return void vscode.window.showInformationMessage("Select a run first.");
-      RunPanel.show(vscode.ViewColumn.One, target, controller);
+      RunPanel.show(vscode.ViewColumn.One, target, controller, refresh);
     }),
 
     vscode.commands.registerCommand("autocode.refresh", () => refresh()),
