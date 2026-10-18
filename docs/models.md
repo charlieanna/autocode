@@ -162,6 +162,60 @@ and pauses `PAUSED_MILESTONE_BUDGET` when it would take the milestone past that 
 > names are in saved run state. They are not model choices: `--terra-model
 > zai-coding-plan/glm-5.3` selects the model used for the Builder role.
 
+## Choosing models automatically
+
+Automatic selection (#1426) chooses each role's model from the accounts you have
+connected, so you never route roles by hand. Start a new run with `--auto-select` and every role whose model no flag named is
+chosen from the tool's connected accounts; the choice, its reasoning levels and the
+routes the access check still owes are saved with the run. Saved runs never
+re-select, and `--single-model` and per-role flags keep winning. A selection that
+cannot field an independent checker refuses to start, in account terms. Selection is
+not yet the default for new runs: the soft-fallback behavior a defaulted launch will
+use (fixed default routes, with the reason printed, when the tool's listings cannot
+be read or its accounts cannot field a checker) is implemented and tested, and the
+flip itself waits on the issue's final qualification step. On a quota,
+content-filter or output stop, such a run moves the stopped role on its own to the
+next qualified model on an account it was already permitted to bill, and asks only
+when no such model remains. Until they do,
+new runs use the [default models](#default-models) above unless you name your own.
+
+The rules the choice keeps:
+
+- **A minimum standard per role.** A model is only ever chosen for a role when the
+  dated qualification table (`tools/autocode_route_qualification.json`) lists it for
+  that role, with the evidence that admitted it: AutoCode's own runs qualify a model,
+  and a public benchmark admits it only provisionally until such a run confirms it.
+  The table changes by pull request, like the price table it is priced from. A model
+  not in the table is never chosen automatically, however cheap.
+- **Within a role's qualified models, the cheapest route wins.** A subscription route
+  counts as cheaper than any pay-per-token one, then the price-table cost orders them,
+  and a route whose access is already proven beats one that would need a probe. The
+  checkers are never downgraded to save money: they start on their cheapest *qualified*
+  model, and only a failure ever moves a role up.
+- **Independence is never lowered quietly.** Every producer and checker pair stays on
+  different model families (`tools/autocode_verifier_independence.py`); when the
+  connected accounts cannot provide that, the run stops before any work and says what
+  is missing in account terms ("connect a second model family"), never by suggesting
+  `--single-model`.
+- **No invented reasoning levels.** A route gets a reasoning level only when the model
+  advertises it; otherwise the model uses its own default.
+- **Explicit choices win.** `--<role>-model`, `--provider`, `--role-transport` and
+  `--single-model` constrain or replace the automatic choice, and saved runs keep the
+  routes they were started with.
+
+The choice is one deterministic function from the discovered candidates and the
+accounts you allow to one route per role, or a stop that names what is missing. Each
+chosen route is recorded with its origin (`auto_selected`) in the route record the
+status view shows. `autocode models --selection` shows the whole reasoning: the
+logins the tool reports, the route chosen for each role with its cost, and why every
+other qualified model lost (not connected on any login, a cheaper qualified route
+won, or it would check its own family's work).
+
+Before the first stage, the [model-access preflight](#when-a-model-is-not-in-your-plans)
+probes exactly the chosen routes that are still unproven, one tiny call each at the
+role's own reasoning level, within the run's cost cap — including built-in OpenCode
+routes, which saved-run probes never touched.
+
 ## Builder retry policy
 
 New standard-workflow runs use a persisted Builder retry policy per approved milestone:

@@ -226,6 +226,23 @@ class CommandProvider:
                 )
         return None
 
+    def auth_table(self):
+        """The declared billing routes, for discovery (autocode_route_discovery).
+
+        Each route names the model prefix it serves, the login name the tool prints
+        (``name``, defaulting to the prefix), how that login bills (``billing``, None
+        when the config does not say) and the pattern plus expected mode that prove
+        the login is connected. Tools without ``[auth]`` have no table.
+        """
+        auth = self._config.get("auth") or {}
+        routes = auth.get("routes") or []
+        return {
+            "name": self._config["name"],
+            "command": auth.get("command"),
+            "timeout_seconds": auth.get("timeout_seconds", 15),
+            "routes": [dict(route, name=route.get("name") or route["models"]) for route in routes],
+        }
+
     def _preflight_environment(self, env):
         # Explicit environments are an intentional facade API. App-owned callers
         # supply their already prepared mapping; implicit checks match agent launch.
@@ -275,6 +292,11 @@ class CommandProvider:
         for part in self._config["command"]:
             if part == codex_sandbox.TOKEN:
                 command.extend(codex_sandbox.arguments(sandbox, workspace, run_dir, report))
+            elif not values["effort"] and part in ("--variant", "{effort}"):
+                # A route with no reasoning level omits the variant arguments rather
+                # than passing an empty --variant "" (#1426 step 5): the model then
+                # uses its own default level.
+                continue
             else:
                 command.append(self._fill(part, values))
         if session and self.SUPPORTS_SESSIONS:
@@ -585,6 +607,10 @@ def _validate_auth(auth) -> None:
             raise ValueError("[auth] route pattern must have exactly one capture group")
         if not isinstance(expect, str) or not expect.strip():
             raise ValueError("[auth] route expect must be a non-empty string")
+        if route.get("name") is not None and (not isinstance(route["name"], str) or not route["name"].strip()):
+            raise ValueError("[auth] route name must be a non-empty string when set")
+        if route.get("billing") is not None and route["billing"] not in ("subscription", "pay per token"):
+            raise ValueError("[auth] route billing must be 'subscription' or 'pay per token' when set")
 
 
 def _validate_template(parts, allowed) -> None:

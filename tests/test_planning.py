@@ -1105,9 +1105,16 @@ class JointFlow(unittest.TestCase):
 
     # Reuse fixture setup, not its full suite of single-engine tests.
     setUp = test_subprocess.SubprocessFlow.setUp
-    launch = test_subprocess.SubprocessFlow.launch
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ()
+
+    def launch(self, args, expected, *, answers=None):
+        # These flows assert the planning sequence, not model selection (#1426): pin the
+        # opt-out so a machine whose real opencode logins a selection could read cannot
+        # add selection or access-probe stages to the expected lists.
+        if "--run-dir" not in args:
+            args = [*args, "--no-auto-select"]
+        return test_subprocess.SubprocessFlow.launch(self, args, expected, answers=answers)
 
     def prepare(self, mode="no-human"):
         bin_dir = self.root / "fixture-bin"

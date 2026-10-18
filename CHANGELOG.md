@@ -29,6 +29,10 @@ PR template asks for an entry here; a change without one is incomplete.
   test-fixture and command details that previously interrupted the VS Code chat with criterion IDs.
   Internal decisions remain separate from human answers; behavior, authorization and plan approval
   still require their existing checks (#1522).
+- Automatic model selection preserves explicit reasoning-effort flags and models using their default
+  level. Automatic quota recovery retains and accounts for the stopped attempt before retrying,
+  and remembers exhausted alternatives across restarts instead of cycling between them (#1426).
+
 - The VS Code chat showed plan-approval internals: "Plan the approval is bound to (revision 3)",
   criterion IDs (`AC1`, `AC2`), each verification command and a token notice with a raw CLI command.
   The chat now lists what the plan will deliver under "Plan to approve", marks the items you check
@@ -69,7 +73,57 @@ PR template asks for an entry here; a change without one is incomplete.
   recorded as releasing the pause, matching the Builder's stronger attempt (#611).
 
 ### Added
-
+- The soft-default machinery for automatic selection (#1426 step 11's second half): an internal
+  `auto_select=None` launch selects and, when the tool's listings cannot be read or its accounts cannot field
+  a checker, prints why in account terms and uses the fixed default routes instead of refusing - a defaulted
+  launch is never blocked. Shipped opt-in (`--auto-select`); flipping the visible default waits on step 12's
+  qualification, because it would otherwise make the suite read a machine's real logins.
+- Step 9 complete (#1426): a run that chose its routes with `--auto-select` now switches a stopped model's role
+  on its own. A quota, content-filter or output stop enters the shared recovery chain first as a `route` row
+  (`autocode_route_recovery`): the next qualified model from the run's saved permitted set, checkers kept
+  independent, applied as the usual recorded `route_assignment` (actor `runner`) with the saved selection kept
+  current, and the run continues without asking. When no permitted model remains, the long-standing question
+  stands exactly as before (#184); runs without a permitted set, native runs and workflow jobs keep asking.
+- Step 9's decision logic (#1426): an `--auto-select` run saves its permitted set - every qualified, connected
+  candidate for each role, all on accounts the launch already used - under `route_selection.candidates`, and
+  `autocode_route_selector.next_route` answers "where does this role go when its model stopped?" from it:
+  the next cheapest qualified model with every other route pinned, so checker independence holds, and None
+  when nothing remains so the person is asked as before. The recovery-chain wiring that applies the switch
+  automatically on a quota stop is the remaining half of step 9.
+- `--auto-select` (#1426, step 11's flag-gated form): a new run chooses every role's model from the tool's
+  connected accounts - discovery, the selector, and the selection-driven access probe all run for real. Per-role
+  model flags, `--single-model`, role-provider flags and conversation history still win; a saved run refuses the
+  flag and keeps its routes; the chosen routes, levels and probe debt are saved under `route_selection`, origins
+  record `auto_selected`, and a selection that cannot field an independent checker refuses to start in account
+  terms. Selection is not yet the default for new runs.
+- `autocode models --selection` (#1426 step 10): automatic selection explained. Local listings only - no model
+  calls: the command shows the logins the tool reports, the route chosen for each role with its price and
+  reasoning level, why every other qualified model lost (not connected, a cheaper qualified route won, or it
+  would check its own family's work), and which chosen routes the access check still has to prove. A run whose
+  accounts cannot field an independent checker prints the account-terms stop instead.
+- The selector's access check (#1426 step 8): `check(selection=...)` probes exactly the routes automatic
+  selection marks unknown, each at its role's own reasoning level (None sends no level), through the tool that
+  runs it, inside the existing cost cap, receipts and crash-safe attempt accounting. Built-in OpenCode routes
+  are probed too; saved-run probes keep their `low`-effort behavior and still skip non-billing tools.
+- Route discovery (#1426 steps 4-5): reading a tool's own local listings - `kilo models` with
+  `kilo auth list`, `opencode models` with `opencode auth list` - into the candidate list the
+  automatic selector consumes, with no model calls and no credentials touched. A configured
+  tool's `[auth]` routes now also carry the login's display `name` and how it `billing`s
+  (subscription or pay per token); a model no connected login can bill is never offered. A
+  command template's `{effort}` arguments (Kilo's `--variant`) are omitted when a route has no
+  reasoning level, instead of passing an empty `--variant ""`. Verified in-process against the
+  real kilo 7.8.3 and opencode logins on the build machine: discovery plus the Step-7 selector
+  reproduce the live glm53-mimo family split from the account state alone.
+- The automatic route selector (#1426 step 7): one deterministic function from the models a tool's
+  connected accounts actually offer to one route per role, or a stop that names what is missing in
+  account terms. A model is eligible only when the new dated qualification table
+  (`tools/autocode_route_qualification.json`) lists it for the role with the evidence that admitted
+  it — AutoCode's own runs qualify, a benchmark admits provisionally — and within a role the cheapest
+  qualified route wins (subscription before pay per token, proven access before a probe, then the
+  price table). Producer and checker families stay independent, no reasoning level is invented, and
+  the choice is recorded as the `auto_selected` origin in the route record. New Kilo Gateway price
+  rows (GLM 5.3, GPT-6 Sol, GPT-6 Astra, DeepSeek V4.1 Flash) price those routes. Not yet the
+  default for new runs: discovery and wiring are the next steps of #1426.
 - Requirements is a conversation in chat. In a spec-first run the Requirements agent answers the first message,
   whatever it says (a greeting or an off-topic question gets a short answer and a question about what to build),
   in its own words (`assistant_reply`). It keeps one provider session across your answers and streams its text to
