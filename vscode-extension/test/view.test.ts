@@ -65,6 +65,27 @@ test("needsSummary says what the run waits for, in the view's own words where it
     "1 question(s)",
   );
   assert.match(needsSummary({ status: "S", done: false, needs: { kind: "resume", reason: "budget reached" } }), /budget reached/);
+  assert.equal(needsSummary({ status: "S", done: false, needs: { kind: "continue" } }), "nothing; the run can simply proceed");
+  assert.equal(
+    needsSummary({ status: "RUNNING", done: false, needs: { kind: "continue" }, liveness: { kind: "supervised" } }),
+    "a stage is currently running",
+  );
+  assert.equal(
+    needsSummary({ status: "RUNNING", done: false, needs: { kind: "continue" }, liveness: { kind: "unsupervised" } }),
+    "a stage is currently running",
+  );
+  assert.equal(
+    needsSummary({ status: "RUNNING", done: false, needs: { kind: "continue" }, liveness: { kind: "unknown" } }),
+    "nothing; the run can simply proceed",
+  );
+  assert.equal(
+    needsSummary({ status: "RUNNING", done: false, needs: { kind: "continue" } }, true),
+    "a stage is currently running",
+  );
+  assert.equal(
+    needsSummary({ status: "RUNNING", done: false, needs: { kind: "continue" } }, false),
+    "nothing; the run can simply proceed",
+  );
 });
 
 test("unknown cost is not zero", () => {
