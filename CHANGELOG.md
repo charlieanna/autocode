@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+- Keep status readable for malformed streaming-stage data and refuse verification reuse when editable source cannot be snapshotted. Stabilize successful assignment subprocess fixtures without changing live-run limits.
+
 ### Fixed
 
 - Malformed saved activity records no longer crash chat status or its provisional reply view (#1522).

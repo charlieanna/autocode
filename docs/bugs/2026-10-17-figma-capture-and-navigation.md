@@ -55,3 +55,20 @@ row identities. This67.6% reduction measures repeated row validation, not whole
 native launch time. Warm-cache tampering, renamed sequence files and lost locks
 remain refused. Neither this benchmark nor the guard tests establish live image
 acceptance; a repaired immutable runtime still needs actual qualification.
+
+## Canonical regression follow-up
+
+The full canonical gate exposed two additional refusal-path bugs after the
+master update. Requirements chat now treats malformed active-stage and report
+repair records as unavailable provisional text, preserving the usable public
+status view. An unreadable nested Git source now makes an editable controller
+ineligible for verification reuse instead of escaping identity collection as a
+snapshot exception. Fresh execution remains required for that incomplete identity.
+
+The existing liveness, verification schedule and architecture regressions plus
+malformed repair projection coverage passed87 focused tests. Assignment scenarios
+also reproduced spurious2-second startup timeouts on different cases; only their
+successful fake-process fixture budgets changed. The actual hung-worker case
+keeps its original3-second stage and2-second idle/tool bounds. All24 assignment
+scenarios then passed. These results do not turn the retained failed full gate
+into a passing full-suite receipt, or establish native image acceptance.
