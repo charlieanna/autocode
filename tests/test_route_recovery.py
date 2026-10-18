@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_recovery_dispatch as dispatch
@@ -37,7 +38,20 @@ class RouteRecoveryTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        self.runtime = SimpleNamespace(now=lambda: "2026-10-17T00:00:00Z", native_calls=None)
+
+        def abandon(state, run_dir, workspace, attempt, **kwargs):
+            record = state.pop("active_stage")
+            state.setdefault("stages", []).append({**record, "abandoned": True})
+            state["status"] = "PAUSED_STAGE_ABANDONED"
+
+        self.runtime = SimpleNamespace(
+            now=lambda: "2026-10-17T00:00:00Z",
+            native_calls=None,
+            timeout_recovery_guard=mock.Mock(),
+            count_automatic_recovery=mock.Mock(),
+            abandon_stage=mock.Mock(side_effect=abandon),
+            write_json=lambda path, value: path.write_text(json.dumps(value)),
+        )
 
     def state(self, error=QUOTA, *, role="sol"):
         events = self.root / "validator-01.jsonl"
@@ -76,6 +90,64 @@ class RouteRecoveryTests(unittest.TestCase):
         self.assertEqual(GLM, record["from"])
         self.assertEqual(SOL, record["to"])
         self.assertEqual("quota_assigned", state["settings"]["route_selection"]["routes"]["sol"]["origin"])
+
+    def test_exhausted_alternatives_pause_even_after_a_restart(self):
+        state = self.state()
+        error = support.Paused("PAUSED_BUDGET", "quota")
+        attempt = dict(state["active_stage"])
+        self.assertTrue(route_recovery.recover(self.runtime, state, self.root, self.root, error))
+        self.runtime.abandon_stage.assert_called_once()
+        # Simulate restarting from the saved checkpoint, then the replacement's quota stop.
+        saved = json.loads((self.root / "state.json").read_text())
+        self.assertNotIn("active_stage", saved)
+        self.assertEqual("RUNNING", saved["status"])
+        saved["active_stage"] = {**attempt, "iteration": 2, "command": ["opencode", "--model", SOL]}
+        self.assertFalse(route_recovery.recover(self.runtime, saved, self.root, self.root, error))
+        self.assertEqual(SOL, saved["settings"]["roles"]["sol"]["model"])
+        self.runtime.abandon_stage.assert_called_once()
+
+    def test_real_abandonment_retains_evidence_and_accounts_before_retry(self):
+        import autocode_recovery_accounting as accounting
+        import autocode_stage_recovery as stage_recovery
+
+        state = self.state()
+        state["active_stage"]["stage"] = "sol"
+        state["active_stage"]["duration_seconds"] = 7
+        before = self.root / "validator-01.before.json"
+        before.write_text(json.dumps({"revision": "before", "files": {}}))
+        state["active_stage"]["before_ref"] = str(before)
+        partial = self.root / "partial.txt"
+        partial.write_text("keep this work")
+        self.runtime.abandon_stage = stage_recovery.abandon_stage
+        self.runtime.count_automatic_recovery = accounting.count
+        with mock.patch.object(
+            stage_recovery.source_scope,
+            "snapshot",
+            return_value={"revision": "after", "files": {"partial.txt": "hash"}},
+        ):
+            self.assertTrue(
+                route_recovery.recover(
+                    self.runtime, state, self.root, self.root, support.Paused("PAUSED_BUDGET", "quota")
+                )
+            )
+        saved = json.loads((self.root / "state.json").read_text())
+        self.assertEqual("RUNNING", saved["status"])
+        self.assertNotIn("active_stage", saved)
+        self.assertEqual(7, saved["active_seconds"])
+        self.assertEqual(1, accounting.spent(saved))
+        self.assertEqual("keep this work", partial.read_text())
+        self.assertTrue(Path(saved["stages"][-1]["events"]).is_file())
+        self.assertEqual(["partial.txt"], saved["stages"][-1]["changed_files"])
+        self.assertEqual("runner", saved["user_events"][-1]["actor"])
+        self.assertEqual("sol", saved["next_stage"])
+
+    def test_a_live_attempt_cannot_change_the_route(self):
+        state = self.state()
+        before = json.dumps(state, sort_keys=True)
+        self.runtime.abandon_stage.side_effect = support.Paused("PAUSED_WORKSPACE_BUSY", "still running")
+        with self.assertRaises(support.Paused):
+            route_recovery.recover(self.runtime, state, self.root, self.root, support.Paused("PAUSED_BUDGET", "quota"))
+        self.assertEqual(before, json.dumps(state, sort_keys=True))
 
     def test_when_nothing_remains_the_pause_stands(self):
         state = self.state(role="terra")  # the Builder died; only a clashing model remains

@@ -258,6 +258,31 @@ class AutoSelectConfigureTests(unittest.TestCase):
         self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["routes"]["terra"]["model"])
         self.assertIn("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["probe"])
 
+    def test_explicit_effort_survives_selection_and_matches_the_probe(self):
+        for role in ("terra", "sol", "astra", "completion", "requirements", "glm", "plan_reviewer"):
+            with self.subTest(role=role), mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
+                settings = self.configure(self.args(auto_select=True, **{f"{role}_reasoning_effort": "low"}))
+                self.assertEqual("low", settings["roles"][role]["reasoning_effort"])
+                self.assertEqual("low", settings["route_selection"]["routes"][role]["reasoning_effort"])
+
+    def test_global_effort_is_used_unless_a_role_overrides_it(self):
+        with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
+            settings = self.configure(self.args(auto_select=True, reasoning_effort="low", sol_reasoning_effort="high"))
+        for role, route in settings["route_selection"]["routes"].items():
+            expected = "high" if role == "sol" else "low"
+            self.assertEqual(expected, route["reasoning_effort"])
+            self.assertEqual(expected, settings["roles"][role]["reasoning_effort"])
+
+    def test_an_unsupported_qualified_level_keeps_the_model_default(self):
+        found = self.gateway_found()
+        for candidate in found["candidates"]:
+            candidate["levels"] = ["low"]
+        with mock.patch.object(discovery, "discover", return_value=found):
+            settings = self.configure(self.args(auto_select=True))
+        for role in ("glm", "plan_reviewer", "terra", "sol"):
+            self.assertIsNone(settings["roles"][role]["reasoning_effort"])
+            self.assertIsNone(settings["route_selection"]["routes"][role]["reasoning_effort"])
+
     def test_a_role_flag_wins_over_the_selection(self):
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=True, terra_model="openai/gpt-6-sol"))

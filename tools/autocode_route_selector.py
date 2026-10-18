@@ -202,10 +202,10 @@ def permitted_set(candidates):
     return {role: [candidate for candidate, _entry in _options(role, candidates, None)] for role in PIPELINE_ROLES}
 
 
-def next_route(selection, role, stopped_model):
+def next_route(selection, role, stopped_model, *, failed_models=()):
     """The route a stopped model's role switches to on its own, or None (#1426 step 9).
 
-    Re-selects ``role`` from the saved permitted set minus the stopped model, with
+    Re-selects ``role`` from the saved permitted set minus all models already stopped for this role, with
     every other role pinned to its current route so checker independence holds. The
     answer never bills an account the run was not already permitted to bill; when no
     candidate remains the result is None and the person is asked, as before.
@@ -216,7 +216,8 @@ def next_route(selection, role, stopped_model):
         return None
     pool = [candidate for candidates in saved.values() for candidate in candidates]
     stopped = model_identity.identity(stopped_model)
-    alive = [candidate for candidate in pool if model_identity.identity(candidate["model"]) != stopped]
+    failed = {stopped, *(model_identity.identity(model) for model in failed_models)}
+    alive = [candidate for candidate in pool if model_identity.identity(candidate["model"]) not in failed]
     pinned = {other: route["model"] for other, route in routes.items() if other != role and route.get("model")}
     result = select(list(routes), alive, pinned=pinned)
     if result["stop"] is not None or result["routes"] is None:

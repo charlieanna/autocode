@@ -212,6 +212,9 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     # every qualified, connected candidate, all on accounts this launch already used.
     result["candidates"] = route_selector.permitted_set(found["candidates"])
     for role, route in result["routes"].items():
+        explicit_effort = getattr(args, f"{role}_reasoning_effort", None) or getattr(args, "reasoning_effort", None)
+        if explicit_effort is not None:
+            route["reasoning_effort"] = explicit_effort
         if role in pinned or role not in roles:
             continue
         roles[role]["model"] = route["model"]
@@ -832,8 +835,11 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             "provider": None,
             "model": glm_model,
             "reasoning_effort": getattr(args, "glm_reasoning_effort", None)
-            or _selected_effort(settings, "glm")
-            or mod.DEFAULT_REASONING_EFFORTS.get("glm"),
+            or (
+                _selected_effort(settings, "glm")
+                if _auto_chosen(settings, "glm")
+                else mod.DEFAULT_REASONING_EFFORTS.get("glm")
+            ),
         }
         settings["roles"]["plan_reviewer"] = {
             "engine": "opencode",
@@ -847,8 +853,11 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             ),
             "reasoning_effort": (
                 getattr(args, "plan_reviewer_reasoning_effort", None)
-                or _selected_effort(settings, "plan_reviewer")
-                or mod.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")
+                or (
+                    _selected_effort(settings, "plan_reviewer")
+                    if _auto_chosen(settings, "plan_reviewer")
+                    else mod.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")
+                )
             ),
             "model_pinned": True,
         }

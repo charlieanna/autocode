@@ -17,6 +17,8 @@ runtime is passed in, keeping this below the controller.
 
 from __future__ import annotations
 
+import copy
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,10 +27,12 @@ if TYPE_CHECKING:
 try:
     from . import autocode_quota_route as quota_route
     from . import autocode_route_selector as route_selector
+    from . import autocode_run_status as run_status
     from . import autocode_support as support
 except ImportError:
     import autocode_quota_route as quota_route
     import autocode_route_selector as route_selector
+    import autocode_run_status as run_status
     import autocode_support as support
 
 
@@ -42,7 +46,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     if not selection.get("candidates"):
         return False
     stopped = quota_route.stopped_attempt(state, failure_status=support.failure_status)
-    if not stopped or not stopped.get("active"):
+    if not stopped or not stopped.get("active") or stopped.get("workflow_job"):
         return False
     role = stopped.get("role")
     if role not in quota_route.ROLES:
@@ -51,13 +55,33 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     dead = stopped.get("model") or route.get("model")
     if not dead:
         return False
-    switched = route_selector.next_route(selection, role, dead)
+    failed = [
+        event.get("from")
+        for event in state.get("user_events", [])
+        if event.get("kind") == quota_route.KIND and event.get("role") == role and event.get("actor") == "runner"
+    ]
+    switched = route_selector.next_route(selection, role, dead, failed_models=failed)
     if switched is None:
         return False
-    quota_route.assign(state, role, switched["model"], at=runtime.now(), via="runner", attempt=stopped, actor="runner")
-    route["reasoning_effort"] = switched.get("reasoning_effort")
-    # Keep the saved selection current so a later stop re-selects against what runs now.
-    selection.setdefault("routes", {})[role] = {**switched, "origin": "quota_assigned"}
+    if state.get("pause_requested") or (Path(run_dir) / "pause-requested").exists():
+        return False
+    runtime.timeout_recovery_guard(state)
+    # Use the existing abandonment boundary: it proves the process stopped, accounts
+    # usage, retains partial work and durably archives the failed attempt. Include
+    # the replacement and failure history in that save, so a crash cannot retry an
+    # exhausted route or discard its evidence. Work on a copy until it succeeds.
+    candidate = copy.deepcopy(state)
+    quota_route.assign(
+        candidate, role, switched["model"], at=runtime.now(), via="runner", attempt=stopped, actor="runner"
+    )
+    candidate["settings"]["roles"][role]["reasoning_effort"] = switched.get("reasoning_effort")
+    candidate["settings"]["route_selection"]["routes"][role] = {**switched, "origin": "quota_assigned"}
+    runtime.count_automatic_recovery(candidate)
+    runtime.abandon_stage(candidate, Path(run_dir), Path(workspace), stopped["attempt_id"], actor="runner")
+    run_status.running(candidate, state.get("phase") or "IMPLEMENTING")
+    runtime.write_json(Path(run_dir) / "state.json", candidate)
+    state.clear()
+    state.update(candidate)
     job = quota_route.roles.screen_name(stopped.get("stage") or role, state)
     account = switched.get("account") or "the run's tool"
     print(

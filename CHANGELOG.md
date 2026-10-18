@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Automatic model selection preserves explicit reasoning-effort flags and models using their default
+  level. Automatic quota recovery retains and accounts for the stopped attempt before retrying,
+  and remembers exhausted alternatives across restarts instead of cycling between them (#1426).
+
 - The VS Code chat showed plan-approval internals: "Plan the approval is bound to (revision 3)",
   criterion IDs (`AC1`, `AC2`), each verification command and a token notice with a raw CLI command.
   The chat now lists what the plan will deliver under "Plan to approve", marks the items you check
