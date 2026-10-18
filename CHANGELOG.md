@@ -82,6 +82,8 @@ PR template asks for an entry here; a change without one is incomplete.
   the cost cap, time limit and milestone budget; a resume that the climb's projection pauses again is no longer
   recorded as releasing the pause, matching the Builder's stronger attempt (#611).
 
+- Lifecycle-only provider events no longer let a persistent helper process bypass an explicitly configured idle timeout; genuine tool execution keeps its tool deadline (#1562).
+
 ### Added
 - The soft-default machinery for automatic selection (#1426 step 11's second half): an internal
   `auto_select=None` launch selects and, when the tool's listings cannot be read or its accounts cannot field
