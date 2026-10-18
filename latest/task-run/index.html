@@ -2310,7 +2310,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/4fc02a0531440d2f68fe79aecd8015fb525414dd/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/68f5f1fc1bfe7ddb6d3d6223c412f64597c92871/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2659,7 +2659,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/4fc02a0531440d2f68fe79aecd8015fb525414dd/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/68f5f1fc1bfe7ddb6d3d6223c412f64597c92871/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3752,6 +3752,19 @@ candidate; changed or uncertain partial candidates are preserved and refused.</p
 --compare CHECKPOINT</code>, followed by the mutually exclusive <code>--restore CHECKPOINT
 --expected-token TOKEN --request-id ID</code>. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.</p>
+<p>Each row of <code>code_checkpoints</code> that still has verified source objects also
+names the actions a client may take, in the same shape as a connection
+(<code>actions</code> with <code>id</code>, <code>label</code> and <code>next_command</code>: an argument array following
+<code>autocode</code>). A client executes only offered actions. The <code>compare</code> action is
+always named on an available row. The <code>restore</code> action is named only where
+restoration is currently allowed (<code>blocked_reason</code> is null); it carries
+<code>--expected-token -</code>, which reads <code>AUTOCODE_CHECKPOINT_EXPECTED_TOKEN</code> and is
+supplied only by a fresh <code>compare</code> of that same checkpoint (a stale token is
+refused), and the <code>REQUEST_ID</code> placeholder, which the client replaces with its
+own stable id for this confirmation — replaying the same id reconciles its
+candidate instead of creating another. Without the run's paths the array uses
+the <code>WORKSPACE</code> and <code>RUN_DIR</code> placeholders; the status view supplies the real
+ones.</p>
 <p><code>status()["changes_by_criterion"]</code> attributes those saved steps to the approved
 plan's acceptance criteria. Each criterion lists the plan milestones that cover
 it, the checkpoint ids of their saved Builder steps and the union of the files
