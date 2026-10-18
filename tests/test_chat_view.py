@@ -1,10 +1,13 @@
 """The chat surface is a projection of public task history and admitted actions."""
 
 import copy
+import json
 import shlex
 import unittest
+from pathlib import Path
 
 import autocode_chat_view as chat
+import autocode_util as util
 
 
 class ChatViewTests(unittest.TestCase):
@@ -75,6 +78,8 @@ class ChatViewTests(unittest.TestCase):
         public = {"status": state["status"], "needs": need}
         result = chat.project(state, public, workspace="/ws", run_dir="/run")
         self.assertEqual("resolver_response", result["input"]["kind"])
+        schema = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
+        util.validate_schema(result, schema["properties"]["view"]["properties"]["chat"])
         self.assertIn("What changed?", result["messages"][-1]["text"])
         self.assertIn("Leave blocked", result["messages"][-1]["text"])
         self.assertEqual(
