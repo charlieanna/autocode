@@ -478,6 +478,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#choosing-models-automatically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing models automatically
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#builder-retry-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1975,6 +1986,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#choosing-models-automatically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing models automatically
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#builder-retry-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2100,7 +2122,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a5eda9d144d7609a94b38eaece9dba3c4b8f3b20/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/506250f87ee978e3f5bfea17ba3c930dac5d132c/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2256,7 +2278,7 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/a5eda9d144d7609a94b38eaece9dba3c4b8f3b20/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/506250f87ee978e3f5bfea17ba3c930dac5d132c/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2340,6 +2362,40 @@ and pauses <code>PAUSED_MILESTONE_BUDGET</code> when it would take the milestone
 names are in saved run state. They are not model choices: <code>--terra-model
 zai-coding-plan/glm-5.3</code> selects the model used for the Builder role.</p>
 </blockquote>
+<h2 id="choosing-models-automatically">Choosing models automatically<a class="headerlink" href="#choosing-models-automatically" title="Permanent link">&para;</a></h2>
+<p>Automatic selection (#1426) chooses each role's model from the accounts you have
+connected, so you never route roles by hand. It is built in steps; the choice itself
+(<code>tools/autocode_route_selector.py</code>) is in place, and the discovery and wiring that
+make it the default for new runs land in later steps of the same issue. Until they do,
+new runs use the <a href="#default-models">default models</a> above unless you name your own.</p>
+<p>The rules the choice keeps:</p>
+<ul>
+<li><strong>A minimum standard per role.</strong> A model is only ever chosen for a role when the
+  dated qualification table (<code>tools/autocode_route_qualification.json</code>) lists it for
+  that role, with the evidence that admitted it: AutoCode's own runs qualify a model,
+  and a public benchmark admits it only provisionally until such a run confirms it.
+  The table changes by pull request, like the price table it is priced from. A model
+  not in the table is never chosen automatically, however cheap.</li>
+<li><strong>Within a role's qualified models, the cheapest route wins.</strong> A subscription route
+  counts as cheaper than any pay-per-token one, then the price-table cost orders them,
+  and a route whose access is already proven beats one that would need a probe. The
+  checkers are never downgraded to save money: they start on their cheapest <em>qualified</em>
+  model, and only a failure ever moves a role up.</li>
+<li><strong>Independence is never lowered quietly.</strong> Every producer and checker pair stays on
+  different model families (<code>tools/autocode_verifier_independence.py</code>); when the
+  connected accounts cannot provide that, the run stops before any work and says what
+  is missing in account terms ("connect a second model family"), never by suggesting
+  <code>--single-model</code>.</li>
+<li><strong>No invented reasoning levels.</strong> A route gets a reasoning level only when the model
+  advertises it; otherwise the model uses its own default.</li>
+<li><strong>Explicit choices win.</strong> <code>--&lt;role&gt;-model</code>, <code>--provider</code>, <code>--role-transport</code> and
+  <code>--single-model</code> constrain or replace the automatic choice, and saved runs keep the
+  routes they were started with.</li>
+</ul>
+<p>The choice is one deterministic function from the discovered candidates and the
+accounts you allow to one route per role, or a stop that names what is missing. Each
+chosen route is recorded with its origin (<code>auto_selected</code>) in the route record the
+status view shows.</p>
 <h2 id="builder-retry-policy">Builder retry policy<a class="headerlink" href="#builder-retry-policy" title="Permanent link">&para;</a></h2>
 <p>New standard-workflow runs use a persisted Builder retry policy per approved milestone:
 the configured Builder gets one ordinary retry, then one stronger attempt
