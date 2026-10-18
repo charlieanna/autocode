@@ -235,6 +235,30 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertTrue(saved["plan/mimo"]["blocking"])
         self.assertIn("Add credits", saved["plan/mimo"]["detail"])
 
+    def test_rejected_authentication_blocks_before_another_model_is_probed(self):
+        rejection = [
+            {
+                "type": "error",
+                "sessionID": "ses_auth",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "statusCode": 401,
+                        "message": "private-test-canary",
+                        "responseBody": "private-test-canary; budget exhausted",
+                    },
+                },
+            }
+        ]
+        with self.assertRaises(support.Paused) as caught:
+            self.check({"plan/glm": rejection, "plan/mimo": OK_EVENTS})
+        self.assertEqual("PAUSED_AUTH", caught.exception.status)
+        self.assertIn("401", str(caught.exception))
+        self.assertNotIn("private-test-canary", str(caught.exception))
+        self.assertEqual(["plan/glm"], self.calls)
+        self.assertTrue(probed(self.run_dir)["plan/glm"]["blocking"])
+        self.assertNotIn("private-test-canary", probed(self.run_dir)["plan/glm"]["detail"])
+
     def test_resume_reprobes_a_route_that_failed_until_it_passes(self):
         with self.assertRaises(support.Paused):
             self.check({"plan/glm": OK_EVENTS, "plan/mimo": PAYWALL_EVENTS})

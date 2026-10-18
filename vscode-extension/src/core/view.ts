@@ -129,6 +129,16 @@ export interface CodeCheckpoints {
   restores?: Record<string, unknown>[] | null;
 }
 
+/** Descriptions of saved recovery actions; execution still uses next_command. */
+export interface Recovery {
+  category?: string;
+  title?: string;
+  what_happened?: string;
+  retained?: string;
+  actions?: { kind?: string; label?: string; effect?: string; args?: string[] }[];
+  [key: string]: unknown;
+}
+
 export interface StatusView {
   schema?: number;
   /** The run's effective workspace: may differ from a client handle named before bootstrap relocation. */
@@ -154,7 +164,7 @@ export interface StatusView {
   provider?: string | null;
   routes?: Record<string, ModelRoute> | null;
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
-  recovery?: Record<string, unknown> | null;
+  recovery?: Recovery | null;
   liveness?: { kind?: string } | null;
   current_task?: { id?: string; objective?: string } | null;
   code_checkpoints?: CodeCheckpoints | null;

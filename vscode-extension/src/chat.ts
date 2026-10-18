@@ -73,15 +73,18 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly busy = new Set<string>();
   private sequence = 0;
   private refreshing = false;
-  private readonly timer: NodeJS.Timeout;
+  private timer: NodeJS.Timeout | undefined;
+  private readonly configuration: vscode.Disposable;
 
   constructor(private readonly controller: RunController, private readonly storage: vscode.Memento, private readonly actions: Actions) {
     // Keep the pre-multi-window selection only for one-time migration. The
     // open tabs now live in this window's webview state; workspaceState is
     // shared by windows opened on the same workspace.
     this.legacyRun = storage.get<RunRef>("autocode.chat.run");
-    const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
-    this.timer = setInterval(() => void this.refresh(), seconds * 1000);
+    this.startPolling();
+    this.configuration = vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("autocode.pollSeconds")) this.startPolling();
+    });
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -143,7 +146,16 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     await vscode.commands.executeCommand("autocode.chat.focus");
   }
 
-  dispose(): void { clearInterval(this.timer); }
+  private startPolling(): void {
+    if (this.timer) clearInterval(this.timer);
+    const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
+    this.timer = setInterval(() => void this.refresh(), seconds * 1000);
+  }
+
+  dispose(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.configuration.dispose();
+  }
 
   private get active(): ChatTab { return this.tabs.find((tab) => tab.key === this.activeKey) ?? this.tabs[0]!; }
 
@@ -241,8 +253,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
         if (leavesForPerson(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true)) {
           const answer = await vscode.window.showWarningMessage(
-            "Continue AutoCode?", { modal: true,
-              detail: view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, "Continue",
+            state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?", { modal: true,
+              detail: state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, "Continue",
           );
           if (answer !== "Continue") return;
         }

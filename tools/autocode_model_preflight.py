@@ -48,6 +48,7 @@ try:
     from . import autocode_cost as cost
     from . import autocode_preflight_attempts as attempts
     from . import autocode_process as processes
+    from . import autocode_provider_auth as provider_auth
     from . import autocode_role_transport as role_transport
     from . import autocode_support as support
     from . import provider_conformance_transport as transport
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_cost as cost
     import autocode_preflight_attempts as attempts
     import autocode_process as processes
+    import autocode_provider_auth as provider_auth
     import autocode_role_transport as role_transport
     import autocode_support as support
     import provider_conformance_transport as transport
@@ -147,6 +149,8 @@ def _classify(events_path: Path) -> tuple[str | None, str]:
     if not failures:
         return None, ""
     status = support.failure_status(events_path, record=None)
+    if auth := provider_auth.authentication_reason(failures):
+        return status, auth
     message = ""
     error = failures[-1].get("error")
     if isinstance(error, dict):
