@@ -484,7 +484,7 @@ export function panelHtml(chat = false): string {
 </style>
 </head>
 <body>
-${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <section id="telemetry" aria-label="Models and usage">
@@ -935,7 +935,8 @@ window.addEventListener('message', (event) => {
   if (data && data.type === 'state') render(data.state);
   if (data && data.type === 'chat') {
     if (data.persistSelection) {
-      vscode.setState?.({ ...(vscode.getState?.() || {}), selectedRun: data.selectedRun || null });
+      vscode.setState?.({ ...(vscode.getState?.() || {}), selectedRun: data.selectedRun || null,
+        tabs: data.tabs || [], activeTabKey: data.activeKey || '' });
     }
     renderChat(data);
   }
@@ -979,21 +980,56 @@ function saveDraft() {
 function updateComposer() {
   if (!chatEnvelope) return;
   const input = chatEnvelope.state && chatEnvelope.state.chat && chatEnvelope.state.chat.input;
-  const allowed = !chatEnvelope.runKey || Boolean(input);
+  const allowed = !chatEnvelope.selectedRun || Boolean(input);
   document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || !document.getElementById('message').value.trim();
   document.getElementById('send-message').textContent = 'Send ↑';
   document.getElementById('send-message').setAttribute('aria-label', input ? input.label + ' and continue' : 'Send message');
-  document.getElementById('send-hint').textContent = !chatEnvelope.runKey ? 'Message AutoCode'
+  document.getElementById('send-hint').textContent = !chatEnvelope.selectedRun ? 'Message AutoCode'
     : input ? input.label + ' and continue'
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
+}
+
+/** The open chats (#1558): one tab per run or fresh chat, addressed by tab key. */
+function renderTabs(data) {
+  const host = document.getElementById('chat-tabs');
+  if (!host) return;
+  const rows = data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }];
+  const signature = JSON.stringify([rows, data.activeKey]);
+  if (host.dataset.content === signature) return;
+  host.dataset.content = signature;
+  host.textContent = '';
+  rows.forEach((tab) => {
+    const item = el('div', 'chat-tab' + (tab.key === data.activeKey ? ' active' : ''));
+    item.role = 'tab';
+    item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
+    const name = el('span', 'name', tab.name);
+    item.appendChild(name);
+    if (tab.busy) item.appendChild(el('span', 'dot', '•'));
+    if (rows.length > 1) {
+      const close = el('span', 'close', '×');
+      close.title = 'Close chat';
+      close.setAttribute('aria-label', 'Close chat ' + tab.name);
+      close.addEventListener('click', (event) => {
+        event.stopPropagation();
+        vscode.postMessage({ type: 'close_tab', tabKey: tab.key });
+      });
+      item.appendChild(close);
+    }
+    item.title = tab.name;
+    item.addEventListener('click', () => {
+      if (tab.key !== data.activeKey) vscode.postMessage({ type: 'select_tab', tabKey: tab.key });
+    });
+    host.appendChild(item);
+  });
 }
 
 function renderChat(data) {
   const thread = document.getElementById('thread');
   document.getElementById('engine-name').textContent = data.engine || 'opencode';
   const detailsBtn = document.getElementById('details');
-  if (detailsBtn) detailsBtn.disabled = !data.runKey;
+  if (detailsBtn) detailsBtn.disabled = !data.selectedRun;
+  renderTabs(data);
   const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
   if (!same) {
     saveDraft();
@@ -1137,6 +1173,8 @@ vscode.postMessage({
   type: 'ready',
   hasSelectedRun: chatMode && Object.prototype.hasOwnProperty.call(initialWebviewState, 'selectedRun'),
   selectedRun: chatMode ? initialWebviewState.selectedRun || null : null,
+  tabs: chatMode ? initialWebviewState.tabs || [] : [],
+  activeKey: chatMode ? initialWebviewState.activeTabKey || '' : '',
 });
 </script>
 </body>

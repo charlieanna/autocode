@@ -113,6 +113,17 @@ export const chatStyles = /* css */ `
   #composer .chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .keyboard-hint { font-size: .7rem; color: var(--vscode-descriptionForeground); }
+  #chat-tabs { display: flex; flex-shrink: 0; gap: 2px; padding: 2px 8px 0; overflow-x: auto; scrollbar-width: thin; }
+  .chat-tab { display: inline-flex; align-items: center; gap: 4px; max-width: 150px; padding: 2px 8px;
+    font-size: .75rem; cursor: pointer; color: var(--vscode-descriptionForeground);
+    border: 1px solid transparent; border-bottom: none; border-radius: 5px 5px 0 0; }
+  .chat-tab:hover { background: var(--vscode-toolbar-hover); }
+  .chat-tab.active { color: var(--vscode-foreground); background: var(--vscode-input-background);
+    border-color: var(--vscode-panel-border); }
+  .chat-tab .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-tab .dot { color: var(--vscode-charts-blue, #1a6fb0); }
+  .chat-tab .close { padding: 0 2px; border-radius: 3px; font-size: .8rem; }
+  .chat-tab .close:hover { background: var(--vscode-toolbar-hover); color: var(--vscode-foreground); }
   /* The hint's min-content width plus the engine chip and Send need ~215px; below that
      the nowrap row pushed Send out of the webview, so the hint yields first. */
   @media (max-width: 240px) {
