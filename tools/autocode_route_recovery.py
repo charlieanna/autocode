@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -80,7 +80,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     runtime.abandon_stage(candidate, Path(run_dir), Path(workspace), stopped["attempt_id"], actor="runner")
     run_status.running(candidate, state.get("phase") or "IMPLEMENTING")
     runtime.write_json(Path(run_dir) / "state.json", candidate)
-    state.clear()
+    cast(dict, state).clear()
     state.update(candidate)
     job = quota_route.roles.screen_name(stopped.get("stage") or role, state)
     account = switched.get("account") or "the run's tool"
