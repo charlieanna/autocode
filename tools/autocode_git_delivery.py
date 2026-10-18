@@ -11,7 +11,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -82,7 +82,7 @@ def ready(state: RunState, current):
         return bool(
             contracts.approved(state)
             and receipt.get("phase") == "committed"
-            and receipt.get("contract_hash") == state["goal_contract"]["hash"]
+            and receipt.get("contract_hash") == cast(dict, state["goal_contract"])["hash"]
             and receipt.get("workspace") == str(Path(state["workspace"]).resolve())
             and receipt.get("spec") == spec
             and receipt.get("delivered_source") == current
@@ -173,14 +173,14 @@ def prepare(state: RunState, workspace, current):
         raise ValueError("Git delivery receipt must not be a symlink")
     if path.exists():
         receipt = util.read(path)
-        if receipt.get("contract_hash") != state["goal_contract"]["hash"] or receipt.get("spec") != spec:
+        if receipt.get("contract_hash") != cast(dict, state["goal_contract"])["hash"] or receipt.get("spec") != spec:
             raise ValueError("The Git delivery plan changed; reconcile the saved receipt")
         if receipt.get("phase") != "committed":
             raise ValueError("A prior Git delivery is uncertain; inspect its receipt and Git state before retrying")
         state["git_delivery"] = {"commit": receipt["commit"], "receipt_sha256": util.file_hash(path)}
         if not ready(state, current):
             raise ValueError("Source, index or Git HEAD changed after delivery; reconcile before completion")
-        return state.get("validation", {}).get("source_revision") != current["revision"]
+        return (state.get("validation") or {}).get("source_revision") != current["revision"]
     if state.get("base_commit") != current["head"]:
         raise ValueError("Preexisting dirty work or moved HEAD requires reconciliation before atomic delivery")
     baseline = trees.tree_files(workspace, current["head"])
@@ -193,7 +193,7 @@ def prepare(state: RunState, workspace, current):
         raise ValueError("Atomic Git delivery requires changes wholly within the approved affected paths")
     intent = {
         "version": 1,
-        "contract_hash": state["goal_contract"]["hash"],
+        "contract_hash": cast(dict, state["goal_contract"])["hash"],
         "workspace": str(Path(workspace).resolve()),
         "parent": current["head"],
         "spec": spec,

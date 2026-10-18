@@ -286,7 +286,7 @@ def dispatch_unit(runtime, state: RunState, stage, workspace, run_dir):
     runtime.workflow.dispatch_guard(state, stage, workspace)
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
-    regression.before_review(state, stage, workspace, run_dir)
+    completion_result.before_review(state, stage, workspace, run_dir)
     try:
         launch_inputs.guard(state, workspace, run_dir)
     except ValueError as error:

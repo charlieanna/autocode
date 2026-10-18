@@ -189,9 +189,11 @@ Run details. A notice never grants an action beyond the view's named command.
 
 A build plan can explicitly request local delivery with
 `git_delivery: {"kind": "atomic_commit", "message": "…"}`. This field is part of
-the sealed plan and is shown alongside its approval. After all pre-delivery checks
-pass, the controller creates one scoped commit, honors existing Git hooks, and
-runs independent verification on the committed revision before completing.
+the sealed plan and is shown alongside its approval. A fresh passing runner
+regression proof allows the controller to create the scoped commit before the
+independent Tester inspects it. The committed revision receives fresh runner proof
+and independent verification before completion. Plans without executable regression
+cases retain the final completion boundary. Existing Git hooks are honored.
 Stage workers still cannot commit. Push, merge and deployment are separate actions.
 
 Delivery refuses preexisting dirty launch work, staged changes, changes outside

@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import autocode_completion_result as result
 import autocode_contract_identity as identity
@@ -41,6 +41,37 @@ class DeliveryPolicyTests(unittest.TestCase):
         )
         self.assertIn("Git delivery", shown)
         self.assertIn("Add JSON export", shown)
+
+
+class DeliveryReviewTests(unittest.TestCase):
+    def test_checked_candidate_is_committed_before_independent_review_and_proof_is_refreshed(self):
+        state = {"goal_contract": {"body": {"git_delivery": {"kind": "atomic_commit", "message": "Deliver"}}}}
+        order = []
+        with (
+            patch("autocode_regression.before_review", side_effect=lambda *a: order.append("proof")) as proof,
+            patch("autocode_regression.required", return_value=True),
+            patch("autocode_regression.complete", return_value=True),
+            patch("autocode_source_scope.snapshot", return_value={"revision": "checked"}),
+            patch("autocode_git_delivery.prepare", side_effect=lambda *a: order.append("commit") or True) as commit,
+        ):
+            result.before_review(state, "sol", Path("/workspace"), Path("/run"))
+        self.assertEqual(["proof", "commit", "proof"], order)
+        commit.assert_called_once()
+        self.assertEqual(2, proof.call_count, "A commit changes source identity and needs a new runner proof")
+
+    def test_failing_or_absent_regression_proof_cannot_trigger_early_delivery(self):
+        state = {"goal_contract": {"body": {"git_delivery": {"kind": "atomic_commit", "message": "Deliver"}}}}
+        for required, passed in ((True, False), (False, True)):
+            with (
+                self.subTest(required=required, passed=passed),
+                patch("autocode_regression.before_review"),
+                patch("autocode_regression.required", return_value=required),
+                patch("autocode_regression.complete", return_value=passed),
+                patch("autocode_source_scope.snapshot", return_value={"revision": "checked"}),
+                patch("autocode_git_delivery.prepare") as commit,
+            ):
+                result.before_review(state, "sol", Path("/workspace"), Path("/run"))
+                commit.assert_not_called()
 
 
 class AtomicDeliveryTests(unittest.TestCase):
@@ -172,6 +203,7 @@ class AtomicDeliveryTests(unittest.TestCase):
         delivery.prepare(self.state, self.root, self.current)
         head = self.git("rev-parse", "HEAD")
         self.state.pop("git_delivery")
+        self.state["validation"] = None
         self.assertTrue(delivery.prepare(self.state, self.root, scope.snapshot(self.root, self.state)))
         self.assertEqual(head, self.git("rev-parse", "HEAD"))
         self.assertTrue(delivery.ready(self.state, scope.snapshot(self.root, self.state)))

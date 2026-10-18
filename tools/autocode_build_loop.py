@@ -20,6 +20,7 @@ try:
     from . import autocode_approval_provenance as approval_provenance
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_climb_cap as climb_cap
+    from . import autocode_completion_result as completion_result
     from . import autocode_cost as cost
     from . import autocode_dispatch as dispatch
     from . import autocode_interventions as interventions
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_approval_provenance as approval_provenance
     import autocode_checkout_lock as checkout_lock
     import autocode_climb_cap as climb_cap
+    import autocode_completion_result as completion_result
     import autocode_cost as cost
     import autocode_dispatch as dispatch
     import autocode_interventions as interventions
@@ -258,7 +260,7 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
             current, run_dir, workspace, "planning_review_call_limit"
         ):
             resolver_runtime.operational_boundary(runner, current, run_dir, workspace)
-        regression.before_review(current, stage, workspace, run_dir)
+        completion_result.before_review(current, stage, workspace, run_dir)
         try:
             launch_inputs.guard(current, workspace, run_dir)
         except ValueError as error:

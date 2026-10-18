@@ -32,16 +32,25 @@ class GitDeliveryCLI(unittest.TestCase):
             """def _contract():
     plan = _original_contract()
     plan["git_delivery"] = {"kind": "atomic_commit", "message": "Deliver greeting CLI"}
+    plan["acceptance_criteria"][0]["verification_method"] = "test: test_greet"
     return plan
 
 
 def _criteria(""",
         )
+        script = script.replace(
+            '    elif stage in ("sol", "astra_checkpoint"):',
+            '    elif stage in ("sol", "astra_checkpoint"):\n        if subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == '
+            + repr(base)
+            + ':\n            raise RuntimeError("Delivery criterion cannot pass before the controller commit")',
+        )
+        self.assertIn("Delivery criterion cannot pass", script)
         provider.write_text(script)
         run = taskrun.TaskRun.start(
             self.workspace, BRIEF, options=(*FIXTURE_OPTIONS, "--no-adaptive-planning"), env=self.env, timeout=300
         )
         plan = run.status()
+        self.assertTrue("displayed_plan" in plan, {k: plan.get(k) for k in ("status", "stop_reason", "needs")})
         self.assertEqual("atomic_commit", plan["displayed_plan"]["git_delivery"]["kind"])
         run.approve_plan(plan["needs"]["token"])
         finished = run.advance_until_input()

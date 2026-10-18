@@ -12,6 +12,40 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 
+def before_review(state: RunState, stage, workspace, run_dir):
+    """A passing runner regression proof can deliver before the judge inspects Git.
+
+    This avoids requiring a judge to claim that an undelivered commit exists.
+    The changed HEAD receives fresh runner proof and ordinary independent review.
+    Plans without executable regression cases retain the final completion gate.
+    """
+    try:
+        from . import autocode_git_delivery as delivery
+        from . import autocode_regression as regression
+        from . import autocode_source_scope as source_scope
+        from .autocode_util import Paused
+    except ImportError:
+        import autocode_git_delivery as delivery
+        import autocode_regression as regression
+        import autocode_source_scope as source_scope
+        from autocode_util import Paused
+    regression.before_review(state, stage, workspace, run_dir)
+    if stage not in ("sol", "astra_checkpoint", "astra_review"):
+        return
+    try:
+        if delivery.requirement((state.get("goal_contract") or {}).get("body") or {}) is None:
+            return
+        current = source_scope.snapshot(workspace, state)
+        if (
+            regression.required(state, all_due=True)
+            and regression.complete(state, current["revision"], all_due=True)
+            and delivery.prepare(state, workspace, current)
+        ):
+            regression.before_review(state, stage, workspace, run_dir)
+    except (OSError, ValueError) as error:
+        raise Paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
+
+
 def apply(
     state: RunState,
     current,
