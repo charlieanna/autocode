@@ -125,12 +125,13 @@ def _stopped_on_route(record):
         return False
 
 
-def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None):
+def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None, actor="user_cli"):
     """Explicitly discard an uncertain response, retaining its edits and evidence.
 
     ``launch`` is the runner: a workflow job set aside here that stopped on its model lists the
     configured models its launch rules (``dispatch``, ``opencode``) let it take (#463).
     """
+    operator = "Automatic route recovery" if actor == "runner" else "Operator"
     record = state.get("active_stage")
     if not record or selected != records.attempt_id(record):
         raise ValueError("--abandon-stage must match the active attempt_id shown by --status")
@@ -152,9 +153,9 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None)
         changed_files=support.changed_paths(before, after),
         abandoned=True,
     )
-    resolver_human.supersede_operational(state, "Operator explicitly abandoned the selected uncertain attempt")
+    resolver_human.supersede_operational(state, f"{operator} abandoned the selected uncertain attempt")
     originals = records.archive_rejected_stage(
-        state, run_dir, record, "Operator abandoned uncertain response; workspace edits retained"
+        state, run_dir, record, f"{operator} abandoned uncertain response; workspace edits retained"
     )
     if record.get("report_only") and state.get("pending_report_repair"):
         state.setdefault("report_repair_archive", []).append(
@@ -181,7 +182,7 @@ def abandon_stage(state: RunState, run_dir, workspace, selected, *, launch=None)
         {
             "kind": "stage_abandoned",
             "at": records.now(),
-            "actor": "user_cli",
+            "actor": actor,
             "attempt_id": selected,
             "changed_files": record["changed_files"],
         }

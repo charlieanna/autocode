@@ -146,6 +146,84 @@ def check_subscription(identity):
         )
 
 
+def _auto_select(args, roles, provider_mod, single_model, history_models, history_providers, engine, workspace):
+    """Choose routes from the tool's connected accounts (#1426) — the default for new runs.
+
+    Explicit choices win: a role whose model a flag or this conversation named, or
+    whose tool a flag named, keeps that route and only has its independence checked.
+    Everything else is the selector's, from discovery's local listings; a selection
+    that cannot field an independent checker refuses to start, in account terms.
+    The result is stored under ``route_selection`` for the access check and the
+    route record; saved runs never re-select.
+
+    ``--no-auto-select`` (``auto_select`` False) keeps the fixed default routes; an
+    explicit ``--auto-select`` (True) insists on selection. The default (None) also
+    selects, but softly: when the tool's listings cannot be read, or its accounts
+    cannot field an independent checker — a scripted test provider, a custom tool,
+    an offline tool — the run prints why and falls back to the fixed default routes
+    rather than refusing, because a defaulted attempt must never block a launch; the
+    usual catalogue and launch checks still guard those routes.
+    """
+    # Opt-in until #1426 step 12's qualification flips the default: an absent flag keeps
+    # the fixed routes (so the suite never reads a machine's real logins); an explicit
+    # ``auto_select=None`` is the soft default that flip will ship.
+    requested = getattr(args, "auto_select", False)
+    if requested is False or single_model or engine != "opencode":
+        if requested is True and single_model:
+            raise ValueError("--auto-select cannot be combined with --single-model")
+        if requested is True and engine != "opencode":
+            raise ValueError(
+                "--auto-select chooses among the OpenCode engine's tools; --engine codex keeps its own routes"
+            )
+        return None
+    try:
+        from . import autocode_route_discovery as discovery
+        from . import autocode_route_selector as route_selector
+    except ImportError:
+        import autocode_route_discovery as discovery
+        import autocode_route_selector as route_selector
+
+    def soft(story):
+        # A defaulted attempt falls back to the fixed routes; an insisted one refuses.
+        if requested is True:
+            raise ValueError(story)
+        print(f"Automatic model selection is off for this run: {story} Using the fixed default routes.", flush=True)
+        return None
+
+    try:
+        found = discovery.discover(provider_mod, Path(workspace))
+    except Exception as error:  # noqa: BLE001 - any failure of a defaulted listing is a fallback
+        return soft(f"the tool's listings could not be read ({error}).")
+    # The run's full role set, not the four DEFAULT_ROLE_MODELS the roles dict
+    # holds here: joint planning adds Requirements, Planner and Plan Reviewer.
+    pinned = {}
+    for role in route_selector.PIPELINE_ROLES:
+        named = getattr(args, f"{role}_model", None) or history_models.get(role)
+        explicit_tool = getattr(args, f"{role}_provider", None) or history_providers.get(role)
+        if named:
+            pinned[role] = named
+        elif explicit_tool:
+            # A role pointed at another tool keeps whatever route it already has.
+            pinned[role] = (roles.get(role) or {}).get("model") or provider_mod.DEFAULT_MODELS.get(role)
+    result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"], pinned=pinned)
+    if result["stop"]:
+        return soft(result["stop"])
+    # The permitted set a quota stop may switch within without asking (#1426 step 9):
+    # every qualified, connected candidate, all on accounts this launch already used.
+    result["candidates"] = route_selector.permitted_set(found["candidates"])
+    for role, route in result["routes"].items():
+        explicit_effort = getattr(args, f"{role}_reasoning_effort", None) or getattr(args, "reasoning_effort", None)
+        if explicit_effort is not None:
+            route["reasoning_effort"] = explicit_effort
+        if role in pinned or role not in roles:
+            continue
+        roles[role]["model"] = route["model"]
+        # None is the model's own default level; a tool that cannot omit the level
+        # argument omits it (providers/command.py, #1426 step 5).
+        roles[role]["reasoning_effort"] = route.get("reasoning_effort")
+    return result
+
+
 def configure(args, state: RunState, *, planning, milestones, autopilot, opencode=None):
     role_transport.guard(args, state)
     if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
@@ -178,6 +256,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         raise ValueError("--single-model cannot be combined with --builder-strong-model")
     if started:
         utility_route.configure({}, args, started=True)  # refuses --utility-model on a saved run
+    if started and getattr(args, "auto_select", None) is True:
+        raise ValueError("--auto-select is a new-run choice; a saved run keeps the routes it started with")
     if started and getattr(args, "builder_strong_model", None):
         raise ValueError(
             "--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route"
@@ -502,6 +582,9 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
     }
     for role in getattr(args, "pin_model_role", []):
         roles[role]["model_pinned"] = True
+    auto_selection = _auto_select(
+        args, roles, provider_mod, single_model, models, providers, engine, state["workspace"]
+    )
     builder_retry = autopilot.builder_policy.configured(
         getattr(args, "builder_strong_model", None), provider_mod, single_model=single_model
     )
@@ -513,6 +596,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         "single_model_mode": bool(single_model),
         "budget_origins": budget_origins(args),
         "builder_retry": builder_retry,
+        # What --auto-select chose, for the access check and the route record (#1426).
+        **({"route_selection": auto_selection} if auto_selection is not None else {}),
         # The effort rungs each role may climb, serveability-filtered for a
         # provider that publishes its models (autocode_route_ladder).
         "route_ladders": route_ladder.configure_ladders(getattr(provider_mod, "LISTED_MODELS", None)),
@@ -651,6 +736,12 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
     # Why each role of this new run has the route it does (autocode_role_route). Recorded here,
     # after every role exists; a saved run re-records only the routes it re-chooses (role_route.moved).
     settings["route_origins"] = role_route.origins(args, settings["roles"], models, single_model)
+    if auto_selection is not None:
+        # The selector's own choices are recorded as such; a pinned role keeps the
+        # person's origin that `origins` just wrote.
+        for role, route in auto_selection["routes"].items():
+            if route.get("origin") == role_route.AUTO_SELECTED:
+                settings["route_origins"][role] = role_route.AUTO_SELECTED
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args
@@ -666,6 +757,24 @@ def _provider_model(role, requested, mod=None):
     if not getattr(mod, "CONFIGURED", False) and "/" not in model:
         model = f"openai/{model}"
     return model
+
+
+def _selected_model(settings, role):
+    """The route --auto-select chose for ``role``; None when selection did not (#1426)."""
+    route = ((settings.get("route_selection") or {}).get("routes") or {}).get(role) or {}
+    return route.get("model") if route.get("origin") == role_route.AUTO_SELECTED else None
+
+
+def _auto_chosen(settings, role) -> bool:
+    """Whether --auto-select (not a flag) decided this role's route."""
+    route = ((settings.get("route_selection") or {}).get("routes") or {}).get(role) or {}
+    return route.get("origin") == role_route.AUTO_SELECTED
+
+
+def _selected_effort(settings, role):
+    """The level --auto-select chose, None when it left the model's default."""
+    route = ((settings.get("route_selection") or {}).get("routes") or {}).get(role) or {}
+    return route.get("reasoning_effort") if route.get("origin") == role_route.AUTO_SELECTED else None
 
 
 def configure_joint(settings, args, *, fresh, planning, opencode=None):
@@ -684,8 +793,10 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             "model": single_model
             or getattr(args, "requirements_model", None)
             or getattr(args, "glm_model", None)
+            or _selected_model(settings, "requirements")
             or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
-            "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
+            "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)
+            or _selected_effort(settings, "requirements"),
         }
         if "completion" not in settings["roles"]:
             settings["roles"]["completion"] = {
@@ -697,19 +808,38 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             settings["roles"][role].update(
                 engine="opencode",
                 provider=None,
-                model=single_model or _provider_model(role, getattr(args, f"{role}_model", None), mod),
+                model=single_model
+                or _selected_model(settings, role)
+                or _provider_model(role, getattr(args, f"{role}_model", None), mod),
             )
-        terra_model = single_model or getattr(args, "terra_model", None) or mod.DEFAULT_MODELS["terra"]
+        terra_model = (
+            single_model
+            or getattr(args, "terra_model", None)
+            or _selected_model(settings, "terra")
+            or mod.DEFAULT_MODELS["terra"]
+        )
         settings["roles"]["terra"].update(engine="opencode", provider=None, model=terra_model)
         for role, effort in mod.DEFAULT_REASONING_EFFORTS.items():
-            if role in settings["roles"] and not settings["roles"][role].get("reasoning_effort"):
-                settings["roles"][role]["reasoning_effort"] = effort
-        glm_model = single_model or getattr(args, "glm_model", None) or mod.DEFAULT_MODELS["glm"]
+            # An auto-selected route may deliberately run at the model's own default.
+            route = settings["roles"].get(role)
+            if route and not route.get("reasoning_effort") and not _auto_chosen(settings, role):
+                route["reasoning_effort"] = effort
+        glm_model = (
+            single_model
+            or getattr(args, "glm_model", None)
+            or _selected_model(settings, "glm")
+            or mod.DEFAULT_MODELS["glm"]
+        )
         settings["roles"]["glm"] = {
             "engine": "opencode",
             "provider": None,
             "model": glm_model,
-            "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS.get("glm"),
+            "reasoning_effort": getattr(args, "glm_reasoning_effort", None)
+            or (
+                _selected_effort(settings, "glm")
+                if _auto_chosen(settings, "glm")
+                else mod.DEFAULT_REASONING_EFFORTS.get("glm")
+            ),
         }
         settings["roles"]["plan_reviewer"] = {
             "engine": "opencode",
@@ -717,12 +847,17 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             "model": (
                 single_model
                 or getattr(args, "plan_reviewer_model", None)
+                or _selected_model(settings, "plan_reviewer")
                 or mod.DEFAULT_MODELS.get("plan_reviewer")
                 or planning.PINNED_REVIEWER_MODEL
             ),
             "reasoning_effort": (
                 getattr(args, "plan_reviewer_reasoning_effort", None)
-                or mod.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")
+                or (
+                    _selected_effort(settings, "plan_reviewer")
+                    if _auto_chosen(settings, "plan_reviewer")
+                    else mod.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")
+                )
             ),
             "model_pinned": True,
         }

@@ -21,10 +21,11 @@ Candidates arrive as dicts the discovery steps define: ``model`` (the id exactly
 tool lists it), ``tool``, ``account`` (the login that bills it, e.g. "Kilo Gateway"),
 ``billing`` ("subscription", "pay per token", or None when unknown), ``levels`` (the
 reasoning levels the model advertises, when discovery could read them) and ``probe``
-("known" when access is already proven). A level the candidate does not advertise is
-never invented: the route gets None and the model uses its own default. Candidates from
-one tool only — selection works one tool per run (#1426 answer 1), so the wiring scopes
-the candidate list to the run's tool before calling.
+("known" when access is already proven). The qualification table's reasoning level is
+the level AutoCode's qualifying runs used, so it is passed as recorded unless discovery
+reports the model lacks it; a model with no recorded level runs at its own default.
+Candidates from one tool only — selection works one tool per run (#1426 answer 1), so
+the wiring scopes the candidate list to the run's tool before calling.
 """
 
 from __future__ import annotations
@@ -156,12 +157,19 @@ def _rank(candidate, entry):
 
 
 def _effort(entry, candidate):
-    """The level to pass, or None for the model's own default; never an invented level."""
+    """The level to pass, or None for the model's own default; never an invented level.
+
+    The table's level is the level AutoCode's qualifying runs used on that model, so it
+    is evidence, not invention; discovery's advertised levels exist to veto it when a
+    tool reports the model lacks the level. Without either, the model's own default.
+    """
     wanted = (entry or {}).get("effort")
-    levels = candidate.get("levels")
-    if not wanted or not isinstance(levels, (list, tuple)) or not levels:
+    if not wanted:
         return None
-    return wanted if wanted in levels else None
+    levels = candidate.get("levels")
+    if isinstance(levels, (list, tuple)) and levels and wanted not in levels:
+        return None
+    return wanted
 
 
 def _options(role, candidates, permitted):
@@ -183,6 +191,43 @@ def _options(role, candidates, permitted):
     return sorted(usable, key=lambda pair: _rank(*pair))
 
 
+def permitted_set(candidates):
+    """The per-role candidate lists a run saves for recovery (#1426 step 9).
+
+    Every qualified, connected candidate for each role, as discovery found it: the
+    routes a quota stop may switch to without asking, because every account in them
+    was already permitted when the run chose its routes. Selection stores this under
+    ``route_selection["candidates"]``.
+    """
+    return {role: [candidate for candidate, _entry in _options(role, candidates, None)] for role in PIPELINE_ROLES}
+
+
+def next_route(selection, role, stopped_model, *, failed_models=()):
+    """The route a stopped model's role switches to on its own, or None (#1426 step 9).
+
+    Re-selects ``role`` from the saved permitted set minus all models already stopped for this role, with
+    every other role pinned to its current route so checker independence holds. The
+    answer never bills an account the run was not already permitted to bill; when no
+    candidate remains the result is None and the person is asked, as before.
+    """
+    saved = (selection or {}).get("candidates") or {}
+    routes = (selection or {}).get("routes") or {}
+    if role not in routes:
+        return None
+    pool = [candidate for candidates in saved.values() for candidate in candidates]
+    stopped = model_identity.identity(stopped_model)
+    failed = {stopped, *(model_identity.identity(model) for model in failed_models)}
+    alive = [candidate for candidate in pool if model_identity.identity(candidate["model"]) not in failed]
+    pinned = {other: route["model"] for other, route in routes.items() if other != role and route.get("model")}
+    result = select(list(routes), alive, pinned=pinned)
+    if result["stop"] is not None or result["routes"] is None:
+        return None
+    route = result["routes"][role]
+    if route.get("origin") != role_route.AUTO_SELECTED or model_identity.identity(route["model"]) == stopped:
+        return None
+    return route
+
+
 def _clashes(role, model, assigned):
     """Why ``model`` cannot take ``role`` given the routes already assigned, or None."""
     for producer, verifier, label in independence.PAIRS:
@@ -195,6 +240,16 @@ def _clashes(role, model, assigned):
         if problem:
             return f"{label}: {problem}"
     return None
+
+
+def explains_clash(role, model, routes) -> str | None:
+    """Why ``model`` could not take ``role`` against a finished assignment, or None.
+
+    The public face of the search's clash check, for `autocode models --selection`:
+    ``routes`` is a finished selection's ``routes`` mapping of role -> route dict.
+    """
+    assigned = {other: route.get("model") for other, route in (routes or {}).items()}
+    return _clashes(role, model, assigned)
 
 
 def _search(order, options, assigned):

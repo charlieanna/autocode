@@ -364,6 +364,27 @@ def openai_auth(workspace=None, *, env=None):
 
 
 def _openai_auth_modes(workspace, env=None):
+    returncode, summary = _auth_summary(workspace, env)
+    return returncode, re.findall(r"^\s*[●•]\s+OpenAI\s+(\S+)\s*$", summary, re.MULTILINE)
+
+
+def auth_logins(workspace=None, *, env=None):
+    """Every login `opencode auth list` shows: (name, mode) pairs, e.g. ("OpenAI", "oauth").
+
+    For discovery (#1426 steps 4-5): which accounts OpenCode holds, without touching a
+    credential or launching a model. An unreadable listing returns None; the caller
+    decides whether that is fatal.
+    """
+    try:
+        returncode, summary = _auth_summary(workspace, env)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if returncode:
+        return None
+    return re.findall(r"^\s*[●•]\s+(.+?)\s+(\S+)\s*$", summary, re.MULTILINE)
+
+
+def _auth_summary(workspace, env=None):
     # Auth listing cold-starts the whole CLI (over 30 s observed under load).
     # Share the existing 45 s allowance across at most three attempts instead
     # of repeatedly killing valid slow starts at 15 s. Completed checks stand.
@@ -388,7 +409,7 @@ def _openai_auth_modes(workspace, env=None):
             if attempt == 2:
                 raise
     summary = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout + result.stderr)
-    return result.returncode, re.findall(r"^\s*[●•]\s+OpenAI\s+(\S+)\s*$", summary, re.MULTILINE)
+    return result.returncode, summary
 
 
 def launch(

@@ -262,6 +262,15 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="Use one model for every role; permits same-model verification for single-subscription accounts",
     )
     parser.add_argument(
+        "--auto-select",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="New run: choose each role's model from the tool's connected accounts (#1426): "
+        "cheapest qualified route per role, checkers independent, per-role model flags still winning. "
+        "A selection that cannot field a checker refuses to start, in account terms. See "
+        "`autocode models --selection` first",
+    )
+    parser.add_argument(
         "--glm-reasoning-effort",
         choices=["low", "medium", "high", "xhigh", "max"],
         help="Override planner draft and revision reasoning effort",

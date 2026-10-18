@@ -20,18 +20,22 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
+    from . import autocode_model_identity as model_identity
     from . import autocode_prices as prices
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_route_selector as route_selector
     from . import autocode_verifier_independence as verifier_independence
 except ImportError:
+    import autocode_model_identity as model_identity
     import autocode_prices as prices
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as roles
     import autocode_route_ladder as route_ladder
+    import autocode_route_selector as route_selector
     import autocode_verifier_independence as verifier_independence
 
 # Ladder entry points when both families are present (docs/models.md).
@@ -561,13 +565,88 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--prices", action="store_true", help="print the dated price table and each default route's rate, then exit"
     )
+    result.add_argument(
+        "--selection",
+        action="store_true",
+        help="show what automatic selection would choose on this tool's connected accounts, "
+        "and why each qualified model was not chosen (#1426)",
+    )
     return result
+
+
+def render_selection(result: dict, found: dict) -> str:
+    """`autocode models --selection` as text: the chosen routes, and why the alternatives lost."""
+    lines = [f"Automatic selection on {found['tool']}, from the accounts this tool reports:", ""]
+    for account in found["accounts"]:
+        billing = account["billing"] or "billing unknown"
+        prefixes = ", ".join(account["prefixes"])
+        lines.append(f"  login: {account['name']} ({account['mode']}, {billing}) serves {prefixes}")
+    lines.append("")
+    chosen = result["routes"]
+    connected = {model_identity.identity(candidate["model"]): candidate for candidate in found["candidates"]}
+    for role in route_selector.PIPELINE_ROLES:
+        if role not in chosen:
+            continue
+        route = chosen[role]
+        label = f"{ROLES[role][0]}" if role in ROLES else role
+        level = route.get("reasoning_effort") or "model default"
+        lines.append(f"{label}: {route['model']} on {route.get('account') or 'the tool'} ({level})")
+        for entry in route_selector.qualified(role):
+            spellings = {model_identity.identity(route_id) for route_id in entry.get("routes") or [entry["model"]]}
+            candidate = next((connected.get(identity) for identity in spellings if identity in connected), None)
+            if candidate is None:
+                lines.append(f"  not available: {entry['model']} — not connected on this tool's logins")
+                continue
+            if candidate["model"] == route["model"]:
+                row = prices.rate(candidate["model"])
+                cost = f"input+output {row['input'] + row['output']:.4g} per million" if row else "no price row"
+                billing = candidate.get("billing") or "billing unknown"
+                lines.append(f"  chosen: {candidate['model']} — {cost}, {billing}")
+                continue
+            clash = route_selector.explains_clash(role, candidate["model"], chosen)
+            if clash:
+                lines.append(f"  not chosen: {candidate['model']} — {clash}")
+            else:
+                lines.append(f"  not chosen: {candidate['model']} — a cheaper qualified route won")
+    if result["probe"]:
+        lines.append("")
+        lines.append(
+            "Still to prove before the first stage (one tiny call each, within the cost cap): "
+            + ", ".join(result["probe"])
+        )
+    return "\n".join(lines)
 
 
 def cli(argv: list[str]) -> int:
     """`autocode models`: what your plans offer, and whether the default routes can be used."""
     arguments = parser()
     args = arguments.parse_args(argv)
+    if args.selection:
+        # Local listings only: discovery reads the tool's model and login lists, and
+        # the selector is a pure function; neither launches a model.
+        try:
+            try:
+                from . import autocode_providers
+                from . import autocode_route_discovery as discovery
+                from . import autocode_route_selector as route_selector
+            except ImportError:
+                import autocode_providers
+                import autocode_route_discovery as discovery
+                import autocode_route_selector as route_selector
+            name = args.provider or autocode_providers.default_name()
+            provider = autocode_providers.resolve(name)
+            found = discovery.discover(provider, args.workspace)
+            result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"])
+        except (RuntimeError, ValueError, OSError) as error:
+            print(f"autocode models: {error}", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps({**result, "tool": found["tool"], "accounts": found["accounts"]}, indent=2))
+        elif result["stop"]:
+            print(result["stop"])
+        else:
+            print(render_selection(result, found))
+        return 1 if result["stop"] else 0
     if args.prices:
         # Offline: the table ships with AutoCode, and resolving the provider runs nothing.
         try:

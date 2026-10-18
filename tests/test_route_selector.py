@@ -175,15 +175,18 @@ class SelectionTests(unittest.TestCase):
         known = [dict(c, probe="known") for c in gateway_only()]
         self.assertEqual([], selector.select(ALL_ROLES, known)["probe"])
 
-    def test_a_level_the_model_does_not_advertise_is_never_invented(self):
+    def test_the_tables_level_is_used_unless_discovery_reports_the_model_lacks_it(self):
         advertised = [dict(c, levels=["low", "medium", "high"]) for c in coding_plans()]
         routes = selector.select(ALL_ROLES, advertised)["routes"]
         self.assertEqual("medium", routes["requirements"]["reasoning_effort"])
         self.assertEqual("high", routes["plan_reviewer"]["reasoning_effort"])
-        silent = coding_plans()  # discovery could not read any level list
+        # Discovery could not read any level list: the table's level stands, because
+        # it is the level AutoCode's qualifying runs used on that model.
+        silent = coding_plans()
         routes = selector.select(ALL_ROLES, silent)["routes"]
-        self.assertIsNone(routes["requirements"]["reasoning_effort"])
-        partial = [dict(c, levels=["low"]) for c in coding_plans()]  # advertises only low
+        self.assertEqual("medium", routes["requirements"]["reasoning_effort"])
+        # Discovery reports the model lacks the table's level: the model's own default.
+        partial = [dict(c, levels=["low"]) for c in coding_plans()]
         routes = selector.select(ALL_ROLES, partial)["routes"]
         self.assertIsNone(routes["requirements"]["reasoning_effort"])
 
@@ -199,3 +202,44 @@ class RouteRecordContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NextRouteTests(unittest.TestCase):
+    """Step 9's decision: the route a stopped model's role switches to on its own (#1426)."""
+
+    def test_a_dead_tester_switches_to_the_next_qualified_independent_model(self):
+        result = selector.select(ALL_ROLES, coding_plans())
+        result["candidates"] = selector.permitted_set(coding_plans())
+        switched = selector.next_route(result, "sol", GLM)
+        self.assertIsNotNone(switched)
+        self.assertEqual(SOL, switched["model"])
+        self.assertEqual("ChatGPT login", switched["account"])
+
+    def test_no_candidate_left_means_ask_not_guess(self):
+        # The Builder died and its only other qualified model is the family its
+        # checkers run on: switching would break independence, so the person is asked.
+        result = selector.select(ALL_ROLES, coding_plans())
+        result["candidates"] = selector.permitted_set(coding_plans())
+        self.assertIsNone(selector.next_route(result, "terra", MIMO))
+        gateway = selector.select(ALL_ROLES, gateway_only())
+        gateway["candidates"] = selector.permitted_set(gateway_only())
+        self.assertIsNone(selector.next_route(gateway, "terra", DEEPSEEK))
+
+    def test_other_roles_keep_their_routes_through_the_switch(self):
+        result = selector.select(ALL_ROLES, coding_plans())
+        result["candidates"] = selector.permitted_set(coding_plans())
+        before = {role: route["model"] for role, route in result["routes"].items()}
+        switched = selector.next_route(result, "sol", GLM)
+        self.assertIsNotNone(switched)
+        # The saved selection itself is not mutated by asking for a next route.
+        self.assertEqual(before, {role: route["model"] for role, route in result["routes"].items()})
+
+    def test_a_selection_without_a_saved_permitted_set_has_no_next_route(self):
+        result = selector.select(ALL_ROLES, coding_plans())
+        self.assertIsNone(selector.next_route(result, "sol", GLM))
+
+    def test_permitted_set_lists_each_roles_qualified_connected_candidates(self):
+        permitted = selector.permitted_set(coding_plans())
+        self.assertEqual({GLM, MIMO}, {c["model"] for c in permitted["terra"]})
+        self.assertEqual({SOL, GLM}, {c["model"] for c in permitted["sol"]})
+        self.assertEqual({ASTRA}, {c["model"] for c in permitted["astra"]})
