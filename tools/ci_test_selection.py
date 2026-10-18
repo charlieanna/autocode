@@ -128,6 +128,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_planning_cycle_cli",),
     ),
     (("tools/autocode_provider_auth",), ("tests.test_provider_auth_cli",)),
+    (
+        ("tools/autocode_run_records.py",),
+        (*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS, "tests.test_paused_approval_cli"),
+    ),
     (("tools/autocode_task_preflight", "tools/autocode_preflight"), ("tests.test_preflight_worker_cli",)),
     # --package's launch checks (resume, --test-root, committed files) are in autocode_run_setup.resolve,
     # and its out-of-package finding (autocode_package_writes) stops a run only through the CLI flow, as

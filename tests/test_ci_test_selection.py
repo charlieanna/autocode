@@ -8,6 +8,17 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_checkpoint_normalization_keeps_its_public_pause_regression_even_when_slow(self):
+        consumer = "tests.test_paused_approval_cli"
+        selected = run_suite.select_tests(["tools/autocode_run_records.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertIn(consumer, kept)
+        self.assertNotIn("tests.test_unrelated", kept)
+        self.assertLessEqual(
+            {*dependencies.CORE_CONSUMERS, *dependencies.PUBLIC_FLOW_CONSUMERS},
+            dependencies.dependencies("tools/autocode_run_records.py"),
+        )
+
     def test_chat_projection_keeps_its_public_cli_consumer(self):
         for path in ("tools/autocode_chat_view.py", "tools/autocode_run_view.py"):
             self.assertIn("tests.test_chat_cli", dependencies.dependencies(path))
