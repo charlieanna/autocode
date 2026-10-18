@@ -54,6 +54,9 @@ export interface PanelState {
   /** Draft answers belong to this request and these questions, not just their IDs. */
   decisionContext: string;
   gap: string | null;
+  actionLabel: string | null;
+  actionEffect: string | null;
+  stopped: { title: string; explanation: string; retained: string | null; newConversation: string | null } | null;
   commandText: string;
   personOnly: boolean;
   taking: boolean;
@@ -85,6 +88,7 @@ export class RunPanel {
   }
 
   private timer: NodeJS.Timeout | undefined;
+  private readonly configuration: vscode.Disposable;
   private taking = false;
   private onAction?: () => void | Promise<void>;
 
@@ -95,6 +99,9 @@ export class RunPanel {
     onAction?: () => void | Promise<void>,
   ) {
     this.onAction = onAction;
+    this.configuration = vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("autocode.pollSeconds") && this.panel.visible) this.start();
+    });
     this.panel.onDidDispose(() => this.dispose());
     this.panel.onDidChangeViewState(() => {
       if (this.panel.visible) {
@@ -146,6 +153,7 @@ export class RunPanel {
 
   dispose(): void {
     this.stop();
+    this.configuration.dispose();
     RunPanel.open.delete(`${this.run.workspace}\n${this.run.runDir}`);
     if (RunPanel.last === this) RunPanel.last = undefined;
   }
@@ -177,6 +185,14 @@ export class RunPanel {
     token?: string | null;
     decisionContext?: string;
   }): Promise<void> {
+    if (message.type === "chat") {
+      await vscode.commands.executeCommand("autocode.openRun", this.run);
+      return;
+    }
+    if (message.type === "new") {
+      await vscode.commands.executeCommand("autocode.startRun");
+      return;
+    }
     if (message.type === "refresh") {
       await this.update();
       return;
@@ -235,12 +251,28 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
   const plan = planShape(view);
   let decisions: Decision[] = [];
   let gap: string | null = null;
-  if (!view.done) {
+  let actionLabel: string | null = null;
+  let actionEffect: string | null = null;
+  const stopped = view.recovery?.category === "stopped" ? {
+    title: view.recovery.title ?? "Stopped",
+    explanation: view.recovery.what_happened ?? "",
+    retained: view.recovery.retained ?? null,
+    newConversation: view.recovery.actions?.find((row) => row.kind === "new_conversation")?.label ?? null,
+  } : null;
+  if (!view.done && !stopped) {
     try {
       const action = controller.plan(view, run);
       decisions = action.decisions.map((open) => describe(open, need, view));
       if (action.unsupplied) {
         gap = `the command leaves ${action.unsupplied} open, which the status view does not supply`;
+      } else if (!decisions.length && view.recovery?.actions) {
+        // A label describes only the exact action next_command names. Recovery
+        // descriptions never supply flags or authorize a different action.
+        const args = controller.prepare(view, run, {}).argv;
+        const recovery = view.recovery.actions.find((row) => Array.isArray(row.args)
+          && JSON.stringify(row.args) === JSON.stringify(args));
+        actionLabel = recovery?.label ?? null;
+        actionEffect = recovery?.effect ?? null;
       }
     } catch (error) {
       gap = error instanceof ClientGap ? error.message : messageOf(error);
@@ -313,6 +345,9 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       view.next_command ?? "",
     ]),
     gap,
+    actionLabel,
+    actionEffect,
+    stopped,
     commandText: safeCommandText(view, run, controller),
     personOnly: leavesForPerson(need),
     taking,
@@ -400,6 +435,9 @@ function emptyState(run: RunRef): PanelState {
     criteria: [],
     decisions: [],
     decisionContext: "",
+    actionLabel: null,
+    actionEffect: null,
+    stopped: null,
     commandText: "",
     personOnly: false,
     taking: false,
@@ -533,10 +571,23 @@ function stateRow(item) {
   return row;
 }
 
+function renderStopped(stopped) {
+  app.appendChild(el('h2', null, stopped.title));
+  app.appendChild(el('div', 'line', stopped.explanation));
+  if (stopped.retained) app.appendChild(el('div', 'why', stopped.retained));
+  if (stopped.newConversation) {
+    const fresh = el('button', null, stopped.newConversation);
+    fresh.id = 'start-new-conversation';
+    fresh.addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+    app.appendChild(fresh);
+  }
+}
+
 function render(state) {
   const chatSlice = chatMode ? [
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
+    state.actionLabel, state.actionEffect, state.stopped,
     state.chat && [state.chat.phase, state.chat.notice, state.chat.review, state.chat.input && state.chat.input.kind],
   ] : state;
   const serialized = JSON.stringify(chatSlice);
@@ -552,6 +603,11 @@ function render(state) {
   app.textContent = '';
   app.classList.remove('muted');
 
+  if (chatMode && state.stopped) {
+    renderStopped(state.stopped);
+    return;
+  }
+
   if (chatMode) {
     const card = el('div', 'decision-card');
     const cardContent = el('div', 'message-content');
@@ -561,7 +617,7 @@ function render(state) {
     strip.id = 'action-strip';
 
     if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
-      cardContent.appendChild(el('div', 'notice', 'Reply above with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
+      cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
       app.appendChild(card);
       return;
     }
@@ -676,7 +732,8 @@ function render(state) {
 
       var approving = state.needKind === 'approve_plan';
       var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
-        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.length ? 'Send answers and continue' : 'Continue')));
+        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue')));
+      if (state.actionEffect) cardContent.appendChild(el('div', 'why', state.actionEffect));
       const take = el('button', null, label);
       take.id = 'take-action';
       take.addEventListener('click', () => {
@@ -762,6 +819,7 @@ function render(state) {
     state.usage,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
+  if (state.stopped) renderStopped(state.stopped);
 
   if (state.task) {
     app.appendChild(el('h2', null, 'Request'));
@@ -830,13 +888,19 @@ function render(state) {
     }
   }
 
-  if (!state.done) {
+  if (!state.done && !state.stopped) {
     app.appendChild(el('h2', null, 'Waiting for'));
     app.appendChild(el('div', 'line', state.needsYou || state.needSummary || state.needKind || '—'));
     if (state.needReason) app.appendChild(el('div', 'why', state.needReason));
   }
 
-  if (state.gap) {
+  if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response' && !state.stopped) {
+    app.appendChild(el('div', 'notice', 'The conversation can accept a recovery reply. Sending information does not authorize a retry.'));
+    const chat = el('button', null, 'Open conversation');
+    chat.id = 'open-recovery-conversation';
+    chat.addEventListener('click', () => vscode.postMessage({ type: 'chat' }));
+    app.appendChild(chat);
+  } else if (state.gap) {
     app.appendChild(el('h2', null, 'No action the client can take'));
     const box = el('div', 'gap');
     box.appendChild(el('div', null,
@@ -844,7 +908,7 @@ function render(state) {
       + 'status view (#1012), not something the extension should work around.'));
     box.appendChild(el('pre', null, state.gap));
     app.appendChild(box);
-  } else if (!state.done) {
+  } else if (!state.done && !state.stopped) {
     const form = el('div');
     state.decisions.forEach((decision) => {
       const box = el('div', 'decision');
@@ -882,7 +946,8 @@ function render(state) {
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
     var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve this plan'
-      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : 'Take the named action'));
+      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : state.actionLabel || 'Take the named action'));
+    if (state.actionEffect) actions.appendChild(el('div', 'why', state.actionEffect));
     const take = el('button', null, label);
     take.id = 'take-action';
     take.addEventListener('click', () => {
@@ -984,9 +1049,10 @@ function updateComposer() {
   const allowed = !chatEnvelope.selectedRun || Boolean(input);
   document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || !document.getElementById('message').value.trim();
   document.getElementById('send-message').textContent = 'Send ↑';
-  document.getElementById('send-message').setAttribute('aria-label', input ? input.label + ' and continue' : 'Send message');
+  const label = input ? input.label + (input.kind === 'resolver_response' ? '' : ' and continue') : 'Send message';
+  document.getElementById('send-message').setAttribute('aria-label', label);
   document.getElementById('send-hint').textContent = !chatEnvelope.selectedRun ? 'Message AutoCode'
-    : input ? input.label + ' and continue'
+    : input ? label
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
 }

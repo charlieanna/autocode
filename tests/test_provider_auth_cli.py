@@ -21,16 +21,13 @@ class ProviderAuthCLI(unittest.TestCase):
         for name in ("config", "codex-home"):
             (self.root / name).mkdir()
 
-    def test_auth_timeout_is_named_and_retry_completes(self):
+    def assert_auth_failure_is_named_and_retry_completes(self, fault, *details):
         from harness.driver import DriveError, Driver, default_autocode, fake_setup, leaves_for_person
         from harness.project import materialize
 
         project = materialize(self.scenario.seed, self.root / "project")
         flags, env = fake_setup(self.scenario, self.root, self.scenario.reference)
-        env.update(
-            CODEX_HOME=str(self.root / "codex-home"),
-            SCENARIO_FAKE_LOGIN_TIMEOUT="investigate_bug:1",
-        )
+        env.update(CODEX_HOME=str(self.root / "codex-home"), **{fault: "investigate_bug:1"})
         driver = Driver(project, self.root, flags, env, autocode=default_autocode(), max_steps=40, timeout_seconds=600)
         driver.call("start", task=self.scenario.brief)
         runs = project / ".autocode" / "runs"
@@ -40,8 +37,8 @@ class ProviderAuthCLI(unittest.TestCase):
         driver.run_dir = candidates[-1].parent
         view = driver.until_stopped()
         self.assertEqual("PAUSED_JOB_FAILURE", view.get("status"), view.get("stop_reason"))
-        self.assertIn("provider auth helper", view.get("stop_reason") or "")
-        self.assertIn("timeout_ms", view.get("stop_reason") or "")
+        for detail in details:
+            self.assertIn(detail, view.get("stop_reason") or "")
         need = view.get("needs") or {}
         self.assertEqual("retry_job", need.get("kind"), need)
         token = need.get("job_retry_token")
@@ -69,6 +66,16 @@ class ProviderAuthCLI(unittest.TestCase):
                 driver.serve(need)
             view = driver.until_stopped()
         self.assertEqual("TASK_COMPLETE", view.get("status"), view.get("stop_reason"))
+
+    def test_auth_timeout_is_named_and_retry_completes(self):
+        self.assert_auth_failure_is_named_and_retry_completes(
+            "SCENARIO_FAKE_LOGIN_TIMEOUT", "provider auth helper", "timeout_ms"
+        )
+
+    def test_structured_auth_rejection_is_named_and_retry_completes(self):
+        self.assert_auth_failure_is_named_and_retry_completes(
+            "SCENARIO_FAKE_LOGIN_REJECTED", "authentication failed (HTTP 401)"
+        )
 
 
 if __name__ == "__main__":

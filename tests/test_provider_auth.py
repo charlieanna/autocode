@@ -63,6 +63,44 @@ class ProviderAuthReasonTests(unittest.TestCase):
                 status = support.failure_status(path)
                 self.assertIn(status, ("PAUSED_RATE_LIMIT", "PAUSED_PROVIDER_CAPACITY", "PAUSED_PROVIDER_UNCERTAIN"))
 
+    def test_structured_auth_rejection_is_named_without_echoing_response_data(self):
+        error = {
+            "type": "error",
+            "sessionID": "ses_auth",
+            "error": {
+                "name": "APIError",
+                "data": {
+                    "statusCode": 401,
+                    "message": "Rejected credential: private-test-canary",
+                    "responseBody": "private-test-canary; rate limit 429; budget exhausted",
+                },
+            },
+        }
+        path = self.write(json.dumps(error) + "\n")
+        reason = provider_auth.reason(path)
+        self.assertIsNotNone(reason)
+        self.assertIn("authentication", reason)
+        self.assertIn("401", reason)
+        message = provider_auth.exit_message("Requirements", 1, path)
+        self.assertIn("401", message)
+        self.assertIn("no automatic replay", message)
+        self.assertNotIn("private-test-canary", message)
+        # Access checks can classify the rejected login; a launched stage still
+        # requires reconciliation of its partial work before any retry.
+        self.assertEqual("PAUSED_AUTH", support.failure_status(path))
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(path, record={"stage": "terra"}))
+
+    def test_authentication_is_not_inferred_from_tool_output_or_usage(self):
+        for event in (
+            {"type": "item.completed", "item": {"type": "command_execution", "aggregated_output": "HTTP 401"}},
+            {"type": "turn.failed", "usage": {"input_tokens": 401}, "error": {"message": "connection reset"}},
+            {"type": "error", "error": {"data": {"statusCode": 403, "message": "permission denied"}}},
+        ):
+            with self.subTest(event=event):
+                path = self.write(json.dumps(event) + "\n")
+                self.assertIsNone(provider_auth.reason(path))
+                self.assertNotEqual("PAUSED_AUTH", support.failure_status(path))
+
 
 class ProviderAuthJobClassificationTests(unittest.TestCase):
     def setUp(self):
@@ -86,6 +124,17 @@ class ProviderAuthJobClassificationTests(unittest.TestCase):
         self.assertEqual("provider_auth", kind)
         self.assertIn(HELPER, reason)
         self.assertIn("timeout_ms", reason)
+
+    def test_job_failure_classifies_structured_auth_rejection(self):
+        events = self.root / "investigation.jsonl"
+        events.write_text(json.dumps({"type": "error", "error": {"data": {"statusCode": 401}}}) + "\n")
+        kind, reason = job_failure._reason(
+            SimpleNamespace(support=support),
+            {"stage": "investigate_bug", "role": "astra", "events": str(events), "exit_code": 1},
+            "provider exited 1",
+        )
+        self.assertEqual("provider_auth", kind)
+        self.assertIn("401", reason)
 
 
 if __name__ == "__main__":

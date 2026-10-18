@@ -2753,21 +2753,36 @@ def readonly_report_blocker(report: dict) -> dict:
     }
 
 
-def auth_timeout_once(stage: str) -> int | None:
-    """SCENARIO_FAKE_LOGIN_TIMEOUT=<stage>:1 — first attempt exits like a gocode auth helper timeout.
+def auth_failure_once(stage: str) -> int | None:
+    """One structured login rejection or trailing auth-helper timeout, then normal execution.
 
     Named without the word AUTH so autocode_agent_env.scrubbed does not withhold it.
     """
-    spec = os.environ.get("SCENARIO_FAKE_LOGIN_TIMEOUT") or ""
+    rejected = bool(os.environ.get("SCENARIO_FAKE_LOGIN_REJECTED"))
+    spec = os.environ.get("SCENARIO_FAKE_LOGIN_REJECTED" if rejected else "SCENARIO_FAKE_LOGIN_TIMEOUT") or ""
     if ":" not in spec:
         return None
     target, _, count = spec.partition(":")
     if target != stage or count != "1":
         return None
-    marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name(f"fake-login-timeout-{stage}")
+    marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name(
+        f"fake-login-{'rejected' if rejected else 'timeout'}-{stage}"
+    )
     if marker.exists():
         return None
     marker.touch()
+    if rejected:
+        emit(
+            {
+                "type": "error",
+                "sessionID": "ses_rejected_login",
+                "error": {
+                    "name": "APIError",
+                    "data": {"statusCode": 401, "message": "Invalid API key"},
+                },
+            }
+        )
+        return 1
     helper = "/Users/akothari/.gocode/bin/gocode"
     # Trailing provider_error_lines reads the end of the stage log. Print on
     # stdout (the events file) so the lines stay after thread.started: stdout
@@ -2845,7 +2860,7 @@ def _main() -> int:
                 early_stage = early_original.get("stage", early_stage)
         except (TypeError, ValueError):
             early_stage = ""
-    auth_exit = auth_timeout_once(early_stage)
+    auth_exit = auth_failure_once(early_stage)
     if auth_exit is not None:
         return auth_exit
     emit({"type": "thread.started", "thread_id": session})

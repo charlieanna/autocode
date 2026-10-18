@@ -4,12 +4,14 @@ docs/bugs/2026-09-30-unbounded-planning-restart.md: each deferral restarted plan
 review allowance, so a deferral that kept recurring spent review calls without limit.
 """
 
+import copy
 import tempfile
 import unittest
 from pathlib import Path
 
 import autocode_resolver_human as human
 import autocode_run_records as records
+import autocode_stop as stop
 import autocode_util as util
 
 
@@ -93,6 +95,64 @@ class DeferredApprovalRestarts(unittest.TestCase):
         self.state["user_events"].append({"kind": "automatic_timeout_recovery", "actor": "runner"})
         ask_for_approval(self.state, self.run_dir)
         self.assertEqual("PAUSED_APPROVAL_DEFERRED", self.state["status"])
+
+    def pause_approval(self):
+        human.queue(
+            self.state,
+            "goal_approval",
+            {"stage": "astra_finalize"},
+            status="AWAITING_GOAL_APPROVAL",
+            next_stage="astra_plan",
+        )
+        stop.boundary_effects(
+            self.state,
+            [{"id": "pause-at-review", "kind": "pause"}],
+            lambda: "2026-10-18T13:35:53+00:00",
+        )
+
+    def test_unacknowledged_pause_keeps_the_deferred_proposal_and_saved_work(self):
+        self.pause_approval()
+        proposal = copy.deepcopy(self.state[human.PRIVATE])
+        saved = copy.deepcopy({key: self.state[key] for key in ("next_stage", "goal_contract", "planning")})
+        for _ in range(2):
+            records.normalize_human_boundary(self.state, self.run_dir)
+            self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
+            self.assertEqual(proposal, self.state[human.PRIVATE])
+            self.assertEqual(saved, {key: self.state[key] for key in saved})
+            self.assertIsNone(self.state["pause_intent"]["acknowledged_at"])
+            self.assertIsNone(human.current(self.state))
+
+    def test_normalization_restores_a_pause_an_older_writer_changed_to_running(self):
+        self.pause_approval()
+        self.state.update(status="RUNNING", phase="PLANNING")
+        self.state.pop("stop_reason")
+        records.normalize_human_boundary(self.state, self.run_dir)
+        self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
+        self.assertIn("explicitly resume", self.state["stop_reason"])
+        self.assertIsNone(self.state["pause_intent"]["acknowledged_at"])
+        self.assertIn(human.PRIVATE, self.state)
+
+    def test_acknowledged_pause_allows_the_retained_proposal_to_be_adjudicated(self):
+        self.pause_approval()
+        stop.acknowledge_pause(self.state, "2026-10-18T13:50:00+00:00")
+        records.normalize_human_boundary(self.state, self.run_dir)
+        self.assertEqual(("RUNNING", "astra_challenge"), (self.state["status"], self.state["next_stage"]))
+        self.assertNotIn(human.PRIVATE, self.state)
+        self.assertEqual("draft", self.state["goal_contract"]["approval_status"])
+
+    def test_paused_workers_still_clear_requests_owned_by_the_parent(self):
+        self.pause_approval()
+        self.state.update(
+            parent_run=str(self.run_dir / "parent"),
+            resolver_human_request={"request_id": "stale-worker-request"},
+            user_request={"kind": "permission"},
+            pending_questions=[{"id": "Q1", "question": "Worker must not ask this"}],
+        )
+        records.normalize_human_boundary(self.state, self.run_dir)
+        self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
+        self.assertNotIn(human.PUBLIC, self.state)
+        self.assertNotIn("user_request", self.state)
+        self.assertEqual([], self.state["pending_questions"])
 
 
 if __name__ == "__main__":

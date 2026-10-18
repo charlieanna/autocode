@@ -140,6 +140,84 @@ class ChatViewTests(unittest.TestCase):
         rows = self.project(state, "resume")["messages"]
         self.assertEqual(["Build it", "How should we proceed?", "Leave this task blocked"], [r["text"] for r in rows])
 
+    def test_operational_recovery_is_one_question_with_cause_and_unchanged_authority(self):
+        for scope in ("blocker", "operational_exhaustion"):
+            with self.subTest(scope=scope):
+                state = {
+                    "status": "WAITING_FOR_USER",
+                    "settings": {"spec_first": True},
+                    "next_stage": "requirements_gather",
+                    "user_request": {"kind": "blocker", "discovered": "Provider rejected authentication (HTTP 401)."},
+                }
+                public = {
+                    "status": state["status"],
+                    "needs": {
+                        "kind": "answer",
+                        "resolver_scope": scope,
+                        "resolver_request_id": "req-1",
+                        "resolver_token": "current-token",
+                        "questions": [
+                            {
+                                "id": "q1",
+                                "question": "What changed? Retry with --abandon-stage 001/requirements-01.",
+                                "options": ["Provide information", "Leave paused"],
+                            }
+                        ],
+                    },
+                }
+                before = copy.deepcopy((state, public))
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                self.assertEqual(["resolver-req-1"], [row["id"] for row in result["messages"]])
+                text = result["messages"][0]["text"]
+                if scope == "operational_exhaustion":
+                    self.assertIn("HTTP 401", text)
+                    self.assertIn("does not authorize a retry", text)
+                    self.assertNotIn("--abandon-stage", text)
+                else:
+                    self.assertIn("What changed?", text)
+                self.assertEqual("resolver_response", result["input"]["kind"])
+                self.assertIn("AUTOCODE_RESOLVER_TOKEN=current-token", result["input"]["next_command"])
+                self.assertIn("--resolver-response provide_information", result["input"]["next_command"])
+                self.assertEqual(before, (state, public))
+
+    def test_routed_and_unbound_operational_questions_stay_visible_in_requirements(self):
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "user_request": {"kind": "blocker"},
+        }
+        question = "Which model should Requirements use after its provider quota stop?"
+        need = {
+            "kind": "answer",
+            "resolver_scope": "operational_exhaustion",
+            "resolver_request_id": "req-1",
+            "resolver_token": "current-token",
+            "questions": [{"id": "route-glm", "question": question, "options": []}],
+        }
+        routed = {
+            **need,
+            "route": {
+                "question_id": "route-glm",
+                "role": "glm",
+                "cause": "quota",
+                "current_model": "p/old",
+                "stopped_model": "p/old",
+                "candidates": ["p/new"],
+            },
+        }
+        for open_need in (
+            routed,
+            {key: value for key, value in need.items() if key != "resolver_request_id"},
+            {key: value for key, value in need.items() if key != "resolver_token"},
+        ):
+            with self.subTest(need=open_need):
+                public = {"status": state["status"], "needs": open_need}
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                self.assertEqual(["requirements-question"], [row["id"] for row in result["messages"]])
+                self.assertEqual(question, result["messages"][0]["text"])
+                self.assertIsNone(result["input"])
+
     def test_history_preserves_original_request_answers_feedback_and_followups(self):
         state = {
             "status": "TASK_COMPLETE",
