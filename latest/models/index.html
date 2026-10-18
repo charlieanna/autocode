@@ -2122,7 +2122,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1314782433dd6099eb7b9458bd01945bfb5c7a81/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/1cf588bf65215dc864ec6ba2003bd7be0ebbd35b/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2278,7 +2278,7 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/1314782433dd6099eb7b9458bd01945bfb5c7a81/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/1cf588bf65215dc864ec6ba2003bd7be0ebbd35b/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2363,20 +2363,27 @@ names are in saved run state. They are not model choices: <code>--terra-model
 zai-coding-plan/glm-5.3</code> selects the model used for the Builder role.</p>
 </blockquote>
 <h2 id="choosing-models-automatically">Choosing models automatically<a class="headerlink" href="#choosing-models-automatically" title="Permanent link">&para;</a></h2>
-<p>Automatic selection (#1426) chooses each role's model from the accounts you have
-connected, so you never route roles by hand. Start a new run with <code>--auto-select</code> and every role whose model no flag named is
-chosen from the tool's connected accounts; the choice, its reasoning levels and the
-routes the access check still owes are saved with the run. Saved runs never
-re-select, and <code>--single-model</code> and per-role flags keep winning. A selection that
-cannot field an independent checker refuses to start, in account terms. Selection is
-not yet the default for new runs: the soft-fallback behavior a defaulted launch will
-use (fixed default routes, with the reason printed, when the tool's listings cannot
-be read or its accounts cannot field a checker) is implemented and tested, and the
-flip itself waits on the issue's final qualification step. On a quota,
-content-filter or output stop, such a run moves the stopped role on its own to the
-next qualified model on an account it was already permitted to bill, and asks only
-when no such model remains. Until they do,
-new runs use the <a href="#default-models">default models</a> above unless you name your own.</p>
+<p>New CLI and <code>TaskRun.start</code> runs choose models automatically from the selected tool's
+connected accounts. No model flags or pinned profile are needed. One tool serves the
+run by default; explicit per-role tool bindings and model/effort flags still win.
+A fully pinned profile keeps its existing preflight and recovery policy because there
+is no automatic choice to make. <code>--single-model</code> keeps its explicit same-model policy. Saved runs retain their routes
+and permitted alternatives without discovering new accounts.</p>
+<p>Use <code>--no-auto-select</code> to retain fixed defaults. If discovery is unavailable or cannot
+field independent checkers, the default launch prints the reason and tries the fixed
+routes under the normal catalogue, billing and independence guards. Explicit
+<code>--auto-select</code> instead refuses before spending. Preview the choices and exclusions
+with <code>autocode models --selection --provider NAME</code>; this reads local listings only.</p>
+<p>OpenCode and Kilo reasoning variants come from their local verbose model listings.
+An unsupported qualified level is omitted so the model uses its default. When older
+tools cannot report variants, the recorded qualification level is used. Preflight
+proves each distinct model/effort on its actual tool within the run's time/cost cap;
+receipts survive resume. Recovery checks independence against the current saved routes, including explicit
+assignments and catalogue substitutions. It stays within the saved connected accounts, and
+exhaustion asks for intervention. A stuck-run Investigator reuses an independent saved
+reviewer route and its supported level; it cannot silently use a fixed paid-gateway
+default. Explicit <code>--investigator-model</code> remains an override. A newly connected account
+is never silently added.</p>
 <p>The rules the choice keeps:</p>
 <ul>
 <li><strong>A minimum standard per role.</strong> A model is only ever chosen for a role when the
