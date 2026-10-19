@@ -716,6 +716,9 @@ highlighted one:
 | `/runs` | Your chats in every project, open and finished, grouped by project: this project first, then the others by their latest activity, newest chat first in each. Each shows its request, its state and when it last moved; a chat whose run was removed is left out and counted. Also at the first "What do you want done?" |
 | `/open N` | At a question: open chat N from `/runs`. Its whole conversation is shown and you carry on there: a follow-up on a finished chat, or the decision it waits for. The chat you leave stays as it is |
 | `/new` | At a question: start a new chat here; an empty request keeps the current one |
+| `/mode [ID]` | The modes the core lists (`autocode modes list`), and which one new chats start in; `/mode quick` changes it for new chats only |
+| `/engine [NAME]` | The engine new chats run on: `opencode`, `codex` or `claude`, set as the VS Code extension's engine picker sets it |
+| `/connect [NAME check\|login\|setup\|use]` | The backends `autocode connections list` reports, with their state. `check` runs the connection's own check; `login` and `setup` hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; `use` makes new chats use it. Only an action the connection offers is run |
 | `/panel` | Show or hide the side panel |
 | `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
 | `/help` | List the commands |
@@ -726,6 +729,14 @@ with `/`, type `//`. `/diff` and `/undo` take only the `compare` and `restore`
 actions the status view names for a saved step ([Saved code
 checkpoints](task-run.md#saved-code-checkpoints)); the view offers going back only
 at a pause it can restore from, and `/undo` says why when it cannot.
+
+The first screen says what a new chat starts with (`New chats: Full · OpenCode`). A
+choice made with `/mode`, `/engine` or `/connect … use` is kept for the project in
+`.autocode/chat-settings.json`; options after `--` on the command line take its place
+for that chat. While Requirements writes its reply, the reply grows on screen as it is
+written (the view's streaming message). The terminal rings its bell when AutoCode has
+worked and now needs you, and a chat you opened earlier in the session is checked while
+AutoCode works: when it starts to wait for you or finishes, the chat says so.
 
 `autocode` in a project with earlier chats says how many there are. `Up`/`Down` recall
 your earlier requests and messages in this project, across chats: they are kept, the

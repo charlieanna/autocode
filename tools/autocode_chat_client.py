@@ -51,15 +51,18 @@ from pathlib import Path
 
 try:
     from . import autocode_chat_panel as panel
+    from . import autocode_chat_setup as setup
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
 except ImportError:
     import autocode_chat_panel as panel
+    import autocode_chat_setup as setup
     import autocode_client_actions as actions
     import autocode_events_command as events
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 POLL_SECONDS = 2.0
+OTHERS_SECONDS = 10.0  # how often chats opened earlier this session are checked while AutoCode works
 YES = ("y", "yes")
 # What a relaunch must change, as TaskRun.advance_until_input and the scenario driver check.
 PROGRESS_KEYS = ("status", "next_stage", "iteration", "phase", "needs")
@@ -96,10 +99,79 @@ class History:
     so the question being asked is left and the conversation carries on with that run.
     """
 
-    def __init__(self, workspace: Path, *, command=AUTOCODE, env=None):
+    def __init__(self, workspace: Path, *, command=AUTOCODE, env=None, new: setup.NewChat | None = None):
         self.workspace, self.command, self.env = Path(workspace), tuple(command), env
         self.rows: list[dict] = []
         self.left_out = 0
+        self.new = new or setup.NewChat()  # what /new and the first question start: /mode, /engine, /connect
+        # Runs a backend's interactive sign-in or setup on the terminal itself (the full-screen chat steps aside).
+        self.outside: Callable[[list[str], str], int] | None = None
+
+    def read(self, argv: list[str]) -> dict:
+        """One of the listings the chat may read (`modes list`, `connections list`), as JSON."""
+        proc = subprocess.run([*self.command, *argv], capture_output=True, text=True, env=self.env)
+        try:
+            return json.loads(proc.stdout)
+        except ValueError:
+            raise actions.ClientGap(f"`autocode {' '.join(argv)}` failed: {tail(proc)}") from None
+
+    def summary(self) -> str:
+        try:
+            return setup.summary(self.read(["modes", "list", "--json"]), self.new)
+        except actions.ClientGap:
+            return setup.summary(None, self.new)
+
+    def chose(self, done: str) -> str:
+        kept = self.new.save(self.workspace)
+        return done + ("" if kept else " (for this session: the project has no .autocode yet)")
+
+    def mode(self, argument: str) -> str:
+        listed = self.read(["modes", "list", "--json"])
+        if not argument:
+            return setup.modes_text(listed, self.new)
+        if (chosen := setup.choose_mode(listed, argument)) is None:
+            return f"There is no mode {argument!r}.\n" + setup.modes_text(listed, self.new)
+        self.new.mode = chosen
+        return self.chose(f"New chats start in {setup.mode_label(listed, chosen)}.")
+
+    def engine(self, argument: str) -> str:
+        if not argument:
+            return setup.engines_text(self.new)
+        if (chosen := setup.choose_engine(argument)) is None:
+            return f"There is no engine {argument!r}.\n" + setup.engines_text(self.new)
+        self.new.options = setup.with_engine(self.new.options, chosen)
+        return self.chose(f"New chats run on {setup.ENGINE_LABELS[chosen]}.")
+
+    def connect(self, argument: str) -> str:
+        """/connect: list the backends; /connect NAME check|login|setup|use takes what that row offers."""
+        rows = setup.connections(self.read(["connections", "list", "--json"]))
+        name, _, wanted = argument.partition(" ")
+        if not name:
+            return setup.connections_text(rows, self.new)
+        row = next((row for row in rows if row["id"] == name), None)
+        if row is None:
+            return f"There is no connection {name!r}.\n" + setup.connections_text(rows, self.new)
+        wanted = wanted.strip() or "check"
+        if wanted == "use":
+            if row.get("connection_status") in setup.NOT_USABLE:
+                return f"{row.get('label') or name} cannot start chats yet: {setup.state(row)}."
+            self.new.options = setup.with_provider(self.new.options, name)
+            return self.chose(f"New chats use {row.get('label') or name}. Chats already started keep their own.")
+        offered = setup.action(rows, name, wanted)
+        if offered is None:
+            return f"{row.get('label') or name} offers no {wanted!r} now.\n" + setup.connections_text([row], self.new)
+        words = list(offered["next_command"])
+        if wanted == "check":
+            checked = self.read(words)
+            if checked.get("id") != name:
+                return f"The check answered for another connection: {checked.get('id')!r}."
+            return f"{checked.get('label') or name}: {setup.state(checked)}. {checked.get('detail') or ''}".rstrip()
+        if self.outside is None:
+            return f"{offered.get('label')} needs a terminal: run autocode {' '.join(words)}"
+        code = self.outside(
+            [*self.command, *words], str(offered.get("label") or wanted)
+        )  # sign-in or setup prompts on the terminal itself
+        return f"{offered.get('label')} finished (exit {code}). Check it with /connect {name} check."
 
     def list(self) -> list[dict]:
         """Every project's chats (`runs --all`, the per-user registry), and this project's own runs,
@@ -118,6 +190,11 @@ class History:
             try:
                 rows = self.list()
                 return panel.runs_text(rows, current, here=self.workspace.resolve(), left_out=self.left_out)
+            except actions.ClientGap as error:
+                return str(error)
+        if name in ("/mode", "/engine", "/connect"):
+            try:
+                return {"/mode": self.mode, "/engine": self.engine, "/connect": self.connect}[name](argument)
             except actions.ClientGap as error:
                 return str(error)
         if name == "/new":
@@ -152,6 +229,7 @@ class ChatClient:
         poll_seconds: float = POLL_SECONDS,
         observe: Callable[[dict], None] | None = None,
         wait: Callable[[float], str | None] | None = None,
+        stream: Callable[[str | None], None] | None = None,
     ):
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.command = tuple(command)
@@ -161,6 +239,12 @@ class ChatClient:
         # A renderer's view of the run, and its wait between polls; "pause" asks for the view's pause.
         self._observe = observe
         self._wait = wait or (lambda seconds: time.sleep(seconds))
+        self._stream = stream  # the reply AutoCode is writing, as the view streams it; the line chat skips it
+        # Chats opened earlier this session, by run: (workspace, what each last waited on), so that one
+        # starting to wait or finishing is announced, as the extension notifies for its other tabs.
+        self.others: dict[str, tuple[Path, tuple | None]] = {}
+        self.others_checked = 0.0
+        self.identity: tuple | None = None
         self.seen: set[str] = set()
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self.started = False  # the first view prints the whole conversation, later ones only what is new
@@ -168,7 +252,6 @@ class ChatClient:
         self.restore_requests: dict[str, str] = {}  # one stable id per step, so a retried restore reconciles
         # /runs, /open and /new: the project's chats, and how a new one starts (start flags, run options).
         self.history: History | None = None
-        self.new_run: tuple[str | None, list[str]] | None = None  # a new run's --mode and options
         self.switched: Callable[[Path, Path], None] | None = None  # the renderer starts the new chat's screen
 
     # ---- the CLI ---------------------------------------------------------------------------
@@ -193,6 +276,7 @@ class ChatClient:
         except (ValueError, KeyError):
             raise actions.ClientGap(f"--status did not return a status view: {tail(proc)}") from None
         self.own(view)
+        self.identity = wait_identity(view)
         if self._observe is not None:
             self._observe(view)
         return view
@@ -230,6 +314,7 @@ class ChatClient:
                     while child.poll() is None:
                         with contextlib.suppress(actions.ClientGap):  # a new run has not saved a checkpoint yet
                             self.show(self.status(), live=True)
+                        self.check_others()
                         # The first reads come sooner, so what the person just decided shows as taken.
                         polls += 1
                         if self._wait(self.poll_seconds if polls > 3 else min(self.poll_seconds, 0.5)) == "pause":
@@ -317,7 +402,7 @@ class ChatClient:
     def slash(self, name: str, argument: str):
         """``/diff`` and ``/undo`` from the full-screen chat: what to show, or a question to confirm first.
         ``/runs``, ``/open`` and ``/new`` go to the project's chats; opening one leaves this run as it is."""
-        if name in ("/runs", "/open", "/new"):
+        if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect"):
             if self.history is None:
                 return "This chat has no project list."
             try:
@@ -373,9 +458,13 @@ class ChatClient:
     def show(self, view: dict, *, live=False) -> None:
         """New conversation messages, the notice and the progress line, each once."""
         chat = view.get("chat") or {}
+        live = None
         for row in chat.get("messages") or []:
             key = str(row.get("id"))
-            if row.get("streaming") or key in self.seen:
+            if row.get("streaming"):
+                live = row.get("text") or None  # shown while written, replaced by the finished message
+                continue
+            if key in self.seen:
                 continue
             self.seen.add(key)
             if row.get("role") == "user" and self.started:
@@ -386,6 +475,8 @@ class ChatClient:
             self.said.add(text)
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
+        if self._stream is not None:
+            self._stream(live)
         self.started = True
         progress = view.get("progress") or {}
         line = (chat.get("notice"), progress.get("line"))
@@ -399,7 +490,9 @@ class ChatClient:
     # ---- the conversation ------------------------------------------------------------------
 
     def talk_to(self, workspace: Path, run_dir: Path) -> None:
-        """Carry on with another run: its whole conversation is shown afresh."""
+        """Carry on with another run: its whole conversation is shown afresh. The chat left is watched."""
+        self.others[str(self.run_dir)] = (self.workspace, self.identity)
+        self.others.pop(str(run_dir), None)
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.seen, self.said, self.started, self.last_line = set(), set(), False, ()
         if self.switched is not None:
@@ -421,16 +514,38 @@ class ChatClient:
 
     def new_chat(self) -> None:
         """/new: ask for a request and start a run; nothing typed keeps the current chat."""
+        new = self.history.new if self.history is not None else setup.NewChat()
+        if self.history is not None:
+            self.say(self.history.summary())
         brief = self.ask("What do you want done? ")
         if not brief:
             self.say("Nothing started; this chat carries on.")
             return
-        mode, options = self.new_run or (None, [])
+        mode, options = new.mode, new.options
         chosen = mode_row(mode, command=self.command, env=self.env)
         if not confirm_launch(self.ask, self.say, chosen):
             self.say("Nothing started; this chat carries on.")
             return
         self.begin(brief, list(chosen.get("start_args") or []), options)
+
+    def check_others(self, every: float = OTHERS_SECONDS) -> None:
+        """Say when a chat opened earlier this session starts to wait for the person or finishes."""
+        if not self.others or time.monotonic() - self.others_checked < every:
+            return
+        self.others_checked = time.monotonic()
+        for run, (workspace, before) in list(self.others.items()):
+            proc = self.cli(["--status", "--workspace", str(workspace), "--run-dir", run])
+            try:
+                view = json.loads(proc.stdout)["view"]
+            except (ValueError, KeyError):
+                continue
+            now = wait_identity(view)
+            self.others[run] = (workspace, now)
+            if now is None or now == before:
+                continue
+            name = Path(run).name
+            what = "finished" if now == ("done",) else f"needs you: {panel.needs_you(view) or now[0]}"
+            self.say(f"\nAnother chat {what} ({name}). Type /runs, then /open it.")
 
     def converse(self) -> int:
         try:
@@ -466,6 +581,7 @@ class ChatClient:
                 self.take(actions.named(view, self.workspace, self.run_dir))
                 self.require_progress(view)
             return None
+        self.check_others(every=0)  # before the person is asked: other chats may need them too
         return None if self.respond(view) else 2
 
     def require_progress(self, before: dict) -> None:
@@ -697,6 +813,18 @@ class ChatClient:
         return True
 
 
+def wait_identity(view: dict) -> tuple | None:
+    """What a run waits on a person for, as the extension's notifications tell one wait from the next:
+    ("done",) once finished, the need and its tokens while it waits, None while it works on its own."""
+    if view.get("done"):
+        return ("done",)
+    need = view.get("needs") or {}
+    if not need or need.get("kind") == "continue":
+        return None
+    keys = ("request_id", "resolver_token", "resolver_request_id", "token", "job_retry_token")
+    return (need.get("kind"), *(str(need.get(key) or "") for key in keys))
+
+
 def render_plan(plan: dict) -> str:
     """The plan a person approves, in the extension's sections: what is checked, the limits, what it may do."""
     lines = ["Plan to approve:"]
@@ -822,6 +950,7 @@ def open_chat(
     ask: Callable[[str], str] = input,
     say: Callable[[str], None] = print,
     hint: bool = False,
+    intro: str | None = None,
     **kwargs,
 ):
     """`autocode chat` with nothing named: pick up the run left open here, or ask what to do.
@@ -850,6 +979,8 @@ def open_chat(
         else:
             if earlier:
                 say(f"{len(earlier)} earlier chat{'s' if len(earlier) != 1 else ''} here. Type /runs to see them.")
+            if intro:
+                say(intro)
             brief = ask("What do you want done? ").strip()
     except Opened as opened:
         row = opened.row
@@ -923,14 +1054,20 @@ def cli(argv: list[str] | None = None) -> int:
             arguments.error("the brief is empty")
         ui = terminal_ui(force_line=args.line)
         ask, say = (ui.ask, ui.say) if ui is not None else (input, print)
-        seen = {"observe": ui.observe, "wait": ui.wait} if ui is not None else {}
+        seen = {"observe": ui.observe, "wait": ui.wait, "stream": ui.stream} if ui is not None else {}
         workspace = (args.workspace or Path.cwd()).expanduser()
-        history = History(workspace.resolve())
+        # A new chat starts with the mode and options given here, else the project's saved choice.
+        saved = setup.NewChat.load(workspace)
+        new = setup.NewChat(args.mode or saved.mode, list(options) if options else saved.options)
+        history = History(workspace.resolve(), new=new)
+        if ui is not None:
+            history.outside = ui.outside
         if ui is not None and args.run_dir is None:
             ui.set_context(workspace)
-            ui.bind(history.slash)  # /runs and /open work before a chat is open
+            ui.bind(history.slash)  # /runs, /open, /mode, /engine and /connect work before a chat is open
+        mode, options = new.mode, new.options
         if args.brief is not None:
-            chosen = mode_row(args.mode)
+            chosen = mode_row(mode)
             if not confirm_launch(ask, say, chosen):
                 say("Nothing started.")
                 return 2
@@ -941,11 +1078,19 @@ def cli(argv: list[str] | None = None) -> int:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)
             client = ChatClient(workspace, run_dir, ask=ask, say=say, **seen)
         else:
-            client = open_chat(workspace.resolve(), args.mode, options, ask=ask, say=say, hint=ui is not None, **seen)
+            client = open_chat(
+                workspace.resolve(),
+                mode,
+                options,
+                ask=ask,
+                say=say,
+                hint=ui is not None,
+                intro=history.summary() if ui is not None else None,
+                **seen,
+            )
             if client is None:
                 return 2
         client.history = history
-        client.new_run = (args.mode, options)
         if ui is not None:
             ui.set_context(client.workspace, client.run_dir)
             ui.bind(client.slash)
