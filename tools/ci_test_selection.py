@@ -47,8 +47,10 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
     ("tools/prompts/fragments/report-repair-context/requirements-corrections.md", ("tests.test_report_repair",)),
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
+    ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
     ("tools/prompts/requirements-gather.md", ("tests.test_chat_cli", "tests.test_requirements_review")),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
@@ -71,6 +73,20 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("tools/providers/kilocode.py",), ("tests.test_kilo_progress",)),
+    (
+        (
+            "tools/autocode_command_inputs.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_recovery_accounting.py",
+            "tools/autocode_recovery_grants.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_args.py",
+            "tools/autocode_control_tokens.py",
+            "tools/autocode_pause_command.py",
+        ),
+        ("tests.test_planning_allowance_cli",),
+    ),
     (
         ("tools/autocode_activity.py", "tools/autocode_process.py"),
         ("tests.test_kilo_wrapper_idle_cli",),
@@ -105,6 +121,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("tools/autocode_connections.py", "tools/autocode_subcommands.py", "tools/providers/command.py"),
         ("tests.test_connections",),
+    ),
+    (
+        (
+            "tools/autocode_run_modes.py",
+            "tools/autocode_args.py",
+            "tools/autocode_adaptive_planning.py",
+            "tools/autocode_requirements_review.py",
+        ),
+        ("tests.test_run_modes",),
     ),
     (
         (

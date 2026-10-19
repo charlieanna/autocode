@@ -22,6 +22,7 @@ import {
   type OpenDecision,
 } from "./core/next-command";
 import { readRegistryList, readStatusPayload, approvalToken, planForApproval, type CheckpointAction, type RegistryList, type StatusView } from "./core/view";
+import { FULL_START_ARGS, readRunModes, type RunModes } from "./core/modes";
 import { readSettings, type Settings } from "./settings";
 
 export interface RunRef {
@@ -61,6 +62,13 @@ export class RunController {
     return readRegistryList(result.stdout);
   }
 
+  /** The run modes the core offers for a new chat. Read-only: it starts nothing. */
+  async modes(): Promise<RunModes> {
+    const result = await invoke(this.settings, ["modes", "list", "--json"]);
+    if (result.code !== 0) throw new Error(tail(result));
+    return readRunModes(result.stdout);
+  }
+
   /** `autocode --status`: a read that never rewrites the checkpoint or launches a provider. */
   status(run: RunRef): Promise<StatusView> {
     return readStatus(this.settings, run.workspace, run.runDir, readStatusPayload);
@@ -73,16 +81,17 @@ export class RunController {
    * created, not whichever one a parallel session happened to start. AutoCode
    * refuses an existing directory or a symlink before a provider launches.
    */
-  async start(workspace: string, brief: string, created?: (run: RunRef) => void): Promise<RunRef> {
+  async start(workspace: string, brief: string, created?: (run: RunRef) => void, startArgs: readonly string[] = FULL_START_ARGS): Promise<RunRef> {
     // The core resolves the workspace before validating the run destination
     // (autocode_run_destination.reserve); a symlinked folder such as macOS
     // /tmp must not make the two paths disagree (#1555).
     const runWorkspace = await realpath(workspace);
     const runDir = freshRunDir(runWorkspace);
     const settings = this.settings;
-    // Sidebar conversations gather and confirm requirements before planning.
+    // The chosen run mode's flags, exactly as `modes list` named them; without
+    // one, sidebar conversations gather and confirm requirements before planning.
     // Creation flags stay off later actions, which use the run's saved flow.
-    const args = [brief, "--in-place", "--no-chat", "--joint-planning", "--spec-first", ...settings.runOptions, "--workspace", runWorkspace, "--new-run-dir", runDir];
+    const args = [brief, "--in-place", "--no-chat", ...startArgs, ...settings.runOptions, "--workspace", runWorkspace, "--new-run-dir", runDir];
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
     created?.({ workspace: runWorkspace, runDir });
     const result = await stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk));

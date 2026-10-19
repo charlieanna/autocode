@@ -8,6 +8,31 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_kilo_launch_and_native_hook_keep_the_progress_consumer_even_when_slow(self):
+        consumer = "tests.test_kilo_progress"
+        for path in ("tools/providers/kilocode.py", "tools/providers/opencode_activity.mjs"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_typed_planning_allowance_keeps_its_public_consumer_even_when_slow(self):
+        consumer = "tests.test_planning_allowance_cli"
+        for path in (
+            "tools/autocode_command_inputs.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_recovery_accounting.py",
+            "tools/autocode_recovery_grants.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_args.py",
+            "tools/autocode_control_tokens.py",
+            "tools/autocode_pause_command.py",
+            "scenarios/harness/conformance.py",
+        ):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
     def test_activity_policy_keeps_its_public_wrapper_idle_consumer_even_when_slow(self):
         consumer = "tests.test_kilo_wrapper_idle_cli"
         for path in ("tools/autocode_activity.py", "tools/autocode_process.py"):

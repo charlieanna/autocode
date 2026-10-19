@@ -32,19 +32,21 @@ export interface Needs {
   command_inputs?: IntegerCommandInput[];
 }
 
-/** A person's finite total, offered only for the exact recovery command. */
-export interface IntegerCommandInput {
-  id: "max_seconds";
+/** A person's finite total, offered only for its exact recovery command. */
+interface IntegerCommandInputBase {
   kind: "integer";
-  flag: "--max-seconds";
   placeholder: "N";
-  arg_index: 2;
   label: string;
   current: number;
-  elapsed: number;
   minimum: number;
   maximum: number;
 }
+
+export type IntegerCommandInput = IntegerCommandInputBase & (
+  { id: "max_seconds"; flag: "--max-seconds"; arg_index: 2; elapsed: number }
+  | { id: "planning_review_call_limit"; flag: "--planning-review-call-limit"; arg_index: 1 | 2; used: number }
+  | { id: "grant_recovery"; flag: "--grant-recovery"; arg_index: 2; used: number }
+);
 
 export interface Question {
   id: string;

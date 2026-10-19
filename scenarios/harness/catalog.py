@@ -80,6 +80,7 @@ FAKE_KEYS = {
     "turn_paths",
     "answers",
     "acknowledge",
+    "plan_review_call_limit",
 }
 # [fake] acknowledge is served by the single-run driver (harness/driver.py); these categories drive runs otherwise.
 ACKNOWLEDGE_UNSERVED = ("program", "components", "conformance")
@@ -132,6 +133,8 @@ class Scenario:
     fake_fault: str = ""
     fake_live_calls: bool = False
     fake_probe: str = ""  # exits 0 while the seed's bug is present: the runner checks the scripted reproduction
+    # A finite starting allowance in an isolated public user config, never a pause-time grant.
+    fake_plan_review_call_limit: int | None = None
     # Follow-up messages, in order, each said to the same run (issue #51).
     turns: tuple[Turn, ...] = ()
     # Model stages the scenario exists to exercise. A run that never reaches one is
@@ -245,6 +248,9 @@ def load(scenario_id: str) -> Scenario:
         raise ValueError(f"{scenario_id}: [fake] criteria maps ids to nonempty criterion definitions")
     if not isinstance(answers, dict) or not all(isinstance(value, str) and value.strip() for value in answers.values()):
         raise ValueError(f"{scenario_id}: [fake] answers maps question ids to nonempty answers")
+    review_limit = fake.get("plan_review_call_limit")
+    if review_limit is not None and (type(review_limit) is not int or review_limit < 2):
+        raise ValueError(f"{scenario_id}: [fake] plan_review_call_limit must be a finite integer of at least 2")
     acknowledge = _acknowledge(scenario_id, meta, fake)
     turns = []
     for number, turn in enumerate(meta.get("turn", []), start=1):
@@ -328,6 +334,7 @@ def load(scenario_id: str) -> Scenario:
         fake_fault=fake.get("fault", ""),
         fake_live_calls=bool(fake.get("live_investigator", False)),
         fake_probe=fake.get("probe", ""),
+        fake_plan_review_call_limit=review_limit,
         turns=tuple(turns),
         requires_stages=tuple(run.get("requires_stages", ())),
         fake_milestones=tuple(fake.get("milestones", ())),

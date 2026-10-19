@@ -27,6 +27,7 @@ export interface Decision {
 export const NUMERIC_RECOVERY_EFFECT = "This changes only the total active time. Other saved limits and model routes stay the same. It does not approve a plan.";
 
 export interface PanelState {
+  numericActionLabel?: string;
   chat?: StatusView["chat"];
   formattedMessages?: Record<string, TextNode[]>;
   workspace: string;
@@ -222,10 +223,10 @@ export class RunPanel {
         return;
       }
       if (numeric || (leavesForPerson(view.needs ?? null) && confirmPersonOnly())) {
-        const button = numeric ? "Set total and continue" : "Take it anyway";
+        const button = numeric ? numericActionLabel(state) : "Take it anyway";
         const proceed = await vscode.window.showWarningMessage(
           numeric ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
-          { modal: true, detail: numeric ? NUMERIC_RECOVERY_EFFECT : needsSummary(view) },
+          { modal: true, detail: numeric ? numericRecoveryEffect(state) : needsSummary(view) },
           button,
         );
         if (proceed !== button) return;
@@ -340,6 +341,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     })),
     criteria: (need?.criteria ?? []).map((row) => ({ id: row.id, criterion: row.criterion ?? "" })),
     decisions,
+    numericActionLabel: numericActionLabel({ decisions }),
     decisionContext: JSON.stringify([
       run.workspace,
       run.runDir,
@@ -423,7 +425,29 @@ function describe(
 /** A changed allowance always needs explicit confirmation, even if generic pause prompts are disabled. */
 export function numericConfirmation(state: PanelState, answers: Record<string, string>): string | null {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
-  return input ? `Set total active time to ${integerValue(answers[input.id], input)} seconds and continue?` : null;
+  if (!input) return null;
+  const total = integerValue(answers[input.id], input);
+  if (input.id === "grant_recovery") return `Replenish ${total} recovery slot${total === "1" ? "" : "s"} and continue?`;
+  if (input.id === "planning_review_call_limit") {
+    return `Set the total plan-review allowance to ${total} calls?`;
+  }
+  return `Set total active time to ${total} seconds and continue?`;
+}
+
+export function numericActionLabel(state: Pick<PanelState, "decisions">): string {
+  const input = state.decisions.find((row) => row.kind === "integer")?.input;
+  if (input?.id === "grant_recovery") return "Grant and continue";
+  return input?.id === "planning_review_call_limit"
+    ? "Set review allowance"
+    : "Set total and continue";
+}
+
+export function numericRecoveryEffect(state: PanelState): string {
+  const input = state.decisions.find((row) => row.kind === "integer")?.input;
+  if (input?.id === "grant_recovery") return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
+  return input?.id === "planning_review_call_limit"
+    ? "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan."
+    : NUMERIC_RECOVERY_EFFECT;
 }
 
 function safeCommandText(view: StatusView, run: RunRef, controller: RunController): string {
@@ -501,6 +525,7 @@ const ICONS = {
   clock: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25" /><path d="M12 7.5V12l3 2" /></svg>`,
   panel: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M15 4.5v15" /></svg>`,
   plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4" /></svg>`,
+  route: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.25" /><circle cx="18" cy="18" r="2.25" /><path d="M8.25 6H14a3.5 3.5 0 0 1 0 7h-4a3.5 3.5 0 0 0 0 7h5.75" /></svg>`,
   tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
 };
 
@@ -547,6 +572,7 @@ export function panelHtml(chat = false): string {
   .actions { display: flex; gap: 8px; margin-top: 14px; }
   .muted { opacity: .65; }
   ${chat ? chatStyles : ""}
+  ${chat ? "#composer .chip[hidden] { display: none; }" : ""}
 </style>
 </head>
 <body>
@@ -562,7 +588,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <label for="message" id="send-hint">Message AutoCode</label>
 <textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
-<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
+<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
 <button type="button" id="pause-run" hidden>Pause</button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
@@ -766,7 +792,7 @@ function render(state) {
 
       var approving = state.needKind === 'approve_plan';
       var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
-        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? 'Set total and continue' : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue'))));
+        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? state.numericActionLabel : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue'))));
       if (state.actionEffect) cardContent.appendChild(el('div', 'why', state.actionEffect));
       const take = el('button', null, label);
       take.id = 'take-action';
@@ -983,7 +1009,7 @@ function render(state) {
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
     var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve this plan'
-      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? 'Set total and continue' : state.actionLabel || 'Take the named action')));
+      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? state.numericActionLabel : state.actionLabel || 'Take the named action')));
     if (state.actionEffect) actions.appendChild(el('div', 'why', state.actionEffect));
     const take = el('button', null, label);
     take.id = 'take-action';
@@ -1039,6 +1065,11 @@ function updateActionButton() {
 }
 
 function numericHelp(input) {
+  if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
+    + '. Counted recoveries used: ' + input.used + '. Enter 1 to ' + input.maximum
+    + ' additional recoveries. A grant replenishes spent slots; history is kept.';
+  if (input.id === 'planning_review_call_limit') return 'Saved allowance: ' + input.current
+    + ' calls. Plan-review calls used: ' + input.used + '. Enter a total of at least ' + input.minimum + ' calls.';
   return 'Saved total: ' + input.current + ' seconds. Active time used: ' + input.elapsed
     + ' seconds. Enter a total of at least ' + input.minimum + ' seconds.';
 }
@@ -1154,6 +1185,9 @@ function renderTabs(data) {
 function renderChat(data) {
   const thread = document.getElementById('thread');
   document.getElementById('engine-name').textContent = data.engine || 'opencode';
+  // The core's run mode for this chat; only a chat that has not started offers one.
+  document.getElementById('mode-picker').hidden = !data.mode;
+  document.getElementById('mode-name').textContent = data.mode || '';
   const detailsBtn = document.getElementById('details');
   if (detailsBtn) detailsBtn.disabled = !data.selectedRun;
   renderTabs(data);
@@ -1308,6 +1342,7 @@ if (chatMode) {
     if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });
   });
   document.getElementById('engine-picker').addEventListener('click', () => vscode.postMessage({ type: 'engine' }));
+  document.getElementById('mode-picker').addEventListener('click', () => vscode.postMessage({ type: 'mode' }));
 }
 
 vscode.postMessage({

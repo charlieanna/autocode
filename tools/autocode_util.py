@@ -30,6 +30,11 @@ from pathlib import Path
 # branch on any host.
 _WINDOWS = sys.platform == "win32"
 
+# The reasoning-effort ladder, lowest first (docs/models.md). One definition for the
+# role/effort machinery: the planning unit steps a Plan Reviewer down it and
+# units/common caps read-only routes along it, so no layer invents a second order.
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
 
 def now():
     return dt.datetime.now(dt.UTC).isoformat()

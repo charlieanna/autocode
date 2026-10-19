@@ -27,6 +27,58 @@ function timeOffer(): StatusView {
   };
 }
 
+function planningOffer(saveOnly = false): StatusView {
+  return {
+    status: "PAUSED_PLANNING_BUDGET", done: false, recovery: { token: "current" },
+    needs: { kind: "planning_budget", command_inputs: [{ id: "planning_review_call_limit", kind: "integer",
+      flag: "--planning-review-call-limit", placeholder: "N", arg_index: saveOnly ? 1 : 2,
+      label: "Total plan-review calls", current: 2, used: 2, minimum: 3, maximum: Number.MAX_SAFE_INTEGER }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} ${saveOnly ? "" : "--resume-paused "}--planning-review-call-limit N --expected-recovery-token -`,
+  };
+}
+
+function grantOffer(): StatusView {
+  return { status: "PAUSED_TIMEOUT_RECOVERY", done: false, recovery: { token: "current" },
+    needs: { kind: "resume", command_inputs: [{ id: "grant_recovery", kind: "integer", flag: "--grant-recovery", placeholder: "N",
+      arg_index: 2, label: "Additional recoveries", current: 3, used: 3, minimum: 1, maximum: 3 }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} --resume-paused --grant-recovery N --expected-recovery-token -` };
+}
+
+test("finite recovery grant is only the exact resume command and cannot exceed counted spend", () => {
+  const view = grantOffer();
+  const named = parseNamedCommand(view.next_command!, own);
+  const inputs = commandInputs(view, named);
+  assert.deepEqual(applyDecisions(named.argv, { grant_recovery: "1" }, inputs), ["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"]);
+  for (const value of ["", "0", "4", "1.5", "1e2", "9007199254740992"]) assert.throws(() => applyDecisions(named.argv, { grant_recovery: value }, inputs), ClientGap);
+  for (const [key, value] of Object.entries({ used: 3.5, minimum: 0, maximum: 4, current: 0, flag: "--max-seconds" })) {
+    const bad = structuredClone(view); Object.assign(bad.needs!.command_inputs![0]!, { [key]: value });
+    assert.throws(() => commandInputs(bad, named), ClientGap);
+  }
+  assert.throws(() => commandInputs(view, { ...named, argv: named.argv.slice(1) }), ClientGap);
+  assert.throws(() => commandInputs(view, { ...named, env: { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "stale" } }), ClientGap);
+});
+
+test("typed review allowance binds both existing shapes without adding resume or approval", () => {
+  for (const saveOnly of [false, true]) {
+    const view = planningOffer(saveOnly);
+    const named = parseNamedCommand(view.next_command!, own);
+    const inputs = commandInputs(view, named);
+    const expected = [...(saveOnly ? [] : ["--resume-paused"]), "--planning-review-call-limit", "4", "--expected-recovery-token", "-"];
+    assert.deepEqual(applyDecisions(named.argv, { planning_review_call_limit: "4" }, inputs), expected);
+    for (const value of ["", "0", "2", "-1", "1.5", "4e2", "9007199254740992", "9".repeat(5000)]) {
+      assert.throws(() => applyDecisions(named.argv, { planning_review_call_limit: value }, inputs), ClientGap);
+    }
+    for (const [key, value] of Object.entries({ used: 2.5, current: 0, minimum: 2, arg_index: saveOnly ? 2 : 1, label: "Seconds", flag: "--max-seconds" })) {
+      const bad = structuredClone(view);
+      Object.assign(bad.needs!.command_inputs![0]!, { [key]: value });
+      assert.throws(() => commandInputs(bad, named), ClientGap, key);
+    }
+    assert.throws(() => commandInputs(view, { ...named, env: { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "stale" } }), ClientGap);
+    assert.throws(() => commandInputs(view, { ...named, argv: [...named.argv, "--approve-goal", "-"] }), ClientGap);
+    assert.equal(findUnsupplied(named.argv), "N");
+  }
+});
+
 test("typed total fills only the exact bound slot with the person's finite safe integer", () => {
   const view = timeOffer();
   const named = parseNamedCommand(view.next_command!, own);

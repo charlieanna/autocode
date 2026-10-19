@@ -19,7 +19,18 @@ its own selected run and drafts, so switching tasks in one window does not
 change the conversation shown in another. The Runs list in each window can
 still open any task registered for that workspace.
 
-New sidebar chats enable joint planning and the core's `--spec-first` flow.
+New sidebar chats start in the run mode shown on the **Run mode** chip beside the
+engine chip: **Full** (the default) or **Quick plan**. The list and each mode's
+flags come from `autocode modes list --json`
+([Run modes for clients](task-run.md#run-modes-for-clients)); the extension
+passes the chosen mode's flags unchanged. Your choice is remembered for new
+chats in this workspace, and a chat that has started keeps the flow it started
+with, so the chip shows only on a new chat. An AutoCode without run modes shows
+no chip and starts the full flow. Quick plan sends a clear request straight to
+the plan without the Requirements conversation; you still approve the plan,
+and the Tester and Completion Reviewer still check the work.
+
+In the full flow, new sidebar chats enable joint planning and the core's `--spec-first` flow.
 The Requirements agent answers your first message, whatever it is, and talks
 with you until it understands what you want done. A greeting or an off-topic
 question gets a short answer and a question about what to build or change.
@@ -151,7 +162,22 @@ total. It must exceed the saved cap and active time already consumed; chat text
 does not supply or authorize it. Other limits, models and plan approval still
 apply.
 
-Plan editing (`--edit-goal`), recovery grants and other actions with unresolved
+At a planning-review allowance pause, a core-named finite input shows the saved
+allowance and calls already used. Enter an explicit total above both and confirm
+the exact number of calls. **Set review allowance** takes only the named command
+and waits for the next status before offering any separate continuation. Even a
+named command containing Resume can save the allowance first. Used calls stay counted, other
+limits and models stay saved, and neither action approves a plan. Blank, zero,
+fractional or stale choices cannot run.
+
+At an exhausted operational-recovery boundary, **Additional recoveries** is a
+separate blank finite input. It shows the existing recovery allowance and counted
+spend. Choose from 1 through the spent count and confirm **Grant and continue**.
+Choosing 1 replenishes one spent slot; it does not raise the fixed allowance or
+bank excess. History stays retained and the existing consecutive-timeout streak
+is cleared by that grant. Other limits, routes and plan approval still apply.
+
+Plan editing (`--edit-goal`) and other actions with unresolved
 `GOAL_FILE`, untyped recovery `N` or explanatory placeholders remain explicit gaps.
 The client cannot invent those decisions. The separate core Requirements
 conversation journal is documented in [task-run.md](task-run.md); this client

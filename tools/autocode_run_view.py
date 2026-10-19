@@ -978,7 +978,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
-        if review.get("status") == "held" and review.get("action"):
+        if review.get("status") == "pending":
+            # Information grants no allowance. Evaluate it before offering a
+            # finite numeric choice, just as at the total-time checkpoint.
+            need["action"] = "--resume-paused"
+        elif command_inputs.has_planning_allowance(state):
+            need["action"] = "--resume-paused"
+        elif review.get("status") == "held" and review.get("action"):
             need["action"] = review["action"]
         return need
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
@@ -1016,7 +1022,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = member
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
-        if review.get("action") and (review["status"] == "held" or "action" not in need):
+        if review.get("status") == "pending" and "action" not in need:
+            need["action"] = "--resume-paused"
+        elif review.get("action") and (review["status"] == "held" or "action" not in need):
             need["action"] = review["action"]
         pending = state.get("pending_report_repair") or {}
         rejected = report_retry.rejected_attempt(state) or {}

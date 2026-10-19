@@ -19,6 +19,7 @@ try:
     from .. import autocode_support as support
     from .. import autocode_test_cases as test_cases
     from .. import autocode_test_examples as test_examples
+    from .. import autocode_util as util
     from .. import autocode_workflow as workflow
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
@@ -31,11 +32,14 @@ except ImportError:
     import autocode_support as support
     import autocode_test_cases as test_cases
     import autocode_test_examples as test_examples
+    import autocode_util as util
     import autocode_workflow as workflow
 from . import autoplanner
 from .model_request import ModelRequest
 
-EFFORTS = ("low", "medium", "high", "xhigh", "max")
+# The ladder lives in autocode_util (the bottom helper layer); this re-export keeps
+# every existing importer and capped_route on the one definition.
+EFFORTS = util.EFFORTS
 
 
 def launch_sandbox(stage, allow_write):

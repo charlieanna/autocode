@@ -8,10 +8,11 @@ import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { RunController, type CheckpointComparison, type RunRef } from "./controller";
 import { leavesForPerson } from "./core/next-command";
+import { chosenMode, type RunModes } from "./core/modes";
 import type { StatusView } from "./core/view";
 import { transitionNotice } from "./notify";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
-import { NUMERIC_RECOVERY_EFFECT, numericConfirmation, panelHtml, stateFor } from "./panel";
+import { numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, stateFor } from "./panel";
 
 interface ChatMessage {
   type?: string;
@@ -80,6 +81,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private refreshing = false;
   private timer: NodeJS.Timeout | undefined;
   private readonly configuration: vscode.Disposable;
+  /** The core's run modes for new chats; null when this AutoCode lists none (an older CLI). */
+  private modes: RunModes | null | undefined;
 
   constructor(private readonly controller: RunController, private readonly storage: vscode.Memento, private readonly actions: Actions) {
     // Keep the pre-multi-window selection only for one-time migration. The
@@ -162,6 +165,38 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     this.configuration.dispose();
   }
 
+  /** The mode id the person last chose for new chats; the core's default until then. */
+  private get modeChoice(): string | undefined { return this.storage.get<string>(MODE_KEY); }
+
+  /** Read the core's run modes. An AutoCode without `modes` offers no choice: new chats keep the full flow. */
+  private async loadModes(): Promise<void> {
+    try {
+      this.modes = await this.controller.modes();
+    } catch {
+      this.modes = null;
+    }
+  }
+
+  /** The run mode for new chats, chosen from the core's list; a started chat keeps its own flow. */
+  private async pickMode(): Promise<void> {
+    await this.loadModes();
+    if (!this.modes?.modes.length) {
+      void vscode.window.showInformationMessage("This AutoCode lists no run modes, so new chats use the full flow.");
+      return;
+    }
+    const current = chosenMode(this.modes, this.modeChoice);
+    const picked = await vscode.window.showQuickPick(
+      this.modes.modes.map((mode) => ({
+        label: mode.label,
+        description: mode.id === current?.id ? "current" : undefined,
+        detail: mode.description,
+        id: mode.id,
+      })),
+      { placeHolder: `Run mode for new chats (current: ${current?.label ?? "Full"})` },
+    );
+    if (picked) await this.storage.update(MODE_KEY, picked.id);
+  }
+
   private get active(): ChatTab { return this.tabs.find((tab) => tab.key === this.activeKey) ?? this.tabs[0]!; }
 
   /** The run the active tab holds; the window's status bar follows it. */
@@ -178,6 +213,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       tabs: this.tabs.map((row) => ({ key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null })),
       activeKey: this.activeKey,
       engine: engineOf(readSettings()),
+      // Only a chat that has not started chooses a mode; a run keeps the flow it started with.
+      mode: !tab.run && this.modes ? chosenMode(this.modes, this.modeChoice)?.label ?? null : null,
       state: tab.run && tab.status
         ? { ...stateFor(tab.status, tab.run, this.controller, busy), unreadable: Boolean(tab.readError) } : null,
     });
@@ -243,6 +280,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       for (const tab of this.tabs) tab.status = undefined;
       if (this.active.run) this.actions.selected(this.active.run);
       this.post(true);
+      await this.loadModes();
       await this.refresh();
       return;
     }
@@ -258,6 +296,11 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     }
     if (message.type === "engine") {
       await pickEngine();
+      this.post();
+      return;
+    }
+    if (message.type === "mode") {
+      await this.pickMode();
       this.post();
       return;
     }
@@ -286,10 +329,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
         const numeric = numericConfirmation(state, message.answers ?? {});
         if (numeric || (leavesForPerson(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
-          const button = numeric ? "Set total and continue" : "Continue";
+          const button = numeric ? numericActionLabel(state) : "Continue";
           const answer = await vscode.window.showWarningMessage(
             numeric ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"), { modal: true,
-              detail: numeric ? NUMERIC_RECOVERY_EFFECT : state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
+              detail: numeric ? numericRecoveryEffect(state) : state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
           );
           if (answer !== button) return;
         }
@@ -436,6 +479,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       if (!workspace || this.sequence !== launchSequence) return;
       const confirmed = await this.actions.confirmStart();
       if (!confirmed || this.sequence !== launchSequence) return;
+      // Read the list again so the flags come from the CLI that starts the run.
+      await this.loadModes();
+      const mode = this.modes ? chosenMode(this.modes, this.modeChoice) : undefined;
       await this.controller.start(workspace, text, (run) => {
         allocatedRun = run;
         allocatedKey = runKey(run);
@@ -460,7 +506,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           void this.view?.webview.postMessage({ type: "sent", runKey: freshKey, text });
           this.post(true);
         }
-      });
+      }, mode?.startArgs);
       if (allocatedRun) {
         try {
           const view = await this.controller.status(allocatedRun);
@@ -522,6 +568,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 function runKey(run: RunRef): string { return `${run.workspace}\n${run.runDir}`; }
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+const MODE_KEY = "autocode.chat.mode";
 
 const ENGINE_LABELS: Record<Engine, string> = { opencode: "OpenCode", codex: "Codex", claude: "Claude Code" };
 

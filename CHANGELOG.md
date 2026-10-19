@@ -9,6 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- New chats in VS Code offer a **Run mode**: Full (the default, Requirements first) or Quick plan,
+  where a clear request goes straight to the plan. The modes and their start flags come from the
+  new `autocode modes list --json`; every mode keeps plan approval, the Tester and the Completion
+  Reviewer.
+
 ### Changed
 
 - New CLI and TaskRun runs select qualified models from connected accounts automatically,
@@ -19,6 +26,17 @@ PR template asks for an entry here; a change without one is incomplete.
   table. `--no-auto-select` retains fixed defaults (#1426).
 
 ### Fixed
+
+- Ordinary Kilo launches forward bounded native text and reasoning progress while response blocks
+  are still streaming. Silent streams retain the configured idle deadline; progress remains
+  separate from tool execution and completed-report evidence (#1599).
+
+- The scripted conformance lifecycle declares a finite starting planning-review allowance for
+  its deliberate revisions and feedback, preserving review accounting and every lifecycle check (#1604).
+
+- Native and headless clients can bind explicit finite planning-review totals and
+  additional recovery slots to exact named commands and the current pause. Save-only
+  actions stay save-only; existing accounting, other limits and plan approval remain (#1605).
 
 - Kilo's persistent native provider child no longer counts as an inferred running tool after
   completed tool calls, so a silent model wait honors the configured idle limit. Real or unknown
