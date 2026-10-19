@@ -66,6 +66,8 @@ export interface PanelState {
   taking: boolean;
   /** This client is acting, or AutoCode reports live stage/controller work. */
   working: boolean;
+  /** The pause the view offers while the run works (#1598); `requested` once one waits for the step to end. */
+  pauseOffer: { label: string; effect: string | null; requested: boolean } | null;
   /** Chat only: the latest status read failed, so this state is an older read and its actions stay disabled (#1593). */
   unreadable?: boolean;
   /** Saved code changes and the actions the view named for them (#1532). */
@@ -364,6 +366,11 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     personOnly: leavesForPerson(need),
     taking,
     working,
+    pauseOffer: view.pause && !view.done ? {
+      label: view.pause.label ?? "Pause after this step",
+      effect: view.pause.effect ?? null,
+      requested: view.pause.requested === true || !Array.isArray(view.pause.next_command),
+    } : null,
     checkpoints: (view.code_checkpoints?.rows ?? []).map((row) => ({
       id: row.id,
       label: row.label ?? row.id,
@@ -486,6 +493,7 @@ function emptyState(run: RunRef): PanelState {
     personOnly: false,
     taking: false,
     working: false,
+    pauseOffer: null,
     checkpoints: [],
     checkpointsBlocked: null,
     plan: null,
@@ -581,7 +589,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
 <div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
-<button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
+<button type="button" id="pause-run" hidden>Pause</button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
@@ -1118,12 +1126,23 @@ function updateComposer() {
   const input = chatEnvelope.state && chatEnvelope.state.chat && chatEnvelope.state.chat.input;
   const unreadable = Boolean(chatEnvelope.state && chatEnvelope.state.unreadable);
   const allowed = !chatEnvelope.selectedRun || (Boolean(input) && !unreadable);
-  document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || !document.getElementById('message').value.trim();
+  // While the run works, Pause takes Send's place (#1598); Send stays beside it when the view also takes a message.
+  const pause = chatEnvelope.selectedRun && chatEnvelope.state && chatEnvelope.state.pauseOffer;
+  const pausing = Boolean(pause && (pause.requested || chatEnvelope.pausing));
+  const pauseButton = document.getElementById('pause-run');
+  pauseButton.hidden = !pause;
+  pauseButton.disabled = !pause || pausing || unreadable;
+  pauseButton.textContent = pausing ? 'Pausing after this step…' : 'Pause';
+  pauseButton.setAttribute('aria-label', pause ? (pausing ? 'Pausing after this step' : pause.label) : 'Pause');
+  pauseButton.title = pause && pause.effect ? pause.effect : '';
+  document.getElementById('send-message').hidden = Boolean(pause) && !input;
+  document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || (Boolean(pause) && !input) || !document.getElementById('message').value.trim();
   document.getElementById('send-message').textContent = 'Send ↑';
   const label = input ? input.label + (input.kind === 'resolver_response' ? '' : ' and continue') : 'Send message';
   document.getElementById('send-message').setAttribute('aria-label', label);
   document.getElementById('send-hint').textContent = !chatEnvelope.selectedRun ? 'Message AutoCode'
     : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
+    : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
     : input ? label
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
@@ -1319,6 +1338,9 @@ if (chatMode) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('composer').requestSubmit(); }
   });
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+  document.getElementById('pause-run').addEventListener('click', () => {
+    if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });
+  });
   document.getElementById('engine-picker').addEventListener('click', () => vscode.postMessage({ type: 'engine' }));
   document.getElementById('mode-picker').addEventListener('click', () => vscode.postMessage({ type: 'mode' }));
 }

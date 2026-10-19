@@ -1816,6 +1816,83 @@ test('a failed status read disables requirements Continue (#1593)', async (t) =>
   assert.equal(ui.document.querySelector('#take-action').disabled, true);
 });
 
+function pauseView(extra = {}) {
+  return { status: 'RUNNING', done: false, liveness: { kind: 'supervised' }, needs: { kind: 'continue' },
+    pause: { label: 'Pause after this step', effect: 'The current step finishes and is saved, then the run pauses.',
+      requested: false, next_command: ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir,
+        '--request-id', 'REQUEST_ID', '--kind', 'pause', '--json'] }, ...extra };
+}
+
+test('while the run works, Pause takes Send\'s place and runs only the named pause (#1598)', async (t) => {
+  const ui = await openChat(t, pauseView());
+  const pause = () => ui.document.querySelector('#pause-run');
+  const send = () => ui.document.querySelector('#send-message');
+  assert.equal(pause().hidden, false);
+  assert.equal(pause().disabled, false);
+  assert.equal(pause().textContent, 'Pause');
+  assert.equal(pause().getAttribute('aria-label'), 'Pause after this step');
+  assert.equal(send().hidden, true, 'Pause sits where Send was');
+  ui.type('a draft');
+  assert.equal(send().disabled, true, 'Enter cannot send through the hidden button');
+  const launch = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: '{"receipt":{"kind":"pause"}}' }));
+  pause().click(); pause().click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1, 'a second click while submitting is ignored');
+  const [, argv] = launch.mock.calls[0].arguments;
+  assert.deepEqual(argv.slice(0, 6), ['intervention', 'submit', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.match(argv[7], /^pause-[0-9a-f]{16}$/, 'the placeholder becomes this request\'s id');
+  assert.deepEqual(argv.slice(8), ['--kind', 'pause', '--json']);
+  await ui.poll(pauseView({ pause: { label: 'Pause after this step', requested: true, next_command: null } }));
+  assert.equal(pause().disabled, true);
+  assert.equal(pause().textContent, 'Pausing after this step…');
+  assert.ok(ui.document.querySelector('#send-hint').textContent.includes('pauses once this step is saved'));
+  await ui.poll({ status: 'PAUSED_INTERVENTION', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'resume' }, pause: null,
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --resume-paused` });
+  assert.equal(pause().hidden, true, 'a paused run has nothing to pause');
+  assert.equal(send().hidden, false);
+  assert.equal(ui.document.querySelector('#message').value, 'a draft', 'the draft survives the pause');
+});
+
+test('Pause works while this chat\'s own Continue is still running the stage (#1598)', async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  const idle = { status: 'RUNNING', done: false, liveness: { kind: 'unknown' }, needs: { kind: 'continue' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}` };
+  const ui = await openChat(t, idle);
+  t.mock.method(cli, 'stream', () => new Promise(() => {}));
+  ui.document.querySelector('#take-action').click();
+  await flush();
+  await ui.poll(pauseView());
+  const pause = ui.document.querySelector('#pause-run');
+  assert.equal(pause.disabled, false, 'the stage this chat launched is exactly what Pause is for');
+  const launch = t.mock.method(cli, 'invoke', async () => ok);
+  pause.click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+});
+
+test('Pause stays beside Send when the working run also takes a message (#1598)', async (t) => {
+  const ui = await openChat(t, { ...chatView(pauseView()), status: 'RUNNING' });
+  assert.equal(ui.document.querySelector('#pause-run').hidden, false);
+  assert.equal(ui.document.querySelector('#send-message').hidden, false);
+});
+
+test('Pause refuses a command the view did not name in the exact pause grammar (#1598)', async (t) => {
+  const changed = pauseView();
+  changed.pause.next_command = changed.pause.next_command.map((word) => (word === 'pause' ? 'stop' : word));
+  const ui = await openChat(t, changed);
+  const launch = t.mock.method(cli, 'invoke', async () => ok);
+  ui.document.querySelector('#pause-run').click();
+  await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 0);
+  assert.ok(ui.document.querySelector('#chat-error').textContent.includes('Unsupported pause action'));
+});
+
+test('no Pause without a named offer, or once the run is done (#1598)', async (t) => {
+  const ui = await openChat(t, workingView());
+  assert.equal(ui.document.querySelector('#pause-run').hidden, true);
+  await ui.poll(pauseView({ done: true }));
+  assert.equal(ui.document.querySelector('#pause-run').hidden, true);
+});
+
 test('a background tab keeps its own read error when it is shown again (#1593)', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other' };
   let failing = false;

@@ -43,8 +43,10 @@ It is a client of the
   `modes list --json` (a new chat's run mode, passed unchanged);
 - it never imports a module from `tools/`, never reads `state.json`, and never
   parses the CLI's prose to decide what to do;
-- it takes only the action the status view names (`view.next_command` or the
-  optional `view.chat.input.next_command` message offer), so it can
+- it takes only the action the status view names (`view.next_command`, the
+  optional `view.chat.input.next_command` message offer, or the optional
+  `view.pause.next_command` boundary pause the owner approved on 2026-10-19
+  for #1598), so it can
   do nothing the headless conformance client (#1012,
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the
   client could take, that is a gap in the CLI or the view: report it, never work

@@ -89,6 +89,14 @@ the next turn. Earlier messages and completed replies remain visible. A new
 build plan requires its own approval. While AutoCode works, you can compose a
 draft; sending becomes available when the core offers a message action.
 
+While a run works, **Pause** takes the place of **Send**; Send stays beside it
+when the run also takes a message. Pause lets the current step finish and save,
+then the run pauses with nothing lost, and **Continue** resumes it where it
+paused. Until then the button reads **Pausing after this step…**. The button
+appears only when the status view names the pause (`view.pause`); a cancelled
+mid-step model call is not offered, and the run's terminal Stop stays outside
+the chat.
+
 **Run details** opens the detailed progress panel. The Runs list reads the local
 registry and retains unavailable pointers with their diagnostic. Both surfaces
 use the core's named commands, including the optional `view.chat.input` offer.
