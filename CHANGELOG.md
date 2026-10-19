@@ -65,9 +65,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code’s “Latest messages” shortcut occupies its own row, so it cannot cover
+  the sticky recovery and approval actions in a long chat (#1652).
+
 - Source-trace citations and reviewer exclusions apply only to the source ID they
   name, preventing false coverage conflicts and preserving each source's number,
   literal and negation checks (#1650).
+
 - The offline recovery-context regression checks the saved timeout kind and event path in the
   structured handoff, so compact JSON formatting does not falsely fail the full-suite gate.
 
