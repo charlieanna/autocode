@@ -234,10 +234,12 @@ class TerminalChatTests(unittest.TestCase):
         while b"What do you want done?" not in seen:
             seen += os.read(leader, 1024)
         os.write(leader, b"\x04")  # Ctrl-D: leave without starting anything
-        self.assertEqual(2, child.wait(timeout=60))
+        # Read to the end before reaping: once the child closes the terminal, macOS drops unread output.
         with contextlib.suppress(OSError):
-            seen += os.read(leader, 4096)
+            while chunk := os.read(leader, 4096):
+                seen += chunk
         os.close(leader)
+        self.assertEqual(2, child.wait(timeout=60))
         self.assertIn(b"Nothing started.", seen)
         self.assertFalse((self.workspace / ".autocode" / "runs").exists())
 
