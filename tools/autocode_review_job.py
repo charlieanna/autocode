@@ -9,9 +9,10 @@ it needs in a scratch copy of its own, and returns findings. The runner then:
   ``review/`` (a review is read-only; the before/after snapshot is the evidence),
 - proves each blocking finding: it states the defect as a plain-English example and
   the Reviewer delivers a test named after it (F1 -> test_f1_...) under
-  ``review/tests/``. The runner applies the change under review (``change_patch``)
-  in a scratch copy and runs the delivered tests; each such finding's test must
-  FAIL there, or the report is rejected. A blocking finding a test cannot show (a
+  ``review/tests/``. The runner runs identical probes on isolated base and changed copies
+  when an explicit ``change_patch`` is supplied. Equivalent full Python failures
+  become observations. Each executable blocker must fail on the changed source,
+  or the report is rejected. A blocking finding a test cannot show (a
   documented compatibility rule, a missing doc) says why in ``untestable``,
 - writes ``REPORT_PATH`` from the validated report, so the file always matches
   the schema and the saved report,
@@ -43,6 +44,7 @@ from pathlib import Path
 try:
     from . import autocode_command_receipt as command_receipt
     from . import autocode_mutation_check as mutation_check
+    from . import autocode_review_attribution as attribution
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
@@ -50,6 +52,7 @@ try:
 except ImportError:
     import autocode_command_receipt as command_receipt
     import autocode_mutation_check as mutation_check
+    import autocode_review_attribution as attribution
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
@@ -59,7 +62,7 @@ STAGE = workflows.REVIEW_STAGE
 REPORT_PATH = "review/findings.json"
 SEVERITIES = ("blocking", "advisory")
 
-FINDING = {
+FINDING: dict = {
     "type": "object",
     "additionalProperties": False,
     "required": ["id", "severity", "file", "lines", "summary", "evidence", "example", "untestable"],
@@ -159,8 +162,8 @@ def proven_blocking(value: dict) -> list[dict]:
 def prove(value: dict, delivered: list[str], run_tests) -> dict:
     """Run the delivered tests on the changed code and require each proven finding's test to fail there.
 
-    ``run_tests(tests, patch)`` is the runner's scratch run (autocode_verify.scratch_run). Returns
-    {"finding_tests": {id: [failing tests]}, "command", "tail"}; raises ValueError naming what is unproven.
+    ``run_tests(tests, patch)`` supplies a captured base/changed comparison (review_proof.collect),
+    or a legacy changed-side receipt without attribution. Returns matched tests and dispositions; raises ValueError naming what is unproven.
     """
     unexampled = [
         f["id"] for f in value["findings"] if f["severity"] == "blocking" and not f.get("example", "").strip()
@@ -169,13 +172,16 @@ def prove(value: dict, delivered: list[str], run_tests) -> dict:
         raise ValueError(f"Every blocking finding needs an example of the defect in plain English: {unexampled}")
     findings = proven_blocking(value)
     if not findings:
-        return {"finding_tests": {}, "command": "", "tail": ""}
+        return {"finding_tests": {}, "dispositions": {}, "command": "", "tail": ""}
     if not delivered:
         raise ValueError(
             "Blocking findings need a delivered test under review/tests/ that fails on the change "
             f"(or a reason in untestable): {[f['id'] for f in findings]}"
         )
-    run = run_tests(delivered, value.get("change_patch", "").strip() or None)
+    comparison = run_tests(delivered, value.get("change_patch", "").strip() or None)
+    run = comparison.get("changed", comparison)
+    if run.get("error") or run.get("timed_out") or run.get("interrupted"):
+        run = {**run, "error": run.get("error") or "test execution did not finish"}
     if run.get("error"):
         raise ValueError(f"The runner could not run the delivered tests on the change: {run['error']}")
     results = run.get("results")
@@ -184,7 +190,11 @@ def prove(value: dict, delivered: list[str], run_tests) -> dict:
             "The delivered tests reported no per-test results, so no finding can be matched to "
             "its test; deliver standard unittest or pytest tests"
         )
-    failing = sorted(set(results["failed"]) - set(results.get("collection_errors") or []))
+    if "changed" in comparison and not attribution.complete(run):
+        raise ValueError("The changed-side finding proof has incomplete results or test setup failures")
+    failing = sorted(
+        set(results["failed"]) - set(results.get("collection_errors") or []) - set(results.get("setup_errors") or {})
+    )
     matched = match_cases([{"id": f["id"]} for f in findings], failing)
     unproven = [f["id"] for f in findings if not matched[f["id"]]]
     if unproven:
@@ -196,7 +206,23 @@ def prove(value: dict, delivered: list[str], run_tests) -> dict:
             "delivered_tests must still list file paths, not dotted test IDs. If no failing test can show a "
             "finding, do not keep retrying: make it advisory, drop it, or say why in untestable."
         )
-    return {"finding_tests": matched, "command": run.get("command", ""), "tail": run.get("tail", "")[-1500:]}
+    base = comparison.get("base", {}) if value.get("change_patch", "").strip() else {}
+    dispositions = {
+        f["id"]: attribution.classify(
+            matched[f["id"]],
+            run,
+            base,
+            inputs=comparison.get("inputs"),
+            reason=comparison.get("reason", "No captured explicit-patch baseline is available."),
+        )
+        for f in findings
+    }
+    return {
+        "finding_tests": matched,
+        "dispositions": dispositions,
+        "command": run.get("command", ""),
+        "tail": run.get("tail", "")[-1500:],
+    }
 
 
 def owns(state: RunState) -> bool:
@@ -206,16 +232,13 @@ def owns(state: RunState) -> bool:
 def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None, run_mutation_check=None) -> None:
     """Enforce read-only-ness, prove blocking findings, write the findings file, complete the run.
 
-    ``run_tests(tests, patch)`` runs tests on the changed code in a scratch copy (the unit passes
-    autocode_verify.scratch_run); without it a blocking finding can only be marked untestable."""
+    ``run_tests(tests, patch)`` supplies runner-owned review proof (the unit passes
+    review_proof.collect); without it a blocking finding can only be marked untestable."""
     stray = stray_changes(record.get("changed_files"))
     if stray:
         raise stray_writes.StrayWrites(
             "A review must not change the repository; this attempt changed: " + ", ".join(stray), stray
         )
-    counts = {severity: sum(1 for f in value["findings"] if f["severity"] == severity) for severity in SEVERITIES}
-    if value["verdict"] == "approve" and counts["blocking"]:
-        raise ValueError("A review with blocking findings cannot approve")
     delivered = delivered_tests(value, record, workspace)
     proof = prove(value, delivered, run_tests or (lambda tests, patch: {"error": "no test runner was given"}))
     mutations = None
@@ -231,8 +254,44 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None,
         for key in ("verdict", "summary", "change_under_review", "change_patch", "findings", "tests_run")
     }
     report["findings"] = [
-        {**finding, "proven_by": proof["finding_tests"].get(finding["id"], [])} for finding in value["findings"]
+        {
+            **{key: finding[key] for key in FINDING["properties"] if key in finding},
+            "proven_by": proof["finding_tests"].get(finding["id"], []),
+            **(
+                {"disposition": proof["dispositions"][finding["id"]]}
+                if finding["id"] in proof["dispositions"]
+                else {
+                    "disposition": {
+                        "runner": attribution.RUNNER,
+                        "kind": "inconclusive",
+                        "reason": "Untestable finding; explicitly unverified and blocking.",
+                    }
+                }
+                if finding["severity"] == "blocking"
+                else {}
+            ),
+        }
+        for finding in value["findings"]
     ]
+    counts = {
+        "blocking": sum(attribution.blocking(f) for f in report["findings"]),
+        "advisory": sum(f["severity"] == "advisory" for f in report["findings"]),
+        "pre_existing": sum(attribution.pre_existing(f) for f in report["findings"]),
+        "inconclusive": sum(
+            attribution.blocking(f) and f.get("disposition", {}).get("kind") == "inconclusive"
+            for f in report["findings"]
+        ),
+    }
+    report.update(
+        verdict="request_changes" if counts["blocking"] else "approve",
+        submitted_verdict=value["verdict"],
+        counts=counts,
+    )
+    report["verdict_adjustment"] = (
+        "Runner derived the verdict from effective blockers after proof attribution."
+        if report["verdict"] != value["verdict"]
+        else ""
+    )
     report["delivered_tests"] = delivered
     if mutations is not None:
         report["mutation_check"] = mutations
@@ -242,7 +301,10 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_tests=None,
     target.write_bytes(raw)
     state["review"] = {
         **counts,
-        "verdict": value["verdict"],
+        "verdict": report["verdict"],
+        "submitted_verdict": value["verdict"],
+        "verdict_adjustment": report["verdict_adjustment"],
+        "dispositions": proof["dispositions"],
         "report_path": REPORT_PATH,
         "report_sha256": hashlib.sha256(raw).hexdigest(),
         "output": record.get("output"),
@@ -272,6 +334,13 @@ def render(state: RunState) -> str:
         "Workspace unchanged: " + str(state.get("workspace")),
         "Findings: " + str(Path(state.get("workspace", "")) / review.get("report_path", REPORT_PATH)),
     ]
+    if review.get("pre_existing") or review.get("inconclusive"):
+        lines.append(
+            f"{review.get('pre_existing', 0)} pre-existing observations; "
+            f"{review.get('inconclusive', 0)} blockers with inconclusive attribution"
+        )
+    if review.get("verdict_adjustment"):
+        lines.append("Submitted verdict: " + str(review.get("submitted_verdict")) + "; " + review["verdict_adjustment"])
     for path in review.get("delivered_tests") or []:
         lines.append("Targeted test delivered: " + path)
     for finding, tests in (review.get("finding_tests") or {}).items():

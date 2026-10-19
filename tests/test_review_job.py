@@ -144,6 +144,7 @@ class ProofTests(unittest.TestCase):
         return root
 
     def apply(self, root, findings):
+        import autocode_review_proof as review_proof
         import autocode_verify as verify
 
         state = state_for(workspace=str(root))
@@ -153,8 +154,8 @@ class ProofTests(unittest.TestCase):
             value,
             {"changed_files": ["review/tests/test_double.py"], "output": str(root / "o.json")},
             root,
-            run_tests=lambda tests, patch: verify.scratch_run(
-                root, Path(tempfile.mkdtemp()), patch=patch, tests=tests, timeout=120
+            run_tests=lambda tests, patch: review_proof.collect(
+                root, Path(tempfile.mkdtemp()), tests, patch, verify.scratch_run, timeout=120
             ),
         )
         return state
@@ -258,12 +259,13 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual([], review_job.stray_changes(["review/findings.json", "review/tests/test_x.py"]))
         self.assertEqual(["tests/test_x.py"], review_job.stray_changes(["review/a.json", "tests/test_x.py"]))
 
-    def test_approve_with_a_blocking_finding_is_rejected(self):
+    def test_model_approval_is_corrected_when_a_blocking_finding_remains(self):
         with tempfile.TemporaryDirectory() as workspace:
-            with self.assertRaisesRegex(ValueError, "cannot approve"):
-                review_job.apply(
-                    state_for(workspace=workspace), report(verdict="approve"), {"changed_files": []}, workspace
-                )
+            state = state_for(workspace=workspace)
+            review_job.apply(state, report(verdict="approve"), {"changed_files": []}, workspace)
+            self.assertEqual("request_changes", state["review"]["verdict"])
+            self.assertEqual("approve", state["review"]["submitted_verdict"])
+            self.assertTrue(state["review"]["verdict_adjustment"])
 
     def test_delivered_targeted_tests_are_recorded_when_they_exist(self):
         with tempfile.TemporaryDirectory() as workspace:
@@ -309,3 +311,149 @@ class ApplyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AttributionTests(unittest.TestCase):
+    """Named runner evidence drives verdicts; no commands or providers run here."""
+
+    TEST = "review.tests.test_example.Probes.test_f1_empty"
+    OTHER = "review.tests.test_example.Probes.test_f1_another"
+
+    def run_receipt(self, *, passed=(), failed=(), skipped=(), details=None, **extra):
+        return {
+            "exit_code": 1 if failed else 0,
+            "timed_out": False,
+            "error": "",
+            "results": {
+                "passed": list(passed),
+                "failed": list(failed),
+                "skipped": list(skipped),
+                "total": len(passed) + len(failed) + len(skipped),
+                "complete": True,
+            },
+            "failure_details": details
+            or {name: {"format": "unittest", "traceback": "same full failure"} for name in failed},
+            "proof": {"path": "/proof.json", "sha256": "a" * 64},
+            **extra,
+        }
+
+    def compare(self, base, changed=None, *, patch="change.patch", **extra):
+        value = report(findings=[{**report()["findings"][0], "untestable": ""}])
+        value["change_patch"] = patch
+        changed = changed or self.run_receipt(failed=[self.TEST])
+        return review_job.prove(
+            value,
+            ["review/tests/test_example.py"],
+            lambda *_: {
+                "base": base,
+                "changed": changed,
+                "inputs": {"path": "/source.json", "sha256": "b" * 64},
+                **extra,
+            },
+        )["dispositions"]["F1"]
+
+    def test_base_pass_change_fail_is_introduced(self):
+        self.assertEqual("introduced", self.compare(self.run_receipt(passed=[self.TEST]))["kind"])
+
+    def test_equivalent_complete_failures_are_pre_existing(self):
+        import autocode_review_attribution as policy
+
+        row = self.compare(self.run_receipt(failed=[self.TEST]))
+        self.assertEqual("pre_existing", row["kind"])
+        self.assertFalse(policy.blocking({"severity": "blocking", "disposition": row}))
+        self.assertEqual("inconclusive", self.compare(self.run_receipt(failed=[self.TEST]), patch="")["kind"])
+
+    def test_different_site_type_or_diagnostic_is_inconclusive(self):
+        for detail in ({}, {self.TEST: {"format": "unittest", "traceback": "different site"}}):
+            base = self.run_receipt(failed=[self.TEST])
+            base["failure_details"] = detail
+            self.assertEqual("inconclusive", self.compare(base)["kind"])
+
+    def test_regression_wins_for_multiple_probes_and_unresolved_probe_retains_blocker(self):
+        changed = self.run_receipt(failed=[self.TEST, self.OTHER])
+        mixed = self.run_receipt(failed=[self.TEST], passed=[self.OTHER])
+        self.assertEqual("introduced", self.compare(mixed, changed)["kind"])
+        missing = self.run_receipt(failed=[self.TEST], skipped=[self.OTHER])
+        self.assertEqual("inconclusive", self.compare(missing, changed)["kind"])
+        self.assertEqual("pre_existing", self.compare(changed, changed)["kind"])
+
+    def test_baseline_infrastructure_missing_setup_skipped_and_incomplete_never_exempt(self):
+        for update in ({"error": "runner broke"}, {"timed_out": True}, {"interrupted": True}, {"exit_code": 2}):
+            with self.subTest(update=update):
+                self.assertEqual("inconclusive", self.compare(self.run_receipt(failed=[self.TEST], **update))["kind"])
+        for update in (
+            {"complete": False},
+            {"total": 2},
+            {"collection_errors": [self.TEST]},
+            {"setup_errors": {self.TEST: "missing mock"}},
+            {"failed": [], "skipped": [self.TEST]},
+            {"failed": [], "total": 0},
+        ):
+            base = self.run_receipt(failed=[self.TEST])
+            base["results"].update(update)
+            with self.subTest(update=update):
+                self.assertEqual("inconclusive", self.compare(base)["kind"])
+        self.assertEqual("inconclusive", self.compare({})["kind"])
+
+    def test_invalid_changed_proof_is_rejected_even_with_equivalent_baseline(self):
+        for update in ({"timed_out": True}, {"error": "runner failed"}):
+            with self.assertRaises(ValueError):
+                self.compare(self.run_receipt(failed=[self.TEST]), self.run_receipt(failed=[self.TEST], **update))
+        with self.assertRaises(ValueError):
+            self.compare(self.run_receipt(failed=[self.TEST]), self.run_receipt(passed=[self.TEST]))
+
+    def test_legacy_and_model_supplied_dispositions_cannot_exempt(self):
+        import autocode_review_attribution as policy
+
+        for row in (None, "pre_existing", {"kind": "pre_existing"}, {"runner": policy.RUNNER, "kind": "pre_existing"}):
+            self.assertTrue(policy.blocking({"severity": "blocking", "disposition": row}))
+
+    def test_untestable_finding_cannot_supply_its_own_pre_existing_disposition(self):
+        with tempfile.TemporaryDirectory() as temp:
+            finding = report()["findings"][0]
+            finding["disposition"] = self.compare(self.run_receipt(failed=[self.TEST]))
+            state = state_for(workspace=temp)
+            review_job.apply(state, report(findings=[finding]), {"changed_files": []}, temp)
+            saved = json.loads((Path(temp) / "review/findings.json").read_text())
+            self.assertEqual("inconclusive", saved["findings"][0]["disposition"]["kind"])
+            self.assertEqual("request_changes", saved["verdict"])
+            self.assertEqual(1, state["review"]["blocking"])
+
+    def test_report_state_view_and_followup_use_postclassification_verdict(self):
+        import autocode_follow_up as follow_up
+
+        for additional in ([], [{**report()["findings"][0], "id": "F2"}]):
+            with self.subTest(mixed=bool(additional)), tempfile.TemporaryDirectory() as temp:
+                workspace = Path(temp)
+                test = workspace / "review/tests/test_example.py"
+                test.parent.mkdir(parents=True)
+                test.write_text("# delivered probe")
+                state = state_for(workspace=str(workspace))
+                state["workflow"] = {"kind": "review"}
+                value = report(
+                    findings=[{**report()["findings"][0], "untestable": ""}, *additional],
+                    delivered_tests=["review/tests/test_example.py"],
+                )
+                run = self.run_receipt(failed=[self.TEST])
+                review_job.apply(
+                    state,
+                    value,
+                    {"changed_files": []},
+                    workspace,
+                    run_tests=lambda *_: {
+                        "base": run,
+                        "changed": run,
+                        "inputs": {"path": "/source.json", "sha256": "b" * 64},
+                    },
+                )
+                saved = json.loads((workspace / "review/findings.json").read_text())
+                wanted = "request_changes" if additional else "approve"
+                self.assertEqual(wanted, saved["verdict"])
+                self.assertEqual(wanted, state["review"]["verdict"])
+                view = run_view.view(state)["evidence"]["workflow_result"]
+                self.assertEqual(wanted, view["outcome"])
+                self.assertEqual(1, view["review_attribution"]["pre_existing"])
+                carried = follow_up.carried_review(state, workspace)
+                self.assertEqual([f["id"] for f in additional], [f["id"] for f in carried["blocking"]])
+                self.assertEqual(saved["findings"][0]["disposition"], carried["pre_existing"][0]["disposition"])
+                self.assertIn("1 pre-existing observations", review_job.render(state))

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from . import autocode_review_attribution as review_attribution
+except ImportError:
+    import autocode_review_attribution as review_attribution
+
 import copy
 import json
 import os
@@ -220,7 +225,7 @@ def publish(
     artifact = child["document"].get("workflow_result") or {}
     artifact_path = Path(review_workspace) / "review/findings.json"
     reviewed = review.get("verdict") == "approve" and not any(
-        row.get("severity") == "blocking" for row in review["findings"]
+        review_attribution.blocking(row) for row in review["findings"]
     )
     reasons = list(reasons)
     if not reviewed:

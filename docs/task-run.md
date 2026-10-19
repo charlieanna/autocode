@@ -881,6 +881,18 @@ and `--accept-completion` refuses while the change is there.
 promise durability or concurrency but that no runner protocol exercises (`kind`
 `durability` or `concurrency`, `source_id`, `quote`, `reason`); `[]` when there
 are none. It is a disclosure, not a check: a PASS never verifies them.
+For a completed code-review workflow, `workflow_result.outcome` and its artifact
+hash name the runner-derived verdict. Its optional `review_attribution` object
+contains `pre_existing` and `inconclusive` counts, `submitted_verdict` and
+`verdict_adjustment`. The summary distinguishes nonblocking pre-existing
+observations from blockers with inconclusive attribution. The findings artifact
+preserves each executable blocker's `disposition` (`kind`, `reason`, `runner`,
+`inputs`, `base_proof`, `changed_proof`); proof references carry `path` and
+`sha256`. Only a validated runner disposition of `pre_existing` exempts a
+blocking finding. Legacy findings and reviews without an explicit patch retain
+blocking behavior. This attribution applies to review findings, not the task's
+acceptance criteria. See [patch attribution](bugs/2026-10-19-review-patch-attribution.md).
+
 `proof_stability` is the proving tests' repeats: `repeats`, `unstable` (each
 test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
 a test disagreed, and `note`; `null` when the proof did not repeat tests.

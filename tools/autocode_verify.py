@@ -67,6 +67,7 @@ try:
     from . import autocode_python_tests as python_tests
     from . import autocode_review_mutation as review_mutations
     from . import autocode_scratch_overlay as scratch_overlay
+    from . import autocode_scratch_preparation as scratch_preparation
     from . import autocode_suite_definition_inputs as definition_inputs
     from . import autocode_suite_definition_policy as definition_policy
     from . import autocode_suite_definition_scan as definition_scan
@@ -101,6 +102,7 @@ except ImportError:
     import autocode_python_tests as python_tests
     import autocode_review_mutation as review_mutations
     import autocode_scratch_overlay as scratch_overlay
+    import autocode_scratch_preparation as scratch_preparation
     import autocode_suite_definition_inputs as definition_inputs
     import autocode_suite_definition_policy as definition_policy
     import autocode_suite_definition_scan as definition_scan
@@ -1917,52 +1919,19 @@ def baseline_identity(
     return bound
 
 
-class ScratchPatchError(ValueError):
-    """An unapplied patch has no execution receipt."""
+ScratchPatchError = scratch_preparation.ScratchPatchError
 
 
-def prepare_scratch_tree(
-    workspace,
-    run_dir,
-    *,
-    patch=None,
-    files=None,
-    links=None,
-    source_paths=(),
-    dependencies_from=None,
-    generated_record=None,
-    generated_unrecorded=False,
-    ignored_inputs=None,
-    _before_patch=None,
-):
-    """Existing copy operations, supplied to the owned preparation worker."""
-    workspace, run_dir = Path(workspace), Path(run_dir)
-    head = _git(workspace, "rev-parse", "HEAD").strip()
-    tree = make_tree(
+def prepare_scratch_tree(workspace, run_dir, **parameters):
+    return scratch_preparation.prepare(
         workspace,
-        head,
-        run_dir / "scratch" / "tree",
-        workspace,
-        changed_files(workspace, head, source_paths=source_paths),
-        dependencies_from=dependencies_from or workspace,
-        generated_record=generated_record,
-        generated_unrecorded=generated_unrecorded,
-        ignored_inputs=ignored_inputs,
+        run_dir,
+        **parameters,
+        make_tree=make_tree,
+        changed_files=changed_files,
+        remove_tree=remove_tree,
+        git=_git,
     )
-    try:
-        if _before_patch is not None:
-            _before_patch(tree)
-        if patch:
-            applied = subprocess.run(["git", "-C", str(tree), "apply", str(patch)], capture_output=True, text=True)
-            if applied.returncode:
-                raise ScratchPatchError(
-                    f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}"
-                )
-        scratch_overlay.apply(tree, files, links)
-    except BaseException:
-        remove_tree(workspace, tree)
-        raise
-    return tree
 
 
 def scratch_run(
@@ -1983,6 +1952,7 @@ def scratch_run(
     native_execution=None,
     review_mutation=False,
     review_mutation_deadline=None,
+    review_source=None,
 ) -> dict:
     """Execute in a copy of HEAD plus current changes and an optional reviewed patch.
     File/link overlays preserve cited inputs. Review mutation returns a typed
@@ -1992,7 +1962,7 @@ def scratch_run(
     native_scope = None
     ownership_uncertain = False
     if native_execution is not None:
-        if review_mutation or review_mutation_deadline is not None:
+        if review_mutation or review_mutation_deadline is not None or review_source is not None:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Native readonly checks cannot run review mutations")
         if type(native_execution) is not native_checks.NativeCheckExecution:
             raise util.Paused("PAUSED_VISUAL_EVIDENCE", "Original concrete native check owner required")
@@ -2019,6 +1989,8 @@ def scratch_run(
         parameters = preparation.scratch_parameters(
             patch, files, links, source_paths, dependencies_from, generated_record, generated_unrecorded, ignored_inputs
         )
+        if review_source is not None:
+            parameters["review_source"] = review_source
         if preparation.active():
             answer = preparation.execute(
                 workspace,
@@ -2054,7 +2026,9 @@ def scratch_run(
             tree = prepare_scratch_tree(workspace, run_dir, **parameters)
         except ScratchPatchError as error:
             return {"error": str(error), "results": None}
+    review_snapshot = None
     try:
+        review_snapshot = source_snapshot.snapshot(tree, paths=source_paths) if review_source else None
         if command is None:
             python = python_for(workspace)
             framework = detect_framework(tree, python=python)
@@ -2116,7 +2090,15 @@ def scratch_run(
         if native_scope is not None:
             native_scope.__exit__(*sys.exc_info())
         elif not ownership_uncertain:
-            remove_tree(workspace, tree)
+            try:
+                changed_review_source = (
+                    review_snapshot is not None
+                    and source_snapshot.snapshot(tree, paths=source_paths)["files"] != review_snapshot["files"]
+                )
+            finally:
+                remove_tree(workspace, tree)
+            if changed_review_source:
+                raise ValueError("Review probes changed their source or delivered tests during execution")
 
 
 def baseline(

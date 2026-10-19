@@ -29,6 +29,7 @@ try:
     from .. import autocode_recovery_novelty as novelty
     from .. import autocode_review_job as review_job
     from .. import autocode_review_mutation as review_mutation
+    from .. import autocode_review_proof as review_proof
     from .. import autocode_role_transport as role_transport
     from .. import autocode_run_status as run_status
     from .. import autocode_task_authority as task_authority
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_recovery_novelty as novelty
     import autocode_review_job as review_job
     import autocode_review_mutation as review_mutation
+    import autocode_review_proof as review_proof
     import autocode_role_transport as role_transport
     import autocode_run_status as run_status
     import autocode_task_authority as task_authority
@@ -246,8 +248,8 @@ def apply_job(stage, state: RunState, value, record, workspace, *, run_dir=None)
             value,
             record,
             workspace,
-            run_tests=lambda tests, patch: clean_run(
-                workspace, evidence_dir / "review-proof", patch=patch, tests=tests, timeout=verify.DEFAULT_TIMEOUT
+            run_tests=lambda tests, patch: review_proof.collect(
+                workspace, evidence_dir / "review-proof", tests, patch, clean_run, timeout=verify.DEFAULT_TIMEOUT
             ),
             run_mutation_check=lambda patch: review_mutation.collect(
                 workspace, evidence_dir / "review-mutation", patch, clean_run
