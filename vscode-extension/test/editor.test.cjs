@@ -221,6 +221,7 @@ afterEach(() => {
   host.config.clear();
   host.panels.length = 0;
   host.errors.length = 0;
+  host.notices.length = 0;
 });
 
 test('start passes the selected workspace to the CLI regardless of the host directory', async (t) => {
@@ -569,7 +570,8 @@ async function openChat(t, initial, selected = run, options = {}) {
   if (!options.timersEnabled) t.mock.timers.enable({ apis: ['setInterval'] });
   let value = initial;
   const chatController = options.controller || controller;
-  t.mock.method(chatController, 'status', async () => structuredClone(value));
+  t.mock.method(chatController, 'status', async (target) =>
+    structuredClone(options.statusFor ? options.statusFor(target) : value));
   let receive;
   let visibility;
   const webview = {
@@ -2158,4 +2160,267 @@ test('a second run starts beside an open run and both tabs remain (#1558)', asyn
   await flush();
   assert.deepEqual([...ui.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent), ['test', 'second-run']);
   assert.equal(ui.chat.run.runDir, second.runDir, 'the new run\'s tab is active');
+});
+
+const alpha = { workspace: '/ws', runDir: '/ws/.autocode/runs/alpha' };
+const beta = { workspace: '/ws', runDir: '/ws/.autocode/runs/beta' };
+
+function workingView() {
+  return { status: 'RUNNING', done: false, liveness: { kind: 'supervised' }, needs: { kind: 'continue' } };
+}
+
+function approveView(token = 'r1:abc') {
+  return { status: 'AWAITING_GOAL_APPROVAL', done: false, needs: { kind: 'approve_plan', token } };
+}
+
+test('test_ac1_background_tab_need_notifies_once', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+  assert.deepEqual(host.notices[0].items, ['Open chat']);
+});
+
+test('test_ac2_same_need_second_poll_does_not_repeat', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+});
+
+test('test_ac3_new_need_notifies_again', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  views.set(alpha.runDir, {
+    status: 'PAUSED', done: false,
+    needs: { kind: 'answer', request_id: 'request-2', questions: [{ id: 'q1' }, { id: 'q2' }] },
+  });
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - 2 question(s)');
+});
+
+test('test_ac4_done_notifies_once_with_outcome', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  views.set(alpha.runDir, { status: 'COMPLETED', done: true });
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - nothing; the run is complete');
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+});
+
+test('test_ac5_working_and_nonwaiting_transitions_do_not_notify', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  await ui.poll();
+  views.set(alpha.runDir, {
+    status: 'REVIEWING', done: false, liveness: { kind: 'supervised' }, needs: { kind: 'continue' },
+    progress: { line: 'Reviewing the change' },
+  });
+  await ui.poll();
+  assert.equal(host.notices.length, 0);
+});
+
+test('test_ac6_open_chat_action_selects_the_notifying_tab', async (t) => {
+  const exec = t.mock.method(host.vscode.commands, 'executeCommand', async () => {});
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+  host.notices[0].resolve('Open chat');
+  await flush();
+  assert.equal(ui.chat.run.runDir, '/ws/.autocode/runs/alpha');
+  assert.ok(exec.mock.calls.some((call) => call.arguments[0] === 'autocode.chat.focus'));
+});
+
+test('test_ac7_notify_false_silences_every_notification', async (t) => {
+  host.config.set('notify', false);
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  views.set(alpha.runDir, { status: 'COMPLETED', done: true });
+  await ui.poll();
+  assert.equal(host.notices.length, 0);
+});
+
+test('test_ac8_notify_setting_registered_in_package_json', () => {
+  const pkg = require('../package.json');
+  const properties = pkg.contributes.configuration.properties;
+  const setting = properties['autocode.notify'];
+  assert.ok(properties['autocode.pollSeconds'], 'pollSeconds lives in the same properties object');
+  assert.ok(properties['autocode.confirmPersonOnly'], 'confirmPersonOnly lives in the same properties object');
+  assert.ok(setting, 'autocode.notify is registered');
+  assert.equal(setting.type, 'boolean');
+  assert.equal(setting.default, true);
+  assert.equal(typeof setting.markdownDescription, 'string');
+  assert.ok(setting.markdownDescription.trim().length > 0);
+});
+
+test('test_ac12_working_to_done_task_complete_notifies_once', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, { status: 'TASK_COMPLETE', done: true, needs: null });
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - nothing; the run is complete');
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+});
+
+test('test_ac13_renewed_identity_notifies_and_prior_identity_stays_silent', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+});
+
+test('test_ac14_other_run_same_need_notifies_independently', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  views.set(beta.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices[1].message, 'AutoCode: beta is waiting for you - approval of the plan AutoCode displayed');
+});
+
+test('test_ac15_failed_background_read_preserves_dedupe_without_error', async (t) => {
+  let failAlpha = false;
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, {
+    statusFor: (target) => {
+      if (failAlpha && target.runDir === alpha.runDir) throw new Error('unavailable');
+      return views.get(target.runDir);
+    },
+  });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  ui.chat.show();
+  await flush();
+  assert.equal(ui.chat.run, undefined);
+  failAlpha = true;
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  assert.deepEqual(host.errors, []);
+  failAlpha = false;
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+  assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+});
+
+test('test_ac16_background_tab_notifies_while_fresh_chat_active', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show();
+  await flush();
+  assert.equal(ui.chat.run, undefined);
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+  assert.deepEqual(host.notices[0].items, ['Open chat']);
+});
+
+test('test_ac17_hidden_view_background_tab_still_notifies', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  await ui.visible(false);
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+  await ui.visible(true);
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+});
+
+test('test_ac18_reopened_tab_same_run_does_not_renotify', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()], [beta.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  ui.chat.show(beta);
+  await flush();
+  views.set(alpha.runDir, approveView('r1:abc'));
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  [...ui.document.querySelectorAll('.chat-tab .close')][0].click();
+  await flush();
+  ui.chat.show(alpha);
+  await flush();
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  views.set(alpha.runDir, approveView('r2:def'));
+  await ui.poll();
+  assert.equal(host.notices.length, 2);
+});
+
+test('test_ac19_idle_continue_need_notifies_once', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, { status: 'PAUSED', done: false, needs: { kind: 'continue' } });
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - nothing; the run can simply proceed');
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+});
+
+test('test_ac20_unsupervised_live_continue_does_not_notify', async (t) => {
+  const views = new Map([[alpha.runDir, workingView()]]);
+  const ui = await openChat(t, workingView(), alpha, { statusFor: (target) => views.get(target.runDir) });
+  views.set(alpha.runDir, { status: 'RUNNING', done: false, liveness: { kind: 'unsupervised' }, needs: { kind: 'continue' } });
+  await ui.poll();
+  await ui.poll();
+  assert.equal(host.notices.length, 0);
+});
+
+test('test_ac21_first_observed_waiting_run_notifies_once', async (t) => {
+  const views = new Map([[alpha.runDir, approveView('r1:abc')]]);
+  const ui = await openChat(t, approveView('r1:abc'), alpha, { statusFor: (target) => views.get(target.runDir) });
+  assert.equal(host.notices.length, 1);
+  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - approval of the plan AutoCode displayed');
+  assert.deepEqual(host.notices[0].items, ['Open chat']);
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
 });

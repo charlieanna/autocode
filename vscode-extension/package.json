@@ -189,6 +189,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Ask before taking an action on a pause AutoCode stopped for a person to decide (`resume`, `retry_job`, `recover_source`, a blocker or an exhausted-recovery request). Keep this on: those are the decisions the run stopped to ask you."
+        },
+        "autocode.notify": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Notify when a run in an open chat tab starts waiting for you or finishes, with an action that opens its chat. Turn this off to stay silent while the sidebar keeps reading status."
         }
       }
     }

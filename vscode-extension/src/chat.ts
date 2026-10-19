@@ -1,14 +1,15 @@
 /** Sidebar conversation over the public status view and its named actions.
  *
  * One window holds several chats at once (#1558): each tab is one run or one
- * fresh not-yet-started chat. Only the active tab polls; every tab keeps its
- * own draft (keyed by tab key in the webview), status and errors.
+ * fresh not-yet-started chat. Every open run tab polls (#1566); every tab keeps
+ * its own draft (keyed by tab key in the webview), status and errors.
  */
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { RunController, type CheckpointComparison, type RunRef } from "./controller";
 import { leavesForPerson } from "./core/next-command";
 import type { StatusView } from "./core/view";
+import { transitionNotice } from "./notify";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
 import { panelHtml, stateFor } from "./panel";
 
@@ -71,6 +72,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private hasExplicitSelection = false;
   private migratedLegacySelection = false;
   private readonly busy = new Set<string>();
+  /** Wait identities already announced, keyed by run key: a new tab for the same run does not re-announce. */
+  private readonly notified = new Map<string, Set<string>>();
   private sequence = 0;
   private refreshing = false;
   private readonly timer: NodeJS.Timeout;
@@ -151,6 +154,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   get run(): RunRef | undefined { return this.active.run; }
 
   private post(persistSelection = false): void {
+    if (!this.view?.visible) return;
     const tab = this.active;
     const busy = tab.starting || this.busy.has(tab.key);
     void this.view?.webview.postMessage({
@@ -164,21 +168,45 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   async refresh(): Promise<void> {
-    if (!this.view?.visible || this.refreshing) return;
-    const tab = this.active;
+    if (this.refreshing) return;
     const sequence = this.sequence;
-    if (!tab.run) { this.post(); return; }
     this.refreshing = true;
     try {
-      const status = await this.controller.status(tab.run);
-      if (sequence === this.sequence && this.activeKey === tab.key) { tab.status = status; tab.readError = ""; }
-    } catch (error) {
-      if (sequence === this.sequence && this.activeKey === tab.key && !tab.starting) tab.readError = messageOf(error);
+      for (const tab of [...this.tabs]) {
+        if (!tab.run) continue;
+        try {
+          const status = await this.controller.status(tab.run);
+          if (this.tabs.includes(tab)) this.announce(tab, status);
+        } catch (error) {
+          if (sequence === this.sequence && this.activeKey === tab.key && !tab.starting) tab.readError = messageOf(error);
+        }
+      }
     } finally {
       this.refreshing = false;
       if (sequence === this.sequence) this.post();
       else void this.refresh();
     }
+  }
+
+  /** Land the tab's fresh status and announce a new person-wait or a finished run once per run. */
+  private announce(tab: ChatTab, status: StatusView): void {
+    const notice = transitionNotice(tab.status, status);
+    tab.status = status;
+    tab.readError = "";
+    if (!notice || !tab.run) return;
+    const run = tab.run;
+    const key = runKey(run);
+    let seen = this.notified.get(key);
+    if (!seen) { seen = new Set(); this.notified.set(key, seen); }
+    if (seen.has(notice.identity)) return;
+    seen.add(notice.identity);
+    if (vscode.workspace.getConfiguration("autocode").get<boolean>("notify", true) === false) return;
+    void (async () => {
+      const choice = await vscode.window.showInformationMessage(
+        `AutoCode: ${tabName(tab)} is waiting for you - ${notice.tail}`, "Open chat",
+      );
+      if (choice === "Open chat") this.show(run);
+    })();
   }
 
   private async receive(message: ChatMessage): Promise<void> {
