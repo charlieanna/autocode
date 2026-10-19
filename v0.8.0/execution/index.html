@@ -1,0 +1,4234 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/v0.8.0/execution/">
+      
+      
+        <link rel="prev" href="../macos-app/">
+      
+      
+        <link rel="next" href="../named-test-proof/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Completion and evidence - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#execution-and-completion" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Completion and evidence
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-projects-own-tests-as-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The project's own tests as examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#independent-milestone-builders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Independent milestone Builders
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#report-only-repair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Report-only repair
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#milestone-checkpoints-and-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Milestone checkpoints and acceptance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#handoffs-and-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handoffs and context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#baseline-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline comparison
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#completion-reviewer-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Completion Reviewer decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#completion-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Completion gate
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Completion gate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-runner-re-runs-the-testers-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The runner re-runs the Tester's checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stability-of-named-proof-and-diff-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stability of named proof, and diff coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mutation-check-of-named-proof" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mutation check of named proof
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#process-recovery-proof-for-declared-lifecycle-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Process-recovery proof for declared lifecycle APIs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#human-review-in-the-terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Human review in the terminal
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Human review in the terminal">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#who-approved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who approved
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Who approved">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-approver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required approver
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#timeouts-and-watchdog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timeouts and watchdog
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#money-cap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Money cap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-findings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open findings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#activity-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Activity log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pause-recovery-and-abandonment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pause, recovery, and abandonment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pause, recovery, and abandonment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#usage-accounting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage accounting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resolver-owned-operational-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolver-owned operational recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evidence-bound-repair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence-bound repair
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#budget-ownership-and-human-escalation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget ownership and human escalation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#native-tool-containment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native tool containment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Native tool containment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux-bubblewrap-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux bubblewrap boundary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conformance-in-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conformance in CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#secret-redaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secret redaction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#learned-project-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learned project defaults
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-projects-own-tests-as-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The project's own tests as examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#independent-milestone-builders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Independent milestone Builders
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#report-only-repair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Report-only repair
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#milestone-checkpoints-and-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Milestone checkpoints and acceptance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#handoffs-and-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Handoffs and context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#baseline-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline comparison
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#completion-reviewer-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Completion Reviewer decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#completion-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Completion gate
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Completion gate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-runner-re-runs-the-testers-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The runner re-runs the Tester's checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stability-of-named-proof-and-diff-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stability of named proof, and diff coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mutation-check-of-named-proof" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mutation check of named proof
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#process-recovery-proof-for-declared-lifecycle-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Process-recovery proof for declared lifecycle APIs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#human-review-in-the-terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Human review in the terminal
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Human review in the terminal">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#who-approved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who approved
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Who approved">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-approver" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required approver
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#timeouts-and-watchdog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timeouts and watchdog
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#money-cap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Money cap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-findings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open findings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#activity-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Activity log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pause-recovery-and-abandonment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pause, recovery, and abandonment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Pause, recovery, and abandonment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#usage-accounting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage accounting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resolver-owned-operational-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolver-owned operational recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evidence-bound-repair" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence-bound repair
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#budget-ownership-and-human-escalation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget ownership and human escalation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#native-tool-containment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native tool containment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Native tool containment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux-bubblewrap-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux bubblewrap boundary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conformance-in-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conformance in CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#secret-redaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Secret redaction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#learned-project-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learned project defaults
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/64c065f0a1040bb390e6efa7f5931dc0e79c94b2/README.md">← Back to README</a></p>
+<p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
+open findings, timeouts and recovery, and the completion gate.</p>
+<h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
+<p>Every Builder prompt, including each parallel milestone Builder's, carries the opening lines of
+the project's own tests, so new tests follow the house style. That style covers the framework,
+imports, fixtures, helpers, naming and assertions.</p>
+<ul>
+<li><strong>Which tests.</strong> <code>tools/autocode_test_examples.py</code> picks at most two tracked test files, trying
+  each of these in turn:</li>
+<li>test files the task itself edits</li>
+<li>tests named after a source file it edits (<code>weeks.py</code> → <code>test_weeks.py</code>)</li>
+<li>tests in the same directories</li>
+</ul>
+<p>A test in the task's own language wins a tie. If none of these exist, it takes the shallowest
+  test in the repository.
+- <strong>How much.</strong> Each excerpt is the first 60 lines, capped at 3,000 characters.
+- <strong>Status.</strong> The excerpts are examples to follow, not files to edit.
+  <code>current_task.affected_paths</code> still decides what the Builder may change.
+- <strong>Without tests.</strong> A project with no tracked tests adds nothing to the prompt.</p>
+<h2 id="independent-milestone-builders">Independent milestone Builders<a class="headerlink" href="#independent-milestone-builders" title="Permanent link">&para;</a></h2>
+<p>New joint runs save <code>orchestration={enabled:true,max_parallel:2}</code>. Existing saved
+runs retain their saved routing; these defaults do not upgrade them. Set
+<code>--max-parallel-builders N</code> when creating a run to choose the concurrency limit;
+<code>1</code> runs serially. Explicitly supplying this option also enables orchestration for
+new <code>--engine codex</code> runs.</p>
+<p>Planner milestones may include optional <code>affected_paths</code>: literal,
+repository-relative file or directory ownership, such as <code>src/api.py</code> or <code>tests/api</code>.
+These are ownership boundaries, not glob patterns. Absolute paths, parent traversal,
+and repository metadata paths such as <code>.git</code> and <code>.autocode</code> are not allowed.
+The Orchestrator selects ready milestones with disjoint ownership and acceptance
+criteria, and satisfied explicit dependencies. Missing ownership or dependency
+information, overlapping paths, shared criteria, or an unsatisfied dependency
+prevents those milestones from running together; when no independent batch can be
+formed, execution falls back to a serial Builder.</p>
+<p>Each selected milestone gets a fresh Builder subprocess, session, and Git worktree.
+The runner combines their patches into the parent workspace only if it still matches
+the captured baseline. The Tester checks the combined result before the Completion Reviewer
+and required human acceptance gates can authorize completion. Builder success or
+patch integration alone does not satisfy those gates. There is no automatic merge
+into <code>master</code>. Once a batch is integrated, each Builder's checkout and
+<code>autocode/builder-*</code> branch are removed; its run records stay at the same path
+(<code>.autocode/builders/&lt;batch&gt;/&lt;n&gt;/.autocode/</code>) for inspection.</p>
+<p>Failed workers, stale baselines, or overlapping worker changes pause the run and
+retain worktrees and logs for inspection. After inspecting a failed Builder, explicitly
+retry it once all workers have stopped (from the project or task worktree; add
+<code>--run-dir RUN</code> when there are several unfinished runs):</p>
+<pre><code class="language-sh">autocode --resume-paused --retry-builder M2
+</code></pre>
+<p>Repeat <code>--retry-builder</code> to select additional failed milestones. Successful siblings
+are retained rather than rerun. Other settings can accompany an accepted retry and apply to
+the continuing run; a refused retry saves none of that invocation's settings. A parallel member
+reruns on the Builder route saved in its own run, so a Builder model, provider or reasoning
+effort change with <code>--retry-builder</code> is refused. A member stopped on quota, content-filter refusal or an authenticated output limit
+asks <code>route-terra</code>; its answer changes that route.
+The retry also refuses a difference saved earlier in the run's Builder settings, naming
+both routes. Answer that member's open model question to choose its model, or restore the
+run's Builder settings to the member's route separately before retrying.
+A Builder that needs the stronger model its batch's
+checkers run does not pause the run and cannot be retried this way: its milestone is
+built serially later (see <a href="../models/#builder-retry-policy">Builder retry policy</a>).
+A Builder stopped by quota, a content-filter refusal or an authenticated output limit asks you to name
+another model instead, and the status view does not offer it a retry (see
+<a href="../models/#a-parallel-builder-stopped-on-its-model">A parallel Builder stopped on its model</a>).
+<code>--retry-builder</code> refuses a refused or output-limited Builder while its question is open; for a quota stop it
+reruns the same model. Once that question was answered with corrective information or left
+paused, <code>--retry-builder</code> is the member's one way on: it asks a refused or output-limited member's question
+again, launching nothing, or reruns a quota-stopped member on its saved model.</p>
+<p>An explicit member retry adopts the run's saved operator overrides for
+<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code> and <code>--max-milestone-seconds</code>, including
+<code>0</code> to disable the corresponding bound. Save these flags before the retry or
+pass them with it. Only selected members receive these bounds and their budget
+ownership; previous attempts keep their recorded deadlines, and spent milestone
+time stays charged. A settings save alone or automatic recovery does not change
+child limits. Every existing pause and reconciliation gate still applies.</p>
+<p>An explicit retry archives an uncertain stage while preserving its edits and logs.
+Report-only repairs and completed-response recovery run automatically through the
+existing bounded recovery mechanisms. After a revised
+plan is reapproved, child workers and batches from the previous plan are safely
+archived once stopped, preserving their work and logs.
+Interrupted worktree setup resumes only when its source matches the saved baseline;
+an incomplete or manually modified checkout pauses for inspection without overwriting files.</p>
+<p>The active batch is saved in
+<code>state.orchestration_batch</code>, with <code>id</code>, <code>status</code>, and <code>workers</code>; each worker records
+<code>milestone_id</code>, <code>status</code>, <code>workspace</code>, and <code>run_dir</code>. Integrated batches move to
+<code>state.orchestration_history</code>, and <code>deferred</code> lists the members left to a serial build
+(worker status <code>SERIAL_ESCALATION</code>). A batch in which every member deferred moves there
+with status <code>DEFERRED</code> and nothing integrated. The dashboard labels <code>orchestrator</code> as
+runner-owned and displays saved batch/worker statuses and worktree/log locations.
+Those statuses are checkpoint reports, not proof that worker processes are currently
+alive.</p>
+<h2 id="report-only-repair">Report-only repair<a class="headerlink" href="#report-only-repair" title="Permanent link">&para;</a></h2>
+<p>A completed provider response can fail JSON, schema, or evidence validation without
+requiring implementation to run again. The runner saves OpenCode's selected terminal
+assistant text as <code>.response.txt</code> before parsing and the parsed report as <code>.json</code>
+before schema/evidence validation. These are rejected artifacts, not accepted results.
+Tool output and earlier assistant messages are not substitutes for the terminal report.</p>
+<p>The rejected artifacts are archived and hash-pinned. Repair receives the complete
+report/text inline, its stable path and hash, the exact validation error, and mappings
+for artifact paths moved by archival. It must not reconstruct the report by searching
+raw JSONL or old prompts. A second repair receives the latest rejected draft paired
+with its latest error; the original report and execution receipts remain the immutable
+baseline for commands, failures, evidence, and user decisions.</p>
+<p>A repair of the Plan Reviewer's final plan report also receives this planning cycle's
+earlier reports (the first draft, the review's concerns and the revision's responses).
+Only the revision's report keeps its contract, the plan draft under review, so that
+draft's full contract appears once, as in the final review's own prompt. The superseded
+first draft keeps every other field but not its contract, whose full text stays at that
+report's saved path. The repair's <code>protected_contract</code> is an excerpt of the current goal
+contract, which at this point is the same revised draft, so the draft's required
+behaviors, scope exclusions, constraints, failure cases, acceptance criteria and
+permission boundaries still appear a second time there.</p>
+<p>Report sources are limited to 128 KiB each and the runner-supplied repair prompt to
+256 KiB, including provider-added schema/instructions. Missing, empty, or oversized
+inputs pause as <code>PAUSED_REPORT_REPAIR_INPUT</code> before another provider call, without
+charging a repair attempt. Full originals remain available for inspection; report
+content is never silently truncated to satisfy the limit. Old pending OpenCode
+checkpoints with missing report files can materialize their terminal response locally
+from intact, pinned events instead of making the model search the log.</p>
+<p>Saved repair inputs do not shrink, so a repair paused this way can never launch.
+Resume explicitly (<code>autocode resume</code>, or <code>--resume-paused</code>) to archive it in
+<code>report_repair_archive</code>, pinned evidence intact, and start a fresh attempt of the
+rejected stage, as after exhausted repairs:</p>
+<ul>
+<li>A planning stage edits nothing, so it simply runs again. A fresh Plan Reviewer
+  attempt is one more plan-review call: if the allowance is spent, the run stops
+  there as at any review, and <code>--planning-review-call-limit N</code> followed by a resume
+  continues it.</li>
+<li>An execution stage starts in a new provider session on the current source. If
+  that stage already failed the same way three times at an unchanged source, the
+  resume pauses as <code>PAUSED_REPEATED_FAILURE</code> until the cause changes.</li>
+</ul>
+<p>Repairs remain read-only, use the existing attempt limit and role/model routing, and
+cannot approve plans, rerun tests, replace original execution evidence, or convert
+unsupported observations into passing validation.</p>
+<h2 id="milestone-checkpoints-and-acceptance">Milestone checkpoints and acceptance<a class="headerlink" href="#milestone-checkpoints-and-acceptance" title="Permanent link">&para;</a></h2>
+<p>New runs enforce a milestone checkpoint in the runner. Each task names an outcome,
+affected paths, requirements, acceptance criteria and a validation plan. A validate task,
+which writes nothing, may name no paths: it checks its milestone's (in a progressive run,
+the active slice's), and none when its milestone owns none. A plan's first task is held to this rule while the plan is a draft,
+so a plan the runner could not start is repaired before anyone is asked to approve it. The Builder can
+implement, test and repair within the task; every completed handoff goes to the Tester and
+then the Plan Reviewer. A switch to a different milestone requires the Tester's passing evidence for
+<strong>all criteria in the current milestone</strong>, current source/contract/task identities,
+intact evidence, no blocking findings, and its required human reviews. The findings
+that count are its own, a prerequisite milestone's, unscoped ones, and another
+milestone's findings recorded only against criteria the two share. Another milestone's
+finding recorded against criteria this milestone lacks stays open for that milestone and
+for completion, since this milestone's reviewer could not close it. A writer's
+self-assessment cannot authorize that switch. Later milestones may still have
+<code>NOT_VERIFIED</code> results. The full flow may also be <code>NOT_VERIFIED</code> with an explanation
+while a partial milestone or batch unlocks downstream work; a known flow failure
+still blocks acceptance. Full-task completion still requires all contract criteria
+and the complete flow to pass on the current source.</p>
+<p>After explicit approval of a revised goal, the runner may carry an accepted serial
+milestone forward <strong>for scheduling only</strong>. At acceptance it saves a reuse manifest
+in the existing <code>milestone_progress</code>: the approved contract, exact milestone and
+criterion definitions, literal owned paths, all files changed by its recorded
+stages, source hashes/modes, and pinned stage snapshots and validation evidence.
+The new revision must preserve its criteria text, verification methods, ownership,
+<code>depends_on</code>, and all other milestone fields exactly. Global outcome, constraints,
+permissions and other goal fields must also remain unchanged. Reordering milestones
+or changing only an unrelated milestone/criterion can preserve earlier work.</p>
+<p>Reuse requires unchanged source bytes/modes and intact evidence, plus reuse of
+every prerequisite. An otherwise reusable milestone with an open blocking finding
+recorded against criteria it owns is revalidated instead: only its own review can
+close that finding, and the run then reviews it before anything depending on it
+starts. The milestones depending on it are still carried and count once it is
+accepted again. Added files under an owned directory count as changes. Missing
+task history, legacy acceptance without a manifest, ambiguous paths, symlinks,
+submodules, batches and human-review milestones all fall back to revalidation.
+This first version supports only one revision hop; it does not chain old evidence
+through successive revisions or infer undeclared code dependencies.</p>
+<p>The existing approval gate still applies. Reuse records <code>carried_from</code> provenance
+and a <code>milestone_carry_forward</code> audit without rewriting the original validation's
+contract hash or granting human approvals. <code>--status</code> and role handoffs expose the
+compact audit through <code>milestone_checkpoint.carry_forward</code>; full manifests remain
+in the run's state file. Carried prerequisites are checked again against source and
+evidence before scheduling. The runner rejects redundant implementation assignments
+for intact carried milestones; an explicit evidence-backed <code>REWORK</code> or detected
+source/evidence drift revokes scheduling acceptance. A carried milestone reviewed
+again and accepted on fresh validation under the approved revision counts like any
+other accepted milestone. Budgets and retry counters are preserved. Final
+completion still requires fresh independent validation of every criterion and the
+full integration flow on the current code and approved revision.
+Deploying this code never retroactively manufactures manifests for existing runs.</p>
+<p>Three independent reviews without any new passing criteria require an evidence-backed
+<code>REWORK</code> with a changed approach or a smaller batch inside the same milestone. One
+automatic replan is allowed; another three reviews without progress pause the run.
+Changing files, renaming task IDs, or oscillating between previously passing checks
+does not reset progress. The runner compares task fields; the Plan Reviewer remains responsible
+for judging whether the changed approach is substantively useful.</p>
+<p>The Plan Reviewer's prompt states this gate from the same check the runner applies
+(<code>tools/autocode_milestone_replan.py</code>), with the milestone's current counts. While a
+replan is required it reads <code>MILESTONE REPLAN REQUIRED</code>: only that <code>REWORK</code> is accepted,
+a <code>CONTINUE</code> (including a <code>kind=validate</code> revalidation) is refused, and revalidation-only
+work is a <code>REWORK</code> with <code>next_task.kind=validate</code>. Once the replans are spent and the
+milestone stalls again it reads <code>MILESTONE REPLANS SPENT</code>: any further task on that
+milestone pauses the run <code>PAUSED_MILESTONE_STALLED</code>. It also says which decisions call the
+Resolver before that pause: a <code>REWORK</code>, and a <code>BLOCKED</code> whose <code>user_request.kind</code> is not
+<code>permission</code> or <code>goal_change</code>. A <code>CONTINUE</code> pauses without it. In both states the general
+rule to answer <code>CONTINUE</code> with a validate task is replaced for that milestone (#459). For an
+integrated batch, both statements name the member milestones. A task is on the batch when its
+<code>next_task.milestone_id</code> is a member, and the batch's own <code>batch:&lt;digest&gt;</code> id is never one.</p>
+<p>Milestones have a 5,400-second active-time budget by default. This includes writer,
+reviewer and report-repair attempts after the milestone is assigned (or after an
+existing run adopts checkpoints). The budget is checked at stage boundaries and
+prevents further writing; the Tester and Plan Reviewer can still validate finished work. It does not
+replace per-stage timeouts. Use <code>--max-milestone-seconds N</code> to change the saved
+budget or <code>0</code> to disable this time limit. <code>--status</code> includes <code>milestone_checkpoint</code>
+with the current milestone, evidence progress, budget, replans, completed stage hours
+per role, and separately estimated elapsed time for any recorded active stage.
+These are elapsed stage durations, not billed model-compute hours or proof a recorded
+process is still alive. Ordinary stage updates also print milestone time and progress.</p>
+<p>A milestone budget you set with <code>--max-milestone-seconds N</code> is also checked before a climbed
+Builder attempt launches: the milestone's Builder escalating to its stronger model, or the Builder
+climbing a rung of its effort ladder. The attempt is projected as for the
+<a href="#timeouts-and-watchdog">active-time budget</a>, from the last Builder attempt's recorded duration,
+never more than the stage time limit. If the milestone's counted time so far plus that projection
+would pass <code>N</code>, the run stops with <code>PAUSED_MILESTONE_BUDGET</code> before the attempt starts, instead of
+launching it and stopping at the next writer launch with that time spent. The stop names the climb,
+the projection, the milestone's time so far, the total and the budget to resume with, for example
+<code>The Builder's stronger attempt (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of
+active time, the last Builder attempt's duration, it would take this milestone's active time from
+650 s to 1,250 s, past the 1,000 s milestone budget you set ... resume with --max-milestone-seconds
+1250 or more</code>. The climb stays saved, so <code>--resume-paused --max-milestone-seconds M</code> with <code>M</code> at
+least that total launches that same attempt, including one a repair's recovery packet holds (see
+<a href="#evidence-bound-repair">Evidence-bound repair</a>); that resume also restarts the milestone's
+count, as it always does. Reasserting the saved budget alone does not acknowledge this pause; any
+other <code>M</code>, or <code>0</code> for no limit, does, and the attempt is then checked against <code>M</code> from the
+restarted count. Only the Builder is checked against this budget, since it gates writer launches;
+a Tester or Completion Reviewer climb is not. The new-run default and a budget delegated with
+<code>--autoresolver-managed-limits</code> are not projected and keep only the check at the writer launch, as
+do a progressive run's slice budget and a last attempt without a recorded duration. So does a
+budget given while turning checkpoints on for a saved run, in the same command
+(<code>--milestone-checkpoints --max-milestone-seconds N</code> on a resume) or queued with
+<code>--request-milestone-checkpoints</code>: it is saved without being recorded as yours, until a later resume
+sets <code>--max-milestone-seconds</code> again. When a climb would also cross the cost cap or the run's
+active-time budget, that stop comes first. Once the climbed attempt has launched, the writer-launch
+check governs it, and a parallel Builder leaves this check to the serial run.</p>
+<p>A progressive run's slice budget pauses with the same <code>PAUSED_MILESTONE_BUDGET</code> status, naming the
+ceiling it spent: <code>local_seconds</code>, the slice's, which <code>--max-milestone-seconds</code> sets, or
+<code>run_seconds</code>, the run's, which <code>--max-seconds</code> sets. A resume does not restart the slice's count,
+so that stop's advice asks for <code>--resume-paused --max-milestone-seconds N</code> with <code>N</code> above the
+slice's counted time (or <code>0</code>), adding <code>--max-seconds M</code> above the run's counted time when it names
+<code>run_seconds</code>.</p>
+<p>The saved milestone replan limit defaults to one changed-approach replan. Set
+<code>--max-milestone-replans 0</code> on a saved-run resume to allow further evidence-backed
+changed-approach cycles within the same approved milestone. This does not change its
+acceptance criteria, disable the three-review checkpoint, or permit advancement without
+independent passing evidence.</p>
+<p>Saved runs keep their existing review routing until explicitly upgraded. At an idle,
+reconciled boundary, enable checkpoints without launching a provider:</p>
+<pre><code class="language-sh">autocode --workspace /path/to/project --run-dir /path/to/run \
+  --milestone-checkpoints --show-goal
+</code></pre>
+<p>For an active run, queue a safe boundary pause and the upgrade:</p>
+<pre><code class="language-sh">autocode --workspace /path/to/project --run-dir /path/to/run \
+  --request-milestone-checkpoints
+</code></pre>
+<p>The queued request does not edit <code>state.json</code>, signal workers, or acquire the writer
+lock. The old runner observes the pause marker at its next boundary. Its next launch
+reconciles the saved stage and applies the request under the writer lock. An already
+running loop continues without an extra resume gate; saved pauses still require
+their usual explicit resume. Use <code>--show-goal</code> to apply and inspect without launching
+a provider. Preexisting operator pause
+markers are preserved. Migration keeps models, sessions, the approved contract and
+artifacts; final-only or combined-review overrides are archived in the user event,
+and existing bounded work goes to the Tester first. Legacy briefs retain their current
+task's criterion scope without rewriting or implicitly approving a new contract.
+If an old stage first needs report-only repair, the upgrade remains queued. An
+explicit <code>--resume-paused</code> can finish that bounded read-only repair under the old
+schema, then apply the upgrade and continue to the Tester. It never repeats implementation to migrate.</p>
+<h2 id="handoffs-and-context">Handoffs and context<a class="headerlink" href="#handoffs-and-context" title="Permanent link">&para;</a></h2>
+<p>The Plan Reviewer finalizes the plan, the Builder implements one bounded task, and the Tester independently validates
+actual source with evidence per criterion. Each task records its milestone, requirements,
+applicable criteria and validation plan. Every role receives the complete approved
+contract and current task and echoes the contract revision/hash and task ID. The Tester gets
+the Builder's full implementation report, workspace/revision and actual changes. The Completion Reviewer gets
+both reports, milestone status and references to prior validation evidence.
+Bulky evidence indexes, archived-validation indexes, legacy checkpoints and source
+file maps move into hashed run-local <code>context/*.json</code> artifacts. The handoff keeps
+recent index entries and exact retrieval paths; requirements, saved answers,
+feedback, permissions, current reports and unresolved findings remain inline.
+Compact JSON reduces repeated formatting overhead. Per-stage context metrics record
+externalized fields and bytes saved. This does not remove provider session history
+or alter independent-review requirements.</p>
+<p>Tester and Completion Reviewer handoffs also replace exact repeated text with
+inline JSON pointers when that makes the packet smaller. <code>acceptance_criteria_ref</code>
+points to the complete definitions in <code>goal_contract.body.acceptance_criteria</code>;
+the approved contract stays intact. A replay check's <code>command_ref</code> can point to
+the identical command in <code>validation.checks</code>, while its independent exit code,
+error, source revision and evidence remain present. These references affect only
+the prompt copy. Saved state, reports and the public status view retain their
+original shape. Different criteria or commands are never combined.
+Scripted providers that consume handoff JSON must follow these references;
+output report schemas still require the full criterion wording and commands.</p>
+<h2 id="baseline-comparison">Baseline comparison<a class="headerlink" href="#baseline-comparison" title="Permanent link">&para;</a></h2>
+<p>For an explicitly authorized existing-failure exception, use the maintained
+comparator instead of generating a new parser inside each task:</p>
+<pre><code class="language-sh">autocode compare-baseline baseline.log candidate.log --output comparison.json
+# Optional: normalize only the two explicitly equivalent checkout prefixes.
+autocode compare-baseline baseline.log candidate.log --baseline-root /baseline/repo --candidate-root /current/repo --output comparison.json
+</code></pre>
+<p>The comparator supports completed Vitest default-reporter text logs. It checks
+failure identities and full diagnostic signatures, reconciles failed tests and
+unique failed files against summaries, and rejects duplicates, incomplete logs,
+unknown layouts, unhandled errors, reduced totals or newly disabled tests. Numbers,
+assertion operands and source locations remain significant. When dependencies are
+known to be equivalent but installed at different relative depths, the explicit
+<code>--normalize-dependency-prefixes</code> option removes the relative prefix before
+<code>node_modules/</code> in Vitest stack frames only; package paths, versions and locations
+remain significant, and the report records this option. Exit codes are 0 for
+matching failure evidence, 1 for new/changed failures, and 2 for invalid evidence.
+The report preserves diagnostics and raw input hashes. A match does <strong>not</strong> grant a
+baseline exception or prove task completion: the Tester must still verify the
+approved exception, source provenance and equivalent test selection. Baseline-only
+failures are listed for investigation, not automatically claimed as fixed.</p>
+<h2 id="completion-reviewer-decisions">Completion Reviewer decisions<a class="headerlink" href="#completion-reviewer-decisions" title="Permanent link">&para;</a></h2>
+<p>The Completion Reviewer chooses <code>CONTINUE</code>, <code>REWORK</code>, <code>BLOCKED</code> or <code>COMPLETE</code>. The first two require a
+concrete next task; rework describes the smallest correction for a verified defect.
+A <code>CONTINUE</code> task with <code>kind=validate</code> sends existing work directly to the Tester when it only
+needs revalidation. Required behaviors and success cannot be changed by a plan.</p>
+<p>A material ambiguity, contradiction, infeasible constraint, scope change or extra
+permission need is reported to the Plan Reviewer at a safe stage boundary. The Plan Reviewer presents a
+<code>BLOCKED</code> decision in <code>WAITING_FOR_USER</code> when user input is required, with
+the discovery, impact, smallest decision, options and proposed delta. Answers return
+to discovery; a revised goal needs new approval. Useful partial work is retained.</p>
+<h2 id="completion-gate">Completion gate<a class="headerlink" href="#completion-gate" title="Permanent link">&para;</a></h2>
+<p>Completion requires the current approved revision, a Tester PASS on the current artifact,
+passing evidence for every required criterion, no blocking findings, intact evidence
+hashes, actual human approvals where required, and the Completion Reviewer's completion request against
+that same revision. New build briefs also require the Tester's explicit end-to-end flow result
+and its pinned evidence on the current source revision. Completion prints each criterion
+with its evidence and any agreed limitations. Unknown, skipped and untested results cannot pass. Green tests
+cannot substitute for missing criterion results.</p>
+<p><a id="the-runner-re-runs-the-validators-checks"></a></p>
+<h3 id="the-runner-re-runs-the-testers-checks">The runner re-runs the Tester's checks<a class="headerlink" href="#the-runner-re-runs-the-testers-checks" title="Permanent link">&para;</a></h3>
+<p>A Tester's checks are first matched against its own session: the provider's
+event log or a capture receipt must show each command ran with the reported exit
+code. That shows the command ran, not that it passes on the code as it is. So
+before a PASS is accepted, the runner requires its own current execution of each check
+(<code>tools/autocode_check_replay.py</code>):</p>
+<ul>
+<li><strong>Where.</strong> From the repository root, in a scratch copy of the current source:
+  the committed code plus every uncommitted change, without ignored files or
+  <code>.autocode/</code>. A command that names the workspace's absolute path runs against
+  the copy. A replay never writes to the workspace.</li>
+<li><strong>How.</strong> With the credential-free environment agents get, and a 900-second limit
+  per check. A command cited more than once runs once.</li>
+<li><strong>What must hold.</strong> Every check exits 0. There are no exceptions a model can
+  claim: a check that needs a server or other setup starts and stops it itself,
+  for example with a script in the repository.</li>
+<li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
+  runs: it reads the working tree's state, not the product, and a program re-runs
+  checks after the work is committed and merged, where it lists nothing
+  (<a href="https://github.com/charlieanna/autocode/blob/64c065f0a1040bb390e6efa7f5931dc0e79c94b2/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  that names <code>git status</code> is refused when its author hands it in: a criterion's
+  verification method, a task's validation plan or requirements, a progressive
+  slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
+  Reviewer or Resolver gets its report back for repair, with every such row named.
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/64c065f0a1040bb390e6efa7f5931dc0e79c94b2/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
+  points, in the same repair. The replay runs each planned command with
+  <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
+  which runs nothing. A live step with backticks inside double quotes could
+  never run (<a href="https://github.com/charlieanna/autocode/blob/64c065f0a1040bb390e6efa7f5931dc0e79c94b2/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+<li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
+  command, the runner's exit code and the end of its output. That is the ordinary
+  rejected-report path: a bounded report repair may drop the check or cite
+  another command that ran (each is replayed again), then the run pauses and
+  <code>--resume-paused</code> asks for a fresh validation.</li>
+<li><strong>Record.</strong> The result is saved with the validation, bound to its source
+  revision, under <code>&lt;run&gt;/check-replay/</code>, and shown in the status view as
+  <code>evidence.check_replay</code>. Each invocation gets a fresh directory, including
+  retries of the same report. Later replays preserve the earlier receipt and
+  logs at their original paths; a failed replay remains available after a pass.</li>
+</ul>
+<p>If the controller stops after saving a successful supplementary check but before
+committing validation, it may reuse that exact completed runner receipt when the
+same Tester obligation resumes. Reuse requires unchanged source, command,
+task and contract, purpose, execution environment, interpreter, runtime and
+dependencies, plus intact original output and complete nonzero collected test
+results. It does not turn a Builder receipt into independent proof. Approved
+canonical commands, protected checks and a fresh Tester's obligations still
+execute; unsupported test inventories are not guessed. Public evidence records
+the scheduling decision and preserves the original receipt, output hashes and
+execution interval. Those artifacts remain pinned by the Completion gate.</p>
+<p>An uncertain earlier launch blocks subsequent owned verification even if its
+source, task or command identity changed. Starting a new identity does not prove
+that the previous process stopped. Missing, partial, stale or altered receipts
+cannot authorize reuse.</p>
+<p>This replaces trust in the Tester's own session with a run the runner owns.
+It does not judge whether the checks test the right thing: that is still the
+Tester's and the Completion Reviewer's job.</p>
+<h3 id="stability-of-named-proof-and-diff-coverage">Stability of named proof, and diff coverage<a class="headerlink" href="#stability-of-named-proof-and-diff-coverage" title="Permanent link">&para;</a></h3>
+<p>Named proof runs each <code>test:</code> and <code>guard:</code> test three times on the candidate in
+the same scratch tree, and each <code>test:</code> test three times on the original code
+(<code>tools/autocode_proof_stability.py</code>). One pass is not evidence. A test whose
+runs disagree (it passed and failed) is <code>unstable</code>: it does not count as proof,
+the proof fails, and the status view shows the test, its runs and the next step:
+fix the test, do not retry the proof. Only the proving tests repeat, selected by
+name; the suite still runs once, and each run keeps the 900-second limit. When a
+runner cannot select the tests by name, or a repeat does not report a test, the
+single run stands as before and the record says so (<code>unrepeated</code>).</p>
+<p>When the project already has a coverage tool (<code>coverage.py</code>, <code>go test
+-coverprofile</code>, <code>c8</code>, or Vitest's coverage package), the proving-test command
+runs once more in that scratch tree to record line coverage
+(<code>tools/autocode_diff_coverage.py</code>). That run cannot change the verdict.
+<code>--status</code> shows it as <code>evidence.diff_coverage</code>: the changed product hunks no
+proving test executed (<code>uncovered</code>), and the changed files the report never
+measured (<code>unmeasured</code>, never counted as covered). Nothing is installed into the
+project; a project without a tool gets a note and no extra test run.</p>
+<h3 id="mutation-check-of-named-proof">Mutation check of named proof<a class="headerlink" href="#mutation-check-of-named-proof" title="Permanent link">&para;</a></h3>
+<p>Once named proof passes, the runner mutates the change's product lines in the
+same candidate scratch tree and runs the proving tests against each mutant
+(<code>tools/autocode_mutation_check.py</code>; see <a href="../named-test-proof/#mutation-check">Named test proof</a>).
+It runs only once the proof's verdict is final and a pass: after every judged
+run, the case check and the execution-context check, in the candidate tree, which
+is kept for it and removed afterwards. A proof that fails a case or is
+UNVERIFIED runs no mutant. It covers a Python <code>unittest</code> or <code>pytest</code> proof whose
+due cases name tests. Each file gets its exact bytes and modification time back
+after each mutant, and the project's workspace is never touched. The runs are
+kept beside the proof (<code>regression/proof-NN-*/mutation-check/</code>) but are not
+among its receipts (<code>checks</code>), so a mutant that times out or breaks an import can
+never make the proof UNVERIFIED, stop a passing proof from being reused, or block
+completion. One 900-second budget covers the unmutated run of the proving tests
+and every mutant: the check replay's limit, not the suite timeout. A mutant may
+take ten times the unmutated run's duration, at least 60 seconds, and never more
+than the budget left; no mutant starts with less than 60 seconds left, and one
+the budget cut short is <code>not_run</code>, not <code>timeout</code>. When the proving tests are
+slow, one mutant that never returns can use the rest of the budget.
+<code>--status</code> shows the result as <code>evidence.mutation_check</code>; it is report only.
+The review workflow runs no named proof, so it has no mutation check yet.</p>
+<h3 id="process-recovery-proof-for-declared-lifecycle-apis">Process-recovery proof for declared lifecycle APIs<a class="headerlink" href="#process-recovery-proof-for-declared-lifecycle-apis" title="Permanent link">&para;</a></h3>
+<p>Exception tests are not process-death tests: a queue whose token counter lives in
+one process, or an outbox that restores a pending event only when a callback
+raises, passes its own tests and still loses work when a worker is killed. Tests
+in one interpreter are not contention tests either: a claim that chooses a job in
+one transaction and leases it in another passes them and still leases one job to
+two workers. When a person's request declares one of two Python APIs, the runner
+runs its own fixed lifecycle observation of it (#451, <code>tools/autocode_risk_*.py</code>):</p>
+<ul>
+<li><strong>What triggers it.</strong> Only a person's words (the task, answers, feedback): a
+  constructor with one storage argument (<code>LeaseQueue(path)</code>, <code>Store(db_path)</code>)
+  followed by a lease-queue API (<code>enqueue</code>, <code>claim</code>, <code>ack</code>, <code>nack</code>, <code>pending</code>)
+  with durability or old-token wording, or a transactional-outbox API
+  (<code>create_order</code>, <code>orders</code>, <code>pending</code>, <code>publish</code>) with outbox or reopening
+  wording. An argument named anything but <code>path</code> counts only when the API names
+  the family's core methods (<code>enqueue</code>, <code>claim</code> and <code>ack</code>; <code>create_order</code> and
+  <code>publish</code>) and the constructor's own sentence says what it is (queue, lease or
+  job; outbox, order or event; the class name counts), so <code>TodoList(filename)</code>
+  with <code>claim(item)</code> stays an ordinary task, and <code>Logger(log_file)</code> mentioned
+  between <code>LeaseQueue(path)</code> and its methods neither takes them nor splits the
+  declaration. A <code>Name(path)</code> call still starts a new declaration wherever it
+  appears. Generic durability, concurrency, security or performance wording adds
+  no observation. The runner also needs every fact the protocol checks to be
+  stated (signatures, return values, the token and deadline rules, at-least-once
+  delivery). If one is missing the plan cannot be approved: the refusal names each
+  missing fact and asks for a restatement in feedback that says it changes that
+  API, because the runner never guesses an expected value. A declaration also
+  promises atomicity under contention only when its own text says so in one
+  clause: the queue's claims are atomic under contention or concurrency, or
+  concurrent <code>create_order</code> calls for one key commit once. Durability wording
+  alone adds no race, and neither does a clause with any negation in it ("need
+  not", "out of scope", even "so a job is never leased twice"): the grammar
+  cannot tell which part a negation excludes, so that sentence is listed as
+  unverified instead of raced.</li>
+<li><strong>Binding.</strong> The independent Plan Reviewer selects only the declaration, its
+  criteria and the original public module; the runner records it in
+  <code>goal_contract.body.risk_acceptance</code> with the public modules captured before the
+  Builder runs.</li>
+<li><strong>What it does.</strong> Three fresh interpreters on one database. The queue holder is
+  killed with SIGKILL after it claims; a new interpreter at the exact deadline must
+  get a new token, and the dead holder's token must not ack or nack; a third
+  finishes both jobs. The outbox publisher is killed inside a sink callback after
+  the sink durably accepted the event; a new interpreter must still see that event
+  pending under the same <code>event_id</code> and redeliver it (at least once, never claimed
+  exactly once). When contention is promised, the same supervisor then starts
+  three more interpreters on a second database and releases them together at two
+  barriers. Each enqueues the same twelve jobs (every job must be accepted exactly
+  once) and then claims four times (twelve different jobs, twelve different
+  tokens), or each creates the same six orders (every order must return <code>True</code>
+  exactly once and never raise) and then sees the same six orders and events. At
+  most six owned workers, 30 seconds within the replay allowance, bounded output;
+  every worker is reaped. The databases live in a temporary directory inside the
+  replay copy (in the system temporary directory when that copy's path is too
+  deep for SQLite) and are removed afterwards.</li>
+<li><strong>What a contention PASS means.</strong> A race can be missed: a narrow window between
+  a read and a write is often not hit by three interpreters. A PASS says no lost
+  or duplicated write showed up, not that the code is atomic. The catalog's
+  planted contention mutants widen their window on purpose, so their refusal is
+  deterministic.</li>
+<li><strong>When.</strong> With the Tester's PASS, in the same clean replay, limited to the
+  current task's criteria; a whole-product claim runs every observation. Completion
+  needs a current, pinned PASS (<code>evidence.check_replay.risk_acceptance</code>).</li>
+<li><strong>When it fails.</strong> That is a product defect, not a bad report, so the Tester's
+  report stands and the replay's verdict is <code>FAIL</code>. The runner opens a blocking
+  finding with source <code>runner</code> (<code>tools/autocode_risk_findings.py</code>) naming the
+  violated promise, what the protocol did and the pinned transcript. The
+  completion gate refuses while it is open; the Completion Reviewer and Resolver
+  see it in <code>open_findings</code>; a correction task assigns it to the Builder, whose
+  handoff lists it in <code>actionable_findings</code>. No report closes it: the runner does,
+  when its own observation passes on a source it has not failed on. Because a race
+  can be missed, a PASS on a source it already failed on (the same candidate
+  validated again, after <code>--resume-paused</code>, or reverted to) closes nothing. An
+  approved amendment that removes the observation retracts its finding; completion
+  still needs every current observation to pass. A repair that changes nothing
+  stops at the ordinary no-progress limit with the finding still open.</li>
+</ul>
+<p>Every other durability or concurrency sentence in the request is listed under
+<code>evidence.unverified_risk_claims</code> (<code>tools/autocode_risk_disclosure.py</code>): no runner
+protocol exercises it, so a PASS is never read as proof of it. The list adds no
+check, so an ordinary task never acquires a crash-recovery or contention battery.</p>
+<h2 id="human-review-in-the-terminal">Human review in the terminal<a class="headerlink" href="#human-review-in-the-terminal" title="Permanent link">&para;</a></h2>
+<p>For a human-review criterion, inspect the displayed validation and the actual artifact.
+<code>autocode review</code> shows each pending criterion, recorded checks and named tests,
+available exact-output observations, changed-line coverage, and open findings:</p>
+<pre><code class="language-sh">autocode review --workspace /path/to/project --run-dir /path/to/run
+autocode review --workspace /path/to/project --run-dir /path/to/run --show
+autocode review --workspace /path/to/project --run-dir /path/to/run --json
+</code></pre>
+<p>Enter <code>approve</code>, <code>reject</code>, or <code>skip</code> (<code>a</code>, <code>r</code>, <code>s</code> also work). Rejection asks for a
+nonempty note and saves it as feedback for revision. The next continuation gathers
+a revised plan, which needs fresh approval before building. Skipping or reaching
+the end of input leaves unsubmitted decisions unchanged. Decisions can be piped
+from a script; the output is plain text, including under <code>NO_COLOR</code>.</p>
+<p><code>--show</code> and <code>--json</code> only display evidence. Missing evidence stays unverified;
+run-level diff coverage and exact-output observations are labeled as such rather
+than attributed to a criterion without a recorded association. The command submits
+the displayed artifact token automatically and never starts a model. Source or
+validation changes during inspection cause the decision to be refused.</p>
+<p>Each criterion also lists the saved Builder steps of the plan milestones that
+cover it (<code>criterion_diffs</code> in <code>--json</code>). Each step's diff runs from the saved
+step before it (or the run's base) to its own saved checkpoint, limited to the
+files it changed and read from Git objects, not the working tree. It is labeled
+as attribution, not proof: it shows where to look. A file another milestone's
+step also changed is flagged, since its diff may hold that work. A step after an
+unavailable checkpoint is shown as unavailable rather than mixed with it. Parallel
+Builders' integrated batch is one saved step that names its milestones; each
+criterion shows only the files its own milestone changed in it and names the
+files left out for the other milestones.</p>
+<p>The direct approval interface remains available:</p>
+<pre><code class="language-sh">autocode --workspace /path/to/project --run-dir /path/to/run \
+  --approve-review C1 --review-token 'r3:&lt;goal hash&gt;@&lt;source hash&gt;:&lt;validation hash&gt;'
+autocode --workspace /path/to/project --run-dir /path/to/run
+</code></pre>
+<p>Changing the source or validation invalidates reuse of human approval. Goal approval
+does not count as approval of a subsequently produced artifact. Resuming a completed
+run rechecks its source and evidence before reporting success. Stale completion pauses
+for fresh Tester validation; <code>--status</code> reports <code>completion_current</code> without changing state.
+Source snapshots include executable modes and changes inside initialized submodules.
+A snapshot rereads only the files whose device, inode, size or modification and
+status-change times changed since the previous snapshot of that workspace in the same
+AutoCode process; a hash is reused only for a file whose times were already 10
+seconds old when it was read, and a wall-clock jump forgets every reused hash. Keep a
+workspace on a file system whose clock agrees with this computer's: a network share
+whose server clock runs more than 10 seconds behind could let two writes in one tick
+look like one. On Windows, where a file's times can be set back and <code>st_ctime</code> is the
+creation time, every snapshot rereads every file. The hashes and source revisions are
+the same as before.</p>
+<p>Logical phases are <code>DISCOVERING</code>, <code>AWAITING_GOAL_APPROVAL</code>, <code>READY_TO_EXECUTE</code>,
+<code>EXECUTING</code>, <code>WAITING_FOR_USER</code>, <code>COMPLETE</code>, and <code>PAUSED_OR_BLOCKED</code>. While an initial
+interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.
+<code>--status</code> and <code>--dry-run</code> are read-only. Exit 0 means an action was saved or the task
+completed; exit 2 means user input/pause/error (inspect status, not exit code alone).</p>
+<h3 id="who-approved">Who approved<a class="headerlink" href="#who-approved" title="Permanent link">&para;</a></h3>
+<p>An approval token says what was approved; the run also records who approved it (#722).
+Each of these saves the Git <code>user.name</code> and <code>user.email</code> the workspace resolves, the host
+name, and the command it came through: <code>autocode</code>, the <code>resume</code> command word when it was
+typed, and the option names of that invocation, never their values, so tokens stay out of it.</p>
+<ul>
+<li>A plan approval (<code>--approve-goal</code>, or <code>yes</code> in the terminal conversation) and an artifact
+  acceptance (<code>--approve-review</code>, <code>autocode review</code>, or <code>y</code> at the conversation's review
+  prompt), on the approval event.</li>
+<li>A completion acceptance (<code>--accept-completion</code>), on the event it saves when it closes a run
+  whose gates the runner verified but whose completion report could not be produced.</li>
+<li>A goal edit (<code>--edit-goal body.json</code> or <code>--goal-file PATH</code>), on the draft revision the edit
+  installed. The draft still needs its own review and approval.</li>
+<li>An explicit resume (<code>--resume-paused</code>, <code>autocode resume</code>, <code>TaskRun.resume_paused()</code>) that
+  takes the run out of the pause holding it: the pause, the pause behind AutoResolver's
+  operational request, or the pause a pause intervention interrupted. It is saved when the
+  run goes on to build: once every check that could keep the run at that pause has passed,
+  just before its next stage launches. A resume the pause's own rules refuse records nothing,
+  such as <code>--resume-paused</code> without a higher <code>--max-iterations</code> at an iteration limit you
+  set, or a resume while the run's <code>pause-requested</code> file is still in place. Nor does one
+  whose next attempt is projected past a budget: a role's climb on its effort ladder, like the
+  Builder's stronger attempt, is checked against the cost cap, the time limit and the
+  milestone budget before the resume is saved, so a resume that pauses there again is not
+  listed (#611).</li>
+</ul>
+<p>On a shared machine add <code>--as NAME</code> to <code>--approve-goal</code>, <code>--approve-review</code>,
+<code>--accept-completion</code>, <code>--edit-goal</code>, <code>--goal-file</code> or the resume; the name is saved beside the
+Git identity as the person's own claim. With a resume it is saved only when the resume releases
+a pause, as above.</p>
+<p>None of this is verified, and none of it grants anything: Git identity is whatever the
+checkout configures, and <code>--as</code> is taken at the person's word. The token checks and each
+pause's own rules remain the authority; the one refusal is a project's required approver,
+below. <code>--status</code> lists every approval, completion acceptance, goal edit and
+resume with its provenance under <code>approvals</code> (<a href="../task-run/#status-view">Status view</a>), and
+the completion summary lists the same records just before its cost line. A record saved before
+AutoCode kept it shows no provenance. A build, bug-fix or design run that recorded none, such as
+one saved before AutoCode kept approval events, a design review or a bug that did not reproduce,
+says <code>Approvals: none recorded</code> there instead of leaving the section out. A review or discuss run
+never asks for an approval: its one stage completes the run without a plan. Its summary has no
+such line, but still lists any record the run saved, such as a resume from a pause.</p>
+<p>The evidence report of a completed build, bug-fix or design run lists the same records under
+<code>approvals</code> in <code>evidence.json</code> and as an Approvals table in <code>evidence.md</code>, just after the
+intended outcome (<a href="../task-run/#canonical-completion-evidence">Canonical completion evidence</a>).
+A review or discuss report has neither, not even a resume, because those workflows have no
+approval step and <code>autocode review-pr --post</code> publishes a review's report on someone else's pull
+request (<a href="../issues/#reviewing-a-pull-request">Issues</a>). A report written before AutoCode listed
+approvals has no such section either, until AutoCode saves the completed run again; reading its
+status does not. Each row gives the time, what was decided (the plan token approved, the criterion
+accepted, completion accepted, the draft an edit saved, or the pause a resume released), the Git
+identity, host, command and any <code>--as</code> name, marked as a claim. A record saved without provenance
+says it was not recorded, a workflow-policy approval says no person made it, and a run with none says
+<code>None recorded</code>. When the table names an approver, the report's "Not verified" list adds that
+approver identity is recorded as given; it also counts any records saved without a recorded
+approver. Because <code>autocode-issue pr</code> wraps that <code>evidence.md</code> exactly
+(<a href="../issues/#what-it-does">Issues</a>), the pull request body lists the approvals too. A completed
+program's or components run's report lists its child runs' approvals, each with the child it
+came from, in the same way; the program agreement (<code>autocode program approve</code>) records no
+approver and is not among them, and neither are the approvals of a plan run the program was
+derived from (<a href="../task-run/#canonical-completion-evidence">Canonical completion evidence</a>).</p>
+<p>The scenario harness checks this record from outside on each task run a scenario completes,
+including a program's or a components run's own task runs (a program's plan run once its plan
+is approved). It reads <code>approvals</code> from that run's final <code>--status --json</code>, and each row a
+person made must name the scenario's person, the host and a command of option names only. Each
+plan and review approval the harness gave a run must also be listed among that run's own rows,
+and so must each budget pause the scenario's person acknowledged, as the resume that names it.
+In a program or components scenario each such gate names the task run it was given to, so an
+approval listed only in another workstream's run fails
+(<a href="https://github.com/charlieanna/autocode/blob/64c065f0a1040bb390e6efa7f5931dc0e79c94b2/scenarios/README.md">scenarios/README.md</a>).</p>
+<h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
+<p>A team that wants only named people to approve can list their Git email addresses as
+<code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
+<pre><code class="language-toml">require-approver = [&quot;lead@example.com&quot;, &quot;deputy@example.com&quot;]
+</code></pre>
+<p>Each entry is one plain address: a single <code>@</code> between a non-empty local part and domain, with
+no spaces, angle brackets, quotes, parentheses, square brackets, commas, semicolons, colons or
+backslashes. An entry such as <code>Lee</code>, <code>Lee &lt;lee@example.com&gt;</code>, <code>&lt;lee@example.com&gt;</code> or
+<code>mailto:lee@example.com</code> stops a new run before it starts, naming the file and the key.</p>
+<p>A run started with that setting refuses a plan approval (<code>--approve-goal</code>, or <code>yes</code> in the
+terminal conversation), an artifact acceptance (<code>--approve-review</code>, <code>autocode review</code>, a
+<code>TaskRun</code> approval, or <code>y</code> at the conversation's review prompt) or a completion acceptance
+(<code>--accept-completion</code>) whose recorded Git <code>user.email</code> is not on the list, compared without
+regard to case. The refusal comes before anything is approved: the command exits 2 (the
+conversation stops at the same question, without asking about any further criterion) with a
+message naming the required addresses and the actual Git identity, nothing it carried is saved,
+and the run stays at the same stop for a listed approver. An <code>--as</code> name is a claim and never
+counts. A goal edit installs a draft that still needs a listed approver's approval, a resume
+releases a pause rather than approving anything, and a small bug fix approved under the
+workflow policy has no person to check, so none of those is refused.</p>
+<p>The identity checked is the output of <code>git -C WORKSPACE config --get user.email</code>, where
+<code>WORKSPACE</code> is the run's saved workspace (its task worktree, or the checkout an <code>--in-place</code>
+run works in), run in AutoCode's own environment: that of the <code>autocode</code> command recording
+the approval (a <code>TaskRun</code> runs that command with its caller's environment, or the <code>env</code> it
+was given). Anything that changes what Git resolves there changes the identity: Git's
+environment variables (<code>GIT_CONFIG_COUNT</code> with <code>GIT_CONFIG_KEY_n</code> and <code>GIT_CONFIG_VALUE_n</code>,
+<code>GIT_CONFIG_GLOBAL</code>, <code>HOME</code>) or a repository-local <code>user.email</code> in the workspace. The setting
+guards against an approval made under the wrong configured identity, such as someone not on
+the list approving from a machine set up with their own address; it does not stop someone who
+deliberately sets a listed address. It is not authentication.</p>
+<p>The run saves the list when it starts (<code>settings.require_approver</code> in <code>state.json</code>), as it
+saves every project setting: a changed or deleted file never alters a run in progress, a run
+started before the setting existed lets anyone approve, and no flag sets or overrides it. A
+new run started from a design handoff (<code>autocode --ui-run HANDOFF</code>, with or without a typed
+task) takes it like any other. Without the setting anyone may approve, as before.</p>
+<p>Not covered:</p>
+<ul>
+<li>A replay (<code>autocode replay</code>, <a href="../replay/">Replay</a>) never takes the setting, and a new run
+  started with <code>--replay-recording</code> does not list it among the project settings it took. A
+  replay re-applies the recorded run's own plan and review decisions through <code>TaskRun</code>, with
+  no person approving, and keeps the recording's settings; checking those decisions against
+  whoever runs the replay would refuse every replay a listed approver did not run.</li>
+<li><code>autocode program</code> and <code>autocode components</code>. Each child run reads <code>require-approver</code> from
+  its own Git worktree, checked out at a commit, so only a committed <code>.autocode/config.toml</code>
+  (or <code>pyproject.toml</code>) reaches it: an uncommitted change to the file in the project checkout
+  does not. <code>autocode program approve</code>, which approves the program's agreement, is never
+  checked.</li>
+</ul>
+<h2 id="timeouts-and-watchdog">Timeouts and watchdog<a class="headerlink" href="#timeouts-and-watchdog" title="Permanent link">&para;</a></h2>
+<p>Iteration, active-time, per-stage, cost (<a href="#money-cap">Money cap</a>) and no-progress limits still pause
+with a checkpoint. They never cause completion. New runs distinguish inactivity,
+tool execution and total stage runtime:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>New-run default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--max-idle-seconds</code></td>
+<td><code>300</code></td>
+<td>Stop a provider with no new recognized activity while no tool is running.</td>
+</tr>
+<tr>
+<td><code>--max-tool-seconds</code></td>
+<td><code>1800</code></td>
+<td>Stop a tool that exceeds its fixed deadline, including a quiet test command. Output and repeated starts do not extend this deadline.</td>
+</tr>
+<tr>
+<td><code>--max-stage-seconds</code></td>
+<td><code>3600</code></td>
+<td>Hard cap for the entire stage, enforced even while activity continues.</td>
+</tr>
+<tr>
+<td><code>--max-seconds</code></td>
+<td><code>43200</code></td>
+<td>Total active provider time for the run (its model attempts' durations added together), checked at stage boundaries and, when you set it, before an attempt on a stronger route (below).</td>
+</tr>
+</tbody>
+</table>
+<p>Each flag accepts <code>0</code> to disable that limit. The iteration ceiling has no new-run
+default; the two time limits above bound a run's spend instead, and Resolver may
+double each once (see <a href="#budget-ownership-and-human-escalation">Budget ownership</a>).
+An active-time budget you set with <code>--max-seconds N</code> is also checked before an attempt on a stronger
+route, the same climbs the <a href="#money-cap">money cap</a> prices: a milestone's Builder escalating to its
+stronger model, and a role climbing a rung of its effort ladder. The first attempt on the climbed
+route is timed from the role's last attempt's recorded duration, never more than the stage time
+limit that would stop it. If the active time so far plus that projection would pass the budget, the
+run stops with <code>PAUSED_TIME_LIMIT</code> before the attempt starts, and the stop names the climb, the
+projection, the active time so far, the total and the budget to resume with, for example <code>The
+Tester's climb to GPT-6 Sol XHigh (gpt-6-sol at xhigh effort) did not launch: projected at 600 s of
+active time, the last Tester attempt's duration, it would take the run's active time from 650 s to
+1,250 s, past the 1,000 s active-time budget you set ... resume with --max-seconds 1250 or more</code>.
+Resuming with <code>--max-seconds M</code> of at least that total launches that same attempt, since the climb
+stays saved. A smaller <code>M</code> above the active time so far is accepted and saved as your answer to the pause,
+but the run pauses again before the same attempt, and the new stop names <code>M</code> as the budget. Like
+the cost projection it is an estimate, not a bound: a higher effort can run longer than the attempt
+it follows. The new-run default and a budget delegated with <code>--autoresolver-managed-limits</code> are not
+projected, because Resolver may extend them once at the stage boundary; for them, and when the last
+attempt has no recorded duration, only the stage-boundary check applies, as before. When a climb would cross both
+the cost cap and this budget, the cost stop comes first. Once the climbed attempt has launched, the
+stage-boundary check governs it, and a parallel Builder leaves this check to the serial run. A Builder's
+climb is then checked against a milestone budget you set
+(<a href="#milestone-checkpoints-and-acceptance">Milestone checkpoints</a>).
+Runs created before these defaults keep the limits they saved. Saved stage limits are preserved,
+including an existing five-minute cap or an explicit zero; use
+<code>--max-stage-seconds 0</code> to deliberately remove a saved hard cap. Saved runs gain
+the inactivity and tool defaults at their next configured launch. Running worker
+processes keep the code/settings they started with until the runner is relaunched.</p>
+<p>The watchdog reads raw Codex/OpenCode events incrementally. Completed tools and
+new provider text count as activity; repeated event IDs, repeated text, tool-output
+updates, malformed lines and arbitrary log chatter do not buy more time. A tracked
+tool uses its own clock, so a healthy quiet command can exceed the provider's idle
+limit. OpenCode versions that report tools only after completion use a bounded
+descendant-process interval instead. Process identity alone cannot distinguish a
+tool from a persistent provider wrapper: status labels this fallback as inferred.
+Only a newly completed tool can renew that interval; output, duplicate completions
+and descendant churn cannot. Without start events, concurrent unreported tools
+cannot each have a precise deadline; an explicit stage cap remains available.
+Explicit tool starts supersede the fallback. These observations measure liveness, not acceptance progress;
+independent milestone evidence remains mandatory.</p>
+<p>OpenCode's JSON CLI waits for a text block to finish before publishing it. AutoCode
+loads a local hook for each OpenCode invocation to forward native text and reasoning
+progress as bounded hashes while the block is still streaming. Existing plugins and
+agent permissions are preserved. The hook does not emit periodic heartbeats or
+completion evidence: a real idle gap still expires, and the stage hard cap remains
+in force even during continuous streaming.</p>
+<p>CLI updates and <code>--status</code>'s <code>active_stage.activity</code> show provider/tool activity,
+elapsed and idle time, active tool time, applicable limits and an observation
+timestamp. A saved observation does not prove a recorded worker is still alive.
+<code>longest_idle_seconds</code> is the longest quiet period that ended with new activity or
+a tool start (the open one is <code>idle_seconds</code>), so earlier silences can be compared
+with the limit before changing it. An inactivity stop names its limit, whether that
+is the runner default or was set explicitly, and how to change it (<code>autocode resume
+--max-idle-seconds N</code>). Once the automatic recovery allowance is spent, the new
+limit is saved but no provider launches until <code>--grant-recovery N</code> is also given.
+Routes of a model family that reasons in long silent blocks run under a higher default:
+MiMo routes get 900 seconds when the limit is the runner default (<code>autocode_idle_policy</code>).
+Native deltas count when the provider exposes them; wholly silent reasoning intervals
+still use the configured inactivity limit. An explicit <code>--max-idle-seconds</code> is always
+used as given, and the saved setting is not rewritten.
+A workflow job's stop (review, design, design check, bug investigation, question,
+stuck-stage investigation) says instead that its exact retry runs under the same
+limit: that retry is bound to the limits the job ran under, so a changed limit
+would make it stale. Resolver never changes this limit, even when limits were
+delegated to it.
+The task conversation also receives durable role-based progress messages: stage
+transitions, blockers with next steps, completion, and a heartbeat every 60 seconds
+while the code runner observes an active stage or Builder batch. Parallel-worker
+status changes publish immediately at checkpoints. Autocode UI shares the same
+stage-transition notifications. Updates appear in the dashboard conversation and
+terminal stderr; existing JSON stdout interfaces remain unchanged. Repeated
+heartbeats replace the previous heartbeat, and the latest 100 messages are retained
+across restarts. These are local task updates, not push messages into external chat
+applications. Existing raw event logs remain available for complete history.
+Timeout records and recovery context distinguish <code>idle</code>, <code>tool</code> and <code>stage</code> causes,
+and preserve the failed task ID and its effective timeout limits. Recovery instructions
+require a changed execution plan: inspect partial work, reuse valid completed checks,
+split long calls, or address the diagnosed stall. The Completion Reviewer cannot assign
+the identical writer task again under unchanged limits. This guard does not change
+timeouts or grant permission to extend a budget.
+Deadline enforcement runs independently of process-table sampling, state writes
+and event-file reads. A blocked observer cannot leave a worker unsupervised.</p>
+<h2 id="money-cap">Money cap<a class="headerlink" href="#money-cap" title="Permanent link">&para;</a></h2>
+<p><code>--max-cost-usd N</code> (or <code>max-cost-usd = N</code> in the <a href="../cli/#project-settings">project settings</a>)
+caps what a run may spend, in USD. A run has no cap unless you set one, and <code>0</code> removes it.</p>
+<ul>
+<li><strong>What counts.</strong> Each finished stage counts once: the cost its provider reported (the built-in
+  claude provider reports one), else its recorded tokens at the dated price table
+  <code>tools/autocode_prices.json</code> (<code>autocode models --prices</code> prints it), else nothing. Stages the runner
+  executes itself cost nothing. A stage on a model without a rate, or one whose provider recorded no
+  token counts, is <em>unpriced</em>: it is not counted, so the spend is a floor, and the status view and
+  cost line say how many stages are unpriced. Check <code>autocode models --prices</code> before relying on a cap
+  with an unusual model, and use a provider that reports token counts or cost. While parallel
+  Builders run, their spend is not yet in the total, which reads as a floor until their batch is
+  accounted.</li>
+<li><strong>When it pauses.</strong> The cap is checked at every stage boundary, right after the active-time limit,
+  before anything launches. Once the spend reaches the cap the run stops with <code>PAUSED_COST_LIMIT</code>, in
+  the <em>your decision</em> category, and AutoResolver publishes the usual operational request naming the
+  spend and the cap. Stages already running finish first, so a run can end above its cap by up to one
+  stage, or by one parallel batch: workers are charged when the parent accounts their batch.</li>
+<li><strong>Before an attempt on a stronger route.</strong> Two kinds of climb move a struggling role to a stronger route: a
+  milestone's Builder escalating to its stronger model (see <a href="../models/#builder-retry-policy">Builder retry policy</a>),
+  and a role climbing one rung of its effort ladder after it struggled, such as the Tester going from GPT-6 Sol
+  High to XHigh (see <a href="../models/#default-models">Models</a>). The first attempt on the stronger route is priced
+  before it launches: the role's last attempt's recorded tokens at the stronger route's rate. If the spend so
+  far plus that projection would pass the cap, the run stops with <code>PAUSED_COST_LIMIT</code> before the attempt
+  starts, and the stop names the job, the rung or model and effort, the tokens behind the projection, the
+  spend, the total and the cap to resume with, for example <code>The Tester's climb to GPT-6 Sol Max (gpt-6-sol at
+  max effort) did not launch: projected at $0.42, ... it would take the spend from $4.80 to $5.22, past the
+  $5.00 cost cap ... resume with --max-cost-usd 5.22 or more</code>. The projection is an estimate, not a bound:
+  a higher effort can use more tokens than the attempt it follows, and an effort climb on the same model is
+  priced like one more attempt on that model. Without a cap, a rate for the stronger model or token counts for
+  the last attempt there is no projection and nothing pauses here; once the stronger attempt has launched, the
+  stage-boundary check governs it. A parallel Builder sees only its own spend, so this check runs in the
+  serial run only; a parallel batch whose Builders would start on a climbed Builder route is not priced
+  before it launches, and the stage-boundary check governs it. The same attempt is also checked against an
+  active-time budget you set, after this check (<a href="#timeouts-and-watchdog">Timeouts and watchdog</a>).</li>
+<li><strong>How it continues.</strong> Only you decide: <code>autocode resume --max-cost-usd M</code> (or <code>--resume-paused
+  --max-cost-usd M</code>) with <code>M</code> above the spend, or <code>0</code> for no cap. After a stop before an attempt on a
+  stronger route, <code>M</code> must be at least the cap that stop names, or the run pauses again before the attempt.
+  The climb itself stays saved, so raising the cap lets that same attempt launch.
+  Restating a saved cap that is still above the spend acknowledges it too; restating an exhausted
+  cap, a plain resume, information alone or any other setting does not, and the run stays paused.
+  AutoCode never raises this cap itself: it is not a runner default, <code>--autoresolver-managed-limits</code>
+  does not delegate it, and AutoResolver's one-time doubling of default budgets never applies to it.</li>
+<li><strong>What it is not.</strong> The price table holds list prices for metered API use. A subscription or
+  coding-plan route is billed by its plan, so its spend here is the API-equivalent figure, not your
+  bill. Per-request premiums (cache writes, long-context surcharges) are not visible in a stage's
+  totals, so the spend is an estimate that can run below the provider's invoice.</li>
+</ul>
+<p>A run restored from a <a href="../task-run/#saved-code-checkpoints">saved code checkpoint</a> keeps counting:
+like active time, the spend of the run it was restored from carries over (<code>cost.inherited_usd</code>), so
+restoring never renews the cap.</p>
+<p><code>--status</code> prints the spend on stderr in one line, for example
+<code>Cost: $0.42 so far ($0.40 estimated, $0.02 reported by the provider); cap $5.00.</code>, and the
+completion summary ends with the same line. The status view's <code>cost</code> field holds the numbers
+(<a href="../task-run/#status-view">Task run</a>); <a href="../cost-reporting/">Cost reporting</a> explains the bases.</p>
+<h2 id="open-findings">Open findings<a class="headerlink" href="#open-findings" title="Permanent link">&para;</a></h2>
+<p>The runner keeps one list of reviewer findings in <code>state.json</code> under
+<code>findings_ledger</code>. Every Tester finding and every structured Plan Reviewer finding (the
+optional <code>findings</code> array of a decision, with severity, finding, evidence and
+blocking) gets a stable ID derived from the reviewer and the finding text, the
+report that raised it, the task assigned to fix it, and the report that resolved
+it. Only the reviewer who raised a finding can close it, by submitting a newer
+report that no longer lists it; a finding reported again after a fix keeps its ID
+and counts the repeat. The runner raises findings of its own (source <code>runner</code>)
+when its lifecycle observation fails, and only the runner closes them, when that
+observation passes (see <a href="#process-recovery-proof-for-declared-lifecycle-apis">Process-recovery proof</a>).
+In a <code>--package</code> run it also raises one when the candidate changes a file outside
+the package, checked before each Tester and Completion Reviewer dispatch (not
+before the Code Reviewer, Designer or Design Reviewer) and by
+<code>--accept-completion</code>, and closes it when a later check finds no such change
+(<a href="../workflow/#monorepo-packages">Monorepo packages</a>).
+With milestone checkpoints, each finding also records the
+milestone criteria it was raised under, and a report closes it only if that report
+reviewed all of those criteria. A validation of different work, or a report-only
+repair that reformats an earlier report, leaves the finding open and marks it as
+not rechecked. Findings written only as prose in <code>next_task.requirements</code>
+are not tracked. Role handoffs include <code>open_findings</code> for both reviewers, and the
+dashboard's task view shows the list with each finding's source, fix task and
+repeat count. <code>unresolved_findings</code> still holds the Tester's latest findings unchanged.</p>
+<p>When you approve a revision that moves an acceptance criterion to another
+milestone, open findings recorded against that criterion move with it, in the
+same approval. Each finding is attributed to the milestone that now owns each
+criterion it cites; one whose criteria now belong to several milestones is split
+into one finding per milestone (the copies carry <code>split_from</code>, the original
+finding's ID). Like any finding, each part blocks its milestone, the milestones
+depending on it and any other milestone listing all of the part's criteria, and
+closes only by a review that covered all of those criteria, normally its
+milestone's. When several milestones list a moved criterion, the part goes to one
+the revision moved it to, else to one the run reviews anyway, else to the accepted
+one with the fewest milestones depending on it; an accepted milestone that
+receives a part is revalidated rather than carried forward, so its reviewer can
+close it. A criterion the revision reworded moves the same way, and its new
+owner's reviewer judges the finding against the new wording. Nothing is closed or
+downgraded by the move, and resolving one part does not close another. A finding
+that cites a criterion the approved contract no longer assigns to any milestone is
+left exactly as it was, even when its other criteria still exist; if it is
+blocking, it still blocks every milestone until a person settles it with
+<code>--close-finding</code>, which closes the whole finding. Each move is recorded once in
+the finding's <code>scope_history</code> and listed in the status view's
+<code>evidence.finding_scope_moves</code> (<code>tools/autocode_finding_rescope.py</code>).</p>
+<p>The Plan Reviewer can keep a correction batch small by naming the ledger IDs a REWORK task
+addresses in <code>next_task.findings</code>; an empty or missing list takes every open finding.
+<code>--max-findings-per-task N</code> (saved as <code>limits.max_findings_per_task</code>) rejects a
+REWORK task that bundles more than <code>N</code> open findings, so the correction has to be
+split. The default is unlimited, and <code>0</code> disables the check on a saved run.</p>
+<h2 id="activity-log">Activity log<a class="headerlink" href="#activity-log" title="Permanent link">&para;</a></h2>
+<p>Every run keeps an append-only <code>activity.jsonl</code> next to <code>state.json</code>. It is always on
+and records what AutoCode itself did, one JSON object per event:</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Recorded</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>invocation</code></td>
+<td>Program, flag names (never values), and caller: <code>unattended</code> through <code>autocode-unattended</code>, otherwise <code>direct</code>. Written by any command that saves the run.</td>
+</tr>
+<tr>
+<td><code>transition</code></td>
+<td>Status, phase, next stage, iteration, task ID, which of those changed, and the runner's stop reason (up to 500 characters) when the status changed.</td>
+</tr>
+<tr>
+<td><code>stage_started</code> / <code>stage_finished</code></td>
+<td>Stage, role, route role, iteration, engine, model, task ID, times, duration, exit code, timeout, rejection, number of changed files, token counts.</td>
+</tr>
+<tr>
+<td><code>findings</code></td>
+<td>Counts by status and severity.</td>
+</tr>
+<tr>
+<td><code>plan_revision</code> / <code>plan_approval</code> / <code>human_review</code></td>
+<td>Brief revision numbers, approval status, and criterion IDs reviewed by a person.</td>
+</tr>
+<tr>
+<td><code>builders</code> / <code>stages_rewound</code></td>
+<td>Parallel Builder milestone statuses; a shortened stage history.</td>
+</tr>
+</tbody>
+</table>
+<p>It holds no content: no task text, prompts, plans, answers, feedback, findings
+text, file names, code, diffs or model output. Those stay in <code>state.json</code> and the
+per-stage artifacts. Nothing is trimmed, unlike <code>progress_messages</code> in
+<code>state.json</code>. Only saves that change the run add lines, so read-only commands such
+as <code>--status</code> add none. A failure to append never fails the checkpoint.</p>
+<p><code>autocode-unattended --analyze</code> summarizes the log (calls by caller, stages, stops,
+operator decisions) and <code>--out</code> copies it. Runs saved before this log existed have
+no <code>activity.jsonl</code>; their log starts with the next save.</p>
+<h2 id="pause-recovery-and-abandonment">Pause, recovery, and abandonment<a class="headerlink" href="#pause-recovery-and-abandonment" title="Permanent link">&para;</a></h2>
+<h3 id="usage-accounting">Usage accounting<a class="headerlink" href="#usage-accounting" title="Permanent link">&para;</a></h3>
+<p>Token usage and provider-reported cost are recorded for accounting. Cumulative
+token counts do not stop execution. Missing counts remain unknown and are never
+treated as zero; interrupted attempts retain their logs and partial work.</p>
+<p>Existing runs discard retired token-budget settings at their next launch. An
+operational question issued by the old token guard is withdrawn; resume the saved
+run with <code>--resume-paused</code>. Plan, permission and artifact-review decisions retain
+their existing approval gates.</p>
+<h3 id="stage-recovery">Stage recovery<a class="headerlink" href="#stage-recovery" title="Permanent link">&para;</a></h3>
+<p><code>--pause-after-stage</code> and a run-local <code>pause-requested</code> file stop at a saved boundary.
+For a timed-out provider stage with no terminal response, Autocode confirms its
+tracked workers are gone, archives the incomplete request and preserves its partial
+edits/logs, clears the uncertain role session, and continues from a fresh recovery
+checkpoint. It never replays that timed-out request. An automatic recovery of a
+Builder stage also counts as an unchanged implementation batch; recoveries of
+planning and review stages do not, and unchanged batches never spend the recovery
+ceiling below. Consecutive timeouts without an accepted stage also
+pause at that configured limit for every role, including the Plan Reviewer and Tester.
+A successful stage resets the consecutive-timeout counter. A separate ceiling of
+three automatic recoveries covers timeouts and provider-capacity failures. External-directory
+denials have their own accounting instead: a denial retry never consumes the
+timeout-recovery budget, repeats of the same denied operation hold after one
+workspace-only retry, and distinct denials hold at their own ceiling of three
+recoveries without an accepted stage. Accepted
+intermediate reports and milestone-budget extensions do not reset these ceilings.
+Inspect the saved cause and adjust limits as needed; explicit <code>--resume-paused</code>
+acknowledges <code>PAUSED_TIMEOUT_RECOVERY</code> and resets recovery counters while retaining
+history. Setting <code>--no-progress-limit 0</code> disables the unchanged-batch limit, but
+never disables the three-recovery safety ceiling.
+A run held at <code>PAUSED_NO_PROGRESS</code> keeps its count. <code>--resume-paused
+--no-progress-limit N</code> acknowledges that pause when N is above the count, or <code>0</code>;
+an N at or below the count holds without launching the Builder. Information alone
+(<code>--resolver-response provide_information</code>) never acknowledges it. Reasserting an
+already saved N on resume also acknowledges it, for example after a response
+consumed the request. The flag never acknowledges another cause's pause, such as
+the active-time limit. When the limit caused the pause, its published request and
+<code>stop_reason</code> name this command and the retained count. They also name the saved
+limit when reasserting it is accepted, for example a limit raised in its own invocation
+before a plain resume asked again. After a response consumes the request, the status
+view's resume need has <code>action</code> <code>--resume-paused --no-progress-limit N</code> and the
+retained count in <code>no_progress_batches</code>. Other holds that pause as
+<code>PAUSED_NO_PROGRESS</code>, such as a recovery novelty hold or owned workers to reconcile,
+name their own action instead.
+A terminal response, live worker or requested pause remains paused for inspection.
+Other uncertain provider requests still require explicit reconciliation.
+If <code>PAUSED_VERIFICATION_UNCERTAIN</code> names an unfinished clean verification,
+first abandon the exact model attempt displayed by status, when present, then
+use <code>--resume-paused</code>. Explicit resume authenticates that verification's original
+command admission and terminal cleanup and checks every recorded native process
+identity. A missing, corrupt, unbound or unfinished receipt, a symlinked or
+nonregular artifact, a live process or denied inspection keeps the pause.
+Authenticated stopped ownership can retire the pending obligation only after
+publishing a durable interrupted receipt. That receipt preserves the admitted
+context, reports an unknown exit and duration, and supplies no passing evidence
+or reusable result; verification must execute again. If its original completed
+receipt was saved before interruption, it is preserved. When only its completed
+pointer is missing, explicit recovery additionally authenticates the original
+collected command result, exact admission and unchanged output before publishing
+that pointer. Recovery never supplies a missing result or collected exit. Status and
+ordinary dispatch cannot perform this recovery.
+<code>--resume-paused</code> acknowledges operational pauses only. Saved limits persist unless you
+explicitly override them. For example, resume a run paused at its iteration ceiling with
+<code>--resume-paused --max-iterations 25</code> to set the total ceiling to 25. Changing a limit
+does not approve a draft brief. Only a flag for the bound the pause exhausted
+acknowledges it. A flag for any other limit is still saved, even when it restates the
+default, but it is only a settings change. The pause stays in force, and AutoResolver
+asks its operational request again under the new settings, answered or not. For
+example, <code>--max-stage-seconds</code> on a run paused for exhausted recoveries changes the
+stage limit and launches nothing. Enabling <code>--joint-planning</code> once the request is
+answered is a settings change too: planning restarts once the pause is released. While
+an unanswered operational request is shown it is refused, and the setting is not saved.</p>
+<p>Input that arrives while an operational pause holds the run is applied by the next
+invocation, without starting a provider, and the pause stays in force. A pause or
+feedback intervention is applied as usual, also by a <code>--resume-paused</code> that finds it
+still queued, and the next <code>--resume-paused</code> then acknowledges it and returns the run to
+the earlier pause, whose own rules apply. Those include the one
+re-evaluation of corrective information already sent for its request (see below), which
+applies only while the run is as that information found it; applied feedback changes the
+run, so the request is asked again instead. Feedback acknowledges only a pause that
+offers it: an exhausted plan-review budget, or a validation-only stop whose request
+names <code>--feedback</code>. <code>--feedback</code>, <code>--edit-goal</code>, <code>--goal-file</code> and <code>--revise-figma-manifest</code>
+are refused at any other operational pause, including one a pause intervention interrupted:
+each would put a plan to approve in place of the pause. Queued milestone checkpoints are enabled. A
+run-local <code>pause-requested</code> file keeps the run at its pause until you remove it. Once the
+input is applied, an unanswered operational request is asked again. If the same command
+also acknowledges the pause (the exhausted bound's flag, <code>--grant-recovery</code>), the pause is
+released first, and a queued pause intervention then pauses the released run.
+<code>--retry-builder</code> is checked only after queued input is applied, so it does not release
+the pause in that command: the input is applied under the pause, the retry is not
+applied, and you send it again with <code>--resume-paused</code>.</p>
+<p>An <code>--answer</code> or <code>--approve-goal</code> given with <code>--resume-paused</code> dispatches the next stage
+in the same command once it clears a human gate (#509). At an operational pause there is
+no such gate to clear: the operational request takes only <code>--resolver-response</code>, and
+neither input releases the pause or uses up the re-evaluation of corrective information
+described below, which then holds or continues the run exactly as it would without them.
+See <code>docs/bugs/2026-10-06-operational-pause-authority.md</code>.</p>
+<p>Provider stages track their subprocesses, including detached tool processes. On normal
+exit, timeout or interruption, Autocode stops tracked workers before taking the final
+snapshot and releasing the workspace lock. Saved process identities also block a new
+runner while known workers remain alive. This is process supervision for trusted local
+tools; it does not replace an OS sandbox or contain deliberately hidden daemons.
+Rejected and recovered attempts count toward the active-time budget.</p>
+<p>A completed response with invalid JSON or an invalid report is archived and pauses;
+<code>--resume-paused</code> starts a new explicit attempt. Timeouts with no terminal response
+receive the bounded automatic recovery above; other uncertain responses need inspection
+first.</p>
+<p>An execution report whose two read-only repairs are exhausted, or whose repair
+cannot launch (<code>PAUSED_REPORT_REPAIR_INPUT</code>), can be retried with
+<code>--resume-paused</code>. If the same Validator report fails repeatedly, the failure
+guard may stop recovery earlier: the cheap serialization correction contributes
+to that guard but does not spend a full repair attempt. After correcting the
+cause and answering any published operational request, use the exact action
+shown by status: <code>--resume-paused --retry-report ATTEMPT_ID</code>. This requests fresh
+Validator evidence, preserving the real repair count, failure history and limits. Autocode archives the rejected reports and starts a fresh role
+session; it does not replay implementation or planning. Each retry runs one fresh
+Validator attempt. If that attempt fails the same way, the guard stops it before
+any repair, and status names that new attempt for the next explicit retry, never an
+earlier archived one. After a source edit <code>--retry-report</code> is refused and names
+<code>--resume-paused</code>, which validates the current source instead. When the source changes
+while a run is paused (an operator edit), a queued report repair can no longer
+run: <code>--resume-paused</code> archives it, evidence intact, and starts a fresh attempt
+of the same stage, in a new provider session, on the current source. It does
+not do this while a Resolver operational request is published or queued:
+that request is answered or withdrawn only through its own actions. After it is
+answered, an explicit resume recognizes the changed source and archives its
+stale repair instead of repeating the guidance hold. A finished read-only response that was
+never applied stays paused instead, and its message names the <code>--abandon-stage</code>
+step. <code>--accept-completion</code> refuses a validation of another source, goal
+revision or task and says so; resume to re-validate first. A transport-change pause
+can be resumed with <code>--resume-paused --accept-transport-change</code> after Autocode checks
+that the current OpenCode models and subscription routes are available.</p>
+<p>To retain partial edits and set aside a stopped attempt manually:</p>
+<pre><code class="language-sh">autocode --workspace /path/to/project --run-dir /path/to/run --status
+# Copy the exact attempt_id from that status, after inspecting its events and edits:
+autocode --workspace /path/to/project --run-dir /path/to/run --abandon-stage '001/terra-01'
+autocode --workspace /path/to/project --run-dir /path/to/run --resume-paused
+</code></pre>
+<p>Abandoning a stage preserves its logs, source snapshots and partial edits, clears that
+role's uncertain session and invalidates previous validation. It launches no agent.
+On explicit resume, if the saved guards permit another stage, an abandoned Builder
+or Tester returns to its owning stage with the retained-work recovery context.
+Abandoned planning and report-repair attempts return to their owning workflow
+stage, not an internal repair stage. An abandoned Completion Reviewer first routes
+through the workflow's review stage to obtain fresh evidence (the Tester in
+the standard workflow). Alternate workflow approvals and routing still apply.
+Neither the retained partial work nor the abandoned report counts as accepted
+implementation or validation; subsequent completion must pass the normal gates.
+It does not approve an unapproved brief or stop an already-running worker.</p>
+<h3 id="resolver-owned-operational-recovery">Resolver-owned operational recovery<a class="headerlink" href="#resolver-owned-operational-recovery" title="Permanent link">&para;</a></h3>
+<p>Runner-observed stalls are operational work for Resolver, not requests for a
+user to buy another retry or approve a larger planning allowance. Timeout,
+capacity, and permitted workspace-path recovery retain diagnostic receipts and
+the original evidence. Planning retries receive that diagnosis and a bounded
+source inventory excluding <code>.autocode</code> and <code>.git</code>, rather than repeating broad
+repository discovery without the failure context.</p>
+<p>For joint planning, a Plan Reviewer call that times out or whose provider fails
+returned no review, so its call is given back before the next attempt (see
+<a href="../workflow/">workflow</a>). A given-back call never also funds recovery: one failed
+review earns a refund or a recovery call, never both. A review call admitted under
+this refund policy (since 2026-09-29) is always given back when it fails, so Resolver
+reserves no planning recovery calls for such calls. Repeated silence stops instead
+at the ceiling of three automatic recoveries above (<code>PAUSED_TIMEOUT_RECOVERY</code>), where
+<code>--grant-recovery N</code> authorizes more. The one-use reviewer route fallback needs a
+recovery-funded second silent attempt, so it does not arise from such calls either.</p>
+<p>Review calls admitted before that policy stay charged. For their proven
+nonterminal timeouts, Resolver can fund at most <strong>two separately accounted
+recovery calls per planning cycle</strong>; these grants never erase the ordinary
+allowance or its usage. Explicit or unmarked saved review caps are protected.
+Grants are single-use, consumed durably at admission, pinned to the
+cycle/source/contract/settings/inputs/evidence, and cannot be replenished by
+restarting. Failed recovery calls do not create more grants. Global time,
+iteration, no-progress and recovery ceilings still apply.</p>
+<p>This narrow read-only recovery policy works before plan approval; it cannot
+approve a draft, start implementation, change requirements, grant permissions,
+switch billing routes, or change models/deadlines. Requirements and Planner
+timeouts remain in their own planning stage, never jump to execution review.</p>
+<h3 id="evidence-bound-repair">Evidence-bound repair<a class="headerlink" href="#evidence-bound-repair" title="Permanent link">&para;</a></h3>
+<p>Repeated repair incidents also retain their diagnostic history across task IDs,
+provider sessions and restarts. Original reports, errors, check output and prior
+attempts remain available through pinned packet artifacts. Changing incidental
+temporary paths or rephrasing a hypothesis is not new evidence.</p>
+<p>Before another paid diagnosis or repair of the same incident, the final dispatch
+boundary checks whether an unresolved causal question remains or a concrete,
+supported change has a discriminating check. A structured <code>recovery_change</code> may
+declare that change and cite its pinned evidence; it does not grant permission,
+approve scope, create another retry allowance or establish that the repair worked.
+The absence of a proposal is <code>null</code>, not a request to buy report repair. A
+proposal that is not a bounded change with the original discriminating check
+and pinned evidence is unproven and treated like <code>null</code>: it buys no novelty and
+is not routed as a known correction, so a repeated incident still holds, and a
+hold that weighed the proposal names the check it failed. A Resolver's repair
+plan passes an unproven proposal to the Builder only as advice, with that
+reason, as an operational diagnosis does. An unproven proposal never pauses the
+run as a stale handoff; changed retained evidence still pauses dispatch
+admission as one (#418).</p>
+<p>An unchanged incident can pause as <code>PAUSED_NO_PROGRESS</code> before another provider
+launch. A source hash, session rotation or comment-only edit alone cannot clear
+that hold. Existing healthy or uncertain workers are not restarted to create a
+new attempt. The hold's stop names the incident's check and its packet. Its
+reason is followed by what is left of each budget the one scoped retry runs under:
+with a cost cap, the <a href="#money-cap"><code>Cost:</code> line <code>--status</code> prints</a>; with a time
+limit, the run's active time against it; and, with milestone checkpoints on, the
+current milestone's time against its budget:
+"... authorizes one attempt under existing limits. Cost: $0.53 so far; cap $5.00.
+Active time: 1,250 s of the 43,200 s limit. Milestone M1: 300 s of its 5,400 s budget."
+The time limit is the one the stage boundary enforces, whether you, the runner's
+default or AutoResolver's extension set it. The milestone line is left out while a
+progressive run's slice budget governs, or before the milestone has counted time.
+The figures are read when the stop is written, never saved with the hold's
+reason, so a cap, time limit or milestone budget you change at the hold, with or
+without <code>--resume-paused</code>, is the one the stop then states. A budget the run does
+not have is not mentioned (#611).
+A supported known correction still receives the ordinary retry or escalation
+decision, assignment checks, fresh independent validation and the Completion
+gate. Unsupported changes remain unknown rather than being treated as proven
+progress.</p>
+<p>A recovery packet is bound to the run's settings, but not to its launch ceilings: the iteration
+limit, the active-time budget, the cost cap and the milestone budget. They decide whether an
+attempt may launch, not what it acts on, so resuming with a new one, as a budget stop advises,
+or AutoResolver's one-time extension of a default one, keeps the packet and the repair it holds,
+and buys no novelty. Other settings changes, such as another model or stage time limit, still
+make the repair a stale handoff (<code>PAUSED_STALE_HANDOFF</code>). Bindings recorded before #611, on a
+packet, a repair admission, a novelty hold, a retry grant or a retained diagnosis, hashed the
+milestone budget too. Each still holds while the run's settings are unchanged, and stops holding
+when the milestone budget changes. A binding recorded after the upgrade leaves the budget out, even
+for a packet saved before it: once the Resolver's plan for that packet finishes, the repair
+admission written then lets its repair launch after a milestone budget change.</p>
+<p>The <code>rework-same-failure</code> scenario (scenarios/README.md) shows the hold on a correct repair: the
+required suite keeps failing on a file the task may not change, so after the second identical
+failure the run stops at <code>RESOLVER_PENDING</code> naming that check, with no paid diagnosis or third
+Builder attempt. The status view's <code>cost</code> shows the spend under the cost cap, and the stop's own
+text states that spend and the cap, and the run's active time and its time limit (#611).</p>
+<p>An attempt that automatic recovery archived because it ended without a completed
+turn (a provider timeout, capacity or startup failure, or a denied path) returned
+no report, so relaunching it repeats no experiment; that recovery route's own
+budget bounds the relaunch. An uncertain attempt an operator abandoned, a
+truncated report or a rejected report still counts. An accepted operational
+diagnosis that recommends a retry admits the Builder without a proposed source
+change until one Builder attempt returns a result; an attempt that automatic
+recovery archives does not use it up (#422). The Builder receives the diagnosis
+and its recommendation. A change the diagnosis proposed that the incident packet
+cannot attest reaches the Builder only as advice, with the reason, and is never
+treated as a new experiment.</p>
+<p>A completed review of a task and source already diagnosed by the Resolver is
+accepted without another diagnosis. An unanswered request keeps its question,
+origin and evidence through the existing publication boundary; it does not
+become a rejected report that an ordinary resume retries. Consumed corrective
+information stays recorded and grants no new attempt. Replaying its retained
+private proposal after elapsed-time accounting changes does not reissue the
+answered question. Change the source or the
+relevant verification setting when the retained diagnosis requires it; merely
+raising a budget or repeating a review does not reopen diagnosis (#1108).</p>
+<p>The packet binds the source its incident was captured on. A Builder attempt it
+admitted may stop without being accepted and leave its work: a rejected attempt
+keeps its in-scope edits for the retry (the runner removes or restores only what
+it wrote outside its assignment), and a timed-out one keeps partial edits. That
+work is not a stale handoff. The next Builder attempt is bound as at the packet's
+source when each file, checked one by one, holds either that source's content or
+what the packet's latest Builder attempt left, and Git HEAD has not moved. Any
+other content, such as a person's new edit while the run is paused, still pauses as
+<code>PAUSED_STALE_HANDOFF</code>. <code>--resume-paused --accept-source-edit</code> hands that edit to the
+pending repair: its source revision becomes the current snapshot, and the packet bound
+to the replaced source stays on disk but is no longer what admission compares. The
+approved contract, task, budget, proof and evidence pins stay, and the command refuses
+when those changed or when the Resolver wrote the source. Because the check is per file, a file restored to its
+bound content, an out-of-scope edit re-applied exactly as the attempt left it, or
+a mix of the two states across files is admitted. That is safe: each file holds
+the packet's own source or AutoCode's own output, the assignment scope check still
+covers the whole assignment after the retry, and the retry is validated afresh.
+When the runner rejected such an attempt's output and the stuck-stage
+Investigator recommends a retry, that retry admits the Builder until one attempt
+returns a result, as an accepted operational diagnosis's does; a spent diagnosis
+retry does not hide it. An investigation of a novelty hold grants nothing.</p>
+<p>The explicit <code>--resume-paused --retry-failed-stage</code> control can authorize one
+scoped retry of a recorded hold under the existing limits. It retains previous
+attempts and evidence; ordinary resume is not that authorization. Unlike a
+diagnosis's retry, it is spent by the attempt it admits even if that attempt
+times out, and so is a <code>--retry-builder</code> grant. The grant does not carry over to
+the automatic recovery that follows. A relaunch of the same stage is admitted or
+held by novelty as it would be without the grant; a Builder timeout outside
+final-audit-only routing goes to the Completion Reviewer instead.
+Permission, product and scope decisions still require their existing bound human
+controls.</p>
+<h3 id="budget-ownership-and-human-escalation">Budget ownership and human escalation<a class="headerlink" href="#budget-ownership-and-human-escalation" title="Permanent link">&para;</a></h3>
+<p>Budget limits are not all provider quota. New runs record whether each configured
+bound is a runner default or an explicit CLI constraint, including abbreviated
+CLI options. Limits saved without provenance remain protected; they are not
+silently reinterpreted as permission to spend more.</p>
+<p>Resolver can extend an internal default once when accepted, current progress
+and known reported usage justify it. Extensions are separate durable ledger
+entries; elapsed time, failed attempts and token records never reset. Each eligible
+limit can at most double, with these policy ceilings:</p>
+<table>
+<thead>
+<tr>
+<th>Default limit</th>
+<th>Maximum after one extension</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Iteration ceiling</td>
+<td>30</td>
+</tr>
+<tr>
+<td>Active-time allowance</td>
+<td>86,400 seconds</td>
+</tr>
+<tr>
+<td>Stage timeout</td>
+<td>7,200 seconds</td>
+</tr>
+<tr>
+<td>Milestone active time</td>
+<td>10,800 seconds</td>
+</tr>
+<tr>
+<td>Ordinary planning review allowance</td>
+<td>2 to 4 calls</td>
+</tr>
+</tbody>
+</table>
+<p>These are delegated recovery-policy ceilings, not user account balances or
+mandatory spending targets. An explicit cap, missing progress, repeated unchanged
+failures, unknown usage, pending input or an exhausted financial guard prevents
+automatic growth. Disabled limits remain disabled, and unknown usage never becomes
+zero. A milestone budget given while turning checkpoints on for a saved run
+(<code>--milestone-checkpoints --max-milestone-seconds N</code> on a resume, or queued with
+<code>--request-milestone-checkpoints --max-milestone-seconds N</code>) is saved without being recorded
+as yours, so Resolver may extend it once as it would the default; a later resume with
+<code>--max-milestone-seconds</code> records the budget as yours. Billing routes and provider quota
+cannot be changed by this mechanism.
+The planning extension requires a changed accepted plan and matching review/revision
+evidence; it is not granted for narrative churn or recycled failed calls.</p>
+<p><strong>Resolver is the only human-request publisher.</strong> Other roles stage internal
+proposals. The serialized runner boundary first evaluates permitted recovery or
+the human-only decision, then issues a bound request before status, chat or the
+dashboard may present actionable controls. Draft questions remain in the sealed
+draft but are not actionable merely because a model wrote them. Read-only views
+verify receipts; they do not create authority. Project-free intake also uses the
+Resolver request-only adapter, without fabricating a run or approved contract.</p>
+<p>If recovery cannot proceed safely, Resolver asks for human help, retaining the
+original pause cause, attempts and evidence. This is not a fake requirements
+question or a completion claim. Material replies use the current <code>--resolver-token</code>;
+goal and artifact approval retain their existing exact approval/review tokens.
+Operational responses use <code>--resolver-request ID --resolver-token TOKEN
+--resolver-response provide_information --resolver-message TEXT</code> or
+<code>--resolver-response leave_paused</code>. They are information, not implicit permission
+to retry, increase limits, change scope or approve work. The response returns to
+Resolver, and an unchanged stopped condition is not repeatedly reissued as a
+new question. Explicit administrative actions remain separately validated. The
+status view names the response as the request's <code>action</code>, and <code>--answer</code> to such
+a request is refused with the same form. When a blocker's answer is a decision
+about the approved contract (a criterion Resolver proved contradictory), it may
+include a structured <code>recommended_revision</code>. The request displays the current
+and proposed wording of each affected criterion. Reply with
+<code>--resolver-response provide_information --resolver-message 'Accept recommended revision'</code>
+and the displayed request ID and token to install that exact correction as a
+draft. The draft follows the configured planning flow: joint planning sends it
+to the Plan Reviewer, then waits for a fresh <code>--approve-goal</code> token. Acceptance
+saves the correction and launches no provider; explicitly continue to review it.
+It preserves criterion IDs, verification methods, human-review requirements,
+source citations and the rest of the contract. The original request, contract,
+source and diagnosis must still match; a stale acceptance must be inspected
+again. The correction is retained as authenticated feedback for subsequent review.</p>
+<p>Other replies, including a generic <code>yes</code>, remain information and keep the run
+held. Without a structured recommendation, use <code>--edit-goal body.json</code>, then
+review and approve the revised plan. <code>leave_paused</code> always keeps the run paused.</p>
+<p>Corrective information is evaluated once. Accepting <code>provide_information</code> schedules
+one Resolver re-evaluation, bound to the request ID and token, the response, the
+pause, the source revision, the saved settings (including the saved transport
+identity), the task, the contract, the recovery accounting and the request's
+evidence pins. The next <code>autocode resume</code> (or <code>--resume-paused</code> without another
+recovery flag) consumes it, without a provider call:</p>
+<ul>
+<li>If anything it is bound to changed, it is retired as stale, the run stays
+  paused and Resolver asks a fresh request for the current run. Information
+  an AutoCode release from before this re-evaluation accepted has no scheduled
+  evaluation; Resolver asks a fresh request for it the same way.</li>
+<li>If the stop needs an operator control that information cannot supply (a spent
+  automatic-recovery allowance, a reached time, iteration, milestone or
+  no-progress bound, a repeated failure, a Builder retry limit, a stopped
+  parallel member, a parallel member stopped on its quota or by its
+  provider's content filter, a stalled milestone, spent report-only repairs, an
+  unreconciled attempt), the run stays paused. A member stopped on its model
+  continues only with <code>--resume-paused --retry-builder M</code>, which asks a refused
+  member's model question again or reruns a quota-stopped one unchanged
+  (<a href="../models/#a-parallel-builder-stopped-on-its-model">A parallel Builder stopped on its model</a>).
+  Spent report-only repairs and
+  validation-only rounds that stalled on open blocking findings are held under
+  whichever pause carries them, <code>PAUSED_RESOLVER</code> included. Where the CLI
+  accepts a control at that stop, the stop reason and status name that exact
+  command; after a content-filter refusal the resume it names changes the
+  role's model (<code>--sol-model MODEL</code>, for example), since the same model would
+  likely refuse again. Later resumes repeat the decision without evaluating
+  again.</li>
+<li>If the cause lies outside the run (<code>PAUSED_PROVIDER_CAPACITY</code>,
+  <code>PAUSED_RATE_LIMIT</code>, <code>PAUSED_BUDGET</code>, <code>PAUSED_CONTENT_FILTER</code>,
+  <code>PAUSED_PROVIDER_UNCERTAIN</code>, <code>PAUSED_UNCERTAIN_STAGE</code>, <code>PAUSED_WORKSPACE_BUSY</code>,
+  a Resolver stop (<code>PAUSED_RESOLVER_OPERATIONAL</code>, <code>PAUSED_RESOLVER</code>), or
+  <code>PAUSED_PLANNING_BUDGET</code> with reserved recovery left) and none of the bounds
+  above holds it, the request's own advice applies: the run continues through
+  the normal resume path, whose admission checks (limits, permissions,
+  transport, source, approval, interventions) still run before any provider
+  launches. The continuation does not renew the per-incident Resolver attempts
+  or the pending report-repair attempts that an explicit resume at other
+  pauses renews, so a stop found there, such as a live transport change,
+  Resolver's own per-incident limit or another parallel Builder member that
+  needs a model only you can name, is a new stop or a new request. Any other
+  stop is held.</li>
+</ul>
+<p>A repeated resume never evaluates the same response twice, and the same response
+sent again changes nothing (the CLI says so, and names a newer request if one is
+waiting). A resume killed after writing its decision record but
+before saving the run state evaluates the response again, still without a
+provider call; the record the saved state names is the decision that took
+effect. <code>leave_paused</code> is final.
+Requirements answers, plan approval, <code>--retry-failed-stage</code> and <code>--grant-recovery</code>
+keep their own paths.</p>
+<p>Source/contract/evidence changes, stale tokens and queued interventions invalidate
+old requests. Real requirements questions, permission changes, plan approval and
+declared artifact acceptance remain human decisions. External service failures
+cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.</p>
+<h2 id="native-tool-containment">Native tool containment<a class="headerlink" href="#native-tool-containment" title="Permanent link">&para;</a></h2>
+<p>The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
+Built-in OpenCode execution launches in this checkout additionally require a
+qualified kernel shell boundary on OpenCode 1.18.33: macOS Seatbelt
+(<code>/usr/bin/sandbox-exec</code>) or, on Linux, bubblewrap (<code>/usr/bin/bwrap</code>, see
+<a href="#linux-bubblewrap-boundary">below</a>). Each launch uses a
+fresh provider session, preserves effective Bash restrictions, and disables other
+model tools. Nonwriter stages may write only to their fresh stage scratch area;
+the Builder may also write application files, but not runner state, evidence,
+configuration or runtime authority. Failed conformance or changed boundary files
+pause as <code>PAUSED_TOOL_CONTAINMENT</code> before the provider is launched. Each launch's
+<code>tool_containment</code> record (on its stage record and in its conformance proof) names
+the <code>backend</code> (<code>seatbelt</code> or <code>bubblewrap</code>) and <code>backend_version</code> (the macOS release,
+or <code>bwrap --version</code>). The status view's <code>tool_containment_backend</code> repeats both for
+the latest contained launch, with its stage and iteration (see
+<a href="../task-run/#status-view">Task-run interface</a>).</p>
+<p>A new run, and every resume, first checks that this boundary can exist here: macOS
+with <code>/usr/bin/sandbox-exec</code>, or Linux with <code>/usr/bin/bwrap</code> able to create its
+namespaces (one <code>bwrap</code> probe; a kernel or AppArmor policy that denies unprivileged
+user namespaces fails it), and <code>opencode --version</code> exactly 1.18.33. This check runs no
+conformance; each launch still does. Elsewhere (another platform, Linux without a
+working bubblewrap, or another OpenCode version) the run is refused before any stage,
+planning included, spends anything, and the message names the reason. <code>autocode doctor</code>
+makes the same check before a first task, running <code>opencode --version</code> in the workspace
+as run setup does. When a new run would launch built-in OpenCode stages (no <code>--engine</code>,
+or <code>--engine opencode</code>, with the built-in <code>opencode</code> provider), its <code>containment</code> line
+names the backend and version that run would get (for example
+<code>Linux bubblewrap (/usr/bin/bwrap), bubblewrap 0.9.0</code>), or warns with the reason the run
+would be refused. With no <code>opencode</code> on <code>PATH</code> it names the sandbox and leaves the fix
+to the <code>engine:opencode</code> line. <code>autocode doctor --json</code> gives the same as <code>containment</code>
+(<code>backend</code>, <code>backend_version</code>, <code>problem</code>); it is <code>null</code>, and there is no line, for a
+Codex, Claude Code or configured-provider run. The warning does not fail doctor. Two
+ways on:</p>
+<ul>
+<li>Use the qualified setup.</li>
+<li>Add <code>--allow-uncontained-tools</code> to the new run or to the resume. The Builder,
+  Validator, Completion Reviewer, Resolver, Investigator and workflow-job stages
+  then launch with OpenCode's own permission checks and the workspace snapshot
+  checks only, with no kernel containment and no boundary prompt. The choice is
+  saved with the run (it is not repeated on later resumes) and recorded as an
+  <code>uncontained_tools_accepted</code> user event with the time and reason. Each such stage record says
+  <code>uncontained_tools: true</code>, and the status view says <code>tool_containment:
+  "uncontained_user_accepted"</code>. Only that flag sets it: no environment variable,
+  model output or dashboard default.</li>
+</ul>
+<p>If the boundary was available at setup but fails at a launch (for example OpenCode
+was upgraded mid-run), the run still pauses as <code>PAUSED_TOOL_CONTAINMENT</code>; that
+message names <code>--allow-uncontained-tools</code> as the explicit way to continue. Native
+Codex runs, configured providers and <code>--dry-run</code> previews are not checked, except a
+Codex run whose stuck-stage Investigator is pinned to an OpenCode model
+(<code>--investigator-model provider/model</code>): that stage runs on built-in OpenCode, so
+the run is checked and accepts the flag like an OpenCode run.</p>
+<p>Tool networking remains denied, including ephemeral loopback HTTP tests on macOS
+(on Linux a stage's own namespaced loopback works; see below). The
+tested Seatbelt <code>localhost</code> rule also permits non-loopback addresses belonging to
+the host; it is not an exact loopback-IP boundary. Loopback capability requests
+are therefore rejected, not silently enabled. A test requiring such networking
+needs a separately qualified execution path; neither an approved test command nor
+a successful runner preflight establishes that the model's shell can execute it.</p>
+<p>This boundary covers shell-tool subprocesses, not the authenticated OpenCode
+client or its plugin hooks. Planning, report-only repair and configured custom
+providers are outside this kernel-containment claim; they retain the native
+permissions and snapshot checks described in <a href="../providers/">Providers</a>.
+The exception is the planning stages of a native visual run (native role
+isolation). They run in this boundary read-only, and their shell also cannot
+read the run store, <code>.autocode/runs</code>: not this run's <code>state.json</code>, events or
+receipts, and no other run's files. Only this run's <code>planning/</code> artifacts (the
+predecessor plan and its delta) stay readable there; the stage gets the rest of
+its run context from its handoff (#1250). Nor can it read these <code>.autocode</code>
+stores, which hold other runs, conversation records or what they keep: <code>archive</code> (runs archived from
+task worktrees), <code>arena</code> (<code>autocode arena</code> attempts and their runs), <code>builders</code>
+(parallel Builder workspaces and their runs), <code>bundles</code> (<code>autocode bundle</code>
+archives), <code>conversation-handoffs</code> (requirements conversation handoffs),
+<code>conversation-starts</code> (conversation start markers), <code>investigation</code> (bug
+investigation workspaces), <code>issues</code> (<code>autocode issue</code> worktrees and their runs),
+<code>programs</code>, <code>pull-reviews</code> (<code>autocode review-pr</code> checkouts and their runs),
+<code>registry</code> (the run registry), <code>replay</code> (replay recordings), <code>task-flows</code>,
+<code>verification</code> (<code>autocode verify</code> checkouts and reports) and <code>worktrees</code> (task and
+program worktrees). The list is not every place a run can be kept: a run kept
+elsewhere in the workspace (an <code>--out</code> or <code>--arena</code> directory outside these
+stores, or another <code>.autocode</code> directory) is not denied. Each store that exists
+when the launch is prepared is denied. The launch creates none of them: the only
+thing it adds to the workspace is its own <code>.autocode/tool-containment-&lt;hex&gt;/</code>
+control directory, as every contained launch does. New contents of a denied store
+stay unreadable, but a store first made after the launch's profile was written is
+not covered. Every check before the provider starts computes the denial again, up
+to the held launch's seal just before the provider is released, so a store made
+before that last check pauses the launch as <code>PAUSED_TOOL_CONTAINMENT</code>. Such a
+store usually comes from ordinary activity, for example another AutoCode command
+in the same checkout making <code>.autocode/issues</code> for the first time, so this pause
+is not a sandbox or setup problem: the stop reason names the new store, and a
+plain <code>--resume-paused</code> prepares the boundary again with it denied. One made
+after that last check, such as once the provider has started, causes no pause and
+can be read by the stage until it ends; a later planning launch denies it. A
+store path that is a symlink, even a dangling one, or that is not a directory
+cannot be denied, so every native planning launch in that workspace pauses as
+<code>PAUSED_TOOL_CONTAINMENT</code> before its provider starts, naming the path: replace it
+with a real directory, or remove it, then <code>--resume-paused</code>.
+Everything else in <code>.autocode</code> stays as readable as the rest of the workspace:
+the launch's own control directory and scratch, project settings,
+retained design inputs, capture bundles, the shared <code>evidence</code> and <code>output</code>
+areas, other launches' <code>tool-containment-*</code> control directories, and AutoCode's
+other internal files.
+Before the provider starts, each such launch shows through the actual native
+shell that a file in its run directory and in each denied store cannot be
+read, and records the denial as <code>private_reads</code> in its <code>tool_containment</code> record
+and conformance proof. A boundary that no longer enforces any one of these
+denials pauses as <code>PAUSED_TOOL_CONTAINMENT</code>.
+On macOS such a launch also
+pauses that way, naming the path, when a path in its Seatbelt profile holds a
+control character such as a tab or newline: the re-check before launch accepts
+no such path.
+The runner does not pass blanket auto-approval. Contract permission text is a role instruction,
+not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
+responsible for individual tool permissions; custom MCP/connector write permissions
+should be configured accordingly. This is intended for trusted local repositories.</p>
+<h3 id="linux-bubblewrap-boundary">Linux bubblewrap boundary<a class="headerlink" href="#linux-bubblewrap-boundary" title="Permanent link">&para;</a></h3>
+<p>On Linux the same authority is built from mounts (#709). The contained shell runs in
+new user, PID, IPC, UTS, cgroup and network namespaces with every capability dropped,
+inside an empty read-only root that holds only:</p>
+<ul>
+<li>the system runtime (<code>/usr</code>, <code>/bin</code>, <code>/sbin</code>, <code>/lib*</code>) and the loader, alternatives,
+  time zone and account files under <code>/etc</code> that ordinary tools read, read-only;</li>
+<li>the selected toolchains outside the system runtime (a hosted Python, Node or Go:
+  the executable, the shared libraries its RPATH or RUNPATH names, read from the ELF
+  file without running it, and the install directories macOS also grants), read-only,
+  plus the symlinks the tools were found through;</li>
+<li>the workspace, read-only, or writable for the Builder; the runner's state,
+  evidence, <code>.git</code>, OpenCode configuration and runtime are mounted read-only over it.
+  A writable directory that holds one of these further down is mounted onto itself,
+  so the Builder can write in it but cannot rename it to recreate the protected name;</li>
+<li>the stage's own scratch, writable. A reader's verification copy is one read-only
+  mount inside it;</li>
+<li>for a native visual run's planning stage, an empty read-only <code>tmpfs</code> over
+  <code>.autocode/runs</code>, with only that run's <code>planning/</code> mounted read-only inside it,
+  and one over each existing private store listed above (Seatbelt denies reading
+  the same paths).</li>
+</ul>
+<p>There is no home directory, <code>/tmp</code>, <code>/run</code> or <code>/var</code>, so a write anywhere else fails
+(<code>Read-only file system</code>, or <code>No such file or directory</code> where nothing is mounted)
+and nothing outside these mounts can be read. A file named <code>.env</code>, <code>.env.*</code>,
+<code>auth.json</code>, <code>id_rsa</code> or <code>id_ed25519</code> in the workspace when the stage starts is
+covered by a device node the shell cannot open (<code>Permission denied</code>), as Seatbelt
+refuses reading those names.</p>
+<p>Two differences from Seatbelt follow from mounts:</p>
+<ul>
+<li>A protected name that does not exist when a Builder starts (usually <code>.opencode</code>,
+  <code>opencode.json</code> or <code>opencode.jsonc</code>) cannot be a mount point without creating it in
+  the real workspace. The launch records these as <code>watched_paths</code>; if one appears, the
+  command that ran fails with exit 126 naming the path and the shell runs no further
+  command for that launch. The file stays; OpenCode configuration it adds also changes
+  the run's configuration identity, which pauses the next stage as
+  <code>PAUSED_TRANSPORT_CHANGED</code>.</li>
+<li>The network namespace has its own loopback, so a test may listen on and connect to
+  <code>127.0.0.1</code> inside the stage. The host's loopback services and every other address
+  stay unreachable.</li>
+</ul>
+<h3 id="conformance-in-ci">Conformance in CI<a class="headerlink" href="#conformance-in-ci" title="Permanent link">&para;</a></h3>
+<p>CI runs the direct shell/Seatbelt controls in <code>UnicodeKernelTests</code> and
+<code>KernelTests</code> from <code>tests/test_tool_containment.py</code> in a separate
+<code>macos-tool-containment</code> job on macOS 15 with Python 3.11. It requires executable
+<code>/usr/bin/sandbox-exec</code>, a nonempty selection from each class, and every selected
+test to execute and pass without skips or expected failures. The
+<code>linux-tool-containment</code> job does the same on Ubuntu with bubblewrap installed, adding
+<code>BubblewrapKernelTests</code> and the selected-toolchain controls in <code>tests/test_toolchain.py</code>.
+Only the macOS job also runs the native readonly check tests (four classes in
+<code>tests/test_native_check_execution.py</code> and <code>OriginalCheckFailureTests</code> in
+<code>tests/test_native_initial_callers.py</code>): native checks need macOS Seatbelt and the
+Command Line Tools Git, so those tests skip on other hosts. These model-free checks exercise allowed source access, protected-path denials and
+boundary-file integrity. They do not run actual OpenCode tool dispatch: the opt-in
+<code>NativeToolTests</code> (<code>AUTOCODE_NATIVE_CONTAINMENT_TEST=1</code>, OpenCode 1.18.33 on <code>PATH</code>)
+do, on either backend. The full scenario suite continues to run on Ubuntu.</p>
+<p>The <code>linux-tool-containment</code> job also runs <code>ContainedFakeOpenCodeFlow</code> from
+<code>tests/test_contained_fake_cli.py</code> without skips. It drives a fake OpenCode run through
+the CLI whose Builder, Tester and Completion Reviewer launch inside the real bubblewrap
+boundary. It checks that the run finishes, that <code>--status --json</code> names the backend, and
+that a Builder shell write planted outside the workspace is blocked; an uncontained
+control shows the same write lands. The fake client's own edits and checks run outside
+the boundary, so this does not replace <code>NativeToolTests</code> either.</p>
+<p>A pull request runs this job when it changes any Python file that flow loads, or a stage
+report schema in <code>tools/autocode-schemas/</code>. <code>tools/ci_scope.py</code> works the Python files out
+from the test module each time: it follows their import statements, including those inside
+functions, and every script the code starts or copies by file name, such as the CLI, the
+fake clients and the runtime's own workers. That is most of <code>tools/</code>, so a change to the
+status view or the containment setup check runs the job without anyone adding it to a list.
+It does not follow a module loaded by a name built at run time through <code>importlib</code>, such as
+a subcommand from the subcommand table. Prompt changes do not select the job.</p>
+<p>The scenario harness runs the same contained flow as a scenario, in the suite job rather
+than in <code>linux-tool-containment</code>: <code>scenarios/test_contained_opencode.py</code> runs
+<code>greenfield-greeting-cli</code> with the scripted model behind the fake OpenCode client, with no
+<code>--allow-uncontained-tools</code>, so its Builder, Tester and Completion Reviewer launch inside
+bubblewrap. It checks that the scenario's oracle passes and the run completes; that every
+record of those three stages names <code>bubblewrap</code> and the version <code>autocode doctor</code> reports;
+that a Builder shell write planted outside the project is blocked; and that <code>--status --json</code>
+says <code>tool_containment: "contained"</code> and names the same backend. It asks
+<code>autocode doctor --json</code> whether this host has the boundary. Without a working bubblewrap,
+the test skips locally and fails in CI on Linux. Any other problem doctor reports, such as
+the fake client no longer reporting the qualified OpenCode version, fails it everywhere. The
+suite job installs bubblewrap before its scenario harness step. On a pull request that step
+runs the case when the case itself, the shared harness (<code>scenarios/harness/</code>,
+<code>scenarios/run.py</code>) or the fake OpenCode client changes (<code>SCENARIO_FIXTURES</code> in
+<code>tools/run_suite.py</code>); master runs it every time. The container backend (<code>docker</code> or
+<code>podman</code>) and a fake scenario under it are still open.</p>
+<h2 id="secret-redaction">Secret redaction<a class="headerlink" href="#secret-redaction" title="Permanent link">&para;</a></h2>
+<p>Evidence is meant to be shared: pull request bodies, exported reports, bug
+bundles. A user's project can still print a token from a config file, a <code>.env</code>
+the Builder reads, or a test fixture, and the check replay captures the end of
+output. Redaction is applied <strong>where text leaves the run directory</strong> — the raw
+capture in <code>.autocode/</code> is never rewritten, and evidence hashes keep covering
+the raw bytes (#712).</p>
+<p>What is replaced with <code>[REDACTED]</code>:</p>
+<ul>
+<li>GitHub, OpenAI, Anthropic and AWS token shapes (<code>ghp_…</code>, <code>github_pat_…</code>,
+  <code>sk-…</code>, <code>sk-ant-…</code>, <code>AKIA…</code>)</li>
+<li><code>Authorization: Bearer …</code> runs</li>
+<li>Generic <code>api_key=</code> / <code>secret:</code> / <code>token=</code> / <code>password=</code> assignments</li>
+<li>Any value the provider launch marked secret</li>
+</ul>
+<p>What is <strong>not</strong> redacted: ordinary command output, test names, file paths and
+diagnostics that do not match those shapes. A canary scenario plants a secret
+in the seed and asserts it appears in no exported artifact
+(<code>tests/test_secret_redaction.py</code>).</p>
+<p>See also: <a href="../workflow/">Workflow</a> · <a href="../models/">Models</a> · <a href="../testing/">Testing</a></p>
+<h2 id="learned-project-defaults">Learned project defaults<a class="headerlink" href="#learned-project-defaults" title="Permanent link">&para;</a></h2>
+<p>At successful completion AutoCode can save a shareable test-command default and
+project conventions in <code>.autocode/project.json</code>. Future tasks use that command
+only when neither the command line nor explicit project configuration supplies
+one, and never in a <code>--package</code> run. Existing saved tasks retain their settings; learned route history never
+changes provider selection or budgets. See <a href="../project-memory/">Project memory</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

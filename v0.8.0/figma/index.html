@@ -1,0 +1,2621 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/v0.8.0/figma/">
+      
+      
+        <link rel="prev" href="../pilot-inputs/">
+      
+      
+        <link rel="next" href="../visual-captures/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Figma - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#figma-design-and-implementation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Figma
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executable-pixel-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executable pixel comparison
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Executable pixel comparison">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#policy-and-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy and references
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capture-fixture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capture fixture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opt-in-live-qualification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opt-in live qualification
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-file-reference-inventory-opt-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-file reference inventory (opt-in)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multi-file reference inventory (opt-in)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#native-connected-file-intake" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native connected-file intake
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reviewed-reference-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewed reference changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#externally-reviewed-product-scope-version-2-inventories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Externally reviewed product scope (version 2 inventories)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executable-pixel-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executable pixel comparison
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Executable pixel comparison">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#policy-and-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Policy and references
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#capture-fixture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capture fixture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opt-in-live-qualification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Opt-in live qualification
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-file-reference-inventory-opt-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-file reference inventory (opt-in)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multi-file reference inventory (opt-in)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#native-connected-file-intake" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native connected-file intake
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reviewed-reference-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewed reference changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#externally-reviewed-product-scope-version-2-inventories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Externally reviewed product scope (version 2 inventories)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="figma-design-and-implementation">Figma design and implementation<a class="headerlink" href="#figma-design-and-implementation" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/64c065f0a1040bb390e6efa7f5931dc0e79c94b2/README.md">← Back to README</a></p>
+<p>The native connected-Figma workflow uses Codex with the Figma plugin. Requirements planning,
+plan review, plan finalization, validation, and completion decisions use the review model
+tier (Sol); the review and decision steps default to Sol High. Figma editing uses the
+Builder model tier (Terra). OpenCode is not needed for this path. The plugin must
+be available in Codex CLI sessions; a connection only in another app is insufficient.</p>
+<pre><code class="language-sh"># Design only (both commands are equivalent):
+autocode-ui &quot;Design a responsive team operations dashboard&quot;
+autocode ui &quot;Design a responsive team operations dashboard&quot;
+
+# Design, review, then hand the accepted Figma result to the implementation runner:
+autocode ui &quot;Build a responsive team operations dashboard&quot; --build
+
+# Refine a selected file:
+autocode-ui &quot;Refine the project detail layout&quot; --figma-file &quot;https://www.figma.com/design/FILEKEY/Project&quot;
+
+# Implement an existing file, or import a completed design run:
+autocode &quot;Build the supplied design&quot; --figma-file &quot;https://www.figma.com/design/FILEKEY/Project&quot;
+autocode --ui-run /path/to/project/.autocode-ui/runs/RUN
+</code></pre>
+<p>The UI path first runs a complete planning exchange: a Requirements Planner drafts
+the brief, an independent Plan Reviewer challenges it, the planner revises it, and
+a Plan Finalizer accepts it or requests rework. It then runs Figma Builder →
+Design Validator → Completion Owner, with build/review rework. Models remain
+configurable separately from these role names. Every attempt has separate prompts,
+event logs and structured reports under <code>.autocode-ui/runs/</code>. Failed planning or
+design reviews cannot produce a build handoff.
+By default, planning allows one rework and design allows two. Use
+<code>--max-plan-reworks none --max-reworks none</code> to continue review loops until accepted
+or blocked. Numeric limits remain available; <code>0</code> allows no rework. The selected
+limits are recorded in the run state.
+An accepted handoff records the Figma URL and hashes of the brief and review reports;
+modified or incomplete artifacts are rejected when imported. The implementation
+roles inspect the live Figma reference again, since the file can change after design.</p>
+<p>A <a href="../task-lanes/#a-component-with-a-figma-design">multi-component build</a> can also
+give an individual component a <code>ui_run</code> or <code>figma_file</code> in <code>components.json</code>.
+The design is supplied before the build, and only that component receives it.</p>
+<p><code>--build</code> starts the normal implementation brief and orchestration in Codex. Its
+initial product brief still needs approval. Subsequent visual checks use Figma
+comparisons and independent validation by default; they do not require another
+human visual approval. Add <code>--figma-review human</code> to a new implementation run if
+that review is wanted. Explicitly supplied review requirements still take precedence.
+The workflow uses the connected Figma editing tools, not an assumed Figma Make API.</p>
+<p>The Figma and code paths use the same durable Autocode stage driver. <code>autocode-ui</code>
+is an installed alias for <code>autocode ui</code>, not a separate orchestration product. Each
+target supplies its own prompts, report schemas and acceptance rules while sharing
+stage selection, checkpoint persistence, retry/skip behavior and terminal-state
+handling. With <code>--build</code>, the accepted Figma target hands off to the code target.</p>
+<p><code>autocode ui "Preview the workflow" --dry-run</code> writes prompts without model calls or
+Figma edits and never emits an accepted handoff. If a design stage is interrupted,
+inspect its saved reports and Figma file before starting a fresh run with
+<code>--figma-file</code>; existing run directories are never overwritten.</p>
+<p>For an assigned implementation or review task, Figma instructions cover the affected
+visual work. Test/parser/harness-only repairs can reuse applicable design evidence;
+they do not require a fresh canvas inspection unless they affect presentation or verify
+a visual criterion. Final visual acceptance requirements remain in force.
+An implementation capture must still match the current source snapshot when used
+for acceptance; see <a href="../visual-captures/">implementation capture bundles</a>.</p>
+<h2 id="executable-pixel-comparison">Executable pixel comparison<a class="headerlink" href="#executable-pixel-comparison" title="Permanent link">&para;</a></h2>
+<p><code>autocode visual-check</code> is an opt-in, provider-neutral check for <strong>exported</strong> reference
+bundles. It runs a project-owned capture command afresh, then compares every declared
+case with its pinned reference. A mismatch exits 1; invalid or unavailable evidence
+exits 2. Exit 0 means the declared pixel policy passed, <strong>not</strong> that independent
+visual review, behavior, accessibility or complete Figma discovery passed.</p>
+<p>Install the optional image dependency with <code>python -m pip install 'autocode-supervisor[visual]'</code>
+(from this checkout, <code>python -m pip install -e '.[visual]'</code>). The capture fixture owns
+its browser dependency; the comparator does not download browsers, fonts or assets.</p>
+<p>Keep the policy, reference bundle and capture fixture in normal project source, not
+in ignored directories or <code>.autocode/</code>. An approved verification command should pin
+the exact policy file hash:</p>
+<pre><code class="language-sh">python -m autocode_cli.autocode_visual_check --workspace . --policy visual-policy.json --policy-sha256 APPROVED_SHA256
+</code></pre>
+<p>Use that full command as a non-human criterion's <code>verification_method</code> or an approved
+task's <code>validation_plan</code>. The existing runner replays prescribed commands in a clean
+copy even if the Validator reports an unrelated successful check. The bare interactive
+alias <code>autocode visual-check ...</code> is also recognized for replay; other AutoCode task
+commands are not admitted as verification checks. The chosen Python interpreter must
+have AutoCode and its visual extra installed.</p>
+<p>Compute the hash when reviewing the policy, not dynamically inside the verification
+command. Changing a baseline, removing a case or relaxing a tolerance requires a
+reviewed policy change and a newly approved command; verification never auto-updates it.
+The source revision also binds the project-owned fixture. Its implementation still
+needs review: a dishonest fixture could copy reference pixels instead of rendering.</p>
+<h3 id="policy-and-references">Policy and references<a class="headerlink" href="#policy-and-references" title="Permanent link">&para;</a></h3>
+<p>Example <code>visual-policy.json</code> (replace digests with actual file SHA-256 values):</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;manifest&quot;: {&quot;path&quot;: &quot;design/manifest.json&quot;, &quot;sha256&quot;: &quot;MANIFEST_SHA256&quot;},
+  &quot;capture_command&quot;: [&quot;python&quot;, &quot;tests/capture_visual.py&quot;],
+  &quot;timeout_seconds&quot;: 120,
+  &quot;cases&quot;: [{
+    &quot;id&quot;: &quot;workspace.desktop&quot;, &quot;channel_tolerance&quot;: 0,
+    &quot;max_changed_ratio&quot;: 0.0, &quot;regions&quot;: []
+  }]
+}
+</code></pre>
+<p>The manifest uses the <a href="#multi-file-reference-inventory-opt-in">exported-reference version-1 format</a>
+below. Comparison policy stays separate rather than extending that format implicitly.
+Its case IDs must exactly match the reference inventory.</p>
+<p>Paths in <code>manifest</code> are relative to the policy; artifact paths are relative to the
+manifest. All inputs must remain within the workspace, with no symlink components.
+Every declared file/node needs a case, and every case needs exactly one comparison
+and capture. This verifies the declared inventory, not that no Figma frame was omitted
+from the inventory itself. Exports and context are read-only.
+Declared <code>implementation_paths</code> must exist as source-owned files or nonempty source
+directories. Missing paths, symlinks and ignored implementation inputs are refused;
+directory declarations cannot quietly include ignored build outputs. List the actual
+source files and rebuild generated assets inside the capture fixture when needed.
+Include the capture fixture and its project-owned data/configuration in those paths,
+not just the application's visible components. The checker does not discover an
+arbitrary command's dependency graph or authenticate external tool installations.</p>
+<p>The exact default is zero channel tolerance and zero differing pixels. Explicit
+tolerances must be finite: <code>channel_tolerance</code> is an integer from 0 to 254 and
+<code>max_changed_ratio</code> is at least 0 and less than 1. A pixel differs when its maximum
+RGBA channel difference exceeds the channel tolerance. No masks are supported.
+For important small controls, add stricter reference-pixel rectangles to <code>regions</code>:
+<code>{"id":"submit","x":100,"y":200,"width":80,"height":32,"max_changed_ratio":0}</code>.
+A failing region fails the case even if its global changed-pixel fraction is allowed.
+The narrow decoder accepts single-frame, at-most-8-bit PNGs interpreted as sRGB.
+Embedded ICC profiles, orientation/EXIF, chromaticity/HDR metadata and nonstandard
+gamma are refused rather than silently ignored. Export normalized sRGB PNGs first;
+untagged PNGs, valid sRGB intents and the standard PNG gamma value 0.45455 are accepted.</p>
+<p>Native CSS viewport, browser device scale and reference export scale are distinct.
+The command requires candidate dimensions <code>round(viewport * device_scale_factor)</code>
+and reference dimensions <code>round(viewport * export_scale)</code>. If these resolutions differ,
+only the candidate is resampled to the declared export dimensions with the recorded
+LANCZOS normalization. A 1024px-wide export of a 1440px frame is not permission to
+render at a 1024px CSS viewport. Prefer native-resolution reference exports when
+checking fine detail: downsampling necessarily loses information.</p>
+<h3 id="capture-fixture">Capture fixture<a class="headerlink" href="#capture-fixture" title="Permanent link">&para;</a></h3>
+<p>The command runs <code>capture_command</code> as an argument array, without implicit shell
+expansion, from the workspace root. It provides:</p>
+<ul>
+<li><code>AUTOCODE_VISUAL_MANIFEST</code>: absolute path to the verified reference manifest.</li>
+<li><code>AUTOCODE_VISUAL_OUTPUT</code>: a new empty directory for this attempt's captures.</li>
+</ul>
+<p>The fixture must start and stop its own application/browser, render the actual
+application for every specified route/state at the native viewport, and write PNGs
+plus <code>captures.json</code> in that output directory:</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;cases&quot;: [{
+    &quot;id&quot;: &quot;workspace.desktop&quot;, &quot;path&quot;: &quot;workspace.png&quot;,
+    &quot;state&quot;: &quot;building&quot;, &quot;route&quot;: &quot;/workspace&quot;,
+    &quot;viewport&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900, &quot;device_scale_factor&quot;: 1}
+  }]
+}
+</code></pre>
+<p>Use a pinned browser, local fonts/assets, deterministic data, explicit theme/locale,
+disabled animations and a readiness assertion plus <code>document.fonts.ready</code>. Assert
+the actual route, viewport and UI state; reporting requested metadata alone does not
+prove them. Missing fonts/assets or unavailable states must make the fixture fail.
+Require separate functional and accessibility checks. The fixture must not mutate
+source or references while rendering, or rely on an old ignored build being current.</p>
+<p>Every attempt retains <code>report.json</code>, its capture log, candidates, differences and
+overlays under a new <code>.autocode/visual-checks/</code> directory. Existing output directories
+are refused rather than overwritten. Reports bind source before/after, policy,
+manifest, input and image hashes, comparator identity, per-case measurements and
+difference bounds. They explicitly say independent visual review was not performed
+and browser provenance is project-owned rather than authenticated by the collector.
+Reference and candidate digests bind the exact immutable byte buffers decoded for
+comparison, not a later reread of their paths. A temporary replacement restored before
+the final source check still fails its approved-image or captured-image digest check.
+Capture supervision also watches the checker's lifetime so a clean-replay timeout
+does not orphan the capture process group. Fixtures must still clean up any resources
+they explicitly detach outside that group.</p>
+<p>The complete JSON report is also printed to stdout. Clean replay removes its scratch
+tree, including images created there; the runner's hashed command log preserves the
+JSON measurements. Retain the ordinary workspace attempt's image artifacts as
+criterion evidence for inspection; do not cite deleted scratch paths as live evidence.</p>
+<p>This check does not retrofit existing runs, collect Figma inputs automatically, or
+replace the <a href="../visual-captures/">capture-provenance mechanisms</a> delivered in #291.
+Connecting the comparator to those collector-owned captures is separate from this
+project-owned command. Discovery, independent image review and efficiency work remain
+tracked in #250, #251 and #255. See the <a href="https://github.com/charlieanna/autocode/blob/64c065f0a1040bb390e6efa7f5931dc0e79c94b2/docs/plans/figma-visual-comparison.md">implementation plan</a>.</p>
+<h3 id="opt-in-live-qualification">Opt-in live qualification<a class="headerlink" href="#opt-in-live-qualification" title="Permanent link">&para;</a></h3>
+<p>The reproducible qualification uses a real local Chromium reference and the existing
+<code>codex-only</code> live model profile. Despite its name, that profile uses OpenCode transport;
+its exact role routes are defined in <code>scenarios/harness/profiles.py</code>. It is not a live
+Figma integration test, and does not claim independent visual judgment or efficiency.</p>
+<p>Install <code>.[visual-test]</code> and Chromium before running. From the repository root:</p>
+<pre><code class="language-sh">PYTHONDONTWRITEBYTECODE=1 .venv/bin/python tests/visual_check_live.py \
+  --profile codex-only --i-authorize-live-model-spend \
+  --timeout-minutes 15 --max-steps 24 \
+  --out .scenario-runs/visual-check-live-qualification
+</code></pre>
+<p>Without the spend flag, nothing launches. Each authorized invocation creates a new
+retained attempt, freezes its reference/capture/policy inputs, plants visual defects,
+and asks real models to repair the HTML and add one targeted visual regression test.
+A supplied interaction test stays frozen and passes even before the visual repair.
+The runner must prove the new regression fails on original code and passes on the fix;
+the qualification never waives that bugfix gate. It approves only a displayed non-human
+criterion containing the exact pinned command. PASS requires actual Builder/Validator
+receipts, current public completion, successful clean replay of that command, unchanged
+protected inputs and runtime, a zero-difference final capture, and independently
+rejected sidebar-offset and missing-control variants. Functional click assertions
+must pass even in those visually broken controls.</p>
+<p>The driving limit is 15 minutes and 24 public CLI calls; runtime limits are 720 seconds,
+300 seconds per stage and three iterations. Setup/scoring commands are separately
+bounded. It never grants additional budget, changes model routes or billing setup,
+approves human review, or automatically resumes an operational pause. Time limits are
+not a dollar cap. <code>summary.json</code>, command logs, approval receipts, usage and images
+remain in the attempt directory, including on failures; unknown cost is not zero.
+Routine CI runs only the harness's no-spend guard tests, not this live command.</p>
+<p>See also: <a href="../models/">Models and escalation</a> · <a href="../execution/">Execution and completion</a></p>
+<h2 id="multi-file-reference-inventory-opt-in">Multi-file reference inventory (opt-in)<a class="headerlink" href="#multi-file-reference-inventory-opt-in" title="Permanent link">&para;</a></h2>
+<p>New implementation runs can receive an exported reference bundle through
+<code>--figma-manifest /absolute/path/to/bundle/manifest.json</code>. This input works with
+Codex and OpenCode and preserves the selected role routes, pins and limits.
+It does not change the native <code>--figma-file</code> authentication requirements. When
+combined with native Figma input, that file must also be declared in the manifest.</p>
+<p>Version 1 declares every approved file and frame separately from its implementation
+cases. Every declared frame needs at least one case; states and responsive viewports
+use distinct stable case IDs. Version 1 remains supported for existing exported
+bundles. New complete inventories should use version 2, which adds read-only page
+metadata snapshots and component, variable, font, asset, and prototype-transition
+catalogs. The runner discovers page/Section-level screen frames from each complete
+page snapshot and requires a case for every discovered frame. Nested layout frames
+are not treated as screens. A frame omitted from <code>cases</code> therefore fails intake
+before a paid stage rather than disappearing from the denominator.</p>
+<p>Version 2 adds <code>native_size</code> and <code>inventory_refs</code> to <code>cases</code> and replaces each version-1 <code>{key,nodes}</code>
+file row with this source inventory shape:</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 2,
+  &quot;responsive_targets&quot;: [],
+  &quot;files&quot;: [{
+    &quot;key&quot;: &quot;FILEKEY&quot;,
+    &quot;revision&quot;: &quot;Figma file version or complete-content identity&quot;,
+    &quot;metadata_xml&quot;: {&quot;path&quot;: &quot;references/file.xml&quot;, &quot;sha256&quot;: &quot;&lt;actual SHA256&gt;&quot;},
+    &quot;pages&quot;: [{&quot;id&quot;: &quot;1:1&quot;, &quot;name&quot;: &quot;Workspace&quot;, &quot;metadata_xml&quot;: {
+      &quot;path&quot;: &quot;references/workspace-page.xml&quot;, &quot;sha256&quot;: &quot;&lt;actual SHA256&gt;&quot;
+    }, &quot;source_json&quot;: {&quot;path&quot;: &quot;references/workspace-source.json&quot;, &quot;sha256&quot;: &quot;&lt;actual SHA256&gt;&quot;}}],
+    &quot;screen_states&quot;: [{&quot;page_id&quot;: &quot;1:1&quot;, &quot;node_id&quot;: &quot;1:10&quot;, &quot;state&quot;: &quot;default&quot;,
+      &quot;viewport&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900, &quot;device_scale_factor&quot;: 1}}],
+    &quot;components&quot;: [{&quot;key&quot;: &quot;stable-library-component-key&quot;, &quot;name&quot;: &quot;Button&quot;,
+      &quot;source_page_id&quot;: &quot;1:1&quot;, &quot;source_node_id&quot;: &quot;1:20&quot;,
+      &quot;variants&quot;: [{&quot;page_id&quot;: &quot;1:1&quot;, &quot;node_id&quot;: &quot;1:2&quot;, &quot;properties&quot;: {&quot;Type&quot;: &quot;Primary&quot;}}]}],
+    &quot;variables&quot;: [{&quot;key&quot;: &quot;stable-variable-key&quot;, &quot;name&quot;: &quot;surface&quot;, &quot;kind&quot;: &quot;COLOR&quot;,
+      &quot;value&quot;: {&quot;r&quot;: 1, &quot;g&quot;: 1, &quot;b&quot;: 1}, &quot;collection&quot;: &quot;Foundation&quot;, &quot;mode&quot;: &quot;Light&quot;,
+      &quot;source_id&quot;: &quot;VariableID:123&quot;, &quot;mode_id&quot;: &quot;light&quot;}],
+    &quot;fonts&quot;: [{&quot;id&quot;: &quot;font-inter&quot;, &quot;family&quot;: &quot;Inter&quot;, &quot;style&quot;: &quot;Regular&quot;, &quot;status&quot;: &quot;available&quot;,
+      &quot;artifact&quot;: {&quot;path&quot;: &quot;references/Inter-Regular.woff2&quot;, &quot;sha256&quot;: &quot;&lt;actual SHA256&gt;&quot;}}],
+    &quot;assets&quot;: [{&quot;id&quot;: &quot;logo&quot;, &quot;page_id&quot;: &quot;1:1&quot;, &quot;node_id&quot;: &quot;1:3&quot;, &quot;name&quot;: &quot;Logo&quot;,
+      &quot;mime_type&quot;: &quot;image/svg+xml&quot;, &quot;status&quot;: &quot;available&quot;,
+      &quot;artifact&quot;: {&quot;path&quot;: &quot;references/logo.svg&quot;, &quot;sha256&quot;: &quot;&lt;actual SHA256&gt;&quot;}}],
+    &quot;transitions&quot;: [{&quot;id&quot;: &quot;open-settings&quot;, &quot;source_node_id&quot;: &quot;1:10&quot;,
+      &quot;target_node_id&quot;: &quot;1:11&quot;, &quot;trigger&quot;: &quot;click&quot;,
+      &quot;action&quot;: {&quot;type&quot;: &quot;NODE&quot;, &quot;destinationId&quot;: &quot;1:11&quot;, &quot;navigation&quot;: &quot;NAVIGATE&quot;}}]
+  }],
+  &quot;cases&quot;: [{
+    &quot;id&quot;: &quot;workspace.desktop.default&quot;, &quot;file_key&quot;: &quot;FILEKEY&quot;, &quot;page_id&quot;: &quot;1:1&quot;,
+    &quot;node_id&quot;: &quot;1:10&quot;, &quot;state&quot;: &quot;default&quot;, &quot;route&quot;: &quot;/workspace&quot;,
+    &quot;native_size&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900},
+    &quot;implementation_paths&quot;: [&quot;src/workspace.js&quot;],
+    &quot;inventory_refs&quot;: {&quot;components&quot;: [&quot;stable-library-component-key&quot;],
+      &quot;variables&quot;: [&quot;stable-variable-key&quot;], &quot;fonts&quot;: [&quot;font-inter&quot;],
+      &quot;assets&quot;: [&quot;logo&quot;], &quot;transitions&quot;: [&quot;open-settings&quot;]},
+    &quot;viewport&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900, &quot;device_scale_factor&quot;: 1},
+    &quot;export_scale&quot;: 1,
+    &quot;artifacts&quot;: {
+      &quot;screenshot&quot;: {&quot;path&quot;: &quot;references/workspace.png&quot;, &quot;sha256&quot;: &quot;&lt;actual PNG SHA256&gt;&quot;},
+      &quot;design_context&quot;: {&quot;path&quot;: &quot;references/workspace.json&quot;, &quot;sha256&quot;: &quot;&lt;actual context SHA256&gt;&quot;}
+    }
+  }]
+}
+</code></pre>
+<p>The file <code>metadata_xml</code> is the complete read-only document page roster and must
+enumerate all of the file's pages. When the connector refuses a document-root target, generate
+this roster faithfully from the pinned collector's actual <code>document_pages</code>, and
+identify it as generated XML. A connector's page listing may expose only the current
+page. Each page's <code>metadata_xml</code> is its complete typed page tree. Native overview XML
+can elide component/instance descendants and alias component sets as frames or
+components as symbols. Retain those actual native responses and targeted probes
+separately, with an explicit record of checked, elided and type-ambiguous fields.
+Do not guess the missing nodes or call lossy XML labels original node types.</p>
+<p>For a complete original Plugin API receipt, <code>autocode_design_topology.generate</code>
+accepts the exact saved <code>source_json</code> bytes and produces deterministic typed XML.
+Its root has <code>metadata_kind="collector-derived"</code> and <code>source_sha256</code> equal to that
+page's <code>source_json.sha256</code>, binding the exact retained source artifact bytes.
+The loader verifies that hash and the complete canonical derivation, including
+unique IDs, parent membership, ordered children, reachability and finite geometry.
+This is <strong>same-source derivation</strong>, never independent connector metadata,
+independent geometry/type proof, or visual acceptance. Native source-property and
+resource validation remain required. Genuine complete native XML remains supported.
+Both metadata forms are stored as hash-bound relative artifacts. A page omitted from the manifest while present in the document page roster fails intake. Every discovered screen
+frame must have an explicit <code>screen_states</code> row, and each row must match exactly one
+case with the same state and viewport. That makes an omitted approved state/viewport
+case a hard intake error. The state table is an explicit inventory: native inspection
+must include interactive and lifecycle states from the approved design, rather than
+inferring them from the frame name. Transitions must point to source nodes under
+covered screen frames or mapped component definitions. Every listed component, variable, font, asset, and transition
+must be mapped by at least one case through <code>inventory_refs</code>; unknown and duplicate
+references fail intake. Builder handoffs contain only cases whose implementation
+paths overlap the assigned task paths and their linked inventory, while preserving
+all variants of a selected shared component. Tester handoffs carry the same slice and
+a complete case roster; the original full manifest remains retrievable by its hash-bound path.
+Planning and completion review retain the complete manifest. When the OpenCode planning
+roles read the complete manifest and catalog from SHA-256 and byte-bound retained files
+instead of inline, their handoff still carries the complete case roster inline. Each component entry binds a source set/component node; for a
+component set, every component variant in its page metadata must be listed. Shared
+components with the same stable library key are merged for handoff, while all
+distinct variant node IDs and properties are retained. Variables with the
+same stable key must have identical definitions, retaining each file's local source ID. Available fonts and assets require
+hash-bound local bytes. Unavailable references are represented with
+<code>"status":"missing"</code> and a concrete <code>reason</code>; they remain visible blockers and
+prevent overall completion. They cannot be replaced with guessed values.</p>
+<p>Each page also retains a <code>source_json</code> receipt from the read-only
+<code>tools/figma_inventory_page.js</code> collector. New receipts identify their source as
+<code>figma-plugin-api-properties-v1</code>: explicit read-only Plugin API getter snapshots,
+with a pinned property profile and API version. They are not REST exports. Genuine
+legacy REST receipts remain supported. New snapshots omit derived text glyph
+contours while retaining authored text, exact styled ranges and text-path/vector
+geometry. Both formats retain original visual properties,
+rich-text font families/styles, component and variant identities, instance references,
+all local variable modes plus remote bindings/aliases, image/vector resources and
+full prototype trigger/actions. Receipt node IDs must exactly match the complete XML;
+matching collector-derived XML checks representation consistency, not an independent
+observation of those nodes.
+Large getter receipts use bounded, losslessly compressed parts to avoid connector
+text truncation. Set the collector's <code>outputPart</code> to every reported index; reconstruct
+all parts with <code>autocode_design_sources.reassemble(parts)</code> before saving <code>source_json</code>.
+Part identities and the SHA256 of the original JSON must agree. Missing, duplicate,
+truncated, corrupted or drifting parts are blockers; a transport envelope is not a
+page source receipt. Empty declarations cannot hide resources reported by the
+source. A screen must map its actual resources and the resources in every variant of its linked components.
+Library-only files may have an empty state table; qualify their font/asset/transition
+references as <code>FILEKEY/id</code> in consuming cases. Component and variable references use
+stable library keys across files. Missing remote definitions stop intake.</p>
+<p>These checks reconcile approved source receipts; they do not authenticate a
+hand-edited snapshot as a live connector response or infer an interaction state that
+inspection did not record. Explicit state collection and independent per-screen
+visual review remain required.</p>
+<p>The reviewed product contract includes <code>design_coverage</code>: the manifest hash and
+one <code>{id, criterion_ids, milestone_ids}</code> row per case. Each named milestone must
+own an implementation path for that case. The approval brief displays the mapping
+and source blockers, and an omitted case refuses plan installation and approval.
+Independent design reports retain this exact criterion mapping.
+When the visual runtime also uses a <code>VISUAL_CASE_CRITERIA</code> constraint, it must
+declare the same case-to-criterion mapping. Conflicting, repeated or malformed
+declarations refuse plan approval.</p>
+<p>Declare requested responsive targets separately as <code>{id, source_case_id,
+reference_case_id, viewport, constraints}</code>. Use a supplied case ID when an exact
+reference exists at that viewport. With no supplied reference, keep
+<code>reference_case_id</code> empty; the plan must then document its behavior in
+<code>design_coverage.responsive_derivations</code>, identify its criterion and milestone,
+use the supplied constraints or explicitly record derived behavior, and set
+<code>exact_match</code> to <code>false</code>. The runner refuses a claim of exact matching to an absent
+responsive reference.</p>
+<p>Version 1 example:</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;files&quot;: [{&quot;key&quot;: &quot;FILEKEY&quot;, &quot;nodes&quot;: [&quot;422:1495&quot;]}],
+  &quot;cases&quot;: [{
+    &quot;id&quot;: &quot;workspace.desktop.empty&quot;,
+    &quot;file_key&quot;: &quot;FILEKEY&quot;,
+    &quot;node_id&quot;: &quot;422:1495&quot;,
+    &quot;state&quot;: &quot;empty conversation&quot;,
+    &quot;route&quot;: &quot;/workspace&quot;,
+    &quot;implementation_paths&quot;: [&quot;src/workspace.js&quot;, &quot;src/workspace.css&quot;],
+    &quot;viewport&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900, &quot;device_scale_factor&quot;: 1},
+    &quot;export_scale&quot;: 1,
+    &quot;artifacts&quot;: {
+      &quot;screenshot&quot;: {&quot;path&quot;: &quot;references/workspace.png&quot;, &quot;sha256&quot;: &quot;&lt;actual PNG SHA256&gt;&quot;},
+      &quot;design_context&quot;: {&quot;path&quot;: &quot;references/workspace.json&quot;, &quot;sha256&quot;: &quot;&lt;actual context SHA256&gt;&quot;}
+    }
+  }]
+}
+</code></pre>
+<p>Artifact paths are portable paths relative to the manifest's directory; symlinks
+that escape it, missing files and conflicting hashes are refused. The PNG export
+dimensions must equal the native CSS viewport multiplied by <code>export_scale</code>.
+A scaled 1024×640 reference export does not imply a 1024 CSS-pixel application.
+The rendered candidate dimensions instead use <code>device_scale_factor</code>.
+The exact exported context should include component, token, font and asset details
+needed to implement the case; this version does not automatically collect a live
+Figma file or package separately referenced fonts/assets.</p>
+<p>Before any paid stage, the runner validates the declared inventory and copies the
+references to <code>.autocode/design-inputs/&lt;manifest-hash&gt;/</code> in the new task workspace.
+This also retains ignored inputs or bundles outside the repository when a task gets
+an isolated worktree. Deleting the original exports later does not invalidate this
+retained copy. Changed retained inputs pause execution as <code>PAUSED_DESIGN_REFERENCE</code>.
+The ordinary <code>--figma-manifest</code> flag remains a new-run input. Use the audited stopped-run
+revision command below to propose a new v2 inventory.</p>
+<p>Planning carries the full inventory and its hash; Builder and Tester receive their
+relevant slices with the original inventory retrievable. The
+independent Validator reports <code>design_manifest_hash</code> and <code>design_results</code>, one row
+per case, with <code>id</code>, <code>status</code> (PASS/FAIL/NOT_VERIFIED), <code>criterion_ids</code>,
+<code>candidate_ref</code>, <code>comparison_ref</code>, <code>capture_ref</code> and <code>capture_sha256</code>.
+A passing row needs passing approved criteria,
+a PNG candidate at the declared viewport/device scale, and a separate nonempty
+comparison artifact inside the task workspace. The reference itself cannot be cited
+as the rendered candidate. <code>capture_ref</code> identifies a current
+<a href="../visual-captures/">browser capture manifest</a>, and <code>capture_sha256</code> pins that
+manifest. Its candidate must be the exact image in the review. The runner pins
+the capture inputs and artifacts alongside the independent check evidence and
+rechecks them at completion. FAIL/NOT_VERIFIED rows may leave the evidence
+fields empty when acquisition is unavailable.</p>
+<p>Intermediate milestones can explicitly leave future cases NOT_VERIFIED. A visual
+launch marked NOT_READY leaves ordinary functional validation and rework available;
+it emits no image-delivery or visual-acceptance receipt. A functional FAIL or BLOCKED
+report likewise keeps its findings available for rework without gaining visual
+authority. A malformed or missing retained design manifest still refuses launch.
+Whole-task completion requires every case PASS in the same current independent
+validation; omissions, duplicates, stale manifests, changed evidence or wrong dimensions refuse
+completion. Existing contract, regression, replay and human acceptance gates remain
+mandatory. <code>--status</code> adds <code>view.design</code>: inventory/hash, reported source revision
+and cases without a reported PASS. It deliberately leaves
+<code>current_visual_acceptance</code> unknown: the status projection alone authenticates no
+current source or screenshot. For a scoped run (<code>VISUAL_SLICE_GATES=complete-cases-v1</code>),
+<code>--status</code> also leaves visual acceptance <code>UNKNOWN</code> without taking the exclusive run
+and checkout locks that carry the runner's CODE scope authority; it does not report
+<code>NOT_READY</code> merely because those locks are absent.</p>
+<p>Coverage and capture provenance do not guarantee pixel fidelity. A v1 declaration cannot discover
+an omitted frame; v2 detects omissions against complete retained source receipts.
+Neither determines whether a comparison artifact's conclusion is visually correct.
+Live multi-file connector qualification is a separate acceptance check for #250; image comparison and independent visual adjudication remain
+in issue #251. Capture freshness is checked separately from those judgments.
+The offline provider tests use synthetic images to exercise completion gates;
+the optional Chromium tests exercise real capture acquisition. Neither performs
+a live Figma/model review.</p>
+<h3 id="native-connected-file-intake">Native connected-file intake<a class="headerlink" href="#native-connected-file-intake" title="Permanent link">&para;</a></h3>
+<pre><code class="language-sh">autocode &quot;Implement the approved workspace&quot; --engine codex \
+  --figma-file &quot;https://www.figma.com/design/FILEA?node-id=1-2&quot; \
+  --figma-additional-file &quot;https://www.figma.com/design/FILEB&quot;
+</code></pre>
+<p>Repeat <code>--figma-additional-file</code> for each additional approved file. The existing
+single controller begins with <strong>Design inventory</strong> on the saved Requirements model
+route, before Requirements/Planner approval. This collector never authorizes
+implementation. It must retain all approved files, pages, frames, states and
+resources, use the read-only collector and pass the v2 loader. The source may be a
+screen or library component URL; the supplied starting node must be present.
+Unreadable nodes/pages, missing remote component definitions or conflicts pause as
+<code>PAUSED_DESIGN_INPUT</code> with the concrete reason. Resume the same run after the input
+is available. No alternate model or transport is selected. Native authentication
+requirements remain; exported bundles work with either supported engine.</p>
+<p>A supplied complete v2 export can satisfy intake directly. It must include every
+native URL's file and node. Extra explicitly supplied export files remain part of
+the approved inventory. A v1 export remains valid for older exported workflows,
+but a new native intake must gather the complete v2 inventory before planning.</p>
+<h3 id="reviewed-reference-changes">Reviewed reference changes<a class="headerlink" href="#reviewed-reference-changes" title="Permanent link">&para;</a></h3>
+<p>At a stopped, reconciled boundary, inspect <code>--status</code>, then propose the replacement:</p>
+<pre><code class="language-sh">autocode --workspace /path/to/project --run-dir /path/to/run \
+  --revise-figma-manifest /path/to/updated/manifest-v2.json \
+  --expected-design-hash INSPECTED_CURRENT_HASH \
+  --design-change-reason &quot;The approved Settings screen gained a validation state&quot;
+</code></pre>
+<p><code>TaskRun.revise_design(manifest, expected_hash, reason)</code> exposes the same operation.
+The command retains both versions, approval/completion history, the prior independent
+report and a case-level added/removed/changed/unchanged audit. It pauses at
+<code>PAUSED_DESIGN_INPUT_CHANGED</code>; it neither launches a model nor approves a new plan.
+Resume for the existing independent planning exchange and explicit plan approval.
+Models, pins and limits stay saved. An active/uncertain attempt or pending artifact
+review must be reconciled first; changing the reference cannot bypass that boundary.
+Nor can it replace an operational pause (a rate limit, a spent budget, exhausted
+recoveries): like an edited goal, it is refused there unless that pause offers feedback
+(an exhausted plan-review budget, a validation-only stop); see <a href="../execution/">Execution</a>.</p>
+<p>Case identity binds its exact screenshot/context, route/state/viewport, linked
+resources, original node/variant properties and responsive targets. Only affected
+reference cases lose applicable historical evidence. Unchanged case results are
+reusable only when the original independent report, comparison and collector-owned
+capture are hash-bound and still match the current source/browser/build inputs.
+They remain historical results, never newly generated PASS verdicts. Whole-task
+acceptance still requires a current independent report covering every case and the
+updated approved plan. A partial passing case or functional PASS cannot complete it.</p>
+<p>The offline catalog scenario <code>figma-complete-inventory</code> accepts a sound two-file
+bundle and rejects an omitted unique frame and an omitted component variant while
+its functional tests stay green. Public CLI tests cover native acquisition,
+restart, plan refusal, reference revision and completion gates with a scripted
+provider. Those receipts qualify the protocol; they do not qualify the live Figma
+connector or certify pixel fidelity. Run live connector qualification only against
+explicitly approved files and with separately authorized model spend.</p>
+<p>An audited native reference revision also records the previous and current file URLs.
+Removed entry nodes fall back to the current file root; replacement files appear in the
+reviewed input list. Engine, authentication, role routes, pins and limits stay unchanged.
+Identical relocated reference bytes keep their case identity; file names alone do not
+require fresh visual proof. Shared token aliases are reconciled by library key while
+original file-local IDs remain in the retained source receipts.</p>
+<h3 id="externally-reviewed-product-scope-version-2-inventories">Externally reviewed product scope (version 2 inventories)<a class="headerlink" href="#externally-reviewed-product-scope-version-2-inventories" title="Permanent link">&para;</a></h3>
+<p>A complete version 2 source inventory may contain historical frames outside the
+approved app. Supply both <code>--figma-approved-scope PATH</code> and
+<code>--figma-approved-scope-sha256 SHA256</code> with <code>--figma-manifest</code>. The trusted
+operator pin authenticates a reviewed artifact bound to the complete manifest
+and every approved case/state/viewport/reference row. A bundle cannot grant its
+own scope by declaring an approval file. No admission keeps the strict legacy
+requirement to map every discovered frame and full resource into cases.</p>
+<p>All original pages, nodes, actual component owners and variants, variable modes
+and aliases, fonts, assets and prototype endpoints still undergo full-source
+validation and remain retained. Scoped case refs must equal their actual
+transitive dependencies; historical resources cannot be linked as false usage.
+The retained <code>scope_admission</code> stores only a portable artifact path and its SHA,
+with byte-identical authority beside the bundle. Saved-run reload rechecks it;
+new-run flags cannot silently replace a saved pin.</p>
+<p>At the stopped, reconciled reference-revision boundary, pair both scope flags
+with <code>--revise-figma-manifest</code>, the inspected old <code>--expected-design-hash</code> and
+a concrete <code>--design-change-reason</code>. A scoped run requires a newly reviewed
+artifact bound to the complete replacement manifest. Ordinary resume cannot
+replace a pin, and unchanged manifest bytes cannot swap scope authority. The
+old bundle and its exact authority remain in reference history; the replacement
+pauses for independent plan review and fresh affected-case validation. The
+public <code>TaskRun.revise_design</code> accepts the same optional <code>approved_scope</code> and
+<code>approved_scope_sha256</code> keyword pair. Revision never grants implementation,
+image acceptance or human artifact acceptance.</p>
+<p>The public inventory retains full-source availability blockers and the exact
+used/retained frame and resource partition. App readiness and completion use
+verified <strong>delivery blockers</strong> for actual app dependencies; historical missing
+resources remain visible full-source gaps and do not become available. The
+separate full-resource qualification still needs its own evidence. A scoped
+<code>--dry-run</code> reports an unretained read-only input preview, without saving scope
+or running models. Admission and plan review never imply rendered fidelity,
+independent visual PASS, or human artifact acceptance.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

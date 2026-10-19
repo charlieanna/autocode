@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "autocode:schemas/status-view@2",
+  "title": "Autocode status payload",
+  "description": "The one JSON object `autocode --run-dir RUN --status` prints, and the one `autocode ... --json` prints on stdout for a run that has loaded: a completed or paused run prints this payload; a user action, or any other invocation that loaded the run and returned without printing the payload itself, adds `result`. A refusal before the run loads prints only `{\"result\": ...}`: that object does not validate against this root, which requires the payload's fields; its `result` validates against `#/properties/result`. A setting the run's configuration refuses as the run loads (such as `--single-model` or `--spec-first` on a saved run, or a tool-containment refusal: `--allow-uncontained-tools` where it does not apply, or a built-in OpenCode run without it where the kernel tool boundary is unavailable; docs/cli.md lists more) adds `result` to the saved run's payload, or prints `{\"result\": ...}` alone before a new run's first checkpoint, and still ends with `autocode: ...` on stderr; the refused setting is not saved. A native visual run (a `VISUAL_REVIEW_PROFILE=` task) instead saves that refusal as a `PAUSED_INVALID_OUTPUT` pause and prints it like any other pause, with `result.error` null. Any other invocation that ends with an error message (`autocode: ...` or argparse's usage text on stderr) prints nothing on stdout. The fields a program acts on are in `view`, the status view contract (docs/task-run.md#status-view): fields are added, never renamed or removed, and `view.schema` changes if a meaning must. Every field this schema requires is always present; unlisted fields are allowed and a consumer must ignore the ones it does not know. The keywords used here (type, enum, required, properties, items) are the subset tools/autocode_util.validate_schema checks, so the CLI's own acceptance test validates the status payloads against this file. Exit codes: docs/cli.md#exit-codes.",
+  "type": "object",
+  "required": ["run_dir", "workspace", "status", "iteration", "stale", "next_action", "view"],
+  "properties": {
+    "run_dir": {"type": "string", "description": "The run directory."},
+    "workspace": {"type": "string", "description": "The checkout the run works in: its task worktree, or the project itself for an in-place run."},
+    "project_workspace": {"type": "string", "description": "The project the task worktree was created from."},
+    "task_branch": {"type": ["string", "null"], "description": "The task worktree's branch; null for an in-place run."},
+    "status": {"type": "string", "description": "The saved status; the same as view.status."},
+    "iteration": {"type": "integer"},
+    "stale": {"type": "boolean", "description": "True when the saved status says RUNNING but the recorded stage or runner check has no live supervised result; next_action then says what must happen first."},
+    "next_action": {"type": ["string", "null"], "description": "What must happen before anything else when the checkpoint is stale; null otherwise."},
+    "view": {
+      "type": "object",
+      "description": "The status view (tools/autocode_run_view.py, docs/task-run.md#status-view), with `progress` and `delivery` added by the status command.",
+      "required": [
+        "schema", "status", "done", "needs", "pause_category", "pause_category_label", "next_command",
+        "phase", "next_stage", "iteration", "stop_reason", "explanation", "current_task", "task", "task_sha256",
+        "workflow", "workflow_source", "workflow_reason", "turn", "evidence", "approvals", "evidence_report",
+        "acceptance_tests", "usage", "cost", "progress", "delivery", "liveness", "controller", "recovery",
+        "verification", "verification_obligation", "code_checkpoints", "runner", "runner_check", "dependency",
+        "prompts_hash", "interaction_timing", "replay_source", "replay_progress", "replay_result",
+        "escalation_outcomes", "escalations", "request_context", "output_transport", "direct_rework_assignments", "routes",
+        "provider", "route_assignments", "information_review", "tool_containment", "job_report_recovery",
+        "efficiency", "conversation", "chat"
+      ],
+      "properties": {
+        "schema": {"type": "integer", "enum": [2], "description": "The view's version; it changes only if a field's meaning changes."},
+        "status": {"type": "string", "description": "The exact run status, such as RUNNING, WAITING_FOR_USER, AWAITING_GOAL_APPROVAL, a PAUSED_* status or TASK_COMPLETE."},
+        "done": {"type": "boolean", "description": "True when the task completed: status TASK_COMPLETE or COMPLETE, and not a replay with recorded checks."},
+        "needs": {
+          "type": ["object", "null"],
+          "description": "What must happen next for the run to progress; null when it is complete. `kind` is an open vocabulary (approve_plan, answer, review, resume, continue, ...); `continue` means relaunching the run needs nothing from a person.",
+          "required": ["kind"],
+          "properties": {
+            "kind": {"type": "string"},
+            "confirmation_required": {"type": "boolean", "description": "False only for a plain resume of a clean requested pause: the Resume click needs no duplicate dialog. It remains person-only and never authorizes automatic continuation. Missing retains the client's confirmation policy."}
+          }
+        },
+        "pause_category": {
+          "type": ["string", "null"],
+          "enum": ["your_decision", "your_environment", "model_or_provider", "autocode", null],
+          "description": "Whose action a stopped run needs; null for an active or completed run."
+        },
+        "pause_category_label": {"type": ["string", "null"], "description": "pause_category in words."},
+        "next_command": {"type": ["string", "null"], "description": "The command that answers `needs`, with issued tokens passed through their environment variables; placeholders such as ANSWER are left for a person. Null for an active or completed run."},
+        "phase": {"type": ["string", "null"]},
+        "next_stage": {"type": ["string", "null"]},
+        "iteration": {"type": ["integer", "null"]},
+        "stop_reason": {"type": ["string", "null"]},
+        "explanation": {
+          "type": "object",
+          "description": "This stop in plain words (#715).",
+          "required": ["what_happened", "what_it_means", "what_the_command_does", "explanation"],
+          "properties": {
+            "what_happened": {"type": "string"},
+            "what_it_means": {"type": "string"},
+            "what_the_command_does": {"type": "string"},
+            "explanation": {"type": "string"}
+          }
+        },
+        "current_task": {
+          "type": ["object", "null"],
+          "properties": {
+            "id": {"type": ["string", "null"]},
+            "objective": {"type": ["string", "null"]},
+            "milestone_id": {"type": ["string", "null"]}
+          }
+        },
+        "task": {"type": ["string", "null"], "description": "The exact saved request text."},
+        "task_sha256": {"type": ["string", "null"], "description": "The UTF-8 SHA-256 of `task`."},
+        "workflow": {"type": ["string", "null"], "description": "The kind of job recognized from the request (build, bugfix, review, design, discuss); null until recognized."},
+        "workflow_source": {"type": ["string", "null"]},
+        "workflow_reason": {"type": ["string", "null"]},
+        "turn": {"type": "integer", "description": "Which request of the conversation the run is on: 1, then one more per --follow-up."},
+        "evidence": {"type": "object", "description": "What the run agreed to deliver and what supports it."},
+        "approvals": {"type": "array", "description": "Who approved each plan and review, edited the plan, resumed the run from a pause or accepted its completion, oldest first (#722). Recorded as given and never verified."},
+        "evidence_report": {"type": ["object", "null"]},
+        "acceptance_tests": {"type": ["object", "null"]},
+        "usage": {"type": "object", "description": "Tokens and cost so far; unknown cost is not zero."},
+        "cost": {"type": "object", "description": "Spend against the money cap."},
+        "progress": {"type": "object", "description": "How far the run has got, from saved records; `line` is for a person, the fields beside it for programs."},
+        "delivery": {"type": ["object", "null"]},
+        "liveness": {"type": "object"},
+        "controller": {"type": ["object", "null"]},
+        "recovery": {"type": ["object", "null"]},
+        "verification": {"type": ["object", "null"]},
+        "verification_obligation": {"type": ["object", "null"]},
+        "code_checkpoints": {"type": ["object", "null"]},
+        "runner": {"type": ["object", "null"]},
+        "runner_check": {"type": ["object", "null"]},
+        "dependency": {"type": ["object", "null"]},
+        "prompts_hash": {"type": ["string", "null"]},
+        "interaction_timing": {"type": ["object", "null"]},
+        "replay_source": {"type": ["object", "null"]},
+        "replay_progress": {"type": ["object", "null"]},
+        "replay_result": {"type": ["object", "null"]},
+        "escalation_outcomes": {"type": ["object", "null"]},
+        "escalations": {
+          "type": "array",
+          "description": "Each escalation the run made, oldest first (#612): a role's climb on its effort ladder or the Builder's stronger attempt, with the role and stage it was for, the route it climbed from and to, its escalated attempts and what they cost, and how it ended. Empty when the run made none (docs/task-run.md#status-view).",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind", "role", "stage", "job", "at", "trigger", "detail", "struggle_id", "task_id", "from", "to",
+              "deferred_by_parallel_builder", "inherited", "attempts", "cost", "outcome", "outcome_basis"
+            ],
+            "properties": {
+              "kind": {"type": "string", "enum": ["effort_climb", "stronger_attempt"]},
+              "role": {"type": "string", "description": "The route role whose route moved (a settings.roles key: sol, terra, completion, resolver)."},
+              "stage": {"type": ["string", "null"], "description": "The stage that struggled, else the first escalated attempt's; null when neither is recorded."},
+              "job": {"type": ["string", "null"], "description": "That stage's job as the screen names it (Tester, Builder, ...; tools/autocode_roles.py); the route role's when the stage is not known; null when neither names a job."},
+              "at": {"type": ["string", "null"]},
+              "trigger": {"type": ["string", "null"], "description": "What set it off: validation_rework, rejected_output, no_progress or abandoned_attempt for a climb; execution_failure for the stronger attempt."},
+              "detail": {"type": ["string", "null"]},
+              "struggle_id": {"type": ["string", "null"]},
+              "task_id": {"type": ["string", "null"], "description": "The task it was for; for the stronger attempt, the task of the failed attempt its decision names."},
+              "from": {"type": "object", "required": ["model", "reasoning_effort", "profile"]},
+              "to": {"type": "object", "required": ["model", "reasoning_effort", "profile"]},
+              "deferred_by_parallel_builder": {"type": "boolean", "description": "True when a parallel Builder left this stronger attempt to the parent run, which made it serially."},
+              "inherited": {"type": "boolean", "description": "True when it was made before this run was created, in the run a checkpoint continuation restored: its attempts there are not in this run's records, so its cost is unknown (cost.usd null, or a floor of its attempts since the restore), never zero."},
+              "attempts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["stage", "iteration", "started_at", "active", "cost_usd", "basis"],
+                  "properties": {
+                    "active": {"type": "boolean"},
+                    "cost_usd": {"type": ["number", "null"]},
+                    "basis": {"type": "string", "enum": ["reported", "estimated", "unknown", "running"], "description": "The provider's reported cost, tokens at the dated table, unpriced, or still running."}
+                  }
+                }
+              },
+              "cost": {
+                "type": "object",
+                "required": ["usd", "reported_usd", "estimated_usd", "unpriced_attempts", "unrouted_attempts", "complete"],
+                "description": "What the escalated attempts cost at the dated price table, as the view's `cost` prices a stage. A null amount is unknown, never zero; while `complete` is false, `usd` is a floor. 0 only when no attempt launched in a run that made the escalation itself and has a launch route on every record of the role after it.",
+                "properties": {
+                  "usd": {"type": ["number", "null"]},
+                  "reported_usd": {"type": ["number", "null"]},
+                  "estimated_usd": {"type": ["number", "null"]},
+                  "unpriced_attempts": {"type": "integer"},
+                  "unrouted_attempts": {"type": "integer", "description": "The role's stage records after it, within its attempts' span, saved without a launch route (before 2026-10-01): they may be its attempts but cannot be shown to be, so they are not in `attempts`, nothing they did decides its outcome, and while there are any `complete` is false and `usd` is null when no listed attempt is priced."},
+                  "complete": {"type": "boolean"}
+                }
+              },
+              "outcome": {"type": "string", "enum": ["passed", "failed_again", "paused", "running"]},
+              "outcome_basis": {"type": "string", "enum": ["validation", "later_escalation", "recorded", "run_status"]}
+            }
+          }
+        },
+        "request_context": {"type": ["object", "null"]},
+        "output_transport": {"type": ["object", "null"]},
+        "direct_rework_assignments": {"type": "array"},
+        "routes": {"type": "object"},
+        "provider": {"type": ["string", "null"]},
+        "route_assignments": {"type": "array"},
+        "information_review": {"type": ["object", "null"]},
+        "tool_containment": {"type": ["string", "null"]},
+        "job_report_recovery": {"type": ["object", "null"]},
+        "efficiency": {"type": ["object", "null"]},
+        "conversation": {"type": ["object", "null"]},
+        "chat": {
+          "type": "object",
+          "required": ["messages", "context", "input"],
+          "properties": {
+            "progress": {"type": "array", "items": {"type": "string"}, "description": "Optional core-authored activity, saved progress counts and recent attempt descriptions. A finished attempt does not mean its result passed verification."},
+            "activity": {"type": "array", "maxItems": 20, "items": {
+              "type": "object", "required": ["kind", "text", "status"],
+              "properties": {
+                "kind": {"enum": ["command", "edit", "tool"]},
+                "text": {"type": "string"},
+                "status": {"enum": ["running", "done", "failed"]},
+                "paths": {"type": "array", "maxItems": 8, "items": {"type": "string"}}
+              }
+            }, "description": "Optional display-only events of the running, supervised attempt, oldest first. A command that exited 0 is not a passed check; never proof, approval or authority to retry."},
+            "review": {"type": ["object", "null"], "properties": {
+              "spend_confirmation": {"type": "object", "required": ["title", "detail", "label"], "properties": {
+                "title": {"type": "string"}, "detail": {"type": "string"}, "label": {"type": "string"},
+                "match": {"enum": ["trim_lower"]}
+              }}
+            }},
+            "messages": {"type": "array", "items": {
+              "type": "object", "required": ["id", "role", "text"],
+              "properties": {"id": {"type": "string"}, "role": {"enum": ["user", "assistant"]}, "text": {"type": "string"}}
+            }},
+            "context": {"type": "string"},
+            "input": {"type": ["object", "null"], "required": ["kind", "label", "next_command"],
+              "properties": {"kind": {"enum": ["feedback", "follow_up", "resolver_response"]}, "label": {"type": "string"}, "next_command": {"type": "string"}}}
+          }
+        },
+        "displayed_plan": {"type": "object", "description": "Present while a sealed plan is displayed for approval."},
+        "approved_contract": {"type": "object", "description": "Present once a plan is approved."}
+      }
+    },
+    "result": {
+      "type": "object",
+      "description": "What the invocation did, under --json only: after a user action or a refused setting, after any other invocation that loaded the run without printing the payload itself, and alone for a refusal before the run loads or a setting refused before a new run's first checkpoint.",
+      "required": ["exit_code", "saved", "message", "error"],
+      "properties": {
+        "exit_code": {"type": "integer", "enum": [0, 2], "description": "The process exit code (docs/cli.md#exit-codes)."},
+        "saved": {"type": "boolean", "description": "True when exit_code is 0: the action was saved, or the task completed."},
+        "message": {"type": "string", "description": "The text a person would have read on stdout."},
+        "error": {
+          "type": ["object", "null"],
+          "description": "Null unless the input was refused; also printed as `{\"error\": ...}` on its own line of stderr: the last one, except after a refused setting, where `autocode: ...` follows.",
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"type": "string", "enum": ["input_rejected"]},
+            "message": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}
