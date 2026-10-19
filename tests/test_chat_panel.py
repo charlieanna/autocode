@@ -282,13 +282,42 @@ class RunListTests(unittest.TestCase):
         rows = panel.run_rows(self.ROWS)
         self.assertEqual(["b", "a", "c"], [row["run_dir"][-1] for row in rows])
         text = panel.runs_text(rows, current="/p/.autocode/runs/a")
-        self.assertIn(" 1. b\n    needs you: Plan approval · 2026-10-19 14:00", text)
-        self.assertIn(" 2. Fix the typo  (this chat)\n    complete · 2026-10-19 13:00", text)
-        self.assertIn(" 3. c\n    cannot be read", text)
+        self.assertIn("  1. b\n     needs you: Plan approval · 2026-10-19 14:00", text)
+        self.assertIn("  2. Fix the typo  (this chat)\n     complete · 2026-10-19 13:00", text)
+        self.assertIn("  3. c\n     cannot be read", text)
         self.assertTrue(text.endswith("Type /open N to open one, or /new to start another."))
 
-    def test_an_empty_project_says_how_to_start(self):
-        self.assertEqual("No chats in this project yet. Type a request to start one.", panel.runs_text([]))
+    def test_an_empty_list_says_how_to_start(self):
+        self.assertEqual("No chats yet. Type a request to start one.", panel.runs_text([]))
+
+    def test_chats_are_grouped_by_project_this_one_first_then_by_latest_activity(self):
+        def chat(workspace, name, at, **more):
+            return {
+                "run_dir": f"{workspace}/.autocode/runs/{name}",
+                "workspace": workspace,
+                "title": name,
+                "status": "TASK_COMPLETE",
+                "updated_at": at,
+                **more,
+            }
+
+        listed = [
+            chat("/w/old", "o1", "2026-10-01T10:00:00"),
+            chat("/w/here", "h1", "2026-10-02T10:00:00"),
+            chat("/w/recent", "r1", "2026-10-18T10:00:00"),
+            chat("/w/here", "h2", "2026-10-03T10:00:00"),
+            chat("/w/recent", "r2", "2026-10-19T10:00:00"),
+            chat("/w/old", "gone", "", availability="checkpoint_missing"),
+            chat("/w/here", "h2", "2026-10-03T10:00:00"),  # listed twice: this project and the registry
+        ]
+        rows = panel.run_rows(listed, here="/w/here")
+        self.assertEqual(["h2", "h1", "r2", "r1", "o1"], [row["title"] for row in rows])
+        self.assertEqual(1, panel.hidden(listed, "/w/here"))
+        text = panel.runs_text(rows, here="/w/here", left_out=1)
+        self.assertTrue(text.startswith("here  /w/here  (this project)\n  1. h2"))
+        self.assertIn("\n\nrecent  /w/recent\n  3. r2", text)
+        self.assertIn("\n\nold  /w/old\n  5. o1", text)
+        self.assertIn("(1 more in other projects cannot be opened: their runs were removed.)", text)
 
     def test_opening_and_starting_a_chat_wait_for_a_question(self):
         working = [command.name for command in panel.commands(asking=False)]

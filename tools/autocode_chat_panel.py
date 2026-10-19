@@ -16,6 +16,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 LOG_LIMIT = 200
 NOTHING_NEEDED = "nothing needed from you"  # the progress view's needs_you when no one is waited on
@@ -394,10 +395,45 @@ class StageLog:
 RUN_STATES = {"TASK_COMPLETE": "complete", "COMPLETE": "complete", "COMPLETED": "complete"}
 
 
-def run_rows(listed: list[dict]) -> list[dict]:
-    """The project's chats as `autocode runs --json` lists them, newest first: how /runs numbers them."""
-    rows = [row for row in listed if isinstance(row, dict) and row.get("run_dir")]
-    return sorted(rows, key=lambda row: (str(row.get("updated_at") or ""), str(row.get("run_dir"))), reverse=True)
+def _readable(row: dict) -> bool:
+    return row.get("availability") in (None, "available")
+
+
+def run_rows(listed: list[dict], here=None) -> list[dict]:
+    """The chats /runs numbers, grouped by project: this project first, then the others by their
+    latest activity; newest first within each. Another project's chat that cannot be read (its run
+    was deleted) is left out; ``hidden`` counts those."""
+    seen: set[str] = set()
+    groups: dict[str, list[dict]] = {}
+    for row in listed:
+        if not isinstance(row, dict) or not row.get("run_dir") or str(row["run_dir"]) in seen:
+            continue
+        seen.add(str(row["run_dir"]))
+        workspace = str(row.get("workspace") or "")
+        if here is not None and workspace != str(here) and not _readable(row):
+            continue
+        groups.setdefault(workspace, []).append(row)
+
+    def newest(row: dict) -> tuple[str, str]:
+        return (str(row.get("updated_at") or ""), str(row.get("run_dir")))
+
+    for rows in groups.values():
+        rows.sort(key=newest, reverse=True)
+    order = [str(here)] * (str(here) in groups) + sorted(
+        (workspace for workspace in groups if workspace != str(here)),
+        key=lambda workspace: newest(groups[workspace][0]),
+        reverse=True,
+    )
+    return [row for workspace in order for row in groups[workspace]]
+
+
+def hidden(listed: list[dict], here) -> int:
+    """How many of another project's chats /runs leaves out because they cannot be read."""
+    return sum(
+        1
+        for row in listed
+        if isinstance(row, dict) and str(row.get("workspace") or "") != str(here) and not _readable(row)
+    )
 
 
 def run_state(row: dict) -> str:
@@ -411,16 +447,33 @@ def run_state(row: dict) -> str:
     return str(row.get("bucket") or row.get("status") or "unknown")
 
 
-def runs_text(rows: list[dict], current=None) -> str:
-    """What /runs prints: each chat's number, request, state and when it last moved."""
+def project_name(workspace: str, here=None) -> str:
+    """A project's heading in /runs: its folder name, where it is, and whether it is this one."""
+    path = workspace.replace(str(Path.home()), "~", 1) if workspace else "(unknown project)"
+    name = Path(workspace).name if workspace else "Other"
+    return f"{name}  {path}" + ("  (this project)" if here is not None and workspace == str(here) else "")
+
+
+def runs_text(rows: list[dict], current=None, *, here=None, left_out: int = 0) -> str:
+    """What /runs prints: each chat's number, request, state and when it last moved, under its project."""
     if not rows:
-        return "No chats in this project yet. Type a request to start one."
-    lines = []
+        return "No chats yet. Type a request to start one."
+    lines: list[str] = []
+    grouped = here is not None or len({str(row.get("workspace") or "") for row in rows}) > 1
+    project = None
     for number, row in enumerate(rows, 1):
+        workspace = str(row.get("workspace") or "")
+        if grouped and workspace != project:
+            project = workspace
+            if lines:
+                lines.append("")
+            lines.append(project_name(workspace, here))
         title = row.get("title") or row.get("name") or row.get("run_dir")
-        here = "  (this chat)" if current is not None and str(row.get("run_dir")) == str(current) else ""
+        mark = "  (this chat)" if current is not None and str(row.get("run_dir")) == str(current) else ""
         when = str(row.get("updated_at") or "").replace("T", " ")[:16]
-        lines.append(f"{number:>2}. {title}{here}")
-        lines.append(f"    {run_state(row)}" + (f" · {when}" if when else ""))
+        lines.append(f"{number:>3}. {title}{mark}")
+        lines.append(f"     {run_state(row)}" + (f" · {when}" if when else ""))
+    if left_out:
+        lines.append(f"({left_out} more in other projects cannot be opened: their runs were removed.)")
     lines.append("Type /open N to open one, or /new to start another.")
     return "\n".join(lines)

@@ -16,9 +16,10 @@ command for the person to run instead.
     autocode chat "..." -- --engine claude          options for a new run, after --
     autocode chat --brief=-v                        a brief that starts with -
 
-Besides the status view it reads only `autocode runs --json` (the project's chats:
-the open one to pick up, and `/runs`, `/open` and `/new` in the full-screen chat)
-and `autocode modes list --json` (a new run's mode). The full-screen chat's
+Besides the status view it reads only `autocode runs --json` (the project's runs: the
+open one to pick up), `autocode runs --all --json` (every project's chats, for `/runs`,
+`/open` and `/new` in the full-screen chat) and `autocode modes list --json` (a new
+run's mode). The full-screen chat's
 `/diff` and `/undo` take a saved code step's `compare` and `restore` actions, which the
 status view names (`view["code_checkpoints"]`); going back makes a new run on a new
 branch, and the chat carries on with it.
@@ -98,16 +99,25 @@ class History:
     def __init__(self, workspace: Path, *, command=AUTOCODE, env=None):
         self.workspace, self.command, self.env = Path(workspace), tuple(command), env
         self.rows: list[dict] = []
+        self.left_out = 0
 
     def list(self) -> list[dict]:
-        self.rows = panel.run_rows(project_runs(self.workspace, command=self.command, env=self.env))
+        """Every project's chats (`runs --all`, the per-user registry), and this project's own runs,
+        which are listed even before the registry knows them; grouped by project, this one first."""
+        listed = [
+            *project_runs(self.workspace, command=self.command, env=self.env),
+            *every_project_runs(command=self.command, env=self.env),
+        ]
+        here = self.workspace.resolve()
+        self.rows, self.left_out = panel.run_rows(listed, here=here), panel.hidden(listed, here)
         return self.rows
 
     def slash(self, name: str, argument: str, current=None):
         """/runs, /open N and /new; the other client commands need a run to act on."""
         if name == "/runs":
             try:
-                return panel.runs_text(self.list(), current)
+                rows = self.list()
+                return panel.runs_text(rows, current, here=self.workspace.resolve(), left_out=self.left_out)
             except actions.ClientGap as error:
                 return str(error)
         if name == "/new":
@@ -738,6 +748,16 @@ def project_runs(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
         return []  # no runs in this project yet
     if proc.returncode != 0:
         raise actions.ClientGap(f"could not list this project's runs: {tail(proc)}")
+    return list(json.loads(proc.stdout)["runs"])
+
+
+def every_project_runs(*, command=AUTOCODE, env=None) -> list[dict]:
+    """Every registered project's runs, as `autocode runs --all --json` lists them."""
+    proc = subprocess.run([*command, "runs", "--all", "--json"], capture_output=True, text=True, env=env)
+    if proc.returncode == 2 and not proc.stdout.strip() and proc.stderr.strip().startswith("No runs found"):
+        return []
+    if proc.returncode != 0:
+        raise actions.ClientGap(f"could not list the projects' runs: {tail(proc)}")
     return list(json.loads(proc.stdout)["runs"])
 
 

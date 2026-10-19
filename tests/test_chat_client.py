@@ -467,15 +467,33 @@ class HistoryTests(unittest.TestCase):
     def client(self):
         client = ScriptedChat(DONE)
         client.history = chat.History(WORKSPACE)
-        patcher = mock.patch.object(chat, "project_runs", return_value=self.ROWS)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, rows in (("project_runs", self.ROWS), ("every_project_runs", [])):
+            patcher = mock.patch.object(chat, name, return_value=rows)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         return client
+
+    def test_runs_also_lists_other_projects_chats_under_their_project(self):
+        client = self.client()
+        other = {
+            "run_dir": "/elsewhere/.autocode/runs/x",
+            "workspace": "/elsewhere",
+            "title": "Elsewhere",
+            "status": "TASK_COMPLETE",
+            "updated_at": "2026-10-19T15:00:00",
+        }
+        with mock.patch.object(chat, "every_project_runs", return_value=[other, self.ROWS[0]]):
+            text = client.slash("/runs", "")
+        self.assertLess(text.index("The other one"), text.index("Elsewhere"), "this project first")
+        self.assertIn("elsewhere  /elsewhere\n  3. Elsewhere", text)
+        with self.assertRaises(chat.Switched):
+            client.slash("/open", "3")
+        self.assertEqual((Path("/elsewhere"), Path(other["run_dir"])), (client.workspace, client.run_dir))
 
     def test_runs_lists_the_projects_chats_and_marks_this_one(self):
         text = self.client().slash("/runs", "")
-        self.assertIn(" 1. The other one", text)
-        self.assertIn(" 2. This one  (this chat)", text)
+        self.assertIn("  1. The other one", text)
+        self.assertIn("  2. This one  (this chat)", text)
 
     def test_open_switches_the_chat_to_that_run(self):
         client = self.client()
@@ -506,7 +524,10 @@ class HistoryTests(unittest.TestCase):
 
     def test_before_a_chat_is_open_open_hands_the_chosen_run_to_open_chat(self):
         history = chat.History(WORKSPACE)
-        with mock.patch.object(chat, "project_runs", return_value=self.ROWS):
+        with (
+            mock.patch.object(chat, "project_runs", return_value=self.ROWS),
+            mock.patch.object(chat, "every_project_runs", return_value=[]),
+        ):
             self.assertIn("This is a new chat", history.slash("/new", ""))
             with self.assertRaises(chat.Opened) as opened:
                 history.slash("/open", "2")

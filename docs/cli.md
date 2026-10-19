@@ -647,7 +647,7 @@ also accepts `-h` / `--help`.
 
 `autocode chat` is the terminal client of the [task-run interface](task-run.md),
 beside the VS Code extension and the browser dashboard. It reads only
-`autocode --status`, `autocode runs --json` (the project's chats, open and finished) and
+`autocode --status`, `autocode runs --json` and `runs --all --json` (your chats, in this project and every registered one) and
 `autocode modes list --json` (a new run's mode), shows the conversation the view
 carries (`view.chat`), and acts
 only through the view's named actions: `next_command`, the `chat.input` message
@@ -709,7 +709,7 @@ highlighted one:
 | `/details` | Why the run is where it is (the view's explanation) |
 | `/diff` | List the saved code steps with the files each changed; `/diff N` shows the files and the diff changed since step N |
 | `/undo N` | At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again |
-| `/runs` | This project's chats, open and finished, newest first: each one's request, its state and when it last moved (also at the first "What do you want done?") |
+| `/runs` | Your chats in every project, open and finished, grouped by project: this project first, then the others by their latest activity, newest chat first in each. Each shows its request, its state and when it last moved; a chat whose run was removed is left out and counted. Also at the first "What do you want done?" |
 | `/open N` | At a question: open chat N from `/runs`. Its whole conversation is shown and you carry on there: a follow-up on a finished chat, or the decision it waits for. The chat you leave stays as it is |
 | `/new` | At a question: start a new chat here; an empty request keeps the current one |
 | `/panel` | Show or hide the side panel |

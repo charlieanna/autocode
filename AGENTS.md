@@ -66,9 +66,10 @@ from those status views; `/pause` is the view's own pause offer. Its `/diff` and
 `/undo` take a saved code step's named `compare` and `restore` actions
 (`view.code_checkpoints`, owner decision 2026-10-19), with `restore` confirmed by the
 person against the comparison it shows. Its `/runs`, `/open` and `/new` (owner decision
-2026-10-19, #1655) list this project's chats from the same `runs --json`, open one to
-carry on there, and start a new one, as the VS Code client's history and new chat do;
-the composer's input history is kept in the project's `.autocode`.
+2026-10-19, #1655) list the chats of this project and of every registered project
+(`runs --json` and `runs --all --json`, grouped by project), open one to carry on
+there, and start a new one, as the VS Code client's history and new chat do; the
+composer's input history is kept in the project's `.autocode`.
 
 A further new client, or growth beyond that contract, needs the owner's decision again.
 

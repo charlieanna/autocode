@@ -83,7 +83,7 @@ def unreadable(run_dir: Path, workspace: Path, reason: str) -> dict:
 
 def title(task) -> str | None:
     """The first line of what the run was asked to do, bounded: how a client names the chat."""
-    first = next((line.strip() for line in str(task or "").splitlines() if line.strip()), "")
+    first = next((line.strip().lstrip("#").strip() for line in str(task or "").splitlines() if line.strip()), "")
     return (first[: TITLE_LIMIT - 1] + "…" if len(first) > TITLE_LIMIT else first) or None
 
 
