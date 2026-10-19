@@ -72,6 +72,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        ("tools/autocode_activity.py", "tools/autocode_process.py"),
+        ("tests.test_kilo_wrapper_idle_cli",),
+    ),
+    (
         (
             "tools/autocode_command_inputs.py",
             "tools/autocode_pause_command.py",

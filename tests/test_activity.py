@@ -234,6 +234,102 @@ class ActivityTests(unittest.TestCase):
                 self.assertEqual("stalled", observed["activity"])
                 self.assertEqual("idle", monitor.expired()["kind"])
 
+    def test_completed_tools_then_model_wait_ignores_only_the_direct_kilo_wrapper(self):
+        # Saved attempt06: three completed tools, finish, then a new API step.
+        # Node's persistent .kilo provider child is not an unreported tool.
+        processes = [
+            {"pid": 10, "parent": 1, "state": "S", "executable": "node"},
+            {"pid": 11, "parent": 10, "state": "S", "executable": ".kilo"},
+        ]
+        monitor = ActivityMonitor(self.path, idle_seconds=300, tool_seconds=600, clock=lambda: self.now)
+        for index in range(3):
+            self.append(
+                {"type": "tool_use", "part": {"id": f"tool-{index}", "tool": "read", "state": {"status": "completed"}}}
+            )
+        monitor.poll(processes=processes, root_pid=10)
+        self.now = 1
+        self.append({"type": "step_finish", "part": {"id": "finished-step"}})
+        monitor.poll(processes=processes, root_pid=10)
+        self.now = 25
+        step = {"type": "step_start", "part": {"id": "pending-model"}}
+        self.append(step)
+        monitor.poll(processes=processes, root_pid=10)
+        self.now = 326
+        observed = monitor.poll(processes=processes, root_pid=10)
+        self.assertIsNotNone(monitor.expired(), "A provider wrapper must not suppress the idle bound")
+        self.assertEqual("idle", monitor.expired()["kind"])
+        self.assertFalse(observed["process_fallback"])
+        self.assertIsNone(observed["tool_elapsed_seconds"])
+        self.assertEqual(0, observed["active_tool_count"])
+        self.assertEqual(3, observed["completed_tool_count"])
+        self.now = 327
+        self.append(step)  # No repeat lifecycle or completion credit.
+        self.append({"type": "tool_use", "part": {"id": "tool-2", "tool": "read", "state": {"status": "completed"}}})
+        observed = monitor.poll(processes=processes, root_pid=10)
+        self.assertEqual(302, observed["idle_seconds"])
+        self.assertEqual("idle", monitor.expired()["kind"])
+
+    def test_real_or_unknown_tools_below_kilo_wrapper_keep_completion_only_grace(self):
+        for executable in ("sh", "node", "python3", None):
+            with self.subTest(executable=executable):
+                self.now = 0
+                self.path.write_text(
+                    json.dumps(
+                        {
+                            "type": "tool_use",
+                            "part": {"id": "finished", "tool": "read", "state": {"status": "completed"}},
+                        }
+                    )
+                    + "\n"
+                )
+                monitor = ActivityMonitor(self.path, idle_seconds=5, tool_seconds=20, clock=lambda: self.now)
+                processes = [
+                    {"pid": 10, "parent": 1, "state": "S", "executable": "node"},
+                    {"pid": 11, "parent": 10, "state": "S", "executable": ".kilo"},
+                    {"pid": 12, "parent": 11, "state": "S", "executable": executable},
+                ]
+                monitor.poll(processes=processes, root_pid=10)
+                self.now = 6
+                observed = monitor.poll(processes=processes, root_pid=10)
+                self.assertTrue(observed["process_fallback"])
+                self.assertIsNone(monitor.expired())
+                self.now = 20
+                self.assertEqual("tool", monitor.expired()["kind"])
+
+    def test_kilo_name_without_the_exact_provider_wrapper_edge_keeps_tool_grace(self):
+        for root_executable, child_executable, parent in (
+            ("python3", ".kilo", 10),
+            (None, ".kilo", 10),
+            ("node", ".kilo", 99),
+            ("node", "kilo", 10),
+            ("node", None, 10),
+        ):
+            with self.subTest(root=root_executable, child=child_executable, parent=parent):
+                self.now = 0
+                self.path.write_text(json.dumps({"type": "text", "part": {"id": "plan", "text": "Checking"}}) + "\n")
+                monitor = ActivityMonitor(self.path, idle_seconds=5, tool_seconds=20, clock=lambda: self.now)
+                observed = monitor.poll(
+                    processes=[
+                        {"pid": 10, "executable": root_executable},
+                        {"pid": 11, "parent": parent, "executable": child_executable},
+                    ],
+                    root_pid=10,
+                )
+                self.assertTrue(observed["process_fallback"])
+                self.now = 6
+                self.assertIsNone(monitor.expired())
+
+    def test_explicit_quiet_tool_keeps_grace_with_only_kilo_wrapper_processes(self):
+        processes = [{"pid": 10, "executable": "node"}, {"pid": 11, "parent": 10, "executable": ".kilo"}]
+        self.codex("started", kind="mcp_tool_call")
+        self.now = 6
+        observed = self.monitor.poll(processes=processes, root_pid=10)
+        self.assertEqual(1, observed["active_tool_count"])
+        self.assertFalse(observed["process_fallback"])
+        self.assertIsNone(self.monitor.expired())
+        self.now = 20
+        self.assertEqual("tool", self.monitor.expired()["kind"])
+
     def test_new_lifecycle_event_still_credits_provider_activity_once(self):
         processes = [{"pid": 10}, {"pid": 11}]
         self.now = 4

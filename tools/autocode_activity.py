@@ -9,8 +9,9 @@ activity. Lifecycle rows alone do not establish tool work: a hung transport
 can announce a step and leave its provider subprocess attached while no model
 output arrives. Neither that case nor an empty log may suppress the idle
 watchdog and burn the full tool budget (#1098, #1562). Recognizable
-MCP server executables are not tool evidence on their own. The bounded interval
-renews only when a new tool completion arrives; unknown concurrent tools cannot
+MCP server executables and the known node-to-.kilo provider wrapper edge are not
+tool evidence on their own. Real children below a wrapper still count. The
+bounded interval renews only when a new tool completion arrives; unknown concurrent tools cannot
 be timed individually.
 """
 
@@ -387,6 +388,20 @@ class ActivityMonitor:
         name = Path(executable).name if isinstance(executable, str) else ""
         return name == "mcp-server" or name.startswith("mcp-server-")
 
+    @staticmethod
+    def _kilo_wrapper(row, root):
+        # The npm launcher waits on its native .kilo provider binary. ProcessTree
+        # supplies birth-checked owned rows: this is activity classification only,
+        # never ownership/cleanup authority, and never prunes the child's subtree.
+        return (
+            isinstance(root, dict)
+            and row.get("parent") == root.get("pid")
+            and isinstance(root.get("executable"), str)
+            and Path(root["executable"]).name == "node"
+            and isinstance(row.get("executable"), str)
+            and Path(row["executable"]).name == ".kilo"
+        )
+
     def poll(self, processes=None, root_pid=None):
         with self._lock:
             now = self.clock()
@@ -396,13 +411,15 @@ class ActivityMonitor:
             idle = None if self._tool_elapsed(now) is not None else now - self._last_activity
             self._read(now)
             if processes is not None and root_pid is not None and not self._explicit_starts:
-                rows = processes.values() if isinstance(processes, dict) else processes
+                rows = list(processes.values() if isinstance(processes, dict) else processes)
+                root = next((row for row in rows if isinstance(row, dict) and row.get("pid") == root_pid), None)
                 descendants = any(
                     isinstance(row, dict)
                     and row.get("pid") != root_pid
                     and row.get("pid") is not None
                     and not str(row.get("state", "")).startswith("Z")
                     and not self._mcp_helper(row)
+                    and not self._kilo_wrapper(row, root)
                     for row in rows
                 )
                 if descendants and self._fallback_started is None and self._had_event_activity:
