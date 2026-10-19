@@ -88,6 +88,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Session ownership receipts are size-checked and read from one opened file descriptor,
+  with a bounded read even if the file grows. A path replacement or removal after opening
+  cannot mix the checked receipt with another file; absent or invalid receipts still block
+  admission without retry or grace (#1662).
+
 - Review findings on changed or unverified source stay blocking when their tests fail
   identically on base and change. The runner checks actual applied source locations,
   including offset patches, before treating an older defect as an observation (#1658).
