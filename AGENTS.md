@@ -39,7 +39,8 @@ It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:
 
 - it starts `autocode` as an argument array with no shell, and reads only
-  `--status`, `registry list --json`, and `connections list --json`;
+  `--status`, `registry list --json`, `connections list --json` and
+  `modes list --json` (a new chat's run mode, passed unchanged);
 - it never imports a module from `tools/`, never reads `state.json`, and never
   parses the CLI's prose to decide what to do;
 - it takes only the action the status view names (`view.next_command` or the

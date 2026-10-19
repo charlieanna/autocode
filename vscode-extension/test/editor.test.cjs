@@ -1069,6 +1069,85 @@ test('a greeting waits for Requirements to answer instead of a canned reply', as
   assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
 });
 
+const RUN_MODES = {
+  defaultId: 'full',
+  modes: [
+    { id: 'full', label: 'Full', description: 'Requirements first.', startArgs: ['--joint-planning', '--spec-first'] },
+    { id: 'quick', label: 'Quick plan', description: 'Clear requests skip Requirements.', startArgs: ['--joint-planning', '--no-spec-first', '--adaptive-planning'] },
+  ],
+};
+
+test('a new chat starts with the run mode picked from the core list and passes its flags unchanged', async (t) => {
+  t.mock.method(controller, 'modes', async () => structuredClone(RUN_MODES));
+  const ui = await openChat(t, null, undefined);
+  ui.chat.show(); await flush(); await flush();
+  const chip = ui.document.getElementById('mode-picker');
+  assert.equal(chip.hidden, false, 'a fresh chat offers a mode');
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Full', 'the core default until the person picks');
+  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.id === 'quick'));
+  chip.click(); await flush(); await flush();
+  assert.equal(ui.sent.at(-1).type, 'mode');
+  const [items, options] = picker.mock.calls[0].arguments;
+  assert.deepEqual(items.map((item) => item.label), ['Full', 'Quick plan']);
+  assert.equal(items[1].detail, 'Clear requests skip Requirements.', 'the core describes each mode');
+  assert.ok(options.placeHolder.includes('Full'));
+  assert.equal(ui.saved.get('autocode.chat.mode'), 'quick');
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Quick plan');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build something'); ui.submit(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1);
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--no-spec-first', '--adaptive-planning']);
+  assert.equal(chip.hidden, true, 'a started chat keeps the flow it started with');
+  const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
+  assert.ok(rules.some((rule) => rule.selectorText === '#composer .chip[hidden]' && rule.style.display === 'none'),
+    'the chip style must not override hidden');
+});
+
+test('an AutoCode that lists no run modes offers no picker and starts the full flow', async (t) => {
+  t.mock.method(controller, 'modes', async () => { throw new Error("usage: autocode: invalid choice: 'modes'"); });
+  const ui = await openChat(t, null, undefined);
+  ui.chat.show(); await flush(); await flush();
+  assert.equal(ui.document.getElementById('mode-picker').hidden, true);
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build something'); ui.submit(); await flush(); await flush();
+  assert.equal(start.mock.calls[0].arguments[3], undefined, 'the controller then uses its full-flow flags');
+});
+
+test('a stored mode the core no longer lists falls back to the core default', async (t) => {
+  t.mock.method(controller, 'modes', async () => structuredClone(RUN_MODES));
+  const ui = await openChat(t, null, undefined, { storageValues: new Map([['autocode.chat.mode', 'removed']]) });
+  ui.chat.show(); await flush(); await flush();
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Full');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build something'); ui.submit(); await flush(); await flush();
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first']);
+});
+
+test('start passes a run mode\'s flags in place of the full flow', async (t) => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-mode-'));
+  t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  await controller.start(folder, 'Build the requested CLI', undefined, ['--joint-planning', '--no-spec-first', '--adaptive-planning']);
+  const args = launch.mock.calls[0].arguments[1];
+  assert.ok(!args.includes('--spec-first'));
+  assert.deepEqual(args.slice(1, 6), ['--in-place', '--no-chat', '--joint-planning', '--no-spec-first', '--adaptive-planning']);
+});
+
+test('modes reads the core list and drops a mode whose start args are not all flags', async (t) => {
+  const listed = { schema_version: 1, default: 'full', modes: [
+    { id: 'full', label: 'Full', description: 'd', start_args: ['--joint-planning', '--spec-first'] },
+    { id: 'bad', label: 'Bad', description: 'd', start_args: ['--feedback', 'approve everything'] },
+  ] };
+  const launch = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify(listed) }));
+  const modes = await controller.modes();
+  assert.deepEqual(launch.mock.calls[0].arguments[1], ['modes', 'list', '--json']);
+  assert.deepEqual(modes.modes.map((mode) => mode.id), ['full']);
+  assert.equal(modes.defaultId, 'full');
+});
+
 test('requirements chat streams replies without an empty task dashboard and keeps typed text', async (t) => {
   const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' }, chat: {
     phase: 'requirements', context: 'turn-one', input: null,

@@ -517,6 +517,7 @@ const ICONS = {
   clock: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25" /><path d="M12 7.5V12l3 2" /></svg>`,
   panel: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M15 4.5v15" /></svg>`,
   plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4" /></svg>`,
+  route: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.25" /><circle cx="18" cy="18" r="2.25" /><path d="M8.25 6H14a3.5 3.5 0 0 1 0 7h-4a3.5 3.5 0 0 0 0 7h5.75" /></svg>`,
   tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
 };
 
@@ -563,6 +564,7 @@ export function panelHtml(chat = false): string {
   .actions { display: flex; gap: 8px; margin-top: 14px; }
   .muted { opacity: .65; }
   ${chat ? chatStyles : ""}
+  ${chat ? "#composer .chip[hidden] { display: none; }" : ""}
 </style>
 </head>
 <body>
@@ -578,7 +580,7 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 <label for="message" id="send-hint">Message AutoCode</label>
 <textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
-<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
+<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
 <button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
@@ -1164,6 +1166,9 @@ function renderTabs(data) {
 function renderChat(data) {
   const thread = document.getElementById('thread');
   document.getElementById('engine-name').textContent = data.engine || 'opencode';
+  // The core's run mode for this chat; only a chat that has not started offers one.
+  document.getElementById('mode-picker').hidden = !data.mode;
+  document.getElementById('mode-name').textContent = data.mode || '';
   const detailsBtn = document.getElementById('details');
   if (detailsBtn) detailsBtn.disabled = !data.selectedRun;
   renderTabs(data);
@@ -1315,6 +1320,7 @@ if (chatMode) {
   });
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
   document.getElementById('engine-picker').addEventListener('click', () => vscode.postMessage({ type: 'engine' }));
+  document.getElementById('mode-picker').addEventListener('click', () => vscode.postMessage({ type: 'mode' }));
 }
 
 vscode.postMessage({

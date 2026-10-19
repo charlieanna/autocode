@@ -124,6 +124,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         (
+            "tools/autocode_run_modes.py",
+            "tools/autocode_args.py",
+            "tools/autocode_adaptive_planning.py",
+            "tools/autocode_requirements_review.py",
+        ),
+        ("tests.test_run_modes",),
+    ),
+    (
+        (
             "tools/autocode_requirements_handoff.py",
             "tools/autocode_requirements_review.py",
             "tools/autocode_workflows.py",

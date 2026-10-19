@@ -9,6 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- New chats in VS Code offer a **Run mode**: Full (the default, Requirements first) or Quick plan,
+  where a clear request goes straight to the plan. The modes and their start flags come from the
+  new `autocode modes list --json`; every mode keeps plan approval, the Tester and the Completion
+  Reviewer.
+
 ### Changed
 
 - New CLI and TaskRun runs select qualified models from connected accounts automatically,
