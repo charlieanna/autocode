@@ -602,6 +602,87 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(["2 earlier chats here. Type /runs to see them."], said)
 
 
+class NewChatSetupTests(unittest.TestCase):
+    """/mode, /engine and /connect through the History the full-screen chat binds."""
+
+    def history(self, folder):
+        from tests.test_chat_setup import CONNECTIONS, MODES
+
+        history = chat.History(Path(folder))
+        listings = {"modes": MODES, "connections": CONNECTIONS}
+        checked = {
+            "id": "opencode",
+            "label": "OpenCode",
+            "connection_status": "credentials_present",
+            "detail": "Saved.",
+        }
+        history.read = lambda argv: checked if argv[:2] == ["connections", "check"] else listings[argv[0]]
+        return history
+
+    def test_mode_and_engine_change_what_new_chats_start_with_and_are_kept(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / ".autocode").mkdir()
+            history = self.history(folder)
+            self.assertEqual("New chats start in Quick plan.", history.slash("/mode", "quick"))
+            self.assertEqual("New chats run on Claude Code.", history.slash("/engine", "claude"))
+            self.assertIn("There is no mode 'fast'", history.slash("/mode", "fast"))
+            self.assertEqual(chat.setup.NewChat("quick", ["--provider", "claude", "--engine", "claude"]), history.new)
+            self.assertEqual(history.new, chat.setup.NewChat.load(Path(folder)))
+
+    def test_connect_checks_signs_in_through_the_terminal_and_uses_a_backend(self):
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            self.assertIn("/connect opencode check|login|use", history.slash("/connect", ""))
+            self.assertEqual("OpenCode: credentials present. Saved.", history.slash("/connect", "opencode check"))
+            ran = []
+            history.outside = lambda argv, label: ran.append((argv[-4:], label)) or 0
+            self.assertIn("Sign in / Reconnect finished (exit 0)", history.slash("/connect", "opencode login"))
+            self.assertEqual([(["connections", "login", "--provider", "opencode"], "Sign in / Reconnect")], ran)
+            self.assertIn("offers no 'setup'", history.slash("/connect", "opencode setup"))
+            self.assertIn("cannot start chats yet", history.slash("/connect", "kilocode use"))
+            self.assertIn("New chats use OpenCode", history.slash("/connect", "opencode use"))
+            self.assertIn("for this session", history.slash("/connect", "opencode use"), "no .autocode: not kept")
+            self.assertEqual(["--provider", "opencode"], history.new.options)
+
+
+class StreamAndNoticeTests(unittest.TestCase):
+    def test_a_reply_being_written_is_streamed_then_replaced_by_the_finished_message(self):
+        streamed = []
+        client = ScriptedChat({})
+        client._stream = streamed.append
+        live = {
+            "chat": {
+                "messages": [
+                    {"id": "requirements-live", "role": "assistant", "text": "Thinking about", "streaming": True}
+                ]
+            }
+        }
+        client.show(live)
+        client.show({"chat": {"messages": [{"id": "m2", "role": "assistant", "text": "Done thinking."}]}})
+        self.assertEqual(["Thinking about", None], streamed)
+        self.assertNotIn("Thinking about", client.text(), "the live text is never printed as a message")
+        self.assertIn("AutoCode: Done thinking.", client.text())
+
+    def test_the_wait_a_notice_tells_apart(self):
+        self.assertEqual(("done",), chat.wait_identity({"done": True}))
+        self.assertIsNone(chat.wait_identity({"needs": {"kind": "continue"}}))
+        self.assertEqual(
+            ("approve_plan", "", "", "", "r2:h", ""),
+            chat.wait_identity({"needs": {"kind": "approve_plan", "token": "r2:h"}}),
+        )
+
+    def test_a_chat_left_earlier_is_announced_once_when_it_starts_to_wait(self):
+        client = ScriptedChat(DONE)
+        client.others = {f"{WORKSPACE}/.autocode/runs/r0": (WORKSPACE, None)}
+        waiting = {
+            "view": {"needs": {"kind": "approve_plan", "token": "t"}, "progress": {"needs_you": "plan approval needed"}}
+        }
+        client.cli = lambda argv, env=None: subprocess.CompletedProcess(argv, 0, json.dumps(waiting), "")
+        client.check_others(every=0)
+        client.check_others(every=0)
+        self.assertEqual(1, client.text().count("Another chat needs you: plan approval needed (r0)"))
+
+
 class InterruptTests(unittest.TestCase):
     """Ctrl-C while a stage works, against a real child that stands in for AutoCode."""
 

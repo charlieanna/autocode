@@ -18,6 +18,8 @@ import curses
 import json
 import locale
 import re
+import signal
+import subprocess
 import sys
 import threading
 import time
@@ -192,6 +194,7 @@ class Transcript:
 
     blocks: list[tuple[str, str]] = field(default_factory=list)
     activity: str = ""
+    live: str = ""  # an assistant reply still being written (the view's streaming message), shown last
 
     def add(self, text: str) -> bool:
         """Add a spoken block; a progress line updates the status row instead."""
@@ -243,6 +246,11 @@ class Transcript:
                     label, _, body = text.partition("\n")
                 rendered.append((f"{role}-label", label))
                 rendered.extend((f"{role}-body", "  " + line) for line in wrap(body, max(1, width - 2)))
+            rendered.append(("plain", ""))
+        if self.live.strip():
+            rendered.append(("assistant-label", "AutoCode · writing…"))
+            text = safe_text(self.live).strip("\n")
+            rendered.extend(("assistant-body", "  " + line) for line in wrap(text, max(1, width - 2)))
             rendered.append(("plain", ""))
         return rendered
 
@@ -535,6 +543,32 @@ class ChatTUI:
         if self._history_file is not None and keep_history(self._history_file, self._unsaved):
             self._unsaved = []
 
+    def outside(self, argv: list[str], label: str = "AutoCode") -> int:
+        """Run an interactive command (a backend's sign-in or setup) on the terminal itself: the screen
+        steps aside, the command gets the keyboard and Ctrl-C, and the chat comes back afterwards."""
+        with self._lock:
+            screen = self._screen
+            if self._closed or screen is None:
+                return subprocess.call(argv)
+            self._bracketed_paste(False)
+            with contextlib.suppress(curses.error):
+                curses.endwin()
+            print(f"\n{label}: the chat comes back when it finishes.\n", flush=True)
+            previous = signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl-C is for the command, not the chat
+            try:
+                code = subprocess.call(argv, preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+            except OSError as error:
+                print(f"Could not run it: {error}")
+                code = 127
+            finally:
+                signal.signal(signal.SIGINT, previous)
+                with contextlib.suppress(curses.error):
+                    screen.clearok(True)
+                    screen.refresh()
+                self._bracketed_paste(True)
+            self._draw()
+            return code
+
     def switch(self, workspace: Path, run_dir: Path) -> None:
         """The client opened another chat (/open, /new): start its screen afresh, like a new tab."""
         with self._lock:
@@ -548,6 +582,14 @@ class ChatTUI:
         show, or a ``Confirm`` to ask first. It may raise to leave the question being asked."""
         with self._lock:
             self._act = act
+
+    def stream(self, text: str | None) -> None:
+        """The reply AutoCode is writing now, from the view's streaming message; None once it is done."""
+        with self._lock:
+            if self._closed or self._transcript.live == (text or ""):
+                return
+            self._transcript.live = text or ""
+            self._draw()
 
     def observe(self, view: dict) -> None:
         """The status view the client just read: the panel and the log draw from it alone."""
@@ -593,6 +635,10 @@ class ChatTUI:
                 raise EOFError
             with contextlib.suppress(curses.error):
                 curses.flushinp()  # keys typed while AutoCode worked never answer a question nobody saw
+            if self._launched:
+                with contextlib.suppress(curses.error):
+                    curses.beep()  # AutoCode worked and now needs you: the terminal's own alert
+            self._transcript.live = ""
             self._prompt = " ".join(prompt.split())
             self._asking = True
             self._launched = False

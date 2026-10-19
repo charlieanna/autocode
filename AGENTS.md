@@ -70,7 +70,12 @@ person against the comparison it shows. Its `/runs`, `/open` and `/new` (owner d
 2026-10-19, #1655) list the chats of this project and of every registered project
 (`runs --json` and `runs --all --json`, grouped by project), open one to carry on
 there, and start a new one, as the VS Code client's history and new chat do; the
-composer's input history is kept in the project's `.autocode`.
+composer's input history is kept in the project's `.autocode`. Its `/mode`, `/engine`
+and `/connect` (owner decision 2026-10-19) read `modes list --json` and
+`connections list --json` and take only a connection's named `actions[].next_command`;
+an interactive `login` or `setup` runs on the terminal while the full-screen chat
+steps aside. A choice for new chats is kept in the project's
+`.autocode/chat-settings.json`.
 
 A further new client, or growth beyond that contract, needs the owner's decision again.
 

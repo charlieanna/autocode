@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The terminal chat now does what the VS Code extension's pickers and Connections view do:
+  `/mode` and `/engine` choose what new chats start with (kept per project), and `/connect`
+  lists the backends, runs a connection's check, hands the terminal to its sign-in or setup,
+  or uses it for new chats. Requirements' reply streams in as it is written, the terminal
+  bell rings when AutoCode needs you, and a chat opened earlier in the session is announced
+  when it starts to wait or finishes.
+
 - The terminal chat asks before AutoCode spends, as the VS Code extension does: it shows
   the core's spend confirmation and asks `Prepare plan? [y/N]` before paid planning, and asks
   `Start it? [y/N]` before starting a run whose mode can plan at once (`--mode quick`).
