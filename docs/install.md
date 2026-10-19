@@ -21,7 +21,8 @@ pipx install git+https://github.com/charlieanna/autocode
 ```
 
 AutoCode is not on PyPI yet. After the first release this step becomes
-`pipx install autocode-supervisor`. If pipx's Python is older than 3.11, add
+`pipx install autocode-supervisor`, or `brew install charlieanna/tap/autocode`
+with Homebrew ([Releasing](releasing.md#homebrew)). If pipx's Python is older than 3.11, add
 `--python python3.11`.
 
 **2. Install the engine and sign in.** The default engine is OpenCode. The terminal

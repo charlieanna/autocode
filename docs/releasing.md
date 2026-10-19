@@ -38,3 +38,34 @@ store or rotate.
 
 PyPI never accepts the same file twice. Once an upload has succeeded, fix a bad release
 with a new version, not by moving the tag.
+
+## Homebrew
+
+Homebrew installs AutoCode from a tap, `charlieanna/homebrew-tap`, whose
+`Formula/autocode.rb` pins the PyPI release's source archive and each runtime
+dependency by sha256. People then install with:
+
+```sh
+brew install charlieanna/tap/autocode
+```
+
+### One-time setup
+
+Create the public GitHub repository `charlieanna/homebrew-tap` with an empty
+`Formula/` directory. Homebrew finds `charlieanna/tap` by that name.
+
+### Each release
+
+After the PyPI release above has succeeded, from a checkout of the release tag:
+
+```sh
+python3 scripts/homebrew_formula.py 0.8.0 > ../homebrew-tap/Formula/autocode.rb
+cd ../homebrew-tap
+brew install --build-from-source ./Formula/autocode.rb && brew test autocode
+git commit -am "autocode 0.8.0" && git push
+```
+
+The script refuses a version other than `pyproject.toml`'s and a release with no
+source archive on PyPI. The formula builds a virtualenv on Homebrew's Python and
+links only the public `autocode` command; `brew test` checks that it reports the
+release's version.
