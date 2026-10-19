@@ -1890,7 +1890,7 @@
 
 
 <h1 id="replay-a-saved-run">Replay a saved run<a class="headerlink" href="#replay-a-saved-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d93bef3b1ede7f1c7f7c7a28a53200158584f961/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/4024d10c59e61a0d6282512ec8eb06f58dc51891/README.md">← Back to README</a></p>
 <p>Replay drives a fresh AutoCode task run with a saved brief, model routes and
 provider events. It makes no model calls. Normal replay runs the current
 verification checks again; a previous PASS cannot establish a current PASS.
@@ -1934,6 +1934,14 @@ can still be recovered from a saved source capture, a Git revision or a matching
 current file. The final tree cannot substitute for a missing intermediate tree.
 A recording that ended before a trustworthy provider exit cannot be emitted as
 a completed attempt.</p>
+<p>Replay preserves the Plan Reviewer's archived effective reasoning effort instead
+of reducing it again for a small task. Review allowances still apply, and each
+dispatch must match its recorded route exactly. Optional provider <code>light_effort</code>
+values remain part of the portable role configuration.</p>
+<p>The format stores the saved role configuration, not its complete configuration
+history. If one role used different efforts at earlier stages, its final saved
+effort may not reproduce those stages; replay refuses that mismatch. It does not
+guess an earlier tier for legacy recordings.</p>
 <p>The first recording format supports serial Builder dispatches. Export refuses
 concurrent Builders, retained protected-test files or commands, and external
 visual or Figma startup. Those paths need additional portable evidence; export
