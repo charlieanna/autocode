@@ -8,9 +8,11 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_contract_identity as contract_identity
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
 except ImportError:
+    import autocode_contract_identity as contract_identity
     import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
 
@@ -39,6 +41,38 @@ def response(state: RunState) -> str:
     return report.get("summary") or report.get("reason") or "The requested task is complete."
 
 
+def _approved_plan(state: RunState, event) -> str | None:
+    """Recover the plan this receipt approved, including revisions archived by later turns."""
+    for contract in [state.get("goal_contract"), *(state.get("contract_history") or [])]:
+        if not isinstance(contract, dict) or contract.get("approval_event") != event:
+            continue
+        try:
+            if not contract_identity.approved(
+                {"goal_contract": contract, "user_events": state.get("user_events") or []}
+            ):
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue  # A missing or damaged plan cannot supply historical approval text.
+        body = contract["body"]
+        lines = [f"Approved plan · revision {contract['revision']}"]
+        if body.get("intended_outcome"):
+            lines += [body["intended_outcome"]]
+        for criterion in body.get("acceptance_criteria") or []:
+            lines += ["- " + criterion["criterion"]]
+            if criterion.get("verification_method"):
+                lines += ["  Checked by: " + criterion["verification_method"]]
+            if criterion.get("human_review") is True:
+                lines += ["  Also needs your review."]
+        for key, title in (("constraints", "Constraints"), ("permission_boundaries", "What it may do")):
+            if body.get(key):
+                lines += ["", title + ":", *("- " + text for text in body[key])]
+        delivery = body.get("git_delivery") or {}
+        if delivery.get("kind") == "atomic_commit":
+            lines += ["", "Git delivery: one atomic commit — " + delivery["message"]]
+        return "\n".join(lines)
+    return None
+
+
 def messages(state: RunState, *, completed=False) -> list[dict]:
     turns = state.get("turns") or []
     initial = (turns[0].get("previous") or {}).get("task") if turns else state.get("task")
@@ -48,6 +82,9 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     for index, event in enumerate(state.get("user_events") or []):
         if event.get("kind") == "goal_approval" and event.get("token"):
+            plan = _approved_plan(state, event)
+            if plan:
+                rows.append({"id": f"plan-{event['token']}", "role": "assistant", "text": plan})
             rows.append({"id": f"approval-{index}", "role": "user", "text": APPROVED_PLAN})
             continue
         if (
