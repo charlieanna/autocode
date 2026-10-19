@@ -69,6 +69,19 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/milestones/", ("tests.test_milestone_policy",)),
     ("tools/prompts/fragments/milestone-replan/", ("tests.test_milestone_policy", "tests.test_milestone_replan")),
     ("tools/prompts/fragments/autoplanner/", ("tests.test_autoplanner_review", "tests.test_planning_stages")),
+    (
+        "tools/prompts/fragments/autoplanner/obligation-",
+        ("tests.test_planning", "tests.test_autoplanner_step3", "tests.test_reviewer_effort_cli"),
+    ),
+    (
+        "tools/prompts/fragments/autoplanner/progressive-",
+        (
+            "tests.test_planning",
+            "tests.test_progressive_plan_flow",
+            "tests.test_progressive_rules",
+            "tests.test_reviewer_effort_cli",
+        ),
+    ),
     ("tools/prompts/fragments/adaptive-planning/", ("tests.test_adaptive_planning",)),
     ("tools/prompts/fragments/autoreview/", ("tests.test_completion_properties", "tests.test_rework_policy")),
     ("tools/prompts/fragments/workflow/", ("tests.test_workflow", "tests.test_final_workflow")),

@@ -54,6 +54,11 @@ PR template asks for an entry here; a change without one is incomplete.
   its `[y/N]` in view (the command is shown above it), and the chat's last words stay on the terminal
   when it closes: an error or interrupt, and the whole hand-off including the command to run.
 
+- Planning prompts ask each stage only for report fields its schema accepts:
+  the Planner proposes remediations, the Plan Reviewer judges them, and the
+  first review checks progressive proposals without returning one. This fixes
+  contradictory report instructions; the #1630 timeout cause remains unverified.
+
 - Review evidence exports accept the optional, typed attribution metadata added
   for explicit-patch findings. Canonical review reports and external-change
   verification no longer fail export on that field (#1632 follow-up).
