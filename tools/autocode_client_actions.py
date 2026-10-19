@@ -291,6 +291,35 @@ def plan_for_approval(view: dict) -> dict | None:
     return plan
 
 
+def review_criteria(view: dict) -> list[dict] | None:
+    """The criteria a review need asks a person to accept, each with its text, or None.
+
+    A row names its criterion by id (or carries its text); the text comes from the
+    approved plan. A criterion whose text the view does not carry makes the whole
+    review unshowable, as an incomplete plan is for approval.
+    """
+    need = view.get("needs") or {}
+    contract = (view.get("approved_contract") or {}).get("body") or {}
+    planned = contract.get("acceptance_criteria") or (view.get("displayed_plan") or {}).get("acceptance_criteria")
+    known = {
+        row["id"]: row["criterion"]
+        for row in planned or []
+        if isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("criterion"), str)
+    }
+    rows = need.get("criteria")
+    if need.get("kind") != "review" or not isinstance(rows, list) or not rows:
+        return None
+    shown = []
+    for row in rows:
+        key = row.get("id") if isinstance(row, dict) else row
+        text = row.get("criterion") if isinstance(row, dict) and isinstance(row.get("criterion"), str) else None
+        text = text or known.get(key)
+        if not isinstance(key, str) or not text:
+            return None
+        shown.append({"id": key, "criterion": text})
+    return shown
+
+
 def message(view: dict, text: str, shown_context: str, workspace: Path, run_dir: Path) -> NamedCommand:
     """A person's message through the view's chat input offer, bound to the conversation they read.
 

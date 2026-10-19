@@ -56,7 +56,13 @@ It is a client of the
 - it never launches a model on its own, and binds an approval to the plan token
   it displayed, so it cannot approve a plan nobody read.
 
-A second new client, or growth beyond that contract, needs the owner's decision again.
+**Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
+The same contract as the VS Code client, with the shared rules in
+`tools/autocode_client_actions.py`: it starts `autocode` as an argument array, reads
+only `--status`, `runs --json` and `modes list --json`, and takes only the actions
+the status view names.
+
+A further new client, or growth beyond that contract, needs the owner's decision again.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports
 were archived at tag `archive/pre-restructure-2026-09-26`

@@ -14,9 +14,13 @@ command for the person to run instead.
     autocode chat                                   pick up this project's open run, or ask what to do
     autocode chat --run-dir RUN                     pick up that run
     autocode chat "..." -- --engine claude          options for a new run, after --
+    autocode chat --brief=-v                        a brief that starts with -
+
+Besides the status view it reads only `autocode runs --json` (the project's open
+runs) and `autocode modes list --json` (a new run's mode).
 
 While a stage works, Ctrl-C asks the run to pause after the current step (the
-view's named pause) and a second Ctrl-C interrupts it. Leaving the chat at a
+view's named pause), a second Ctrl-C interrupts the step and a third stops AutoCode. Leaving the chat at a
 question or a plan changes nothing; `autocode chat` picks the run up again.
 
 Exit codes: 0 the run completed, 2 it is waiting for a person (or the person left
@@ -49,6 +53,8 @@ except ImportError:
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 POLL_SECONDS = 2.0
 YES = ("y", "yes")
+# What a relaunch must change, as TaskRun.advance_until_input and the scenario driver check.
+PROGRESS_KEYS = ("status", "next_stage", "iteration", "phase", "needs")
 
 
 class Left(Exception):
@@ -117,7 +123,8 @@ class ChatClient:
         """One call that works until the run stops; meanwhile show what the view says.
 
         The child runs in its own process group, so Ctrl-C reaches only this client:
-        the first asks for the view's boundary pause, the second interrupts the child.
+        the first asks for the view's boundary pause, the second interrupts the child
+        and a third stops it. The chat never exits while the child still runs.
         """
         with tempfile.TemporaryFile("w+") as log:
             child = subprocess.Popen(
@@ -139,10 +146,20 @@ class ChatClient:
                     break
                 except KeyboardInterrupt:
                     interrupts += 1
-                    if interrupts == 1 and self.request_pause():
-                        continue
-                    child.send_signal(signal.SIGINT)
-                    self.say("Interrupting the current step...")
+                    try:
+                        if interrupts == 1 and self.request_pause():
+                            continue
+                    except KeyboardInterrupt:  # Ctrl-C again while the pause was being asked for
+                        interrupts += 1
+                    if interrupts == 2:
+                        child.send_signal(signal.SIGINT)
+                        self.say("Interrupting the current step... Ctrl-C again stops AutoCode.")
+                    else:
+                        with contextlib.suppress(ProcessLookupError):
+                            os.killpg(child.pid, signal.SIGTERM)
+                        self.say("Stopping AutoCode...")
+            if interrupts > 2 and child.returncode not in (0, 2):
+                raise actions.ClientGap("stopped AutoCode in the middle of a step; `autocode chat` picks the run up")
             if child.returncode not in (0, 2):
                 log.seek(0)
                 raise actions.ClientGap(f"AutoCode exited {child.returncode}: {log.read()[-2000:].strip()}")
@@ -156,8 +173,8 @@ class ChatClient:
             return True
         proc = self.cli(words)
         if proc.returncode != 0:
-            self.say(f"The pause was not accepted: {tail(proc)}")
-            return False
+            self.say(f"The pause was not accepted: {tail(proc)}. Press Ctrl-C again to interrupt the current step.")
+            return True
         self.say(f"{(view.get('pause') or {}).get('effect') or 'Pausing after this step.'} Ctrl-C again interrupts.")
         return True
 
@@ -216,6 +233,7 @@ class ChatClient:
                         self.watch()
                     else:
                         self.take(actions.named(view, self.workspace, self.run_dir))
+                        self.require_progress(view)
                     continue
                 if not self.respond(view):
                     return 2
@@ -225,6 +243,16 @@ class ChatClient:
         except actions.ClientGap as error:
             self.say(f"\n{error}")
             return 1
+
+    def require_progress(self, before: dict) -> None:
+        """A relaunch that changed nothing would be relaunched forever: stop and say where it stands."""
+        after = self.status()
+        if after.get("done") or any(after.get(key) != before.get(key) for key in PROGRESS_KEYS):
+            return
+        raise actions.ClientGap(
+            f"AutoCode made no progress at {before.get('status')} (next stage {before.get('next_stage')}); "
+            f"see autocode --status --run-dir {self.run_dir}"
+        )
 
     def watch(self) -> None:
         """Another process is advancing the run: show its progress until it stops."""
@@ -244,20 +272,30 @@ class ChatClient:
             return self.approve(view)
         if offer.get("kind") == "resolver_response":
             return self.resolver_reply(view)
-        command = actions.named(view, self.workspace, self.run_dir)
-        missing = actions.unsupplied(view, command)
-        if missing:
-            self.say(
-                f"\nAutoCode needs you for this one ({view.get('pause_category_label') or need.get('kind')}). "
-                f"{need.get('reason') or view.get('stop_reason') or ''}\nRun it yourself:\n  {view.get('next_command')}"
-            )
-            return False
-        decided = actions.decisions(view, command)
+        try:
+            command = actions.named(view, self.workspace, self.run_dir)
+            decided = actions.decisions(view, command)
+        except actions.ClientGap:
+            return self.hand_off(view)  # another run's command (a dependency), or none at all (a stop)
+        if actions.unsupplied(view, command):
+            return self.hand_off(view)
         if (view.get("chat") or {}).get("phase") == "requirements" and need.get("kind") == "answer":
             return self.requirements(view, command)
         if any(row.kind in ("answer", "model") for row in decided):
             return self.answer(view, command, decided)
         return self.confirm(view, command, decided)
+
+    def hand_off(self, view: dict) -> bool:
+        """A need this client takes no action for: say why, and the command the view names, if any."""
+        need = view.get("needs") or {}
+        label = view.get("pause_category_label") or need.get("kind")
+        why = need.get("reason") or view.get("stop_reason") or ""
+        self.say(f"\nAutoCode needs you for this one ({label}). {why}".rstrip())
+        if view.get("next_command"):
+            self.say(f"Run it yourself:\n  {view['next_command']}")
+        else:
+            self.say(f"There is nothing to run from here; see autocode --explain --run-dir {self.run_dir}")
+        return False
 
     def approve(self, view: dict) -> bool:
         token = actions.approval_token(view)
@@ -301,7 +339,8 @@ class ChatClient:
                 return True
             self.take(actions.fill(fresh, command, {review["question_id"]: review["answer"]}))
             return self.continue_after_input()
-        if reply.lower() in ("", "n", "no") if review else not reply:
+        declined = reply.lower() in ("", "n", "no") if review else not reply
+        if declined:
             self.say(f"Nothing sent. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
         return self.send(reply, context)
@@ -309,7 +348,7 @@ class ChatClient:
     def answer(self, view: dict, command: actions.NamedCommand, decided: list[actions.Decision]) -> bool:
         answers = {}
         for row in decided:
-            answers[row.key] = self.decide(row)
+            answers[row.key] = self.decide(row, view.get("needs") or {})
         fresh = self.status()
         if fresh.get("needs") != view.get("needs"):
             self.say("The question changed while you were answering; here is the current one.")
@@ -317,7 +356,7 @@ class ChatClient:
         self.take(actions.fill(fresh, command, answers))
         return self.continue_after_input()
 
-    def decide(self, row: actions.Decision) -> str:
+    def decide(self, row: actions.Decision, need: dict) -> str:
         if row.kind == "integer":
             spec = row.integer or {}
             while True:
@@ -327,6 +366,13 @@ class ChatClient:
                 except actions.ClientGap as error:
                     self.say(str(error))
         if row.kind == "model":
+            route = need.get("route") or {}
+            if asked := (row.question or {}).get("question"):
+                self.say(f"\nAutoCode: {asked}")
+            if route.get("stopped_model"):
+                self.say(f"  Stopped on: {route['stopped_model']} ({route.get('cause') or 'quota'})")
+            if route.get("candidates"):
+                self.say("  Models it can continue on: " + ", ".join(map(str, route["candidates"])))
             while not (text := self.ask(f"\nWhich model should {row.key.removeprefix('route-')} continue on? ")):
                 pass
             return text
@@ -367,11 +413,21 @@ class ChatClient:
         need = view.get("needs") or {}
         label = view.get("pause_category_label") or need.get("kind")
         why = need.get("reason") or view.get("stop_reason") or (view.get("progress") or {}).get("needs_you") or ""
-        self.say(f"\nAutoCode stopped: {label}. {why}".rstrip())
+        if need.get("kind") == "review":
+            criteria = actions.review_criteria(view)
+            if criteria is None:
+                return self.hand_off(view)  # never ask to accept criteria the person cannot read
+            self.say(f"\nAutoCode: {need.get('question') or 'Review these criteria before accepting them.'}")
+            for row in criteria:
+                self.say(f"  [{row['id']}] {row['criterion']}")
+            self.say(f"(The evidence for each: autocode review --show --run-dir {self.run_dir})")
+        else:
+            self.say(f"\nAutoCode stopped: {label}. {why}".rstrip())
         if need.get("recovery_hint"):
             self.say(need["recovery_hint"])
-        answers = {row.key: self.decide(row) for row in decided}
-        if self.ask(f"Continue ({view.get('next_command')})? [y/N]: ").lower() not in YES:
+        answers = {row.key: self.decide(row, need) for row in decided}
+        prompt = "Accept these criteria" if need.get("kind") == "review" else "Continue"
+        if self.ask(f"{prompt} ({view.get('next_command')})? [y/N]: ").lower() not in YES:
             self.say(f"Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
         fresh = self.status()
@@ -466,7 +522,7 @@ def unfinished(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
     proc = subprocess.run(
         [*command, "runs", "--workspace", str(workspace), "--json"], capture_output=True, text=True, env=env
     )
-    if proc.returncode == 2 and not proc.stdout.strip():
+    if proc.returncode == 2 and not proc.stdout.strip() and proc.stderr.strip().startswith("No runs found"):
         return []  # no runs in this project yet
     if proc.returncode != 0:
         raise actions.ClientGap(f"could not list this project's runs: {tail(proc)}")
@@ -497,9 +553,10 @@ def open_chat(
             say("Runs waiting here:")
             for number, row in enumerate(runs, 1):
                 say(f"  {number}. {row['name']} ({row.get('pause_category_label') or row['bucket']})")
-            choice = ask(f"Pick one (1-{len(runs)}), or type a new request: ").strip()
-            if choice.isdigit() and 1 <= int(choice) <= len(runs):
-                return ChatClient(workspace, Path(runs[int(choice) - 1]["run_dir"]), ask=ask, say=say, **kwargs)
+            while (choice := ask(f"Pick one (1-{len(runs)}), or type a new request: ").strip()).isdigit():
+                if 1 <= int(choice) <= len(runs):
+                    return ChatClient(workspace, Path(runs[int(choice) - 1]["run_dir"]), ask=ask, say=say, **kwargs)
+                say(f"There is no run {choice}.")
             brief = choice
         else:
             brief = ask("What do you want done? ").strip()
@@ -517,6 +574,7 @@ def parser() -> argparse.ArgumentParser:
         prog="autocode chat", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     result.add_argument("brief", nargs="?", help="what you want done; starts a new run (omit to pick up a run)")
+    result.add_argument("--brief", dest="brief_option", metavar="TEXT", help="the brief, for one that starts with -")
     result.add_argument("--workspace", type=Path, help="the project; the current directory by default")
     result.add_argument("--run-dir", type=Path, help="pick up this run instead of the project's open one")
     result.add_argument("--mode", help="run mode for a new run, from `autocode modes list` (default: the core's)")
@@ -531,6 +589,10 @@ def cli(argv: list[str] | None = None) -> int:
         argv, options = argv[:index], argv[index + 1 :]
     arguments = parser()
     args = arguments.parse_args(argv)
+    if args.brief_option is not None:
+        if args.brief is not None:
+            arguments.error("give the brief once, as an argument or with --brief")
+        args.brief = args.brief_option
     if args.brief is not None and args.run_dir is not None:
         arguments.error("a brief starts a new run; --run-dir picks up an existing one, not both")
     if args.run_dir is not None and (options or args.mode):
