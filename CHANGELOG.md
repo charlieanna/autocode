@@ -9,13 +9,6 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
-### Fixed
-
-- The full-screen chat's `/` menu reached only its first six commands with the arrow keys; it now
-  scrolls to keep the choice in view (up to ten rows, fewer on a short screen). Before a chat is
-  open it offers only what works without one: `/runs`, `/open`, `/mode`, `/engine`, `/connect`,
-  `/help` and `/quit`.
-
 ### Added
 
 - The terminal chat now does what the VS Code extension's pickers and Connections view do:
@@ -94,6 +87,11 @@ PR template asks for an entry here; a change without one is incomplete.
   table. `--no-auto-select` retains fixed defaults (#1426).
 
 ### Fixed
+
+- The full-screen chat's `/` menu reached only its first six commands with the arrow keys; it now
+  scrolls to keep the choice in view (up to ten rows, fewer on a short screen). Before a chat is
+  open it offers only what works without one: `/runs`, `/open`, `/mode`, `/engine`, `/connect`,
+  `/help` and `/quit`.
 
 - Review findings on changed or unverified source stay blocking when their tests fail
   identically on base and change. The runner checks actual applied source locations,
