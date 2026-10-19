@@ -10,6 +10,8 @@
  * No VS Code API and no Node built-ins, so it is unit-testable in-process.
  */
 
+import type { IntegerCommandInput, StatusView } from "./view";
+
 export class ClientGap extends Error {
   constructor(message: string) {
     super(message);
@@ -127,12 +129,44 @@ export function parseNamedCommand(
 export interface OpenDecision {
   questionId: string;
   placeholder: string;
-  kind: "answer" | "model";
+  kind: "answer" | "model" | "integer";
+  input?: IntegerCommandInput;
+}
+
+/** Validate the one typed slot the core names; no arbitrary N or extra authority. */
+export function commandInputs(view: StatusView, named: NamedCommand): IntegerCommandInput[] {
+  const rows = view.needs?.command_inputs;
+  if (rows === undefined) return [];
+  const input = Array.isArray(rows) && rows.length === 1 ? rows[0] : undefined;
+  const token = view.recovery?.token;
+  if (!input || view.status !== "PAUSED_TIME_LIMIT" || view.needs?.kind !== "resume"
+    || view.needs.new_run_required || view.needs.edit_required
+    || JSON.stringify(named.argv) !== JSON.stringify(["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"])
+    || typeof token !== "string" || !token
+    || Object.keys(named.env).length !== 1 || named.env.AUTOCODE_EXPECTED_RECOVERY_TOKEN !== token
+    || input.id !== "max_seconds" || input.kind !== "integer" || input.flag !== "--max-seconds"
+    || input.placeholder !== "N" || input.arg_index !== 2 || input.label !== "Total active time (seconds)"
+    || !Number.isSafeInteger(input.current) || input.current <= 0 || input.current >= Number.MAX_SAFE_INTEGER
+    || typeof input.elapsed !== "number" || !Number.isFinite(input.elapsed) || input.elapsed < 0 || input.elapsed >= Number.MAX_SAFE_INTEGER
+    || input.minimum !== Math.floor(Math.max(input.current, input.elapsed)) + 1
+    || input.maximum !== Number.MAX_SAFE_INTEGER) {
+    throw new ClientGap("Unsupported or stale numeric recovery command from AutoCode");
+  }
+  return [input];
+}
+
+/** Digits supplied by the person, within the advertised finite integer bounds. */
+export function integerValue(value: string | undefined, input: IntegerCommandInput): string {
+  const number = typeof value === "string" && /^[0-9]+$/.test(value) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(number) || number < input.minimum || number > input.maximum) {
+    throw new ClientGap(`Enter a whole number from ${input.minimum} to ${input.maximum} for ${input.label}`);
+  }
+  return String(number);
 }
 
 /** The decisions the command needs before it can run, in order. */
-export function openDecisions(argv: string[]): OpenDecision[] {
-  const found: OpenDecision[] = [];
+export function openDecisions(argv: string[], inputs: IntegerCommandInput[] = []): OpenDecision[] {
+  const found: OpenDecision[] = inputs.map((input) => ({ questionId: input.id, placeholder: input.placeholder, kind: "integer", input }));
   for (const word of argv) {
     const [question, separator, placeholder] = splitOnce(word, "=");
     if (!separator || (placeholder !== "ANSWER" && placeholder !== "MODEL")) continue;
@@ -147,8 +181,8 @@ export function openDecisions(argv: string[]): OpenDecision[] {
  * Unlike a pending decision this is never the client's to fill, so a preview
  * names it the same way running the command would refuse it.
  */
-export function findUnsupplied(argv: string[]): string | null {
-  return argv.find((word) => UNSUPPLIED.includes(word)) ?? null;
+export function findUnsupplied(argv: string[], inputs: IntegerCommandInput[] = []): string | null {
+  return argv.find((word, index) => UNSUPPLIED.includes(word) && !inputs.some((input) => input.arg_index === index && input.placeholder === word)) ?? null;
 }
 
 /**
@@ -157,8 +191,10 @@ export function findUnsupplied(argv: string[]): string | null {
  * A placeholder the view cannot supply is a gap: `answers` only ever carries
  * what a person chose, so a client never invents a decision to get past it.
  */
-export function applyDecisions(argv: string[], answers: Record<string, string>): string[] {
-  return argv.map((word) => {
+export function applyDecisions(argv: string[], answers: Record<string, string>, inputs: IntegerCommandInput[] = []): string[] {
+  return argv.map((word, index) => {
+    const input = inputs.find((row) => row.arg_index === index && row.placeholder === word);
+    if (input) return integerValue(answers[input.id], input);
     if (UNSUPPLIED.includes(word)) {
       throw new ClientGap(`the command leaves ${word} open, which the status view does not supply`);
     }

@@ -33,6 +33,7 @@ try:
     from . import autocode_chat_view as chat_view
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
+    from . import autocode_command_inputs as command_inputs
     from . import autocode_component_plan as component_plan
     from . import autocode_containment_policy as containment_policy
     from . import autocode_contract_identity as contract_identity
@@ -73,6 +74,7 @@ except ImportError:
     import autocode_chat_view as chat_view
     import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
+    import autocode_command_inputs as command_inputs
     import autocode_component_plan as component_plan
     import autocode_containment_policy as containment_policy
     import autocode_contract_identity as contract_identity
@@ -738,6 +740,15 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     need = needs(state, stale_report_repair=stale_report_repair)
     category = pause_category.category(status, need)
     terminal = any(row.get("kind") == "stop" for row in state.get("applied_interventions", []) if isinstance(row, dict))
+    # This status also names novelty/source holds; only its bound hold needs a larger limit.
+    resume_flags = (
+        None
+        if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
+        else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status)
+    )
+    inputs = None if terminal or not category else command_inputs.project(state, need, resume_flags)
+    if inputs and need is not None:
+        need = {**need, "command_inputs": inputs}
     return {
         "needs": need,
         "pause_category": category,
@@ -748,10 +759,8 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             need,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
-            # This status also names novelty/source holds; only its bound hold needs a larger limit.
-            resume_flags=None
-            if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
-            else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status),
+            resume_flags=resume_flags,
+            recovery_token=recovery_view.token(state) if inputs else None,
             terminal=terminal,
         ),
     }

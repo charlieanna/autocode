@@ -29,6 +29,21 @@ export interface Needs {
   new_run_required?: boolean;
   edit_required?: boolean;
   feedback_action?: string | null;
+  command_inputs?: IntegerCommandInput[];
+}
+
+/** A person's finite total, offered only for the exact recovery command. */
+export interface IntegerCommandInput {
+  id: "max_seconds";
+  kind: "integer";
+  flag: "--max-seconds";
+  placeholder: "N";
+  arg_index: 2;
+  label: string;
+  current: number;
+  elapsed: number;
+  minimum: number;
+  maximum: number;
 }
 
 export interface Question {
@@ -131,6 +146,7 @@ export interface CodeCheckpoints {
 
 /** Descriptions of saved recovery actions; execution still uses next_command. */
 export interface Recovery {
+  token?: string;
   category?: string;
   title?: string;
   what_happened?: string;

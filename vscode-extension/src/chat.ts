@@ -10,7 +10,7 @@ import { RunController, type CheckpointComparison, type RunRef } from "./control
 import { leavesForPerson } from "./core/next-command";
 import type { StatusView } from "./core/view";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
-import { panelHtml, stateFor } from "./panel";
+import { NUMERIC_RECOVERY_EFFECT, numericConfirmation, panelHtml, stateFor } from "./panel";
 
 interface ChatMessage {
   type?: string;
@@ -251,17 +251,19 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       } else {
         const state = stateFor(view, run, this.controller);
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
-        if (leavesForPerson(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true)) {
+        const numeric = numericConfirmation(state, message.answers ?? {});
+        if (numeric || (leavesForPerson(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
+          const button = numeric ? "Set total and continue" : "Continue";
           const answer = await vscode.window.showWarningMessage(
-            state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?", { modal: true,
-              detail: state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, "Continue",
+            numeric ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"), { modal: true,
+              detail: numeric ? NUMERIC_RECOVERY_EFFECT : state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
           );
-          if (answer !== "Continue") return;
+          if (answer !== button) return;
         }
         await this.controller.take(view, run, message.answers ?? {}, message.token ?? null);
         // These buttons explicitly say "and continue". Never infer another
         // answer or approval, or release a newly encountered person-only stop.
-        if (view.needs?.kind === "approve_plan" || state.decisions.length) await this.advanceAfterInput(run);
+        if (view.needs?.kind === "approve_plan" || state.decisions.some((row) => row.kind !== "integer")) await this.advanceAfterInput(run);
       }
     } catch (error) {
       if (this.activeKey === key) tab.error = messageOf(error);

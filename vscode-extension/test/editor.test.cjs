@@ -16,6 +16,68 @@ const controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
 
+function totalTimeView(token = 'time:current') {
+  return {
+    status: 'PAUSED_TIME_LIMIT', done: false, recovery: { token },
+    needs: { kind: 'resume', command_inputs: [{ id: 'max_seconds', kind: 'integer', flag: '--max-seconds', placeholder: 'N',
+      arg_index: 2, label: 'Total active time (seconds)', current: 2700, elapsed: 3010.885, minimum: 3011, maximum: Number.MAX_SAFE_INTEGER }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=${token} autocode --run-dir ${run.runDir} --workspace ${run.workspace} --resume-paused --max-seconds N --expected-recovery-token -`,
+  };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  test(`typed total in ${surface} is blank, validates, confirms exact total and sends only its bound action`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const ui = surface === 'chat' ? await openChat(t, totalTimeView(), run, { controller: ownController }) : await openPanel(t, totalTimeView(), undefined, ownController);
+    const input = ui.document.querySelector('[data-question="max_seconds"]');
+    const take = () => ui.document.querySelector('#take-action');
+    assert.equal(input.value, '');
+    assert.equal(input.getAttribute('aria-label'), 'Total active time (seconds)');
+    assert.equal(input.inputMode, 'numeric');
+    for (const text of ['Saved total: 2700', 'Active time used: 3010.885', 'at least 3011']) assert.ok(ui.document.body.textContent.includes(text), text);
+    assert.equal(take().disabled, true);
+    const enter = (value) => { input.value = value; input.dispatchEvent(new ui.window.Event('input')); };
+    for (const value of ['3010', '0', '-1', '1.5', '5e3', 'Infinity', '9007199254740992']) {
+      enter(value); assert.equal(take().disabled, true, value);
+    }
+    enter('5400');
+    assert.equal(take().disabled, false);
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+    take().click(); await flush();
+    assert.equal(launch.mock.callCount(), 0, 'declining must leave the cap untouched');
+    const [title, options, button] = confirm.mock.calls[0].arguments;
+    assert.ok(title.includes('5400 seconds'));
+    assert.ok(options.detail.includes('Other saved limits and model routes stay the same'));
+    assert.ok(options.detail.includes('does not approve a plan'));
+    assert.equal(button, 'Set total and continue');
+    confirm.mock.mockImplementation(async () => button);
+    take().click(); await flush();
+    assert.equal(launch.mock.callCount(), 1, 'numeric resume must not add another advance');
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.deepEqual(args, ['--resume-paused', '--max-seconds', '5400', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+    assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'time:current' });
+    assert.ok(!args.includes('time:current'));
+  });
+
+  test(`typed total in ${surface} rejects a stale recovery token and clears its draft on a new offer`, async (t) => {
+    const ownController = new RunController(host.log);
+    const ui = surface === 'chat' ? await openChat(t, totalTimeView(), run, { controller: ownController }) : await openPanel(t, totalTimeView(), undefined, ownController);
+    const field = ui.document.querySelector('[data-question="max_seconds"]');
+    field.value = '5400'; field.dispatchEvent(new ui.window.Event('input'));
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => 'Set total and continue');
+    ui.setView(totalTimeView('time:new'));
+    ui.document.querySelector('#take-action').click(); await flush();
+    assert.equal(launch.mock.callCount(), 0);
+    assert.equal(confirm.mock.callCount(), 0, 'stale click is rejected before confirmation');
+    await ui.poll(totalTimeView('time:new'));
+    assert.equal(ui.document.querySelector('[data-question="max_seconds"]').value, '');
+    assert.equal(ui.document.querySelector('#take-action').disabled, true);
+  });
+}
+
 const connectionRows = [
   { id: 'kilocode', label: 'Kilo', connection_status: 'not_checked', detail: 'Installed', actions: [
     { id: 'login', label: 'Sign in / Reconnect', next_command: ['connections', 'login', '--provider', 'kilocode'] },
@@ -344,11 +406,11 @@ function questionView(model = false) {
   };
 }
 
-async function openPanel(t, initial, onAction) {
+async function openPanel(t, initial, onAction, panelController = controller) {
   t.mock.timers.enable({ apis: ['setInterval'] });
   let view = initial;
-  t.mock.method(controller, 'status', async () => structuredClone(view));
-  const panel = RunPanel.show(1, run, controller, onAction);
+  t.mock.method(panelController, 'status', async () => structuredClone(view));
+  const panel = RunPanel.show(1, run, panelController, onAction);
   const webview = host.panels.at(-1).webview;
   const dom = new JSDOM(webview.html, { runScripts: 'outside-only' });
   const messages = [];

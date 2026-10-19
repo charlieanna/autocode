@@ -7,6 +7,7 @@ conformance-lifecycle through AutoCode's real CLI with the scripted provider.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import signal
 import subprocess
@@ -48,6 +49,86 @@ class ClientDecisionTests(unittest.TestCase):
 
     def named(self, text, kind="approve_plan"):
         return self.client.named_command(view(kind, text))
+
+    def time_offer(self):
+        public = view(
+            "resume",
+            "AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --resume-paused --max-seconds N --expected-recovery-token -",
+        )
+        public["status"] = "PAUSED_TIME_LIMIT"
+        public["recovery"] = {"token": "current"}
+        public["needs"]["command_inputs"] = [
+            {
+                "id": "max_seconds",
+                "kind": "integer",
+                "flag": "--max-seconds",
+                "placeholder": "N",
+                "arg_index": 2,
+                "label": "Total active time (seconds)",
+                "current": 2700,
+                "elapsed": 3010.885,
+                "minimum": 3011,
+                "maximum": 9007199254740991,
+            }
+        ]
+        return public
+
+    def test_finite_total_requires_persons_number_and_preserves_exact_bound_command(self):
+        public = self.time_offer()
+        words, env, _ = self.client.named_command(public)
+        with self.assertRaisesRegex(ConformanceGap, "explicit whole number"):
+            self.client.decide(public["needs"], words, view=public, env=env)
+        result = self.client.decide(
+            public["needs"], words, command_inputs={"max_seconds": "5400"}, view=public, env=env
+        )
+        self.assertEqual(["--resume-paused", "--max-seconds", "5400", "--expected-recovery-token", "-"], result)
+        self.assertEqual({"AUTOCODE_EXPECTED_RECOVERY_TOKEN": "current"}, env)
+        for invalid in (
+            "",
+            " ",
+            "0",
+            "3010",
+            "-1",
+            "1.5",
+            "5e3",
+            "Infinity",
+            "5400 --approve-goal -",
+            "9007199254740992",
+            "9" * 5000,
+        ):
+            with self.subTest(invalid=invalid[:30]), self.assertRaises(ConformanceGap):
+                self.client.decide(
+                    public["needs"], words, command_inputs={"max_seconds": invalid}, view=public, env=env
+                )
+
+    def test_typed_total_rejects_changed_metadata_token_and_other_commands(self):
+        public = self.time_offer()
+        words, env, _ = self.client.named_command(public)
+        for key, value in (
+            ("arg_index", 1),
+            ("flag", "--max-cost-usd"),
+            ("minimum", 1),
+            ("maximum", 0),
+            ("elapsed", float("nan")),
+            ("elapsed", 10**1000),
+            ("current", True),
+            ("current", 2700.5),
+        ):
+            bad = copy.deepcopy(public)
+            bad["needs"]["command_inputs"][0][key] = value
+            with self.subTest(key=key), self.assertRaises(ConformanceGap):
+                self.client.decide(bad["needs"], words, command_inputs={"max_seconds": "5400"}, view=bad, env=env)
+        for changed_words, changed_env in (
+            (words + ["--approve-goal", "-"], env),
+            (words, {"AUTOCODE_EXPECTED_RECOVERY_TOKEN": "old"}),
+            (words, {}),
+        ):
+            with self.assertRaises(ConformanceGap):
+                self.client.decide(
+                    public["needs"], changed_words, command_inputs={"max_seconds": "5400"}, view=public, env=changed_env
+                )
+        with self.assertRaisesRegex(ConformanceGap, "leaves 'N' open"):
+            self.client.decide({"kind": "resume"}, words, command_inputs={"max_seconds": "5400"})
 
     def test_the_named_command_carries_its_token_and_this_run(self):
         words, env, source = self.named(

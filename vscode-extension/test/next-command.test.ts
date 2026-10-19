@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ClientGap,
   applyDecisions,
+  commandInputs,
   findUnsupplied,
   isAdvancing,
   leavesForPerson,
@@ -11,10 +12,52 @@ import {
   parseNamedCommand,
   splitCommandLine,
 } from "../src/core/next-command";
+import type { StatusView } from "../src/core/view";
 
 const RUN = "/ws/.autocode/runs/20261015-run";
 const WS = "/ws";
 const own = { runDir: RUN, workspace: WS };
+
+function timeOffer(): StatusView {
+  return {
+    status: "PAUSED_TIME_LIMIT", done: false, recovery: { token: "current" },
+    needs: { kind: "resume", command_inputs: [{ id: "max_seconds", kind: "integer", flag: "--max-seconds", placeholder: "N",
+      arg_index: 2, label: "Total active time (seconds)", current: 2700, elapsed: 3010.885, minimum: 3011, maximum: Number.MAX_SAFE_INTEGER }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} --resume-paused --max-seconds N --expected-recovery-token -`,
+  };
+}
+
+test("typed total fills only the exact bound slot with the person's finite safe integer", () => {
+  const view = timeOffer();
+  const named = parseNamedCommand(view.next_command!, own);
+  const inputs = commandInputs(view, named);
+  assert.equal(findUnsupplied(named.argv, inputs), null);
+  assert.equal(openDecisions(named.argv, inputs)[0]?.kind, "integer");
+  assert.throws(() => applyDecisions(named.argv, {}, inputs), /whole number/);
+  assert.deepEqual(applyDecisions(named.argv, { max_seconds: "5400" }, inputs),
+    ["--resume-paused", "--max-seconds", "5400", "--expected-recovery-token", "-"]);
+  assert.deepEqual(named.env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "current" });
+  for (const value of ["", " ", "0", "-1", "3010", "1.5", "5e3", "Infinity", "5400 --approve-goal -", "9007199254740992", "9".repeat(5000)]) {
+    assert.throws(() => applyDecisions(named.argv, { max_seconds: value }, inputs), ClientGap, value.slice(0, 30));
+  }
+  assert.deepEqual(applyDecisions(named.argv, { max_seconds: String(Number.MAX_SAFE_INTEGER) }, inputs),
+    ["--resume-paused", "--max-seconds", String(Number.MAX_SAFE_INTEGER), "--expected-recovery-token", "-"]);
+});
+
+test("typed total rejects stale tokens, changed commands and malformed descriptor metadata", () => {
+  const view = timeOffer();
+  const named = parseNamedCommand(view.next_command!, own);
+  for (const [key, value] of Object.entries({ arg_index: 1, flag: "--max-cost-usd", minimum: 1, maximum: 0, elapsed: NaN, current: 2700.5 })) {
+    const bad = structuredClone(view);
+    Object.assign(bad.needs!.command_inputs![0]!, { [key]: value });
+    assert.throws(() => commandInputs(bad, named), ClientGap, key);
+  }
+  for (const bad of [{ ...named, argv: [...named.argv, "--approve-goal", "-"] },
+    { ...named, env: { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "old" } }, { ...named, env: {} }]) {
+    assert.throws(() => commandInputs(view, bad), ClientGap);
+  }
+  assert.equal(findUnsupplied(named.argv), "N", "bare N remains unsupported");
+});
 
 test("splitCommandLine keeps quoted words whole", () => {
   assert.deepEqual(splitCommandLine(`autocode --feedback "keep the retry logic"`), [

@@ -7,8 +7,8 @@
  */
 
 import * as vscode from "vscode";
-import { ClientGap, leavesForPerson } from "./core/next-command";
-import type { AcceptanceCriterion, Question, StatusView } from "./core/view";
+import { ClientGap, integerValue, leavesForPerson, type OpenDecision } from "./core/next-command";
+import type { AcceptanceCriterion, IntegerCommandInput, Question, StatusView } from "./core/view";
 import { approvalToken, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
@@ -17,11 +17,14 @@ import { telemetry, type Telemetry } from "./core/telemetry";
 
 export interface Decision {
   questionId: string;
-  kind: "answer" | "model";
+  kind: "answer" | "model" | "integer";
+  input?: IntegerCommandInput;
   text: string;
   options: string[];
   suggested: string | null;
 }
+
+export const NUMERIC_RECOVERY_EFFECT = "This changes only the total active time. Other saved limits and model routes stay the same. It does not approve a plan.";
 
 export interface PanelState {
   chat?: StatusView["chat"];
@@ -209,17 +212,19 @@ export class RunPanel {
         return;
       }
       const state = stateFor(view, this.run, this.controller, true);
-      if (message.decisionContext && message.decisionContext !== state.decisionContext) {
+      const numeric = numericConfirmation(state, message.answers ?? {});
+      if ((message.decisionContext || numeric) && message.decisionContext !== state.decisionContext) {
         void vscode.window.showErrorMessage("AutoCode: The requested action changed; review it before continuing");
         return;
       }
-      if (leavesForPerson(view.needs ?? null) && confirmPersonOnly()) {
+      if (numeric || (leavesForPerson(view.needs ?? null) && confirmPersonOnly())) {
+        const button = numeric ? "Set total and continue" : "Take it anyway";
         const proceed = await vscode.window.showWarningMessage(
-          `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
-          { modal: true, detail: needsSummary(view) },
-          "Take it anyway",
+          numeric ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
+          { modal: true, detail: numeric ? NUMERIC_RECOVERY_EFFECT : needsSummary(view) },
+          button,
         );
-        if (proceed !== "Take it anyway") return;
+        if (proceed !== button) return;
       }
       this.post(state);
       try {
@@ -227,6 +232,8 @@ export class RunPanel {
       } catch (error) {
         void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
       }
+    } catch (error) {
+      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
     } finally {
       this.taking = false;
       await this.update();
@@ -340,6 +347,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       need?.resolver_request_id,
       need?.token,
       need?.job_retry_token,
+      view.recovery?.token,
       need?.route,
       decisions,
       view.next_command ?? "",
@@ -383,10 +391,14 @@ function planShape(view: StatusView): PanelState["plan"] {
 }
 
 function describe(
-  open: { questionId: string; kind: "answer" | "model" },
+  open: OpenDecision,
   need: StatusView["needs"],
   view: StatusView,
 ): Decision {
+  if (open.kind === "integer" && open.input) return {
+    questionId: open.questionId, kind: "integer", input: open.input,
+    text: open.input.label, options: [], suggested: null,
+  };
   const question: Question | undefined = need?.questions?.find((row) => row.id === open.questionId);
   const route = need?.route;
   const asksModel = open.kind === "model";
@@ -397,6 +409,12 @@ function describe(
     options: asksModel ? [...(route?.candidates ?? [])] : [...(question?.options ?? [])],
     suggested: asksModel ? null : (question?.proposed_default ?? null),
   };
+}
+
+/** A changed allowance always needs explicit confirmation, even if generic pause prompts are disabled. */
+export function numericConfirmation(state: PanelState, answers: Record<string, string>): string | null {
+  const input = state.decisions.find((row) => row.kind === "integer")?.input;
+  return input ? `Set total active time to ${integerValue(answers[input.id], input)} seconds and continue?` : null;
 }
 
 function safeCommandText(view: StatusView, run: RunRef, controller: RunController): string {
@@ -699,6 +717,7 @@ function render(state) {
         state.decisions.forEach((decision) => {
           const box = el('div', 'decision');
           box.appendChild(el('div', 'q', decision.text));
+          if (decision.input) box.appendChild(el('div', 'why', numericHelp(decision.input)));
           if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
           const name = decision.questionId;
           let input;
@@ -717,6 +736,7 @@ function render(state) {
           } else {
             input = document.createElement('input');
             input.type = 'text';
+            if (decision.kind === 'integer') { input.inputMode = 'numeric'; input.pattern = '[0-9]*'; input.setAttribute('aria-label', decision.text); }
             if (decision.suggested) input.placeholder = decision.suggested;
           }
           input.dataset.question = name;
@@ -732,7 +752,7 @@ function render(state) {
 
       var approving = state.needKind === 'approve_plan';
       var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
-        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue')));
+        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? 'Set total and continue' : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue'))));
       if (state.actionEffect) cardContent.appendChild(el('div', 'why', state.actionEffect));
       const take = el('button', null, label);
       take.id = 'take-action';
@@ -913,6 +933,7 @@ function render(state) {
     state.decisions.forEach((decision) => {
       const box = el('div', 'decision');
       box.appendChild(el('div', 'q', decision.text));
+      if (decision.input) box.appendChild(el('div', 'why', numericHelp(decision.input)));
       if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
       const name = decision.questionId;
       let input;
@@ -931,6 +952,7 @@ function render(state) {
       } else {
         input = document.createElement('input');
         input.type = 'text';
+        if (decision.kind === 'integer') { input.inputMode = 'numeric'; input.pattern = '[0-9]*'; input.setAttribute('aria-label', decision.text); }
         if (decision.suggested) input.placeholder = decision.suggested;
       }
       input.dataset.question = name;
@@ -946,7 +968,7 @@ function render(state) {
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
     var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve this plan'
-      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : state.actionLabel || 'Take the named action'));
+      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? 'Set total and continue' : state.actionLabel || 'Take the named action')));
     if (state.actionEffect) actions.appendChild(el('div', 'why', state.actionEffect));
     const take = el('button', null, label);
     take.id = 'take-action';
@@ -992,8 +1014,18 @@ function render(state) {
 function updateActionButton() {
   const take = document.getElementById('take-action');
   if (!take || !current) return;
-  const missing = current.decisions.some((decision) => !(answers[decision.questionId] || '').trim());
+  const missing = current.decisions.some((decision) => {
+    const value = answers[decision.questionId] || '';
+    if (decision.kind !== 'integer') return !value.trim();
+    const number = /^[0-9]+$/.test(value) ? Number(value) : NaN;
+    return !Number.isSafeInteger(number) || number < decision.input.minimum || number > decision.input.maximum;
+  });
   take.disabled = current.taking || current.working || missing || !current.canApprove;
+}
+
+function numericHelp(input) {
+  return 'Saved total: ' + input.current + ' seconds. Active time used: ' + input.elapsed
+    + ' seconds. Enter a total of at least ' + input.minimum + ' seconds.';
 }
 
 window.addEventListener('message', (event) => {
