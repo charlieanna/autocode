@@ -147,6 +147,16 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
         ("tests.test_chat_cli", "tests.test_requirements_review"),
     ),
+    (
+        (
+            "tools/autocode_review_",
+            "tools/autocode_scratch_preparation.py",
+            "tools/autocode_verify.py",
+            "tools/units/autoreview.py",
+            "tools/prompts/review-change.md",
+        ),
+        ("tests.test_review_attribution_cli",),
+    ),
     (("tools/autocode_chat_", "tools/autocode_run_view.py", "tools/autocode_follow_up.py"), ("tests.test_chat_cli",)),
     (("tools/autocode.py", "tools/autopilot.py", "tools/autocode_taskrun.py"), ("tests.test_launch_state_cli",)),
     (

@@ -689,7 +689,28 @@ def workflow_result(state: RunState):
             "outcome": row.get("verdict"),
             "artifact": row.get("report_path"),
             "artifact_sha256": row.get("report_sha256"),
-            "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings",
+            "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings"
+            + (
+                f"; {row.get('pre_existing', 0)} pre-existing observations, "
+                f"{row.get('inconclusive', 0)} blockers with inconclusive attribution"
+                if row.get("pre_existing") or row.get("inconclusive")
+                else ""
+            )
+            + (
+                f"; submitted verdict: {row.get('submitted_verdict')}; {row['verdict_adjustment']}"
+                if row.get("verdict_adjustment")
+                else ""
+            ),
+            **(
+                {
+                    "review_attribution": {
+                        key: deepcopy(row.get(key))
+                        for key in ("pre_existing", "inconclusive", "submitted_verdict", "verdict_adjustment")
+                    }
+                }
+                if "pre_existing" in row
+                else {}
+            ),
             **(
                 {"mutation_check": deepcopy(row["mutation_check"])}
                 if isinstance(row.get("mutation_check"), dict)

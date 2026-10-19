@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from . import autocode_review_attribution as review_attribution
+except ImportError:
+    import autocode_review_attribution as review_attribution
+
 import hashlib
 import json
 import math
@@ -199,19 +204,21 @@ def comments(report, files):
         ids.add(identifier)
         changed = indexed.get(name)
         if not changed or changed.get("status") == "removed":
-            raise ReviewError(f"Finding {identifier} cites no changed new-side file: {name}")
+            continue  # Retained in the review summary; no invented inline anchor.
         allowed = right_lines(changed.get("patch"))
         if any(line not in allowed for line in range(span[0], span[-1] + 1)):
-            raise ReviewError(f"Finding {identifier} is outside the available GitHub new-side diff: {name}:{span}")
+            continue  # Keep observations outside the diff in the summary.
         severity = finding.get("severity")
         if severity not in {"blocking", "advisory"} or not all(
             isinstance(finding.get(k), str) for k in ("summary", "evidence")
         ):
             raise ReviewError(f"Finding {identifier} has invalid report text")
-        body = f"**{identifier} [{severity}]: {finding['summary']}**\n\nEvidence: {finding['evidence']}"
+        body = f"**{identifier} [{review_attribution.label(finding)}]: {finding['summary']}**\n\nEvidence: {finding['evidence']}"
         for label, key in (("Example", "example"), ("Test limitation", "untestable")):
             if finding.get(key):
                 body += f"\n\n{label}: {finding[key]}"
+        if finding.get("disposition"):
+            body += "\n\nAttribution: " + str(finding["disposition"].get("reason", ""))
         if finding.get("proven_by"):
             body += "\n\nShown by: " + ", ".join(finding["proven_by"])
         if len(body) > 60_000:
@@ -230,6 +237,13 @@ def summary(report, canonical, url, head):
         "This GitHub review is COMMENT only; AutoCode neither approves nor requests changes.\n\n"
         + canonical["markdown"]
     )
+    for finding in report.get("findings", []):
+        text += (
+            f"\n\n**{finding['id']} [{review_attribution.label(finding)}]: {finding['summary']}**"
+            f"\n\nLocation: {finding.get('file')}:{finding.get('lines')}\n\nEvidence: {finding.get('evidence', '')}"
+        )
+        if finding.get("disposition"):
+            text += "\n\nAttribution: " + str(finding["disposition"].get("reason", ""))
     if len(text) > 60_000:
         raise ReviewError("Review and canonical evidence exceed GitHub's review size limit")
     return text

@@ -48,6 +48,11 @@ State keys written here:
 
 from __future__ import annotations
 
+try:
+    from . import autocode_review_attribution as review_attribution
+except ImportError:
+    import autocode_review_attribution as review_attribution
+
 from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
@@ -80,7 +85,18 @@ except ImportError:
     import autocode_util as util
     import autocode_workflows as workflows
 
-FINDING_FIELDS = ("id", "severity", "file", "lines", "summary", "evidence")
+FINDING_FIELDS = (
+    "id",
+    "severity",
+    "file",
+    "lines",
+    "summary",
+    "evidence",
+    "example",
+    "untestable",
+    "proven_by",
+    "disposition",
+)
 CONCERN_FIELDS = ("id", "area", "summary")
 # A design review's concern as the Architect revises it: everything the report says about it.
 REVISED_FIELDS = ("id", "area", "severity", "status", "resolution", "summary", "evidence", "example", "probe")
@@ -307,11 +323,14 @@ def carried_review(state: RunState, workspace) -> dict | None:
         return None
     path = Path(workspace) / review["report_path"]
     try:
-        report = json.loads(path.read_text())
+        raw = path.read_bytes()
+        report = json.loads(raw)
     except (OSError, ValueError) as error:
         raise ValueError(f"The review's report {review['report_path']} cannot be read: {error}") from None
+    if review.get("report_sha256") and hashlib.sha256(raw).hexdigest() != review["report_sha256"]:
+        raise ValueError("The review report changed since the runner validated it; restore it or start a new review")
     findings = [
-        {key: finding.get(key) for key in FINDING_FIELDS}
+        {key: finding[key] for key in FINDING_FIELDS if key in finding}
         for finding in report.get("findings") or []
         if isinstance(finding, dict)
     ]
@@ -320,8 +339,13 @@ def carried_review(state: RunState, workspace) -> dict | None:
         "verdict": review.get("verdict"),
         "change_under_review": review.get("change_under_review", ""),
         "change_patch": review.get("change_patch") or "",
-        "blocking": [f for f in findings if f["severity"] == "blocking"],
+        "blocking": [f for f in findings if review_attribution.blocking(f)],
         "advisory": [f for f in findings if f["severity"] != "blocking"],
+        **(
+            {"pre_existing": [f for f in findings if review_attribution.pre_existing(f)]}
+            if any(review_attribution.pre_existing(f) for f in findings)
+            else {}
+        ),
     }
 
 
@@ -416,4 +440,11 @@ def review_findings(state: RunState) -> dict | None:
     review = (turn or {}).get("previous", {}).get("review")
     if not review or not review["blocking"] or workflows.kind(state) not in ("build", "bugfix"):
         return None
-    return {key: review[key] for key in ("report_path", "change_under_review", "change_patch", "blocking", "advisory")}
+    effective = [f for f in review["blocking"] if review_attribution.blocking({"severity": "blocking", **f})]
+    if not effective:
+        return None
+    return {
+        **{key: review[key] for key in ("report_path", "change_under_review", "change_patch", "advisory")},
+        "blocking": effective,
+        **({"pre_existing": review["pre_existing"]} if "pre_existing" in review else {}),
+    }
