@@ -686,7 +686,8 @@ function render(state) {
     }
 
     if (state.chat && state.chat.phase === 'requirements' && !state.gap
-        && (!state.pause || state.needKind === 'answer')) {
+        && (!state.pause || state.needKind === 'answer')
+        && (state.chat.review || state.needKind === 'continue')) {
       if (state.chat.review) {
         const review = state.chat.review;
         if (review.summary) cardContent.appendChild(el('pre', 'understanding', review.summary));

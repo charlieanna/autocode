@@ -1240,6 +1240,71 @@ for (const phase of ['requirements', null]) test(`chat renders core step progres
   assert.equal(ui.document.querySelector('#message').value, 'Keep this draft');
 });
 
+function requirementsModelQuestion(token = 'model-question:current') {
+  // Native0a8 public shape: core offers only its main route-glm=MODEL action,
+  // with no free-text chat input or Requirements-understanding review.
+  return { status: 'WAITING_FOR_USER', done: false, phase: 'DISCOVERING',
+    needs: { kind: 'answer', resolver_token: token,
+      questions: [{ id: 'route-glm', question: "Requirements's response exhausted its output limit; name another model to continue on", options: [] }],
+      route: { question_id: 'route-glm', role: 'glm', candidates: [] } },
+    next_command: `AUTOCODE_RESOLVER_TOKEN=${token} autocode --answer route-glm=MODEL --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'requirements-model-choice', input: null, review: null,
+      messages: [{ id: 'request', role: 'user', text: 'Fix the queue ordering bug' }] },
+  };
+}
+
+test('requirements model-choice renders a blank decision and sends only the named answer', async (t) => {
+  const value = requirementsModelQuestion();
+  const ui = await openChat(t, value);
+  const field = ui.document.querySelector('[data-question="route-glm"]');
+  assert.ok(field, 'the core model-choice question must remain visible in Requirements chat');
+  assert.equal(field.value, '', 'the client must not choose a model');
+  assert.ok(ui.document.querySelector('#app').textContent.includes(value.needs.questions[0].question));
+  assert.equal(ui.document.querySelector('#take-action').disabled, true);
+  assert.equal(ui.document.querySelector('#send-message').disabled, true, 'chat.input=null is not a free-text offer');
+  field.value = 'fixture/alternate'; field.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(ui.document.querySelector('#take-action').disabled, false);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  const [, args, env] = launch.mock.calls[0].arguments;
+  assert.deepEqual(args, ['--answer', 'route-glm=fixture/alternate', '--resolver-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.deepEqual(env, { AUTOCODE_RESOLVER_TOKEN: 'model-question:current' });
+  const take = ui.sent.find((message) => message.type === 'take');
+  assert.equal(take.runKey, `${run.workspace}\n${run.runDir}`);
+  assert.ok(take.decisionContext, 'the answer retains the displayed question binding');
+  assert.ok(!args.includes('--approve-goal') && !args.includes('--grant-recovery') && !args.includes('--resume-paused'));
+});
+
+test('requirements model-choice disables stale controls after a failed status read', async (t) => {
+  const value = requirementsModelQuestion();
+  let failing = false;
+  const ui = await openChat(t, value, run, { statusFor: () => { if (failing) throw new Error('status unavailable'); return value; } });
+  const field = ui.document.querySelector('[data-question="route-glm"]');
+  assert.ok(field);
+  field.value = 'fixture/alternate'; field.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(ui.document.querySelector('#take-action').disabled, false);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  failing = true; await ui.poll();
+  assert.equal(ui.document.querySelector('#take-action').disabled, true);
+  ui.document.querySelector('#take-action').click(); await flush();
+  assert.equal(launch.mock.callCount(), 0);
+  failing = false; await ui.poll();
+  assert.equal(ui.document.querySelector('[data-question="route-glm"]').value, 'fixture/alternate');
+  assert.equal(ui.document.querySelector('#take-action').disabled, false);
+});
+
+test('requirements model-choice rejects an answer bound to the previous question', async (t) => {
+  const ui = await openChat(t, requirementsModelQuestion());
+  const field = ui.document.querySelector('[data-question="route-glm"]');
+  assert.ok(field);
+  field.value = 'fixture/alternate'; field.dispatchEvent(new ui.window.Event('input'));
+  ui.setView(requirementsModelQuestion('model-question:new'));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 0, 'a fresh read must reject the old question binding');
+});
+
 test('requirements approval sends only the core-offered answer and never approves a build', async (t) => {
   const value = { status: 'WAITING_FOR_USER', done: false, pause_category: 'your_decision', pause_category_label: 'Your decision', needs: { kind: 'answer', resolver_token: 'bound-summary',
     questions: [{ id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' }] },

@@ -32,6 +32,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code chat shows model-choice questions during Requirements through its existing
+  named decision controls instead of hiding them. Question bindings, failed-status
+  disabling and plan approval remain unchanged (#1625).
+
 - Small-task review keeps explicitly selected Plan Reviewer effort and legacy saved
   efforts. Fresh default/automatic routes still use the reduced tier, with review
   charges, model independence and replay matching unchanged (#1618).
