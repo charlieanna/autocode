@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { test, afterEach, mock } = require('node:test');
+const { test, beforeEach, afterEach, mock } = require('node:test');
 const { JSDOM } = require('jsdom');
 const { editor, flush } = require('./helpers/editor.cjs');
 
@@ -12,7 +12,7 @@ const { RunItem, RunsProvider } = host.load('runsView.js');
 const { activate } = host.load('extension.js');
 const { ConnectionsPanel, connectionsHtml } = host.load('connections.js');
 const { engineOf, routeKeyOf, spendTarget, sanitizeRoutes, readSettings, applyEngine } = host.load('settings.js');
-const controller = new RunController(host.log);
+let controller = new RunController(host.log);
 const run = { workspace: '/ws', runDir: '/ws/.autocode/runs/test' };
 const ok = { code: 0, stdout: '', stderr: '', rejected: false };
 
@@ -360,6 +360,8 @@ test('status polling uses the core-recognized read-only command grammar', async 
   assert.deepEqual(spawn.mock.calls[0].arguments[1], ['/core/autocode.py', '--status', '--workspace', run.workspace, '--run-dir', run.runDir]);
   assert.equal(spawn.mock.calls[0].arguments[2].shell, false);
 });
+
+beforeEach(() => { controller = new RunController(host.log); });
 
 afterEach(() => {
   RunPanel.disposeAll();
@@ -745,6 +747,9 @@ async function openChat(t, initial, selected = run, options = {}) {
   if (!options.timersEnabled) t.mock.timers.enable({ apis: ['setInterval'] });
   let value = initial;
   const chatController = options.controller || controller;
+  // UI fixtures choose a deterministic no-modes response unless the case has
+  // supplied one. They must not race an unmocked external modes subprocess.
+  if (!chatController.modes.mock) t.mock.method(chatController, 'modes', async () => ({ modes: [] }));
   t.mock.method(chatController, 'status', async (target) =>
     structuredClone(options.statusFor ? options.statusFor(target) : value));
   let receive;
@@ -2449,6 +2454,7 @@ test('Run details guards against concurrent clicks during status and modal confi
   assert.equal(modalCalled.length, 1, 'clicks while modal is open must be dropped');
 
   // Resolve modal -> proceeds to take
+  blockStatus = false; // The final display refresh must settle too.
   resolveModal();
   await flush();
   await flush();
