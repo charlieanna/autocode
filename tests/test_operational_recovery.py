@@ -414,7 +414,9 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.boundary()
         prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
         self.assertIn("resolver_remediation", prompt)
-        self.assertIn('"timeout_kind": "idle"', prompt)
+        handoff = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual("idle", handoff["recovery_context"]["timeout_kind"])
+        self.assertEqual(self.origins[0]["events"], handoff["recovery_context"]["events"])
         self.assertIn("do not repeat exploratory tools", prompt)
         self.assertIn("exact final plan still requires human approval", prompt)
 
