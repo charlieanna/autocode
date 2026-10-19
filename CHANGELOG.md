@@ -32,6 +32,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Explicit-patch reviews compare identical finding tests on base and changed source.
+  Proven pre-existing Python failures remain observations instead of blocking an
+  unrelated patch or becoming automatic follow-up repairs. Inconclusive evidence
+  retains blockers, and reports show the runner-derived verdict (#1602).
+
 - `autocode chat` no longer exits while AutoCode keeps working: Ctrl-C while the pause is being asked
   for interrupts the step, and a third Ctrl-C stops AutoCode. It stops instead of relaunching a run
   that makes no progress, shows a review's criteria before asking you to accept them, shows what
