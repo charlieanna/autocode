@@ -195,7 +195,55 @@ class SessionHandoffTests(unittest.TestCase):
     def test_callback_transport_close_after_clean_publication_preserves_success(self):
         self.watch_transport(failure=BrokenPipeError("keeper finished"), clean=True)
 
-    def watch_transport(self, *, failure, clean):
+    def test_callback_failure_retains_a_safe_specific_ownership_reason(self):
+        cases = (
+            ("Session ownership receipt is unavailable", "receipt_unavailable"),
+            ("Session ownership is no longer armed", "receipt_not_armed"),
+            ("Enclosing keeper did not retain session ownership", "enclosing_ownership_unverified"),
+        )
+        for detail, reason in cases:
+            with self.subTest(reason=reason):
+                message = self.watch_transport(
+                    failure=supervision.SupervisionError(detail), clean=False, ownership_failure=True
+                )
+                self.assertIn(f"reason={reason}", message)
+                self.assertIn("phase=check_ownership", message)
+
+    def test_callback_failure_omits_unclassified_exception_payload(self):
+        secret = "synthetic-control-token-value"
+        error = supervision.SupervisionError("AUTOCODE_APPROVE_GOAL_TOKEN=" + secret + "x" * 4096)
+        message = self.watch_transport(failure=error, clean=False, ownership_failure=True)
+        self.assertIn("reason=unclassified", message)
+        self.assertNotIn(secret, message)
+        self.assertNotIn("AUTOCODE_APPROVE_GOAL_TOKEN", message)
+        self.assertLess(len(message), 384)
+
+    def test_callback_failure_does_not_expose_dynamic_names_or_inspect_unknown_payloads(self):
+        secret = "synthetic_private_class_name"
+
+        def inaccessible(_error):
+            raise AssertionError("Untrusted exception payload must not be inspected")
+
+        error_type = type(secret, (Exception,), {"args": property(inaccessible)})
+        message = self.watch_transport(
+            failure=error_type(), clean=False, ownership_failure=True, expected_type="Exception"
+        )
+        self.assertIn("reason=unclassified", message)
+        self.assertNotIn(secret, message)
+
+    def test_callback_failure_does_not_hash_a_string_subclass(self):
+        class UnhashableText(str):
+            __hash__ = None
+
+        message = self.watch_transport(
+            failure=supervision.SupervisionError(UnhashableText("untrusted payload")),
+            clean=False,
+            ownership_failure=True,
+        )
+        self.assertIn("reason=unclassified", message)
+        self.assertNotIn("untrusted payload", message)
+
+    def watch_transport(self, *, failure, clean, ownership_failure=False, expected_type=None):
         """Drive the public launch with an offline transport and a fake event."""
 
         class Event:
@@ -234,13 +282,23 @@ class SessionHandoffTests(unittest.TestCase):
             return Mock()
 
         socketpair = supervision.socket.socketpair
+        pair_count = 0
+
+        def callback_pair(*_args):
+            nonlocal pair_count
+            parent, child_socket = socketpair()
+            pair_count += 1
+            if ownership_failure and pair_count == 2:
+                child_socket.send(b"offline-notice")
+            return parent, child_socket
+
         with (
             patch.object(supervision.boundary, "require_supported"),
             patch.object(supervision.subprocess, "Popen", side_effect=(keeper, child)),
             patch.object(supervision, "_identity", side_effect=lambda pid: {"pid": pid, "birth_identity": 1}),
             patch.object(supervision.processes, "live_processes", return_value=[{}]),
             patch.object(supervision.processes, "ProcessTree") as fallback,
-            patch.object(supervision, "_send"),
+            patch.object(supervision, "_send") as sent,
             patch.object(supervision.os, "write", return_value=1),
             patch.object(supervision, "_read_line", return_value={"armed": "a" * 32}),
             patch.object(supervision, "receipt", side_effect=lambda _metadata: state),
@@ -249,7 +307,7 @@ class SessionHandoffTests(unittest.TestCase):
             patch.object(supervision.threading, "Thread", side_effect=thread),
             # This transport control does not install a Linux boundary. A
             # portable stream pair supplies the same closed-peer EOF here.
-            patch.object(supervision.socket, "socketpair", side_effect=lambda *_args: socketpair()),
+            patch.object(supervision.socket, "socketpair", side_effect=callback_pair),
         ):
             context = supervision.launch(
                 ["offline-provider"], receipt_path=Path(self.directory.name) / "launch.json", start_new_session=True
@@ -257,6 +315,7 @@ class SessionHandoffTests(unittest.TestCase):
 
             def exercise():
                 with context:
+                    control_fd = sent.call_args.args[0]
                     if clean:
                         state.update(phase="stopped", cause="provider_stopped")
                     if failure is None:
@@ -265,15 +324,27 @@ class SessionHandoffTests(unittest.TestCase):
                             watchers[0]()  # The real callback peer has closed: recv returns EOF.
                         self.assertEqual(1, select.call_count)
                         self.assertEqual([0.05], event.waits)
+                    elif ownership_failure:
+                        with (
+                            patch.object(supervision.select, "select", return_value=([object()], [], [])),
+                            patch.object(supervision, "session_handoff_reply", side_effect=failure) as checked,
+                        ):
+                            watchers[0]()
+                        checked.assert_called_once()
                     else:
                         with patch.object(supervision.select, "select", side_effect=failure):
                             watchers[0]()
+                    if failure is not None and not clean:
+                        with self.assertRaises(OSError):
+                            os.fstat(control_fd)
                     child.returncode = 0
 
             if failure is not None and not clean:
-                with self.assertRaisesRegex(supervision.SupervisionError, "Session ownership handoff failed: OSError"):
+                expected = f"Session ownership handoff failed: {expected_type or type(failure).__name__}"
+                with self.assertRaisesRegex(supervision.SupervisionError, expected) as caught:
                     exercise()
                 fallback.return_value.stop.assert_called_once()
+                return str(caught.exception)
             else:
                 exercise()
                 fallback.assert_not_called()

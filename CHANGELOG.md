@@ -42,6 +42,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Session ownership handoff failures retain a bounded callback phase and safe reason
+  code, so different ownership failures can be diagnosed without exporting exception
+  payloads. Failure classification and scoped cleanup stay unchanged (#1640).
+
 - Planning prompts ask each stage only for report fields its schema accepts:
   the Planner proposes remediations, the Plan Reviewer judges them, and the
   first review checks progressive proposals without returning one. This fixes

@@ -369,6 +369,40 @@ def session_handoff_reply(metadata, raw, deadline):
     return {"session_admitted": notice["request"], "guard": metadata["nonce"]}
 
 
+# Fixed diagnostics only: exception payloads may contain paths, provider output or secrets.
+_SESSION_HANDOFF_REASONS = {
+    "Invalid session ownership handoff": "invalid_notice",
+    "Invalid session ownership creator": "invalid_creator",
+    "Session ownership receipt is unavailable": "receipt_unavailable",
+    "Session ownership is no longer armed": "receipt_not_armed",
+    "Enclosing keeper is unavailable": "enclosing_keeper_unavailable",
+    "Enclosing keeper did not retain session ownership": "enclosing_ownership_unverified",
+    "Keeper exited before acknowledging ownership": "acknowledgement_unavailable",
+    "Keeper acknowledgement exceeded its limit": "acknowledgement_too_large",
+    "Keeper did not arm within the launch limit": "acknowledgement_deadline",
+}
+
+
+def _session_handoff_failure(error, phase):
+    known = (
+        (SupervisionError, "SupervisionError"),
+        (LaunchLimitExpired, "LaunchLimitExpired"),
+        (processes.ProcessError, "ProcessError"),
+        (OSError, "OSError"),
+        (BrokenPipeError, "BrokenPipeError"),
+        (PermissionError, "PermissionError"),
+        (ConnectionResetError, "ConnectionResetError"),
+        (ValueError, "ValueError"),
+        (json.JSONDecodeError, "JSONDecodeError"),
+    )
+    name = next((name for kind, name in known if type(error) is kind), "Exception")
+    message = None
+    if (type(error) is SupervisionError or type(error) is LaunchLimitExpired) and len(error.args) == 1:
+        message = error.args[0] if type(error.args[0]) is str else None
+    reason = _SESSION_HANDOFF_REASONS.get(message, "unclassified")
+    return f"Session ownership handoff failed: {name}; phase={phase}; reason={reason}"
+
+
 def _stop_direct(child):
     if child is None:
         return
@@ -678,14 +712,18 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
         def watch_keeper():
             callback_open = True
             while not stopped.is_set():
+                phase = "wait_callback"
                 try:
                     if callback_open and select.select([callback_parent], [], [], 0.05)[0]:
+                        phase = "read_callback"
                         raw = callback_parent.recv(65537)
                         if not raw:
                             callback_open = False
                         else:
+                            phase = "check_ownership"
                             answer = session_handoff_reply(metadata, raw, time.monotonic() + 15)
                             if answer is not None:
+                                phase = "send_acknowledgement"
                                 callback_parent.send(json.dumps(answer).encode())
                     elif not callback_open:
                         stopped.wait(0.05)  # EOF remains readable; do not spin on it.
@@ -693,9 +731,11 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                     # Clean publication can race the reply socket's closure.
                     if stopped.is_set() or (isinstance(error, OSError) and _terminal_clean(receipt(metadata))):
                         return
-                    errors.append(f"Session ownership handoff failed: {type(error).__name__}")
-                    with suppress(OSError):
-                        close_fd(control_w)
+                    try:
+                        errors.append(_session_handoff_failure(error, phase))
+                    finally:
+                        with suppress(OSError):
+                            close_fd(control_w)
                     return
                 code = keeper.poll()
                 if code is not None:
