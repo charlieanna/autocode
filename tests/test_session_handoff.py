@@ -3,9 +3,12 @@
 import copy
 import json
 import os
+import subprocess
+import sys
 import tempfile
+import threading
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -103,22 +106,32 @@ class SessionHandoffTests(unittest.TestCase):
         secret = "synthetic-receipt-private-value"
         original_metadata, original_value = copy.deepcopy(self.metadata), copy.deepcopy(self.value)
         path = Path(self.metadata["receipt"])
+        original_open = Path.open
+
+        def faulted_read(error):
+            def open_stream(path, *args, **kwargs):
+                stream = original_open(path, *args, **kwargs)
+                stack.enter_context(patch.object(stream, "read", side_effect=error))
+                return stream
+
+            stack.enter_context(patch.object(Path, "open", open_stream))
+
         cases = [
             ("missing_path_key", "metadata", "metadata_invalid", lambda: self.metadata.pop("receipt")),
             ("invalid_path_type", "metadata", "metadata_invalid", lambda: self.metadata.update(receipt=123)),
-            ("invalid_path_value", "stat", "value_invalid", lambda: self.metadata.update(receipt=secret + "\0")),
-            ("missing_file", "stat", "not_found", path.unlink),
+            ("invalid_path_value", "open", "value_invalid", lambda: self.metadata.update(receipt=secret + "\0")),
+            ("missing_file", "open", "not_found", path.unlink),
             (
                 "stat_denied",
                 "stat",
                 "access_denied",
-                lambda: stack.enter_context(patch.object(Path, "stat", side_effect=PermissionError(secret))),
+                lambda: stack.enter_context(patch.object(supervision.os, "fstat", side_effect=PermissionError(secret))),
             ),
             (
                 "stat_io",
                 "stat",
                 "io_error",
-                lambda: stack.enter_context(patch.object(Path, "stat", side_effect=OSError(secret))),
+                lambda: stack.enter_context(patch.object(supervision.os, "fstat", side_effect=OSError(secret))),
             ),
             (
                 "size_limit",
@@ -126,7 +139,9 @@ class SessionHandoffTests(unittest.TestCase):
                 "size_limit",
                 lambda: stack.enter_context(
                     patch.object(
-                        Path, "stat", return_value=SimpleNamespace(st_size=supervision.receipts.MAX_RECEIPT_BYTES + 1)
+                        supervision.os,
+                        "fstat",
+                        return_value=SimpleNamespace(st_size=supervision.receipts.MAX_RECEIPT_BYTES + 1),
                     )
                 ),
             ),
@@ -134,25 +149,25 @@ class SessionHandoffTests(unittest.TestCase):
                 "read_missing",
                 "read",
                 "not_found",
-                lambda: stack.enter_context(patch.object(Path, "read_text", side_effect=FileNotFoundError(secret))),
+                lambda: faulted_read(FileNotFoundError(secret)),
             ),
             (
                 "read_denied",
                 "read",
                 "access_denied",
-                lambda: stack.enter_context(patch.object(Path, "read_text", side_effect=PermissionError(secret))),
+                lambda: faulted_read(PermissionError(secret)),
             ),
             (
                 "read_io",
                 "read",
                 "io_error",
-                lambda: stack.enter_context(patch.object(Path, "read_text", side_effect=OSError(secret))),
+                lambda: faulted_read(OSError(secret)),
             ),
             (
                 "read_type",
                 "read",
                 "value_invalid",
-                lambda: stack.enter_context(patch.object(Path, "read_text", side_effect=TypeError(secret))),
+                lambda: faulted_read(TypeError(secret)),
             ),
             ("text_decode", "read", "text_decode_invalid", lambda: path.write_bytes(b"\xff")),
             ("json", "parse", "json_invalid", lambda: path.write_text("{" + secret)),
@@ -187,12 +202,18 @@ class SessionHandoffTests(unittest.TestCase):
                 self.assertLess(len(message), 384)
 
     def test_receipt_diagnostic_describes_the_same_failed_read_without_retry(self):
-        with patch.object(
-            Path, "read_text", side_effect=[OSError("synthetic-private-error"), json.dumps(self.value)]
-        ) as read:
+        path = Path(self.metadata["receipt"])
+        with (
+            path.open("rb") as stream,
+            patch.object(Path, "open", return_value=stream) as opened,
+            patch.object(
+                stream, "read", side_effect=[OSError("synthetic-private-error"), json.dumps(self.value).encode()]
+            ) as read,
+        ):
             with self.assertRaises(supervision.SupervisionError) as caught:
                 self.reply()
             message = supervision._session_handoff_failure(caught.exception, "check_ownership")
+        self.assertEqual(1, opened.call_count)
         self.assertEqual(1, read.call_count)
         self.assertIn("receipt_phase=read", message)
         self.assertIn("receipt_reason=io_error", message)
@@ -239,8 +260,107 @@ class SessionHandoffTests(unittest.TestCase):
         message = self.watch_transport(failure=None, clean=False, ownership_failure=True, receipt_missing=True)
         self.assertIn("phase=check_ownership", message)
         self.assertIn("reason=receipt_unavailable", message)
-        self.assertIn("receipt_phase=stat", message)
+        self.assertIn("receipt_phase=open", message)
         self.assertIn("receipt_reason=not_found", message)
+
+    @contextmanager
+    def mutate_after_size_check(self, target, mutate, *, enabled=lambda: True):
+        """One real publication mutation at the old path stat or new fd stat."""
+        path_stat, fd_stat = Path.stat, os.fstat
+        fired = []
+
+        def mutate_once(info):
+            if enabled() and not fired:
+                fired.append(True)
+                mutate(target)
+            return info
+
+        def inspect_path(path, *args, **kwargs):
+            info = path_stat(path, *args, **kwargs)
+            return mutate_once(info) if path == target else info
+
+        def inspect_fd(fd):
+            info = fd_stat(fd)
+            try:
+                current = path_stat(target)
+            except FileNotFoundError:
+                return info
+            return mutate_once(info) if (info.st_dev, info.st_ino) == (current.st_dev, current.st_ino) else info
+
+        with patch.object(Path, "stat", inspect_path), patch.object(os, "fstat", inspect_fd):
+            yield fired
+        self.assertEqual([True], fired, "The same race must actually run in either reader")
+
+    @unittest.skipUnless(os.name == "posix", "replacing an opened receipt requires POSIX publication semantics")
+    def test_opened_receipt_survives_path_removal_without_retry(self):
+        target = Path(self.metadata["receipt"])
+        with self.mutate_after_size_check(target, lambda path: path.unlink()):
+            self.assertEqual(self.value, supervision.receipt(self.metadata))
+        self.assertFalse(target.exists())
+
+    @unittest.skipUnless(os.name == "posix", "replacing an opened receipt requires POSIX publication semantics")
+    def test_path_replacement_never_mixes_another_inode_with_the_checked_receipt(self):
+        target = Path(self.metadata["receipt"])
+        replacement = target.with_name("replacement.json")
+        replacement.write_text(json.dumps({**self.value, "nonce": "foreign"}))
+        with self.mutate_after_size_check(target, lambda path: replacement.replace(path)):
+            self.assertEqual(self.value, supervision.receipt(self.metadata))
+        # Foreign bytes opened on the next independent check still fail closed.
+        self.assertIsNone(supervision.receipt(self.metadata))
+
+    def test_growth_after_size_check_is_bounded_and_cannot_contribute_receipt_bytes(self):
+        target = Path(self.metadata["receipt"])
+        data = target.read_bytes() + b" " * (supervision.receipts.MAX_RECEIPT_BYTES + 1)
+        with self.mutate_after_size_check(target, lambda path: path.write_bytes(data)):
+            value, diagnostic = supervision._read_receipt(self.metadata)
+            self.assertIsNone(value)
+            self.assertEqual(("read", "size_limit"), diagnostic)
+
+    @unittest.skipUnless(sys.platform == "linux", "real supervised session handoffs require Linux")
+    def test_public_launch_keeps_handoff_when_the_opened_receipt_path_is_removed(self):
+        target = Path(self.directory.name) / "real-handoff.json"
+        local = threading.local()
+        original = supervision.session_handoff_reply
+
+        def reply(*args):
+            local.active = True
+            try:
+                return original(*args)
+            finally:
+                local.active = False
+
+        error = None
+        output = ""
+        with (
+            self.mutate_after_size_check(
+                target, lambda path: path.unlink(), enabled=lambda: getattr(local, "active", False)
+            ),
+            patch.object(supervision, "session_handoff_reply", side_effect=reply),
+        ):
+            try:
+                with supervision.launch(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import subprocess,sys; subprocess.run([sys.executable,'-c','pass'],start_new_session=True,check=True); print('handoff-done')",
+                    ],
+                    receipt_path=target,
+                    timeout=20,
+                    start_new_session=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                ) as child:
+                    output, stderr = child.communicate(timeout=15)
+                    self.assertEqual(0, child.returncode, stderr)
+            except supervision.SupervisionError as stopped:
+                error = str(stopped)
+        self.assertIsNone(error)
+        self.assertEqual("handoff-done\n", output)
+        final = supervision.receipt(child.supervision)
+        self.assertEqual("stopped", final["phase"])
+        self.assertIsNone(final["cleanup_error"])
+        self.assertFalse(processes.live_processes([child.supervision[key] for key in ("keeper", "provider")]))
 
     def test_denied_native_identity_stays_unknown_instead_of_cancelled(self):
         with (

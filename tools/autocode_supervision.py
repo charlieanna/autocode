@@ -9,6 +9,7 @@ this context after its existing process supervisor has cleaned the provider.
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
@@ -181,7 +182,7 @@ def launch_envelope(child):
     return value
 
 
-_RECEIPT_READ_PHASES = frozenset({"metadata", "stat", "read", "parse", "validate"})
+_RECEIPT_READ_PHASES = frozenset({"metadata", "open", "stat", "read", "parse", "validate"})
 _RECEIPT_READ_REASONS = frozenset(
     {
         "metadata_invalid",
@@ -203,15 +204,22 @@ _RECEIPT_READ_REASONS = frozenset(
 
 
 def _read_receipt(metadata):
-    """One unchanged receipt check, with fixed labels for a failed read only."""
+    """Size-check and read one opened receipt; fixed failure labels, no retry."""
     phase = "metadata"
     try:
         path = Path(metadata["receipt"])
-        phase = "stat"
-        if path.stat().st_size > receipts.MAX_RECEIPT_BYTES:
+        phase = "open"
+        with path.open("rb") as stream:
+            phase = "stat"
+            if os.fstat(stream.fileno()).st_size > receipts.MAX_RECEIPT_BYTES:
+                return None, (phase, "size_limit")
+            phase = "read"
+            data = stream.read(receipts.MAX_RECEIPT_BYTES + 1)
+        if len(data) > receipts.MAX_RECEIPT_BYTES:
             return None, (phase, "size_limit")
-        phase = "read"
-        text = path.read_text()
+        # Preserve Path.read_text's default encoding, newline and decoder semantics.
+        with io.TextIOWrapper(io.BytesIO(data)) as text_stream:
+            text = text_stream.read()
         phase = "parse"
         value = json.loads(text)
         phase = "validate"
