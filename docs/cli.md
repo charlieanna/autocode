@@ -657,7 +657,11 @@ offer and the `pause` offer. The rules it reads them by are in
 follow, so a person gets the same choices in each:
 
 - **Requirements** asks in its own words; you reply in yours, and confirm the
-  understanding it summarizes with `y`.
+  understanding it summarizes with `y`. Before the plan is prepared the chat shows the
+  core's spend confirmation (`review.spend_confirmation`: what planning spends) and
+  asks `Prepare plan? [y/N]`; anything but yes sends nothing. A mode that can plan at
+  once (`quick`, whose `spend_confirmation` is `start`) asks `Start it? [y/N]` before
+  the run starts instead, as the VS Code extension does.
 - **A question** with options takes the option's number or your own answer; Enter
   takes the proposed default when there is one.
 - **The plan** is shown from `displayed_plan` and approved with `y` only while its

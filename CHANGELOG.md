@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The terminal chat asks before AutoCode spends, as the VS Code extension does: it shows
+  the core's spend confirmation and asks `Prepare plan? [y/N]` before paid planning, and asks
+  `Start it? [y/N]` before starting a run whose mode can plan at once (`--mode quick`).
+  Typing the review's own answer (`plan`) is confirmed the same way.
+
 - The full-screen `autocode chat` keeps a history of your chats, as the VS Code extension
   does: `/runs` lists them across every project, open and finished, grouped by project (this
   one first, then by latest activity) with each one's request and state;

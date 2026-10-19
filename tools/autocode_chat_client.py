@@ -426,7 +426,11 @@ class ChatClient:
             self.say("Nothing started; this chat carries on.")
             return
         mode, options = self.new_run or (None, [])
-        self.begin(brief, run_mode(mode, command=self.command, env=self.env), options)
+        chosen = mode_row(mode, command=self.command, env=self.env)
+        if not confirm_launch(self.ask, self.say, chosen):
+            self.say("Nothing started; this chat carries on.")
+            return
+        self.begin(brief, list(chosen.get("start_args") or []), options)
 
     def converse(self) -> int:
         try:
@@ -552,7 +556,10 @@ class ChatClient:
             self.say(f"\nAutoCode: {summary}")
         prompt = "\nYou: " if not review else f"\n{review['label']}? [y/N], or type what to change: "
         reply = self.ask(prompt)
-        if review and reply.lower() in YES:
+        if review and (reply.lower() in YES or same_answer(reply, review)):
+            if not self.confirm_spend(review.get("spend_confirmation")):
+                self.say("Not started. The understanding still waits for you.")
+                return True
             fresh = self.status()
             if (fresh.get("chat") or {}).get("context") != context:
                 self.say("The conversation changed meanwhile; here is where it stands now.")
@@ -670,6 +677,14 @@ class ChatClient:
             return False
         return bool(reply) and self.send(reply, context)
 
+    def confirm_spend(self, confirmation) -> bool:
+        """The core's spend confirmation before paid planning, as the extension's modal shows it:
+        its title and detail, then its own button label as the question. None: nothing to confirm."""
+        if not isinstance(confirmation, dict):
+            return True
+        self.say(f"\n{confirmation.get('title') or 'Continue?'}\n{confirmation.get('detail') or ''}".rstrip())
+        return self.ask(f"{confirmation.get('label') or 'Continue'}? [y/N]: ").lower() in YES
+
     def send(self, text: str, context: str) -> bool:
         """A message through the view's chat input, then on with the run, as the extension does."""
         self.take(actions.message(self.status(), text, context, self.workspace, self.run_dir))
@@ -725,8 +740,32 @@ def start(workspace: Path, brief: str, start_args, options, *, command=AUTOCODE,
     return client
 
 
-def run_mode(mode: str | None, *, command=AUTOCODE, env=None) -> list[str]:
-    """The start flags of a mode `autocode modes list` names; the core's default without one."""
+def same_answer(reply: str, review: dict) -> bool:
+    """A typed reply that is the review's own answer, matched as the core matches it (``trim_lower``)."""
+    confirmation = review.get("spend_confirmation") or {}
+    if confirmation.get("match") != "trim_lower":
+        return reply == review.get("answer")
+    strip = " \t\n\r\x0b\x0c\x1c\x1d\x1e\x1f\x85"
+    return reply.strip(strip).lower() == str(review.get("answer") or "").strip(strip).lower()
+
+
+LAUNCH_WARNING = "Start a live AutoCode run? It spends your model allowance and can run for a long time."
+
+
+def confirm_launch(ask: Callable[[str], str], say: Callable[[str], None], mode: dict) -> bool:
+    """A mode that does not confirm before planning (``spend_confirmation`` other than "planning",
+    or none from an older core) is confirmed before the run starts, as the extension does."""
+    if mode.get("spend_confirmation") == "planning":
+        return True
+    say(f"\n{LAUNCH_WARNING}")
+    try:
+        return ask("Start it? [y/N]: ").strip().lower() in YES
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
+def mode_row(mode: str | None, *, command=AUTOCODE, env=None) -> dict:
+    """The mode `autocode modes list` names, or the core's default without one."""
     proc = subprocess.run([*command, "modes", "list", "--json"], capture_output=True, text=True, env=env)
     if proc.returncode != 0:
         raise actions.ClientGap(f"could not list run modes: {tail(proc)}")
@@ -734,9 +773,14 @@ def run_mode(mode: str | None, *, command=AUTOCODE, env=None) -> list[str]:
     wanted = mode or listed.get("default")
     for row in listed.get("modes") or []:
         if row.get("id") == wanted:
-            return list(row.get("start_args") or [])
+            return row
     names = ", ".join(row.get("id", "") for row in listed.get("modes") or [])
     raise actions.ClientGap(f"no run mode {wanted!r}; choose one of: {names}")
+
+
+def run_mode(mode: str | None, *, command=AUTOCODE, env=None) -> list[str]:
+    """The start flags of a mode `autocode modes list` names; the core's default without one."""
+    return list(mode_row(mode, command=command, env=env).get("start_args") or [])
 
 
 def project_runs(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
@@ -815,7 +859,11 @@ def open_chat(
     if not brief:
         say("Nothing started.")
         return None
-    return start(workspace, brief, run_mode(mode, command=command, env=env), options, ask=ask, say=say, **kwargs)
+    chosen = mode_row(mode, command=command, env=env)
+    if not confirm_launch(ask, say, chosen):
+        say("Nothing started.")
+        return None
+    return start(workspace, brief, list(chosen.get("start_args") or []), options, ask=ask, say=say, **kwargs)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -882,7 +930,13 @@ def cli(argv: list[str] | None = None) -> int:
             ui.set_context(workspace)
             ui.bind(history.slash)  # /runs and /open work before a chat is open
         if args.brief is not None:
-            client = start(workspace, args.brief, run_mode(args.mode), options, ask=ask, say=say, **seen)
+            chosen = mode_row(args.mode)
+            if not confirm_launch(ask, say, chosen):
+                say("Nothing started.")
+                return 2
+            client = start(
+                workspace, args.brief, list(chosen.get("start_args") or []), options, ask=ask, say=say, **seen
+            )
         elif args.run_dir is not None:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)
             client = ChatClient(workspace, run_dir, ask=ask, say=say, **seen)

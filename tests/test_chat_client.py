@@ -412,6 +412,61 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(0, client.converse())
         self.assertEqual([["--follow-up", "Add a --shout flag"]], client.taken)
 
+    REVIEW = {
+        "status": "WAITING_FOR_USER",
+        "needs": {"kind": "answer", "questions": [{"id": "RQ", "question": "Is this right?"}]},
+        "next_command": f"autocode {PLACE} --answer RQ=ANSWER",
+        "chat": {
+            "phase": "requirements",
+            "context": "c1",
+            "review": {
+                "question_id": "RQ",
+                "answer": "plan",
+                "label": "Approve understanding and prepare plan",
+                "summary": "You want a greeting CLI.",
+                "spend_confirmation": {
+                    "match": "trim_lower",
+                    "title": "Prepare a reviewed plan?",
+                    "detail": "Planning uses your selected models.",
+                    "label": "Prepare plan",
+                },
+            },
+            "input": {"kind": "feedback", "next_command": f"autocode {PLACE} --feedback MESSAGE"},
+        },
+    }
+
+    def test_planning_starts_only_after_its_spend_is_confirmed(self):
+        client = ScriptedChat(self.REVIEW, DONE, replies=["y", "y"])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--answer", "RQ=plan"]], client.taken)
+        self.assertIn("Prepare a reviewed plan?\nPlanning uses your selected models.", client.text())
+        self.assertIn("Prepare plan? [y/N]: ", client.text())
+
+    def test_declining_the_spend_sends_nothing_and_the_understanding_still_waits(self):
+        client = ScriptedChat(self.REVIEW, replies=["y", "n"])
+        self.assertEqual(2, client.converse())
+        self.assertEqual([], client.taken)
+        self.assertIn("Not started. The understanding still waits for you.", client.text())
+
+    def test_typing_the_reviews_own_answer_is_confirmed_like_yes(self):
+        client = ScriptedChat(self.REVIEW, DONE, replies=["  PLAN ", "y"])
+        self.assertEqual(0, client.converse())
+        self.assertEqual([["--answer", "RQ=plan"]], client.taken, "not sent as a correction")
+
+    def test_a_mode_that_plans_at_once_is_confirmed_before_it_starts(self):
+        asked = []
+        for mode, replies, expected in (
+            ({"spend_confirmation": "planning"}, [], True),
+            ({"spend_confirmation": "start"}, ["y"], True),
+            ({"spend_confirmation": "start"}, [""], False),
+            ({}, ["n"], False),  # an older core that says nothing: confirm at launch
+        ):
+            answers = iter(replies)
+            self.assertEqual(
+                expected, chat.confirm_launch(lambda p: (asked.append(p), next(answers))[1], asked.append, mode)
+            )
+        self.assertEqual(3, asked.count("Start it? [y/N]: "))
+
     def test_a_run_number_out_of_range_is_asked_again_not_started_as_a_request(self):
         runs = [
             {"name": f"run-{n}", "run_dir": f"{WORKSPACE}/.autocode/runs/r{n}", "bucket": "needs you"} for n in (1, 2)
@@ -647,10 +702,14 @@ class TerminalChatTests(unittest.TestCase):
         return {row["question_id"]: row["text"] for row in rows if row.get("kind") == "answer"}
 
     def test_a_person_confirms_the_understanding_approves_the_plan_and_the_run_completes(self):
-        proc = self.chat(BRIEF, replies="y\ny\n\n")
+        proc = self.chat(BRIEF, replies="y\ny\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         out = proc.stdout
         self.assertIn("Approve understanding and prepare plan? [y/N]", out)
+        # The core's spend confirmation, as the extension's modal shows it, before paid planning.
+        self.assertIn("Prepare a reviewed plan?\nPlanning uses your selected models and saved limits.", out)
+        self.assertIn("Prepare plan? [y/N]: ", out)
+        self.assertNotIn(chat.LAUNCH_WARNING, out, "Full mode confirms at planning, not at launch")
         self.assertIn("Plan to approve:\n  [C1] Greeting contract holds", out)
         self.assertLess(out.index("Plan to approve:"), out.index("The requested task is complete."))
         self.assertTrue(out.rstrip().endswith("Done."), out[-500:])
@@ -658,14 +717,15 @@ class TerminalChatTests(unittest.TestCase):
 
     def test_a_question_is_answered_by_choosing_an_option(self):
         ask_one_question_once(self, self.env)
-        proc = self.chat("--mode", "quick", BRIEF, replies="2\ny\n\n")
+        proc = self.chat("--mode", "quick", BRIEF, replies="y\n2\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+        self.assertIn(chat.LAUNCH_WARNING, proc.stdout, "Quick mode can plan at once, so it confirms at launch")
         self.assertEqual(1, proc.stdout.count("Should the README target beginners"), "the question is asked once")
         self.assertIn("  2. Experienced Python users", proc.stdout)
         self.assertEqual("Experienced Python users", self.answers()["readme-audience"])
 
     def test_leaving_at_the_plan_changes_nothing_and_chat_picks_the_run_up_again(self):
-        left = self.chat(BRIEF, replies="y\n")
+        left = self.chat(BRIEF, replies="y\ny\n")
         self.assertEqual(2, left.returncode, left.stdout + left.stderr)
         self.assertIn("Left the chat; the run is unchanged. Pick it up with: autocode chat --run-dir", left.stdout)
         self.assertFalse((self.workspace / "greet.py").exists(), "nothing is built before the person approves")
@@ -676,14 +736,14 @@ class TerminalChatTests(unittest.TestCase):
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_with_nothing_open_the_chat_asks_what_to_do_and_starts_it(self):
-        proc = self.chat(replies=BRIEF + "\ny\ny\n\n")
+        proc = self.chat(replies=BRIEF + "\ny\ny\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertTrue(proc.stdout.startswith("What do you want done? "), proc.stdout[:200])
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_with_several_runs_open_the_person_picks_one(self):
         for _ in range(2):
-            self.assertEqual(2, self.chat(BRIEF, replies="y\n").returncode)
+            self.assertEqual(2, self.chat(BRIEF, replies="y\ny\n").returncode)
         proc = self.chat(replies="2\ny\n\n", options=())
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
         self.assertIn("Runs waiting here:\n  1. ", proc.stdout)
@@ -730,6 +790,7 @@ class TerminalChatTests(unittest.TestCase):
         try:
             for until, reply in (
                 (b"Approve understanding and prepare plan?", b"y\n"),
+                (b"Prepare plan?", b"y\n"),
                 (b"Approve this plan?", b"y\n"),
                 (b"Anything else?", b"\n"),
             ):
