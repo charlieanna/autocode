@@ -206,6 +206,18 @@ class CheckpointActionTests(unittest.TestCase):
             )
 
 
+class WorkingActionTests(unittest.TestCase):
+    def test_the_named_live_diff_is_returned_as_named_and_nothing_else(self):
+        named = ["checkpoint", "--workspace", str(WORKSPACE), "--run-dir", str(RUN), "--working"]
+        view = {"code_checkpoints": {"working": {"id": "working", "next_command": named}}}
+        self.assertEqual(named, actions.live_diff(view, WORKSPACE, RUN))
+        with self.assertRaisesRegex(actions.ClientGap, "offers no live diff"):
+            actions.live_diff({"code_checkpoints": {"working": None}}, WORKSPACE, RUN)
+        view["code_checkpoints"]["working"]["next_command"] = ["checkpoint", "--working"]
+        with self.assertRaisesRegex(actions.ClientGap, "Unsupported working-diff"):
+            actions.live_diff(view, WORKSPACE, RUN)
+
+
 class SavedStepTests(unittest.TestCase):
     """/diff and /undo through the real `autocode checkpoint` CLI, on a run paused after a saved Builder step."""
 
@@ -233,6 +245,22 @@ class SavedStepTests(unittest.TestCase):
         self.assertIn("app.txt", shown)
         self.assertIn("+later work", shown)
         self.assertIn("There is no step 2", self.client.slash("/diff", "2"))
+
+    def test_diff_now_shows_the_builders_edits_only_while_a_step_runs(self):
+        self.assertIn("offers no live diff", self.client.slash("/diff", "now"))
+        self.assertNotIn("/diff now", self.client.slash("/diff", ""))
+        self.fixture.state["active_stage"] = {
+            "stage": "terra",
+            "iteration": 3,
+            "output": str(self.fixture.run / "builder-03.json"),
+        }
+        self.fixture.save()
+        self.assertIn("Type /diff now", self.client.slash("/diff", ""))
+        self.assertIn("has not changed any files since step 1", self.client.slash("/diff", "now"))
+        (self.fixture.workspace / "app.txt").write_text("builder is editing\n")
+        shown = self.client.slash("/diff", "now")
+        self.assertIn("1 file changed since step 1", shown)
+        self.assertIn("+builder is editing", shown)
 
     def test_undo_asks_first_then_goes_back_on_a_new_run_the_chat_talks_to(self):
         before = self.client.run_dir

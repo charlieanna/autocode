@@ -488,6 +488,25 @@ def row_actions(row, *, restorable, run_dir=None, workspace=None):
     return actions
 
 
+def working_action(state: RunState, *, run_dir=None, workspace=None):
+    """The display-only `checkpoint --working` action, named while a Builder step is running."""
+    active = state.get("active_stage") or {}
+    if active.get("stage") not in ("terra", "orchestrator") or not approved(state):
+        return None
+    return {
+        "id": "working",
+        "label": "Show what the Builder has changed so far",
+        "next_command": [
+            "checkpoint",
+            "--workspace",
+            str(workspace) if workspace else "WORKSPACE",
+            "--run-dir",
+            str(run_dir) if run_dir else "RUN_DIR",
+            "--working",
+        ],
+    }
+
+
 def project(state: RunState, *, run_dir=None, workspace=None):
     reason = blocked_reason(state)
     rows = []
@@ -518,6 +537,7 @@ def project(state: RunState, *, run_dir=None, workspace=None):
         "version": 1,
         "blocked_reason": reason,
         "rows": rows,
+        "working": working_action(state, run_dir=run_dir, workspace=workspace),
         "continuation": deepcopy(state.get("checkpoint_continuation")),
         "restores": deepcopy(state.get("checkpoint_restores", [])),
     }

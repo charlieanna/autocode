@@ -233,12 +233,25 @@ class ChatClient:
             raise actions.ClientGap(f"AutoCode refused that: {message}")
         return payload
 
+    def working_diff(self, view: dict, rows: list[dict]) -> str:
+        """``/diff now``: the view's named, display-only diff of what the running Builder has changed."""
+        try:
+            result = self.checkpoint_result(self.cli(actions.live_diff(view, self.workspace, self.run_dir)))
+        except actions.ClientGap as error:
+            return str(error)
+        ids = [str(row.get("id")) for row in rows]
+        since = result.get("since")
+        phrase = "the run started" if since == "start" or since not in ids else f"step {ids.index(since) + 1}"
+        return panel.comparison_text(result, since=phrase, working=True)
+
     def slash(self, name: str, argument: str):
         """``/diff`` and ``/undo`` from the full-screen chat: what to show, or a question to confirm first."""
         view = self.status()
         rows = panel.steps(view)
         if not argument:
             return panel.steps_text(view, name)
+        if name == "/diff" and argument == "now":
+            return self.working_diff(view, rows)
         if not argument.isdigit() or not 1 <= int(argument) <= len(rows):
             return f"There is no step {argument}. " + (f"Choose 1 to {len(rows)}." if rows else "No code is saved yet.")
         number, row = int(argument), rows[int(argument) - 1]
