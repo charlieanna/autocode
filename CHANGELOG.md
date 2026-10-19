@@ -28,6 +28,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Joint-planning handoffs use compact JSON while preserving exact task and source
+  values, saved decisions and commands. The retained small-task incident input is
+  3,215 bytes smaller (3.38%); latency and report-delivery improvement remain
+  unverified (#1630).
+
 - New CLI and TaskRun runs select qualified models from connected accounts automatically,
   preserving explicit overrides and saved routes. OpenCode/Kilo metadata governs supported
   reasoning levels; preflight receipts distinguish levels and actual tools. Automatic

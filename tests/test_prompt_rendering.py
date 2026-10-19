@@ -6,6 +6,7 @@ The initial hashes were captured before moving the strings; intentional prompt
 changes refresh only their affected entries after the rendered differences are checked.
 """
 
+import copy
 import hashlib
 import json
 import sys
@@ -396,6 +397,53 @@ class RenderedPromptTests(unittest.TestCase):
             with self.subTest(case=name):
                 self.assertIn("Follow the provider output contract for reporting.", text)
                 self.assertNotIn("return the report, the runner saves it", text)
+
+    def test_joint_planning_handoff_is_compact_and_preserves_exact_task_values(self):
+        state = fixed_state()
+        literal = 'Say "hello" to 世界.\nKeep the second line and \t tab.'
+        command_text = 'python3 -m unittest "tests.test_queue.Empty Case"'
+        state["task"] = literal
+        state["answers"] = {"Q1": {"text": literal, "nested": [None, False, 1, {"command": command_text}]}}
+        state["brief_feedback"] = [{"id": "feedback-1", "text": literal}]
+        state["user_events"] = copy.deepcopy(state["brief_feedback"])
+        before = copy.deepcopy(state)
+        for stage in (
+            "requirements_gather",
+            "astra_discovery",
+            "astra_challenge",
+            "astra_finalize",
+            "plan",
+            "plan_review",
+        ):
+            with (
+                self.subTest(stage=stage),
+                patch.object(planner, "workspace_inventory", return_value={"files": ["queue.py"]}),
+                patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+            ):
+                prompt, metrics = planner.context(state, stage, STATE_PATH)
+                instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+                packet = json.loads(raw)
+                self.assertEqual(before["answers"], packet["saved_answers"])
+                self.assertEqual(before["brief_feedback"], packet["brief_feedback"])
+                self.assertEqual(before["user_events"], packet["user_events"])
+                self.assertLess(len(raw.encode()), len(json.dumps(packet, indent=2).encode()))
+                self.assertNotIn("\n", raw)  # literal newlines stay escaped data
+                self.assertEqual((len(prompt.encode()) + 3) // 4, metrics["estimated_prompt_tokens"])
+                for name, render in (
+                    ("opencode", opencode.prompt_for_schema),
+                    (
+                        "command",
+                        command.CommandProvider(
+                            {"name": "fixture", "roles": {}, "output": "report_file"}, Path("unused.toml")
+                        ).prompt_for_schema,
+                    ),
+                ):
+                    rendered = render(prompt, planner.schema_for(state, stage), Path("/run/events.jsonl"))
+                    after = json.loads(rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+                    self.assertEqual(packet, {key: after[key] for key in packet}, name)
+                    self.assertIn("capture_command", after)
+                    self.assertTrue(rendered.startswith(instruction), name)
+                self.assertEqual(before, state, "rendering must not change authority or saved context")
 
     def test_every_fixed_stage_rendering_matches_its_reviewed_bytes(self):
         expected = json.loads(FIXTURES.read_text())
