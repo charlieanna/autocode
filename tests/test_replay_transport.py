@@ -33,6 +33,7 @@ import autocode_replay_view as replay_view
 import autocode_run_view as run_view
 import autocode_util as util
 import autocode_verify as verify
+from units import autoplanner as planning
 
 from .test_replay_recording import make_export_projection
 
@@ -138,6 +139,63 @@ class OwnedTransportTests(unittest.TestCase):
             self.assertIsNone(inventory.available_models(self.workspace))
             self.assertIsNone(inventory.check_models(routes))
             self.assertIsNone(facade.check_models(routes, self.workspace, inventory=set()))
+
+    def test_replay_keeps_archived_reviewer_and_investigator_efforts_while_charging_reviews(self):
+        self.projection["settings"].update(
+            planning_review_call_limit=2,
+            roles={
+                "terra": {"model": "fixture-model"},
+                "plan_reviewer": {
+                    "engine": "opencode",
+                    "model": "openai/gpt-6-astra",
+                    "reasoning_effort": "medium",
+                    "model_pinned": True,
+                    "light_effort": "low",
+                },
+                "investigator": {
+                    "engine": "opencode",
+                    "model": "openai/gpt-6-astra",
+                    "reasoning_effort": "high",
+                },
+            },
+        )
+        tape = self.tape()
+        state = {
+            "task": self.projection["task"],
+            "status": "RUNNING",
+            "next_stage": "astra_challenge",
+            "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
+            "planning": {"astra_calls": 0, "reports": {}},
+            "planning_history": [{"astra_calls": 1}],
+        }
+        args = SimpleNamespace(replay_recording=tape.manifest_path, replay_checks="fresh")
+        state["settings"] = transport.configure(args, state)
+        self.assertEqual("investigator", planning.route_for(state, "investigate_bug"))
+        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
+        self.assertEqual(tape.document["launch"]["settings"]["roles"], state["settings"]["roles"])
+        self.assertTrue(state["planning"]["review_depth_reduced"])
+        self.assertEqual(1, state["planning"]["review_calls_before_policy"])
+        self.assertEqual(1, state["planning"]["astra_calls"])
+        self.recorded_facade(tape).check_models(state["settings"]["roles"], self.workspace)
+        planning.charge(state, "astra_challenge")
+        self.assertEqual(2, state["planning"]["astra_calls"])
+        with self.assertRaises(util.Paused) as raised:
+            planning.charge(state, "astra_challenge")
+        self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status)
+
+    def test_historical_reviewer_effort_change_still_refuses_before_emitter_effects(self):
+        self.projection["settings"]["roles"]["plan_reviewer"] = {
+            "model": "fixture-model",
+            "reasoning_effort": "medium",
+        }
+        self.tape(updates={"route_role": "plan_reviewer", "reasoning_effort": "high"})
+        before = (self.workspace / "greet.py").read_bytes()
+        with self.assertRaisesRegex(recording.RecordingError, "reasoning_effort differs"):
+            self.prepare(effort="medium")
+        self.assertEqual(before, (self.workspace / "greet.py").read_bytes())
+        self.assertFalse(self.report.exists())
 
     def test_recorded_model_route_substitution_refuses_without_provider_or_workspace_effects(self):
         self.projection["settings"]["roles"]["terra"].update(

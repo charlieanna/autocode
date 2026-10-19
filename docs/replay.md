@@ -53,6 +53,16 @@ current file. The final tree cannot substitute for a missing intermediate tree.
 A recording that ended before a trustworthy provider exit cannot be emitted as
 a completed attempt.
 
+Replay preserves the Plan Reviewer's archived effective reasoning effort instead
+of reducing it again for a small task. Review allowances still apply, and each
+dispatch must match its recorded route exactly. Optional provider `light_effort`
+values remain part of the portable role configuration.
+
+The format stores the saved role configuration, not its complete configuration
+history. If one role used different efforts at earlier stages, its final saved
+effort may not reproduce those stages; replay refuses that mismatch. It does not
+guess an earlier tier for legacy recordings.
+
 The first recording format supports serial Builder dispatches. Export refuses
 concurrent Builders, retained protected-test files or commands, and external
 visual or Figma startup. Those paths need additional portable evidence; export

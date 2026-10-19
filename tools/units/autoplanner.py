@@ -682,6 +682,10 @@ def apply_reviewer_effort_tier(state: RunState):
     settings = state.get("settings") or {}
     if settings.get("plan_review_full"):
         return
+    # Replay starts from archived effective routes. Reducing them again would
+    # change the recorded effort; the replay transport still checks every dispatch.
+    if settings.get("replay_recording"):
+        return
     route = (settings.get("roles") or {}).get("plan_reviewer")
     if not isinstance(route, dict):
         return
