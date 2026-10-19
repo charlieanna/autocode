@@ -198,7 +198,8 @@ export interface StatusView {
     notice?: string | null;
     /** Core-authored activity and recent attempt descriptions; display text only. */
     progress?: string[];
-    review?: { question_id: string; answer: string; label: string; summary?: string } | null;
+    review?: { question_id: string; answer: string; label: string; summary?: string;
+      spend_confirmation?: { title: string; detail: string; label: string; match?: "trim_lower" } } | null;
     context: string;
     input: { kind: "feedback" | "follow_up" | "resolver_response"; label: string; next_command: string } | null;
   };

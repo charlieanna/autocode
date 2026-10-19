@@ -1134,6 +1134,86 @@ test('a new chat starts with the run mode picked from the core list and passes i
     'the chip style must not override hidden');
 });
 
+test('Full chat starts a greeting without the spend dialog when the core defers it to planning', async (t) => {
+  const modes = structuredClone(RUN_MODES); modes.modes[0].spendConfirmation = 'planning';
+  t.mock.method(controller, 'modes', async () => modes);
+  let confirmations = 0;
+  const ui = await openChat(t, null, false, { actions: { confirmStart: async () => { confirmations++; return false; } } });
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('hi'); ui.submit(); await flush(); await flush();
+  assert.equal(confirmations, 0);
+  assert.equal(start.mock.callCount(), 1);
+  assert.equal(start.mock.calls[0].arguments[1], 'hi');
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first']);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'), 'actual work can show activity');
+});
+
+for (const policy of ['start', undefined]) test(`pre-launch ${policy || 'legacy'} confirmation waits without Thinking and cancellation keeps the draft`, async (t) => {
+  const modes = structuredClone(RUN_MODES); modes.modes[0].spendConfirmation = policy;
+  t.mock.method(controller, 'modes', async () => modes);
+  let finish;
+  let confirmations = 0;
+  const ui = await openChat(t, null, false, { actions: {
+    confirmStart: () => { confirmations++; return new Promise((resolve) => { finish = resolve; }); },
+  } });
+  const start = t.mock.method(controller, 'start', async () => run);
+  ui.type('hi'); ui.submit(); await flush(); await flush();
+  assert.equal(confirmations, 1);
+  assert.equal(start.mock.callCount(), 0);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Waiting to start'));
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  ui.submit(); await flush();
+  assert.equal(confirmations, 1, 'duplicate sends cannot open another prompt');
+  finish(false); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 0);
+  assert.equal(ui.document.querySelector('#message').value, 'hi');
+  assert.equal(ui.document.querySelector('#send-message').disabled, false);
+});
+
+test('the core prepare-plan match includes normalized approvals and excludes corrections', () => {
+  const { planningSpendConfirmation } = host.load('panel.js');
+  const confirmation = { title: 'Prepare?', detail: 'Uses selected models.', label: 'Prepare', match: 'trim_lower' };
+  const value = { chat: { review: { question_id: 'review', answer: 'plan', spend_confirmation: confirmation } } };
+  for (const answer of ['plan', ' PLAN ', '\u0085PLAN\u001f']) {
+    assert.equal(planningSpendConfirmation(value, { review: answer }), confirmation);
+  }
+  assert.equal(planningSpendConfirmation(value, { review: 'Use Ruby instead' }), null);
+  assert.equal(planningSpendConfirmation(value, { another: 'plan' }), null);
+});
+
+for (const surface of ['chat', 'details']) test(`${surface}: spend is confirmed at the core prepare-plan answer and cancellation launches nothing`, async (t) => {
+  host.config.set('confirmPersonOnly', false);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const confirmation = { title: 'Prepare a reviewed plan?', detail: 'Planning uses your selected models and saved limits.', label: 'Prepare plan' };
+  const value = { status: 'WAITING_FOR_USER', done: false,
+    needs: { kind: 'answer', resolver_token: 'review:exact', questions: [
+      { id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' },
+    ] },
+    next_command: `autocode --answer requirements-review-current=ANSWER --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'review', input: null, messages: [], review: {
+      question_id: 'requirements-review-current', answer: 'plan', label: 'Approve understanding and prepare plan', spend_confirmation: confirmation,
+    } },
+  };
+  const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
+  const take = () => ui.document.querySelector('#take-action');
+  if (surface === 'details') {
+    const field = ui.document.querySelector('[data-question="requirements-review-current"]');
+    field.value = 'plan'; field.dispatchEvent(new ui.window.Event('input'));
+  }
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  take().click(); await flush(); await flush();
+  assert.equal(prompt.mock.callCount(), 1);
+  assert.equal(prompt.mock.calls[0].arguments[0], confirmation.title);
+  assert.equal(launch.mock.callCount(), 0, 'declining must not answer or begin planning');
+  prompt.mock.mockImplementation(async () => confirmation.label);
+  take().click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  const [, args] = launch.mock.calls[0].arguments;
+  assert.ok(args.includes('requirements-review-current=plan'));
+  assert.ok(!args.includes('--approve-goal'), 'planning spend never approves a build');
+});
+
 test('an AutoCode that lists no run modes offers no picker and starts the full flow', async (t) => {
   t.mock.method(controller, 'modes', async () => { throw new Error("usage: autocode: invalid choice: 'modes'"); });
   const ui = await openChat(t, null, undefined);

@@ -7,12 +7,34 @@ import unittest
 from pathlib import Path
 
 import autocode_chat_view as chat
+import autocode_requirements_review as requirements_review
 import autocode_run_view as run_view
 import autocode_util as util
 import goal_fixtures
 
 
 class ChatViewTests(unittest.TestCase):
+    def test_spend_confirmation_is_offered_at_the_bound_prepare_plan_answer(self):
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "requirements_handoff": {"report": {"intended_outcome": "Build a greeting"}},
+        }
+        question = requirements_review.review_question(state)
+        public = {"status": state["status"], "needs": {"kind": "answer", "questions": [question]}}
+        before = copy.deepcopy((state, public))
+        result = chat.project(state, public)
+        review = result["review"]
+        self.assertEqual(question["id"], review["question_id"])
+        self.assertEqual("plan", review["answer"])
+        self.assertIn("selected models", review["spend_confirmation"]["detail"])
+        self.assertIn("Building still waits", review["spend_confirmation"]["detail"])
+        schema = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
+        util.validate_schema(result, schema["properties"]["view"]["properties"]["chat"])
+        self.assertEqual(before, (state, public))
+        public["needs"]["questions"] = [{"id": "clarify", "question": "What should we build?"}]
+        self.assertIsNone(chat.project(state, public)["review"])
+
     def test_connection_stop_explains_the_user_action_without_dashboard_jargon(self):
         state = {"status": "PAUSED_TRANSPORT_CHANGED", "task": "Make it friendlier"}
         result = self.project(state, need="resume")

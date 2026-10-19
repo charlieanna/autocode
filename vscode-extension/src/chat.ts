@@ -12,7 +12,7 @@ import { chosenMode, type RunModes } from "./core/modes";
 import type { StatusView } from "./core/view";
 import { transitionNotice } from "./notify";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
-import { numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, stateFor } from "./panel";
+import { numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
 interface ChatMessage {
   type?: string;
@@ -51,12 +51,13 @@ interface ChatTab {
   readError: string;
   pendingBrief: string;
   starting: boolean;
+  launching: boolean;
   /** Compare results this tab already holds, by checkpoint id. */
   readonly comparisons: Map<string, CheckpointComparison>;
 }
 
 function newTab(key: string, run?: RunRef): ChatTab {
-  return { key, run, error: "", readError: "", pendingBrief: "", starting: false, comparisons: new Map() };
+  return { key, run, error: "", readError: "", pendingBrief: "", starting: false, launching: false, comparisons: new Map() };
 }
 
 function tabName(tab: ChatTab): string {
@@ -209,7 +210,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const tab = this.active;
     const busy = tab.starting || this.busy.has(tab.key);
     void this.view?.webview.postMessage({
-      type: "chat", runKey: tab.key, busy, pausing: this.pausing.has(tab.key),
+      type: "chat", runKey: tab.key, busy, waitingForStart: tab.starting && !tab.launching, pausing: this.pausing.has(tab.key),
       error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
       selectedRun: tab.run ?? null, persistSelection,
       tabs: this.tabs.map((row) => ({ key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null })),
@@ -330,11 +331,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         const state = stateFor(view, run, this.controller);
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
         const numeric = numericConfirmation(state, message.answers ?? {});
-        if (numeric || (requiresConfirmation(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
-          const button = numeric ? numericActionLabel(state) : "Continue";
+        const planning = planningSpendConfirmation(view, message.answers ?? {});
+        if (numeric || planning || (requiresConfirmation(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
+          const button = numeric ? numericActionLabel(state) : planning?.label ?? "Continue";
           const answer = await vscode.window.showWarningMessage(
-            numeric ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"), { modal: true,
-              detail: numeric ? numericRecoveryEffect(state) : state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
+            numeric ?? planning?.title ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"), { modal: true,
+              detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
           );
           if (answer !== button) return;
         }
@@ -479,11 +481,16 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     try {
       const workspace = await this.actions.pickWorkspace();
       if (!workspace || this.sequence !== launchSequence) return;
-      const confirmed = await this.actions.confirmStart();
-      if (!confirmed || this.sequence !== launchSequence) return;
       // Read the list again so the flags come from the CLI that starts the run.
       await this.loadModes();
+      if (this.sequence !== launchSequence) return;
       const mode = this.modes ? chosenMode(this.modes, this.modeChoice) : undefined;
+      if (mode?.spendConfirmation !== "planning") {
+        const confirmed = await this.actions.confirmStart();
+        if (!confirmed || this.sequence !== launchSequence) return;
+      }
+      tab.launching = true;
+      this.post();
       await this.controller.start(workspace, text, (run) => {
         allocatedRun = run;
         allocatedKey = runKey(run);
@@ -557,6 +564,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       }
     } finally {
       tab.starting = false;
+      tab.launching = false;
       if (allocatedKey) this.busy.delete(allocatedKey);
       this.actions.changed();
       if (this.sequence === launchSequence) {

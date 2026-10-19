@@ -28,6 +28,7 @@ MODES = (
             "prepared, reviewed and shown to you for approval before anything is built."
         ),
         "start_args": ["--joint-planning", "--spec-first"],
+        "spend_confirmation": "planning",
     },
     {
         "id": "quick",
@@ -38,6 +39,7 @@ MODES = (
             "Reviewer still check the work."
         ),
         "start_args": ["--joint-planning", "--no-spec-first", "--adaptive-planning"],
+        "spend_confirmation": "start",
     },
 )
 

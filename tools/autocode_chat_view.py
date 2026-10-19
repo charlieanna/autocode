@@ -166,6 +166,12 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             "answer": "plan",
             "label": "Approve understanding and prepare plan",
             "summary": requirements_review.review_question(state)["question"],
+            "spend_confirmation": {
+                "match": "trim_lower",
+                "title": "Prepare a reviewed plan?",
+                "detail": "Planning uses your selected models and saved limits. Building still waits for your approval of the displayed plan.",
+                "label": "Prepare plan",
+            },
         }
     return {
         "messages": messages,
