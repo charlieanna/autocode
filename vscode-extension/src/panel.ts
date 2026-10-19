@@ -65,6 +65,8 @@ export interface PanelState {
   taking: boolean;
   /** This client is acting, or AutoCode reports live stage/controller work. */
   working: boolean;
+  /** Chat only: the latest status read failed, so this state is an older read and its actions stay disabled (#1593). */
+  unreadable?: boolean;
   /** Saved code changes and the actions the view named for them (#1532). */
   checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
   checkpointsBlocked: string | null;
@@ -605,7 +607,7 @@ function render(state) {
   const chatSlice = chatMode ? [
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
-    state.actionLabel, state.actionEffect, state.stopped,
+    state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
     state.chat && [state.chat.phase, state.chat.notice, state.chat.review, state.chat.input && state.chat.input.kind],
   ] : state;
   const serialized = JSON.stringify(chatSlice);
@@ -620,6 +622,9 @@ function render(state) {
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
+  if (chatMode && state.unreadable) {
+    app.appendChild(el('div', 'notice', 'I couldn’t read the latest status, so actions are paused until it reads again.'));
+  }
 
   if (chatMode && state.stopped) {
     renderStopped(state.stopped);
@@ -647,7 +652,7 @@ function render(state) {
         if (review.summary) cardContent.appendChild(el('pre', 'understanding', review.summary));
         const approve = el('button', null, review.label);
         approve.id = 'take-action';
-        approve.disabled = state.taking || state.working;
+        approve.disabled = state.taking || state.working || Boolean(state.unreadable);
         approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
           answers: { [review.question_id]: review.answer }, token: null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
@@ -658,6 +663,7 @@ function render(state) {
       } else if (state.needKind === 'continue') {
         const resume = el('button', null, 'Continue');
         resume.id = 'take-action';
+        resume.disabled = Boolean(state.unreadable);
         resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
           runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
         strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
@@ -786,6 +792,7 @@ function render(state) {
             const button = el('button', action.id === 'restore' ? null : 'secondary', action.label);
             button.dataset.checkpointAction = action.id;
             button.dataset.checkpointId = cp.id;
+            button.disabled = Boolean(state.unreadable);
             button.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint', action: action.id,
               checkpoint: cp.id, runKey: state.workspace + '\\n' + state.runDir }));
             box.appendChild(button);
@@ -1020,7 +1027,7 @@ function updateActionButton() {
     const number = /^[0-9]+$/.test(value) ? Number(value) : NaN;
     return !Number.isSafeInteger(number) || number < decision.input.minimum || number > decision.input.maximum;
   });
-  take.disabled = current.taking || current.working || missing || !current.canApprove;
+  take.disabled = current.taking || current.working || Boolean(current.unreadable) || missing || !current.canApprove;
 }
 
 function numericHelp(input) {
@@ -1078,12 +1085,14 @@ function saveDraft() {
 function updateComposer() {
   if (!chatEnvelope) return;
   const input = chatEnvelope.state && chatEnvelope.state.chat && chatEnvelope.state.chat.input;
-  const allowed = !chatEnvelope.selectedRun || Boolean(input);
+  const unreadable = Boolean(chatEnvelope.state && chatEnvelope.state.unreadable);
+  const allowed = !chatEnvelope.selectedRun || (Boolean(input) && !unreadable);
   document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || !document.getElementById('message').value.trim();
   document.getElementById('send-message').textContent = 'Send ↑';
   const label = input ? input.label + (input.kind === 'resolver_response' ? '' : ' and continue') : 'Send message';
   document.getElementById('send-message').setAttribute('aria-label', label);
   document.getElementById('send-hint').textContent = !chatEnvelope.selectedRun ? 'Message AutoCode'
+    : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
     : input ? label
     : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';

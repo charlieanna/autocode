@@ -175,7 +175,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       tabs: this.tabs.map((row) => ({ key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null })),
       activeKey: this.activeKey,
       engine: engineOf(readSettings()),
-      state: tab.run && tab.status ? stateFor(tab.status, tab.run, this.controller, busy) : null,
+      state: tab.run && tab.status
+        ? { ...stateFor(tab.status, tab.run, this.controller, busy), unreadable: Boolean(tab.readError) } : null,
     });
   }
 
@@ -190,7 +191,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
           const status = await this.controller.status(tab.run);
           if (this.tabs.includes(tab)) this.announce(tab, status);
         } catch (error) {
-          if (sequence === this.sequence && this.activeKey === tab.key && !tab.starting) tab.readError = messageOf(error);
+          if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
         }
       }
     } finally {
