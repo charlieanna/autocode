@@ -439,6 +439,53 @@ class ProjectedRowActions(CodeCheckpoints):
         self.assertEqual("PAUSED_REQUESTED", payload["status"])
 
 
+class WorkingDiff(unittest.TestCase):
+    """`checkpoint --working`: what the running Builder has changed so far, display only (#1643)."""
+
+    setUp = CodeCheckpoints.setUp
+    git = CodeCheckpoints.git
+    save = CodeCheckpoints.save
+
+    def working(self):
+        done = subprocess.run(
+            [sys.executable, str(TOOLS / "autocode.py"), "checkpoint", "--workspace", str(self.workspace)]
+            + ["--run-dir", str(self.run), "--working"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, done.returncode, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_against_the_newest_saved_step(self):
+        self.assertEqual([], self.working()["changed_files"])
+        (self.workspace / "app.txt").write_text("builder is editing\n")
+        shown = self.working()
+        self.assertEqual(self.ident, shown["since"])
+        self.assertEqual(["app.txt"], shown["changed_files"])
+        self.assertIn("+builder is editing", shown["patch"])
+        self.assertNotIn("expected_token", shown, "display only: nothing here can restore")
+
+    def test_before_any_step_is_saved_it_is_against_the_checked_out_commit(self):
+        self.state["code_checkpoints"] = []
+        self.save()
+        shown = self.working()
+        self.assertEqual("start", shown["since"])
+        self.assertIn("app.txt", shown["changed_files"])
+        self.assertIn("-baseline", shown["patch"])
+        self.assertIn("+checkpoint code", shown["patch"])
+
+    def test_the_view_names_it_only_while_a_builder_step_runs(self):
+        self.assertIsNone(checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["working"])
+        self.state["active_stage"] = {"stage": "terra"}
+        named = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["working"]
+        self.assertEqual(
+            ["checkpoint", "--workspace", str(self.workspace), "--run-dir", str(self.run), "--working"],
+            named["next_command"],
+        )
+        self.state["active_stage"] = {"stage": "sol"}
+        self.assertIsNone(checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["working"])
+
+
 class IntegratedBatchCheckpoint(unittest.TestCase):
     """An integrated parallel batch is one saved step whose members keep their own milestone and files."""
 

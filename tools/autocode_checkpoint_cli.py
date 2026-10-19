@@ -97,13 +97,9 @@ def source_token(state: RunState, saved, source):
     return "checkpoint-v1:" + util.digest({"state": bound, "checkpoint": saved, "source": source})
 
 
-def compare(state: RunState, run_dir, ident):
-    saved = receipt(state, run_dir, ident)
-    source = source_scope.snapshot(state["workspace"], state)
-    changed = util.changed_paths(saved["source"], source)
+def patch_text(state: RunState, commit, changed, before, after):
+    """The unified diff of `changed` paths from files at `commit` (or none) to the files on disk."""
     patch = ""
-    before = checkpoints.content_files(saved["source"])
-    after = checkpoints.content_files(source)
     for name in changed:
         old, new = before.get(name), after.get(name)
         patch += "diff --checkpoint " + name + "\n"
@@ -114,7 +110,7 @@ def compare(state: RunState, run_dir, ident):
         if (old or "").startswith("executable:") != (new or "").startswith("executable:"):
             patch += "Executable mode changed.\n"
         try:
-            old_bytes = checkpoints.git(state["workspace"], "show", saved["commit"] + ":" + name) if old else b""
+            old_bytes = checkpoints.git(state["workspace"], "show", commit + ":" + name) if old else b""
             new_bytes = path.read_bytes() if new else b""
             if max(len(old_bytes), len(new_bytes)) > 100000 or b"\0" in old_bytes + new_bytes:
                 patch += "Binary or large file changed; inspect the saved checkpoint and current file.\n"
@@ -129,6 +125,16 @@ def compare(state: RunState, run_dir, ident):
                 )
         except UnicodeError:
             patch += "Binary file changed.\n"
+    return patch
+
+
+def compare(state: RunState, run_dir, ident):
+    saved = receipt(state, run_dir, ident)
+    source = source_scope.snapshot(state["workspace"], state)
+    changed = util.changed_paths(saved["source"], source)
+    before = checkpoints.content_files(saved["source"])
+    after = checkpoints.content_files(source)
+    patch = patch_text(state, saved["commit"], changed, before, after)
     if source != source_scope.snapshot(state["workspace"], state):
         raise ValueError("Source changed while comparing; refresh the comparison")
     return {
@@ -145,6 +151,39 @@ def compare(state: RunState, run_dir, ident):
         "source_workspace": state["workspace"],
         "source_branch": state.get("task_branch")
         or checkpoints.git(state["workspace"], "branch", "--show-current").decode().strip(),
+    }
+
+
+def working(state: RunState, run_dir):
+    """What the files hold now against the newest saved step, or the checked-out commit before any.
+
+    Display only: it carries no token and restores nothing. It reads the workspace while the
+    Builder may still be writing, so a file changing mid-read refuses and the caller asks again.
+    """
+    workspace = state["workspace"]
+    saved = [row for row in state.get("code_checkpoints") or [] if row.get("available")]
+    source = source_scope.snapshot(workspace, state)
+    after = checkpoints.content_files(source)
+    if saved:
+        base = receipt(state, run_dir, saved[-1]["id"])
+        commit, before = base["commit"], checkpoints.content_files(base["source"])
+        changed = util.changed_paths(base["source"], source)
+        since = saved[-1]["id"]
+    else:
+        commit, since = "HEAD", None
+        before = checkpoints.tree_files(workspace, commit)
+        # Only the run's own scope: tracked files outside it are neither listed nor diffed.
+        changed = sorted(name for name in source["files"] if before.get(name) != after.get(name))
+    patch = patch_text(state, commit, changed, before, after)
+    if source != source_scope.snapshot(workspace, state):
+        raise ValueError("Source changed while comparing; ask again")
+    return {
+        "version": 1,
+        "since": since or "start",
+        "changed_files": changed,
+        "patch": patch[:200000],
+        "truncated": len(patch) > 200000,
+        "compared_at": util.now(),
     }
 
 
@@ -337,6 +376,7 @@ def parser() -> argparse.ArgumentParser:
     action = result.add_mutually_exclusive_group(required=True)
     action.add_argument("--compare", metavar="CHECKPOINT")
     action.add_argument("--restore", metavar="CHECKPOINT")
+    action.add_argument("--working", action="store_true", help="Show what changed since the newest saved step")
     result.add_argument("--expected-token")
     result.add_argument("--request-id")
     result.add_argument("--json", action="store_true", help="Format output as JSON (default)")
@@ -351,6 +391,8 @@ def cli(argv):
         workspace, run_dir, state = target(args.workspace, args.run_dir)
         if args.compare:
             result = compare(state, run_dir, args.compare)
+        elif args.working:
+            result = working(state, run_dir)
         else:
             with util.run_lock(run_dir), checkout_lock.exclusive(workspace, run_dir):
                 workspace, run_dir, state = target(workspace, run_dir)

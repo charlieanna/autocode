@@ -243,7 +243,11 @@ def steps_text(view: dict | None, command: str) -> str:
     """The saved steps a bare ``/diff`` or ``/undo`` lists."""
     rows = steps(view)
     if not rows:
-        return "There are no saved code steps yet. AutoCode saves one each time the Builder changes code."
+        return "There are no saved code steps yet. AutoCode saves one each time the Builder changes code." + (
+            " Type /diff now to see what the Builder has changed so far."
+            if command == "/diff" and working_offered(view)
+            else ""
+        )
     lines = []
     for number, row in enumerate(rows, 1):
         files = [str(path) for path in row.get("changed_files") or []]
@@ -257,6 +261,8 @@ def steps_text(view: dict | None, command: str) -> str:
         lines.append("Type /undo N to go back to step N." if not blocked else blocked_text(view, blocked))
     else:
         lines.append("Type /diff N to see what changed since step N.")
+        if working_offered(view):
+            lines.append("Type /diff now to see what the Builder has changed so far.")
     return "\n".join(lines)
 
 
@@ -267,10 +273,19 @@ def blocked_text(view: dict | None, reason: str) -> str:
     return f"Going back is not possible now: {reason}"
 
 
-def comparison_text(comparison: dict, number: int | str = "that", *, limit: int = 400) -> str:
-    """What a saved step's ``compare`` returned: the files that differ, then the diff."""
+def working_offered(view: dict | None) -> bool:
+    """Whether the view names the display-only diff of what the running Builder has changed so far."""
+    return bool(_mapping(_mapping((view or {}).get("code_checkpoints")).get("working")).get("next_command"))
+
+
+def comparison_text(
+    comparison: dict, number: int | str = "that", *, limit: int = 400, since: str | None = None, working: bool = False
+) -> str:
+    """What a ``compare`` (or the running Builder's ``working``) returned: the files that differ, then the diff."""
     files = [str(path) for path in comparison.get("changed_files") or []]
-    since = f"step {number}" if str(number).isdigit() else "that step"
+    since = since or (f"step {number}" if str(number).isdigit() else "that step")
+    if not files and working:
+        return f"The Builder has not changed any files since {since}."
     if not files:
         return f"Nothing has changed since {since}: the files match it. /diff lists what each step changed."
     lines = [f"{len(files)} file{'' if len(files) == 1 else 's'} changed since {since}:"]

@@ -1487,6 +1487,13 @@ The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --expected-token TOKEN --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
 
+While a Builder step runs, `code_checkpoints.working` (otherwise null) names one more action in the
+same shape, `autocode checkpoint --working`. It is display only: it prints `{since, changed_files,
+patch, truncated, compared_at}`, the files as they are now against the newest saved step (`since` is
+its id) or, before any step is saved, against the checked-out commit (`since` is `"start"`), limited to
+the run's own scope. It carries no token and restores nothing. The Builder may still be writing, so a
+file changing during the read makes the action refuse; ask again.
+
 Each row of `code_checkpoints` that still has verified source objects also
 names the actions a client may take, in the same shape as a connection
 (`actions` with `id`, `label` and `next_command`: an argument array following

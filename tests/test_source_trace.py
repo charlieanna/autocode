@@ -24,13 +24,13 @@ def make_state(task=TASK):
     return state
 
 
-def criterion(cid, text, quotes):
+def criterion(cid, text, quotes, *, source_id="task:0"):
     return {
         "id": cid,
         "criterion": text,
         "verification_method": "test: behavior",
         "human_review": False,
-        "sources": [{"source_id": "task:0", "quote": quote} for quote in quotes],
+        "sources": [{"source_id": source_id, "quote": quote} for quote in quotes],
     }
 
 
@@ -241,6 +241,69 @@ class ReadyGateTests(unittest.TestCase):
             out_of_scope=[{"source_id": "task:0", "quote": "Do not build a web UI.", "reason": "User deferred the UI"}]
         )
         self.ready(draft, out)
+
+    def test_an_exclusion_cannot_conflict_with_another_sources_citation(self):
+        # Minimal shape of a saved final report: one answer is cited, while a
+        # longer overlapping answer is deliberately excluded by its own ID.
+        records = [
+            {"id": "answer:first", "kind": "answer", "text": "plan"},
+            {"id": "answer:second", "kind": "answer", "text": "unblock the plan"},
+        ]
+        draft = body([criterion("C1", "Produce the plan", ["plan"], source_id="answer:first")])
+        out = wrapper(
+            out_of_scope=[
+                {"source_id": "answer:second", "quote": "unblock the plan", "reason": "Decision already applied"}
+            ]
+        )
+        trace.check_citations(draft, records)
+        self.ready(draft, out, records=records)
+
+    def test_a_citation_cannot_cover_the_same_text_from_another_source(self):
+        records = [
+            {"id": "answer:first", "kind": "answer", "text": "Build the plan."},
+            {"id": "answer:second", "kind": "answer", "text": "Build the plan."},
+        ]
+        draft = body([criterion("C1", "Build the plan.", ["Build the plan."], source_id="answer:first")])
+        trace.check_citations(draft, records)
+        with self.assertRaisesRegex(ValueError, "answer:second sentence is neither cited nor out of scope"):
+            self.ready(draft, records=records)
+
+    def test_an_exclusion_cannot_excuse_another_sources_missing_citation(self):
+        records = [
+            {"id": "answer:first", "kind": "answer", "text": "Read the code. Unblock the plan."},
+            {"id": "answer:second", "kind": "answer", "text": "plan"},
+        ]
+        draft = body([criterion("C1", "Read the code.", ["Read the code."], source_id="answer:first")])
+        out = wrapper(
+            out_of_scope=[
+                {"source_id": "answer:first", "quote": "Unblock the plan.", "reason": "Decision already applied"}
+            ]
+        )
+        trace.check_citations(draft, records)
+        with self.assertRaisesRegex(ValueError, "answer:second sentence is neither cited nor out of scope"):
+            self.ready(draft, out, records=records)
+
+    def test_another_sources_criterion_cannot_preserve_dropped_obligations(self):
+        cases = (
+            ("Process exactly 7 rows.", "Process rows.", "changed a number"),
+            ("Use `cli run FILE`.", "Run the CLI.", "dropped a literal"),
+            ("Never write outside the project.", "Write outside the project.", "dropped the source's negation"),
+        )
+        for text, changed, reason in cases:
+            with self.subTest(reason=reason):
+                records = [
+                    {"id": "answer:first", "kind": "answer", "text": text},
+                    {"id": "answer:second", "kind": "answer", "text": text},
+                ]
+                draft = body(
+                    [
+                        criterion("C1", changed, [text], source_id="answer:first"),
+                        criterion("C2", text, [text], source_id="answer:second"),
+                    ]
+                )
+                trace.check_citations(draft, records)
+                with self.assertRaisesRegex(ValueError, "answer:first " + reason):
+                    self.ready(draft, records=records)
 
     def test_a_sentence_cannot_be_both_covered_and_out_of_scope(self):
         draft = body([criterion("C1", TASK + " never no", [TASK])])
