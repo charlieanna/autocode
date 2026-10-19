@@ -19,6 +19,7 @@ import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
+import autocode_planning_cycle as cycle
 import autocode_support as support
 import autopilot
 from goal_fixtures import assert_operational_wait, body
@@ -1685,3 +1686,77 @@ class NativeJointFlow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewDepthPolicyTests(unittest.TestCase):
+    """A small clear brief's allowance counts across planning cycles (#1564)."""
+
+    def state(self, **extra):
+        base = {
+            "status": "RUNNING",
+            "next_stage": "astra_challenge",
+            "planning": {"astra_calls": 0, "reports": {}},
+            "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
+            "settings": {"planning_review_call_limit": 2},
+        }
+        base.update(extra)
+        return base
+
+    def test_small_clear_brief_keeps_its_total_across_cycles(self):
+        state = self.state()
+        planning.charge(state, "astra_challenge")
+        self.assertTrue(state["planning"]["review_depth_reduced"])
+        state["planning"]["astra_calls"] = 2
+        cycle.new_cycle(state)
+        self.assertEqual(state["planning"]["astra_calls"], 2, "a revision restarts the record, not the counter")
+        self.assertTrue(state["planning"]["review_depth_reduced"])
+        with self.assertRaises(Exception) as raised:
+            planning.charge(state, "astra_challenge")
+        self.assertIn("PAUSED_PLANNING_BUDGET", str(raised.exception) + getattr(raised.exception, "status", ""))
+
+    def test_normal_brief_resets_per_cycle_as_today(self):
+        state = self.state(workflow={"kind": "build", "clarity": "vague"})
+        planning.charge(state, "astra_challenge")
+        self.assertNotIn("review_depth_reduced", state["planning"])
+        state["planning"]["astra_calls"] = 2
+        cycle.new_cycle(state)
+        self.assertEqual(state["planning"]["astra_calls"], 0)
+
+    def test_full_depth_flag_opts_out(self):
+        state = self.state(settings={"planning_review_call_limit": 2, "plan_review_full": True})
+        planning.charge(state, "astra_challenge")
+        self.assertNotIn("review_depth_reduced", state["planning"])
+
+    def test_finalized_small_plan_activates_and_counts_earlier_cycles(self):
+        state = self.state(workflow={"kind": "build", "clarity": "clear", "brief_size": "medium"})
+        state["planning_history"] = [{"astra_calls": 2, "reports": {}}]
+        state["planning"]["adaptive"] = {"size": "small"}
+        # Activation happens at admission: the two full-depth reviews already run
+        # join the total, so this admission pauses instead of granting a fresh cycle.
+        with self.assertRaises(support.Paused) as raised:
+            planning.charge(state, "astra_challenge")
+        self.assertIn("2/2 plan-review calls used", str(raised.exception))
+        self.assertTrue(state["planning"]["review_depth_reduced"])
+        self.assertEqual(state["planning"]["astra_calls"], 2, "full-depth reviews already run join the total")
+        self.assertEqual(state["planning"]["review_calls_before_policy"], 2)
+
+    def test_budget_line_names_the_policy(self):
+        import autocode_goal_lifecycle as lifecycle
+
+        state = {
+            "status": "PAUSED_PLANNING_BUDGET",
+            "task_id": "t",
+            "planning": {"astra_calls": 2, "reports": {}, "review_depth_reduced": True},
+            "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
+            "settings": {"planning_review_call_limit": 2},
+        }
+        self.assertIn("counts across revisions (small clear brief)", lifecycle.render(state))
+
+
+class BriefSizeTests(unittest.TestCase):
+    def test_table(self):
+        import autocode_workflows as workflows
+
+        self.assertEqual(workflows.brief_size("Fix the failing test: median returns 3 for even lists."), "small")
+        self.assertEqual(workflows.brief_size("1) a\n2) b\n3) c\n4) d\n5) e\n6) f\n7) g\n8) h\n9) i"), "medium")
+        self.assertEqual(workflows.brief_size("Redesign routing. " + " ".join(["w"] * 200)), "medium")

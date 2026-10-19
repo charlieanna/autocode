@@ -518,6 +518,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="With --resume-paused, authorize N more automatic timeout recoveries for a run paused at PAUSED_TIMEOUT_RECOVERY; the recovery history stays intact",
     )
     parser.add_argument(
+        "--plan-review-full",
+        action="store_true",
+        help="Keep full-depth plan review for this run: the allowance stays per planning cycle even for a small clear brief",
+    )
+    parser.add_argument(
         "--planning-review-call-limit",
         type=int,
         metavar="N",
