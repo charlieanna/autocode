@@ -2366,7 +2366,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/13b21967032874b647e667c4a67592e14ed4f014/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/f7d5b56c1ee65763d03f352e0e9a60b13b555b69/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2770,7 +2770,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/13b21967032874b647e667c4a67592e14ed4f014/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/f7d5b56c1ee65763d03f352e0e9a60b13b555b69/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3277,7 +3277,7 @@ preserves each executable blocker's <code>disposition</code> (<code>kind</code>,
 <code>sha256</code>. Only a validated runner disposition of <code>pre_existing</code> exempts a
 blocking finding. Legacy findings and reviews without an explicit patch retain
 blocking behavior. This attribution applies to review findings, not the task's
-acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/13b21967032874b647e667c4a67592e14ed4f014/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/f7d5b56c1ee65763d03f352e0e9a60b13b555b69/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -3935,6 +3935,12 @@ candidate; changed or uncertain partial candidates are preserved and refused.</p
 --compare CHECKPOINT</code>, followed by the mutually exclusive <code>--restore CHECKPOINT
 --expected-token TOKEN --request-id ID</code>. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.</p>
+<p>While a Builder step runs, <code>code_checkpoints.working</code> (otherwise null) names one more action in the
+same shape, <code>autocode checkpoint --working</code>. It is display only: it prints <code>{since, changed_files,
+patch, truncated, compared_at}</code>, the files as they are now against the newest saved step (<code>since</code> is
+its id) or, before any step is saved, against the checked-out commit (<code>since</code> is <code>"start"</code>), limited to
+the run's own scope. It carries no token and restores nothing. The Builder may still be writing, so a
+file changing during the read makes the action refuse; ask again.</p>
 <p>Each row of <code>code_checkpoints</code> that still has verified source objects also
 names the actions a client may take, in the same shape as a connection
 (<code>actions</code> with <code>id</code>, <code>label</code> and <code>next_command</code>: an argument array following
