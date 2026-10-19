@@ -16,8 +16,10 @@ command for the person to run instead.
     autocode chat "..." -- --engine claude          options for a new run, after --
     autocode chat --brief=-v                        a brief that starts with -
 
-Besides the status view it reads only `autocode runs --json` (the project's open
-runs) and `autocode modes list --json` (a new run's mode). The full-screen chat's
+Besides the status view it reads only `autocode runs --json` (the project's runs: the
+open one to pick up), `autocode runs --all --json` (every project's chats, for `/runs`,
+`/open` and `/new` in the full-screen chat) and `autocode modes list --json` (a new
+run's mode). The full-screen chat's
 `/diff` and `/undo` take a saved code step's `compare` and `restore` actions, which the
 status view names (`view["code_checkpoints"]`); going back makes a new run on a new
 branch, and the chat carries on with it.
@@ -71,6 +73,70 @@ class Restored(Exception):
     """The person went back to a saved step: the chat now talks to the new run it made."""
 
 
+class Switched(Exception):
+    """The person opened another chat with /open: the chat now talks to that run."""
+
+
+class NewChat(Exception):
+    """The person asked for a new chat with /new: ask for a request and start a run."""
+
+
+class Opened(Exception):
+    """/open before any run is being talked to: the run the person chose."""
+
+    def __init__(self, row: dict):
+        super().__init__(row.get("run_dir"))
+        self.row = row
+
+
+class History:
+    """This project's chats, from `autocode runs --json`: what /runs lists and /open opens.
+
+    It reads only the project's run list, as `open_chat` does. Opening a chat raises,
+    so the question being asked is left and the conversation carries on with that run.
+    """
+
+    def __init__(self, workspace: Path, *, command=AUTOCODE, env=None):
+        self.workspace, self.command, self.env = Path(workspace), tuple(command), env
+        self.rows: list[dict] = []
+        self.left_out = 0
+
+    def list(self) -> list[dict]:
+        """Every project's chats (`runs --all`, the per-user registry), and this project's own runs,
+        which are listed even before the registry knows them; grouped by project, this one first."""
+        listed = [
+            *project_runs(self.workspace, command=self.command, env=self.env),
+            *every_project_runs(command=self.command, env=self.env),
+        ]
+        here = self.workspace.resolve()
+        self.rows, self.left_out = panel.run_rows(listed, here=here), panel.hidden(listed, here)
+        return self.rows
+
+    def slash(self, name: str, argument: str, current=None):
+        """/runs, /open N and /new; the other client commands need a run to act on."""
+        if name == "/runs":
+            try:
+                rows = self.list()
+                return panel.runs_text(rows, current, here=self.workspace.resolve(), left_out=self.left_out)
+            except actions.ClientGap as error:
+                return str(error)
+        if name == "/new":
+            if current is None:
+                return "This is a new chat: type what you want done."
+            raise NewChat
+        if name == "/open":
+            rows = self.rows or self.list()
+            if not argument.isdigit() or not 1 <= int(argument) <= len(rows):
+                return f"There is no chat {argument or 'to open'}. Type /runs to see them, then /open N."
+            row = rows[int(argument) - 1]
+            if current is not None and str(row.get("run_dir")) == str(current):
+                return "That is this chat."
+            if row.get("availability") not in (None, "available"):
+                return f"That chat cannot be read: {row.get('reason') or row.get('availability')}."
+            raise Opened(row)
+        return "Open or start a chat first: type a request, or /runs to see this project's chats."
+
+
 class ChatClient:
     """One run, one person, one terminal."""
 
@@ -100,6 +166,10 @@ class ChatClient:
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
         self.restore_requests: dict[str, str] = {}  # one stable id per step, so a retried restore reconciles
+        # /runs, /open and /new: the project's chats, and how a new one starts (start flags, run options).
+        self.history: History | None = None
+        self.new_run: tuple[str | None, list[str]] | None = None  # a new run's --mode and options
+        self.switched: Callable[[Path, Path], None] | None = None  # the renderer starts the new chat's screen
 
     # ---- the CLI ---------------------------------------------------------------------------
 
@@ -245,7 +315,16 @@ class ChatClient:
         return panel.comparison_text(result, since=phrase, working=True)
 
     def slash(self, name: str, argument: str):
-        """``/diff`` and ``/undo`` from the full-screen chat: what to show, or a question to confirm first."""
+        """``/diff`` and ``/undo`` from the full-screen chat: what to show, or a question to confirm first.
+        ``/runs``, ``/open`` and ``/new`` go to the project's chats; opening one leaves this run as it is."""
+        if name in ("/runs", "/open", "/new"):
+            if self.history is None:
+                return "This chat has no project list."
+            try:
+                return self.history.slash(name, argument, current=self.run_dir)
+            except Opened as opened:
+                self.talk_to(Path(opened.row.get("workspace") or self.workspace), Path(opened.row["run_dir"]))
+                raise Switched from None
         view = self.status()
         rows = panel.steps(view)
         if not argument:
@@ -319,14 +398,46 @@ class ChatClient:
 
     # ---- the conversation ------------------------------------------------------------------
 
+    def talk_to(self, workspace: Path, run_dir: Path) -> None:
+        """Carry on with another run: its whole conversation is shown afresh."""
+        self.workspace, self.run_dir = Path(workspace), Path(run_dir)
+        self.seen, self.said, self.started, self.last_line = set(), set(), False, ()
+        if self.switched is not None:
+            self.switched(self.workspace, self.run_dir)
+        else:
+            self.say(f"\n--- {self.run_dir.name} ---")
+
+    def begin(self, brief: str, start_args, options) -> None:
+        """Start a new run here and talk to it, as `start` does for the first one."""
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        workspace = self.workspace.resolve()
+        self.talk_to(workspace, workspace / ".autocode" / "runs" / f"{stamp}-chat-{secrets.token_hex(3)}")
+        self.say(f"\nYou: {brief}")
+        self.started = True
+        self.advance(
+            [brief, "--in-place", "--no-chat", *start_args, *options]
+            + ["--workspace", str(workspace), "--new-run-dir", str(self.run_dir)]
+        )
+
+    def new_chat(self) -> None:
+        """/new: ask for a request and start a run; nothing typed keeps the current chat."""
+        brief = self.ask("What do you want done? ")
+        if not brief:
+            self.say("Nothing started; this chat carries on.")
+            return
+        mode, options = self.new_run or (None, [])
+        self.begin(brief, run_mode(mode, command=self.command, env=self.env), options)
+
     def converse(self) -> int:
         try:
             while True:
                 try:
                     if (stop := self.step()) is not None:
                         return stop
-                except Restored:
-                    continue  # the person went back to a saved step: carry on with the new run
+                except (Restored, Switched):
+                    continue  # going back to a saved step, or /open: carry on with that run
+                except NewChat:
+                    self.new_chat()
         except Left:
             self.say(f"\nLeft the chat; the run is unchanged. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return 2
@@ -628,8 +739,8 @@ def run_mode(mode: str | None, *, command=AUTOCODE, env=None) -> list[str]:
     raise actions.ClientGap(f"no run mode {wanted!r}; choose one of: {names}")
 
 
-def unfinished(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
-    """The project's runs that need a person or are still working, as `autocode runs --json` lists them."""
+def project_runs(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
+    """Every run of the project, as `autocode runs --json` lists them."""
     proc = subprocess.run(
         [*command, "runs", "--workspace", str(workspace), "--json"], capture_output=True, text=True, env=env
     )
@@ -637,7 +748,26 @@ def unfinished(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
         return []  # no runs in this project yet
     if proc.returncode != 0:
         raise actions.ClientGap(f"could not list this project's runs: {tail(proc)}")
-    return [row for row in json.loads(proc.stdout)["runs"] if row.get("bucket") in ("needs you", "working")]
+    return list(json.loads(proc.stdout)["runs"])
+
+
+def every_project_runs(*, command=AUTOCODE, env=None) -> list[dict]:
+    """Every registered project's runs, as `autocode runs --all --json` lists them."""
+    proc = subprocess.run([*command, "runs", "--all", "--json"], capture_output=True, text=True, env=env)
+    if proc.returncode == 2 and not proc.stdout.strip() and proc.stderr.strip().startswith("No runs found"):
+        return []
+    if proc.returncode != 0:
+        raise actions.ClientGap(f"could not list the projects' runs: {tail(proc)}")
+    return list(json.loads(proc.stdout)["runs"])
+
+
+def unfinished(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
+    """The project's runs that need a person or are still working, as `autocode runs --json` lists them."""
+    return [
+        row
+        for row in project_runs(workspace, command=command, env=env)
+        if row.get("bucket") in ("needs you", "working")
+    ]
 
 
 def open_chat(
@@ -647,6 +777,7 @@ def open_chat(
     *,
     ask: Callable[[str], str] = input,
     say: Callable[[str], None] = print,
+    hint: bool = False,
     **kwargs,
 ):
     """`autocode chat` with nothing named: pick up the run left open here, or ask what to do.
@@ -654,8 +785,11 @@ def open_chat(
     One unfinished run is picked up; with several the person chooses one or a new
     task. With none, the chat asks for a request and starts a run with the core's
     mode and options from the command line, if any. None: the person left without choosing.
+    In the full-screen chat ``/runs`` and ``/open N`` work at that question too (``Opened``).
     """
-    runs = unfinished(workspace, command=kwargs.get("command", AUTOCODE), env=kwargs.get("env"))
+    command, env = kwargs.get("command", AUTOCODE), kwargs.get("env")
+    runs = unfinished(workspace, command=command, env=env)
+    earlier = project_runs(workspace, command=command, env=env) if hint and not runs else []
     try:
         if len(runs) == 1:
             say(f"Picking up {runs[0]['name']}.")
@@ -670,13 +804,17 @@ def open_chat(
                 say(f"There is no run {choice}.")
             brief = choice
         else:
+            if earlier:
+                say(f"{len(earlier)} earlier chat{'s' if len(earlier) != 1 else ''} here. Type /runs to see them.")
             brief = ask("What do you want done? ").strip()
+    except Opened as opened:
+        row = opened.row
+        return ChatClient(Path(row.get("workspace") or workspace), Path(row["run_dir"]), ask=ask, say=say, **kwargs)
     except (EOFError, KeyboardInterrupt):
         brief = ""
     if not brief:
         say("Nothing started.")
         return None
-    command, env = kwargs.get("command", AUTOCODE), kwargs.get("env")
     return start(workspace, brief, run_mode(mode, command=command, env=env), options, ask=ask, say=say, **kwargs)
 
 
@@ -739,20 +877,25 @@ def cli(argv: list[str] | None = None) -> int:
         ask, say = (ui.ask, ui.say) if ui is not None else (input, print)
         seen = {"observe": ui.observe, "wait": ui.wait} if ui is not None else {}
         workspace = (args.workspace or Path.cwd()).expanduser()
+        history = History(workspace.resolve())
         if ui is not None and args.run_dir is None:
             ui.set_context(workspace)
+            ui.bind(history.slash)  # /runs and /open work before a chat is open
         if args.brief is not None:
             client = start(workspace, args.brief, run_mode(args.mode), options, ask=ask, say=say, **seen)
         elif args.run_dir is not None:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)
             client = ChatClient(workspace, run_dir, ask=ask, say=say, **seen)
         else:
-            client = open_chat(workspace.resolve(), args.mode, options, ask=ask, say=say, **seen)
+            client = open_chat(workspace.resolve(), args.mode, options, ask=ask, say=say, hint=ui is not None, **seen)
             if client is None:
                 return 2
+        client.history = history
+        client.new_run = (args.mode, options)
         if ui is not None:
             ui.set_context(client.workspace, client.run_dir)
             ui.bind(client.slash)
+            client.switched = ui.switch
         return client.converse()
     except (actions.ClientGap, OSError, ValueError) as error:
         if ui is not None:

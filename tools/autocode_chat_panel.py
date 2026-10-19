@@ -16,6 +16,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 LOG_LIMIT = 200
 NOTHING_NEEDED = "nothing needed from you"  # the progress view's needs_you when no one is waited on
@@ -71,6 +72,9 @@ COMMANDS = (
     Command("/details", "Why the run is where it is"),
     Command("/diff", "The saved code steps; /diff N shows what changed since step N"),
     Command("/undo", "Go back to a saved step on a new branch: /undo N"),
+    Command("/runs", "This project's chats, open and finished; /open N opens one"),
+    Command("/open", "Open chat N from /runs and carry on there"),
+    Command("/new", "Start a new chat here"),
     Command("/panel", "Show or hide the side panel"),
     Command("/pause", "Ask AutoCode to pause after the current step"),
     Command("/help", "List these commands"),
@@ -86,16 +90,20 @@ def _rows(value) -> list[dict]:
     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
 
 
-# The commands the chat client carries out, through actions its fresh status view names.
-CLIENT_COMMANDS = ("/diff", "/undo")
+# The commands the chat client carries out: /diff and /undo through actions its fresh status view
+# names, /runs, /open and /new through the project's run list (`autocode runs --json`).
+CLIENT_COMMANDS = ("/diff", "/undo", "/runs", "/open", "/new")
+# Those that leave the run being talked to, so only at a question: never with AutoCode working unseen.
+SWITCHING_COMMANDS = ("/open", "/new")
 
 
 def commands(*, asking: bool, client: bool = True) -> list[Command]:
     """The commands that do something now. ``/pause`` only while AutoCode works: the client then
     takes the pause its fresh status view offers, or says there is none. ``/quit`` and ``/undo``
     only at a question: leaving while AutoCode works would leave it running unseen, and the view
-    offers going back only at a pause. Without a client the client's commands are not offered."""
-    hidden = {"/pause"} if asking else {"/quit", "/undo"}
+    offers going back only at a pause; ``/open`` and ``/new`` too, as they leave this run. Without a
+    client the client's commands are not offered."""
+    hidden = {"/pause"} if asking else {"/quit", "/undo", *SWITCHING_COMMANDS}
     if not client:
         hidden.update(CLIENT_COMMANDS)
     return [command for command in COMMANDS if command.name not in hidden]
@@ -382,3 +390,90 @@ class StageLog:
         self.lines.extend(f"{stamp} {line}" for line in said)
         del self.lines[:-LOG_LIMIT]
         return bool(said)
+
+
+RUN_STATES = {"TASK_COMPLETE": "complete", "COMPLETE": "complete", "COMPLETED": "complete"}
+
+
+def _readable(row: dict) -> bool:
+    return row.get("availability") in (None, "available")
+
+
+def run_rows(listed: list[dict], here=None) -> list[dict]:
+    """The chats /runs numbers, grouped by project: this project first, then the others by their
+    latest activity; newest first within each. Another project's chat that cannot be read (its run
+    was deleted) is left out; ``hidden`` counts those."""
+    seen: set[str] = set()
+    groups: dict[str, list[dict]] = {}
+    for row in listed:
+        if not isinstance(row, dict) or not row.get("run_dir") or str(row["run_dir"]) in seen:
+            continue
+        seen.add(str(row["run_dir"]))
+        workspace = str(row.get("workspace") or "")
+        if here is not None and workspace != str(here) and not _readable(row):
+            continue
+        groups.setdefault(workspace, []).append(row)
+
+    def newest(row: dict) -> tuple[str, str]:
+        return (str(row.get("updated_at") or ""), str(row.get("run_dir")))
+
+    for rows in groups.values():
+        rows.sort(key=newest, reverse=True)
+    order = [str(here)] * (str(here) in groups) + sorted(
+        (workspace for workspace in groups if workspace != str(here)),
+        key=lambda workspace: newest(groups[workspace][0]),
+        reverse=True,
+    )
+    return [row for workspace in order for row in groups[workspace]]
+
+
+def hidden(listed: list[dict], here) -> int:
+    """How many of another project's chats /runs leaves out because they cannot be read."""
+    return sum(
+        1
+        for row in listed
+        if isinstance(row, dict) and str(row.get("workspace") or "") != str(here) and not _readable(row)
+    )
+
+
+def run_state(row: dict) -> str:
+    """A chat's state in a few words: complete, what it needs you for, working, or unreadable."""
+    if row.get("availability") not in (None, "available"):
+        return "cannot be read"
+    if done := RUN_STATES.get(str(row.get("status") or "")):
+        return done
+    if row.get("bucket") == "needs you":
+        return f"needs you: {row.get('pause_category_label') or row.get('needs') or 'a decision'}"
+    return str(row.get("bucket") or row.get("status") or "unknown")
+
+
+def project_name(workspace: str, here=None) -> str:
+    """A project's heading in /runs: its folder name, where it is, and whether it is this one."""
+    path = workspace.replace(str(Path.home()), "~", 1) if workspace else "(unknown project)"
+    name = Path(workspace).name if workspace else "Other"
+    return f"{name}  {path}" + ("  (this project)" if here is not None and workspace == str(here) else "")
+
+
+def runs_text(rows: list[dict], current=None, *, here=None, left_out: int = 0) -> str:
+    """What /runs prints: each chat's number, request, state and when it last moved, under its project."""
+    if not rows:
+        return "No chats yet. Type a request to start one."
+    lines: list[str] = []
+    grouped = here is not None or len({str(row.get("workspace") or "") for row in rows}) > 1
+    project = None
+    for number, row in enumerate(rows, 1):
+        workspace = str(row.get("workspace") or "")
+        if grouped and workspace != project:
+            project = workspace
+            if lines:
+                lines.append("")
+            lines.append(project_name(workspace, here))
+        title = row.get("title") or row.get("name") or row.get("run_dir")
+        mark = "  (this chat)" if current is not None and str(row.get("run_dir")) == str(current) else ""
+        when = str(row.get("updated_at") or "").replace("T", " ")[:16]
+        lines.append(f"{number:>3}. {title}{mark}")
+        lines.append(f"     {run_state(row)}" + (f" · {when}" if when else ""))
+    if left_out:
+        lines.append(f"({left_out} more in other projects cannot be opened: their runs were removed.)")
+    lines.append("Type /open N to open one, or /new to start another.")
+    return "\n".join(lines)

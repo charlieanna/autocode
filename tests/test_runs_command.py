@@ -133,6 +133,20 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(2, document["counts"]["total"])
         self.assertEqual(["waiting", "finished"], [item["name"] for item in document["runs"]])
 
+    def test_each_row_is_titled_with_the_first_line_of_its_task(self):
+        root = project(
+            short={"task": "\n  Fix the typo in README\nMore detail"},
+            long={"task": "x" * 200},
+            blank={"task": "  "},
+            heading={"task": "# Hierarchical planning\nThe body"},
+        )
+        titles = {row["name"]: row["title"] for row in runs.rows(root)}
+        self.assertEqual("Fix the typo in README", titles["short"])
+        self.assertEqual(runs.TITLE_LIMIT, len(titles["long"]))
+        self.assertTrue(titles["long"].endswith("…"))
+        self.assertIsNone(titles["blank"])
+        self.assertEqual("Hierarchical planning", titles["heading"], "a Markdown heading's marks are not the title")
+
     def test_needs_shows_only_the_runs_waiting_on_a_person(self):
         code, out, _ = capture(["--workspace", str(self.root), "--needs"])
         self.assertEqual(0, code)
