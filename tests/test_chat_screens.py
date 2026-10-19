@@ -52,7 +52,9 @@ class ChatScreenTests(unittest.TestCase):
         screen.wait_for("Show the plan")  # the menu's first entry
         screen.keys("Escape")
         screen.type("x")  # straight after Escape: the key is typed, not swallowed
-        composer = screen.wait_for(lambda shown: "Show the plan" not in shown and composer_text(shown) == "x", what="x alone")
+        composer = screen.wait_for(
+            lambda shown: "Show the plan" not in shown and composer_text(shown) == "x", what="x alone"
+        )
         self.assertNotIn("Show the plan", composer)
         screen.keys("C-u")
         screen.type("/Build something nice")
