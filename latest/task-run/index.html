@@ -1517,6 +1517,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Controller ownership and recovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pausing-a-working-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pausing a working run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2110,6 +2127,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Controller ownership and recovery">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pausing-a-working-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pausing a working run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2332,7 +2366,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/7069e1a084977eede089faf0eba33f1afeb29b8d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/b4b8a9bf327408d2e28bf27ffd9a7828cdebcdbc/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2641,6 +2675,19 @@ Retained provider attempts and runner checks keep their existing recovery
 actions. A live owner or provider and a busy exclusion lock remain active;
 unverifiable ownership is reported precisely without guessing absence.
 Existing approval, source and provider cleanup gates still apply.</p>
+<h3 id="pausing-a-working-run">Pausing a working run<a class="headerlink" href="#pausing-a-working-run" title="Permanent link">&para;</a></h3>
+<p>While a run works (a live stage, a fresh birth-bound controller, or a controller
+holding the run's locks), <code>status()["pause"]</code> names the boundary pause of
+<a href="../interventions/">queued interventions</a>: <code>label</code>, <code>effect</code>, <code>requested</code> and
+<code>next_command</code>, an argument array following <code>autocode</code> for
+<code>intervention submit --kind pause --json</code>. Its <code>REQUEST_ID</code> placeholder is the
+client's own id for this request, so a retried submission returns the original
+receipt instead of queueing another. The current step finishes and is saved,
+then the run pauses with its next stage selected; the ordinary
+<code>--resume-paused</code> action continues it. While a pause request waits for that
+boundary, <code>requested</code> is true and <code>next_command</code> is null. The field is null when
+nothing is working, when the recorded runner cannot consume interventions, and
+for a stopped run. It never interrupts a step in progress or stops the run.</p>
 <h2 id="first-interaction-timing">First interaction timing<a class="headerlink" href="#first-interaction-timing" title="Permanent link">&para;</a></h2>
 <p><code>status()["interaction_timing"]</code> reports the saved first useful interactions:</p>
 <table>
@@ -2689,7 +2736,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/7069e1a084977eede089faf0eba33f1afeb29b8d/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/b4b8a9bf327408d2e28bf27ffd9a7828cdebcdbc/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
