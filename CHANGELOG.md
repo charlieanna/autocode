@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `scripts/homebrew_formula.py` writes the Homebrew formula for a PyPI release, pinning its
+  source archive and dependencies by sha256, so a release can be installed with
+  `brew install charlieanna/tap/autocode` ([Releasing](docs/releasing.md#homebrew)).
 - The terminal chat now does what the VS Code extension's pickers and Connections view do:
   `/mode` and `/engine` choose what new chats start with (kept per project), and `/connect`
   lists the backends, runs a connection's check, hands the terminal to its sign-in or setup,
