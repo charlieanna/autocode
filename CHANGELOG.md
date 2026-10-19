@@ -61,6 +61,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The offline recovery-context regression checks the saved timeout kind and event path in the
+  structured handoff, so compact JSON formatting does not falsely fail the full-suite gate.
+
 - In the full-screen chat, a run that continues on its own no longer lists "Needs you: AutoResolver
   must reconcile…" in the panel and log, the panel says "Starting the next step…" instead of
   "plan approval needed" in the seconds after you approve, `/undo` on a finished run says going back
