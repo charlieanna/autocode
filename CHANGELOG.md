@@ -92,6 +92,10 @@ PR template asks for an entry here; a change without one is incomplete.
   scrolls to keep the choice in view (up to ten rows, fewer on a short screen). Before a chat is
   open it offers only what works without one: `/runs`, `/open`, `/mode`, `/engine`, `/connect`,
   `/help` and `/quit`.
+- Session ownership receipts are size-checked and read from one opened file descriptor,
+  with a bounded read even if the file grows. A path replacement or removal after opening
+  cannot mix the checked receipt with another file; absent or invalid receipts still block
+  admission without retry or grace (#1662).
 
 - Review findings on changed or unverified source stay blocking when their tests fail
   identically on base and change. The runner checks actual applied source locations,
