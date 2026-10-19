@@ -1256,7 +1256,7 @@ def context(state: RunState, stage, state_path):
         + progressive_policy
         + s.COMMON
         + prompts.get("fragments/autoplanner/context-03.md")
-        + json.dumps(packet, indent=2)
+        + json.dumps(packet, separators=(",", ":"))
     )
     return prompt, {
         "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,

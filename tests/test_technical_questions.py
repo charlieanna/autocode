@@ -1,6 +1,7 @@
 """Internal planning choices are AutoCode's work, never human authorization."""
 
 import copy
+import json
 import unittest
 from pathlib import Path
 
@@ -263,8 +264,9 @@ class TechnicalPlanningTests(EpisodeCase):
         self.assertEqual("none", lifecycle.human.evaluate(self.state))
         self.assertEqual("autocode", self.state["user_events"][-1]["actor"])
         prompt, _ = planner.context(self.state, "astra_discovery", Path("/fixture/state.json"))
-        self.assertTrue('"kind": "technical_decision"' in prompt)
-        self.assertTrue('"saved_answers": {}' in prompt)
+        packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertTrue(any(row.get("kind") == "technical_decision" for row in packet["user_events"]))
+        self.assertEqual({}, packet["saved_answers"])
         self.apply("astra_discovery", discovery(body()))
         self.assertEqual("astra_challenge", self.state["next_stage"])
         self.assertFalse(goals.approved(self.state))
