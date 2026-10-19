@@ -348,6 +348,7 @@ class AttributionTests(unittest.TestCase):
                 "base": base,
                 "changed": changed,
                 "inputs": {"path": "/source.json", "sha256": "b" * 64},
+                "changed_locations": {"regclient/client.py": {"line_count": 40, "changed": []}},
                 **extra,
             },
         )["dispositions"]["F1"]
@@ -362,6 +363,45 @@ class AttributionTests(unittest.TestCase):
         self.assertEqual("pre_existing", row["kind"])
         self.assertFalse(policy.blocking({"severity": "blocking", "disposition": row}))
         self.assertEqual("inconclusive", self.compare(self.run_receipt(failed=[self.TEST]), patch="")["kind"])
+
+    def test_identical_failures_do_not_exempt_findings_on_changed_source(self):
+        base = self.run_receipt(failed=[self.TEST])
+        for locations in (
+            None,
+            {},
+            {"regclient/client.py": {"line_count": 40, "changed": [[26, 26]]}},
+            {"regclient/client.py": {"line_count": 40, "changed": [[27, 28]]}},
+        ):
+            with self.subTest(locations=locations):
+                row = self.compare(base, changed_locations=locations)
+                self.assertEqual("inconclusive", row["kind"])
+                self.assertIn("blocker retained", row["reason"])
+        self.assertEqual(
+            "pre_existing",
+            self.compare(base, changed_locations={"regclient/client.py": {"line_count": 40, "changed": [[1, 2]]}})[
+                "kind"
+            ],
+        )
+        self.assertEqual(
+            "introduced", self.compare(self.run_receipt(passed=[self.TEST]), changed_locations=None)["kind"]
+        )
+
+    def test_unknown_alias_or_out_of_range_locations_never_exempt(self):
+        import autocode_review_attribution as policy
+
+        locations = {"calc.py": {"line_count": 10, "changed": [[2, 2]]}}
+        for path, lines in (
+            ("./calc.py", [2]),
+            ("../calc.py", [2]),
+            ("/calc.py", [2]),
+            ("unknown.py", [1]),
+            ("calc.py", [11]),
+            ("calc.py", [0]),
+            ("calc.py", [True]),
+        ):
+            with self.subTest(path=path, lines=lines):
+                self.assertFalse(policy.unchanged_location({"file": path, "lines": lines}, locations))
+        self.assertTrue(policy.unchanged_location({"file": "calc.py", "lines": [5]}, locations))
 
     def test_different_site_type_or_diagnostic_is_inconclusive(self):
         for detail in ({}, {self.TEST: {"format": "unittest", "traceback": "different site"}}):
@@ -444,6 +484,7 @@ class AttributionTests(unittest.TestCase):
                         "base": run,
                         "changed": run,
                         "inputs": {"path": "/source.json", "sha256": "b" * 64},
+                        "changed_locations": {"regclient/client.py": {"line_count": 40, "changed": []}},
                     },
                 )
                 saved = json.loads((workspace / "review/findings.json").read_text())

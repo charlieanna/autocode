@@ -139,7 +139,41 @@ def failure_details(run, root, xml):
     return {name: value for name, value in details.items() if name not in duplicated}
 
 
-def classify(matched, changed, base, *, inputs=None, reason=""):
+def unchanged_location(finding, locations):
+    """Only known unchanged cited source may support a pre-existing exemption."""
+    if not isinstance(locations, dict) or not isinstance(finding, dict):
+        return False
+    path, lines = finding.get("file"), finding.get("lines")
+    if (
+        not isinstance(path, str)
+        or not path
+        or not isinstance(lines, list)
+        or len(lines) not in (1, 2)
+        or any(type(line) is not int or line < 1 for line in lines)
+        or lines[0] > lines[-1]
+    ):
+        return False
+    location = locations.get(path)
+    if (
+        not isinstance(location, dict)
+        or type(location.get("line_count")) is not int
+        or lines[-1] > location["line_count"]
+        or not isinstance(location.get("changed"), list)
+    ):
+        return False
+    for span in location["changed"]:
+        if (
+            not isinstance(span, list)
+            or len(span) != 2
+            or any(type(line) is not int or line < 1 for line in span)
+            or span[0] > span[1]
+            or not (lines[-1] < span[0] or lines[0] > span[1])
+        ):
+            return False
+    return True
+
+
+def classify(matched, changed, base, *, inputs=None, reason="", finding=None, changed_locations=None):
     """A demonstrated regression wins; otherwise every failing probe must match."""
     row = {"runner": RUNNER, "kind": "inconclusive", "reason": reason or "Baseline attribution is unavailable."}
     row.update(inputs=inputs, base_proof=base.get("proof"), changed_proof=changed.get("proof"))
@@ -149,6 +183,9 @@ def classify(matched, changed, base, *, inputs=None, reason=""):
     passed = set(base["results"]["passed"])
     if any(name in passed for name in matched):
         return {**row, "kind": "introduced", "reason": "A finding test passes on base and fails on the changed code."}
+    if not unchanged_location(finding, changed_locations):
+        row["reason"] = "The finding cites changed source or its unchanged location is unverified; blocker retained."
+        return row
     base_failed = set(base["results"]["failed"])
     old, new = base.get("failure_details", {}), changed.get("failure_details", {})
     if (

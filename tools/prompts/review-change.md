@@ -45,7 +45,8 @@ What to do:
    worsened defects can block; unrelated older defects belong in advisory observations. The runner
    captures source, patch and tests and runs isolated base and changed copies. It derives attribution:
    base pass/change failure is introduced; equivalent full Python failure site, type and diagnostic
-   on both sides is pre_existing; different failures, missing/skipped tests, unsupported details or
+   on both sides is pre_existing only when the cited source location is verified unchanged.
+   Changed or unverified locations, different failures, missing/skipped tests, unsupported details or
    setup/infrastructure failures are inconclusive and retain blockers. Any demonstrated regression
    wins for a multi-test finding. A failing exit or identical test ID alone proves no equivalence.
    With empty change_patch, no baseline is inferred and blocking findings stay blocking. Never declare

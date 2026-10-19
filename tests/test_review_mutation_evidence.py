@@ -292,7 +292,14 @@ class ReviewMutationEvidenceTests(unittest.TestCase):
         receipt["failure_details"] = {FINDING: {"format": "unittest", "traceback": "same complete failure"}}
         reference = {"path": "/fixture/proof.json", "sha256": "a" * 64}
         receipt["proof"] = reference
-        self.apply(run_tests=lambda *_: {"changed": receipt, "base": receipt, "inputs": reference})
+        self.apply(
+            run_tests=lambda *_: {
+                "changed": receipt,
+                "base": receipt,
+                "inputs": reference,
+                "changed_locations": {"calc.py": {"line_count": 2, "changed": []}},
+            }
+        )
         view, _, _, report = self.publish()
         self.assertEqual("recorded", report["availability"], report)
         result = report["document"]["workflow_result"]

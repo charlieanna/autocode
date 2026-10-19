@@ -904,9 +904,11 @@ observations from blockers with inconclusive attribution. The findings artifact
 preserves each executable blocker's `disposition` (`kind`, `reason`, `runner`,
 `inputs`, `base_proof`, `changed_proof`); proof references carry `path` and
 `sha256`. Only a validated runner disposition of `pre_existing` exempts a
-blocking finding. Legacy findings and reviews without an explicit patch retain
-blocking behavior. This attribution applies to review findings, not the task's
-acceptance criteria. See [patch attribution](bugs/2026-10-19-review-patch-attribution.md).
+blocking finding. Identical failures only support that exemption when the cited
+file and line range are verified unchanged in the actual applied scratch source;
+changed, unknown and out-of-range locations retain the blocker. Legacy findings
+and reviews without an explicit patch retain blocking behavior. This attribution
+applies to review findings, not the task's acceptance criteria. See [patch attribution](bugs/2026-10-19-review-patch-attribution.md).
 
 `proof_stability` is the proving tests' repeats: `repeats`, `unstable` (each
 test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when

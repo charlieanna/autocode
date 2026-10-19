@@ -214,6 +214,8 @@ def prove(value: dict, delivered: list[str], run_tests) -> dict:
             base,
             inputs=comparison.get("inputs"),
             reason=comparison.get("reason", "No captured explicit-patch baseline is available."),
+            finding=f,
+            changed_locations=comparison.get("changed_locations"),
         )
         for f in findings
     }

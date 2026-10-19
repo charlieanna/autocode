@@ -24,6 +24,19 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in expected})
                 self.assertEqual(expected, set(kept))
 
+    def test_review_attribution_and_adversarial_nit_keep_the_public_consumer(self):
+        consumer = "tests.test_review_attribution_cli"
+        for path in (
+            "tools/autocode_review_job.py",
+            "tools/autocode_review_proof.py",
+            "tools/autocode_review_attribution.py",
+            "scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/review/findings.json",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_reviewer_effort_producers_keep_the_public_dispatch_consumer(self):
         for path in ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"):
             with self.subTest(path=path):
