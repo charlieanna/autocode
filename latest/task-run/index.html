@@ -2366,7 +2366,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/dfd5c0894ebfce5586a5a076219a6b9558ee8b77/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/bfd649f2c68c8499ad6cf76ca4a228100b29a796/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2508,6 +2508,14 @@ visible in the additive <code>task_preflight</code> status field. See
 <a href="../task-preflight/">task-preflight.md</a> for phase selection, copied input checks,
 receipt reuse and supported correction; readiness does not replace proof.</p>
 <h2 id="chat-projection-for-ordinary-task-runs">Chat projection for ordinary task runs<a class="headerlink" href="#chat-projection-for-ordinary-task-runs" title="Permanent link">&para;</a></h2>
+<p>A clean user-requested pause may set <code>needs.confirmation_required: false</code> on
+its ordinary <code>resume</code> offer. The person's Resume click then needs no second
+confirmation dialog. The need remains person-only: clients must not automatically
+resume it. Missing or true preserves the client's existing confirmation policy;
+failure recovery, held operational pauses, retained attempts, report repairs and
+terminal stops do not receive this exception. Numeric allowance changes still
+need their explicit confirmation. Named commands and CLI admission checks are
+unchanged.</p>
 <p>The additive <code>view.chat</code> contains <code>messages</code> (stable <code>id</code>, <code>role</code>, <code>text</code>),
 an opaque <code>context</code>, and an optional <code>input</code> offer. Messages project existing
 human receipts and saved completed replies. At a follow-up, the prior reply is
@@ -2743,7 +2751,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/dfd5c0894ebfce5586a5a076219a6b9558ee8b77/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/bfd649f2c68c8499ad6cf76ca4a228100b29a796/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
