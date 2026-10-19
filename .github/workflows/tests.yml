@@ -139,7 +139,8 @@ jobs:
         # the same kernel backend as linux-tool-containment on this disposable VM.
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q bubblewrap libseccomp2
+          # tmux: tests.test_chat_screens drives the full-screen chat in a real terminal (#1646).
+          sudo apt-get install -y -q bubblewrap libseccomp2 tmux
           if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi

@@ -205,6 +205,13 @@ Linux, where it fails: the suite job installs bubblewrap before the scenario har
 Any other problem doctor reports where bubblewrap works, such as the fake no longer
 reporting the qualified OpenCode version, fails the test everywhere.
 
+`tests.test_chat_screens` drives the full-screen `autocode chat` in a real terminal (#1646):
+`tests/terminal_screen.py` runs it in a private tmux server with the offline fixture
+provider, types, pastes and resizes, and reads the screen back. It needs tmux
+(`brew install tmux`, `apt-get install tmux`). Without tmux it skips, except in CI, where
+it fails; the suite job installs tmux. Use the same helper for a new check of what a person
+sees: a stand-in curses screen cannot show type-ahead, paste or scrolling problems.
+
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
