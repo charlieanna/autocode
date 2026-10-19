@@ -396,6 +396,63 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
                 acceptance.check_candidate = original_check
 
 
+class RunnerCollectionTests(unittest.TestCase):
+    """#1567: a test the run wrote in a form the runner's command does not collect must be fixable."""
+
+    def test_an_uncollected_test_names_the_runners_command_and_a_collected_rewrite_is_accepted(self):
+        import subprocess
+
+        import autocode_acceptance_tests_job as job
+        import autocode_verify as verify
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace, evidence = Path(root) / "workspace", Path(root) / "evidence"
+            (workspace / "tests").mkdir(parents=True)
+            evidence.mkdir()
+            (workspace / "stats.py").write_text("def median(xs):\n    return sorted(xs)[len(xs) // 2]\n")
+            (workspace / "tests" / "__init__.py").write_text("")
+            test_file = workspace / "tests" / "test_stats.py"
+            test_file.write_text("from stats import median\n\n\ndef test_odd():\n    assert median([3, 1, 2]) == 2\n")
+            git = ["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@t"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            name = "test_t1_median_even_four_values"
+            state = approved({"T1": f"test: {name}"}, task="median of an even count")
+            acceptance.route(state)
+            value = {
+                "tests": [{"case_id": "T1", "test_name": name, "file": "tests/test_stats.py"}],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(evidence / "tester.json"), "changed_files": ["tests/test_stats.py"]}
+
+            def run_tests(files):
+                return verify.scratch_run(workspace, evidence / "acceptance-proof", tests=files)
+
+            # The project has no pytest configuration, so the runner uses unittest, which skips a bare function.
+            with test_file.open("a") as handle:
+                handle.write(f"\n\ndef {name}():\n    assert median([1, 2, 3, 4]) == 2.5\n")
+            with self.assertRaises(ValueError) as rejected:
+                job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            message = str(rejected.exception)
+            self.assertIn(f"no test named {name} ran in tests/test_stats.py", message)
+            self.assertIn("-m unittest", message)
+            self.assertIn("ran 0 test(s) and did not collect it", message)
+            self.assertIn("unittest.TestCase", message)
+            self.assertEqual(job.STAGE, state["next_stage"])
+
+            # The retry the message asks for: the same test as a TestCase method fails on today's code.
+            test_file.write_text(
+                "import unittest\n\nfrom stats import median\n\n\nclass Median(unittest.TestCase):\n"
+                f"    def {name}(self):\n        self.assertEqual(2.5, median([1, 2, 3, 4]))\n"
+            )
+            job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            receipt = next(iter(acceptance.receipts(state).values()))
+            self.assertEqual({"T1": "fails"}, receipt["results"])
+            self.assertEqual("terra", state["next_stage"])
+
+
 class RouteTests(unittest.TestCase):
     def test_a_build_with_unwritten_cases_goes_to_the_tester_once(self):
         state = approved()
