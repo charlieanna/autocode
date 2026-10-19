@@ -310,6 +310,21 @@ export class RunController {
     return JSON.parse(result.stdout) as CheckpointComparison;
   }
 
+  /** The view's named, display-only diff of what the running Builder has changed so far. */
+  async workingDiff(run: RunRef): Promise<WorkingComparison> {
+    const view = await this.status(run);
+    const action = view.code_checkpoints?.working;
+    if (!action) throw new ClientGap("AutoCode offers no live diff right now. It is offered while the Builder works.");
+    const own = effective(view, run);
+    const expected = ["checkpoint", "--workspace", own.workspace, "--run-dir", own.runDir, "--working"];
+    if (JSON.stringify(action.next_command) !== JSON.stringify(expected)) {
+      throw new ClientGap("Unsupported working-diff action from AutoCode");
+    }
+    const result = await invoke(this.settings, expected);
+    if (result.code !== 0) throw new Error(tail(result));
+    return JSON.parse(result.stdout) as WorkingComparison;
+  }
+
   /**
    * The named restore: a person's confirmed decision, bound to the token a
    * fresh compare returned and a stable request id that makes replay safe.
@@ -323,6 +338,15 @@ export class RunController {
     if (result.code !== 0) throw new Error(tail(result));
     return JSON.parse(result.stdout) as CheckpointRestoreResult;
   }
+}
+
+/** The payload `checkpoint --working` prints: display only, with no token. */
+export interface WorkingComparison {
+  since?: string;
+  changed_files?: string[];
+  patch?: string;
+  truncated?: boolean;
+  compared_at?: string;
 }
 
 /** The payload `checkpoint --compare` prints. */

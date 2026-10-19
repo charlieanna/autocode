@@ -291,6 +291,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type === "select_tab" && message.tabKey) { this.activate(message.tabKey); return; }
     if (message.type === "close_tab" && message.tabKey) { this.close(message.tabKey); return; }
     if (message.type === "checkpoint") { await this.checkpoint(message); return; }
+    if (message.type === "working_diff") { await this.workingDiff(message); return; }
     if (message.type === "pause") { await this.pause(message); return; }
     if (message.type === "checkpoint_open") {
       const opened = asRunRef({ workspace: message.workspace, runDir: message.runDir });
@@ -448,6 +449,20 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       this.busy.delete(key);
       this.actions.changed();
       await this.refresh();
+    }
+  }
+
+  /** The running Builder's changes so far: a read, offered only while the view names it. */
+  private async workingDiff(message: ChatMessage): Promise<void> {
+    const tab = this.active;
+    const run = tab.run;
+    if (!run || message.runKey !== tab.key) return;
+    const key = tab.key;
+    try {
+      const comparison = await this.controller.workingDiff(run);
+      void this.view?.webview.postMessage({ type: "working_diff", runKey: key, comparison });
+    } catch (error) {
+      void this.view?.webview.postMessage({ type: "working_diff", runKey: key, error: messageOf(error) });
     }
   }
 
