@@ -2577,6 +2577,84 @@ test('test_ac20_unsupervised_live_continue_does_not_notify', async (t) => {
   assert.equal(host.notices.length, 0);
 });
 
+// Source-derived preflight boundary: autocode_preflight_attempts records probes in
+// stages, not active_stage. Stage liveness is unknown, while controller_owner.inspect
+// independently reports the birth-bound invocation running. No live raw preflight
+// snapshot was captured in #1590; this is the public contract that reproduces it.
+function controllerPreflightView() {
+  return {
+    status: 'RUNNING', done: false, next_stage: 'astra_challenge',
+    liveness: { kind: 'unknown', reason: 'metadata_missing' },
+    controller: { kind: 'running', checked: true, alive: true },
+    needs: { kind: 'continue' },
+    progress: { line: 'Plan Reviewer ready', needs_you: 'nothing needed from you' },
+    next_command: `autocode --workspace ${alpha.workspace} --run-dir ${alpha.runDir}`,
+  };
+}
+
+test('live controller preflight stays quiet and working until a real person-wait', async (t) => {
+  const preflight = controllerPreflightView();
+  const ui = await openChat(t, preflight, alpha);
+  assert.equal(host.notices.length, 0, 'first observed access probe is work, not a person-wait');
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(ui.document.querySelector('#take-action'), null);
+  await ui.poll();
+  await ui.poll({ ...preflight, liveness: { kind: 'supervised' } });
+  assert.equal(host.notices.length, 0, 'preflight-to-stage transition stays quiet');
+
+  // A controller can still be returning after publishing a meaningful checkpoint.
+  const approval = { ...approveView(), controller: preflight.controller };
+  await ui.poll(approval);
+  assert.equal(host.notices.length, 1);
+  assert.match(host.notices[0].message, /approval of the plan AutoCode displayed$/);
+  await ui.poll();
+  assert.equal(host.notices.length, 1);
+  await ui.poll({ ...approval, status: 'WAITING_FOR_USER', needs: { kind: 'answer', request_id: 'controller-question', questions: [{ id: 'q1' }] } });
+  assert.equal(host.notices.length, 2, 'live controller does not hide a real question');
+  await ui.poll({ status: 'TASK_COMPLETE', done: true, needs: null, controller: preflight.controller });
+  assert.equal(host.notices.length, 3, 'completion remains observable while controller returns');
+  await ui.poll();
+  assert.equal(host.notices.length, 3);
+});
+
+test('Run details keeps live controller preflight working and releases stopped continue', async (t) => {
+  const preflight = {
+    ...controllerPreflightView(), progress: { line: 'Plan Reviewer ready' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = await openPanel(t, preflight);
+  assert.equal(ui.take().textContent, 'Working…');
+  assert.equal(ui.take().disabled, true);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('a stage is currently running'));
+  await ui.poll({ ...preflight, controller: { kind: 'ready', checked: true, alive: false } });
+  assert.equal(ui.take().textContent, 'Take the named action');
+  assert.equal(ui.take().disabled, false);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('nothing; the run can simply proceed'));
+});
+
+for (const [label, controllerState] of [
+  ['ready', { kind: 'ready', checked: true, alive: false }],
+  ['ended', { kind: 'ended', checked: true, alive: false }],
+  ['unchecked', { kind: 'running', checked: false, alive: true }],
+  ['dead', { kind: 'running', checked: true, alive: false }],
+  ['missing', undefined],
+]) {
+  test(`live controller to ${label} continue notifies once and remains actionable`, async (t) => {
+    const preflight = controllerPreflightView();
+    const ui = await openChat(t, preflight, alpha);
+    assert.equal(host.notices.length, 0);
+    await ui.poll({ ...preflight, controller: controllerState });
+    assert.equal(host.notices.length, 1, 'stopped or unverified ownership is not work');
+    assert.match(host.notices[0].message, /waiting for you - nothing needed from you$/);
+    const take = ui.document.querySelector('#take-action');
+    assert.equal(take.textContent, 'Continue');
+    assert.equal(take.disabled, false);
+    assert.ok(!ui.document.querySelector('#app').textContent.includes('Thinking…'));
+    await ui.poll();
+    assert.equal(host.notices.length, 1);
+  });
+}
+
 test('test_ac21_first_observed_waiting_run_notifies_once', async (t) => {
   const views = new Map([[alpha.runDir, approveView('r1:abc')]]);
   const ui = await openChat(t, approveView('r1:abc'), alpha, { statusFor: (target) => views.get(target.runDir) });

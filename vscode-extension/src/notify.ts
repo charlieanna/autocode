@@ -1,14 +1,10 @@
 /** When a chat tab's run stops for a person, and the identity notifications dedupe by. */
-import { needsSummary, type Needs, type StatusView } from "./core/view";
+import { isWorking, needsSummary, type Needs, type StatusView } from "./core/view";
 
 export interface WaitNotice {
   /** The done flag, or the need's kind with its distinguishing fields. */
   identity: string;
   tail: string;
-}
-
-function liveStep(view: StatusView): boolean {
-  return ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "");
 }
 
 function needIdentity(need: Needs): string {
@@ -22,13 +18,13 @@ function needIdentity(need: Needs): string {
   ]);
 }
 
-/** A person-wait or a finished run; `continue` while a live model step runs is work, not a wait. */
+/** A person-wait or a finished run; `continue` while a live stage or controller advances is work, not a wait. */
 function waitNotice(view: StatusView | null | undefined): WaitNotice | null {
   if (!view || typeof view !== "object") return null;
   if (view.done) return { identity: "done", tail: needsSummary(view) };
   const need = view.needs;
   if (!need) return null;
-  if (need.kind === "continue" && liveStep(view)) return null;
+  if (need.kind === "continue" && isWorking(view)) return null;
   return { identity: needIdentity(need), tail: needsSummary(view) };
 }
 
