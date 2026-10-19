@@ -1685,3 +1685,97 @@ class NativeJointFlow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PersistedReviewLimitTests(unittest.TestCase):
+    """A new run's review allowance can come from the user's config (#1565)."""
+
+    def setUp(self):
+        import autocode_configure as configure
+
+        self.configure = configure
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.config = Path(self.temp.name) / "autocode"
+        self.config.mkdir()
+        self.patcher = patch.dict(os.environ, {"XDG_CONFIG_HOME": self.temp.name})
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+    def test_absent_config_leaves_the_builtin_default(self):
+        self.assertEqual(self.configure.persisted_review_call_limit(), (None, "built-in default"))
+
+    def test_config_value_and_source_are_reported(self):
+        (self.config / "config.toml").write_text("plan_review_call_limit = 4\n")
+        limit, source = self.configure.persisted_review_call_limit()
+        self.assertEqual(limit, 4)
+        self.assertIn("plan_review_call_limit in", source)
+
+    def test_zero_is_the_persisted_unlimited_choice(self):
+        (self.config / "config.toml").write_text("plan_review_call_limit = 0\n")
+        self.assertEqual(self.configure.persisted_review_call_limit()[0], 0)
+
+    def test_invalid_values_refuse_at_start_not_midrun(self):
+        for value in ("1", "2.5", "-1", "plan_review_call_limit = 1\n"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                if value.endswith("\n"):
+                    (self.config / "config.toml").write_text(value)
+                    self.configure.persisted_review_call_limit()
+                else:
+                    (self.config / "config.toml").write_text(f"plan_review_call_limit = {value}\n")
+                    self.configure.persisted_review_call_limit()
+
+    def test_resumed_run_keeps_its_saved_allowance(self):
+        # The persisted default applies where settings are first built; the
+        # guard is `not started`, so a run with saved settings never re-reads it.
+        (self.config / "config.toml").write_text("plan_review_call_limit = 9\n")
+        source = "plan_review_call_limit in"
+        limit, origin = self.configure.persisted_review_call_limit()
+        assert limit == 9 and origin.startswith(source)
+        # started=True (a saved run) must not reach the config application at all.
+        state = {"settings": {"planning_review_call_limit": 2, "planning_review_call_limit_origin": "user_explicit"}}
+        started = bool(state.get("settings"))
+        self.assertTrue(started)
+
+    def test_flag_wins_over_config_by_construction(self):
+        # An explicit CLI flag never reaches the reader (the guard checks the
+        # arg first); the reader therefore cannot override a person's flag.
+        (self.config / "config.toml").write_text("plan_review_call_limit = 9\n")
+        args = SimpleNamespace(planning_review_call_limit=5)
+        applied = args.planning_review_call_limit is None
+        self.assertFalse(applied, "an explicit flag bypasses the config default")
+
+
+class BudgetOriginTests(unittest.TestCase):
+    """The joint-planning line names where the allowance came from (#1565)."""
+
+    def test_origin_is_shown_when_configured(self):
+        import autocode_goal_lifecycle as lifecycle
+
+        state = {
+            "status": "PAUSED_PLANNING_BUDGET",
+            "task_id": "t",
+            "planning": {"astra_calls": 2, "reports": {}},
+            "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
+            "settings": {
+                "planning_review_call_limit": 4,
+                "planning_review_call_limit_origin": "plan_review_call_limit in /x/config.toml",
+            },
+        }
+        text = lifecycle.render(state)
+        self.assertIn("2/4 plan-review calls used", text)
+        self.assertIn("allowance from plan_review_call_limit in /x/config.toml", text)
+
+    def test_no_origin_keeps_the_plain_line(self):
+        import autocode_goal_lifecycle as lifecycle
+
+        state = {
+            "status": "PAUSED_PLANNING_BUDGET",
+            "task_id": "t",
+            "planning": {"astra_calls": 2, "reports": {}},
+            "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
+            "settings": {"planning_review_call_limit": 4},
+        }
+        text = lifecycle.render(state)
+        self.assertIn("2/4 plan-review calls used", text)
+        self.assertNotIn("allowance from", text)

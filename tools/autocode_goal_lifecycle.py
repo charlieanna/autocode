@@ -803,6 +803,9 @@ def render(state: RunState, run_dir=None):
         )
         if limit == 0:
             budget = f"{total} plan-review calls used; unlimited"
+        origin = (state.get("settings") or {}).get("planning_review_call_limit_origin")
+        if origin:
+            budget += f" (allowance from {origin})"
         lines += ["", f"Joint planning: {budget}"]
         for stage, report in state["planning"]["reports"].items():
             lines.append(f"  {stage}: {report['output']}")
