@@ -66,6 +66,7 @@ try:
     from . import autocode_proof_stability as proof_stability
     from . import autocode_python_tests as python_tests
     from . import autocode_review_mutation as review_mutations
+    from . import autocode_review_proof as review_proof
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_scratch_preparation as scratch_preparation
     from . import autocode_suite_definition_inputs as definition_inputs
@@ -101,6 +102,7 @@ except ImportError:
     import autocode_proof_stability as proof_stability
     import autocode_python_tests as python_tests
     import autocode_review_mutation as review_mutations
+    import autocode_review_proof as review_proof
     import autocode_scratch_overlay as scratch_overlay
     import autocode_scratch_preparation as scratch_preparation
     import autocode_suite_definition_inputs as definition_inputs
@@ -2029,6 +2031,7 @@ def scratch_run(
     review_snapshot = None
     try:
         review_snapshot = source_snapshot.snapshot(tree, paths=source_paths) if review_source else None
+        review_locations = review_proof.source_locations(tree, review_source) if review_source else None
         if command is None:
             python = python_for(workspace)
             framework = detect_framework(tree, python=python)
@@ -2082,7 +2085,11 @@ def scratch_run(
                     ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
                     if not ran or int(ran[-1]) == 0 or not re.search(r"^OK(?:\s|$)", text, re.M):
                         return {**receipt, "error": "Test command reported zero tests or incomplete output"}
-        return {**receipt, "error": receipt.get("error") or ""}
+        return {
+            **receipt,
+            "error": receipt.get("error") or "",
+            **({"review_locations": review_locations} if review_source else {}),
+        }
     except command_receipt.OwnershipUncertain:
         ownership_uncertain = True
         raise

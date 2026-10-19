@@ -120,9 +120,10 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual("# captured delivered tests\n", (tree / self.tests[0]).read_text())
             self.assertEqual(
                 "return n + 2" if kwargs["patch"] else "return n * 2",
-                (tree / "calc.py").read_text().splitlines()[1].strip(),
+                (tree / "calc.py").read_text().splitlines()[-1].strip(),
             )
             receipt = synthetic_receipt()
+            receipt["review_locations"] = proof.source_locations(tree, kwargs["review_source"])
             receipt.update(command="python -m unittest -v review/tests/test_example.py", output=str(out / "test.log"))
             (out / "test.log").write_text("synthetic named receipt; no command executed")
             return receipt
@@ -142,6 +143,60 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(before["files"], json.loads(manifest.read_text())["files"])
         self.assertEqual((self.workspace / "calc.py").read_bytes(), (manifest.parent / "inputs/calc.py").read_bytes())
         self.assertNotEqual(self.calls[0][0], self.calls[1][0])
+
+    def test_locations_use_actual_applied_bytes_even_when_git_offsets_the_hunk(self):
+        original = (self.workspace / "calc.py").read_text()
+        (self.workspace / "calc.py").write_text("# extra line\n" * 10 + original)
+        (self.workspace / "change.patch").write_text(PATCH.replace("@@ -1,2 +1,2 @@", "@@ -2,2 +2,2 @@"))
+        result = proof.collect(self.workspace, self.out, self.tests, "change.patch", self.runner, timeout=10)
+        locations = result["changed_locations"]
+        self.assertEqual({"line_count": 12, "changed": [[12, 12]]}, locations["calc.py"])
+        self.assertTrue(attribution.unchanged_location({"file": "calc.py", "lines": [2]}, locations))
+        self.assertFalse(attribution.unchanged_location({"file": "calc.py", "lines": [12]}, locations))
+
+    def test_actual_added_deleted_and_binary_source_locations_are_conservative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "inputs").mkdir()
+            tree = root / "tree"
+            tree.mkdir()
+            (root / "inputs/modified.py").write_text("a\nb\nc\n")
+            (tree / "modified.py").write_text("a\nc\n")
+            (tree / "added.py").write_text("new\nline\n")
+            (root / "inputs/deleted.py").write_text("old\n")
+            (tree / "binary.py").write_bytes(b"\0new")
+            manifest = root / "source.json"
+            util.atomic_json(
+                manifest,
+                {
+                    "source_lines": {"modified.py": 3, "deleted.py": 1, "binary.py": 1},
+                    "patch_changes": [
+                        {"path": name} for name in ("modified.py", "added.py", "deleted.py", "binary.py")
+                    ],
+                },
+            )
+            self.assertEqual(
+                {
+                    "modified.py": {"line_count": 2, "changed": [[1, 2]]},
+                    "added.py": {"line_count": 2, "changed": [[1, 2]]},
+                },
+                proof.source_locations(tree, manifest),
+            )
+
+    def test_inline_separators_do_not_shift_physical_source_locations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "inputs").mkdir()
+            tree = root / "tree"
+            tree.mkdir()
+            before = "# prefix\vstill same line\nx = 1\n"
+            (root / "inputs/calc.py").write_text(before)
+            (tree / "calc.py").write_text(before.replace("x = 1", "x = 2"))
+            manifest = root / "source.json"
+            util.atomic_json(manifest, {"source_lines": {"calc.py": 2}, "patch_changes": [{"path": "calc.py"}]})
+            locations = proof.source_locations(tree, manifest)
+            self.assertEqual({"calc.py": {"line_count": 2, "changed": [[2, 2]]}}, locations)
+            self.assertFalse(attribution.unchanged_location({"file": "calc.py", "lines": [2]}, locations))
 
     def test_probe_cannot_change_source_or_its_own_test_during_execution(self):
         def execute(_framework, _command, tree, *_args, **_kwargs):

@@ -73,6 +73,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Review findings on changed or unverified source stay blocking when their tests fail
+  identically on base and change. The runner checks actual applied source locations,
+  including offset patches, before treating an older defect as an observation (#1658).
+
 - Session ownership failures identify the failed receipt-read check with fixed phase/reason
   labels, without exposing its path, content or exception payload. The same failed read still
   blocks admission and closes the lifeline for cleanup; no retry or grace is added.
