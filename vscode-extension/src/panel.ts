@@ -174,7 +174,7 @@ export class RunPanel {
     if (!this.panel.visible) return;
     let view: StatusView;
     try {
-      view = await this.controller.status(this.run);
+      view = await this.controller.pollStatus(this.run);
     } catch (error) {
       this.post({ ...emptyState(this.run), gap: messageOf(error) });
       return;

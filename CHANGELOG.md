@@ -66,6 +66,10 @@ PR template asks for an entry here; a change without one is incomplete.
   "plan approval needed" in the seconds after you approve, `/undo` on a finished run says going back
   is offered only at a pause, and `/diff N` with no changes says the files match step N.
 
+- VS Code shares simultaneous polling reads for the same run and CLI settings,
+  without caching completed status. Action preflights stay fresh, and a poll
+  overtaken by a command cannot restore the older decision state (#1642).
+
 - Session ownership handoff failures retain a bounded callback phase and safe reason
   code, so different ownership failures can be diagnosed without exporting exception
   payloads. Failure classification and scoped cleanup stay unchanged (#1640).
