@@ -1,6 +1,7 @@
 """The full-screen chat's pure pieces: width, wrapping, transcript blocks, composer, window."""
 
 import unittest
+from unittest import mock
 
 import autocode_chat_tui as tui
 
@@ -79,6 +80,35 @@ class TranscriptTests(unittest.TestCase):
         transcript.add("AutoCode: done")
         self.assertEqual("", transcript.activity)
 
+    def test_the_closing_words_are_everything_said_after_the_conversation(self):
+        transcript = tui.Transcript()
+        transcript.add("AutoCode: the plan is ready")
+        transcript.add("AutoCode needs you for this one (Waiting on another run). Waits for the API run")
+        transcript.add("Run it yourself:\n  autocode wait --run-dir /p/api/.autocode/runs/r9")
+        self.assertEqual(
+            [
+                "AutoCode needs you for this one (Waiting on another run). Waits for the API run",
+                "Run it yourself:\n  autocode wait --run-dir /p/api/.autocode/runs/r9",
+            ],
+            transcript.closing(),
+        )
+
+    def test_with_nothing_said_after_the_conversation_its_last_message_stays(self):
+        transcript = tui.Transcript()
+        self.assertEqual([], transcript.closing())
+        transcript.add("AutoCode: The requested task is complete.")
+        self.assertEqual(["AutoCode: The requested task is complete."], transcript.closing())
+        transcript.add("Done.")
+        self.assertEqual(["Done."], transcript.closing())
+
+    def test_the_request_the_person_typed_is_shown_once(self):
+        transcript = tui.Transcript()
+        transcript.add("You: Add a --shout flag ")
+        self.assertFalse(transcript.add("\nYou: Add a --shout flag"))
+        self.assertEqual([("user", "You: Add a --shout flag ")], transcript.blocks)
+        transcript.add("AutoCode: Is that right?")
+        self.assertTrue(transcript.add("You: Add a --shout flag"), "a later reply that repeats it is new")
+
     def test_blank_text_is_ignored(self):
         transcript = tui.Transcript()
         self.assertFalse(transcript.add("\n\n"))
@@ -141,6 +171,43 @@ class ComposerLabelTests(unittest.TestCase):
     def test_other_questions_are_replies_and_waiting_names_the_run(self):
         self.assertEqual("Reply", tui.composer_label("Approve this plan? [y/N]", True))
         self.assertEqual("AutoCode", tui.composer_label("", False))
+
+
+class PasteTests(unittest.TestCase):
+    """What follows an escape key: a bracketed paste is one piece of text, anything else is not a paste."""
+
+    def keys(self, *keys):
+        source = iter(keys)
+        return lambda: next(source, None)
+
+    def test_a_pasted_line_break_stays_in_the_text(self):
+        read = self.keys(*"[200~", *"Add a flag\r\nthat shouts\r", *"\x1b[201~")
+        self.assertEqual("Add a flag\nthat shouts", tui.read_paste(read))
+
+    def test_escape_codes_inside_a_paste_never_reach_the_terminal(self):
+        read = self.keys(*"[200~", *"\x1b[31mred", *"\x1b[201~")
+        self.assertEqual("red", tui.read_paste(read))
+
+    def test_an_escape_that_starts_no_paste_is_not_one(self):
+        self.assertIsNone(tui.read_paste(self.keys()))
+        self.assertIsNone(tui.read_paste(self.keys("x")))
+        self.assertIsNone(tui.read_paste(self.keys("[", "2", "0", "1", "~")))
+
+
+class AskTests(unittest.TestCase):
+    """The composer against a stand-in screen, without a terminal."""
+
+    def test_keys_typed_while_autocode_worked_are_dropped_before_a_question(self):
+        screen = mock.MagicMock()
+        screen.getmaxyx.return_value = (30, 100)
+        calls = []
+        screen.get_wch.side_effect = lambda: calls.append("read") or "\n"
+        with mock.patch.object(tui.ChatTUI, "_open"), mock.patch.object(tui.curses, "curs_set"):
+            ui = tui.ChatTUI()
+            ui._screen = screen
+            with mock.patch.object(tui.curses, "flushinp", side_effect=lambda: calls.append("flush")):
+                self.assertEqual("", ui.ask("Approve this plan? [y/N]"))
+        self.assertEqual(["flush", "read"], calls)
 
 
 class WindowTests(unittest.TestCase):

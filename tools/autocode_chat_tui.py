@@ -28,6 +28,7 @@ TAGLINE = "Plan, build and test, with a reviewer at every step."
 NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
 REPLY_PLACEHOLDER = "Type your reply, then Enter"
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"  # bracketed paste, so a pasted newline is not Enter
 WORDMARK = (
     "▄▀█ █░█ ▀█▀ █▀█ █▀▀ █▀█ █▀▄ █▀▀",
     "█▀█ █▄█ ░█░ █▄█ █▄▄ █▄█ █▄▀ ██▄",
@@ -133,6 +134,10 @@ def composer_label(prompt: str, asking: bool) -> str:
     return "Reply"
 
 
+def _same(block: tuple[str, str], other: tuple[str, str]) -> bool:
+    return block[0] == other[0] and " ".join(block[1].split()) == " ".join(other[1].split())
+
+
 @dataclass
 class Transcript:
     """What the client has said, and the latest progress line it reported."""
@@ -150,8 +155,24 @@ class Transcript:
             self.activity = leading[len(PROGRESS_PREFIX) :].strip()
             return False
         self.activity = ""
-        self.blocks.append((role_of(text), text))
+        role = role_of(text)
+        if role == "user" and self.blocks and _same(self.blocks[-1], (role, text)):
+            return False  # the client repeating what the person just typed
+        self.blocks.append((role, text))
         return True
+
+    def closing(self) -> list[str]:
+        """What to leave on the terminal after the screen closes: the client's last words, whole.
+
+        Those are the blocks after the last conversation message (a hand-off's reason and
+        the command to run, where to pick the run up, Done.); the last block when there are none.
+        """
+        tail: list[str] = []
+        for role, text in reversed(self.blocks):
+            if role in ("user", "assistant"):
+                break
+            tail.insert(0, text)
+        return tail or [text for _, text in self.blocks[-1:]]
 
     def lines(self, width: int) -> list[tuple[str, str]]:
         """The transcript as ``(style, text)`` rows, labels over indented bodies."""
@@ -173,7 +194,7 @@ class Transcript:
 
 @dataclass
 class Composer:
-    """One editable reply line, with history and a cursor as a character index."""
+    """One editable reply, with history and a cursor as a character index; a paste may hold newlines."""
 
     text: str = ""
     cursor: int = 0
@@ -248,6 +269,30 @@ class Composer:
         return text
 
 
+def read_paste(read) -> str | None:
+    """After an escape key, the text of a bracketed paste; None when the keys were something else.
+
+    ``read`` returns the next key, or None when no key follows promptly. A pasted
+    line break stays in the text instead of submitting the reply.
+    """
+    opening = ""
+    while PASTE_START.startswith("\x1b" + opening) and len(opening) < len(PASTE_START) - 1:
+        key = read()
+        if not isinstance(key, str):
+            return None
+        opening += key
+    if "\x1b" + opening != PASTE_START:
+        return None
+    text = ""
+    while not text.endswith(PASTE_END):
+        key = read()
+        if key is None:  # the terminal stopped sending without closing the paste
+            break
+        if isinstance(key, str):
+            text += key
+    return safe_text(text.removesuffix(PASTE_END).replace("\r\n", "\n").replace("\r", "\n")).rstrip("\n")
+
+
 def window(text: str, cursor: int, width: int) -> tuple[str, int]:
     """The part of ``text`` that fits ``width`` cells with ``cursor`` visible, and its column."""
     if width <= 0:
@@ -266,6 +311,13 @@ def window(text: str, cursor: int, width: int) -> tuple[str, int]:
     kept.reverse()
     shown = "".join(kept)
     return clip(shown + after, width), display_width(shown)
+
+
+@dataclass(frozen=True)
+class Pasted:
+    """Text the terminal delivered as one paste."""
+
+    text: str
 
 
 @dataclass(frozen=True)
@@ -342,6 +394,7 @@ class ChatTUI:
             with contextlib.suppress(curses.error):
                 curses.curs_set(0)
             self._start_colors()
+            self._bracketed_paste(True)
         except Exception as error:  # a terminal without curses support keeps line mode
             with contextlib.suppress(Exception):
                 curses.endwin()
@@ -364,6 +417,7 @@ class ChatTUI:
             screen, self._screen = self._screen, None
             if screen is None:
                 return
+            self._bracketed_paste(False)
             with contextlib.suppress(curses.error):
                 screen.keypad(False)
             with contextlib.suppress(curses.error):
@@ -372,8 +426,14 @@ class ChatTUI:
                 curses.curs_set(1)
             with contextlib.suppress(curses.error):
                 curses.endwin()
-        if self._transcript.blocks:
-            print(self._transcript.blocks[-1][1].splitlines()[0])
+        for text in self._transcript.closing():
+            print(text.strip("\n"))
+
+    @staticmethod
+    def _bracketed_paste(on: bool) -> None:
+        with contextlib.suppress(OSError, ValueError):
+            sys.stdout.write("\x1b[?2004h" if on else "\x1b[?2004l")
+            sys.stdout.flush()
 
     def __enter__(self) -> ChatTUI:
         return self
@@ -394,6 +454,8 @@ class ChatTUI:
         with self._lock:
             if self._closed:
                 raise EOFError
+            with contextlib.suppress(curses.error):
+                curses.flushinp()  # keys typed while AutoCode worked never answer a question nobody saw
             self._prompt = " ".join(prompt.split())
             self._asking = True
             self._composer.reset()
@@ -418,6 +480,20 @@ class ChatTUI:
 
     def _read_key(self):
         try:
+            key = self._screen.get_wch()
+        except curses.error:
+            return None
+        if key != "\x1b":
+            return key
+        self._screen.timeout(50)
+        try:
+            pasted = read_paste(self._read_next)
+        finally:
+            self._screen.timeout(-1)
+        return Pasted(pasted) if pasted is not None else None
+
+    def _read_next(self):
+        try:
             return self._screen.get_wch()
         except curses.error:
             return None
@@ -425,6 +501,9 @@ class ChatTUI:
     def _handle(self, key) -> str | None:
         composer = self._composer
         if key is None:  # a key curses could not read; redraw and wait
+            return None
+        if isinstance(key, Pasted):
+            composer.insert(key.text)
             return None
         if isinstance(key, int):
             if key in (curses.KEY_ENTER, 10, 13):
@@ -636,6 +715,7 @@ class ChatTUI:
             return
         if self._composer.text:
             shown, cursor = window(self._composer.text, self._composer.cursor, inner)
+            shown = shown.replace("\n", "↵" if glyphs.unicode else " ")
             self._put(layout.box_text, 4, truncate(shown, inner), self._style("input"))
         else:
             cursor = 0

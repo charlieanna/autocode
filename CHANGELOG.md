@@ -42,6 +42,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The full-screen `autocode chat` no longer lets keys typed while AutoCode works answer the next
+  question, so a plan cannot be approved before it is shown. A multi-line paste stays one reply
+  instead of answering the questions that follow. The request is shown once, a stop's question keeps
+  its `[y/N]` in view (the command is shown above it), and the chat's last words stay on the terminal
+  when it closes: an error or interrupt, and the whole hand-off including the command to run.
+
 - Review evidence exports accept the optional, typed attribution metadata added
   for explicit-patch findings. Canonical review reports and external-change
   verification no longer fail export on that field (#1632 follow-up).

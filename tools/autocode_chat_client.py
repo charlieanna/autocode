@@ -427,7 +427,8 @@ class ChatClient:
             self.say(need["recovery_hint"])
         answers = {row.key: self.decide(row, need) for row in decided}
         prompt = "Accept these criteria" if need.get("kind") == "review" else "Continue"
-        if self.ask(f"{prompt} ({view.get('next_command')})? [y/N]: ").lower() not in YES:
+        self.say(f"Next it runs: {view.get('next_command')}")
+        if self.ask(f"{prompt}? [y/N]: ").lower() not in YES:
             self.say(f"Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
         fresh = self.status()
@@ -642,9 +643,13 @@ def cli(argv: list[str] | None = None) -> int:
             ui.set_context(client.workspace, client.run_dir)
         return client.converse()
     except (actions.ClientGap, OSError, ValueError) as error:
+        if ui is not None:
+            ui.close()  # first, so the message lands on the terminal and not on the closing screen
         print(f"autocode chat: {error}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
+        if ui is not None:
+            ui.close()
         print("\nautocode chat: interrupted.", file=sys.stderr)
         return 130
     finally:

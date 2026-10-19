@@ -679,9 +679,12 @@ in a scrollable transcript with a colored label for each speaker
 (`PgUp`/`PgDn`), the current question or activity above a boxed composer, and a
 hint bar. The composer is labeled **New chat** when typing there starts a run and
 **Reply** when it answers the run (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to
-edit, `Enter` to send, `Ctrl-D` to leave). A plan, a question or a stop is shown
+edit, `Enter` to send, `Ctrl-D` to leave). A paste stays in the composer as one
+reply, line breaks included, until you press `Enter`. A plan, a question or a stop is shown
 where it is asked, and `Ctrl-C` keeps its meaning: the first asks the run to pause
-after the current step, the second interrupts it. `--line` keeps the plain
+after the current step, the second interrupts it. When the chat ends, its last words
+stay on the terminal: an error, where to pick the run up, or the command a stop
+leaves for you to run. `--line` keeps the plain
 prompts, and scripts get them automatically when there is no terminal.
 
 The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a

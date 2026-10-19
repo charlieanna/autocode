@@ -247,6 +247,10 @@ class ConversationTests(unittest.TestCase):
         out = client.text()
         self.assertLess(out.index("Does the logo look right?"), out.index("Accept these criteria"))
         self.assertLess(out.index("[C1] The logo is centred"), out.index("Accept these criteria"))
+        self.assertIn("\nNext it runs: AUTOCODE_REVIEW_TOKEN=rv autocode", out)
+        self.assertIn(
+            "\nAccept these criteria? [y/N]: ", out, "the question stays short; the command is shown above it"
+        )
         self.assertEqual([["--approve-review", "C1", "--review-token", "-"]], client.taken)
 
     def test_a_review_whose_criteria_cannot_be_shown_is_not_offered(self):
@@ -517,6 +521,18 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn(b"Nothing started.", seen)
         self.assertFalse((self.workspace / ".autocode" / "runs").exists())
+
+    def test_an_error_before_the_conversation_is_shown_after_the_full_screen_closes(self):
+        leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), "--mode", "bogus", BRIEF)
+        try:
+            seen = read_terminal(leader)
+        finally:
+            os.close(leader)
+            if child.poll() is None:
+                child.kill()
+        self.assertEqual(1, child.wait(timeout=60))
+        self.assertIn(b"\x1b[?1049l", seen, "the full-screen chat opened and closed")
+        self.assertGreater(seen.rindex(b"no run mode 'bogus'"), seen.rindex(b"\x1b[?1049l"), seen[-500:])
 
     def test_line_mode_flag_skips_the_full_screen_chat(self):
         seen, code = self.run_terminal("chat", "--line", until=b"What do you want done?")
