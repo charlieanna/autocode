@@ -27,6 +27,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A pause you asked for in the VS Code chat now says "Paused as you asked" with a plain **Resume**,
+  instead of "I couldn't finish this step" and "Resume after correction". The chat also shows
+  your button presses in words ("Looks right. Prepare the plan.", "Approved the plan.") instead
+  of the raw answer `plan`, the Requirements summary keeps its sections apart, and chat tabs are
+  named after the request rather than the run directory, with the open chat kept in view.
+
 - Ordinary Kilo launches forward bounded native text and reasoning progress while response blocks
   are still streaming. Silent streams retain the configured idle deadline; progress remains
   separate from tool execution and completed-report evidence (#1599).

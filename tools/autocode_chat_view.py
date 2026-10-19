@@ -34,6 +34,9 @@ def notice(public):
         return "Your model connection settings changed. Check Connections before continuing."
     if status == "PAUSED_PROVIDER_UNCERTAIN":
         return "I couldn’t confirm the model connection. Check Connections, then try again."
+    if status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
+        # A pause someone asked for is not a failure (#1598).
+        return "Paused as you asked. Your work so far is saved; resume when you’re ready."
     if status.startswith("PAUSED"):
         return "I couldn’t finish this step. Open Run details to see what needs attention."
     if status == "RUNNING":

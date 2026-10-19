@@ -25,6 +25,14 @@ class ChatViewTests(unittest.TestCase):
                 self.assertNotIn("Paused", text)
                 self.assertNotIn("no task list", text)
 
+    def test_a_pause_someone_asked_for_is_not_reported_as_a_failure(self):
+        for status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
+            with self.subTest(status=status):
+                text = chat.notice({"status": status})
+                self.assertIn("Paused as you asked", text)
+                self.assertNotIn("couldn’t finish", text)
+        self.assertIn("couldn’t finish", chat.notice({"status": "PAUSED_JOB_FAILURE"}))
+
     def test_running_notice_gates_on_live_supervision_only(self):
         self.assertEqual(
             "Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "supervised"}})
@@ -244,6 +252,35 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual(result["messages"], self.project(copy.deepcopy(state), "done", True)["messages"])
         state["user_events"].append({"kind": "brief_feedback", "text": "New request"})
         self.assertNotEqual(result["context"], self.project(state, "done", True)["context"])
+
+    def test_button_answers_read_as_what_the_person_did(self):
+        state = {
+            "status": "TASK_COMPLETE",
+            "turns": [{"previous": {"task": "Build greet.py"}}],
+            "user_events": [
+                {
+                    "kind": "answer",
+                    "question_id": "requirements-review-abc",
+                    "question": {"question": "Does this match?"},
+                    "text": "plan",
+                },
+                {"kind": "goal_approval", "token": "r2:abc"},
+                {"kind": "answer", "question_id": "q-name", "question": {"question": "Name?"}, "text": "plan"},
+            ],
+        }
+        texts = [row["text"] for row in self.project(state, "done", True)["messages"]]
+        self.assertEqual(
+            [
+                "Build greet.py",
+                "Does this match?",
+                "Looks right. Prepare the plan.",
+                "Approved the plan.",
+                "Name?",
+                "plan",
+                "The requested task is complete.",
+            ],
+            texts,
+        )
 
     def test_saved_discussion_answer_and_previous_response_are_visible(self):
         state = {

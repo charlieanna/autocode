@@ -9,8 +9,14 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_requirements_chat as requirements_chat
+    from . import autocode_requirements_review as requirements_review
 except ImportError:
     import autocode_requirements_chat as requirements_chat
+    import autocode_requirements_review as requirements_review
+
+# What a person did when they pressed a button, in their words rather than the CLI's answer value.
+CONFIRMED_REQUIREMENTS = "Looks right. Prepare the plan."
+APPROVED_PLAN = "Approved the plan."
 
 
 def response(state: RunState) -> str:
@@ -41,6 +47,9 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     for index, event in enumerate(state.get("user_events") or []):
+        if event.get("kind") == "goal_approval" and event.get("token"):
+            rows.append({"id": f"approval-{index}", "role": "user", "text": APPROVED_PLAN})
+            continue
         if (
             event.get("kind") not in ("brief_feedback", "answer", "plan_message")
             or not event.get("text")
@@ -55,7 +64,14 @@ def messages(state: RunState, *, completed=False) -> list[dict]:
             rows.append({"id": f"{ident}-reply", "role": "assistant", "text": event["assistant_reply"]})
         elif isinstance(question, dict) and question.get("question"):
             rows.append({"id": f"{ident}-question", "role": "assistant", "text": question["question"]})
-        rows.append({"id": ident, "role": "user", "text": event["text"]})
+        text = event["text"]
+        if (
+            event.get("kind") == "answer"
+            and text == "plan"
+            and str(event.get("question_id") or "").startswith(requirements_review.PREFIX)
+        ):
+            text = CONFIRMED_REQUIREMENTS
+        rows.append({"id": ident, "role": "user", "text": text})
         if event.get("reply_after"):
             rows.append({"id": f"{ident}-reply-after", "role": "assistant", "text": event["reply_after"]})
     resolver = state.get("resolver") or {}

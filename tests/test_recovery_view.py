@@ -200,6 +200,17 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual("stopped", card["category"])
         self.assertEqual(["inspect", "new_conversation"], [row["kind"] for row in card["actions"]])
 
+    def test_a_pause_someone_asked_for_resumes_without_asking_for_a_correction(self):
+        for status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
+            with self.subTest(status=status):
+                resume = next(row for row in self.card(self.state(status))["actions"] if row["kind"] == "resume")
+                self.assertEqual("Resume", resume["label"])
+                self.assertNotIn("corrected", resume["effect"])
+        resume = next(
+            row for row in self.card(self.state("PAUSED_INVALID_OUTPUT"))["actions"] if row["kind"] == "resume"
+        )
+        self.assertEqual("Resume after correction", resume["label"])
+
     def test_interruption_is_exact_abandon_without_resume_and_missing_attempt_has_no_guess(self):
         state = self.state(
             "PAUSED_PROVIDER_UNCERTAIN",
