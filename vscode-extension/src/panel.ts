@@ -586,9 +586,9 @@ ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messag
 </section>
 <form id="composer">
 <label for="message" id="send-hint">Message AutoCode</label>
-<textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
+<textarea id="message" aria-label="Message AutoCode" aria-describedby="keyboard-hint" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
-<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
+<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><span id="keyboard-hint" class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
 <button type="button" id="pause-run" hidden>Pause</button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
