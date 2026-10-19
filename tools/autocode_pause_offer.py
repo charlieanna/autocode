@@ -19,8 +19,10 @@ EFFECT = "The current step finishes and is saved, then the run pauses. Resume co
 
 def working(view: dict[str, Any]) -> bool:
     """A live stage, or a fresh birth-bound controller (or lock holder) advancing the run."""
-    liveness = view.get("liveness") if isinstance(view.get("liveness"), dict) else {}
-    controller = view.get("controller") if isinstance(view.get("controller"), dict) else {}
+    liveness = view.get("liveness")
+    controller = view.get("controller")
+    liveness = liveness if isinstance(liveness, dict) else {}
+    controller = controller if isinstance(controller, dict) else {}
     if liveness.get("kind") in ("supervised", "unsupervised"):
         return True
     if controller.get("kind") == "running":
