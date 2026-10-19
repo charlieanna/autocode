@@ -45,7 +45,6 @@ class CompactParser(argparse.ArgumentParser):
             if flag in accepted:
                 lines.append(f"  {flag:<16} {description}")
         lines += [
-            "",
             "  -h, --help       Show this overview",
             "  --help-all       Show every accepted option",
             "",
