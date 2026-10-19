@@ -62,10 +62,71 @@ class PlanningTests(unittest.TestCase):
         self.assertNotIn("use [] for remediation_records and obligation_decisions", prompt)
         self.assertNotIn("Planner may add a remediation_records entry", prompt)
 
-    def test_obligation_policy_keeps_existing_nonfinalization_instructions(self):
-        for stage in ("astra_discovery", "glm_revise", "astra_challenge"):
+    def test_planner_obligation_instructions_do_not_request_reviewer_fields(self):
+        state = self.state()
+        state["workspace"] = "/fixture"
+        for stage in ("astra_discovery", "glm_revise"):
             with self.subTest(stage=stage):
-                self.assertEqual(planning.OBLIGATION_POLICY, planning.obligation_policy(stage))
+                request = planning.prepare(state, stage, Path("/fixture/state.json"), None)
+                self.assertIn("remediation_records", request.schema["properties"])
+                self.assertNotIn("obligation_decisions", request.schema["properties"])
+                self.assertIn("use [] for remediation_records", request.prompt)
+                self.assertNotIn("use [] for remediation_records and obligation_decisions", request.prompt)
+                self.assertNotIn("must add one obligation_decisions entry", request.prompt)
+
+    def test_first_reviewer_obligation_instructions_do_not_request_planner_fields(self):
+        state = self.state()
+        state["workspace"] = "/fixture"
+        request = planning.prepare(state, "astra_challenge", Path("/fixture/state.json"), None)
+        self.assertIn("obligation_decisions", request.schema["properties"])
+        self.assertNotIn("remediation_records", request.schema["properties"])
+        self.assertIn("use [] for obligation_decisions", request.prompt)
+        self.assertNotIn("use [] for remediation_records and obligation_decisions", request.prompt)
+        self.assertNotIn("Planner may add a remediation_records entry", request.prompt)
+
+    def test_first_reviewer_checks_progressive_proposals_without_returning_one(self):
+        state = self.state()
+        state["workspace"] = "/fixture"
+        request = planning.prepare(state, "astra_challenge", Path("/fixture/state.json"), None)
+        self.assertNotIn("progressive_proposal", request.schema["properties"])
+        self.assertNotIn("schema always includes progressive_proposal", request.prompt)
+        self.assertNotIn("return\nits empty form", request.prompt)
+        self.assertIn("Review the Planner's progressive_proposal", request.prompt)
+        self.assertIn("blocking concern", request.prompt)
+        # Reviewing still enforces the whole-product, command and approval rules.
+        for rule in (
+            "exactly one whole-product milestone",
+            "each check's criterion_ids must be a subset",
+            "plain executable commands copied from slices[0].checks",
+            "explicit user approval of the new goal token",
+        ):
+            self.assertIn(rule, request.prompt)
+
+    def test_stage_schemas_still_refuse_the_other_roles_report_fields(self):
+        state = self.state()
+        state["workspace"] = "/fixture"
+        draft = {
+            "contract": body(),
+            "summary": "Draft",
+            "code_refs": [],
+            "alternatives": [],
+            "uncertainties": [],
+            "contract_changes": [],
+            "conflict_resolutions": [],
+            "requirement_trace": [],
+            "remediation_records": [],
+        }
+        schema = planning.prepare(state, "astra_discovery", Path("/fixture/state.json"), None).schema
+        support.validate_schema(draft, schema)
+        with self.assertRaisesRegex(ValueError, "unexpected fields: obligation_decisions"):
+            support.validate_schema({**draft, "obligation_decisions": []}, schema)
+
+        review = {"summary": "Review", "concerns": [], "obligation_decisions": []}
+        schema = planning.prepare(state, "astra_challenge", Path("/fixture/state.json"), None).schema
+        support.validate_schema(review, schema)
+        for field in ("remediation_records", "progressive_proposal"):
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "unexpected fields: " + field):
+                support.validate_schema({**review, field: []}, schema)
 
     def setUp(self):
         # Hermetic default-provider resolution: a contributor's own
@@ -435,7 +496,8 @@ class PlanningTests(unittest.TestCase):
             "requirements_gather",
             Path("/tmp/state.json"),
         )
-        self.assertIn('"goal_contract": null', requirements_prompt)
+        handoff = json.loads(requirements_prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertIsNone(handoff["goal_contract"])
         self.assertNotIn("MILESTONE HANDOFF POLICY", requirements_prompt)
         self.assertNotIn("unapproved draft", requirements_prompt)
         draft = body(questions=False)
