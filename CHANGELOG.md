@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-19
+
 ### Added
 
 - `scripts/homebrew_formula.py` writes the Homebrew formula for a PyPI release, pinning its
