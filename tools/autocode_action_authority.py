@@ -397,6 +397,9 @@ def reconsider(runner, args, parser, state: RunState, state_path, run_dir, works
     if (
         not decision_action
         and args.grant_recovery is None
+        # Abandonment validates the exact stopped attempt in the next step;
+        # republishing here would make that named control unreachable.
+        and args.abandon_stage is None
         and not information_admitted
         and state.get("status") in ("PAUSED_RESOLVER_OPERATIONAL", "PAUSED_TIMEOUT_RECOVERY")
         and planning.is_planning(state, state.get("next_stage"))
