@@ -10,6 +10,7 @@ import {
   leavesForPerson,
   openDecisions,
   parseNamedCommand,
+  requiresConfirmation,
   splitCommandLine,
 } from "../src/core/next-command";
 import type { StatusView } from "../src/core/view";
@@ -192,4 +193,14 @@ test("a pause AutoCode stopped for a person is not the client's to answer", () =
   assert.equal(leavesForPerson({ kind: "answer", resolver_scope: "clarify" }), false);
   assert.equal(leavesForPerson({ kind: "approve_plan" }), false);
   assert.equal(leavesForPerson(null), false);
+});
+
+test("the core can suppress a duplicate resume dialog without authorizing automatic continuation", () => {
+  const need = { kind: "resume", confirmation_required: false };
+  assert.equal(requiresConfirmation(need), false);
+  assert.equal(leavesForPerson(need), true);
+  assert.equal(requiresConfirmation({ kind: "resume" }), true);
+  assert.equal(requiresConfirmation({ kind: "resume", confirmation_required: true }), true);
+  assert.equal(requiresConfirmation({ kind: "retry_job", confirmation_required: false }), true);
+  assert.equal(requiresConfirmation({ kind: "answer", resolver_scope: "blocker", confirmation_required: false }), true);
 });
