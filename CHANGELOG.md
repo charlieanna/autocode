@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-19
+
 ### Added
 
 - `scripts/homebrew_formula.py` writes the Homebrew formula for a PyPI release, pinning its
@@ -1646,5 +1648,6 @@ completion without evidence.
 - A new task runs in its own Git worktree by default; `--in-place` opts out
   (#724). The person's checkout stays usable while the Builder works.
 
-[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/charlieanna/autocode/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/charlieanna/autocode/releases/tag/v0.8.0
 [0.7.1]: https://github.com/charlieanna/autocode/releases/tag/v0.7.1
