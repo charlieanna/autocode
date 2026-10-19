@@ -527,6 +527,99 @@ runpy.run_path(str(runtime), run_name='__main__')
         attempts = view["usage"]["accounting"]["attempts"]
         self.assertEqual(2, sum(row["stage"] == "astra_challenge_report_repair" for row in attempts))
 
+    def public_call(self, run, *args):
+        import subprocess
+
+        return subprocess.run(
+            [*run.command, *args, "--workspace", str(self.project), "--run-dir", str(run.run_dir)],
+            cwd=run.cwd,
+            env=run.env,
+            capture_output=True,
+            text=True,
+            timeout=40,
+        )
+
+    def public_body(self, run):
+        result = self.public_call(run, "--status")
+        self.assertEqual(0, result.returncode, result.stderr)
+        return json.loads(result.stdout)
+
+    def informed_planning_hold(self):
+        run = self.start_fixture("all")
+        view = self.assert_bound_attempts(run)
+        self.assertEqual("WAITING_FOR_USER", view["status"])
+        need = view["needs"]
+        held = run.respond_operational(
+            need["resolver_request_id"],
+            need["resolver_token"],
+            "Inspected the stopped repair; preserve the saved route, limits and original evidence.",
+        )
+        self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", held["status"], held["stop_reason"])
+        self.assertEqual("pending", held["information_review"]["status"])
+        action = next(row for row in held["recovery"]["actions"] if row["kind"] == "abandon")
+        active = next(row for row in held["usage"]["accounting"]["attempts"] if row["active"])
+        self.assertEqual(["--abandon-stage", active["attempt_id"]], action["args"])
+        return run, action
+
+    def test_cli_named_abandon_reconciles_answered_planning_hold_without_dispatch_or_refund(self):
+        run, action = self.informed_planning_hold()
+        before = self.public_body(run)
+        active = before["active_stage"]
+        events = Path(active["events"]).read_bytes()
+        observed = self.probe.read_bytes()
+        result = self.public_call(run, *action["args"])
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("No agent launched", result.stdout)
+        after = self.public_body(run)
+        view = after["view"]
+        self.assertEqual("PAUSED_STAGE_ABANDONED", view["status"], view["stop_reason"])
+        self.assertIsNone(after["active_stage"])
+        self.assertEqual("resume", view["needs"]["kind"])
+        resume = next(row for row in view["recovery"]["actions"] if row["kind"] == "resume")
+        self.assertEqual(["--resume-paused"], resume["args"])
+        self.assertEqual(before["settings"], after["settings"])
+        self.assertEqual(before["view"]["planning_depth"], view["planning_depth"])
+        self.assertEqual(observed, self.probe.read_bytes(), "Abandonment must not dispatch any provider")
+        self.assertIsNone(view.get("approved_contract"))
+        self.assertEqual([], view["approvals"])
+        for key, quantity in before["view"]["usage"]["accounting"]["tokens"].items():
+            self.assertEqual(quantity["known"], view["usage"]["accounting"]["tokens"][key]["known"], key)
+        repairs = [
+            row for row in view["usage"]["accounting"]["attempts"] if row["stage"] == "astra_challenge_report_repair"
+        ]
+        self.assertEqual(2, len(repairs), "Both charged report-only attempts must remain retained")
+        archived = next(row for row in repairs if row["attempt_id"] == action["attempt_id"])
+        self.assertFalse(archived["active"])
+        self.assertTrue(archived["interrupted"])
+        self.assertEqual(events, Path(archived["events"]).read_bytes())
+        self.assertNotIn("resolver_request_id", view["needs"])
+        # The same selector is stale after successful abandonment: it cannot
+        # rearchive evidence, resume work or manufacture a fresh attempt.
+        stale = self.public_call(run, *action["args"])
+        self.assertEqual(2, stale.returncode)
+        self.assertIn("must match the active attempt_id", stale.stdout + stale.stderr)
+        self.assertEqual(observed, self.probe.read_bytes())
+        self.assertEqual("PAUSED_STAGE_ABANDONED", run.status()["status"])
+
+    def test_cli_wrong_abandon_selector_keeps_planning_attempt_and_authority(self):
+        run, action = self.informed_planning_hold()
+        before = self.public_body(run)
+        observed = self.probe.read_bytes()
+        for selector in ("001/another-repair", "../plan-challenge-report-repair-02"):
+            with self.subTest(selector=selector):
+                rejected = self.public_call(run, "--abandon-stage", selector)
+                self.assertEqual(2, rejected.returncode)
+                self.assertIn("must match the active attempt_id", rejected.stdout + rejected.stderr)
+                after = self.public_body(run)
+                self.assertEqual(before["active_stage"], after["active_stage"])
+                self.assertEqual(before["settings"], after["settings"])
+                self.assertEqual(before["view"]["planning_depth"], after["view"]["planning_depth"])
+                self.assertEqual("PAUSED_RESOLVER_OPERATIONAL", after["view"]["status"])
+                self.assertEqual("pending", after["view"]["information_review"]["status"])
+                self.assertEqual(observed, self.probe.read_bytes())
+        accepted = self.public_call(run, *action["args"])
+        self.assertEqual(0, accepted.returncode, accepted.stdout + accepted.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
