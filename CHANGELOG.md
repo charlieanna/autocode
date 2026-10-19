@@ -22,6 +22,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - VS Code says a completed run finished instead of announcing "waiting for you - nothing; the run
   is complete", and the status bar shows a check for a finished run (#1528).
+- Kilo's persistent native provider child no longer counts as an inferred running tool after
+  completed tool calls, so a silent model wait honors the configured idle limit. Real or unknown
+  child tools and explicit tool starts retain their separate execution grace and cleanup (#1595).
 
 - VS Code keeps live controller/preflight continuation quiet instead of announcing that it is
   waiting for a person. Chat and Run details share the working classification; stopped or

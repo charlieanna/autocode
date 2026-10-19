@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_activity_policy_keeps_its_public_wrapper_idle_consumer_even_when_slow(self):
+        consumer = "tests.test_kilo_wrapper_idle_cli"
+        for path in ("tools/autocode_activity.py", "tools/autocode_process.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_checkpoint_normalization_keeps_its_public_pause_regression_even_when_slow(self):
         consumer = "tests.test_paused_approval_cli"
         selected = run_suite.select_tests(["tools/autocode_run_records.py"], {consumer: "", "tests.test_unrelated": ""})
