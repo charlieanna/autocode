@@ -229,6 +229,34 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     return result
 
 
+def persisted_review_call_limit():
+    """The review allowance a new run starts with from the user's config (#1565).
+
+    ``plan_review_call_limit`` in ~/.config/autocode/config.toml: 0 (unlimited) or an
+    integer of at least 2. Absent means the planning machinery's built-in default.
+    An explicit CLI flag always wins; a resumed run keeps its saved setting.
+    """
+    try:
+        from . import autocode_providers as providers
+    except ImportError:
+        import autocode_providers as providers
+    import tomllib
+
+    path = providers.user_config_path()
+    if not path.is_file():
+        return None, "built-in default"
+    try:
+        config = tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as error:
+        raise ValueError(f"{path} is not valid TOML: {error}") from error
+    value = config.get("plan_review_call_limit")
+    if value is None:
+        return None, "built-in default"
+    if type(value) is not int or (value != 0 and value < 2):
+        raise ValueError(f"plan_review_call_limit in {path} must be 0 (unlimited) or an integer of at least 2")
+    return value, f"plan_review_call_limit in {path}"
+
+
 def configure(args, state: RunState, *, planning, milestones, autopilot, opencode=None):
     role_transport.guard(args, state)
     if getattr(args, "replay_recording", None) or (state.get("settings") or {}).get("replay_recording"):
@@ -722,6 +750,14 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         settings["adaptive_planning"] = True
     if getattr(args, "plan_review_full", False):
         settings["plan_review_full"] = True
+    # A persisted review allowance for new runs (#1565): the flag wins, then the
+    # user's config.toml, then the machinery's built-in default. A resumed run
+    # keeps its saved settings; this applies only where settings are first built.
+    if getattr(args, "planning_review_call_limit", None) is None and not started:
+        limit, source = persisted_review_call_limit()
+        if limit is not None:
+            settings["planning_review_call_limit"] = limit
+            settings["planning_review_call_limit_origin"] = source
     if requirements_review.new_run_setting(
         getattr(args, "spec_first", None), joint, role_names.planning_flow(settings) == "v2"
     ):
