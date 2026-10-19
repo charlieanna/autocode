@@ -182,6 +182,8 @@ export interface StatusView {
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
   recovery?: Recovery | null;
   liveness?: { kind?: string } | null;
+  /** Fresh birth-bound invocation inspection, independent of workflow-stage liveness. */
+  controller?: { kind?: string; checked?: boolean; alive?: boolean | null } | null;
   current_task?: { id?: string; objective?: string } | null;
   code_checkpoints?: CodeCheckpoints | null;
   chat?: {
@@ -272,12 +274,19 @@ export function progressLine(view: StatusView): string {
   return view.progress?.line || view.progress?.headline || view.status;
 }
 
+/** Live workflow work, or a checked live controller advancing a no-action boundary. */
+export function isWorking(view: StatusView): boolean {
+  return ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "")
+    || (!view.done && view.needs?.kind === "continue" && view.controller?.kind === "running"
+      && view.controller.checked === true && view.controller.alive === true);
+}
+
 /** Plain-language description of what the run is waiting for, from the view alone. */
 export function needsSummary(view: StatusView, working?: boolean): string {
   const need = view.needs;
   if (!need) return "nothing; the run is complete";
   if (view.progress?.needs_you) return view.progress.needs_you;
-  const isWorking = working ?? ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "");
+  const active = working ?? isWorking(view);
   switch (need.kind) {
     case "approve_plan":
       return "approval of the plan AutoCode displayed";
@@ -288,7 +297,7 @@ export function needsSummary(view: StatusView, working?: boolean): string {
     case "planning_budget":
       return `a decision on more plan-review calls${need.reason ? `: ${need.reason}` : ""}`;
     case "continue":
-      return isWorking ? "a stage is currently running" : "nothing; the run can simply proceed";
+      return active ? "a stage is currently running" : "nothing; the run can simply proceed";
     case "retry_job":
       return "inspection of a stopped workflow job";
     case "recover_source":
