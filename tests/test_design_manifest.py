@@ -2100,11 +2100,11 @@ class PlanningPartitionContextTests(unittest.TestCase):
         with patch.object(manifest, "planning_context", side_effect=lambda settings, role: manifest.context(settings)):
             original, _ = autoplanner.context(state, "astra_challenge", path)
         compact, _ = autoplanner.context(state, "astra_challenge", path)
-        prefix, original_json = original.split('\n{\n  "task":', 1)
-        compact_prefix, compact_json = compact.split('\n{\n  "task":', 1)
+        prefix, original_json = original.split("\nCURRENT HANDOFF DATA\n", 1)
+        compact_prefix, compact_json = compact.split("\nCURRENT HANDOFF DATA\n", 1)
         self.assertEqual(prefix, compact_prefix)
-        original_packet = json.loads('{\n  "task":' + original_json)
-        compact_packet = json.loads('{\n  "task":' + compact_json)
+        original_packet = json.loads(original_json)
+        compact_packet = json.loads(compact_json)
         locator = compact_packet["design_manifest"]["catalog"]["scope_partition"]
         compact_packet["design_manifest"]["catalog"]["scope_partition"] = json.loads(Path(locator["path"]).read_bytes())
         self.assertEqual(original_packet, compact_packet)
@@ -2414,11 +2414,11 @@ class CompletePlanningInputTests(unittest.TestCase):
         with patch.object(manifest, "planning_context", side_effect=lambda settings, role: manifest.context(settings)):
             full, _ = autoplanner.context(state, "astra_challenge", state_path)
         compact, _ = autoplanner.context(state, "astra_challenge", state_path)
-        prefix, data = full.split('\n{\n  "task":', 1)
-        actual_prefix, actual_data = compact.split('\n{\n  "task":', 1)
+        prefix, data = full.split("\nCURRENT HANDOFF DATA\n", 1)
+        actual_prefix, actual_data = compact.split("\nCURRENT HANDOFF DATA\n", 1)
         self.assertEqual(prefix, actual_prefix)
-        expected = json.loads('{\n  "task":' + data)
-        actual = json.loads('{\n  "task":' + actual_data)
+        expected = json.loads(data)
+        actual = json.loads(actual_data)
         for field in ("body", "catalog"):
             actual["design_manifest"][field] = json.loads(Path(actual["design_manifest"][field]["path"]).read_bytes())
         cases = actual["design_manifest"]["body"]["cases"]
