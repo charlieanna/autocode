@@ -151,6 +151,13 @@ class ChatScreenTests(unittest.TestCase):
         self.assertNotIn("The requested task is complete.", fresh, "a new chat starts on a clean screen")
         self.assertNotEqual(first, fresh.splitlines()[0], "the header names the new run")
         self.assertEqual(2, len(list((self.workspace / ".autocode" / "runs").iterdir())))
+        tabs = fresh.splitlines()[1]
+        self.assertIn(" 1 Build a deterministic greeting CLI", tabs, "the finished chat is tab 1")
+        self.assertIn(" 2 Build a deterministic greeting CLI", tabs, "the new chat is tab 2")
+        screen.type("/tab 1 ")
+        screen.keys("Enter")
+        back = screen.wait_for("Anything else?", RUN_SECONDS)
+        self.assertEqual(first, back.splitlines()[0], "back on the first chat")
 
 
 def composer_text(screen: str) -> str:

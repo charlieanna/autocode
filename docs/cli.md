@@ -715,7 +715,8 @@ highlighted one:
 | `/undo N` | At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again |
 | `/runs` | Your chats in every project, open and finished, grouped by project: this project first, then the others by their latest activity, newest chat first in each. Each shows its request, its state and when it last moved; a chat whose run was removed is left out and counted. Also at the first "What do you want done?" |
 | `/open N` | At a question: open chat N from `/runs`. Its whole conversation is shown and you carry on there: a follow-up on a finished chat, or the decision it waits for. The chat you leave stays as it is |
-| `/new` | At a question: start a new chat here; an empty request keeps the current one |
+| `/new` | At a question: start a new chat in a new tab (also `Ctrl-T`); an empty request keeps the current one |
+| `/tab N` | At a question: switch to tab N (also `Ctrl-←`/`Ctrl-→` for the previous and next tab). Once a session has two chats, a tab bar under the header lists them with a mark for each: `●` working, `!` needs you, `✓` done |
 | `/mode [ID]` | The modes the core lists (`autocode modes list`), and which one new chats start in; `/mode quick` changes it for new chats only |
 | `/engine [NAME]` | The engine new chats run on: `opencode`, `codex` or `claude`, set as the VS Code extension's engine picker sets it |
 | `/connect [NAME check\|login\|setup\|use]` | The backends `autocode connections list` reports, with their state. `check` runs the connection's own check; `login` and `setup` hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; `use` makes new chats use it. Only an action the connection offers is run |

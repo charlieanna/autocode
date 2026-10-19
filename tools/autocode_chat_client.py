@@ -245,6 +245,11 @@ class ChatClient:
         self.others: dict[str, tuple[Path, tuple | None]] = {}
         self.others_checked = 0.0
         self.identity: tuple | None = None
+        # This session's chats as tabs, in the order they were opened, with a title each (the task's
+        # first line); the renderer draws them (``tabs_changed``) and /tab N switches between them.
+        self.tab_order: list[str] = [str(self.run_dir)]
+        self.titles: dict[str, str] = {}
+        self.tabs_changed: Callable[[list[dict]], None] | None = None
         self.seen: set[str] = set()
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self.started = False  # the first view prints the whole conversation, later ones only what is new
@@ -277,6 +282,8 @@ class ChatClient:
             raise actions.ClientGap(f"--status did not return a status view: {tail(proc)}") from None
         self.own(view)
         self.identity = wait_identity(view)
+        self.titles[str(self.run_dir)] = title_of(view) or self.titles.get(str(self.run_dir), "")
+        self.show_tabs()
         if self._observe is not None:
             self._observe(view)
         return view
@@ -402,6 +409,8 @@ class ChatClient:
     def slash(self, name: str, argument: str):
         """``/diff`` and ``/undo`` from the full-screen chat: what to show, or a question to confirm first.
         ``/runs``, ``/open`` and ``/new`` go to the project's chats; opening one leaves this run as it is."""
+        if name == "/tab":
+            return self.tab(argument)
         if name in ("/runs", "/open", "/new", "/mode", "/engine", "/connect"):
             if self.history is None:
                 return "This chat has no project list."
@@ -495,10 +504,47 @@ class ChatClient:
         self.others.pop(str(run_dir), None)
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.seen, self.said, self.started, self.last_line = set(), set(), False, ()
+        self.identity = None
+        if str(self.run_dir) not in self.tab_order:
+            self.tab_order.append(str(self.run_dir))
         if self.switched is not None:
             self.switched(self.workspace, self.run_dir)
         else:
             self.say(f"\n--- {self.run_dir.name} ---")
+        self.show_tabs()
+
+    def tabs(self) -> list[dict]:
+        """This session's chats, numbered as tabs: each one's title, state and whether it is shown."""
+        rows: list[dict] = []
+        for run in self.tab_order:
+            current = run == str(self.run_dir)
+            if not current and run not in self.others:
+                continue
+            identity = self.identity if current else self.others[run][1]
+            state = "done" if identity == ("done",) else ("working" if identity is None else "needs you")
+            title = self.titles.get(run) or Path(run).name
+            rows.append({"number": len(rows) + 1, "run": run, "title": title, "state": state, "current": current})
+        return rows
+
+    def show_tabs(self) -> None:
+        if self.tabs_changed is not None:
+            self.tabs_changed(self.tabs())
+
+    def tab(self, argument: str) -> str:
+        """/tab N: carry on with tab N's chat; ``next`` and ``previous`` step through the tabs."""
+        rows = self.tabs()
+        here = next(row["number"] for row in rows if row["current"])
+        steps = {"next": here % len(rows) + 1, "previous": (here - 2) % len(rows) + 1}
+        number = steps.get(argument) or (int(argument) if argument.isdigit() else 0)
+        if not 1 <= number <= len(rows):
+            return f"There is no tab {argument or 'to switch to'}. " + (
+                f"Choose 1 to {len(rows)}." if len(rows) > 1 else "Ctrl-T opens another chat."
+            )
+        row = rows[number - 1]
+        if row["current"]:
+            return "That is this chat."
+        self.talk_to(self.others[row["run"]][0], Path(row["run"]))
+        raise Switched
 
     def begin(self, brief: str, start_args, options) -> None:
         """Start a new run here and talk to it, as `start` does for the first one."""
@@ -541,11 +587,15 @@ class ChatClient:
                 continue
             now = wait_identity(view)
             self.others[run] = (workspace, now)
+            self.titles[run] = title_of(view) or self.titles.get(run, "")
+            self.show_tabs()
             if now is None or now == before:
                 continue
             name = Path(run).name
             what = "finished" if now == ("done",) else f"needs you: {panel.needs_you(view) or now[0]}"
-            self.say(f"\nAnother chat {what} ({name}). Type /runs, then /open it.")
+            tab = next((row["number"] for row in self.tabs() if row["run"] == run), None)
+            hint = f"Ctrl-←/→ or /tab {tab} switches to it" if tab else "Type /runs, then /open it"
+            self.say(f"\nAnother chat {what} ({self.titles.get(run) or name}). {hint}.")
 
     def converse(self) -> int:
         try:
@@ -811,6 +861,14 @@ class ChatClient:
         if not view.get("done") and (view.get("needs") or {}).get("kind") == "continue" and not actions.working(view):
             self.take(actions.named(view, self.workspace, self.run_dir))
         return True
+
+
+def title_of(view: dict) -> str:
+    """A chat's title: the first line of its task, without a Markdown heading's marks, bounded."""
+    first = next(
+        (line.strip().lstrip("#").strip() for line in str(view.get("task") or "").splitlines() if line.strip()), ""
+    )
+    return first[:39] + "…" if len(first) > 40 else first
 
 
 def wait_identity(view: dict) -> tuple | None:
@@ -1095,6 +1153,8 @@ def cli(argv: list[str] | None = None) -> int:
             ui.set_context(client.workspace, client.run_dir)
             ui.bind(client.slash)
             client.switched = ui.switch
+            client.tabs_changed = ui.tabs
+            client.show_tabs()
         return client.converse()
     except (actions.ClientGap, OSError, ValueError) as error:
         if ui is not None:
