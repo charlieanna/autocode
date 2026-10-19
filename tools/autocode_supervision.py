@@ -181,21 +181,69 @@ def launch_envelope(child):
     return value
 
 
-def receipt(metadata):
-    """Read a bounded receipt bound to one launch; missing/invalid is unknown."""
+_RECEIPT_READ_PHASES = frozenset({"metadata", "stat", "read", "parse", "validate"})
+_RECEIPT_READ_REASONS = frozenset(
+    {
+        "metadata_invalid",
+        "not_found",
+        "access_denied",
+        "io_error",
+        "size_limit",
+        "text_decode_invalid",
+        "json_invalid",
+        "value_invalid",
+        "object_invalid",
+        "schema_invalid",
+        "nonce_mismatch",
+        "owner_mismatch",
+        "keeper_mismatch",
+        "provider_mismatch",
+    }
+)
+
+
+def _read_receipt(metadata):
+    """One unchanged receipt check, with fixed labels for a failed read only."""
+    phase = "metadata"
     try:
         path = Path(metadata["receipt"])
+        phase = "stat"
         if path.stat().st_size > receipts.MAX_RECEIPT_BYTES:
-            return None
-        value = json.loads(path.read_text())
-        if not isinstance(value, dict) or value.get("schema") != 1:
-            return None
+            return None, (phase, "size_limit")
+        phase = "read"
+        text = path.read_text()
+        phase = "parse"
+        value = json.loads(text)
+        phase = "validate"
+        if not isinstance(value, dict):
+            return None, (phase, "object_invalid")
+        if value.get("schema") != 1:
+            return None, (phase, "schema_invalid")
         for key in ("nonce", "owner", "keeper", "provider"):
             if value.get(key) != metadata.get(key):
-                return None
-        return value
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+                return None, (phase, key + "_mismatch")
+        return value, None
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        if phase == "metadata":
+            reason = "metadata_invalid"
+        elif isinstance(error, FileNotFoundError):
+            reason = "not_found"
+        elif isinstance(error, PermissionError):
+            reason = "access_denied"
+        elif isinstance(error, OSError):
+            reason = "io_error"
+        elif phase == "read" and isinstance(error, UnicodeError):
+            reason = "text_decode_invalid"
+        elif phase == "parse" and isinstance(error, json.JSONDecodeError):
+            reason = "json_invalid"
+        else:
+            reason = "value_invalid"
+        return None, (phase, reason)
+
+
+def receipt(metadata):
+    """Read a bounded receipt bound to one launch; missing/invalid is unknown."""
+    return _read_receipt(metadata)[0]
 
 
 def observe(metadata):
@@ -351,9 +399,11 @@ def session_handoff_reply(metadata, raw, deadline):
         or record["requested_session"] != creator["pid"]
     ):
         raise SupervisionError("Invalid session ownership creator")
-    current = receipt(metadata)
+    current, diagnostic = _read_receipt(metadata)
     if current is None:
-        raise SupervisionError("Session ownership receipt is unavailable")
+        error = SupervisionError("Session ownership receipt is unavailable")
+        error.__dict__["_receipt_diagnostic"] = diagnostic
+        raise error
     if _terminal_clean(current):
         return None
     if current.get("phase") != "armed" or current.get("cleanup_error") is not None:
@@ -400,7 +450,18 @@ def _session_handoff_failure(error, phase):
     if (type(error) is SupervisionError or type(error) is LaunchLimitExpired) and len(error.args) == 1:
         message = error.args[0] if type(error.args[0]) is str else None
     reason = _SESSION_HANDOFF_REASONS.get(message, "unclassified")
-    return f"Session ownership handoff failed: {name}; phase={phase}; reason={reason}"
+    detail = ""
+    if type(error) is SupervisionError and reason == "receipt_unavailable":
+        diagnostic = error.__dict__.get("_receipt_diagnostic")
+        if (
+            type(diagnostic) is tuple
+            and len(diagnostic) == 2
+            and all(type(label) is str and len(label) <= 32 for label in diagnostic)
+            and diagnostic[0] in _RECEIPT_READ_PHASES
+            and diagnostic[1] in _RECEIPT_READ_REASONS
+        ):
+            detail = f"; receipt_phase={diagnostic[0]}; receipt_reason={diagnostic[1]}"
+    return f"Session ownership handoff failed: {name}; phase={phase}; reason={reason}" + detail
 
 
 def _stop_direct(child):

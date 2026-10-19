@@ -61,6 +61,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Session ownership failures identify the failed receipt-read check with fixed phase/reason
+  labels, without exposing its path, content or exception payload. The same failed read still
+  blocks admission and closes the lifeline for cleanup; no retry or grace is added.
+
 - The offline recovery-context regression checks the saved timeout kind and event path in the
   structured handoff, so compact JSON formatting does not falsely fail the full-suite gate.
 
