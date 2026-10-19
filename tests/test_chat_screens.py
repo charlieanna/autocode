@@ -80,6 +80,9 @@ class ChatScreenTests(unittest.TestCase):
         screen.paste(f"{first}.\nDeliver{rest}")
         screen.keys("Enter")
         screen.wait_for("Approve understanding", RUN_SECONDS)
+        screen.type("y")
+        screen.keys("Enter")
+        screen.wait_for("Prepare plan?")  # the spend confirmation; the request is still at the top
         for _ in range(6):
             screen.keys("PPage")
         top = screen.wait_for("named greet.py", what="the request at the top of the transcript")
@@ -116,7 +119,7 @@ class ChatScreenTests(unittest.TestCase):
         screen = self.chat(cols=120, rows=34)
         screen.type(BRIEF)
         screen.keys("Enter")
-        for prompt in ("Approve understanding", "Approve this plan"):
+        for prompt in ("Approve understanding", "Prepare plan?", "Approve this plan"):
             screen.wait_for(prompt, RUN_SECONDS)
             screen.type("y")
             screen.keys("Enter")

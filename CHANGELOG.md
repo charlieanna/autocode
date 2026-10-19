@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The terminal chat asks before AutoCode spends, as the VS Code extension does: it shows
+  the core's spend confirmation and asks `Prepare plan? [y/N]` before paid planning, and asks
+  `Start it? [y/N]` before starting a run whose mode can plan at once (`--mode quick`).
+  Typing the review's own answer (`plan`) is confirmed the same way.
 - The VS Code chat shows what the running step is doing (`chat.activity`: its commands, edits and
   tool calls, a failed one marked) and, while the Builder works, a "Show what the Builder has changed
   so far" button that runs the view's named `checkpoint --working` diff (#1643).
