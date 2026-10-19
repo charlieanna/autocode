@@ -17,6 +17,14 @@ PR template asks for an entry here; a change without one is incomplete.
   `/help`, `/quit` at a question, and `/pause` while AutoCode works. All of it comes from the status
   views the chat already reads.
 
+- `autocode --status` carries an optional `view.chat.activity` while a supervised step works: the
+  last 20 commands, file edits and tool calls of the running attempt, from its own event file
+  (Codex-style items, which the built-in Claude provider also writes, and OpenCode or Kilo tool
+  parts). It is display only: no prose, reasoning or tool output is copied, an attempt that is not
+  confirmed as supervised shows none, and a command that exited 0 is not a passed check. The
+  full-screen chat shows it in the panel's new Activity section, in the log, and on the status row,
+  so a build no longer looks like one line of "working".
+
 - The full-screen chat's panel shows what the run is doing now and its last few attempts, and logs
   each one. `/diff` lists the saved code steps and shows what changed since one; `/undo N`, at a
   question, goes back to a saved step on a new branch after asking, and the chat carries on with
@@ -52,6 +60,11 @@ PR template asks for an entry here; a change without one is incomplete.
   table. `--no-auto-select` retains fixed defaults (#1426).
 
 ### Fixed
+
+- In the full-screen chat, a run that continues on its own no longer lists "Needs you: AutoResolver
+  must reconcile…" in the panel and log, the panel says "Starting the next step…" instead of
+  "plan approval needed" in the seconds after you approve, `/undo` on a finished run says going back
+  is offered only at a pause, and `/diff N` with no changes says the files match step N.
 
 - Session ownership handoff failures retain a bounded callback phase and safe reason
   code, so different ownership failures can be diagnosed without exporting exception
