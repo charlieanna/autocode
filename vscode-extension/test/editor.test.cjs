@@ -46,7 +46,9 @@ for (const surface of ['chat', 'Run details']) {
   test(`finite recovery grant in ${surface} is blank, bounded and explicitly confirmed`, async (t) => {
     host.config.set('confirmPersonOnly', false);
     const ownController = new RunController(host.log);
-    const ui = surface === 'chat' ? await openChat(t, recoveryGrantView(), run, { controller: ownController }) : await openPanel(t, recoveryGrantView(), undefined, ownController);
+    const value = recoveryGrantView();
+    value.needs.confirmation_required = false; // A display hint cannot waive numeric authority.
+    const ui = surface === 'chat' ? await openChat(t, value, run, { controller: ownController }) : await openPanel(t, value, undefined, ownController);
     const field = ui.document.querySelector('[data-question="grant_recovery"]');
     const take = () => ui.document.querySelector('#take-action');
     assert.equal(field.value, ''); assert.equal(take().disabled, true);
@@ -581,6 +583,35 @@ test('chat recovery retry requires confirmation and keeps the exact job token ou
   assert.ok(args.includes('-'));
   assert.ok(!args.includes('jr:exact-secret'));
   assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:exact-secret');
+});
+
+for (const surface of ['chat', 'details']) for (const [label, status, confirmation, prompts] of [
+  ['clean requested pause', 'PAUSED_REQUESTED', false, 0],
+  ['legacy requested pause', 'PAUSED_REQUESTED', undefined, 1],
+  ['explicit confirmation', 'PAUSED_INTERVENTION', true, 1],
+  ['failure pause', 'PAUSED_INVALID_OUTPUT', undefined, 1],
+]) test(`${surface}: ${label} keeps the core resume-confirmation policy`, async (t) => {
+  host.config.set('confirmPersonOnly', true);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const value = { status, done: false, needs: { kind: 'resume',
+    ...(confirmation === undefined ? {} : { confirmation_required: confirmation }) },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=resume:exact autocode --resume-paused --expected-recovery-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  assert.equal(launch.mock.callCount(), 0, 'a pause still waits for an explicit click');
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(prompt.mock.callCount(), prompts);
+  assert.equal(launch.mock.callCount(), prompts ? 0 : 1, 'declining a required dialog must keep the run paused');
+  if (!prompts) {
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.ok(args.includes('--resume-paused'));
+    assert.ok(args.includes('--expected-recovery-token'));
+    assert.equal(env.AUTOCODE_EXPECTED_RECOVERY_TOKEN, 'resume:exact');
+    assert.ok(!args.includes('resume:exact'));
+  }
 });
 
 test('chat does not guess an unresolved recovery allowance', async (t) => {

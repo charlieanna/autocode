@@ -138,6 +138,35 @@ def interrupted(state: RunState):
     return None
 
 
+def requested_only(state: RunState) -> bool:
+    """A plain requested pause, with no retained failure, recovery work or terminal stop.
+
+    This suppresses a duplicate client confirmation only; Resume still requires
+    a person's action and the CLI rechecks the saved pause before continuing.
+    """
+    status = state.get("status")
+    intent = state.get("pause_intent") or {}
+    return bool(
+        status in ("PAUSED_REQUESTED", INTERVENTION_STATUS)
+        and not (intent.get("held_pause") and not intent.get("acknowledged_at"))
+        and held_origin(state).get("pause_status") == status
+        and not any(
+            state.get(key)
+            for key in (
+                "active_stage",
+                "active_runner_check",
+                "uncertain_artifacts",
+                "pending_report_repair",
+                "job_failure",
+                "stop_intent",
+            )
+        )
+        and not any(
+            isinstance(row, dict) and row.get("kind") == "stop" for row in state.get("applied_interventions") or []
+        )
+    )
+
+
 def feedback_acknowledges(state: RunState, pause_status):
     """Whether brief feedback is ``pause_status``'s own authority.
 

@@ -7,7 +7,7 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { RunController, type CheckpointComparison, type RunRef } from "./controller";
-import { leavesForPerson } from "./core/next-command";
+import { requiresConfirmation } from "./core/next-command";
 import { chosenMode, type RunModes } from "./core/modes";
 import type { StatusView } from "./core/view";
 import { transitionNotice } from "./notify";
@@ -330,7 +330,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         const state = stateFor(view, run, this.controller);
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
         const numeric = numericConfirmation(state, message.answers ?? {});
-        if (numeric || (leavesForPerson(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
+        if (numeric || (requiresConfirmation(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
           const button = numeric ? numericActionLabel(state) : "Continue";
           const answer = await vscode.window.showWarningMessage(
             numeric ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"), { modal: true,

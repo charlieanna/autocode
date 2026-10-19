@@ -36,7 +36,10 @@
           "type": ["object", "null"],
           "description": "What must happen next for the run to progress; null when it is complete. `kind` is an open vocabulary (approve_plan, answer, review, resume, continue, ...); `continue` means relaunching the run needs nothing from a person.",
           "required": ["kind"],
-          "properties": {"kind": {"type": "string"}}
+          "properties": {
+            "kind": {"type": "string"},
+            "confirmation_required": {"type": "boolean", "description": "False only for a plain resume of a clean requested pause: the Resume click needs no duplicate dialog. It remains person-only and never authorizes automatic continuation. Missing retains the client's confirmation policy."}
+          }
         },
         "pause_category": {
           "type": ["string", "null"],
