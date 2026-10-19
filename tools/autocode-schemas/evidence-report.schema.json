@@ -731,6 +731,43 @@
             "object",
             "null"
           ]
+        },
+        "review_attribution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pre_existing",
+            "inconclusive",
+            "submitted_verdict",
+            "verdict_adjustment"
+          ],
+          "properties": {
+            "pre_existing": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "inconclusive": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "submitted_verdict": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "approve",
+                "request_changes",
+                null
+              ]
+            },
+            "verdict_adjustment": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
         }
       }
     },

@@ -1,5 +1,6 @@
 """Patch-relative review verdict through real fake-provider CLI and owned probes."""
 
+import difflib
 import hashlib
 import json
 import os
@@ -13,8 +14,6 @@ from autocode_taskrun import TaskRun
 from harness import catalog
 from harness.driver import fake_setup, saved_run_flags
 
-from tests.test_review_job import PATCH
-
 
 @unittest.skipUnless(sys.platform == "linux", "supervised fake-provider checks require supported Linux")
 class ReviewAttributionCLI(unittest.TestCase):
@@ -25,13 +24,23 @@ class ReviewAttributionCLI(unittest.TestCase):
             project.mkdir()
             original = "def double(n):\n    return n * 2\n\ndef parse(value):\n    return None\n"
             (project / "calc.py").write_text(original)
-            (project / "change.patch").write_text(PATCH)
+            changed = original.replace("return n * 2", "return n + 2")
+            reviewed_patch = "diff --git a/calc.py b/calc.py\n" + "".join(
+                difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    changed.splitlines(keepends=True),
+                    fromfile="a/calc.py",
+                    tofile="b/calc.py",
+                )
+            )
+            (project / "change.patch").write_text(reviewed_patch)
             for args in (
                 ("init", "-q"),
                 ("add", "-A"),
                 ("-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "base"),
             ):
                 subprocess.run(["git", *args], cwd=project, check=True, capture_output=True)
+            subprocess.run(["git", "apply", "--check", "change.patch"], cwd=project, check=True, capture_output=True)
             solution = root / "solution"
             tests = solution / "review/tests"
             tests.mkdir(parents=True)
