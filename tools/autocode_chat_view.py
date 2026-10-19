@@ -37,6 +37,9 @@ def notice(public):
     if status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
         # A pause someone asked for is not a failure (#1598).
         return "Paused as you asked. Your work so far is saved; resume when you’re ready."
+    if status == "PAUSED_INTERVENTION_PENDING":
+        # The run stopped to apply a pause, feedback or stop someone asked for; not a failure either.
+        return "Paused to apply your request. Your work so far is saved; continue when you’re ready."
     if status.startswith("PAUSED"):
         return "I couldn’t finish this step. Open Run details to see what needs attention."
     if status == "RUNNING":

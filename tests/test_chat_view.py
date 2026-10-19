@@ -56,6 +56,9 @@ class ChatViewTests(unittest.TestCase):
                 self.assertIn("Paused as you asked", text)
                 self.assertNotIn("couldn’t finish", text)
         self.assertIn("couldn’t finish", chat.notice({"status": "PAUSED_JOB_FAILURE"}))
+        applying = chat.notice({"status": "PAUSED_INTERVENTION_PENDING"})
+        self.assertIn("Paused to apply your request", applying)
+        self.assertNotIn("couldn’t finish", applying)
 
     def test_running_notice_gates_on_live_supervision_only(self):
         self.assertEqual(
