@@ -170,6 +170,14 @@ human receipts and saved completed replies. At a follow-up, the prior reply is
 retained under that turn's historical record; display text grants no approval
 and does not become a new requirement. Status reads do not write a transcript.
 
+During a running step, optional `progress` is an array of core-authored display
+lines: the inspected current activity, saved task/requirement counts and up to
+three recent finished attempts in this turn. An attempt finishing does not mean
+its report was accepted or its checks passed. Unknown activity stays unconfirmed;
+queued and stopped steps are not described as running. Clients render these lines
+without deriving stage names or success from private state. Older cores may omit
+the field.
+
 During spec-first Requirements chat, `phase: "requirements"` lets clients show
 the conversation without the empty task dashboard. An assistant message may
 have `streaming: true`; its text is provisional display content from the active

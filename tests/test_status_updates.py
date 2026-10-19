@@ -265,7 +265,14 @@ class StatusTests(unittest.TestCase):
             self.assertEqual([101], payload["runner_check_workers"]["live_pids"])
             if stale:
                 self.assertIn("runner check", payload["next_action"])
+                self.assertIn("stopped without saving a report", payload["view"]["chat"]["progress"][0])
+            elif kind == "supervised":
+                self.assertEqual("Testing", payload["view"]["chat"]["progress"][0])
+                self.assertIsNone(payload["next_action"])
             else:
+                self.assertEqual(
+                    "Local check: activity could not be confirmed.", payload["view"]["chat"]["progress"][0]
+                )
                 self.assertIsNone(payload["next_action"])
         self.assertEqual(before, state)
 
