@@ -720,6 +720,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"
     ):
         settings["adaptive_planning"] = True
+    if getattr(args, "plan_review_full", False):
+        settings["plan_review_full"] = True
     if requirements_review.new_run_setting(
         getattr(args, "spec_first", None), joint, role_names.planning_flow(settings) == "v2"
     ):
