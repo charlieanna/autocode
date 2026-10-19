@@ -365,6 +365,24 @@ class InterruptTests(unittest.TestCase):
                 self.assertLess(time.monotonic() - started, 20, "the chat waited out the child")
             return client, error
 
+    def test_a_pause_asked_for_between_polls_is_taken_through_the_view(self):
+        with tempfile.TemporaryDirectory() as folder:
+            client = ScriptedChat({"status": "RUNNING"})
+            client.workspace, client.command = Path(folder), (sys.executable, "-c", "import time; time.sleep(1)")
+            asked = iter(["pause"])
+            client._wait = lambda seconds: next(asked, None) or time.sleep(0.05)
+            with mock.patch.object(client, "request_pause") as pause, mock.patch.object(client, "show"):
+                client.advance(["--no-chat"])
+        pause.assert_called_once_with()
+
+    def test_every_status_view_read_reaches_the_renderer(self):
+        seen = []
+        client = chat.ChatClient(WORKSPACE, RUN, observe=seen.append)
+        payload = json.dumps({"view": {"status": "RUNNING", "workspace": str(WORKSPACE), "run_dir": str(RUN)}})
+        with mock.patch.object(client, "cli", return_value=subprocess.CompletedProcess([], 0, payload, "")):
+            view = client.status()
+        self.assertEqual([view], seen)
+
     def test_ctrl_c_while_the_pause_is_asked_for_interrupts_the_step_instead_of_leaving_it_running(self):
         child = (
             "import pathlib, signal, sys, time\n"

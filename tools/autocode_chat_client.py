@@ -74,12 +74,17 @@ class ChatClient:
         ask: Callable[[str], str] = input,
         say: Callable[[str], None] = print,
         poll_seconds: float = POLL_SECONDS,
+        observe: Callable[[dict], None] | None = None,
+        wait: Callable[[float], str | None] | None = None,
     ):
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.command = tuple(command)
         self.env = env
         self._ask, self._say = ask, say
         self.poll_seconds = poll_seconds
+        # A renderer's view of the run, and its wait between polls; "pause" asks for the view's pause.
+        self._observe = observe
+        self._wait = wait or (lambda seconds: time.sleep(seconds))
         self.seen: set[str] = set()
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self.started = False  # the first view prints the whole conversation, later ones only what is new
@@ -107,6 +112,8 @@ class ChatClient:
         except (ValueError, KeyError):
             raise actions.ClientGap(f"--status did not return a status view: {tail(proc)}") from None
         self.own(view)
+        if self._observe is not None:
+            self._observe(view)
         return view
 
     def take(self, command: actions.NamedCommand) -> None:
@@ -142,7 +149,8 @@ class ChatClient:
                     while child.poll() is None:
                         with contextlib.suppress(actions.ClientGap):  # a new run has not saved a checkpoint yet
                             self.show(self.status(), live=True)
-                        time.sleep(self.poll_seconds)
+                        if self._wait(self.poll_seconds) == "pause":
+                            self.request_pause()
                     break
                 except KeyboardInterrupt:
                     interrupts += 1
@@ -175,7 +183,7 @@ class ChatClient:
         if proc.returncode != 0:
             self.say(f"The pause was not accepted: {tail(proc)}. Press Ctrl-C again to interrupt the current step.")
             return True
-        self.say(f"{(view.get('pause') or {}).get('effect') or 'Pausing after this step.'} Ctrl-C again interrupts.")
+        self.say(f"{(view.get('pause') or {}).get('effect') or 'Pausing after this step.'} Ctrl-C interrupts it now.")
         return True
 
     # ---- the person ------------------------------------------------------------------------
@@ -627,16 +635,17 @@ def cli(argv: list[str] | None = None) -> int:
             arguments.error("the brief is empty")
         ui = terminal_ui(force_line=args.line)
         ask, say = (ui.ask, ui.say) if ui is not None else (input, print)
+        seen = {"observe": ui.observe, "wait": ui.wait} if ui is not None else {}
         workspace = (args.workspace or Path.cwd()).expanduser()
         if ui is not None and args.run_dir is None:
             ui.set_context(workspace)
         if args.brief is not None:
-            client = start(workspace, args.brief, run_mode(args.mode), options, ask=ask, say=say)
+            client = start(workspace, args.brief, run_mode(args.mode), options, ask=ask, say=say, **seen)
         elif args.run_dir is not None:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)
-            client = ChatClient(workspace, run_dir, ask=ask, say=say)
+            client = ChatClient(workspace, run_dir, ask=ask, say=say, **seen)
         else:
-            client = open_chat(workspace.resolve(), args.mode, options, ask=ask, say=say)
+            client = open_chat(workspace.resolve(), args.mode, options, ask=ask, say=say, **seen)
             if client is None:
                 return 2
         if ui is not None:

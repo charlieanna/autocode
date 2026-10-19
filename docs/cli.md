@@ -687,6 +687,28 @@ stay on the terminal: an error, where to pick the run up, or the command a stop
 leaves for you to run. `--line` keeps the plain
 prompts, and scripts get them automatically when there is no terminal.
 
+In a terminal at least 100 columns wide, a side panel shows the run beside the
+conversation once it has a plan: where it is and what it needs from you, each
+requirement and task with its state, open problems, and a log of how the run moved
+(a stage starting or finishing, a task done, a requirement checked). Everything in it
+comes from the status views the chat already reads; nothing else is read.
+
+Type `/` in the composer for commands, at a question or while AutoCode works. The
+menu narrows as you type; `Up`/`Down` choose, `Tab` completes and `Enter` runs the
+highlighted one:
+
+| Command | What it does |
+| --- | --- |
+| `/plan`, `/tasks`, `/log` | Show the requirements, the task list or the run's log in the conversation |
+| `/details` | Why the run is where it is (the view's explanation) |
+| `/panel` | Show or hide the side panel |
+| `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
+| `/help` | List the commands |
+| `/quit` | At a question: leave the chat; the run stays as it is |
+
+A command never answers the question that is waiting. To send a reply that starts
+with `/`, type `//`.
+
 The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a
 terminal) still works and is being replaced by this client. Scripts that call plain
 `autocode` without a terminal are unchanged.

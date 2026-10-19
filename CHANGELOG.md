@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The full-screen `autocode chat` shows a side panel in a wide terminal: where the run is and what
+  it needs from you, each requirement and task with its state, open problems, and a log of how the
+  run moved. Typing `/` opens a command menu: `/plan`, `/tasks`, `/log`, `/details`, `/panel`,
+  `/help`, `/quit` at a question, and `/pause` while AutoCode works. All of it comes from the status
+  views the chat already reads.
+
 - `autocode chat` talks to a run in the terminal the way the VS Code extension does: it shows the
   run's conversation, asks you only for the answer, approval or reply the status view leaves to you,
   and runs exactly the command the view names. Plain `autocode` in a terminal now opens it: it picks

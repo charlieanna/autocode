@@ -2,11 +2,13 @@
 
 The chat client (autocode_chat_client) owns every decision. It speaks to a person
 through two callables: one line at a time (``say``) and one reply at a time
-(``ask``). This module renders those callables as a chat screen: a splash, a
-scrollable transcript with a colored speaker for each block, the current
-question or activity above a boxed composer, and a hint bar. It reads no run,
-imports no controller and adds no dependency: where a terminal cannot run
-curses, the client keeps its line mode.
+(``ask``), and hands over each status view it reads (``observe``) and each wait
+between polls (``wait``). This module renders those callables as a chat screen: a
+splash, a scrollable transcript with a colored speaker for each block, a side panel
+with the run's requirements, tasks and log (autocode_chat_panel), the current
+question or activity above a boxed composer with a ``/`` command menu, and a hint
+bar. It reads no run, imports no controller and adds no dependency: where a
+terminal cannot run curses, the client keeps its line mode.
 """
 
 from __future__ import annotations
@@ -17,9 +19,15 @@ import locale
 import re
 import sys
 import threading
+import time
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
+
+try:
+    from . import autocode_chat_panel as panel
+except ImportError:
+    import autocode_chat_panel as panel
 
 PROGRESS_PREFIX = "· "
 HISTORY_LIMIT = 100
@@ -27,6 +35,9 @@ BRAND = "AutoCode chat"
 TAGLINE = "Plan, build and test, with a reviewer at every step."
 NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
 REPLY_PLACEHOLDER = "Type your reply, then Enter"
+WORKING_PLACEHOLDER = "AutoCode is working… type / for commands"
+PANEL_MIN_COLS = 100  # below this the panel stays hidden unless /panel asks for it
+MENU_ROWS = 6
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"  # bracketed paste, so a pasted newline is not Enter
 WORDMARK = (
@@ -34,7 +45,7 @@ WORDMARK = (
     "█▀█ █▄█ ░█░ █▄█ █▄▄ █▄█ █▄▀ ██▄",
 )
 _ESCAPE = re.compile(r"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-_])")
-_LABELS = {"user": "You", "assistant": "AutoCode", "notice": "Notice"}
+_LABELS = {"user": "You", "assistant": "AutoCode", "notice": "Notice", "info": ""}
 _PREFIXES = {"user": "You:", "assistant": "AutoCode:"}
 
 
@@ -161,6 +172,10 @@ class Transcript:
         self.blocks.append((role, text))
         return True
 
+    def info(self, title: str, body: str) -> None:
+        """What a ``/`` command shows: the chat's own words, not the run's conversation."""
+        self.blocks.append(("info", f"{title}\n{safe_text(body)}"))
+
     def closing(self) -> list[str]:
         """What to leave on the terminal after the screen closes: the client's last words, whole.
 
@@ -168,11 +183,12 @@ class Transcript:
         the command to run, where to pick the run up, Done.); the last block when there are none.
         """
         tail: list[str] = []
-        for role, text in reversed(self.blocks):
+        said = [(role, text) for role, text in self.blocks if role != "info"]
+        for role, text in reversed(said):
             if role in ("user", "assistant"):
                 break
             tail.insert(0, text)
-        return tail or [text for _, text in self.blocks[-1:]]
+        return tail or [text for _, text in said[-1:]]
 
     def lines(self, width: int) -> list[tuple[str, str]]:
         """The transcript as ``(style, text)`` rows, labels over indented bodies."""
@@ -186,6 +202,8 @@ class Transcript:
                 prefix = _PREFIXES.get(role)
                 if prefix and body.lstrip().startswith(prefix):
                     body = body.lstrip()[len(prefix) :].lstrip()
+                if role == "info":
+                    label, _, body = text.partition("\n")
                 rendered.append((f"{role}-label", label))
                 rendered.extend((f"{role}-body", "  " + line) for line in wrap(body, max(1, width - 2)))
             rendered.append(("plain", ""))
@@ -353,6 +371,8 @@ class Layout:
     box_bottom: int
     hints_row: int
     question: list[str]
+    body_width: int = 0  # the transcript's width; the panel takes the rest
+    panel_col: int | None = None
 
 
 def _unicode_terminal() -> bool:
@@ -378,6 +398,11 @@ class ChatTUI:
         self._lock = threading.RLock()
         self._stopping = threading.Event()
         self._ticker: threading.Thread | None = None
+        self._view: dict | None = None
+        self._log = panel.StageLog()
+        self._panel_on: bool | None = None  # None: shown when the terminal is wide enough
+        self._menu_index = 0
+        self._waiting = False
         self._open()
 
     # ---- lifecycle -------------------------------------------------------------------------
@@ -450,6 +475,41 @@ class ChatTUI:
             self._transcript.add(text)
             self._draw()
 
+    def observe(self, view: dict) -> None:
+        """The status view the client just read: the panel and the log draw from it alone."""
+        with self._lock:
+            self._view = view
+            self._log.observe(view)
+            self._draw()
+
+    def wait(self, seconds: float) -> str | None:
+        """The client's pause between polls while AutoCode works: the composer takes ``/`` commands.
+
+        Returns "pause" when the person asked for the view's pause; the client takes it.
+        """
+        if self._closed or self._screen is None:
+            time.sleep(seconds)
+            return None
+        deadline = time.monotonic() + seconds
+        self._waiting = True  # this loop animates the marker; the ticker must not draw beside a key read
+        try:
+            while (left := deadline - time.monotonic()) > 0:
+                with self._lock:  # curses is not thread-safe: read, handle and draw as one step
+                    if self._closed or self._screen is None:
+                        return None
+                    self._screen.timeout(max(1, int(min(left, 0.1) * 1000)))
+                    key = self._read_key()
+                    action = self._handle(key, asking=False)
+                    self._frame += 1
+                    self._draw()
+                if action is not None:
+                    return action
+        finally:
+            self._waiting = False
+            with self._lock, contextlib.suppress(curses.error, AttributeError):
+                self._screen.timeout(-1)
+        return None
+
     def ask(self, prompt: str) -> str:
         with self._lock:
             if self._closed:
@@ -465,7 +525,7 @@ class ChatTUI:
         try:
             while True:
                 self._draw()
-                answer = self._handle(self._read_key())
+                answer = self._handle(self._read_key(), asking=True)
                 if answer is not None:
                     return answer
         finally:
@@ -498,16 +558,28 @@ class ChatTUI:
         except curses.error:
             return None
 
-    def _handle(self, key) -> str | None:
+    def _handle(self, key, *, asking: bool) -> str | None:
+        """One key: at a question, the answer once Enter sends one; while working, "pause" or None."""
         composer = self._composer
         if key is None:  # a key curses could not read; redraw and wait
             return None
+        menu = self._menu(asking)
+        if not (menu and key in (curses.KEY_UP, curses.KEY_DOWN, "\t")):
+            self._menu_index = 0
         if isinstance(key, Pasted):
             composer.insert(key.text)
             return None
+        if menu and key in (curses.KEY_UP, curses.KEY_DOWN):
+            step = -1 if key == curses.KEY_UP else 1
+            self._menu_index = (self._menu_index + step) % len(menu)
+            return None
+        if menu and key == "\t":
+            composer.clear()
+            composer.insert(menu[self._menu_index % len(menu)].name)
+            return None
         if isinstance(key, int):
             if key in (curses.KEY_ENTER, 10, 13):
-                return self._submit()
+                return self._enter(asking)
             if key == curses.KEY_BACKSPACE:
                 composer.backspace()
             elif key == curses.KEY_DC:
@@ -530,13 +602,13 @@ class ChatTUI:
                 self._scroll_by(-self._page())
             return None
         if key in ("\n", "\r"):
-            return self._submit()
+            return self._enter(asking)
         if key in ("\b", "\x7f"):
             composer.backspace()
         elif key == "\x04":  # Ctrl-D: end of input on an empty line, otherwise delete forward
             if composer.text:
                 composer.delete()
-            else:
+            elif asking:  # never while AutoCode works: leaving then would leave it running unseen
                 raise EOFError
         elif key == "\x03":  # Ctrl-C keeps the client's pause/interrupt handling
             raise KeyboardInterrupt
@@ -555,6 +627,58 @@ class ChatTUI:
         elif key.isprintable():
             composer.insert(key)
         return None
+
+    def _enter(self, asking: bool) -> str | None:
+        """Enter: run a ``/`` command, or send the reply (at a question only)."""
+        text = self._composer.text
+        word = text.strip().split(" ", 1)[0].lower() if text.startswith("/") else ""
+        available = panel.commands(asking=asking)
+        menu = self._menu(asking)
+        if word and not text.startswith("//"):
+            names = [command.name for command in available]
+            if word not in names and menu and " " not in text.strip():
+                word = menu[self._menu_index % len(menu)].name
+            if word in names:
+                self._composer.submit()
+                return self._run(word, asking)
+            if " " not in text.strip():
+                known = any(command.name == word for command in panel.COMMANDS)
+                why = "is not available right now" if known else "is not a command"
+                self._transcript.info(
+                    word, f"{word} {why}. Type / to see the commands; // sends text that starts with /."
+                )
+                self._composer.clear()
+                return None
+        if not asking:
+            self._transcript.info("AutoCode is working", "Type / for commands. AutoCode asks here when it needs you.")
+            return None
+        if text.startswith("//"):
+            self._composer.text, self._composer.cursor = text[1:], max(0, self._composer.cursor - 1)
+        return self._submit()
+
+    def _run(self, name: str, asking: bool) -> str | None:
+        """A ``/`` command: "pause" goes back to the client; the rest only change what is shown."""
+        if name == "/pause":
+            return "pause"
+        if name == "/quit":
+            raise EOFError
+        if name == "/panel":
+            self._panel_on = not self._panel_visible(*self._size())
+            if self._panel_on and self._size()[1] < 60:
+                self._transcript.info(
+                    "/panel", "The terminal is too narrow for the panel; /plan and /tasks show it here."
+                )
+            return None
+        self._transcript.info(name, panel.text(name, self._view, self._log))
+        self._scroll = 0
+        return None
+
+    def _menu(self, asking: bool) -> list[panel.Command]:
+        """The commands the composer's ``/word`` could be, while it is still one word."""
+        text = self._composer.text
+        if not text.startswith("/") or text.startswith("//") or any(char.isspace() for char in text):
+            return []
+        return panel.matching(text, panel.commands(asking=asking))
 
     def _submit(self) -> str:
         text = self._composer.submit()
@@ -595,7 +719,10 @@ class ChatTUI:
             if len(wrapped) > limit:
                 question[-1] = truncate(question[-1], max(1, width - 4))
         status_start = status_row - len(question) + 1 if question else status_row
+        panel_width = min(44, max(28, cols // 3)) if self._panel_visible(rows, cols) else 0
         return Layout(
+            body_width=width - panel_width - (2 if panel_width else 0),
+            panel_col=width - panel_width if panel_width else None,
             width=width,
             body_start=2,
             body_end=max(2, status_start - 1),
@@ -606,6 +733,13 @@ class ChatTUI:
             hints_row=hints_row,
             question=question,
         )
+
+    def _panel_visible(self, rows: int, cols: int) -> bool:
+        if cols < 60 or rows < 16:
+            return False
+        if self._panel_on is not None:
+            return self._panel_on
+        return cols >= PANEL_MIN_COLS and len(panel.sections(self._view)) > 1
 
     def _draw(self) -> None:
         with self._lock:
@@ -623,7 +757,9 @@ class ChatTUI:
                 layout = self._layout(rows, cols)
                 self._header(layout)
                 self._body(layout)
+                self._side_panel(layout)
                 self._question_or_status(layout)
+                self._command_menu(layout)
                 self._composer_box(layout)
                 self._hints(layout)
                 screen.refresh()
@@ -641,7 +777,8 @@ class ChatTUI:
 
     def _body(self, layout: Layout) -> None:
         height = max(0, layout.body_end - layout.body_start)
-        lines = self._transcript.lines(layout.width)
+        width = layout.body_width or layout.width
+        lines = self._transcript.lines(width)
         if not lines:
             self._hero(layout, height)
             return
@@ -652,12 +789,55 @@ class ChatTUI:
         start = max(0, end - height)
         for row, (role, text) in enumerate(lines[start:end], layout.body_start):
             if role.endswith("-label"):
-                self._put(row, 0, truncate(f"{self._glyphs.bar} {text}", layout.width), self._style(role))
+                self._put(row, 0, truncate(f"{self._glyphs.bar} {text}", width), self._style(role))
             elif role == "user-body":
-                padded = text + " " * max(0, layout.width - display_width(text))
-                self._put(row, 0, padded, self._style(role))
+                padded = text + " " * max(0, width - display_width(text))
+                self._put(row, 0, truncate(padded, width), self._style(role))
             else:
-                self._put(row, 0, truncate(text, layout.width), self._style(role))
+                self._put(row, 0, truncate(text, width), self._style(role))
+
+    def _side_panel(self, layout: Layout) -> None:
+        """The run beside the conversation: where it is, its requirements, tasks and problems, then the log."""
+        if layout.panel_col is None:
+            return
+        col, width = layout.panel_col, layout.width - layout.panel_col
+        top, bottom = layout.body_start, layout.body_end
+        for row in range(top, bottom):
+            self._put(row, col - 2, self._glyphs.vertical, self._style("border"))
+        rows: list[tuple[str, str]] = []
+        for section in panel.sections(self._view):
+            rows.append(
+                ("panel-title", f"{section.title.upper()}  {section.summary}" if section.title != "Now" else "NOW")
+            )
+            if section.title == "Now":
+                rows.append(("panel-now", section.summary))
+            for item in section.rows:
+                mark = item.mark if self._glyphs.unicode else panel.ascii_mark(item.mark)
+                rows.append((f"panel-{item.style}", f"{mark} {item.text}"))
+            rows.append(("plain", ""))
+        room = bottom - top
+        log_room = room - len(rows) - 1
+        if log_room > 0 and self._log.lines:
+            rows.append(("panel-title", "LOG"))
+            rows.extend(("dim", line) for line in self._log.lines[-log_room:])
+        for row, (style, text) in enumerate(rows[:room], top):
+            self._put(row, col, truncate(text, width), self._style(style))
+
+    def _command_menu(self, layout: Layout) -> None:
+        """The ``/`` commands matching what is typed, just above the composer."""
+        menu = self._menu(self._asking)[:MENU_ROWS]
+        if not menu:
+            return
+        width = min(layout.width - 2, 64)
+        first = layout.box_top - len(menu)
+        for row in range(first, layout.box_top):  # the rows under the menu, the status line among them
+            self._put(row, 0, " " * layout.width)
+        for offset, command in enumerate(menu):
+            selected = offset == self._menu_index % len(menu)
+            line = f" {command.name:<9} {command.description}"
+            line = truncate(line, width)
+            line += " " * max(0, width - display_width(line))
+            self._put(first + offset, 2, line, self._style("menu-selected" if selected else "menu"))
 
     def _hero(self, layout: Layout, height: int) -> None:
         if height <= 0:
@@ -710,8 +890,8 @@ class ChatTUI:
         self._put(layout.box_bottom, 0, glyphs.bottom_left + glyphs.rule * (width - 2) + glyphs.bottom_right, border)
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
-        if not active:
-            self._put(layout.box_text, 4, truncate("AutoCode is working…", inner), self._style("placeholder"))
+        if not active and not self._composer.text:
+            self._put(layout.box_text, 4, truncate(WORKING_PLACEHOLDER, inner), self._style("placeholder"))
             return
         if self._composer.text:
             shown, cursor = window(self._composer.text, self._composer.cursor, inner)
@@ -732,11 +912,11 @@ class ChatTUI:
 
     def _hints(self, layout: Layout) -> None:
         if self._asking:
-            hints = "enter send · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
+            hints = "enter send · / commands · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
             if not self._glyphs.unicode:
-                hints = "enter send | up/down history | pgup/pgdn scroll | ctrl-d quit"
+                hints = "enter send | / commands | up/down history | pgup/pgdn scroll | ctrl-d quit"
         else:
-            hints = "ctrl-c asks AutoCode to pause after this step"
+            hints = "/ commands · ctrl-c asks AutoCode to pause after this step"
         self._put(layout.hints_row, 2, truncate(hints, layout.width - 2), self._style("dim"))
         right = "AutoCode"
         planted = 2 + display_width(hints)
@@ -760,7 +940,7 @@ class ChatTUI:
         """Animate the working marker; never draws while a question waits for a key."""
         while not self._stopping.wait(0.12):
             with self._lock:
-                if self._closed or self._asking:
+                if self._closed or self._asking or self._waiting:
                     continue
                 self._frame += 1
                 self._draw()
@@ -783,6 +963,17 @@ class ChatTUI:
             "placeholder": curses.A_DIM,
             "question": curses.A_BOLD,
             "working": 0,
+            "info-label": curses.A_BOLD,
+            "info-body": curses.A_DIM,
+            "panel-title": curses.A_BOLD,
+            "panel-now": 0,
+            "panel-plain": 0,
+            "panel-good": 0,
+            "panel-bad": curses.A_BOLD,
+            "panel-accent": curses.A_BOLD,
+            "panel-warn": curses.A_BOLD,
+            "menu": curses.A_REVERSE | curses.A_DIM,
+            "menu-selected": curses.A_REVERSE,
         }
         if not curses.has_colors():
             return
@@ -820,3 +1011,10 @@ class ChatTUI:
         pair("prompt", accent, -1, curses.A_BOLD)
         pair("question", warn, -1, curses.A_BOLD)
         pair("working", accent, -1)
+        pair("info-label", quiet if quiet != -1 else accent, -1, curses.A_BOLD)
+        pair("panel-title", quiet if quiet != -1 else accent, -1, curses.A_BOLD)
+        pair("panel-now", accent, -1)
+        pair("panel-good", good, -1)
+        pair("panel-bad", curses.COLOR_RED, -1, curses.A_BOLD)
+        pair("panel-accent", accent, -1, curses.A_BOLD)
+        pair("panel-warn", warn, -1, curses.A_BOLD)
