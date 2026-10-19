@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The full-screen `autocode chat` keeps a history of this project's chats, as the VS Code
+  extension does: `/runs` lists them, open and finished, with each one's request and state;
+  `/open N` shows that chat's whole conversation and carries on there (a follow-up on a
+  finished one); `/new` starts another without leaving. `autocode` mentions earlier chats at
+  start, `Up`/`Down` recall earlier requests across chats, and `autocode runs --json` rows carry
+  a `title`, the first line of the task (#1655).
+
 - `autocode checkpoint --working` and `code_checkpoints.working` in the status view: while a Builder step
   runs, a display-only diff of what it has changed so far, against the newest saved step or, before any
   is saved, the checked-out commit. The full-screen chat's `/diff now` shows it (#1643).

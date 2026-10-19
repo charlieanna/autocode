@@ -444,6 +444,88 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual("-v should print more", start.call_args.args[1])
 
 
+class HistoryTests(unittest.TestCase):
+    """/runs, /open and /new: this project's chats from `autocode runs --json`, and switching between them."""
+
+    ROWS = [
+        {
+            "run_dir": str(RUN),
+            "workspace": str(WORKSPACE),
+            "title": "This one",
+            "status": "TASK_COMPLETE",
+            "updated_at": "2026-10-19T13:00:00",
+        },
+        {
+            "run_dir": f"{WORKSPACE}/.autocode/runs/r2",
+            "workspace": str(WORKSPACE),
+            "title": "The other one",
+            "bucket": "needs you",
+            "updated_at": "2026-10-19T14:00:00",
+        },
+    ]
+
+    def client(self):
+        client = ScriptedChat(DONE)
+        client.history = chat.History(WORKSPACE)
+        patcher = mock.patch.object(chat, "project_runs", return_value=self.ROWS)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return client
+
+    def test_runs_lists_the_projects_chats_and_marks_this_one(self):
+        text = self.client().slash("/runs", "")
+        self.assertIn(" 1. The other one", text)
+        self.assertIn(" 2. This one  (this chat)", text)
+
+    def test_open_switches_the_chat_to_that_run(self):
+        client = self.client()
+        client.slash("/runs", "")
+        client.seen.add("m1")
+        switched = []
+        client.switched = lambda workspace, run_dir: switched.append(run_dir)
+        with self.assertRaises(chat.Switched):
+            client.slash("/open", "1")
+        self.assertEqual(Path(self.ROWS[1]["run_dir"]), client.run_dir)
+        self.assertEqual([Path(self.ROWS[1]["run_dir"])], switched)
+        self.assertEqual(set(), client.seen, "the opened chat's whole conversation is shown")
+
+    def test_open_refuses_this_chat_and_a_number_not_listed(self):
+        client = self.client()
+        self.assertEqual("That is this chat.", client.slash("/open", "2"))
+        self.assertIn("There is no chat 9.", client.slash("/open", "9"))
+        self.assertEqual(RUN, client.run_dir)
+
+    def test_new_asks_for_a_request_and_nothing_typed_keeps_this_chat(self):
+        client = self.client()
+        with self.assertRaises(chat.NewChat):
+            client.slash("/new", "")
+        client.replies = [""]
+        client.new_chat()
+        self.assertIn("Nothing started; this chat carries on.", client.text())
+        self.assertEqual(RUN, client.run_dir)
+
+    def test_before_a_chat_is_open_open_hands_the_chosen_run_to_open_chat(self):
+        history = chat.History(WORKSPACE)
+        with mock.patch.object(chat, "project_runs", return_value=self.ROWS):
+            self.assertIn("This is a new chat", history.slash("/new", ""))
+            with self.assertRaises(chat.Opened) as opened:
+                history.slash("/open", "2")
+        self.assertEqual(str(RUN), opened.exception.row["run_dir"])
+
+    def test_open_chat_opens_the_run_picked_at_its_first_question(self):
+        def ask(prompt):
+            raise chat.Opened(self.ROWS[1])
+
+        with (
+            mock.patch.object(chat, "unfinished", return_value=[]),
+            mock.patch.object(chat, "project_runs", return_value=self.ROWS),
+        ):
+            said = []
+            client = chat.open_chat(WORKSPACE, ask=ask, say=said.append, hint=True)
+        self.assertEqual(Path(self.ROWS[1]["run_dir"]), client.run_dir)
+        self.assertEqual(["2 earlier chats here. Type /runs to see them."], said)
+
+
 class InterruptTests(unittest.TestCase):
     """Ctrl-C while a stage works, against a real child that stands in for AutoCode."""
 

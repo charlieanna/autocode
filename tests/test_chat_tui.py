@@ -1,6 +1,8 @@
 """The full-screen chat's pure pieces: width, wrapping, transcript blocks, composer, window."""
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode_chat_tui as tui
@@ -224,6 +226,47 @@ def screen_ui(*keys):
         ui = tui.ChatTUI()
     ui._screen = screen
     return ui
+
+
+class HistoryFileTests(unittest.TestCase):
+    """The composer's ↑/↓ history, kept per project in .autocode between chats."""
+
+    def test_requests_are_kept_in_order_and_bare_answers_are_not(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / ".autocode" / tui.HISTORY_FILE
+            self.assertFalse(tui.keep_history(path, ["Add a flag"]), "never creates .autocode")
+            self.assertFalse(path.parent.exists())
+            path.parent.mkdir()
+            self.assertTrue(tui.keep_history(path, ["Add a flag", "line one\nline two"]))
+            self.assertEqual(["Add a flag", "line one\nline two"], tui.read_history(path))
+            self.assertEqual(
+                [False, False, False, True], [tui.worth_keeping(text) for text in ("y", "No", "2", "Use B")]
+            )
+
+    def test_a_long_history_keeps_the_newest_entries(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / tui.HISTORY_FILE
+            tui.keep_history(path, [f"request {n}" for n in range(tui.HISTORY_LIMIT + 5)])
+            kept = tui.read_history(path)
+            self.assertEqual(tui.HISTORY_LIMIT, len(kept))
+            self.assertEqual(f"request {tui.HISTORY_LIMIT + 4}", kept[-1])
+
+    def test_the_chat_recalls_the_projects_earlier_requests(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / ".autocode").mkdir()
+            tui.keep_history(Path(folder) / ".autocode" / tui.HISTORY_FILE, ["Fix the typo"])
+            ui = screen_ui()
+            ui.set_context(Path(folder))
+            self.assertEqual(["Fix the typo"], ui._composer.history)
+
+    def test_opening_another_chat_starts_its_screen_afresh(self):
+        ui = screen_ui()
+        ui.say("You: the old request")
+        ui.observe({"progress": {"headline": "Complete"}})
+        ui.switch(Path("/p"), Path("/p/.autocode/runs/r2"))
+        self.assertEqual([], ui._transcript.blocks)
+        self.assertIsNone(ui._view)
+        self.assertEqual("p · r2", ui._context)
 
 
 class AskTests(unittest.TestCase):

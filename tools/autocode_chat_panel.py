@@ -71,6 +71,9 @@ COMMANDS = (
     Command("/details", "Why the run is where it is"),
     Command("/diff", "The saved code steps; /diff N shows what changed since step N"),
     Command("/undo", "Go back to a saved step on a new branch: /undo N"),
+    Command("/runs", "This project's chats, open and finished; /open N opens one"),
+    Command("/open", "Open chat N from /runs and carry on there"),
+    Command("/new", "Start a new chat here"),
     Command("/panel", "Show or hide the side panel"),
     Command("/pause", "Ask AutoCode to pause after the current step"),
     Command("/help", "List these commands"),
@@ -86,16 +89,20 @@ def _rows(value) -> list[dict]:
     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
 
 
-# The commands the chat client carries out, through actions its fresh status view names.
-CLIENT_COMMANDS = ("/diff", "/undo")
+# The commands the chat client carries out: /diff and /undo through actions its fresh status view
+# names, /runs, /open and /new through the project's run list (`autocode runs --json`).
+CLIENT_COMMANDS = ("/diff", "/undo", "/runs", "/open", "/new")
+# Those that leave the run being talked to, so only at a question: never with AutoCode working unseen.
+SWITCHING_COMMANDS = ("/open", "/new")
 
 
 def commands(*, asking: bool, client: bool = True) -> list[Command]:
     """The commands that do something now. ``/pause`` only while AutoCode works: the client then
     takes the pause its fresh status view offers, or says there is none. ``/quit`` and ``/undo``
     only at a question: leaving while AutoCode works would leave it running unseen, and the view
-    offers going back only at a pause. Without a client the client's commands are not offered."""
-    hidden = {"/pause"} if asking else {"/quit", "/undo"}
+    offers going back only at a pause; ``/open`` and ``/new`` too, as they leave this run. Without a
+    client the client's commands are not offered."""
+    hidden = {"/pause"} if asking else {"/quit", "/undo", *SWITCHING_COMMANDS}
     if not client:
         hidden.update(CLIENT_COMMANDS)
     return [command for command in COMMANDS if command.name not in hidden]
@@ -382,3 +389,38 @@ class StageLog:
         self.lines.extend(f"{stamp} {line}" for line in said)
         del self.lines[:-LOG_LIMIT]
         return bool(said)
+
+
+RUN_STATES = {"TASK_COMPLETE": "complete", "COMPLETE": "complete", "COMPLETED": "complete"}
+
+
+def run_rows(listed: list[dict]) -> list[dict]:
+    """The project's chats as `autocode runs --json` lists them, newest first: how /runs numbers them."""
+    rows = [row for row in listed if isinstance(row, dict) and row.get("run_dir")]
+    return sorted(rows, key=lambda row: (str(row.get("updated_at") or ""), str(row.get("run_dir"))), reverse=True)
+
+
+def run_state(row: dict) -> str:
+    """A chat's state in a few words: complete, what it needs you for, working, or unreadable."""
+    if row.get("availability") not in (None, "available"):
+        return "cannot be read"
+    if done := RUN_STATES.get(str(row.get("status") or "")):
+        return done
+    if row.get("bucket") == "needs you":
+        return f"needs you: {row.get('pause_category_label') or row.get('needs') or 'a decision'}"
+    return str(row.get("bucket") or row.get("status") or "unknown")
+
+
+def runs_text(rows: list[dict], current=None) -> str:
+    """What /runs prints: each chat's number, request, state and when it last moved."""
+    if not rows:
+        return "No chats in this project yet. Type a request to start one."
+    lines = []
+    for number, row in enumerate(rows, 1):
+        title = row.get("title") or row.get("name") or row.get("run_dir")
+        here = "  (this chat)" if current is not None and str(row.get("run_dir")) == str(current) else ""
+        when = str(row.get("updated_at") or "").replace("T", " ")[:16]
+        lines.append(f"{number:>2}. {title}{here}")
+        lines.append(f"    {run_state(row)}" + (f" · {when}" if when else ""))
+    lines.append("Type /open N to open one, or /new to start another.")
+    return "\n".join(lines)

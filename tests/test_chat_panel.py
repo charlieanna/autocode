@@ -256,3 +256,45 @@ class StageLogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunListTests(unittest.TestCase):
+    """What /runs lists: this project's chats, newest first, from `autocode runs --json` rows."""
+
+    ROWS = [
+        {
+            "run_dir": "/p/.autocode/runs/a",
+            "title": "Fix the typo",
+            "status": "TASK_COMPLETE",
+            "updated_at": "2026-10-19T13:00:00",
+        },
+        {
+            "run_dir": "/p/.autocode/runs/b",
+            "name": "b",
+            "bucket": "needs you",
+            "pause_category_label": "Plan approval",
+            "updated_at": "2026-10-19T14:00:00",
+        },
+        {"run_dir": "/p/.autocode/runs/c", "name": "c", "availability": "unreadable", "reason": "bad json"},
+    ]
+
+    def test_newest_first_with_each_chats_request_and_state(self):
+        rows = panel.run_rows(self.ROWS)
+        self.assertEqual(["b", "a", "c"], [row["run_dir"][-1] for row in rows])
+        text = panel.runs_text(rows, current="/p/.autocode/runs/a")
+        self.assertIn(" 1. b\n    needs you: Plan approval · 2026-10-19 14:00", text)
+        self.assertIn(" 2. Fix the typo  (this chat)\n    complete · 2026-10-19 13:00", text)
+        self.assertIn(" 3. c\n    cannot be read", text)
+        self.assertTrue(text.endswith("Type /open N to open one, or /new to start another."))
+
+    def test_an_empty_project_says_how_to_start(self):
+        self.assertEqual("No chats in this project yet. Type a request to start one.", panel.runs_text([]))
+
+    def test_opening_and_starting_a_chat_wait_for_a_question(self):
+        working = [command.name for command in panel.commands(asking=False)]
+        asking = [command.name for command in panel.commands(asking=True)]
+        self.assertIn("/runs", working)
+        self.assertNotIn("/open", working)
+        self.assertNotIn("/new", working)
+        self.assertIn("/open", asking)
+        self.assertIn("/new", asking)

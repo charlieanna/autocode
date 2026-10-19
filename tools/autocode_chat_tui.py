@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import curses
+import json
 import locale
 import re
 import sys
@@ -32,6 +33,7 @@ except ImportError:
 
 PROGRESS_PREFIX = "· "
 HISTORY_LIMIT = 100
+HISTORY_FILE = "chat-history.jsonl"  # in the project's .autocode directory
 BRAND = "AutoCode chat"
 TAGLINE = "Plan, build and test, with a reviewer at every step."
 NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
@@ -135,6 +137,39 @@ def role_of(text: str) -> str:
     ):
         return "notice"
     return "plain"
+
+
+def read_history(path: Path) -> list[str]:
+    """The project's earlier replies, oldest first; none when the file is missing or unreadable."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    kept = []
+    for line in lines[-HISTORY_LIMIT:]:
+        with contextlib.suppress(ValueError):
+            if isinstance(text := json.loads(line), str):
+                kept.append(text)
+    return kept
+
+
+def keep_history(path: Path, texts: list[str]) -> bool:
+    """Add replies to the project's history in ``.autocode``, once AutoCode has made that directory
+    (the chat never creates it); bounded to the last HISTORY_LIMIT. False: nothing could be written yet."""
+    if not path.parent.is_dir():
+        return False
+    try:
+        lines = [*read_history(path), *texts][-HISTORY_LIMIT:]
+        path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def worth_keeping(text: str) -> bool:
+    """A request or a message is recalled later; a bare yes, no or option number is not."""
+    word = text.strip().lower()
+    return bool(word) and word not in ("y", "yes", "n", "no") and not word.isdigit()
 
 
 def composer_label(prompt: str, asking: bool) -> str:
@@ -417,6 +452,8 @@ class ChatTUI:
         self._act: Callable[[str, str], str | panel.Confirm] | None = None
         self._pending: panel.Confirm | None = None
         self._queued: list = []  # keys read while telling an escape key from a paste
+        self._history_file: Path | None = None  # the project's ↑/↓ history, kept between chats
+        self._unsaved: list[str] = []  # replies typed before the project's .autocode exists
         self._open()
 
     # ---- lifecycle -------------------------------------------------------------------------
@@ -442,6 +479,9 @@ class ChatTUI:
         self._ticker.start()
 
     def set_context(self, workspace: Path, run_dir: Path | None = None) -> None:
+        if self._history_file is None:
+            self._history_file = Path(workspace) / ".autocode" / HISTORY_FILE
+            self._composer.history = read_history(self._history_file)
         self._context = Path(workspace).name
         if run_dir is not None:
             self._context += f" · {Path(run_dir).name}"
@@ -465,6 +505,7 @@ class ChatTUI:
                 curses.curs_set(1)
             with contextlib.suppress(curses.error):
                 curses.endwin()
+        self._save_history()  # a first request, typed before its run made .autocode
         for text in self._transcript.closing():
             print(text.strip("\n"))
 
@@ -488,6 +529,19 @@ class ChatTUI:
                 return
             self._transcript.add(text)
             self._draw()
+
+    def _save_history(self, *texts: str) -> None:
+        self._unsaved.extend(texts)
+        if self._history_file is not None and keep_history(self._history_file, self._unsaved):
+            self._unsaved = []
+
+    def switch(self, workspace: Path, run_dir: Path) -> None:
+        """The client opened another chat (/open, /new): start its screen afresh, like a new tab."""
+        with self._lock:
+            self._transcript = Transcript()
+            self._log = panel.StageLog()
+            self._view, self._pending, self._scroll, self._launched = None, None, 0, False
+            self.set_context(workspace, run_dir)
 
     def bind(self, act: Callable[[str, str], str | panel.Confirm]) -> None:
         """The client that carries out ``/diff`` and ``/undo``: act(name, argument) returns what to
@@ -744,6 +798,8 @@ class ChatTUI:
 
     def _submit(self) -> str:
         text = self._composer.submit()
+        if worth_keeping(text):
+            self._save_history(text)
         if text:
             self._transcript.add(f"You: {text}")
         self._scroll = 0
