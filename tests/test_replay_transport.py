@@ -143,6 +143,7 @@ class OwnedTransportTests(unittest.TestCase):
     def test_replay_keeps_archived_reviewer_and_investigator_efforts_while_charging_reviews(self):
         self.projection["settings"].update(
             planning_review_call_limit=2,
+            effort_origins={"plan_reviewer": "auto_selected"},
             roles={
                 "terra": {"model": "fixture-model"},
                 "plan_reviewer": {
@@ -173,6 +174,7 @@ class OwnedTransportTests(unittest.TestCase):
         self.assertEqual("investigator", planning.route_for(state, "investigate_bug"))
         self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
         self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertEqual({"plan_reviewer": "auto_selected"}, state["settings"]["effort_origins"])
         self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
         self.assertEqual(tape.document["launch"]["settings"]["roles"], state["settings"]["roles"])
         self.assertTrue(state["planning"]["review_depth_reduced"])

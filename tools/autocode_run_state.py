@@ -307,7 +307,7 @@ class RunState(TypedDict, total=False):
     history: list  # finished stage records (autocode_run_view)
     stages: list  # saved stage records; written by the runner
     active_stage: dict | None  # the in-flight stage record
-    settings: dict  # roles, budgets, engine, workflow mode
+    settings: dict  # roles, budgets, engine, workflow mode; configure owns effort_origins (reviewer effort policy)
     prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
     acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view

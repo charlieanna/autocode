@@ -37,6 +37,7 @@ try:
     from .. import autocode_progressive_state as progressive
     from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_risk_obligations as risk_obligations
+    from .. import autocode_role_route as role_route
     from .. import autocode_roles as role_names
     from .. import autocode_source_trace as source_trace
     from .. import autocode_stage_context as stage_context
@@ -63,6 +64,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_requirement_cues as requirement_cues
     import autocode_risk_obligations as risk_obligations
+    import autocode_role_route as role_route
     import autocode_roles as role_names
     import autocode_source_trace as source_trace
     import autocode_stage_context as stage_context
@@ -677,7 +679,8 @@ def apply_reviewer_effort_tier(state: RunState):
 
     Only the reasoning effort moves: the reviewer model and its pin are the
     cross-family contract and stay exactly as configured. ``--plan-review-full``
-    and runs without a Plan Reviewer role keep their configured effort.
+    and runs without a Plan Reviewer role keep their configured effort. Explicit
+    efforts and legacy saved routes without effort provenance stay unchanged.
     """
     settings = state.get("settings") or {}
     if settings.get("plan_review_full"):
@@ -685,6 +688,8 @@ def apply_reviewer_effort_tier(state: RunState):
     # Replay starts from archived effective routes. Reducing them again would
     # change the recorded effort; the replay transport still checks every dispatch.
     if settings.get("replay_recording"):
+        return
+    if not role_route.reviewer_effort_can_reduce(settings):
         return
     route = (settings.get("roles") or {}).get("plan_reviewer")
     if not isinstance(route, dict):

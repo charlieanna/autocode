@@ -74,6 +74,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"),
+        ("tests.test_reviewer_effort_cli",),
+    ),
+    (
         ("tools/units/autoplanner.py", "tools/autocode_replay_"),
         ("tests.test_saved_run_replay_cli",),
     ),

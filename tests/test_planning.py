@@ -1858,6 +1858,7 @@ class ReviewerEffortTierTests(unittest.TestCase):
             "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
             "settings": {
                 "planning_review_call_limit": 6,
+                "effort_origins": {"plan_reviewer": "runner_default"},
                 "roles": {
                     "plan_reviewer": {
                         "model": "openai/gpt-6-sol",
@@ -1887,6 +1888,24 @@ class ReviewerEffortTierTests(unittest.TestCase):
         self.assertEqual("low", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
         self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
         self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
+
+    def test_explicit_and_unknown_saved_efforts_keep_their_tier_and_charges(self):
+        for origin in ("user_explicit", None):
+            with self.subTest(origin=origin):
+                state = self.state()
+                if origin is None:
+                    state["settings"].pop("effort_origins")
+                else:
+                    state["settings"]["effort_origins"]["plan_reviewer"] = origin
+                state["settings"]["roles"]["plan_reviewer"].update(reasoning_effort="medium", light_effort="low")
+                state["settings"]["roles"]["investigator"] = {"model": "different/model", "reasoning_effort": "high"}
+                state["planning_history"] = [{"astra_calls": 2}]
+                planning.route_for(state, "astra_challenge")
+                planning.charge(state, "astra_challenge")
+                self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+                self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
+                self.assertEqual(2, state["planning"]["review_calls_before_policy"])
+                self.assertEqual(3, state["planning"]["astra_calls"])
 
     def test_ac3_one_step_down_ladder_boundaries(self):
         self.assertEqual("xhigh", planning.reduced_reviewer_effort({"reasoning_effort": "max"}))
