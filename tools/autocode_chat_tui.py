@@ -141,6 +141,23 @@ def role_of(text: str) -> str:
     return "plain"
 
 
+TAB_MARKS = {"working": "●", "needs you": "!", "done": "✓"}
+ASCII_TAB_MARKS = {"working": "*", "needs you": "!", "done": "+"}
+CTRL_T = "\x14"
+# Ctrl-← and Ctrl-→ as terminfo names them (xterm-style terminals); other terminals use /tab.
+TAB_KEYS = {b"kLFT5": "previous", b"kRIT5": "next", b"kLFT3": "previous", b"kRIT3": "next"}
+
+
+def tab_step(key) -> str | None:
+    """What a key does to the tabs: "new", "next", "previous", or None for any other key."""
+    if key == CTRL_T:
+        return "new"
+    if isinstance(key, int) and key > 255:
+        with contextlib.suppress(curses.error, ValueError):
+            return TAB_KEYS.get(curses.keyname(key))
+    return None
+
+
 def read_history(path: Path) -> list[str]:
     """The project's earlier replies, oldest first; none when the file is missing or unreadable."""
     try:
@@ -459,6 +476,7 @@ class ChatTUI:
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
         self._act: Callable[[str, str], str | panel.Confirm] | None = None
         self._run_open = True  # whether a chat is open: the run-only commands wait for one
+        self._tabs: list[dict] = []  # the session's chats from the client, drawn once there are two
         self._pending: panel.Confirm | None = None
         self._queued: list = []  # keys read while telling an escape key from a paste
         self._history_file: Path | None = None  # the project's ↑/↓ history, kept between chats
@@ -569,6 +587,22 @@ class ChatTUI:
                 self._bracketed_paste(True)
             self._draw()
             return code
+
+    def tabs(self, rows: list[dict]) -> None:
+        """This session's chats, as the client numbers them: drawn as tabs once there is more than one."""
+        with self._lock:
+            self._tabs = list(rows)
+            self._draw()
+
+    def _tab_key(self, step: str, asking: bool) -> str | None:
+        """Ctrl-T opens a new chat, Ctrl-←/→ the next or previous tab; at a question only, as /new and
+        /tab, so a step is never left running unwatched."""
+        name, argument = ("/new", "") if step == "new" else ("/tab", step)
+        if not asking or self._act is None or not self._run_open:
+            why = "a chat is open" if not self._run_open else "AutoCode asks you something (or after /pause)"
+            self._transcript.info(name, f"Tabs switch once {why}.")
+            return None
+        return self._run(name, asking, argument)
 
     def switch(self, workspace: Path, run_dir: Path) -> None:
         """The client opened another chat (/open, /new): start its screen afresh, like a new tab."""
@@ -703,6 +737,8 @@ class ChatTUI:
         if isinstance(key, Pasted):
             composer.insert(key.text)
             return None
+        if (tab := tab_step(key)) is not None:  # Ctrl-T, Ctrl-←/→: the tabs, at a question
+            return self._tab_key(tab, asking)
         if key == ESCAPE:  # Esc closes the menu or cancels a question a command asked
             if self._pending is not None:
                 self._transcript.info(self._pending.question, "Nothing changed.")
@@ -941,7 +977,24 @@ class ChatTUI:
         context = f"  {self._context}" if self._context else ""
         if context and used + display_width(context) < layout.width:
             self._put(0, used, truncate(context, layout.width - used), self._style("dim"))
-        self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
+        if len(self._tabs) < 2:
+            self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
+            return
+        col = 0
+        for row in self._tabs:  # the tab bar: number, title and a mark for what it waits on
+            state = str(row.get("state") or "")
+            mark = (TAB_MARKS if self._glyphs.unicode else ASCII_TAB_MARKS).get(state, "")
+            label = f" {row['number']} {row['title']} {mark} ".replace("  ", " ")
+            if col + display_width(label) > layout.width:
+                self._put(1, col, "…", self._style("dim"))
+                break
+            self._put(
+                1,
+                col,
+                label,
+                self._style("brand" if row.get("current") else "dim") | (curses.A_REVERSE if row.get("current") else 0),
+            )
+            col += display_width(label) + 1
 
     def _body(self, layout: Layout) -> None:
         height = max(0, layout.body_end - layout.body_start)

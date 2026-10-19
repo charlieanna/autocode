@@ -297,6 +297,47 @@ class LiveReplyTests(unittest.TestCase):
         self.assertIn("Sign in: the chat comes back when it finishes.", printed.getvalue())
 
 
+class TabBarTests(unittest.TestCase):
+    ROWS = [
+        {"number": 1, "run": "/p/r1", "title": "Add a flag", "state": "done", "current": False},
+        {"number": 2, "run": "/p/r2", "title": "Fix the typo", "state": "needs you", "current": True},
+    ]
+
+    def test_ctrl_t_and_ctrl_arrows_are_the_tab_keys(self):
+        self.assertEqual("new", tui.tab_step("\x14"))
+        self.assertIsNone(tui.tab_step("t"))
+        with mock.patch.object(
+            tui.curses, "keyname", create=True, side_effect=lambda key: {560: b"kRIT5", 545: b"kLFT5"}.get(key, b"KEY")
+        ):
+            self.assertEqual("next", tui.tab_step(560))
+            self.assertEqual("previous", tui.tab_step(545))
+            self.assertIsNone(tui.tab_step(400))
+
+    def test_the_tab_bar_shows_once_there_are_two_chats(self):
+        ui = screen_ui()
+        drawn = []
+        ui._put = lambda row, col, text, attr=0: drawn.append((row, text))
+        layout = ui._layout(30, 120)
+        ui.tabs(self.ROWS[:1])
+        ui._header(layout)
+        self.assertFalse(any("Add a flag" in text for _, text in drawn))
+        ui.tabs(self.ROWS)  # draws the screen itself
+        drawn.clear()
+        ui._header(layout)
+        row_one = [text for row, text in drawn if row == 1]
+        self.assertEqual([" 1 Add a flag ✓ ", " 2 Fix the typo ! "], row_one)
+
+    def test_tab_keys_wait_for_a_question(self):
+        ui = screen_ui()
+        acted = []
+        ui.bind(lambda name, argument: acted.append((name, argument)) or "ok")
+        self.assertIsNone(ui._tab_key("next", asking=False))
+        self.assertEqual([], acted, "never leaves a step running unwatched")
+        self.assertIn("Tabs switch once AutoCode asks you something", ui._transcript.blocks[-1][1])
+        ui._tab_key("next", asking=True)
+        self.assertEqual([("/tab", "next")], acted)
+
+
 class AskTests(unittest.TestCase):
     """The composer against a stand-in screen, without a terminal."""
 

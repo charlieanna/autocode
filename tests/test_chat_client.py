@@ -645,6 +645,49 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertEqual(["--provider", "opencode"], history.new.options)
 
 
+class TabTests(unittest.TestCase):
+    """This session's chats as tabs: numbered in the order opened, each with its state; /tab switches."""
+
+    def client(self):
+        view = {"task": "Fix the typo\nin README", "needs": {"kind": "approve_plan", "token": "t"}}
+        client = ScriptedChat(view)  # its status() returns views as given, so record what a real read records
+        client.identity, client.titles[str(RUN)] = chat.wait_identity(view), chat.title_of(view)
+        other = f"{WORKSPACE}/.autocode/runs/r0"
+        client.others = {other: (WORKSPACE, ("done",))}
+        client.tab_order = [other, str(RUN)]
+        client.titles[other] = "Add a flag"
+        return client, other
+
+    def test_tabs_list_each_chat_with_its_state_and_mark_the_one_shown(self):
+        client, other = self.client()
+        self.assertEqual(
+            [
+                {"number": 1, "run": other, "title": "Add a flag", "state": "done", "current": False},
+                {"number": 2, "run": str(RUN), "title": "Fix the typo", "state": "needs you", "current": True},
+            ],
+            client.tabs(),
+        )
+
+    def test_tab_switches_by_number_or_next_and_previous(self):
+        client, other = self.client()
+        drawn = []
+        client.tabs_changed = drawn.append
+        self.assertEqual("That is this chat.", client.slash("/tab", "2"))
+        self.assertIn("There is no tab 7. Choose 1 to 2.", client.slash("/tab", "7"))
+        with self.assertRaises(chat.Switched):
+            client.slash("/tab", "next")  # wraps around to the first
+        self.assertEqual(Path(other), client.run_dir)
+        self.assertEqual([1, 2], [row["number"] for row in drawn[-1]])
+        self.assertTrue(drawn[-1][0]["current"])
+        with self.assertRaises(chat.Switched):
+            client.slash("/tab", "previous")
+        self.assertEqual(RUN, client.run_dir)
+
+    def test_a_long_task_makes_a_short_title(self):
+        self.assertEqual("Hierarchical planning", chat.title_of({"task": "# Hierarchical planning\nbody"}))
+        self.assertEqual(40, len(chat.title_of({"task": "x" * 99})))
+
+
 class StreamAndNoticeTests(unittest.TestCase):
     def test_a_reply_being_written_is_streamed_then_replaced_by_the_finished_message(self):
         streamed = []

@@ -9,6 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- Tabs in the full-screen `autocode chat`, as in the VS Code extension: `Ctrl-T` (or `/new`)
+  opens another chat in a new tab, `Ctrl-←`/`Ctrl-→` or `/tab N` switch, and a tab bar lists the
+  session's chats with what each waits on (working, needs you, done). Tabs switch at a question,
+  so a step is never left running unwatched; the other tabs are checked and announced.
+
 ## [0.8.0] — 2026-10-19
 
 ### Added
