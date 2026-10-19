@@ -25,6 +25,8 @@ PROGRESS_PREFIX = "· "
 HISTORY_LIMIT = 100
 BRAND = "AutoCode chat"
 TAGLINE = "Plan, build and test, with a reviewer at every step."
+NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
+REPLY_PLACEHOLDER = "Type your reply, then Enter"
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 WORDMARK = (
     "▄▀█ █░█ ▀█▀ █▀█ █▀▀ █▀█ █▀▄ █▀▀",
@@ -119,6 +121,16 @@ def role_of(text: str) -> str:
     ):
         return "notice"
     return "plain"
+
+
+def composer_label(prompt: str, asking: bool) -> str:
+    """What the box is for: starting a chat, answering a question, or waiting."""
+    if not asking:
+        return "AutoCode"
+    prompt = prompt.lower()
+    if "new request" in prompt or "what do you want done" in prompt:
+        return "New chat"
+    return "Reply"
 
 
 @dataclass
@@ -610,24 +622,33 @@ class ChatTUI:
         glyphs = self._glyphs
         width = layout.width
         active = self._asking
+        label = composer_label(self._prompt, active)
         border = self._style("border-active" if active else "border")
-        self._put(layout.box_top, 0, glyphs.top_left + glyphs.rule * (width - 2) + glyphs.top_right, border)
+        self._put(layout.box_top, 0, self._box_top(width, label), border)
+        self._put(layout.box_top, 3, label, self._style("brand" if active else "dim"))
         self._put(layout.box_text, 0, glyphs.vertical, border)
         self._put(layout.box_text, width - 1, glyphs.vertical, border)
         self._put(layout.box_bottom, 0, glyphs.bottom_left + glyphs.rule * (width - 2) + glyphs.bottom_right, border)
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
         if not active:
-            self._put(layout.box_text, 4, truncate("Waiting for AutoCode…", inner), self._style("placeholder"))
+            self._put(layout.box_text, 4, truncate("AutoCode is working…", inner), self._style("placeholder"))
             return
         if self._composer.text:
             shown, cursor = window(self._composer.text, self._composer.cursor, inner)
             self._put(layout.box_text, 4, truncate(shown, inner), self._style("input"))
         else:
             cursor = 0
-            self._put(layout.box_text, 4, truncate("Type your reply, then Enter", inner), self._style("placeholder"))
+            placeholder = NEW_CHAT_PLACEHOLDER if label == "New chat" else REPLY_PLACEHOLDER
+            self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
         with contextlib.suppress(curses.error):
             self._screen.move(layout.box_text, min(width - 2, 4 + cursor))
+
+    def _box_top(self, width: int, label: str) -> str:
+        glyphs = self._glyphs
+        title = f" {label} "
+        fill = max(0, width - 3 - display_width(title))
+        return glyphs.top_left + glyphs.rule + title + glyphs.rule * fill + glyphs.top_right
 
     def _hints(self, layout: Layout) -> None:
         if self._asking:

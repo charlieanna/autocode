@@ -133,6 +133,16 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(["hi"], composer.history)
 
 
+class ComposerLabelTests(unittest.TestCase):
+    def test_a_new_request_prompt_names_the_chat(self):
+        self.assertEqual("New chat", tui.composer_label("What do you want done?", True))
+        self.assertEqual("New chat", tui.composer_label("Pick one (1-3), or type a new request:", True))
+
+    def test_other_questions_are_replies_and_waiting_names_the_run(self):
+        self.assertEqual("Reply", tui.composer_label("Approve this plan? [y/N]", True))
+        self.assertEqual("AutoCode", tui.composer_label("", False))
+
+
 class WindowTests(unittest.TestCase):
     def test_short_text_keeps_the_cursor_column(self):
         self.assertEqual(("hello", 5), tui.window("hello", 5, 10))
