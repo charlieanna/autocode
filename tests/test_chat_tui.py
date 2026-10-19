@@ -1,5 +1,7 @@
 """The full-screen chat's pure pieces: width, wrapping, transcript blocks, composer, window."""
 
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -269,6 +271,32 @@ class HistoryFileTests(unittest.TestCase):
         self.assertEqual("p · r2", ui._context)
 
 
+class LiveReplyTests(unittest.TestCase):
+    def test_a_reply_being_written_shows_last_and_goes_when_done(self):
+        ui = screen_ui()
+        ui.say("You: hello")
+        ui.stream("Let me think")
+        rows = ui._transcript.lines(80)
+        self.assertIn(("assistant-label", "AutoCode · writing…"), rows)
+        self.assertEqual(("assistant-body", "  Let me think"), rows[-2])
+        ui.stream(None)
+        self.assertNotIn(("assistant-label", "AutoCode · writing…"), ui._transcript.lines(80))
+
+    def test_an_interactive_command_gets_the_terminal_and_the_chat_comes_back(self):
+        ui = screen_ui()
+        with (
+            mock.patch.object(tui.curses, "endwin", create=True) as endwin,
+            mock.patch.object(tui.subprocess, "call", return_value=0) as call,
+            mock.patch.object(tui.ChatTUI, "_bracketed_paste"),
+            contextlib.redirect_stdout(io.StringIO()) as printed,
+        ):
+            self.assertEqual(0, ui.outside(["autocode", "connections", "login", "--provider", "opencode"], "Sign in"))
+        endwin.assert_called_once()
+        self.assertEqual(["autocode", "connections", "login", "--provider", "opencode"], call.call_args.args[0])
+        ui._screen.clearok.assert_called_with(True)
+        self.assertIn("Sign in: the chat comes back when it finishes.", printed.getvalue())
+
+
 class AskTests(unittest.TestCase):
     """The composer against a stand-in screen, without a terminal."""
 
@@ -280,6 +308,15 @@ class AskTests(unittest.TestCase):
 
     def info(self, ui):
         return [text for role, text in ui._transcript.blocks if role == "info"]
+
+    def test_a_question_after_work_rings_the_terminal_bell(self):
+        ui = screen_ui(*"y\n", *"y\n")
+        with mock.patch.object(tui.curses, "beep", create=True) as beep:
+            ui.ask("First?")
+            beep.assert_not_called()
+            ui._launched = True  # a step ran since that question
+            ui.ask("Approve this plan? [y/N]")
+            beep.assert_called_once()
 
     def test_a_command_at_a_question_shows_its_answer_and_the_question_still_waits(self):
         ui = screen_ui(*"/tasks\n", *"y\n")
