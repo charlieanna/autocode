@@ -2454,7 +2454,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/6dba7dcc7c03d43a94daaf7a80fecbf6e8e7632a/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/20344cc4c86642c511c64c4a323f6cd912d2b96d/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2662,7 +2662,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/6dba7dcc7c03d43a94daaf7a80fecbf6e8e7632a/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/20344cc4c86642c511c64c4a323f6cd912d2b96d/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3232,7 +3232,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/6dba7dcc7c03d43a94daaf7a80fecbf6e8e7632a/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/20344cc4c86642c511c64c4a323f6cd912d2b96d/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3984,10 +3984,69 @@ in a scrollable transcript with a colored label for each speaker
 (<code>PgUp</code>/<code>PgDn</code>), the current question or activity above a boxed composer, and a
 hint bar. The composer is labeled <strong>New chat</strong> when typing there starts a run and
 <strong>Reply</strong> when it answers the run (<code>Up</code>/<code>Down</code> for history, <code>Ctrl-W</code>/<code>Ctrl-U</code> to
-edit, <code>Enter</code> to send, <code>Ctrl-D</code> to leave). A plan, a question or a stop is shown
+edit, <code>Enter</code> to send, <code>Ctrl-D</code> to leave). A paste stays in the composer as one
+reply, line breaks included, until you press <code>Enter</code>. A plan, a question or a stop is shown
 where it is asked, and <code>Ctrl-C</code> keeps its meaning: the first asks the run to pause
-after the current step, the second interrupts it. <code>--line</code> keeps the plain
+after the current step, the second interrupts it. When the chat ends, its last words
+stay on the terminal: an error, where to pick the run up, or the command a stop
+leaves for you to run. <code>--line</code> keeps the plain
 prompts, and scripts get them automatically when there is no terminal.</p>
+<p>In a terminal at least 100 columns wide, a side panel shows the run beside the
+conversation once it has a plan: where it is and what it needs from you, the
+current step and its last few attempts (the view's <code>chat.progress</code>), each
+requirement and task with its state, open problems, and a log of how the run moved
+(a stage starting or finishing, an attempt finishing, a task done, a requirement
+checked). Everything in it comes from the status views the chat already reads.</p>
+<p>Type <code>/</code> in the composer for commands, at a question or while AutoCode works. The
+menu narrows as you type; <code>Up</code>/<code>Down</code> choose, <code>Tab</code> completes and <code>Enter</code> runs the
+highlighted one:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/plan</code>, <code>/tasks</code>, <code>/log</code></td>
+<td>Show the requirements, the task list or the run's log in the conversation</td>
+</tr>
+<tr>
+<td><code>/details</code></td>
+<td>Why the run is where it is (the view's explanation)</td>
+</tr>
+<tr>
+<td><code>/diff</code></td>
+<td>List the saved code steps with the files each changed; <code>/diff N</code> shows the files and the diff changed since step N</td>
+</tr>
+<tr>
+<td><code>/undo N</code></td>
+<td>At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again</td>
+</tr>
+<tr>
+<td><code>/panel</code></td>
+<td>Show or hide the side panel</td>
+</tr>
+<tr>
+<td><code>/pause</code></td>
+<td>While AutoCode works: ask it to pause after the current step, as the first <code>Ctrl-C</code> does</td>
+</tr>
+<tr>
+<td><code>/help</code></td>
+<td>List the commands</td>
+</tr>
+<tr>
+<td><code>/quit</code></td>
+<td>At a question: leave the chat; the run stays as it is</td>
+</tr>
+</tbody>
+</table>
+<p>A command never answers the question that is waiting. To send a reply that starts
+with <code>/</code>, type <code>//</code>. <code>/diff</code> and <code>/undo</code> take only the <code>compare</code> and <code>restore</code>
+actions the status view names for a saved step (<a href="../task-run/#saved-code-checkpoints">Saved code
+checkpoints</a>); the view offers going back only
+at a pause it can restore from, and <code>/undo</code> says why when it cannot.</p>
 <p>The older inline chat (<code>--chat</code>, the default when <code>autocode "TASK"</code> runs in a
 terminal) still works and is being replaced by this client. Scripts that call plain
 <code>autocode</code> without a terminal are unchanged.</p>
@@ -4012,7 +4071,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/6dba7dcc7c03d43a94daaf7a80fecbf6e8e7632a/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/20344cc4c86642c511c64c4a323f6cd912d2b96d/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
