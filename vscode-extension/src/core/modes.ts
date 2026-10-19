@@ -11,6 +11,7 @@ export interface RunMode {
   label: string;
   description: string;
   startArgs: string[];
+  spendConfirmation?: "planning" | "start";
 }
 
 export interface RunModes {
@@ -32,7 +33,8 @@ export function readRunModes(raw: string): RunModes {
     if (typeof row.id !== "string" || !row.id || typeof row.label !== "string" || !Array.isArray(args)) continue;
     // Only flags: a bare word would be read as a second task or a flag's value.
     if (!args.every((word) => typeof word === "string" && word.startsWith("--"))) continue;
-    modes.push({ id: row.id, label: row.label, description: typeof row.description === "string" ? row.description : "", startArgs: args as string[] });
+    modes.push({ id: row.id, label: row.label, description: typeof row.description === "string" ? row.description : "", startArgs: args as string[],
+      spendConfirmation: row.spend_confirmation === "planning" ? "planning" : "start" });
   }
   const defaultId = typeof parsed.default === "string" && modes.some((mode) => mode.id === parsed.default) ? parsed.default : modes[0]?.id ?? "";
   return { defaultId, modes };

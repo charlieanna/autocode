@@ -198,10 +198,8 @@ async function pickWorkspace(): Promise<string | undefined> {
 }
 
 /**
- * Starting a run launches real models, so a person confirms the spend first.
- *
- * This mirrors what `--i-authorize-live-model-spend` asks of an agent: the
- * extension never decides on its own to start paid work.
+ * Modes that can plan immediately confirm spend at launch. Full chat defers
+ * this decision to the core-named Requirements review before planning (#1612).
  */
 async function confirmSpend(): Promise<boolean> {
   const provider = spendTarget(readSettings());

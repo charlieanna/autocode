@@ -30,8 +30,9 @@ class RunModeListTests(unittest.TestCase):
         self.assertEqual(["full", "quick"], [mode["id"] for mode in listed["modes"]])
         self.assertEqual("full", listed["default"])
         for mode in listed["modes"]:
-            self.assertEqual({"id", "label", "description", "start_args"}, set(mode))
+            self.assertEqual({"id", "label", "description", "start_args", "spend_confirmation"}, set(mode))
             self.assertTrue(all(word.startswith("--") for word in mode["start_args"]), mode)
+        self.assertEqual(["planning", "start"], [mode["spend_confirmation"] for mode in listed["modes"]])
 
     def test_a_listed_mode_cannot_be_changed_through_the_view(self):
         self.listed()["modes"][0]["start_args"].append("--auto-approve")

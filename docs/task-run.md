@@ -207,6 +207,11 @@ When the only pending question is the core's current requirements review,
 A client may display that summary and submit the ordinary named answer action.
 This confirms the understanding and releases plan preparation and review.
 The resulting execution plan still needs its own displayed-token approval.
+The optional `review.spend_confirmation` supplies the modal's `title`, `detail`
+and confirm-button `label` before submitting that review's planning answer.
+`match: "trim_lower"` mechanically matches the answer after whitespace trimming
+and lowercasing, as the core does; corrections do not trigger the planning modal.
+This spend confirmation never approves an execution plan.
 The optional `notice` explains a stop or ongoing work in ordinary language;
 chat clients keep diagnostic headings, empty counts and pause categories in
 Run details. A notice never grants an action beyond the view's named command.
@@ -1569,6 +1574,11 @@ following the brief. A client shows the label and description and passes the
 chosen mode's `start_args` unchanged when it starts a run; it never builds its
 own list or adds flags to a mode. The flags apply only to the new run: a saved
 run keeps the flow it started with. Listing launches nothing and reads no run.
+Optional `spend_confirmation` is `"planning"` for Full mode: start the Requirements
+conversation without a spend dialog, then honor the core's review confirmation
+before preparing the plan. Requirements conversation still uses the selected
+model allowance. Quick mode uses `"start"` because it can plan immediately.
+Missing or unknown metadata retains confirmation at launch for older cores.
 
 | Mode | Start flags | What it changes |
 | --- | --- | --- |

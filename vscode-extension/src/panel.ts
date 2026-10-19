@@ -218,15 +218,16 @@ export class RunPanel {
       }
       const state = stateFor(view, this.run, this.controller, true);
       const numeric = numericConfirmation(state, message.answers ?? {});
+      const planning = planningSpendConfirmation(view, message.answers ?? {});
       if ((message.decisionContext || numeric) && message.decisionContext !== state.decisionContext) {
         void vscode.window.showErrorMessage("AutoCode: The requested action changed; review it before continuing");
         return;
       }
-      if (numeric || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
-        const button = numeric ? numericActionLabel(state) : "Take it anyway";
+      if (numeric || planning || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
+        const button = numeric ? numericActionLabel(state) : planning?.label ?? "Take it anyway";
         const proceed = await vscode.window.showWarningMessage(
-          numeric ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
-          { modal: true, detail: numeric ? numericRecoveryEffect(state) : needsSummary(view) },
+          numeric ?? planning?.title ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
+          { modal: true, detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? needsSummary(view) },
           button,
         );
         if (proceed !== button) return;
@@ -420,6 +421,19 @@ function describe(
     options: asksModel ? [...(route?.candidates ?? [])] : [...(question?.options ?? [])],
     suggested: asksModel ? null : (question?.proposed_default ?? null),
   };
+}
+
+/** Only the core-named Requirements answer starts paid planning; corrections stay conversational. */
+export function planningSpendConfirmation(view: StatusView, answers: Record<string, string>) {
+  const review = view.chat?.review;
+  const confirmation = review?.spend_confirmation;
+  if (!review || !confirmation) return null;
+  // The core declares the same trim/lower match its Requirements answer uses.
+  // Python also strips these control separators; argv keeps the original text.
+  const normalize = (value: string) => confirmation.match === "trim_lower"
+    ? value.replace(/^[\s\u001c-\u001f\u0085]+|[\s\u001c-\u001f\u0085]+$/g, "").toLowerCase() : value;
+  const answer = answers[review.question_id];
+  return typeof answer === "string" && normalize(answer) === normalize(review.answer) ? confirmation : null;
 }
 
 /** A changed allowance always needs explicit confirmation, even if generic pause prompts are disabled. */
@@ -1240,7 +1254,7 @@ function renderChat(data) {
       app.classList.remove('muted');
       const card = el('div', 'decision-card');
       card.appendChild(el('div', 'speaker', 'AutoCode'));
-      card.appendChild(el('div', 'message-content', 'Thinking…'));
+      card.appendChild(el('div', 'message-content', data.waitingForStart ? 'Waiting to start. Complete setup to continue.' : 'Thinking…'));
       app.appendChild(card);
     } else {
       app.classList.add('muted');
