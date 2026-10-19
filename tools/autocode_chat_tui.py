@@ -360,7 +360,7 @@ class ChatTUI:
                 self._scroll_by(self._page())
             elif key == curses.KEY_NPAGE:
                 self._scroll_by(-self._page())
-            return
+            return None
         if key in ("\n", "\r"):
             return self._submit()
         if key in ("\b", "\x7f"):
@@ -386,6 +386,7 @@ class ChatTUI:
             composer.previous()
         elif key.isprintable():
             composer.insert(key)
+        return None
 
     def _submit(self) -> str:
         text = self._composer.submit()
