@@ -25,6 +25,7 @@ except ImportError:
     from providers import claude as claude_provider
 
 REPAIR_REPORT_BYTES = 128 * 1024
+TRUNCATED_REVIEW_STAGES = ("sol", "astra_review", "astra_checkpoint", "astra_challenge", "astra_finalize")
 # Saved repair inputs never shrink, so a repair refused for them cannot launch on a later resume;
 # an explicit resume archives it and starts a fresh attempt of the stage (autocode_stage_recovery).
 REPAIR_INPUT_ROUTE = (
@@ -149,11 +150,25 @@ def repair_report_source(record):
 
 def valid_truncated_report_attempt(record, stage_completed):
     """Accept only a failed, length-limited transcript with no completion event."""
-    path = record.get("events", "")
+    stage = record.get("stage")
+    if record.get("report_only"):
+        owner = record.get("original_stage")
+        if stage != str(owner) + "_report_repair":
+            return False
+        stage = owner
+    elif record.get("original_stage") not in (None, stage):
+        return False
+    events = support.events(record.get("events", ""))
     return bool(
-        record.get("truncated_output")
-        and support.terminal_failure_reason(path)
-        and not any(event.get("type") == "turn.completed" for event in support.events(path))
+        stage in TRUNCATED_REVIEW_STAGES
+        and record.get("truncated_output")
+        and any(
+            event.get("type") == "turn.failed"
+            and isinstance(event.get("error"), dict)
+            and event["error"].get("code") == "output_token_limit"
+            for event in events
+        )
+        and not any(event.get("type") == "turn.completed" for event in events)
         and not stage_completed
     )
 

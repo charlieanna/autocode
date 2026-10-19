@@ -31,6 +31,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_quota_route as quota_route
     from . import autocode_report_retry as report_retry
+    from . import autocode_report_source as report_source
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_reviewer_fallback as reviewer_fallback
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_quota_route as quota_route
     import autocode_report_retry as report_retry
+    import autocode_report_source as report_source
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_reviewer_fallback as reviewer_fallback
@@ -306,7 +308,10 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pins.items())
             or original.get("exit_code") != 0
             or original.get("timed_out")
-            or not records.stage_completed(state, original)
+            or not (
+                records.stage_completed(state, original)
+                or report_source.valid_truncated_report_attempt(original, False)
+            )
         ):
             stop("source, original evidence or stage bindings changed")
         attempts = pending.get("attempts")
@@ -343,7 +348,7 @@ def automatically_recover_report_repair_timeout(state: RunState, run_dir, worksp
             state,
             run_dir,
             "retry",
-            "Retry only the remaining bounded report repair; preserve the completed original and charged attempts.",
+            "Retry only the remaining bounded report repair; preserve the original evidence and charged attempts.",
             {
                 "origin_output": record["output"],
                 "events": record["events"],
@@ -474,7 +479,7 @@ def automatically_recover_truncated_review(state: RunState, run_dir, workspace, 
     reason = support.terminal_failure_reason(event_path) if event_path.is_file() else None
     if (
         error.status not in ("PAUSED_PROVIDER_UNCERTAIN", "PAUSED_UNCERTAIN_STAGE", quota_route.OUTPUT_STATUS)
-        or original_stage not in ("sol", "astra_review", "astra_checkpoint", "astra_challenge", "astra_finalize")
+        or original_stage not in report_source.TRUNCATED_REVIEW_STAGES
         or not reason
         or "output token limit" not in reason.lower()
         or record.get("timed_out")
