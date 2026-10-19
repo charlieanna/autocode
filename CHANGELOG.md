@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode chat` talks to a run in the terminal the way the VS Code extension does: it shows the
+  run's conversation, asks you only for the answer, approval or reply the status view leaves to you,
+  and runs exactly the command the view names. Plain `autocode` in a terminal now opens it: it picks
+  up the run left open, or asks what you want done.
+
 - New chats in VS Code offer a **Run mode**: Full (the default, Requirements first) or Quick plan,
   where a clear request goes straight to the plan. The modes and their start flags come from the
   new `autocode modes list --json`; every mode keeps plan approval, the Tester and the Completion

@@ -15,11 +15,12 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode "Your rough idea"` | The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint). |
 | `replay RUN --into WORKSPACE/.autocode/runs/NAME` | Re-drive a saved run offline with recorded provider events and fresh verification checks; see [Replay](replay.md). |
 | `replay RUN --export DIR` | Export a bounded recording; `--recorded-checks` on replay simulates historical checks without current completion evidence. |
-| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a stop. |
+| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task, run from a script or with output redirected, relaunches a running run the same way but only shows a stop; in an interactive terminal it opens `autocode chat`. |
 | `autocode status` | The same as `autocode --status`: read-only status of that run. Command words are recognized wherever they stand among the options; a task whose whole text is `resume`, `status` or `explain` goes after `--` (`autocode -- status`). |
 | `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
 | `autocode demo [--directory PATH]` | Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing `--directory`. See [Offline demo](#offline-demo). |
 | `autocode verify` | Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See [Standalone verification](verify.md). |
+| `autocode chat [BRIEF] [--mode ID] [-- RUN_OPTIONS]` | Talk to a run in the terminal, the way the VS Code extension does: it prints the run's conversation, asks you only for what the [status view](task-run.md#status-view) leaves to you (an answer, a plan approval, a reply) and runs exactly the command the view names. Plain `autocode` in an interactive terminal opens it too. With a brief it starts a new run in the project (`--in-place`, with the start flags of the `--mode` from `autocode modes list`, else its default). Without one it picks up the project's open run (or `--run-dir RUN`), lets you choose when several are open, and asks what you want done when none is. Leaving at a prompt changes nothing. While a stage works, Ctrl-C asks for the view's pause after the current step and a second Ctrl-C interrupts it. Where the view names no action it can take, it prints the command to run yourself. Exits 0 when the run completes, 2 when it waits for you. See [Terminal chat](#terminal-chat). |
 | `autocode conversation start\|attach\|read\|send\|refresh\|handoff` | Core Requirements conversation journal tied to one task run: queue human messages, explicitly refresh its draft and inspect the handoff. See [Core Requirements conversations](task-run.md#core-requirements-conversations). |
 | `autocode ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` | Run a multi-lane task flow file; accepts `--json`. |
@@ -589,6 +590,7 @@ also accepts `-h` / `--help`.
 | --- | --- | --- |
 | `autocode connections` | `--json`, `--provider` | List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with `setup`. See [Connections for clients](task-run.md#connections-for-clients). |
 | `autocode modes` | `--json` | List the run modes a client may offer for a new run: each mode's id, label, description and the start flags to pass. Launches nothing. See [Run modes for clients](task-run.md#run-modes-for-clients). |
+| `autocode chat` | `--workspace`, `--run-dir`, `--mode` | Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with. New-run options follow `--`. |
 | `autocode conversation` | `--workspace`, `--run-dir`, `--text`, `--title`, `--request-id`, `--expected-revision`, `--supersedes-request-id`, `--question-id`, `--resolver-token`, `--expected-plan-token`, `--timeout` | Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow `--`. On `send`, `--supersedes-request-id` queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON. |
 | `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See [Standalone verification](verify.md). |
 | `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
@@ -640,6 +642,38 @@ also accepts `-h` / `--help`.
 | `autocode arena` | `--report`, `--reviewer` | Annotate a completed attempt from an attribution JSON report; an explicit independent reviewer is required to confirm a diagnosis. |
 | `autocode unattended --analyze` | `--analyze`, `--run-dir`, `--workspace`, `--out` | Read-only run analysis; optionally save its evidence report in `--out`. |
 | `autocode dashboard` | `--workspace`, `--watch-root`, `--watch-depth`, `--runner`, `--port`, `--provider` | Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs. |
+
+## Terminal chat
+
+`autocode chat` is the terminal client of the [task-run interface](task-run.md),
+beside the VS Code extension and the browser dashboard. It reads `autocode --status`
+and nothing else, shows the conversation the view carries (`view.chat`), and acts
+only through the view's named actions: `next_command`, the `chat.input` message
+offer and the `pause` offer. The rules it reads them by are in
+`tools/autocode_client_actions.py`, the same ones the extension
+(`vscode-extension/src/core/next-command.ts`) and the headless conformance client
+follow, so a person gets the same choices in each:
+
+- **Requirements** asks in its own words; you reply in yours, and confirm the
+  understanding it summarizes with `y`.
+- **A question** with options takes the option's number or your own answer; Enter
+  takes the proposed default when there is one.
+- **The plan** is shown from `displayed_plan` and approved with `y` only while its
+  token is still the one shown; anything else you type is sent as plan feedback.
+- **A stop only you decide** (a pause, a stopped job) says why and continues only
+  on your `y`; a Resolver request takes your reply.
+- **When the run completes** you can type a follow-up, or press Enter to finish.
+
+```sh
+autocode                            # in a terminal: pick up the open run, or ask what to do
+autocode chat "Add a --verbose flag to greet.py"
+autocode chat                       # the same as plain autocode in a terminal
+autocode chat --mode quick "Fix the README typo" -- --engine claude
+```
+
+The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a
+terminal) still works and is being replaced by this client. Scripts that call plain
+`autocode` without a terminal are unchanged.
 
 ## Unattended callers (agents)
 
