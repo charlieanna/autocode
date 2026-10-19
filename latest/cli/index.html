@@ -2454,7 +2454,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/12ef80f17ad557e8335c6c8b5418765e6fd9aa74/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/cc31a299b2a95cc7ca84323e4c43a92eb59c7a20/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2662,7 +2662,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/12ef80f17ad557e8335c6c8b5418765e6fd9aa74/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/cc31a299b2a95cc7ca84323e4c43a92eb59c7a20/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3232,7 +3232,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/12ef80f17ad557e8335c6c8b5418765e6fd9aa74/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/cc31a299b2a95cc7ca84323e4c43a92eb59c7a20/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4046,6 +4046,18 @@ highlighted one:</p>
 <td>At a question: start a new chat here; an empty request keeps the current one</td>
 </tr>
 <tr>
+<td><code>/mode [ID]</code></td>
+<td>The modes the core lists (<code>autocode modes list</code>), and which one new chats start in; <code>/mode quick</code> changes it for new chats only</td>
+</tr>
+<tr>
+<td><code>/engine [NAME]</code></td>
+<td>The engine new chats run on: <code>opencode</code>, <code>codex</code> or <code>claude</code>, set as the VS Code extension's engine picker sets it</td>
+</tr>
+<tr>
+<td><code>/connect [NAME check\|login\|setup\|use]</code></td>
+<td>The backends <code>autocode connections list</code> reports, with their state. <code>check</code> runs the connection's own check; <code>login</code> and <code>setup</code> hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; <code>use</code> makes new chats use it. Only an action the connection offers is run</td>
+</tr>
+<tr>
 <td><code>/panel</code></td>
 <td>Show or hide the side panel</td>
 </tr>
@@ -4068,6 +4080,13 @@ with <code>/</code>, type <code>//</code>. <code>/diff</code> and <code>/undo</c
 actions the status view names for a saved step (<a href="../task-run/#saved-code-checkpoints">Saved code
 checkpoints</a>); the view offers going back only
 at a pause it can restore from, and <code>/undo</code> says why when it cannot.</p>
+<p>The first screen says what a new chat starts with (<code>New chats: Full · OpenCode</code>). A
+choice made with <code>/mode</code>, <code>/engine</code> or <code>/connect … use</code> is kept for the project in
+<code>.autocode/chat-settings.json</code>; options after <code>--</code> on the command line take its place
+for that chat. While Requirements writes its reply, the reply grows on screen as it is
+written (the view's streaming message). The terminal rings its bell when AutoCode has
+worked and now needs you, and a chat you opened earlier in the session is checked while
+AutoCode works: when it starts to wait for you or finishes, the chat says so.</p>
 <p><code>autocode</code> in a project with earlier chats says how many there are. <code>Up</code>/<code>Down</code> recall
 your earlier requests and messages in this project, across chats: they are kept, the
 last 100, in the project's <code>.autocode/chat-history.jsonl</code> once a run has made that
@@ -4096,7 +4115,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/12ef80f17ad557e8335c6c8b5418765e6fd9aa74/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/cc31a299b2a95cc7ca84323e4c43a92eb59c7a20/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
