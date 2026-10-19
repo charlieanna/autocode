@@ -778,9 +778,9 @@ while True:
 
     def test_quiet_descendant_without_start_event_gets_bounded_tool_grace(self):
         # OpenCode currently emits a completed tool row but no start row. A prior
-        # turn event is still required before process fallback may suppress idle
-        # (#1098); real providers emit session/turn traffic before tools run.
-        body = """emit({'type':'turn.started','turn_id':'one'})
+        # substantive provider event is required before process fallback may
+        # suppress idle (#1098, #1562); lifecycle rows alone are insufficient.
+        body = """emit({'type':'text','part':{'id':'plan','text':'Running the quiet check'}})
 worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'], start_new_session=True)
 Path('worker.pid').write_text(str(worker.pid))
 worker.wait()
@@ -795,6 +795,20 @@ emit({'type':'tool_use','sessionID':'one','part':{'id':'part1','tool':'bash','st
     def test_silent_descendant_without_events_expires_idle_not_tool(self):
         # Hung transport: live child, empty stage log — idle, not tool (#1098).
         body = """worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+Path('worker.pid').write_text(str(worker.pid))
+time.sleep(30)
+"""
+        code, expired, snapshots, reason = self.activity_child(body, idle=0.4, tool=8, require_worker=True)
+        self.assertNotEqual(0, code)
+        self.assertTrue(expired)
+        self.assertEqual("idle", reason["kind"])
+        self.assertFalse(any(row.get("process_fallback") for row in snapshots))
+
+    def test_lifecycle_only_provider_with_a_child_expires_idle_not_tool(self):
+        # Kilo can announce a step before waiting on a model in a persistent
+        # native child. That announcement must not buy the longer tool budget.
+        body = """emit({'type':'step_start','sessionID':'trial','part':{'id':'part','type':'step-start'}})
+worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
 Path('worker.pid').write_text(str(worker.pid))
 time.sleep(30)
 """

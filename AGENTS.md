@@ -39,11 +39,14 @@ It is a client of the
 [task-run interface](docs/task-run.md) and nothing else:
 
 - it starts `autocode` as an argument array with no shell, and reads only
-  `--status`, `registry list --json`, and `connections list --json`;
+  `--status`, `registry list --json`, `connections list --json` and
+  `modes list --json` (a new chat's run mode, passed unchanged);
 - it never imports a module from `tools/`, never reads `state.json`, and never
   parses the CLI's prose to decide what to do;
-- it takes only the action the status view names (`view.next_command` or the
-  optional `view.chat.input.next_command` message offer), so it can
+- it takes only the action the status view names (`view.next_command`, the
+  optional `view.chat.input.next_command` message offer, or the optional
+  `view.pause.next_command` boundary pause the owner approved on 2026-10-19
+  for #1598), so it can
   do nothing the headless conformance client (#1012,
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the
   client could take, that is a gap in the CLI or the view: report it, never work
@@ -53,7 +56,13 @@ It is a client of the
 - it never launches a model on its own, and binds an approval to the plan token
   it displayed, so it cannot approve a plan nobody read.
 
-A second new client, or growth beyond that contract, needs the owner's decision again.
+**Terminal chat, approved 2026-10-19 (#1622), in `tools/autocode_chat_client.py`.**
+The same contract as the VS Code client, with the shared rules in
+`tools/autocode_client_actions.py`: it starts `autocode` as an argument array, reads
+only `--status`, `runs --json` and `modes list --json`, and takes only the actions
+the status view names.
+
+A further new client, or growth beyond that contract, needs the owner's decision again.
 
 Historical audit records (`audits/`), `learn/` and two top-level result reports
 were archived at tag `archive/pre-restructure-2026-09-26`

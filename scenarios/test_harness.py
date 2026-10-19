@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -1840,6 +1841,47 @@ for _scenario in catalog.load_all():
 
 
 class CatalogTests(unittest.TestCase):
+    def test_fake_starting_review_allowance_is_finite_and_explicit(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(catalog, "CATALOG", Path(directory)):
+            root = Path(directory) / "review-budget"
+            root.mkdir()
+            base = 'title = "t"\ncategory = "greenfield"\nbrief = "Build it."\n[fake]\n'
+            for value in ("true", "0", "1", "-1", "2.5", '"6"'):
+                (root / "scenario.toml").write_text(base + f"plan_review_call_limit = {value}\n")
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError, "finite integer of at least 2"):
+                    catalog.load(root.name)
+            for value in (2, 6):
+                (root / "scenario.toml").write_text(base + f"plan_review_call_limit = {value}\n")
+                self.assertEqual(value, catalog.load(root.name).fake_plan_review_call_limit)
+            (root / "scenario.toml").write_text(base)
+            self.assertIsNone(catalog.load(root.name).fake_plan_review_call_limit)
+
+    def test_fake_review_allowance_uses_an_isolated_public_config_without_pause_flags(self):
+        scenario = catalog.load("conformance-lifecycle")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ambient = root / "ambient" / "autocode" / "config.toml"
+            ambient.parent.mkdir(parents=True)
+            ambient.write_text("plan_review_call_limit = 19\n")
+            for limit in (None, 6):
+                case = root / str(limit)
+                case.mkdir()
+                fixture = dataclasses.replace(scenario, fake_plan_review_call_limit=limit)
+                with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(ambient.parent.parent)}):
+                    flags, environment = run.fake_setup(fixture, case, fixture.reference)
+                provider_config = json.loads(Path(environment["SCENARIO_FAKE_CONFIG"]).read_text())
+                self.assertEqual(fixture.fake_check, provider_config["check"])
+                self.assertNotIn("--planning-review-call-limit", flags)
+                self.assertNotIn("--plan-review-full", flags)
+                if limit is None:
+                    self.assertNotIn("XDG_CONFIG_HOME", environment)
+                else:
+                    config_home = Path(environment["XDG_CONFIG_HOME"])
+                    self.assertTrue(config_home.is_relative_to(case))
+                    config = tomllib.loads((config_home / "autocode" / "config.toml").read_text())
+                    self.assertEqual({"plan_review_call_limit": 6}, config)
+                self.assertEqual("plan_review_call_limit = 19\n", ambient.read_text())
+
     def test_nothing_here_imports_autocode(self):
         """Oracles and the harness judge AutoCode from outside; importing it would let its bugs hide."""
         here = Path(__file__).resolve().parent

@@ -18,6 +18,9 @@ State key written here (and read by autocode_run_view, autopilot):
     workflow: {"kind": one of WORKFLOWS or None, "reason": str, "signals": [str],
                "source": "model" | "user", "then": the stage to run after recognition,
                "clarity": "clear" | "vague", only in adaptive-planning runs,
+               "brief_size": "small" | "medium", a brief-only size signal (#1564) read by
+               units.autoplanner.review_depth_reduced to keep small clear briefs on one
+               total review allowance across planning cycles,
                "requirements_skipped": bool, only where clarity decides whether Requirements
                runs (an adaptive build recognized with Requirements next and no approved
                design); read by autocode_adaptive_planning.view for the status view,
@@ -42,6 +45,7 @@ except ImportError:
 
 
 import json
+import re
 from pathlib import Path, PurePosixPath
 
 try:
@@ -205,6 +209,18 @@ def begin(state: RunState, then: str) -> None:
     state["next_stage"] = STAGE
 
 
+def brief_size(task: str) -> str:
+    """Size a brief from what exists at recognition: its words and numbered asks (#1564).
+
+    Deliberately coarse: it only needs to identify the bug-fix-shaped end of the
+    scale, where review depth should shrink. plan_size finalizes the call once a
+    draft exists; anything not clearly small here keeps full-depth review.
+    """
+    words = len(task.split())
+    numbered = len(re.findall(r"(?m)^\s*(?:\d+[.)])\s+\S", task))
+    return "small" if words <= 120 and numbered <= 8 else "medium"
+
+
 def apply(state: RunState, value: dict, record: dict) -> None:
     """Save the recognized kind and hand over to the stage recognition deferred."""
     if value.get("workflow") not in WORKFLOWS:
@@ -223,6 +239,10 @@ def apply(state: RunState, value: dict, record: dict) -> None:
     }
     if adaptive.enabled(state) and value.get("clarity"):
         state["workflow"]["clarity"] = value["clarity"]
+    # A brief-only size signal available at recognition (#1564): the plan does not
+    # exist yet, so the durable plan_size finalization happens at first review
+    # admission. Reuses adaptive's small/medium/large vocabulary, not a second one.
+    state["workflow"]["brief_size"] = brief_size(state.get("task") or "")
     design = approved_design(state, value)
     if design:
         state["workflow"]["design_document"] = design

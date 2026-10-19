@@ -38,6 +38,19 @@ class ModelInventoryTests(unittest.TestCase):
             fresh.check_models(settings["roles"])
             self.assertEqual(3, roster.call_count)
 
+    def test_discovery_roster_is_shared_until_admission_consumes_it(self):
+        workspace = Path(tempfile.gettempdir())
+        inventory = InvocationInventory(opencode, workspace)
+        with patch.object(opencode, "available_models", return_value={"openai/gpt-6-sol"}) as listing:
+            inventory.available_models(workspace)
+            selected = inventory.selection_models(workspace)
+            selected.add("not/offered")
+            self.assertNotIn("not/offered", inventory.selection_models(workspace))
+            inventory.check_models({"sol": {"model": "openai/gpt-6-sol"}})
+            self.assertEqual(1, listing.call_count)
+            inventory.selection_models(workspace)
+            self.assertEqual(2, listing.call_count)
+
     def test_roster_copy_cannot_skip_a_later_unlisted_job_route(self):
         workspace = Path(tempfile.gettempdir())
         original = set(catalogue_fixture.ChooseTest.AVAILABLE)

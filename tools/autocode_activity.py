@@ -4,11 +4,14 @@ Liveness is evidence of activity, never evidence that the task is correct.  Tool
 output and repeated events do not buy more execution time.  Process fallback is
 deliberately conservative: identity metadata cannot distinguish a quiet tool
 from a persistent provider wrapper, so a live descendant only counts as tool
-evidence after the stage log has credited at least one provider event. A hung
-transport that leaves a subprocess attached with a still-empty log must not
-suppress the idle watchdog and burn the full tool budget (#1098). Recognizable
-MCP server executables are not tool evidence on their own. The bounded interval
-renews only when a new tool completion arrives; unknown concurrent tools cannot
+evidence after the stage log has credited substantive text, progress or tool
+activity. Lifecycle rows alone do not establish tool work: a hung transport
+can announce a step and leave its provider subprocess attached while no model
+output arrives. Neither that case nor an empty log may suppress the idle
+watchdog and burn the full tool budget (#1098, #1562). Recognizable
+MCP server executables and the known node-to-.kilo provider wrapper edge are not
+tool evidence on their own. Real children below a wrapper still count. The
+bounded interval renews only when a new tool completion arrives; unknown concurrent tools cannot
 be timed individually.
 """
 
@@ -335,14 +338,17 @@ class ActivityMonitor:
                 return
             if event_type in ("step_start", "step_finish") and identifier:
                 if self._new("opencode:" + event_type + ":" + identifier):
-                    self._activity(now, provider=event_type == "step_start")
+                    # A provider may emit step-start before any model output and
+                    # keep its own native binary attached as a child. Lifecycle
+                    # metadata renews idle once, but cannot establish tool work.
+                    self._activity(now, provider=event_type == "step_start", evidence=False)
                 return
         if event_type in ("thread.started", "turn.started", "turn.completed", "turn.failed"):
             # Codex does not always attach an ID. A repeated bare event counts
             # once for this stage, and usage/log payload changes do not renew it.
             identifier = row.get("turn_id") or row.get("thread_id") or "stage"
             if isinstance(identifier, str) and self._new("codex:" + event_type + ":" + identifier):
-                self._activity(now, provider=event_type.endswith("started"))
+                self._activity(now, provider=event_type.endswith("started"), evidence=False)
 
     def _consume(self, data, now):
         fragments = data.split(b"\n")
@@ -382,6 +388,20 @@ class ActivityMonitor:
         name = Path(executable).name if isinstance(executable, str) else ""
         return name == "mcp-server" or name.startswith("mcp-server-")
 
+    @staticmethod
+    def _kilo_wrapper(row, root):
+        # The npm launcher waits on its native .kilo provider binary. ProcessTree
+        # supplies birth-checked owned rows: this is activity classification only,
+        # never ownership/cleanup authority, and never prunes the child's subtree.
+        return (
+            isinstance(root, dict)
+            and row.get("parent") == root.get("pid")
+            and isinstance(root.get("executable"), str)
+            and Path(root["executable"]).name == "node"
+            and isinstance(row.get("executable"), str)
+            and Path(row["executable"]).name == ".kilo"
+        )
+
     def poll(self, processes=None, root_pid=None):
         with self._lock:
             now = self.clock()
@@ -391,19 +411,21 @@ class ActivityMonitor:
             idle = None if self._tool_elapsed(now) is not None else now - self._last_activity
             self._read(now)
             if processes is not None and root_pid is not None and not self._explicit_starts:
-                rows = processes.values() if isinstance(processes, dict) else processes
+                rows = list(processes.values() if isinstance(processes, dict) else processes)
+                root = next((row for row in rows if isinstance(row, dict) and row.get("pid") == root_pid), None)
                 descendants = any(
                     isinstance(row, dict)
                     and row.get("pid") != root_pid
                     and row.get("pid") is not None
                     and not str(row.get("state", "")).startswith("Z")
                     and not self._mcp_helper(row)
+                    and not self._kilo_wrapper(row, root)
                     for row in rows
                 )
                 if descendants and self._fallback_started is None and self._had_event_activity:
-                    # Descendants alone are not tool evidence: a hung provider
-                    # call can keep a child process alive while the stage log
-                    # stays empty. Idle must still fire in that case (#1098).
+                    # Descendants and lifecycle announcements alone are not
+                    # tool evidence. Require substantive provider activity before
+                    # granting this approximation (#1098, #1562).
                     self._fallback_started = now
                 elif not descendants and self._fallback_started is not None:
                     self._fallback_started = None

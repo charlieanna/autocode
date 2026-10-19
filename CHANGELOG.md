@@ -9,9 +9,117 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
-- Keep status readable for malformed streaming-stage data and refuse verification reuse when editable source cannot be snapshotted. Stabilize successful assignment subprocess fixtures without changing live-run limits.
+### Added
+
+- `autocode chat` talks to a run in the terminal the way the VS Code extension does: it shows the
+  run's conversation, asks you only for the answer, approval or reply the status view leaves to you,
+  and runs exactly the command the view names. Plain `autocode` in a terminal now opens it: it picks
+  up the run left open, or asks what you want done.
+
+- `autocode chat` takes the whole terminal in an interactive session: a wordmark splash, a
+  scrollable transcript with a colored label for each speaker, the current question or activity
+  above a boxed composer, labeled **New chat** or **Reply**, with editing and history. `--line` keeps the line-by-line prompts,
+  and scripts still get them when there is no terminal.
+
+- New chats in VS Code offer a **Run mode**: Full (the default, Requirements first) or Quick plan,
+  where a clear request goes straight to the plan. The modes and their start flags come from the
+  new `autocode modes list --json`; every mode keeps plan approval, the Tester and the Completion
+  Reviewer.
+
+### Changed
+
+- New CLI and TaskRun runs select qualified models from connected accounts automatically,
+  preserving explicit overrides and saved routes. OpenCode/Kilo metadata governs supported
+  reasoning levels; preflight receipts distinguish levels and actual tools. Automatic
+  escalation and stuck-run investigation stay inside saved accounts. Discovery shares its roster
+  with admission, and installed wheels include the qualification
+  table. `--no-auto-select` retains fixed defaults (#1426).
 
 ### Fixed
+
+- Keep status readable for malformed streaming-stage data and refuse verification reuse when editable source cannot be snapshotted. Stabilize successful assignment subprocess fixtures without changing live-run limits.
+
+- Explicit-patch reviews compare identical finding tests on base and changed source.
+  Proven pre-existing Python failures remain observations instead of blocking an
+  unrelated patch or becoming automatic follow-up repairs. Inconclusive evidence
+  retains blockers, and reports show the runner-derived verdict (#1602).
+
+- `autocode chat` no longer exits while AutoCode keeps working: Ctrl-C while the pause is being asked
+  for interrupts the step, and a third Ctrl-C stops AutoCode. It stops instead of relaunching a run
+  that makes no progress, shows a review's criteria before asking you to accept them, shows what
+  stopped and the models offered at a model question, hands you the command when it cannot continue,
+  reports a failing run listing instead of treating the project as empty, and takes a brief that
+  starts with `-` as `--brief=TEXT`.
+
+- Small-task review keeps explicitly selected Plan Reviewer effort and legacy saved
+  efforts. Fresh default/automatic routes still use the reduced tier, with review
+  charges, model independence and replay matching unchanged (#1618).
+
+- Offline replay preserves the recorded Plan Reviewer effort instead of applying
+  the small-task reduction twice. Provider light-effort settings remain portable;
+  review budgets and exact recorded-route validation still apply (#1616).
+
+- A pause you asked for in the VS Code chat now says "Paused as you asked" with a plain **Resume**,
+  instead of "I couldn't finish this step" and "Resume after correction". The chat also shows
+  your button presses in words ("Looks right. Prepare the plan.", "Approved the plan.") instead
+  of the raw answer `plan`, the Requirements summary keeps its sections apart, and chat tabs are
+  named after the request rather than the run directory, with the open chat kept in view.
+
+- Ordinary Kilo launches forward bounded native text and reasoning progress while response blocks
+  are still streaming. Silent streams retain the configured idle deadline; progress remains
+  separate from tool execution and completed-report evidence (#1599).
+
+- The scripted conformance lifecycle declares a finite starting planning-review allowance for
+  its deliberate revisions and feedback, preserving review accounting and every lifecycle check (#1604).
+
+- Native and headless clients can bind explicit finite planning-review totals and
+  additional recovery slots to exact named commands and the current pause. Save-only
+  actions stay save-only; existing accounting, other limits and plan approval remain (#1605).
+
+- Kilo's persistent native provider child no longer counts as an inferred running tool after
+  completed tool calls, so a silent model wait honors the configured idle limit. Real or unknown
+  child tools and explicit tool starts retain their separate execution grace and cleanup (#1595).
+
+- VS Code keeps live controller/preflight continuation quiet instead of announcing that it is
+  waiting for a person. Chat and Run details share the working classification; stopped or
+  unverified continuation still asks for action, and real questions and completion still notify (#1590).
+
+- When the runner cannot see an acceptance test the Tester wrote, its rejection now says the file
+  defines the test, names the runner's command and how many tests it ran, and for unittest that only
+  `TestCase` methods are collected, so the retry can fix the test instead of the run pausing for good (#1567).
+
+- VS Code chat disables its actions and Send while the latest status read has failed, says so
+  above the transcript, and re-enables them on the next good read; a background tab keeps its
+  own read error (#1593).
+
+- The named recovery action can set aside a stopped planning attempt after a Resolver reply,
+  instead of publishing the same operational question before reaching abandonment. Exact attempt
+  and stopped-process validation still apply; resuming remains a separate action (#1588).
+
+- A stopped report-only repair can use its remaining bounded attempt after an output-truncated
+  review, preserving the original evidence and charged attempts. Unchanged source, evidence pins,
+  review ownership and stopped-process checks still gate recovery (#1584).
+
+- Native chat can request an explicit finite total active-time limit from a typed,
+  recovery-token-bound core offer. The selected total preserves other caps, model
+  routes and plan approval; unsupported numeric recovery controls still report a gap (#1579).
+- Dashboard status and intervention inspection can run alongside plan approval without being
+  mistaken for duplicate workers. The observer grammar retains active-writer and ambiguous-command
+  protections (#1581).
+
+- Authentication preflight stops retain names-only guidance for credential variables actually
+  withheld from the probe, without exposing secret values or enabling pass-through (#1577).
+
+- `autocode --version` and `autocode doctor` again start when psutil is missing, including
+  through the grader imports used by Git delivery. Process supervision still requires the
+  dependency and reports its repair instructions (#1571).
+- Fixed-model CLI qualification explicitly retains fixed routes, and liveness checks cover
+  their intended working notice without weakening status, action or evidence assertions (#1573).
+- Verification falls back to fresh checks when an editable AutoCode package cannot be
+  snapshotted. Incomplete controller identities never authorize cached checks; unavailable
+  task source and unrelated pause reasons still stop verification (#1572).
+
+- Applied Pause requests survive deferred plan-approval normalization until explicit resume, retaining the pending proposal and saved evidence (#1561).
 
 - Malformed saved activity records no longer crash chat status or its provisional reply view (#1522).
 
@@ -52,6 +160,8 @@ PR template asks for an entry here; a change without one is incomplete.
   yourself, and drops IDs from review criteria and open problems. Run details keeps the technical view
   under "Plan to approve · revision N". Approval is still refused for a plan that changed after it was
   shown (#1518).
+- Live chat recovery names structured authentication failures safely, avoids duplicate operational questions, explains stopped runs and reconciliation actions, and applies polling changes without reload (#1563).
+
 - The dashboard offered no plan approval when the Plan Reviewer accepted a draft during its challenge
   (adaptive review). The runner accepts that plan for approval, but the dashboard only recognized a plan
   finalized by a separate finalize step, so the task showed "Planning checkpoint · not currently ready for
@@ -85,7 +195,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the cost cap, time limit and milestone budget; a resume that the climb's projection pauses again is no longer
   recorded as releasing the pause, matching the Builder's stronger attempt (#611).
 
+- Lifecycle-only provider events no longer let a persistent helper process bypass an explicitly configured idle timeout; genuine tool execution keeps its tool deadline (#1562).
+
 ### Added
+- VS Code chat can pause a working run: Pause takes Send's place, the current step finishes and
+  saves, and Continue resumes where it paused. The status view names the request as `pause`, so
+  the client runs only the core's own `intervention submit --kind pause` (#1598).
 - The soft-default machinery for automatic selection (#1426 step 11's second half): an internal
   `auto_select=None` launch selects and, when the tool's listings cannot be read or its accounts cannot field
   a checker, prints why in account terms and uses the fixed default routes instead of refusing - a defaulted

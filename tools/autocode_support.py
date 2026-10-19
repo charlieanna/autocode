@@ -33,7 +33,7 @@ try:
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,  # noqa: F401 - compatibility API
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
     from . import autocode_receipts as receipts, autocode_receipt_repair_context as receipt_repair, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
-    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
+    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal, autocode_output_cap as output_cap, autocode_provider_auth as provider_auth  # noqa: F401 - compatibility API
     from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
     from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
@@ -52,6 +52,7 @@ except ImportError:
     import autocode_event_metrics as event_summary
     import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     import autocode_output_cap as output_cap
+    import autocode_provider_auth as provider_auth
     from autocode_event_matching import same_command  # noqa: F401 - compatibility API
 # fmt: on
 # isort: on
@@ -99,6 +100,11 @@ def failure_status(path, *, record=None):
     # The built-in claude provider stopped a stage that would have billed an API key (#717).
     if any(isinstance(e.get("error"), dict) and e["error"].get("code") == "billing_route" for e in failures):
         return "PAUSED_BILLING_ROUTE"
+    if provider_auth.authentication_reason(failures):
+        # A standalone access probe can refuse the rejected login. A launched
+        # stage may already have partial work; retain its reconciliation/no-replay
+        # authority while exit_message and job classification name the cause.
+        return "PAUSED_AUTH" if record is None else "PAUSED_PROVIDER_UNCERTAIN"
     # A failed turn's accounting (its token counts and cost) is never its error: they can contain 429.
     said = [{key: value for key, value in e.items() if key not in ("usage", "cost_usd")} for e in failures]
     # A command-line tool can end with the failed request as plain text instead (#562).

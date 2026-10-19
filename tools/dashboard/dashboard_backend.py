@@ -362,7 +362,7 @@ class RegistryInterventionMixin:
         if cached and time.monotonic() - cached["at"] < 0.8:
             return cached["value"]
         data, error = self._json_command(
-            ["--workspace", str(workspace), "--run-dir", key, "--status"], timeout=self.INTERVENTION_TIMEOUT
+            ["--status", "--workspace", str(workspace), "--run-dir", key], timeout=self.INTERVENTION_TIMEOUT
         )
         interventions = mapping(mapping(data).get("interventions"))
         inspector = capability(interventions.get("inspector_capability"))

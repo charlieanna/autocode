@@ -8,6 +8,6 @@ the change the user asked to land keeps everything else it does. Behavior the re
 must keep (what its own tests cover, what no finding says is broken) is a "guard:" criterion, never "test:": it
 cannot fail on the reviewed change. The runner proves each regression test itself,
 against the base code with change_patch applied (the change the review judged): do not add a criterion or task
-to capture the tests failing without the fixes. Leave the advisory findings as they are
+to capture the tests failing without the fixes. Pre-existing observations carry runner-derived dispositions and are not automatic repair requirements. Leave these and advisory findings as they are
 unless the request asks for them. Do not ask the user what the findings mean; ask only about a genuine choice
 they leave open. Cite the review in code_refs as exactly its report_path.

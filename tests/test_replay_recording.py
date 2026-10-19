@@ -80,6 +80,43 @@ class RecordingValidationTests(unittest.TestCase):
             with self.subTest(pin=value), self.assertRaisesRegex(recording.RecordingError, "workflow pin"):
                 recording.load(self.manifest)
 
+    def test_optional_provider_light_effort_is_preserved_and_typed(self):
+        self.assertNotIn("light_effort", recording.load(self.manifest).document["launch"]["settings"]["roles"]["terra"])
+        document = copy.deepcopy(self.document)
+        route = document["launch"]["settings"]["roles"]["terra"]
+        route["light_effort"] = "low"
+        self.save(document)
+        self.assertEqual(
+            "low", recording.load(self.manifest).document["launch"]["settings"]["roles"]["terra"]["light_effort"]
+        )
+        for value in (None, True, 1, [], {}):
+            route["light_effort"] = value
+            self.save(document)
+            with self.subTest(value=value), self.assertRaisesRegex(recording.RecordingError, "light effort"):
+                recording.load(self.manifest)
+
+    def test_optional_reviewer_effort_origin_is_portable_and_typed(self):
+        self.assertNotIn("effort_origins", recording.load(self.manifest).document["launch"]["settings"])
+        document = copy.deepcopy(self.document)
+        settings = document["launch"]["settings"]
+        for origin in ("user_explicit", "runner_default", "auto_selected"):
+            settings["effort_origins"] = {"plan_reviewer": origin}
+            self.save(document)
+            saved = recording.load(self.manifest).document["launch"]["settings"]
+            self.assertEqual(settings["effort_origins"], recording.launch_settings(saved)["effort_origins"])
+        for invalid in (
+            None,
+            True,
+            [],
+            {"plan_reviewer": "derived"},
+            {"plan_reviewer": []},
+            {"terra": "user_explicit"},
+        ):
+            settings["effort_origins"] = invalid
+            self.save(document)
+            with self.subTest(value=invalid), self.assertRaisesRegex(recording.RecordingError, "effort origin"):
+                recording.load(self.manifest)
+
     def test_unknown_fields_bool_version_and_missing_source_payload_are_refused(self):
         alternatives = []
         unknown = copy.deepcopy(self.document)

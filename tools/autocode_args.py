@@ -41,7 +41,7 @@ try:
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
     from .autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
-    from .autocode_control_tokens import resolve_placeholders
+    from .autocode_control_tokens import resolve_placeholders, validate_recovery_selector
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_cli_surface as cli_surface
@@ -61,7 +61,7 @@ except ImportError:
     import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
     from autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
-    from autocode_control_tokens import resolve_placeholders
+    from autocode_control_tokens import resolve_placeholders, validate_recovery_selector
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
 NEW_RUN_INPUTS = (
@@ -264,10 +264,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument(
         "--auto-select",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=None,
         help="New run: choose each role's model from the tool's connected accounts (#1426): "
         "cheapest qualified route per role, checkers independent, per-role model flags still winning. "
-        "A selection that cannot field a checker refuses to start, in account terms. See "
+        "Automatic by default, with fixed-route fallback when selection is unavailable; explicitly enabling it refuses instead. See "
         "`autocode models --selection` first",
     )
     parser.add_argument(
@@ -518,6 +518,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         help="With --resume-paused, authorize N more automatic timeout recoveries for a run paused at PAUSED_TIMEOUT_RECOVERY; the recovery history stays intact",
     )
     parser.add_argument(
+        "--plan-review-full",
+        action="store_true",
+        help="Keep full-depth plan review for this run: the allowance stays per planning cycle even for a small clear brief",
+    )
+    parser.add_argument(
         "--planning-review-call-limit",
         type=int,
         metavar="N",
@@ -745,10 +750,7 @@ def parse(unit, argv, default_models):
         parser.error("--replay-checks recorded requires --replay-recording")
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
-    if args.expected_recovery_token is not None and (
-        not args.run_dir or not (args.resume_paused or args.abandon_stage)
-    ):
-        parser.error("--expected-recovery-token requires a saved run and an explicit resume or abandon action")
+    validate_recovery_selector(args, parser)
     if args.max_parallel_builders is not None and args.max_parallel_builders < 1:
         parser.error("--max-parallel-builders must be positive")
     if args.retry_builder:

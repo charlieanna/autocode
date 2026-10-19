@@ -241,9 +241,7 @@ class ScopedIntakeTests(unittest.TestCase):
             for row in receipt["nodes"]:
                 row["transitions"] = [value for value in row["transitions"] if value["id"] != transition["id"]]
             node = next(row for row in receipt["nodes"] if row["id"] == transition["source_node_id"])
-            node["transitions"] = [
-                {key: transition[key] for key in ("id", "target_node_id", "trigger", "action")}
-            ]
+            node["transitions"] = [{key: transition[key] for key in ("id", "target_node_id", "trigger", "action")}]
             selected_source.write_text(json.dumps(receipt))
             self.body["files"][0]["pages"][0]["source_json"]["sha256"] = util.file_hash(selected_source)
             selected_path.write_text(json.dumps(self.body))

@@ -169,24 +169,53 @@ class AnchorTests(unittest.TestCase):
 
     def test_no_finding_is_silently_dropped_or_moved_to_other_side(self):
         for changes in (
-            {"file": "else.py"},
             {"file": "../rates.py"},
             {"lines": [0]},
             {"lines": [True]},
-            {"lines": [4]},
             {"lines": [3, 1]},
             {"lines": []},
         ):
             with self.subTest(changes=changes), self.assertRaises(publication.ReviewError):
                 publication.comments(self.report(**changes), self.FILES)
         for files in (
-            [{**self.FILES[0], "status": "removed"}],
-            [{**self.FILES[0], "patch": None}],
             [{**self.FILES[0], "patch": "@@ -1,3 +1,3 @@\n only"}],
             self.FILES * 2,
         ):
             with self.subTest(files=files), self.assertRaises(publication.ReviewError):
                 publication.comments(self.report(), files)
+
+    def test_outside_diff_observations_stay_in_summary_without_inline_anchors(self):
+        for changes in ({"file": "else.py"}, {"lines": [4]}):
+            report = self.report(**changes)
+            self.assertEqual([], publication.comments(report, self.FILES))
+            text = publication.summary(
+                report, {"markdown": "Authenticated evidence"}, "https://github.com/acme/r/pull/1", "abc"
+            )
+            self.assertIn("wrong rate", text)
+            self.assertIn("real test fails", text)
+        for files in ([{**self.FILES[0], "status": "removed"}], [{**self.FILES[0], "patch": None}]):
+            self.assertEqual([], publication.comments(self.report(), files))
+
+    def test_disposition_labels_observations_and_inconclusive_blockers(self):
+        from autocode_review_attribution import RUNNER
+
+        ref = {"path": "/proof.json", "sha256": "a" * 64}
+        disposition = {
+            "runner": RUNNER,
+            "kind": "pre_existing",
+            "reason": "Equivalent full failures",
+            "base_proof": ref,
+            "changed_proof": ref,
+            "inputs": ref,
+        }
+        [row] = publication.comments(self.report(disposition=disposition), self.FILES)
+        self.assertIn("pre-existing observation", row["body"])
+        self.assertNotIn("[blocking]", row["body"])
+        [row] = publication.comments(
+            self.report(disposition={"kind": "inconclusive", "reason": "No baseline"}), self.FILES
+        )
+        self.assertIn("blocking; attribution inconclusive", row["body"])
+        self.assertIn("No baseline", row["body"])
 
     def test_old_side_truncation_and_overflow_are_refused_even_when_new_side_is_complete(self):
         for text in (
@@ -201,8 +230,7 @@ class AnchorTests(unittest.TestCase):
 
     def test_comment_span_cannot_cross_an_omitted_diff_gap(self):
         files = [{**self.FILES[0], "patch": "@@ -1 +1 @@\n+new\n-old\n@@ -20 +20 @@\n+other\n-old"}]
-        with self.assertRaises(publication.ReviewError):
-            publication.comments(self.report(lines=[1, 20]), files)
+        self.assertEqual([], publication.comments(self.report(lines=[1, 20]), files))
 
 
 class AuthenticatedArtifactTests(unittest.TestCase):

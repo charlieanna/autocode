@@ -529,8 +529,15 @@ terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
 glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
-plan_reviewer = { model = "openai/gpt-6-sol", effort = "high" }
+plan_reviewer = { model = "openai/gpt-6-sol", effort = "high", light_effort = "medium" }
 ```
+
+For clear, small tasks the Plan Reviewer may use `light_effort` (or one lower
+standard effort tier) only when a new run used an automatic/default effort.
+An explicit reviewer effort, including a project effort setting, wins. Saved
+runs without effort provenance retain their existing effort on upgrade; model
+pins alone do not establish effort provenance. The review-call allowance still
+applies independently of this effort choice.
 
 `[roles]` must keep each verifier on a different model family from what it checks
 (Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
@@ -1058,3 +1065,14 @@ Protocol references: [OpenAI Chat Completions](https://developers.openai.com/api
 [Z.ai Chat Completions](https://docs.z.ai/api-reference/llm/chat-completion),
 [Z.ai thinking replay](https://docs.z.ai/guides/capabilities/thinking-mode),
 and [Claude Messages](https://platform.claude.com/docs/en/api/messages/create).
+
+### Automatic routes for new runs
+
+New runs automatically select qualified models from the chosen tool's connected
+accounts, preferring subscriptions and preserving independent checking. No per-role
+model flags are needed, including with `TaskRun.start(workspace, brief)`.
+Explicit model, effort and tool overrides win; saved runs keep their choices.
+`--no-auto-select` retains fixed defaults. `--auto-select` requires selection to
+succeed instead of falling back when discovery or an independent checker is unavailable.
+See [automatic model selection](models.md#choosing-models-automatically) for discovery,
+reasoning levels, bounded preflight, recovery and the read-only selection preview.

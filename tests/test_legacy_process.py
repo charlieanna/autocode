@@ -18,6 +18,43 @@ class RunnerCommandTests(unittest.TestCase):
     def test_canonical_status_is_read_only(self):
         self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} --status {PATHS}"))
 
+    def test_canonical_intervention_inspect_is_read_only(self):
+        self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} intervention inspect {PATHS} --json"))
+        self.assertFalse(
+            legacy.duplicate_runner_command(
+                f"{RUNNER} intervention inspect --json --run-dir=/ws/project/.autocode/runs/run-x --workspace=/ws/project"
+            )
+        )
+
+    def test_inspector_requires_a_complete_unambiguous_reader_grammar(self):
+        for args in (
+            f"intervention inspect {PATHS}",
+            "intervention inspect --json --workspace /ws/project",
+            "intervention inspect --json --run-dir /ws/run",
+            "intervention inspect --json --workspace relative --run-dir /ws/run",
+            "intervention inspect --json --workspace /ws/project --run-dir relative",
+            f"intervention inspect {PATHS} --json --json",
+            f"intervention inspect {PATHS} --json=true",
+            "intervention inspect --json --workspace= --run-dir=/ws/run",
+            f"intervention inspect {PATHS} --json --workspace /ws/project",
+            f"intervention inspect {PATHS} --json --run-dir /ws/run",
+            f"intervention inspect {PATHS} --json --status",
+            f"intervention inspect {PATHS} --json --dry-run",
+            f"intervention inspect {PATHS} --json --inspect-evidence",
+            f"intervention inspect {PATHS} --json --approve-goal token",
+            f"intervention inspect {PATHS} --json --resume-paused",
+            f"intervention inspect {PATHS} --json --request-milestone-checkpoints",
+            f"intervention inspect {PATHS} --json --unknown",
+            f"intervention inspect {PATHS} --json positional-task",
+            f"intervention submit {PATHS} --json --request-id request --kind pause",
+            f"bundle {PATHS} --json",
+            "intervention inspect --json --workspace '/ws/project' --run-dir /ws/run",
+            "intervention inspect --json --workspace /ws/project\\ space --run-dir /ws/run",
+            f"intervention inspect {PATHS} --json\n--resume-paused",
+        ):
+            with self.subTest(args=args):
+                self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {args}"))
+
     def test_canonical_dry_run_is_read_only(self):
         self.assertFalse(legacy.duplicate_runner_command(f"{RUNNER} --dry-run {PATHS}"))
 
@@ -55,6 +92,8 @@ class RunnerCommandTests(unittest.TestCase):
     def test_unknown_duplicate_and_mixed_reader_flags_stay_blocking(self):
         for args in (
             f"--status {PATHS} --unknown",
+            f"--status {PATHS} --json",
+            f"--dry-run {PATHS} --json",
             f"--status {PATHS} --status",
             f"--status {PATHS} --dry-run",
             f"--dry-run {PATHS} --inspect-evidence",
@@ -193,6 +232,21 @@ class ProcessGuardTests(unittest.TestCase):
     def test_dry_run_observer_does_not_block_a_writer(self):
         with patch.object(legacy.subprocess, "run", return_value=self.listing(f"{RUNNER} --dry-run {self.paths}")):
             legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_intervention_inspector_does_not_block_a_writer(self):
+        command = f"{RUNNER} intervention inspect {self.paths} --json"
+        with patch.object(legacy.subprocess, "run", return_value=self.listing(command)):
+            legacy.assert_no_legacy_process(self.run, self.workspace)
+
+    def test_inspector_does_not_hide_a_real_writer_or_bundle_export(self):
+        inspector = f"{RUNNER} intervention inspect {self.paths} --json"
+        for writer in (f"{RUNNER} --approve-goal token {self.paths}", f"{RUNNER} bundle {self.run}"):
+            with (
+                self.subTest(writer=writer),
+                patch.object(legacy.subprocess, "run", return_value=self.listing(inspector, writer)),
+            ):
+                with self.assertRaisesRegex(legacy.Paused, "Existing run process 102"):
+                    legacy.assert_no_legacy_process(self.run, self.workspace)
 
     def test_reader_does_not_hide_a_second_writer(self):
         with patch.object(

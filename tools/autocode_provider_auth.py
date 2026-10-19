@@ -1,15 +1,18 @@
-"""Name a provider auth-helper timeout from the stage log's trailing error lines.
+"""Name structured authentication rejection or a trailing auth-helper timeout.
 
 When Codex's external auth command times out (for example ``gocode api-key-helper``),
 the stage log ends with plain ``ERROR:`` lines. The attempt is still uncertain and
 must not be replayed automatically; this module only names the stop so the person
 sees which helper to raise ``timeout_ms`` for. Imports only
-``autocode_provider_error_lines``.
+``autocode_provider_error_lines``. Structured rejections use a fixed diagnostic;
+provider messages and response bodies can contain credential material.
 """
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 try:
     from . import autocode_provider_error_lines as provider_error_lines
@@ -26,8 +29,35 @@ _FAILED = re.compile(
 )
 
 
+def authentication_reason(rows) -> str | None:
+    """A provider-owned HTTP 401, never a number in usage, tool output or prose."""
+    for row in rows:
+        if not isinstance(row, dict) or row.get("type") not in ("error", "turn.failed"):
+            continue
+        error = row.get("error")
+        if not isinstance(error, dict):
+            continue
+        data = error.get("data")
+        for fields in (error, data if isinstance(data, dict) else {}):
+            if fields.get("statusCode") == 401 or fields.get("status_code") == 401:
+                return (
+                    "provider authentication failed (HTTP 401); check or refresh the selected "
+                    "provider's credentials before retrying"
+                )
+    return None
+
+
 def reason(path) -> str | None:
-    """Explain a trailing auth-helper timeout, or None when the log ends otherwise."""
+    """Explain a structured rejection or trailing helper timeout without echoing credentials."""
+    path = Path(path)
+    if path.is_file():
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if auth := authentication_reason([row]):
+                return auth
     lines = provider_error_lines.trailing(path)
     if not lines:
         return None

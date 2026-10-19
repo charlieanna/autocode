@@ -81,6 +81,8 @@ class RunViewTests(unittest.TestCase):
         self.assertEqual(
             {
                 "schema",
+                "workspace",
+                "run_dir",
                 "pause_category",
                 "pause_category_label",
                 "next_command",
@@ -121,6 +123,7 @@ class RunViewTests(unittest.TestCase):
                 "escalation_outcomes",
                 "escalations",
                 "job_report_recovery",
+                "pause",
                 "verification_obligation",
                 "evidence_report",
                 "acceptance_tests",

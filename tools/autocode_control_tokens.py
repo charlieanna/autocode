@@ -33,6 +33,17 @@ def resolve_placeholders(args, parser, environ: Mapping[str, str], *, fields=TOK
             setattr(args, attribute, value)
 
 
+def validate_recovery_selector(args, parser) -> None:
+    """A private recovery token may bind only an existing saved recovery action."""
+    if args.expected_recovery_token is not None and (
+        not args.run_dir
+        or not (args.resume_paused or args.abandon_stage or args.planning_review_call_limit is not None)
+    ):
+        parser.error(
+            "--expected-recovery-token requires a saved run and an explicit resume, abandon, or planning-allowance action"
+        )
+
+
 def private_command(command: Sequence[str], *, argument_offset: int = 0) -> tuple[list[str], dict[str, str]]:
     """Copy a CLI command with tokens replaced by ``-`` and a private launch map.
 

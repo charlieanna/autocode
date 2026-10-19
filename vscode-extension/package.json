@@ -2,7 +2,7 @@
   "name": "autocode-task-chat",
   "displayName": "AutoCode Task Chat",
   "description": "Drive AutoCode task runs from VS Code: start a run, follow its progress, and take the action the status view names.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "publisher": "ankurkothari",
   "license": "Apache-2.0",
@@ -22,6 +22,8 @@
     "vscode": "^1.90.0"
   },
   "categories": [
+    "AI",
+    "Chat",
     "Other"
   ],
   "main": "./dist/extension.js",
@@ -133,16 +135,6 @@
           "command": "autocode.refresh",
           "when": "view == autocode.runs",
           "group": "navigation@2"
-        },
-        {
-          "command": "autocode.startRun",
-          "when": "view == autocode.chat",
-          "group": "navigation@1"
-        },
-        {
-          "command": "autocode.connections",
-          "when": "view == autocode.chat",
-          "group": "navigation@1"
         }
       ],
       "view/item/context": [
@@ -197,6 +189,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Ask before taking an action on a pause AutoCode stopped for a person to decide (`resume`, `retry_job`, `recover_source`, a blocker or an exhausted-recovery request). Keep this on: those are the decisions the run stopped to ask you."
+        },
+        "autocode.notify": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Notify when a run in an open chat tab starts waiting for you or finishes, with an action that opens its chat. Turn this off to stay silent while the sidebar keeps reading status."
         }
       }
     }
@@ -220,5 +217,12 @@
   "dependencies": {
     "marked": "15.0.12"
   },
-  "preview": true
+  "preview": true,
+  "keywords": [
+    "autocode",
+    "agent",
+    "planning",
+    "code review",
+    "tasks"
+  ]
 }

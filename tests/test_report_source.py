@@ -84,6 +84,51 @@ class ReportSourceTests(unittest.TestCase):
         codex = {**record, "engine": "codex"}
         self.assertIsNone(report_source.repair_report_source(codex)["content"]["partial_text"])
 
+    def test_only_length_truncated_review_attempts_qualify_as_repair_inputs(self):
+        length = {"type": "turn.failed", "error": {"code": "output_token_limit", "message": "Output token limit"}}
+        record = {"stage": "astra_challenge", "truncated_output": True}
+        for stage in ("sol", "astra_review", "astra_checkpoint", "astra_challenge", "astra_finalize"):
+            with self.subTest(stage=stage):
+                record.update(stage=stage, events=str(self.write("review.jsonl", [length])))
+                self.assertTrue(report_source.valid_truncated_report_attempt(record, False))
+                self.assertFalse(report_source.valid_truncated_report_attempt(record, True))
+                repair = {**record, "stage": stage + "_report_repair", "original_stage": stage, "report_only": True}
+                self.assertTrue(report_source.valid_truncated_report_attempt(repair, False))
+        for case, fields, rows in (
+            ("builder", {"stage": "terra"}, [length]),
+            ("unknown stage", {"stage": "investigate_bug"}, [length]),
+            ("forged review owner", {"stage": "terra", "original_stage": "sol"}, [length]),
+            (
+                "mismatched repair owner",
+                {"stage": "terra_report_repair", "original_stage": "sol", "report_only": True},
+                [length],
+            ),
+            ("unmarked repair", {"stage": "sol_report_repair", "original_stage": "sol"}, [length]),
+            ("missing marker", {"truncated_output": False}, [length]),
+            ("no failure", {}, [{"type": "thread.started"}]),
+            # This recognized failure is deliberately given length-like prose;
+            # only the structured failure kind may admit a truncated response.
+            (
+                "incomplete",
+                {},
+                [{"type": "turn.failed", "error": {"code": "incomplete_turn", "message": "Output token limit"}}],
+            ),
+            (
+                "unknown error",
+                {},
+                [{"type": "turn.failed", "error": {"code": "other", "message": "Output token limit"}}],
+            ),
+            ("completed", {}, [length, {"type": "turn.completed"}]),
+        ):
+            with self.subTest(case=case):
+                candidate = {
+                    **record,
+                    "stage": "astra_challenge",
+                    **fields,
+                    "events": str(self.write("review.jsonl", rows)),
+                }
+                self.assertFalse(report_source.valid_truncated_report_attempt(candidate, False))
+
     def test_a_claude_stage_without_its_report_file_is_read_from_its_events(self):
         report = {"summary": "done"}
         item = {"id": claude_stream.REPORT_ITEM, "type": "agent_message", "text": json.dumps(report)}

@@ -7,10 +7,34 @@ import unittest
 from pathlib import Path
 
 import autocode_chat_view as chat
+import autocode_requirements_review as requirements_review
+import autocode_run_view as run_view
 import autocode_util as util
+import goal_fixtures
 
 
 class ChatViewTests(unittest.TestCase):
+    def test_spend_confirmation_is_offered_at_the_bound_prepare_plan_answer(self):
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "requirements_handoff": {"report": {"intended_outcome": "Build a greeting"}},
+        }
+        question = requirements_review.review_question(state)
+        public = {"status": state["status"], "needs": {"kind": "answer", "questions": [question]}}
+        before = copy.deepcopy((state, public))
+        result = chat.project(state, public)
+        review = result["review"]
+        self.assertEqual(question["id"], review["question_id"])
+        self.assertEqual("plan", review["answer"])
+        self.assertIn("selected models", review["spend_confirmation"]["detail"])
+        self.assertIn("Building still waits", review["spend_confirmation"]["detail"])
+        schema = json.loads((Path(__file__).resolve().parents[1] / "docs/schemas/status-view.schema.json").read_text())
+        util.validate_schema(result, schema["properties"]["view"]["properties"]["chat"])
+        self.assertEqual(before, (state, public))
+        public["needs"]["questions"] = [{"id": "clarify", "question": "What should we build?"}]
+        self.assertIsNone(chat.project(state, public)["review"])
+
     def test_connection_stop_explains_the_user_action_without_dashboard_jargon(self):
         state = {"status": "PAUSED_TRANSPORT_CHANGED", "task": "Make it friendlier"}
         result = self.project(state, need="resume")
@@ -24,6 +48,28 @@ class ChatViewTests(unittest.TestCase):
                 self.assertTrue(text)
                 self.assertNotIn("Paused", text)
                 self.assertNotIn("no task list", text)
+
+    def test_a_pause_someone_asked_for_is_not_reported_as_a_failure(self):
+        for status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
+            with self.subTest(status=status):
+                text = chat.notice({"status": status})
+                self.assertIn("Paused as you asked", text)
+                self.assertNotIn("couldn’t finish", text)
+        self.assertIn("couldn’t finish", chat.notice({"status": "PAUSED_JOB_FAILURE"}))
+
+    def test_running_notice_gates_on_live_supervision_only(self):
+        self.assertEqual(
+            "Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "supervised"}})
+        )
+        self.assertEqual(
+            "Working on your request…", chat.notice({"status": "RUNNING", "liveness": {"kind": "unsupervised"}})
+        )
+        self.assertIsNone(chat.notice({"status": "RUNNING", "liveness": {"kind": "unknown"}}))
+        self.assertIsNone(chat.notice({"status": "RUNNING", "liveness": {"kind": "stopped"}}))
+        self.assertIsNone(chat.notice({"status": "RUNNING"}))
+        state = {"status": "RUNNING", "task": "Build it"}
+        result = self.project(state, need="continue")
+        self.assertIsNone(result["notice"])
 
     def project(self, state, need="approve_plan", done=False):
         return chat.project(
@@ -126,6 +172,155 @@ class ChatViewTests(unittest.TestCase):
         rows = self.project(state, "resume")["messages"]
         self.assertEqual(["Build it", "How should we proceed?", "Leave this task blocked"], [r["text"] for r in rows])
 
+    def test_operational_recovery_uses_human_summary_with_unchanged_authority(self):
+        for scope in ("blocker", "operational_exhaustion"):
+            with self.subTest(scope=scope):
+                state = {
+                    "status": "WAITING_FOR_USER",
+                    "settings": {"spec_first": True},
+                    "next_stage": "requirements_gather",
+                    "user_request": {"kind": "blocker", "discovered": "Provider rejected authentication (HTTP 401)."},
+                }
+                public = {
+                    "status": state["status"],
+                    "recovery": {
+                        "what_happened": "The model connection could not authenticate.",
+                        "saved_reason": state["user_request"]["discovered"],
+                    },
+                    "needs": {
+                        "kind": "answer",
+                        "resolver_scope": scope,
+                        "resolver_request_id": "req-1",
+                        "resolver_token": "current-token",
+                        "questions": [
+                            {
+                                "id": "q1",
+                                "question": "What changed? Retry with --abandon-stage 001/requirements-01.",
+                                "options": ["Provide information", "Leave paused"],
+                            }
+                        ],
+                    },
+                }
+                before = copy.deepcopy((state, public))
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                self.assertEqual(["resolver-req-1"], [row["id"] for row in result["messages"]])
+                text = result["messages"][0]["text"]
+                if scope == "operational_exhaustion":
+                    self.assertIn(public["recovery"]["what_happened"], text)
+                    self.assertNotIn("HTTP 401", text)
+                    self.assertIn("Run details", text)
+                    self.assertIn("does not authorize a retry", text)
+                    self.assertNotIn("--abandon-stage", text)
+                else:
+                    self.assertIn("What changed?", text)
+                self.assertEqual("resolver_response", result["input"]["kind"])
+                self.assertIn("AUTOCODE_RESOLVER_TOKEN=current-token", result["input"]["next_command"])
+                self.assertIn("--resolver-response provide_information", result["input"]["next_command"])
+                self.assertEqual(before, (state, public))
+
+    def test_operational_failure_without_recovery_summary_does_not_leak_diagnostics(self):
+        cause = (
+            "Completed requirements_gather_report_repair output was rejected ($: missing assistant_reply); "
+            "inspect the saved output probe. Cross-model verification violated."
+        )
+        state = {"status": "WAITING_FOR_USER", "user_request": {"kind": "blocker", "discovered": cause}}
+        public = {
+            "status": state["status"],
+            "needs": {
+                "kind": "answer",
+                "resolver_scope": "operational_exhaustion",
+                "resolver_request_id": "req-1",
+                "resolver_token": "current-token",
+                "questions": [{"question": cause}],
+            },
+        }
+        for recovery in (None, {}, {"what_happened": ""}):
+            with self.subTest(recovery=recovery):
+                public["recovery"] = recovery
+                before = copy.deepcopy((state, public))
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                text = result["messages"][0]["text"]
+                self.assertIn("couldn’t finish", text)
+                self.assertIn("Run details", text)
+                self.assertIn("Reply with what changed", text)
+                self.assertIn("does not authorize a retry", text)
+                for raw in ("requirements_gather", "assistant_reply", "output probe", "Cross-model"):
+                    self.assertNotIn(raw, text)
+                self.assertEqual("resolver_response", result["input"]["kind"])
+                self.assertEqual(before, (state, public))
+
+    def test_public_view_keeps_raw_failure_in_details_and_human_summary_in_chat(self):
+        cause = "requirements_gather_report_repair: $: missing assistant_reply; inspect the output probe"
+        state = {
+            "status": "WAITING_FOR_USER",
+            "next_stage": "requirements_gather",
+            "user_request": {"kind": "blocker", "discovered": cause},
+            "stop_reason": cause,
+            "pending_questions": [{"id": "q1", "question": cause, "options": []}],
+            "resolver_human_request": {
+                "request_id": "req-1",
+                "request_token": "current-token",
+                "scope": "operational_exhaustion",
+            },
+            "resolver": {
+                "human_escalations": {
+                    "req-1": {
+                        "status": "pending",
+                        "identity": {"proposal": {"origin": {"pause_status": "PAUSED_REPEATED_FAILURE"}}},
+                    }
+                }
+            },
+        }
+        before = copy.deepcopy(state)
+        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        text = view["chat"]["messages"][0]["text"]
+        self.assertIn("The same step repeatedly failed.", text)
+        self.assertIn("Run details", text)
+        for raw in ("requirements_gather", "assistant_reply", "output probe"):
+            self.assertNotIn(raw, text)
+        self.assertEqual(cause, view["recovery"]["saved_reason"])
+        self.assertEqual(cause, view["needs"]["questions"][0]["question"])
+        self.assertEqual("resolver_response", view["chat"]["input"]["kind"])
+        self.assertEqual(before, state)
+
+    def test_routed_and_unbound_operational_questions_stay_visible_in_requirements(self):
+        state = {
+            "status": "WAITING_FOR_USER",
+            "settings": {"spec_first": True},
+            "next_stage": "requirements_gather",
+            "user_request": {"kind": "blocker"},
+        }
+        question = "Which model should Requirements use after its provider quota stop?"
+        need = {
+            "kind": "answer",
+            "resolver_scope": "operational_exhaustion",
+            "resolver_request_id": "req-1",
+            "resolver_token": "current-token",
+            "questions": [{"id": "route-glm", "question": question, "options": []}],
+        }
+        routed = {
+            **need,
+            "route": {
+                "question_id": "route-glm",
+                "role": "glm",
+                "cause": "quota",
+                "current_model": "p/old",
+                "stopped_model": "p/old",
+                "candidates": ["p/new"],
+            },
+        }
+        for open_need in (
+            routed,
+            {key: value for key, value in need.items() if key != "resolver_request_id"},
+            {key: value for key, value in need.items() if key != "resolver_token"},
+        ):
+            with self.subTest(need=open_need):
+                public = {"status": state["status"], "needs": open_need}
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                self.assertEqual(["requirements-question"], [row["id"] for row in result["messages"]])
+                self.assertEqual(question, result["messages"][0]["text"])
+                self.assertIsNone(result["input"])
+
     def test_history_preserves_original_request_answers_feedback_and_followups(self):
         state = {
             "status": "TASK_COMPLETE",
@@ -152,6 +347,114 @@ class ChatViewTests(unittest.TestCase):
         self.assertEqual(result["messages"], self.project(copy.deepcopy(state), "done", True)["messages"])
         state["user_events"].append({"kind": "brief_feedback", "text": "New request"})
         self.assertNotEqual(result["context"], self.project(state, "done", True)["context"])
+
+    def test_button_answers_read_as_what_the_person_did(self):
+        state = {
+            "status": "TASK_COMPLETE",
+            "turns": [{"previous": {"task": "Build greet.py"}}],
+            "user_events": [
+                {
+                    "kind": "answer",
+                    "question_id": "requirements-review-abc",
+                    "question": {"question": "Does this match?"},
+                    "text": "plan",
+                },
+                {"kind": "goal_approval", "token": "r2:abc"},
+                {"kind": "answer", "question_id": "q-name", "question": {"question": "Name?"}, "text": "plan"},
+            ],
+        }
+        texts = [row["text"] for row in self.project(state, "done", True)["messages"]]
+        self.assertEqual(
+            [
+                "Build greet.py",
+                "Does this match?",
+                "Looks right. Prepare the plan.",
+                "Approved the plan.",
+                "Name?",
+                "plan",
+                "The requested task is complete.",
+            ],
+            texts,
+        )
+
+    def approved_plan(self, revision=1, outcome="Deliver the first plan"):
+        body = goal_fixtures.body(human=True)
+        body["intended_outcome"] = outcome
+        body["acceptance_criteria"][0]["criterion"] = outcome + " works"
+        body["git_delivery"] = {"kind": "atomic_commit", "message": "Deliver the approved greeting"}
+        contract = {"task_id": "task-1", "revision": revision, "body": body}
+        contract["hash"] = util.digest(contract)
+        event = {"kind": "goal_approval", "actor": "user_cli", "token": f"r{revision}:{contract['hash']}"}
+        contract.update(approval_status="approved", approval_event=event, origin="fixture")
+        return contract, event
+
+    def test_approved_plan_stays_before_approval_during_build_and_after_completion(self):
+        contract, event = self.approved_plan()
+        state = {
+            "status": "RUNNING",
+            "task": "Build a greeting",
+            "goal_contract": contract,
+            "user_events": [event],
+        }
+        before = copy.deepcopy(state)
+        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        rows = view["chat"]["messages"]
+        self.assertEqual(["user", "assistant", "user"], [r["role"] for r in rows])
+        self.assertEqual("Approved the plan.", rows[-1]["text"])
+        text = rows[-2]["text"]
+        for expected in (
+            "revision 1",
+            contract["body"]["intended_outcome"],
+            contract["body"]["acceptance_criteria"][0]["criterion"],
+            contract["body"]["acceptance_criteria"][0]["verification_method"],
+            "your review",
+            contract["body"]["constraints"][0],
+            contract["body"]["permission_boundaries"][0],
+            contract["body"]["git_delivery"]["message"],
+        ):
+            self.assertIn(expected, text)
+        self.assertEqual(before, state)
+        state["status"] = "TASK_COMPLETE"
+        completed = self.project(state, "done", True)["messages"]
+        self.assertEqual(rows, completed[:-1])
+        self.assertEqual(completed, self.project(copy.deepcopy(state), "done", True)["messages"])
+
+    def test_each_approval_keeps_its_own_plan_across_revisions_and_followups(self):
+        first, first_event = self.approved_plan(1, "First approved outcome")
+        second, second_event = self.approved_plan(2, "Second approved outcome")
+        draft, _ = self.approved_plan(3, "Unapproved replacement")
+        draft.update(approval_status="draft", approval_event=None)
+        state = {
+            "status": "AWAITING_GOAL_APPROVAL",
+            "task": "Follow-up task",
+            "turns": [{"event_id": "follow-up", "previous": {"task": "Original task"}}],
+            "contract_history": [first, second],
+            "goal_contract": draft,
+            "user_events": [
+                first_event,
+                {"kind": "brief_feedback", "id": "follow-up", "text": "Add a feature"},
+                second_event,
+            ],
+        }
+        rows = self.project(state)["messages"]
+        self.assertEqual(["user", "assistant", "user", "user", "assistant", "user"], [r["role"] for r in rows])
+        self.assertIn("First approved outcome", rows[1]["text"])
+        self.assertNotIn("Second approved outcome", rows[1]["text"])
+        self.assertIn("Second approved outcome", rows[4]["text"])
+        self.assertNotIn("Unapproved replacement", "\n".join(r["text"] for r in rows))
+        self.assertNotEqual(rows[1]["id"], rows[4]["id"])
+
+    def test_unbound_or_damaged_contract_never_supplies_approved_plan_text(self):
+        contract, event = self.approved_plan()
+        tampered = copy.deepcopy(contract)
+        tampered["body"]["intended_outcome"] = "Changed without approval"
+        forged = copy.deepcopy(contract)
+        forged["approval_event"] = {**event, "actor": "model"}
+        for saved in (None, {}, tampered, forged, {**contract, "approval_event": None}):
+            with self.subTest(contract=saved):
+                state = {"status": "RUNNING", "goal_contract": saved, "user_events": [event]}
+                rows = self.project(state, "continue")["messages"]
+                self.assertEqual(["Approved the plan."], [r["text"] for r in rows])
 
     def test_saved_discussion_answer_and_previous_response_are_visible(self):
         state = {

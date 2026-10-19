@@ -273,9 +273,13 @@ def resolve(runner, args, parser):
                 parser.error(str(error))
 
     if args.run_dir:
+        run_dir = args.run_dir.resolve()
+        if not (run_dir / "state.json").is_file():
+            relocated = run_destination.resolve_relocated(workspace, run_dir)
+            if relocated is not None:
+                workspace, run_dir = relocated
         if not (workspace / ".git").exists():
             parser.error(f"workspace is not a Git repository: {workspace}")
-        run_dir = args.run_dir.resolve()
         state_path = run_dir / "state.json"
         state = runner.read_json(state_path)
         try:
@@ -308,6 +312,7 @@ def resolve(runner, args, parser):
             except ValueError as error:
                 parser.error(str(error))
         created = fresh = False
+        selected = workspace
         if not (workspace / ".git").exists():
             if args.dry_run or args.status or args.explain:
                 parser.error(f"workspace is not a Git repository: {workspace}")
@@ -335,7 +340,11 @@ def resolve(runner, args, parser):
         )
         if getattr(args, "new_run_dir", None) is not None:
             try:
-                run_dir = run_destination.reserve(workspace, args.new_run_dir)
+                run_dir = run_destination.reserve(
+                    workspace,
+                    args.new_run_dir,
+                    named_from=selected if selected != workspace else None,
+                )
             except (OSError, ValueError) as error:
                 parser.error(f"Invalid fresh run destination: {error}")
         state_path = run_dir / "state.json"

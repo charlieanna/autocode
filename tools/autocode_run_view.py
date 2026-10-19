@@ -33,6 +33,7 @@ try:
     from . import autocode_chat_view as chat_view
     from . import autocode_classification_recovery as classification_recovery
     from . import autocode_code_checkpoints as code_checkpoints
+    from . import autocode_command_inputs as command_inputs
     from . import autocode_component_plan as component_plan
     from . import autocode_containment_policy as containment_policy
     from . import autocode_contract_identity as contract_identity
@@ -48,6 +49,7 @@ try:
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
     from . import autocode_package_scope as package_scope
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_category as pause_category
     from . import autocode_pause_command as pause_command
     from . import autocode_plan_file as plan_file
@@ -73,6 +75,7 @@ except ImportError:
     import autocode_chat_view as chat_view
     import autocode_classification_recovery as classification_recovery
     import autocode_code_checkpoints as code_checkpoints
+    import autocode_command_inputs as command_inputs
     import autocode_component_plan as component_plan
     import autocode_containment_policy as containment_policy
     import autocode_contract_identity as contract_identity
@@ -88,6 +91,7 @@ except ImportError:
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
     import autocode_package_scope as package_scope
+    import autocode_pause_authority as pause_authority
     import autocode_pause_category as pause_category
     import autocode_pause_command as pause_command
     import autocode_plan_file as plan_file
@@ -170,6 +174,11 @@ def view(
         "dependency": state.get("dependency_wait"),
         "verification_obligation": deepcopy(verification_obligation),
         "schema": SCHEMA,
+        # The run this view describes. A client's own handle may name the folder
+        # it selected before AutoCode bootstrapped a child project there; the
+        # effective location is what named commands carry.
+        "workspace": str(workspace) if workspace is not None else state.get("workspace"),
+        "run_dir": str(run_dir) if run_dir is not None else None,
         "controller": deepcopy(controller),
         # Saved launch identity, never inferred from current installed resources.
         "prompts_hash": state.get("prompts_hash"),
@@ -187,7 +196,7 @@ def view(
         "needs": need,
         "recovery": recovery_view.project(state, need),
         "verification": verification_view.project(state),
-        "code_checkpoints": code_checkpoints.project(state),
+        "code_checkpoints": code_checkpoints.project(state, run_dir=run_dir, workspace=workspace),
         # Which saved checkpoints built each approved criterion's milestones (#730): attribution, not proof.
         "changes_by_criterion": criterion_changes.attribute((plan or {}).get("body"), state.get("code_checkpoints")),
         # The run's development server as the caller inspected it (autocode_dev_server.inspect, #730).
@@ -264,6 +273,8 @@ def view(
         "package": package_scope.of(state.get("settings")),
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
         "job_report_recovery": None,
+        # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
+        "pause": None,
     }
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     if simulated or invalid_replay:
@@ -678,7 +689,28 @@ def workflow_result(state: RunState):
             "outcome": row.get("verdict"),
             "artifact": row.get("report_path"),
             "artifact_sha256": row.get("report_sha256"),
-            "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings",
+            "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings"
+            + (
+                f"; {row.get('pre_existing', 0)} pre-existing observations, "
+                f"{row.get('inconclusive', 0)} blockers with inconclusive attribution"
+                if row.get("pre_existing") or row.get("inconclusive")
+                else ""
+            )
+            + (
+                f"; submitted verdict: {row.get('submitted_verdict')}; {row['verdict_adjustment']}"
+                if row.get("verdict_adjustment")
+                else ""
+            ),
+            **(
+                {
+                    "review_attribution": {
+                        key: deepcopy(row.get(key))
+                        for key in ("pre_existing", "inconclusive", "submitted_verdict", "verdict_adjustment")
+                    }
+                }
+                if "pre_existing" in row
+                else {}
+            ),
             **(
                 {"mutation_check": deepcopy(row["mutation_check"])}
                 if isinstance(row.get("mutation_check"), dict)
@@ -733,6 +765,15 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     need = needs(state, stale_report_repair=stale_report_repair)
     category = pause_category.category(status, need)
     terminal = any(row.get("kind") == "stop" for row in state.get("applied_interventions", []) if isinstance(row, dict))
+    # This status also names novelty/source holds; only its bound hold needs a larger limit.
+    resume_flags = (
+        None
+        if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
+        else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status)
+    )
+    inputs = None if terminal or not category else command_inputs.project(state, need, resume_flags)
+    if inputs and need is not None:
+        need = {**need, "command_inputs": inputs}
     return {
         "needs": need,
         "pause_category": category,
@@ -743,10 +784,8 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
             need,
             run_dir=run_dir or state.get("run_dir"),
             workspace=workspace or state.get("workspace"),
-            # This status also names novelty/source holds; only its bound hold needs a larger limit.
-            resume_flags=None
-            if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
-            else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status),
+            resume_flags=resume_flags,
+            recovery_token=recovery_view.token(state) if inputs else None,
             terminal=terminal,
         ),
     }
@@ -962,7 +1001,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
-        if review.get("status") == "held" and review.get("action"):
+        if review.get("status") == "pending":
+            # Information grants no allowance. Evaluate it before offering a
+            # finite numeric choice, just as at the total-time checkpoint.
+            need["action"] = "--resume-paused"
+        elif command_inputs.has_planning_allowance(state):
+            need["action"] = "--resume-paused"
+        elif review.get("status") == "held" and review.get("action"):
             need["action"] = review["action"]
         return need
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
@@ -1000,7 +1045,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             need["action"] = member
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
-        if review.get("action") and (review["status"] == "held" or "action" not in need):
+        if review.get("status") == "pending" and "action" not in need:
+            need["action"] = "--resume-paused"
+        elif review.get("action") and (review["status"] == "held" or "action" not in need):
             need["action"] = review["action"]
         pending = state.get("pending_report_repair") or {}
         rejected = report_retry.rejected_attempt(state) or {}
@@ -1017,5 +1064,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         ):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
             need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
+        if "action" not in need and pause_authority.requested_only(state):
+            need["confirmation_required"] = False
         return need
     return {"kind": "continue"}

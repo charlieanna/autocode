@@ -475,7 +475,7 @@ def choose(
         for role, route in settings.get("roles", {}).items()
         if role in ROLES and (route.get("engine") or settings.get("engine")) == "opencode"
     }
-    lister = inventory.available_models if inventory is not None else getattr(provider, "available_models", None)
+    lister = inventory.selection_models if inventory is not None else getattr(provider, "available_models", None)
     if not roles or lister is None:
         return settings
     try:

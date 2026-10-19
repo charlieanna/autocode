@@ -19,6 +19,7 @@ import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
+import autocode_planning_cycle as cycle
 import autocode_support as support
 import autopilot
 from goal_fixtures import assert_operational_wait, body
@@ -1683,5 +1684,281 @@ class NativeJointFlow(unittest.TestCase):
         self.assertEqual(built, (self.project / "greet.py").read_bytes())
 
 
+class PersistedReviewLimitTests(unittest.TestCase):
+    """A new run's review allowance can come from the user's config (#1565)."""
+
+    def setUp(self):
+        import autocode_configure as configure
+
+        self.configure = configure
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.config = Path(self.temp.name) / "autocode"
+        self.config.mkdir()
+        self.patcher = patch.dict(os.environ, {"XDG_CONFIG_HOME": self.temp.name})
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+    def test_absent_config_leaves_the_builtin_default(self):
+        self.assertEqual(self.configure.persisted_review_call_limit(), (None, "built-in default"))
+
+    def test_config_value_and_source_are_reported(self):
+        (self.config / "config.toml").write_text("plan_review_call_limit = 4\n")
+        limit, source = self.configure.persisted_review_call_limit()
+        self.assertEqual(limit, 4)
+        self.assertIn("plan_review_call_limit in", source)
+
+    def test_zero_is_the_persisted_unlimited_choice(self):
+        (self.config / "config.toml").write_text("plan_review_call_limit = 0\n")
+        self.assertEqual(self.configure.persisted_review_call_limit()[0], 0)
+
+    def test_invalid_values_refuse_at_start_not_midrun(self):
+        for value in ("1", "2.5", "-1", "plan_review_call_limit = 1\n"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                if value.endswith("\n"):
+                    (self.config / "config.toml").write_text(value)
+                    self.configure.persisted_review_call_limit()
+                else:
+                    (self.config / "config.toml").write_text(f"plan_review_call_limit = {value}\n")
+                    self.configure.persisted_review_call_limit()
+
+    def test_resumed_run_keeps_its_saved_allowance(self):
+        # The persisted default applies where settings are first built; the
+        # guard is `not started`, so a run with saved settings never re-reads it.
+        (self.config / "config.toml").write_text("plan_review_call_limit = 9\n")
+        source = "plan_review_call_limit in"
+        limit, origin = self.configure.persisted_review_call_limit()
+        assert limit == 9 and origin.startswith(source)
+        # started=True (a saved run) must not reach the config application at all.
+        state = {"settings": {"planning_review_call_limit": 2, "planning_review_call_limit_origin": "user_explicit"}}
+        started = bool(state.get("settings"))
+        self.assertTrue(started)
+
+    def test_flag_wins_over_config_by_construction(self):
+        # An explicit CLI flag never reaches the reader (the guard checks the
+        # arg first); the reader therefore cannot override a person's flag.
+        (self.config / "config.toml").write_text("plan_review_call_limit = 9\n")
+        args = SimpleNamespace(planning_review_call_limit=5)
+        applied = args.planning_review_call_limit is None
+        self.assertFalse(applied, "an explicit flag bypasses the config default")
+
+
+class BudgetOriginTests(unittest.TestCase):
+    """The joint-planning line names where the allowance came from (#1565)."""
+
+    def test_origin_is_shown_when_configured(self):
+        import autocode_goal_lifecycle as lifecycle
+
+        state = {
+            "status": "PAUSED_PLANNING_BUDGET",
+            "task_id": "t",
+            "planning": {"astra_calls": 2, "reports": {}},
+            "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
+            "settings": {
+                "planning_review_call_limit": 4,
+                "planning_review_call_limit_origin": "plan_review_call_limit in /x/config.toml",
+            },
+        }
+        text = lifecycle.render(state)
+        self.assertIn("2/4 plan-review calls used", text)
+        self.assertIn("allowance from plan_review_call_limit in /x/config.toml", text)
+
+    def test_no_origin_keeps_the_plain_line(self):
+        import autocode_goal_lifecycle as lifecycle
+
+        state = {
+            "status": "PAUSED_PLANNING_BUDGET",
+            "task_id": "t",
+            "planning": {"astra_calls": 2, "reports": {}},
+            "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
+            "settings": {"planning_review_call_limit": 4},
+        }
+        text = lifecycle.render(state)
+        self.assertIn("2/4 plan-review calls used", text)
+        self.assertNotIn("allowance from", text)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewDepthPolicyTests(unittest.TestCase):
+    """A small clear brief's allowance counts across planning cycles (#1564)."""
+
+    def state(self, **extra):
+        base = {
+            "status": "RUNNING",
+            "next_stage": "astra_challenge",
+            "planning": {"astra_calls": 0, "reports": {}},
+            "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
+            "settings": {"planning_review_call_limit": 2},
+        }
+        base.update(extra)
+        return base
+
+    def test_small_clear_brief_keeps_its_total_across_cycles(self):
+        state = self.state()
+        planning.charge(state, "astra_challenge")
+        self.assertTrue(state["planning"]["review_depth_reduced"])
+        state["planning"]["astra_calls"] = 2
+        cycle.new_cycle(state)
+        self.assertEqual(state["planning"]["astra_calls"], 2, "a revision restarts the record, not the counter")
+        self.assertTrue(state["planning"]["review_depth_reduced"])
+        with self.assertRaises(Exception) as raised:
+            planning.charge(state, "astra_challenge")
+        self.assertIn("PAUSED_PLANNING_BUDGET", str(raised.exception) + getattr(raised.exception, "status", ""))
+
+    def test_normal_brief_resets_per_cycle_as_today(self):
+        state = self.state(workflow={"kind": "build", "clarity": "vague"})
+        planning.charge(state, "astra_challenge")
+        self.assertNotIn("review_depth_reduced", state["planning"])
+        state["planning"]["astra_calls"] = 2
+        cycle.new_cycle(state)
+        self.assertEqual(state["planning"]["astra_calls"], 0)
+
+    def test_full_depth_flag_opts_out(self):
+        state = self.state(settings={"planning_review_call_limit": 2, "plan_review_full": True})
+        planning.charge(state, "astra_challenge")
+        self.assertNotIn("review_depth_reduced", state["planning"])
+
+    def test_finalized_small_plan_activates_and_counts_earlier_cycles(self):
+        state = self.state(workflow={"kind": "build", "clarity": "clear", "brief_size": "medium"})
+        state["planning_history"] = [{"astra_calls": 2, "reports": {}}]
+        state["planning"]["adaptive"] = {"size": "small"}
+        # Activation happens at admission: the two full-depth reviews already run
+        # join the total, so this admission pauses instead of granting a fresh cycle.
+        with self.assertRaises(support.Paused) as raised:
+            planning.charge(state, "astra_challenge")
+        self.assertIn("2/2 plan-review calls used", str(raised.exception))
+        self.assertTrue(state["planning"]["review_depth_reduced"])
+        self.assertEqual(state["planning"]["astra_calls"], 2, "full-depth reviews already run join the total")
+        self.assertEqual(state["planning"]["review_calls_before_policy"], 2)
+
+    def test_budget_line_names_the_policy(self):
+        import autocode_goal_lifecycle as lifecycle
+
+        state = {
+            "status": "PAUSED_PLANNING_BUDGET",
+            "task_id": "t",
+            "planning": {"astra_calls": 2, "reports": {}, "review_depth_reduced": True},
+            "goal_contract": {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "approved"},
+            "settings": {"planning_review_call_limit": 2},
+        }
+        self.assertIn("counts across revisions (small clear brief)", lifecycle.render(state))
+
+
+class ReviewerEffortTierTests(unittest.TestCase):
+    """A reduced-depth run's Plan Reviewer launches at the reduced effort tier (#1564)."""
+
+    def state(self, **extra):
+        base = {
+            "status": "RUNNING",
+            "next_stage": "astra_challenge",
+            "planning": {"astra_calls": 0, "reports": {}},
+            "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
+            "settings": {
+                "planning_review_call_limit": 6,
+                "effort_origins": {"plan_reviewer": "runner_default"},
+                "roles": {
+                    "plan_reviewer": {
+                        "model": "openai/gpt-6-sol",
+                        "model_pinned": True,
+                        "reasoning_effort": "high",
+                    }
+                },
+            },
+        }
+        base.update(extra)
+        return base
+
+    def test_ac1_effort_steps_down_when_policy_active(self):
+        state = self.state()
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        cycle.new_cycle(state)
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
+        self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
+
+    def test_ac2_provider_light_effort_is_the_tier(self):
+        state = self.state()
+        state["settings"]["roles"]["plan_reviewer"]["light_effort"] = "low"
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("low", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
+        self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
+
+    def test_explicit_and_unknown_saved_efforts_keep_their_tier_and_charges(self):
+        for origin in ("user_explicit", None):
+            with self.subTest(origin=origin):
+                state = self.state()
+                if origin is None:
+                    state["settings"].pop("effort_origins")
+                else:
+                    state["settings"]["effort_origins"]["plan_reviewer"] = origin
+                state["settings"]["roles"]["plan_reviewer"].update(reasoning_effort="medium", light_effort="low")
+                state["settings"]["roles"]["investigator"] = {"model": "different/model", "reasoning_effort": "high"}
+                state["planning_history"] = [{"astra_calls": 2}]
+                planning.route_for(state, "astra_challenge")
+                planning.charge(state, "astra_challenge")
+                self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+                self.assertEqual("high", state["settings"]["roles"]["investigator"]["reasoning_effort"])
+                self.assertEqual(2, state["planning"]["review_calls_before_policy"])
+                self.assertEqual(3, state["planning"]["astra_calls"])
+
+    def test_ac3_one_step_down_ladder_boundaries(self):
+        self.assertEqual("xhigh", planning.reduced_reviewer_effort({"reasoning_effort": "max"}))
+        self.assertEqual("low", planning.reduced_reviewer_effort({"reasoning_effort": "low"}))
+        self.assertIsNone(planning.reduced_reviewer_effort({"reasoning_effort": None}))
+        self.assertIsNone(planning.reduced_reviewer_effort({}))
+        self.assertEqual("turbo", planning.reduced_reviewer_effort({"reasoning_effort": "turbo"}))
+
+    def test_ac4_full_depth_flag_never_reduces(self):
+        state = self.state()
+        state["settings"]["plan_review_full"] = True
+        state["planning"]["review_depth_reduced"] = True
+        planning.apply_reviewer_effort_tier(state)
+        self.assertEqual("high", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        reduced = self.state()
+        reduced["planning"]["review_depth_reduced"] = True
+        planning.apply_reviewer_effort_tier(reduced)
+        self.assertEqual("medium", reduced["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+
+    def test_ac5_reviewer_model_unchanged(self):
+        from units import autoplanner
+
+        with_light = self.state()
+        with_light["settings"]["roles"]["plan_reviewer"]["light_effort"] = "low"
+        for state in (self.state(), with_light, self.state()):
+            before = copy.deepcopy(state["settings"]["roles"]["plan_reviewer"])
+            planning.apply_reviewer_effort_tier(state)
+            self.assertEqual(before["model"], state["settings"]["roles"]["plan_reviewer"]["model"])
+            self.assertEqual(before["model_pinned"], state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
+        self.assertEqual("openai/gpt-6-sol", autoplanner.PINNED_REVIEWER_MODEL)
+
+    def test_ac8_first_launch_consumes_reduced_tier(self):
+        state = self.state()
+        state["planning_history"] = [{"astra_calls": 3, "reports": {}}]
+        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        planning.charge(state, "astra_challenge")
+        self.assertEqual(3, state["planning"]["review_calls_before_policy"])
+        self.assertEqual(4, state["planning"]["astra_calls"])
+        cycle.new_cycle(state)
+        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        vague = self.state(workflow={"clarity": "vague"})
+        self.assertEqual("plan_reviewer", planning.route_for(vague, "astra_challenge"))
+        self.assertEqual("high", vague["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+
+
+class BriefSizeTests(unittest.TestCase):
+    def test_table(self):
+        import autocode_workflows as workflows
+
+        self.assertEqual(workflows.brief_size("Fix the failing test: median returns 3 for even lists."), "small")
+        self.assertEqual(workflows.brief_size("1) a\n2) b\n3) c\n4) d\n5) e\n6) f\n7) g\n8) h\n9) i"), "medium")
+        self.assertEqual(workflows.brief_size("Redesign routing. " + " ".join(["w"] * 200)), "medium")

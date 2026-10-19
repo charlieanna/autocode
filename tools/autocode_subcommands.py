@@ -28,8 +28,10 @@ INTERNAL_FLAGS: dict[tuple[str, ...], frozenset[str]] = {
 
 SUBCOMMANDS = {
     "connections": "autocode_connections",
+    "modes": "autocode_run_modes",
     "demo": "autocode_demo",
     "conversation": "autocode_conversation_cli",
+    "chat": "autocode_chat_client",
     "verify": "autocode_verify_task",
     "issue": "autocode_issue",
     "arena": "autocode_arena",

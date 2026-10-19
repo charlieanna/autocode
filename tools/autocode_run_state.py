@@ -307,7 +307,7 @@ class RunState(TypedDict, total=False):
     history: list  # finished stage records (autocode_run_view)
     stages: list  # saved stage records; written by the runner
     active_stage: dict | None  # the in-flight stage record
-    settings: dict  # roles, budgets, engine, workflow mode
+    settings: dict  # roles, budgets, engine, workflow mode; configure owns effort_origins (reviewer effort policy)
     prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
     acceptance_tests: dict  # spec-first Tester receipts + redirected_from; written by autocode_acceptance_tests(_job), read by its route/check and run_view
@@ -369,7 +369,7 @@ class RunState(TypedDict, total=False):
     source_log: list
     program_guidance: list  # a program's corrections of the displayed plan (autocode_program_guidance writes, units.autoplanner reads)
     last_decision: dict | None  # the latest plan decision
-    contract_history: list  # prior contract revisions
+    contract_history: list  # prior contract revisions; chat_history reads plans matched to approval receipts
     # Who resumed the run out of each pause (#722): {at, pause_status, provenance}, appended by
     # autocode_approval_provenance.acknowledge when, after an explicit resume, the build loop passes every check
     # that could hold the run at that pause and launches work; read by its view (the status view's ``approvals``,

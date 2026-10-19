@@ -7,6 +7,7 @@ conformance-lifecycle through AutoCode's real CLI with the scripted provider.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import signal
 import subprocess
@@ -48,6 +49,182 @@ class ClientDecisionTests(unittest.TestCase):
 
     def named(self, text, kind="approve_plan"):
         return self.client.named_command(view(kind, text))
+
+    def time_offer(self):
+        public = view(
+            "resume",
+            "AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --resume-paused --max-seconds N --expected-recovery-token -",
+        )
+        public["status"] = "PAUSED_TIME_LIMIT"
+        public["recovery"] = {"token": "current"}
+        public["needs"]["command_inputs"] = [
+            {
+                "id": "max_seconds",
+                "kind": "integer",
+                "flag": "--max-seconds",
+                "placeholder": "N",
+                "arg_index": 2,
+                "label": "Total active time (seconds)",
+                "current": 2700,
+                "elapsed": 3010.885,
+                "minimum": 3011,
+                "maximum": 9007199254740991,
+            }
+        ]
+        return public
+
+    def test_finite_total_requires_persons_number_and_preserves_exact_bound_command(self):
+        public = self.time_offer()
+        words, env, _ = self.client.named_command(public)
+        with self.assertRaisesRegex(ConformanceGap, "explicit whole number"):
+            self.client.decide(public["needs"], words, view=public, env=env)
+        result = self.client.decide(
+            public["needs"], words, command_inputs={"max_seconds": "5400"}, view=public, env=env
+        )
+        self.assertEqual(["--resume-paused", "--max-seconds", "5400", "--expected-recovery-token", "-"], result)
+        self.assertEqual({"AUTOCODE_EXPECTED_RECOVERY_TOKEN": "current"}, env)
+        for invalid in (
+            "",
+            " ",
+            "0",
+            "3010",
+            "-1",
+            "1.5",
+            "5e3",
+            "Infinity",
+            "5400 --approve-goal -",
+            "9007199254740992",
+            "9" * 5000,
+        ):
+            with self.subTest(invalid=invalid[:30]), self.assertRaises(ConformanceGap):
+                self.client.decide(
+                    public["needs"], words, command_inputs={"max_seconds": invalid}, view=public, env=env
+                )
+
+    def test_finite_review_allowance_preserves_resume_and_save_only_commands(self):
+        for save_only in (False, True):
+            public = view(
+                "planning_budget",
+                "AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode "
+                + ("" if save_only else "--resume-paused ")
+                + "--planning-review-call-limit N --expected-recovery-token -",
+            )
+            public.update(status="PAUSED_PLANNING_BUDGET", recovery={"token": "current"})
+            public["needs"]["command_inputs"] = [
+                {
+                    "id": "planning_review_call_limit",
+                    "kind": "integer",
+                    "flag": "--planning-review-call-limit",
+                    "placeholder": "N",
+                    "arg_index": 1 if save_only else 2,
+                    "label": "Total plan-review calls",
+                    "current": 2,
+                    "used": 2,
+                    "minimum": 3,
+                    "maximum": 9007199254740991,
+                }
+            ]
+            words, env, _ = self.client.named_command(public)
+            for invalid in (None, "", "0", "2", "1.5", "4e2", "9" * 5000):
+                with self.subTest(save_only=save_only, invalid=str(invalid)[:20]), self.assertRaises(ConformanceGap):
+                    self.client.decide(
+                        public["needs"],
+                        words,
+                        command_inputs={"planning_review_call_limit": invalid},
+                        view=public,
+                        env=env,
+                    )
+            chosen = self.client.decide(
+                public["needs"], words, command_inputs={"planning_review_call_limit": "4"}, view=public, env=env
+            )
+            self.assertEqual(
+                ([] if save_only else ["--resume-paused"])
+                + ["--planning-review-call-limit", "4", "--expected-recovery-token", "-"],
+                chosen,
+            )
+            for key, value in (
+                ("used", True),
+                ("used", 10**1000),
+                ("current", 2.5),
+                ("minimum", 2),
+                ("arg_index", 2 if save_only else 1),
+                ("flag", "--max-seconds"),
+            ):
+                bad = copy.deepcopy(public)
+                bad["needs"]["command_inputs"][0][key] = value
+                with self.subTest(key=key), self.assertRaises(ConformanceGap):
+                    self.client.decide(
+                        bad["needs"], words, command_inputs={"planning_review_call_limit": "4"}, view=bad, env=env
+                    )
+            with self.assertRaises(ConformanceGap):
+                self.client.decide(
+                    public["needs"], words, command_inputs={"planning_review_call_limit": "4"}, view=public, env={}
+                )
+
+    def test_finite_recovery_grant_binds_only_explicit_replenishment(self):
+        public = view(
+            "resume",
+            "AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --resume-paused --grant-recovery N --expected-recovery-token -",
+        )
+        public.update(status="PAUSED_TIMEOUT_RECOVERY", recovery={"token": "current"})
+        public["needs"]["command_inputs"] = [
+            {
+                "id": "grant_recovery",
+                "kind": "integer",
+                "flag": "--grant-recovery",
+                "placeholder": "N",
+                "arg_index": 2,
+                "label": "Additional recoveries",
+                "current": 3,
+                "used": 3,
+                "minimum": 1,
+                "maximum": 3,
+            }
+        ]
+        words, env, _ = self.client.named_command(public)
+        for invalid in (None, "", "0", "4", "1.5", "1e2", "9" * 5000):
+            with self.subTest(invalid=str(invalid)[:20]), self.assertRaises(ConformanceGap):
+                self.client.decide(
+                    public["needs"], words, command_inputs={"grant_recovery": invalid}, view=public, env=env
+                )
+        result = self.client.decide(
+            public["needs"], words, command_inputs={"grant_recovery": "1"}, view=public, env=env
+        )
+        self.assertEqual(["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"], result)
+        for key, value in (("used", True), ("used", 10**1000), ("maximum", 4), ("minimum", 0), ("current", 3.5)):
+            bad = copy.deepcopy(public)
+            bad["needs"]["command_inputs"][0][key] = value
+            with self.subTest(key=key), self.assertRaises(ConformanceGap):
+                self.client.decide(bad["needs"], words, command_inputs={"grant_recovery": "1"}, view=bad, env=env)
+
+    def test_typed_total_rejects_changed_metadata_token_and_other_commands(self):
+        public = self.time_offer()
+        words, env, _ = self.client.named_command(public)
+        for key, value in (
+            ("arg_index", 1),
+            ("flag", "--max-cost-usd"),
+            ("minimum", 1),
+            ("maximum", 0),
+            ("elapsed", float("nan")),
+            ("elapsed", 10**1000),
+            ("current", True),
+            ("current", 2700.5),
+        ):
+            bad = copy.deepcopy(public)
+            bad["needs"]["command_inputs"][0][key] = value
+            with self.subTest(key=key), self.assertRaises(ConformanceGap):
+                self.client.decide(bad["needs"], words, command_inputs={"max_seconds": "5400"}, view=bad, env=env)
+        for changed_words, changed_env in (
+            (words + ["--approve-goal", "-"], env),
+            (words, {"AUTOCODE_EXPECTED_RECOVERY_TOKEN": "old"}),
+            (words, {}),
+        ):
+            with self.assertRaises(ConformanceGap):
+                self.client.decide(
+                    public["needs"], changed_words, command_inputs={"max_seconds": "5400"}, view=public, env=changed_env
+                )
+        with self.assertRaisesRegex(ConformanceGap, "leaves 'N' open"):
+            self.client.decide({"kind": "resume"}, words, command_inputs={"max_seconds": "5400"})
 
     def test_the_named_command_carries_its_token_and_this_run(self):
         words, env, source = self.named(

@@ -9,9 +9,11 @@
  */
 
 import * as vscode from "vscode";
+import { realpath } from "node:fs/promises";
 import { invoke, readStatus, stream, tail, type CliResult } from "./core/cli";
 import {
   applyDecisions,
+  commandInputs,
   findUnsupplied,
   isAdvancing,
   openDecisions,
@@ -19,7 +21,8 @@ import {
   ClientGap,
   type OpenDecision,
 } from "./core/next-command";
-import { readRegistryList, readStatusPayload, approvalToken, planForApproval, type RegistryList, type StatusView } from "./core/view";
+import { readRegistryList, readStatusPayload, approvalToken, planForApproval, type CheckpointAction, type RegistryList, type StatusView } from "./core/view";
+import { FULL_START_ARGS, readRunModes, type RunModes } from "./core/modes";
 import { readSettings, type Settings } from "./settings";
 
 export interface RunRef {
@@ -59,6 +62,13 @@ export class RunController {
     return readRegistryList(result.stdout);
   }
 
+  /** The run modes the core offers for a new chat. Read-only: it starts nothing. */
+  async modes(): Promise<RunModes> {
+    const result = await invoke(this.settings, ["modes", "list", "--json"]);
+    if (result.code !== 0) throw new Error(tail(result));
+    return readRunModes(result.stdout);
+  }
+
   /** `autocode --status`: a read that never rewrites the checkpoint or launches a provider. */
   status(run: RunRef): Promise<StatusView> {
     return readStatus(this.settings, run.workspace, run.runDir, readStatusPayload);
@@ -71,18 +81,23 @@ export class RunController {
    * created, not whichever one a parallel session happened to start. AutoCode
    * refuses an existing directory or a symlink before a provider launches.
    */
-  async start(workspace: string, brief: string, created?: (run: RunRef) => void): Promise<RunRef> {
-    const runDir = freshRunDir(workspace);
+  async start(workspace: string, brief: string, created?: (run: RunRef) => void, startArgs: readonly string[] = FULL_START_ARGS): Promise<RunRef> {
+    // The core resolves the workspace before validating the run destination
+    // (autocode_run_destination.reserve); a symlinked folder such as macOS
+    // /tmp must not make the two paths disagree (#1555).
+    const runWorkspace = await realpath(workspace);
+    const runDir = freshRunDir(runWorkspace);
     const settings = this.settings;
-    // Sidebar conversations gather and confirm requirements before planning.
+    // The chosen run mode's flags, exactly as `modes list` named them; without
+    // one, sidebar conversations gather and confirm requirements before planning.
     // Creation flags stay off later actions, which use the run's saved flow.
-    const args = [brief, "--in-place", "--no-chat", "--joint-planning", "--spec-first", ...settings.runOptions, "--workspace", workspace, "--new-run-dir", runDir];
+    const args = [brief, "--in-place", "--no-chat", ...startArgs, ...settings.runOptions, "--workspace", runWorkspace, "--new-run-dir", runDir];
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
-    created?.({ workspace, runDir });
-    const result = await stream({ ...settings, cwd: workspace }, args, {}, (chunk) => this.log.append(chunk));
+    created?.({ workspace: runWorkspace, runDir });
+    const result = await stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk));
     if (result.rejected || (result.code !== 0 && result.code !== 2)) throw new Error(tail(result));
     this.log.appendLine(`[autocode exited ${result.code}]`);
-    return { workspace, runDir };
+    return { workspace: runWorkspace, runDir };
   }
 
   /**
@@ -94,7 +109,7 @@ export class RunController {
   private named(view: StatusView, run: RunRef): { argv: string[]; env: Record<string, string>; shown: string } {
     const shown = view.next_command ?? "";
     if (shown) {
-      const parsed = parseNamedCommand(shown, { runDir: run.runDir, workspace: run.workspace });
+      const parsed = parseNamedCommand(shown, effective(view, run));
       return { argv: parsed.argv, env: parsed.env, shown };
     }
     if (view.needs?.kind === "continue") return { argv: ["--no-chat"], env: {}, shown: "" };
@@ -110,19 +125,20 @@ export class RunController {
    */
   plan(view: StatusView, run: RunRef): ActionPlan {
     const { argv, env, shown } = this.named(view, run);
+    const inputs = commandInputs(view, { argv, env });
     return {
       env,
       shown,
       advancing: isAdvancing(argv),
-      decisions: openDecisions(argv),
-      unsupplied: findUnsupplied(argv),
+      decisions: openDecisions(argv, inputs),
+      unsupplied: findUnsupplied(argv, inputs),
     };
   }
 
   /** The named action with a person's decisions filled in, ready to run. */
   prepare(view: StatusView, run: RunRef, answers: Record<string, string>): PreparedAction {
     const { argv, env } = this.named(view, run);
-    const filled = applyDecisions(argv, answers);
+    const filled = applyDecisions(argv, answers, commandInputs(view, { argv, env }));
     const advancing = isAdvancing(filled);
     // Existing runs own their saved backend, models and limits. Changing the
     // Connections selection for a new chat must not reroute a paused run.
@@ -153,7 +169,8 @@ export class RunController {
       throw new ClientGap("the complete plan is unavailable; review the plan before approving it");
     }
     const action = this.prepare(view, run, answers);
-    const args = [...action.argv, "--workspace", run.workspace, "--run-dir", run.runDir];
+    const own = effective(view, run);
+    const args = [...action.argv, "--workspace", own.workspace, "--run-dir", own.runDir];
     this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
     const result = await stream(this.settings, args, action.env, (chunk) => this.log.append(chunk));
     this.log.appendLine(`[autocode exited ${result.code}]`);
@@ -164,7 +181,8 @@ export class RunController {
 
   /** The command a person can paste into a terminal instead of letting the client run it. */
   commandText(view: StatusView, run: RunRef): string {
-    return this.named(view, run).shown || `autocode --workspace ${run.workspace} --run-dir ${run.runDir} --no-chat`;
+    const own = effective(view, run);
+    return this.named(view, run).shown || `autocode --workspace ${own.workspace} --run-dir ${own.runDir} --no-chat`;
   }
 
   /** The optional message action is named by the core, never inferred from chat text. */
@@ -174,7 +192,7 @@ export class RunController {
     if (!input || view.chat?.context !== shownContext) {
       throw new ClientGap("This conversation changed; review its current state before sending");
     }
-    const parsed = parseNamedCommand(input.next_command, run);
+    const parsed = parseNamedCommand(input.next_command, effective(view, run));
     const flag = input.kind === "feedback" ? "--feedback" : input.kind === "follow_up" ? "--follow-up" : null;
     const need = view.needs;
     const expected = ["--resolver-request", need?.resolver_request_id, "--resolver-token", "-",
@@ -188,10 +206,100 @@ export class RunController {
     // request binding; they cannot grant a retry or resume a pause themselves.
     if (!operational && (!flag || parsed.argv.length !== 2 || parsed.argv[0] !== flag || parsed.argv[1] !== "MESSAGE"
       || Object.keys(parsed.env).length)) throw new ClientGap("Unsupported message action from AutoCode");
+    const own = effective(view, run);
     const result = await stream({ ...this.settings, cwd: run.workspace },
-      [...parsed.argv.slice(0, -1), text, "--workspace", run.workspace, "--run-dir", run.runDir], parsed.env);
+      [...parsed.argv.slice(0, -1), text, "--workspace", own.workspace, "--run-dir", own.runDir], parsed.env);
     if (result.code !== 0) throw new Error(tail(result));
   }
+
+  /** The pause the view named (#1598), checked against its exact grammar, with this request's id. */
+  async pause(run: RunRef, requestId: string): Promise<void> {
+    const view = await this.status(run);
+    const command = view.pause?.next_command;
+    if (!view.pause || view.pause.requested || !Array.isArray(command)) {
+      throw new ClientGap("AutoCode offers no pause for this run right now");
+    }
+    const own = effective(view, run);
+    const expected = ["intervention", "submit", "--workspace", own.workspace, "--run-dir", own.runDir,
+      "--request-id", "REQUEST_ID", "--kind", "pause", "--json"];
+    if (JSON.stringify(command) !== JSON.stringify(expected)) throw new ClientGap("Unsupported pause action from AutoCode");
+    const result = await invoke(this.settings, command.map((word) => (word === "REQUEST_ID" ? requestId : word)));
+    if (result.code !== 0) throw new Error(tail(result));
+  }
+
+  /** The checkpoint action the view named, checked against the exact grammar before anything runs. */
+  private namedCheckpointAction(view: StatusView, run: RunRef, checkpointId: string, actionId: "compare" | "restore"): CheckpointAction {
+    const row = (view.code_checkpoints?.rows ?? []).find((item) => item.id === checkpointId);
+    const action = row?.actions?.find((item) => item.id === actionId);
+    if (!row || !action) {
+      throw new ClientGap(`AutoCode named no ${actionId} action for saved code change ${checkpointId}`);
+    }
+    const flag = actionId === "compare" ? "--compare" : "--restore";
+    const own = effective(view, run);
+    const expected = ["checkpoint", "--workspace", own.workspace, "--run-dir", own.runDir, flag, checkpointId,
+      ...(actionId === "restore" ? ["--expected-token", "-", "--request-id", "REQUEST_ID"] : [])];
+    if (JSON.stringify(action.next_command) !== JSON.stringify(expected)) {
+      throw new ClientGap("Unsupported checkpoint action from AutoCode");
+    }
+    return action;
+  }
+
+  /** The named compare: what changed since the saved step, plus the token a restore must carry. */
+  async compareCheckpoint(run: RunRef, checkpointId: string): Promise<CheckpointComparison> {
+    const view = await this.status(run);
+    const action = this.namedCheckpointAction(view, run, checkpointId, "compare");
+    const result = await invoke(this.settings, action.next_command);
+    if (result.code !== 0) throw new Error(tail(result));
+    return JSON.parse(result.stdout) as CheckpointComparison;
+  }
+
+  /**
+   * The named restore: a person's confirmed decision, bound to the token a
+   * fresh compare returned and a stable request id that makes replay safe.
+   */
+  async restoreCheckpoint(run: RunRef, checkpointId: string, expectedToken: string, requestId: string): Promise<CheckpointRestoreResult> {
+    const view = await this.status(run);
+    const action = this.namedCheckpointAction(view, run, checkpointId, "restore");
+    const argv = action.next_command.map((word) => (word === "REQUEST_ID" ? requestId : word));
+    const result = await invoke(this.settings, argv, { AUTOCODE_CHECKPOINT_EXPECTED_TOKEN: expectedToken });
+    if (result.code !== 0) throw new Error(tail(result));
+    return JSON.parse(result.stdout) as CheckpointRestoreResult;
+  }
+}
+
+/** The payload `checkpoint --compare` prints. */
+export interface CheckpointComparison {
+  checkpoint_id?: string;
+  expected_token?: string;
+  changed_files?: string[];
+  patch?: string;
+  truncated?: boolean;
+  blocked_reason?: string | null;
+  compared_at?: string;
+  source_branch?: string | null;
+}
+
+/** The payload `checkpoint --restore` prints. */
+export interface CheckpointRestoreResult {
+  operation?: string;
+  checkpoint_id?: string;
+  workspace?: string;
+  run_dir?: string;
+  branch?: string;
+  preserved_branch?: string;
+  status?: string;
+  message?: string;
+}
+
+/**
+ * The run's effective location as the view names it.
+ *
+ * A chat that started in a plain, non-empty folder names its run under that
+ * folder; AutoCode bootstraps a project inside it and the view reports the
+ * project's paths. Named commands carry those, so compare against them.
+ */
+function effective(view: StatusView, run: RunRef): { workspace: string; runDir: string } {
+  return { workspace: view.workspace ?? run.workspace, runDir: view.run_dir ?? run.runDir };
 }
 
 /** AutoCode's own run-directory shape, under the workspace's runs directory. */

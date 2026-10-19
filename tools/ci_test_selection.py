@@ -47,8 +47,10 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
     ("tools/prompts/fragments/report-repair-context/requirements-corrections.md", ("tests.test_report_repair",)),
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
+    ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
     ("tools/prompts/requirements-gather.md", ("tests.test_chat_cli", "tests.test_requirements_review")),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
@@ -71,6 +73,44 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"),
+        ("tests.test_reviewer_effort_cli",),
+    ),
+    (
+        ("tools/units/autoplanner.py", "tools/autocode_replay_"),
+        ("tests.test_saved_run_replay_cli",),
+    ),
+    (("tools/providers/kilocode.py",), ("tests.test_kilo_progress",)),
+    (
+        (
+            "tools/autocode_command_inputs.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_recovery_accounting.py",
+            "tools/autocode_recovery_grants.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_args.py",
+            "tools/autocode_control_tokens.py",
+            "tools/autocode_pause_command.py",
+        ),
+        ("tests.test_planning_allowance_cli",),
+    ),
+    (
+        ("tools/autocode_activity.py", "tools/autocode_process.py"),
+        ("tests.test_kilo_wrapper_idle_cli",),
+    ),
+    (
+        (
+            "tools/autocode_command_inputs.py",
+            "tools/autocode_pause_command.py",
+            "tools/autocode_recovery_view.py",
+        ),
+        ("tests.test_operational_information",),
+    ),
+    (
+        ("tools/autocode_stage_recovery.py", "tools/autocode_report_source.py", "tools/autocode_action_authority.py"),
+        ("tests.test_truncated_review_recovery",),
+    ),
     (("tools/autocode_plan_chat.py",), ("tests.test_plan_chat_cli",)),
     (
         (
@@ -92,11 +132,30 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         (
+            "tools/autocode_run_modes.py",
+            "tools/autocode_args.py",
+            "tools/autocode_adaptive_planning.py",
+            "tools/autocode_requirements_review.py",
+        ),
+        ("tests.test_run_modes",),
+    ),
+    (
+        (
             "tools/autocode_requirements_handoff.py",
             "tools/autocode_requirements_review.py",
             "tools/autocode_workflows.py",
         ),
         ("tests.test_chat_cli", "tests.test_requirements_review"),
+    ),
+    (
+        (
+            "tools/autocode_review_",
+            "tools/autocode_scratch_preparation.py",
+            "tools/autocode_verify.py",
+            "tools/units/autoreview.py",
+            "tools/prompts/review-change.md",
+        ),
+        ("tests.test_review_attribution_cli",),
     ),
     (("tools/autocode_chat_", "tools/autocode_run_view.py", "tools/autocode_follow_up.py"), ("tests.test_chat_cli",)),
     (("tools/autocode.py", "tools/autopilot.py", "tools/autocode_taskrun.py"), ("tests.test_launch_state_cli",)),
@@ -127,7 +186,13 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
         ("tests.test_planning_cycle_cli",),
     ),
-    (("tools/autocode_provider_auth",), ("tests.test_provider_auth_cli",)),
+    (("tools/autocode_provider_auth",), ("tests.test_provider_auth_cli", "tests.test_provider_credentials")),
+    # An early access stop must retain the configured-provider environment guidance.
+    (("tools/autocode_model_preflight",), ("tests.test_provider_credentials",)),
+    (
+        ("tools/autocode_run_records.py",),
+        (*CORE_CONSUMERS, *PUBLIC_FLOW_CONSUMERS, "tests.test_paused_approval_cli"),
+    ),
     (("tools/autocode_task_preflight", "tools/autocode_preflight"), ("tests.test_preflight_worker_cli",)),
     # --package's launch checks (resume, --test-root, committed files) are in autocode_run_setup.resolve,
     # and its out-of-package finding (autocode_package_writes) stops a run only through the CLI flow, as

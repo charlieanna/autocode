@@ -16,7 +16,7 @@ except ImportError:
     from autocode_control_tokens import TOKEN_ENV_VARS, private_command
 
 
-def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=False):
+def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=False, recovery_token=None):
     """One action, or None when no recovery is offered; all paths/values are shell quoted."""
     if not need or terminal:
         return None
@@ -84,7 +84,13 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
         flags = _action_flags(action or "--resume-paused", need)
     else:
         flags = ["--no-chat"]
-    return _display([*prefix, *flags])
+    private = {}
+    if recovery_token is not None:
+        # Use the existing private token channel; even this intermediate argv
+        # carries only the selector, never the recovery token's value.
+        flags.extend(("--expected-recovery-token", "-"))
+        private[TOKEN_ENV_VARS["expected_recovery_token"]] = recovery_token
+    return _display([*prefix, *flags], private=private)
 
 
 def _action_flags(action, need):
@@ -109,8 +115,9 @@ def _action_flags(action, need):
     return words
 
 
-def _display(words):
-    public, private = private_command(words, argument_offset=1)
+def _display(words, *, private=None):
+    public, extracted = private_command(words, argument_offset=1)
+    private = {**extracted, **(private or {})}
     assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in private.items())
     return (assignments + " " if assignments else "") + shlex.join(public)
 

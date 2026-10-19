@@ -252,8 +252,9 @@ class IsolationTests(unittest.TestCase):
         self.assertTrue(final["plugin"][0].endswith("/activity.mjs"))
         self.assertEqual("1", env["OPENCODE_DISABLE_PROJECT_CONFIG"])
         with patch.object(containment, "sys", SimpleNamespace(platform="darwin")):
-            self.assertEqual(descriptor, owner.verify_launch(
-                state=self.state, command=command, environment=env, boundary=boundary))
+            self.assertEqual(
+                descriptor, owner.verify_launch(state=self.state, command=command, environment=env, boundary=boundary)
+            )
 
     def test_other_native_routes_still_disable_default_auth_plugins(self):
         for model in ("zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2.6-pro"):

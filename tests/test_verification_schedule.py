@@ -566,23 +566,47 @@ class ExecutionIdentityTests(unittest.TestCase):
         command = f"{python} -m unittest -v test_app"
         snapshot = util.snapshot
 
-        def unreadable_controller(path):
+        failures = (
+            subprocess.CalledProcessError(128, ["git", "ls-files"], stderr="editable inventory is unreadable"),
+            util.Paused("PAUSED_SOURCE_UNAVAILABLE", "editable inventory is unreadable"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__):
+
+                def unreadable_controller(path):
+                    if Path(path).resolve() == package:
+                        raise failure
+                    return snapshot(path)
+
+                with mock.patch.object(util, "snapshot", side_effect=unreadable_controller) as collect:
+                    result = verify.execution_identity(project.root, command=command)
+                collect.assert_has_calls([mock.call(project.root), mock.call(package)])
+                self.assertEqual(snapshot(project.root)["revision"], result["source_revision"])
+                self.assertEqual({}, result["editable_sources"])
+                self.assertEqual([str(metadata)], result["unbound_editables"])
+                self.assertFalse(result["cache_binding_complete"])
+                self.assertFalse(result["reuse_supported"])
+                self.assertIsNone(result["dependencies"])
+                self.assertEqual("fresh_execution_only", result["cache_policy"])
+
+        # Only the optional controller source inventory may fall back. Other
+        # pause reasons and the task's own unavailable source stay fail-closed.
+        unrelated = util.Paused("PAUSED_PROCESS_CLEANUP", "cleanup is uncertain")
+
+        def unrelated_pause(path):
             if Path(path).resolve() == package:
-                raise subprocess.CalledProcessError(
-                    128, ["git", "ls-files"], stderr="editable package inventory is unreadable"
-                )
+                raise unrelated
             return snapshot(path)
 
-        with mock.patch.object(util, "snapshot", side_effect=unreadable_controller) as collect:
-            result = verify.execution_identity(project.root, command=command)
-        collect.assert_has_calls([mock.call(project.root), mock.call(package)])
-        self.assertEqual(snapshot(project.root)["revision"], result["source_revision"])
-        self.assertEqual({}, result["editable_sources"])
-        self.assertEqual([str(metadata)], result["unbound_editables"])
-        self.assertFalse(result["cache_binding_complete"])
-        self.assertFalse(result["reuse_supported"])
-        self.assertIsNone(result["dependencies"])
-        self.assertEqual("fresh_execution_only", result["cache_policy"])
+        with mock.patch.object(util, "snapshot", side_effect=unrelated_pause):
+            with self.assertRaises(util.Paused) as raised:
+                verify.execution_identity(project.root, command=command)
+        self.assertIs(unrelated, raised.exception)
+        unavailable = util.Paused("PAUSED_SOURCE_UNAVAILABLE", "task source is unavailable")
+        with mock.patch.object(util, "snapshot", side_effect=unavailable):
+            with self.assertRaises(util.Paused) as raised:
+                verify.execution_identity(project.root, command=command)
+        self.assertIs(unavailable, raised.exception)
 
         framework = verify.command_framework(command)
 

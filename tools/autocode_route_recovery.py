@@ -29,11 +29,13 @@ try:
     from . import autocode_route_selector as route_selector
     from . import autocode_run_status as run_status
     from . import autocode_support as support
+    from . import autocode_verifier_independence as independence
 except ImportError:
     import autocode_quota_route as quota_route
     import autocode_route_selector as route_selector
     import autocode_run_status as run_status
     import autocode_support as support
+    import autocode_verifier_independence as independence
 
 
 def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
@@ -60,7 +62,17 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
         for event in state.get("user_events", [])
         if event.get("kind") == quota_route.KIND and event.get("role") == role and event.get("actor") == "runner"
     ]
-    switched = route_selector.next_route(selection, role, dead, failed_models=failed)
+    # Catalogue substitutions and explicit assignments can differ from the
+    # startup selection. Pin the routes that would actually check the retry.
+    actual = (state.get("settings") or {}).get("roles") or {}
+    current = {
+        **selection,
+        "routes": {
+            other: {**saved, "model": (actual.get(other) or saved).get("model")}
+            for other, saved in (selection.get("routes") or {}).items()
+        },
+    }
+    switched = route_selector.next_route(current, role, dead, failed_models=failed)
     if switched is None:
         return False
     if state.get("pause_requested") or (Path(run_dir) / "pause-requested").exists():
@@ -76,6 +88,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     )
     candidate["settings"]["roles"][role]["reasoning_effort"] = switched.get("reasoning_effort")
     candidate["settings"]["route_selection"]["routes"][role] = {**switched, "origin": "quota_assigned"}
+    if independence.violations(candidate["settings"]):
+        return False
     runtime.count_automatic_recovery(candidate)
     runtime.abandon_stage(candidate, Path(run_dir), Path(workspace), stopped["attempt_id"], actor="runner")
     run_status.running(candidate, state.get("phase") or "IMPLEMENTING")

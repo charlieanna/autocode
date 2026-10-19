@@ -315,6 +315,8 @@ class ConversationPolicyTests(unittest.TestCase):
         self.assertEqual(
             ("--glm-model", "model", "--planning-v2"), policy.creation_options(("--glm-model=model", "--planning-v2"))
         )
+        for selection in ("--auto-select", "--no-auto-select"):
+            self.assertEqual((selection,), policy.creation_options((selection,)))
         for flag in ("--auto-approve", "--run-dir", "--unit", "--answer", "--single-model", "--workflow"):
             with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "Unsupported"):
                 policy.creation_options((flag, "value"))

@@ -7,9 +7,9 @@
  */
 
 import * as vscode from "vscode";
-import { ClientGap, leavesForPerson } from "./core/next-command";
-import type { AcceptanceCriterion, Question, StatusView } from "./core/view";
-import { approvalToken, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
+import { ClientGap, integerValue, leavesForPerson, requiresConfirmation, type OpenDecision } from "./core/next-command";
+import type { AcceptanceCriterion, IntegerCommandInput, Question, StatusView } from "./core/view";
+import { approvalToken, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
@@ -17,13 +17,17 @@ import { telemetry, type Telemetry } from "./core/telemetry";
 
 export interface Decision {
   questionId: string;
-  kind: "answer" | "model";
+  kind: "answer" | "model" | "integer";
+  input?: IntegerCommandInput;
   text: string;
   options: string[];
   suggested: string | null;
 }
 
+export const NUMERIC_RECOVERY_EFFECT = "This changes only the total active time. Other saved limits and model routes stay the same. It does not approve a plan.";
+
 export interface PanelState {
+  numericActionLabel?: string;
   chat?: StatusView["chat"];
   formattedMessages?: Record<string, TextNode[]>;
   workspace: string;
@@ -54,11 +58,21 @@ export interface PanelState {
   /** Draft answers belong to this request and these questions, not just their IDs. */
   decisionContext: string;
   gap: string | null;
+  actionLabel: string | null;
+  actionEffect: string | null;
+  stopped: { title: string; explanation: string; retained: string | null; newConversation: string | null } | null;
   commandText: string;
   personOnly: boolean;
   taking: boolean;
-  /** This client is acting, or AutoCode reports a live model step. */
+  /** This client is acting, or AutoCode reports live stage/controller work. */
   working: boolean;
+  /** The pause the view offers while the run works (#1598); `requested` once one waits for the step to end. */
+  pauseOffer: { label: string; effect: string | null; requested: boolean } | null;
+  /** Chat only: the latest status read failed, so this state is an older read and its actions stay disabled (#1593). */
+  unreadable?: boolean;
+  /** Saved code changes and the actions the view named for them (#1532). */
+  checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
+  checkpointsBlocked: string | null;
   /** The plan the current token asks to approve, only when the view shows it. */
   plan: { revision: number | null; criteria: AcceptanceCriterion[]; constraints: string[]; boundaries: string[]; delivery: string | null } | null;
   /** The token the approval is bound to; the webview echoes it back so a stale click cannot approve. */
@@ -82,13 +96,20 @@ export class RunPanel {
   }
 
   private timer: NodeJS.Timeout | undefined;
+  private readonly configuration: vscode.Disposable;
   private taking = false;
+  private onAction?: () => void | Promise<void>;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly run: RunRef,
     private readonly controller: RunController,
+    onAction?: () => void | Promise<void>,
   ) {
+    this.onAction = onAction;
+    this.configuration = vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("autocode.pollSeconds") && this.panel.visible) this.start();
+    });
     this.panel.onDidDispose(() => this.dispose());
     this.panel.onDidChangeViewState(() => {
       if (this.panel.visible) {
@@ -99,11 +120,17 @@ export class RunPanel {
     this.panel.webview.onDidReceiveMessage((message) => void this.onMessage(message));
   }
 
-  static show(column: vscode.ViewColumn, run: RunRef, controller: RunController): RunPanel {
+  static show(
+    column: vscode.ViewColumn,
+    run: RunRef,
+    controller: RunController,
+    onAction?: () => void | Promise<void>,
+  ): RunPanel {
     const key = `${run.workspace}\n${run.runDir}`;
     const existing = RunPanel.open.get(key);
     if (existing) {
       RunPanel.last = existing;
+      if (onAction) existing.onAction = onAction;
       existing.panel.reveal(column);
       return existing;
     }
@@ -112,7 +139,7 @@ export class RunPanel {
       retainContextWhenHidden: true,
       localResourceRoots: [],
     });
-    const instance = new RunPanel(panel, run, controller);
+    const instance = new RunPanel(panel, run, controller, onAction);
     RunPanel.open.set(key, instance);
     RunPanel.last = instance;
     panel.webview.html = panelHtml();
@@ -134,7 +161,9 @@ export class RunPanel {
 
   dispose(): void {
     this.stop();
+    this.configuration.dispose();
     RunPanel.open.delete(`${this.run.workspace}\n${this.run.runDir}`);
+    if (RunPanel.last === this) RunPanel.last = undefined;
   }
 
   async refresh(): Promise<void> {
@@ -158,36 +187,67 @@ export class RunPanel {
     void this.panel.webview.postMessage({ type: "state", state });
   }
 
-  private async onMessage(message: { type?: string; answers?: Record<string, string>; token?: string | null }): Promise<void> {
+  private async onMessage(message: {
+    type?: string;
+    answers?: Record<string, string>;
+    token?: string | null;
+    decisionContext?: string;
+  }): Promise<void> {
+    if (message.type === "chat") {
+      await vscode.commands.executeCommand("autocode.openRun", this.run);
+      return;
+    }
+    if (message.type === "new") {
+      await vscode.commands.executeCommand("autocode.startRun");
+      return;
+    }
     if (message.type === "refresh") {
       await this.update();
       return;
     }
     if (message.type !== "take") return;
-    let view: StatusView;
-    try {
-      view = await this.controller.status(this.run);
-    } catch (error) {
-      void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
-      return;
-    }
-    if (leavesForPerson(view.needs ?? null) && confirmPersonOnly()) {
-      const proceed = await vscode.window.showWarningMessage(
-        `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
-        { modal: true, detail: needsSummary(view) },
-        "Take it anyway",
-      );
-      if (proceed !== "Take it anyway") return;
-    }
+    if (this.taking) return;
     this.taking = true;
-    this.post(stateFor(view, this.run, this.controller, true));
     try {
-      await this.controller.take(view, this.run, message.answers ?? {}, message.token ?? null);
+      let view: StatusView;
+      try {
+        view = await this.controller.status(this.run);
+      } catch (error) {
+        void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+        return;
+      }
+      const state = stateFor(view, this.run, this.controller, true);
+      const numeric = numericConfirmation(state, message.answers ?? {});
+      const planning = planningSpendConfirmation(view, message.answers ?? {});
+      if ((message.decisionContext || numeric) && message.decisionContext !== state.decisionContext) {
+        void vscode.window.showErrorMessage("AutoCode: The requested action changed; review it before continuing");
+        return;
+      }
+      if (numeric || planning || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
+        const button = numeric ? numericActionLabel(state) : planning?.label ?? "Take it anyway";
+        const proceed = await vscode.window.showWarningMessage(
+          numeric ?? planning?.title ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
+          { modal: true, detail: numeric ? numericRecoveryEffect(state) : planning?.detail ?? needsSummary(view) },
+          button,
+        );
+        if (proceed !== button) return;
+      }
+      this.post(state);
+      try {
+        await this.controller.take(view, this.run, message.answers ?? {}, message.token ?? null);
+      } catch (error) {
+        void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
+      }
     } catch (error) {
       void vscode.window.showErrorMessage(`AutoCode: ${messageOf(error)}`);
     } finally {
       this.taking = false;
       await this.update();
+      try {
+        await this.onAction?.();
+      } catch {
+        // Ignored
+      }
     }
   }
 }
@@ -204,18 +264,35 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
   const plan = planShape(view);
   let decisions: Decision[] = [];
   let gap: string | null = null;
-  if (!view.done) {
+  let actionLabel: string | null = null;
+  let actionEffect: string | null = null;
+  const stopped = view.recovery?.category === "stopped" ? {
+    title: view.recovery.title ?? "Stopped",
+    explanation: view.recovery.what_happened ?? "",
+    retained: view.recovery.retained ?? null,
+    newConversation: view.recovery.actions?.find((row) => row.kind === "new_conversation")?.label ?? null,
+  } : null;
+  if (!view.done && !stopped) {
     try {
       const action = controller.plan(view, run);
       decisions = action.decisions.map((open) => describe(open, need, view));
       if (action.unsupplied) {
         gap = `the command leaves ${action.unsupplied} open, which the status view does not supply`;
+      } else if (!decisions.length && view.recovery?.actions) {
+        // A label describes only the exact action next_command names. Recovery
+        // descriptions never supply flags or authorize a different action.
+        const args = controller.prepare(view, run, {}).argv;
+        const recovery = view.recovery.actions.find((row) => Array.isArray(row.args)
+          && JSON.stringify(row.args) === JSON.stringify(args));
+        actionLabel = recovery?.label ?? null;
+        actionEffect = recovery?.effect ?? null;
       }
     } catch (error) {
       gap = error instanceof ClientGap ? error.message : messageOf(error);
     }
   }
   const requirements = progress?.requirements;
+  const working = taking || isWorking(view);
   return {
     chat: view.chat,
     formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant").map((row) => [row.id, markdown(row.text)])),
@@ -236,7 +313,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     telemetry: telemetry(view),
     pause: pauseLabel(view),
     needKind: need?.kind ?? null,
-    needSummary: view.done ? null : needsSummary(view),
+    needSummary: view.done ? null : needsSummary(view, working),
     needReason: need?.reason ?? null,
     tasks: (progress?.tasks?.items ?? []).map((task) => ({
       id: task.id,
@@ -265,15 +342,47 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     })),
     criteria: (need?.criteria ?? []).map((row) => ({ id: row.id, criterion: row.criterion ?? "" })),
     decisions,
+    numericActionLabel: numericActionLabel({ decisions }),
     decisionContext: JSON.stringify([
-      run.workspace, run.runDir, view.current_task?.id, view.turn, need?.kind,
-      need?.request_id, need?.resolver_token, need?.token, need?.route, decisions,
+      run.workspace,
+      run.runDir,
+      view.current_task?.id,
+      view.turn,
+      need?.kind,
+      need?.request_id,
+      need?.resolver_token,
+      need?.resolver_request_id,
+      need?.token,
+      need?.job_retry_token,
+      view.recovery?.token,
+      need?.route,
+      decisions,
+      view.next_command ?? "",
     ]),
     gap,
+    actionLabel,
+    actionEffect,
+    stopped,
     commandText: safeCommandText(view, run, controller),
     personOnly: leavesForPerson(need),
     taking,
-    working: taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? ""),
+    working,
+    pauseOffer: view.pause && !view.done ? {
+      label: view.pause.label ?? "Pause after this step",
+      effect: view.pause.effect ?? null,
+      requested: view.pause.requested === true || !Array.isArray(view.pause.next_command),
+    } : null,
+    checkpoints: (view.code_checkpoints?.rows ?? []).map((row) => ({
+      id: row.id,
+      label: row.label ?? row.id,
+      at: row.at ?? null,
+      files: row.changed_files?.length ?? 0,
+      available: row.available !== false,
+      reason: row.reason ?? null,
+      verdict: row.recorded_check?.verdict ?? null,
+      actions: (row.actions ?? []).map((action) => ({ id: action.id, label: action.label })),
+    })),
+    checkpointsBlocked: view.code_checkpoints?.blocked_reason ?? null,
     plan,
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
@@ -294,10 +403,14 @@ function planShape(view: StatusView): PanelState["plan"] {
 }
 
 function describe(
-  open: { questionId: string; kind: "answer" | "model" },
+  open: OpenDecision,
   need: StatusView["needs"],
   view: StatusView,
 ): Decision {
+  if (open.kind === "integer" && open.input) return {
+    questionId: open.questionId, kind: "integer", input: open.input,
+    text: open.input.label, options: [], suggested: null,
+  };
   const question: Question | undefined = need?.questions?.find((row) => row.id === open.questionId);
   const route = need?.route;
   const asksModel = open.kind === "model";
@@ -308,6 +421,47 @@ function describe(
     options: asksModel ? [...(route?.candidates ?? [])] : [...(question?.options ?? [])],
     suggested: asksModel ? null : (question?.proposed_default ?? null),
   };
+}
+
+/** Only the core-named Requirements answer starts paid planning; corrections stay conversational. */
+export function planningSpendConfirmation(view: StatusView, answers: Record<string, string>) {
+  const review = view.chat?.review;
+  const confirmation = review?.spend_confirmation;
+  if (!review || !confirmation) return null;
+  // The core declares the same trim/lower match its Requirements answer uses.
+  // Python also strips these control separators; argv keeps the original text.
+  const normalize = (value: string) => confirmation.match === "trim_lower"
+    ? value.replace(/^[\s\u001c-\u001f\u0085]+|[\s\u001c-\u001f\u0085]+$/g, "").toLowerCase() : value;
+  const answer = answers[review.question_id];
+  return typeof answer === "string" && normalize(answer) === normalize(review.answer) ? confirmation : null;
+}
+
+/** A changed allowance always needs explicit confirmation, even if generic pause prompts are disabled. */
+export function numericConfirmation(state: PanelState, answers: Record<string, string>): string | null {
+  const input = state.decisions.find((row) => row.kind === "integer")?.input;
+  if (!input) return null;
+  const total = integerValue(answers[input.id], input);
+  if (input.id === "grant_recovery") return `Replenish ${total} recovery slot${total === "1" ? "" : "s"} and continue?`;
+  if (input.id === "planning_review_call_limit") {
+    return `Set the total plan-review allowance to ${total} calls?`;
+  }
+  return `Set total active time to ${total} seconds and continue?`;
+}
+
+export function numericActionLabel(state: Pick<PanelState, "decisions">): string {
+  const input = state.decisions.find((row) => row.kind === "integer")?.input;
+  if (input?.id === "grant_recovery") return "Grant and continue";
+  return input?.id === "planning_review_call_limit"
+    ? "Set review allowance"
+    : "Set total and continue";
+}
+
+export function numericRecoveryEffect(state: PanelState): string {
+  const input = state.decisions.find((row) => row.kind === "integer")?.input;
+  if (input?.id === "grant_recovery") return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
+  return input?.id === "planning_review_call_limit"
+    ? "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan."
+    : NUMERIC_RECOVERY_EFFECT;
 }
 
 function safeCommandText(view: StatusView, run: RunRef, controller: RunController): string {
@@ -346,10 +500,16 @@ function emptyState(run: RunRef): PanelState {
     criteria: [],
     decisions: [],
     decisionContext: "",
+    actionLabel: null,
+    actionEffect: null,
+    stopped: null,
     commandText: "",
     personOnly: false,
     taking: false,
     working: false,
+    pauseOffer: null,
+    checkpoints: [],
+    checkpointsBlocked: null,
     plan: null,
     token: null,
     canApprove: true,
@@ -367,6 +527,24 @@ function confirmPersonOnly(): boolean {
 
 function trim(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/**
+ * Toolbar and composer icons: inline SVG in the house style of `media/autocode.svg`
+ * (24×24, stroke currentColor). The webview CSP loads no fonts or images, so
+ * inline markup is the only icon path; codicon names exist only in host UI.
+ */
+const ICONS = {
+  plus: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>`,
+  clock: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25" /><path d="M12 7.5V12l3 2" /></svg>`,
+  panel: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="M15 4.5v15" /></svg>`,
+  plug: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0V7.5zM12 16.5v4" /></svg>`,
+  route: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.25" /><circle cx="18" cy="18" r="2.25" /><path d="M8.25 6H14a3.5 3.5 0 0 1 0 7h-4a3.5 3.5 0 0 0 0 7h5.75" /></svg>`,
+  tune: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.25" /><circle cx="8" cy="17" r="2.25" /></svg>`,
+};
+
+function iconButton(id: string, label: string, svg: string, disabled = false): string {
+  return `<button type="button" id="${id}" class="icon" title="${label}" aria-label="${label}"${disabled ? ' disabled' : ''}>${svg}</button>`;
 }
 
 /** The webview script. It renders with textContent only: untrusted text never becomes markup. */
@@ -408,23 +586,24 @@ export function panelHtml(chat = false): string {
   .actions { display: flex; gap: 8px; margin-top: 14px; }
   .muted { opacity: .65; }
   ${chat ? chatStyles : ""}
+  ${chat ? "#composer .chip[hidden] { display: none; }" : ""}
 </style>
 </head>
 <body>
-${chat ? '<nav class="chat-toolbar"><button id="connections" class="secondary">Connections</button><button id="history" class="secondary">History</button><button id="details" class="secondary">Run details</button><button id="new-chat" class="secondary">New chat</button></nav><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>' : ""}
+${chat ? `<nav class="chat-toolbar" aria-label="AutoCode chat tools">${iconButton("connections", "Connections", ICONS.plug)}${iconButton("history", "History", ICONS.clock)}${iconButton("details", "Run details", ICONS.panel, true)}${iconButton("new-chat", "New chat", ICONS.plus)}</nav><div id="chat-tabs" role="tablist" aria-label="Open chats"></div><div id="thread" tabindex="0" aria-label="Conversation"><div id="thread-content"><div id="messages" role="log" aria-label="Messages"></div>` : ""}
 <div id="app" class="muted">${chat ? "Describe what you want to build, fix, review, or discuss." : "Loading…"}</div>
 ${chat ? `</div></div><button id="latest" type="button" hidden>↓ Latest messages</button>
 <section id="telemetry" aria-label="Models and usage">
-<details id="usage-details" open><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
+<details id="usage-details"><summary id="telemetry-summary"><span class="telemetry-heading">Models &amp; usage</span>
 <span id="model-summary">Model not reported</span><span id="usage-summary">Tokens not reported · Cost not reported</span></summary>
 <div id="telemetry-body"><div id="model-info"></div><div id="usage-breakdown"></div></div></details>
 </section>
 <form id="composer">
 <label for="message" id="send-hint">Message AutoCode</label>
-<textarea id="message" aria-label="Message AutoCode" placeholder="Ask AutoCode to work on this project…"></textarea>
+<textarea id="message" aria-label="Message AutoCode" aria-describedby="keyboard-hint" placeholder="Ask AutoCode to work on this project…"></textarea>
 <div id="chat-error" role="alert"></div>
-<div class="actions"><span class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
-<button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
+<div class="actions"><button type="button" id="engine-picker" class="chip" title="Engine for new chats" aria-label="Engine for new chats">${ICONS.tune}<span id="engine-name">opencode</span></button><button type="button" id="mode-picker" class="chip" title="Run mode for new chats" aria-label="Run mode for new chats" hidden>${ICONS.route}<span id="mode-name"></span></button><span id="keyboard-hint" class="keyboard-hint">Enter to send · Shift+Enter for newline</span>
+<button type="button" id="pause-run" hidden>Pause</button><button type="submit" id="send-message" disabled>Send</button></div></form>` : ""}
 <script>
 const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
@@ -435,6 +614,9 @@ const chatBehavior = chatMode ? (${installChatBehavior.toString()})() : null;
 let current = null;
 let answers = Object.create(null);
 let renderedState = '';
+let checkpointCompare = Object.create(null);
+let checkpointResult = null;
+const tabScroll = Object.create(null);
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -457,8 +639,32 @@ function stateRow(item) {
   return row;
 }
 
+function renderChatProgress(container, state) {
+  const lines = state.chat && Array.isArray(state.chat.progress)
+    ? state.chat.progress.filter((line) => typeof line === 'string' && line) : [];
+  (lines.length ? lines : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
+}
+
+function renderStopped(stopped) {
+  app.appendChild(el('h2', null, stopped.title));
+  app.appendChild(el('div', 'line', stopped.explanation));
+  if (stopped.retained) app.appendChild(el('div', 'why', stopped.retained));
+  if (stopped.newConversation) {
+    const fresh = el('button', null, stopped.newConversation);
+    fresh.id = 'start-new-conversation';
+    fresh.addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+    app.appendChild(fresh);
+  }
+}
+
 function render(state) {
-  const serialized = JSON.stringify(state);
+  const chatSlice = chatMode ? [
+    state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
+    state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
+    state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
+    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.review, state.chat.input && state.chat.input.kind],
+  ] : state;
+  const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
   renderedState = serialized;
   const sameRequest = current && current.decisionContext === state.decisionContext;
@@ -470,64 +676,244 @@ function render(state) {
   current = state;
   app.textContent = '';
   app.classList.remove('muted');
-  if (chatMode && state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
-    app.appendChild(el('div', 'notice', 'Reply above with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
+  if (chatMode && state.unreadable) {
+    app.appendChild(el('div', 'notice', 'I couldn’t read the latest status, so actions are paused until it reads again.'));
+  }
+
+  if (chatMode && state.stopped) {
+    renderStopped(state.stopped);
     return;
   }
-  if (chatMode && state.chat && state.chat.phase === 'requirements' && !state.gap
-      && (!state.pause || state.needKind === 'answer')) {
-    // The conversation carries the questions. Operational details remain in
-    // Run details, and approval is the exact answer offered by the core.
-    if (state.chat.review) {
-      const review = state.chat.review;
-      if (review.summary) app.appendChild(el('pre', 'understanding', review.summary));
-      const approve = el('button', null, review.label);
-      approve.disabled = state.taking;
-      approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
-        answers: { [review.question_id]: review.answer }, token: null,
-        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-      app.appendChild(approve);
-    } else if (state.needKind === 'continue' && state.working) {
-      app.appendChild(el('div', 'line', 'Thinking…'));
-    } else if (state.needKind === 'continue') {
-      // The step stopped between model calls; nothing will advance it unless asked.
-      const resume = el('button', null, 'Continue');
-      resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
-        runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
-      app.appendChild(resume);
+
+  if (chatMode) {
+    const card = el('div', 'decision-card');
+    const cardContent = el('div', 'message-content');
+    card.appendChild(el('div', 'speaker', 'AutoCode'));
+    card.appendChild(cardContent);
+    const strip = el('div', 'actions action-strip');
+    strip.id = 'action-strip';
+
+    if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response') {
+      cardContent.appendChild(el('div', 'notice', 'Reply with what changed or how you want to proceed. Recovery is reviewed before the run can continue.'));
+      app.appendChild(card);
+      return;
+    }
+
+    if (state.chat && state.chat.phase === 'requirements' && !state.gap
+        && (!state.pause || state.needKind === 'answer')
+        && (state.chat.review || state.needKind === 'continue')) {
+      if (state.chat.review) {
+        const review = state.chat.review;
+        if (review.summary) cardContent.appendChild(el('pre', 'understanding', review.summary));
+        const approve = el('button', null, review.label);
+        approve.id = 'take-action';
+        approve.disabled = state.taking || state.working || Boolean(state.unreadable);
+        approve.addEventListener('click', () => vscode.postMessage({ type: 'take',
+          answers: { [review.question_id]: review.answer }, token: null,
+          runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+        strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+        strip.appendChild(approve);
+      } else if (state.needKind === 'continue' && state.working) {
+        renderChatProgress(cardContent, state);
+      } else if (state.needKind === 'continue') {
+        const resume = el('button', null, 'Continue');
+        resume.id = 'take-action';
+        resume.disabled = Boolean(state.unreadable);
+        resume.addEventListener('click', () => vscode.postMessage({ type: 'take', answers: {}, token: null,
+          runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext }));
+        strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+        strip.appendChild(resume);
+      }
+      if (cardContent.childNodes.length > 0) app.appendChild(card);
+      if (strip.childNodes.length > 0) app.appendChild(strip);
+      return;
+    }
+
+    if (state.chat && state.chat.notice && state.chat.notice !== 'Working on your request…') {
+      cardContent.appendChild(el('div', 'notice', state.chat.notice));
+    } else if (state.pause) {
+      cardContent.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
+    }
+
+    if (state.criteria.length) {
+      cardContent.appendChild(el('h2', null, 'Criteria to accept'));
+      state.criteria.forEach((row) => cardContent.appendChild(el('div', 'row', row.criterion)));
+    }
+
+    if (state.plan && state.plan.delivery) {
+      cardContent.appendChild(el('div', 'row', state.plan.delivery));
+    }
+
+    if (state.plan) {
+      cardContent.appendChild(el('h2', null, 'Plan to approve'));
+      state.plan.criteria.forEach((criterion) => {
+        const item = el('div', 'row');
+        item.appendChild(el('span', null, criterion.criterion));
+        if (criterion.human_review) item.appendChild(el('span', 'why', 'You check this one yourself'));
+        cardContent.appendChild(item);
+      });
+      if (state.plan.constraints.length) {
+        cardContent.appendChild(el('h2', null, 'Constraints'));
+        state.plan.constraints.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
+      }
+      if (state.plan.boundaries.length) {
+        cardContent.appendChild(el('h2', null, 'What it may do'));
+        state.plan.boundaries.forEach((text) => cardContent.appendChild(el('div', 'row', text)));
+      }
+    }
+
+    if (state.gap) {
+      cardContent.appendChild(el('h2', null, 'No action the client can take'));
+      const box = el('div', 'gap');
+      box.appendChild(el('div', null,
+        'AutoCode named no action this client is allowed to take. That is a gap in the CLI or the '
+        + 'status view (#1012), not something the extension should work around.'));
+      box.appendChild(el('pre', null, state.gap));
+      cardContent.appendChild(box);
+    } else if (!state.done && state.needKind === 'continue' && state.working) {
+      renderChatProgress(cardContent, state);
+    } else if (!state.done) {
+      if (state.decisions.length > 0) {
+        const form = el('div');
+        state.decisions.forEach((decision) => {
+          const box = el('div', 'decision');
+          box.appendChild(el('div', 'q', decision.text));
+          if (decision.input) box.appendChild(el('div', 'why', numericHelp(decision.input)));
+          if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
+          const name = decision.questionId;
+          let input;
+          if (decision.options.length > 0) {
+            input = document.createElement('select');
+            const blank = document.createElement('option');
+            blank.value = '';
+            blank.textContent = 'Choose…';
+            input.appendChild(blank);
+            decision.options.forEach((option) => {
+              const item = document.createElement('option');
+              item.value = option;
+              item.textContent = option;
+              input.appendChild(item);
+            });
+          } else {
+            input = document.createElement('input');
+            input.type = 'text';
+            if (decision.kind === 'integer') { input.inputMode = 'numeric'; input.pattern = '[0-9]*'; input.setAttribute('aria-label', decision.text); }
+            if (decision.suggested) input.placeholder = decision.suggested;
+          }
+          input.dataset.question = name;
+          if (answers[name]) input.value = answers[name];
+          const save = () => { answers[name] = input.value; updateActionButton(); };
+          input.addEventListener('change', save);
+          input.addEventListener('input', save);
+          box.appendChild(input);
+          form.appendChild(box);
+        });
+        cardContent.appendChild(form);
+      }
+
+      var approving = state.needKind === 'approve_plan';
+      var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
+        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? state.numericActionLabel : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue'))));
+      if (state.actionEffect) cardContent.appendChild(el('div', 'why', state.actionEffect));
+      const take = el('button', null, label);
+      take.id = 'take-action';
+      take.addEventListener('click', () => {
+        vscode.postMessage({ type: 'take', answers: { ...answers }, token: state.token || null,
+          runKey: state.workspace + '\\n' + state.runDir, decisionContext: state.decisionContext });
+      });
+      strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
+      strip.appendChild(take);
+      const again = el('button', 'secondary', 'Refresh');
+      again.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+      strip.appendChild(again);
+
+      if (!state.canApprove && state.needKind === 'approve_plan') {
+        cardContent.appendChild(el('div', 'notice', 'The plan has not loaded here yet, so there is nothing to approve. Refresh to load it.'));
+      }
+    }
+
+    if (cardContent.childNodes.length > 0) app.appendChild(card);
+    if (strip.childNodes.length > 0) app.appendChild(strip);
+    if (chatMode && state.checkpoints && state.checkpoints.length) {
+      app.appendChild(el('h2', null, 'Saved code changes'));
+      if (state.checkpointsBlocked) app.appendChild(el('div', 'why', state.checkpointsBlocked));
+      state.checkpoints.forEach((cp) => {
+        const box = el('div', 'decision');
+        const title = cp.label + (cp.verdict ? ' · ' + cp.verdict : '');
+        box.appendChild(el('div', 'q', title));
+        if (cp.available) {
+          box.appendChild(el('div', 'why', cp.files + ' file(s) changed' + (cp.at ? ' · ' + new Date(cp.at).toLocaleDateString() : '')));
+          cp.actions.forEach((action) => {
+            const button = el('button', action.id === 'restore' ? null : 'secondary', action.label);
+            button.dataset.checkpointAction = action.id;
+            button.dataset.checkpointId = cp.id;
+            button.disabled = Boolean(state.unreadable);
+            button.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint', action: action.id,
+              checkpoint: cp.id, runKey: state.workspace + '\\n' + state.runDir }));
+            box.appendChild(button);
+          });
+        } else {
+          box.appendChild(el('div', 'why', cp.reason || 'The saved source for this step is not retained.'));
+        }
+        const compare = checkpointCompare[cp.id];
+        if (compare && compare.error) {
+          box.appendChild(el('div', 'why', 'Comparison failed: ' + compare.error));
+        } else if (compare) {
+          const comparison = compare.comparison || {};
+          const files = (comparison.changed_files || []).length;
+          box.appendChild(el('div', 'why', files + ' file(s) differ from this checkpoint' + (comparison.truncated ? ' · diff truncated' : '')));
+          const patch = el('pre');
+          patch.textContent = comparison.patch || 'The files match this checkpoint.';
+          box.appendChild(patch);
+        }
+        if (checkpointResult && checkpointResult.checkpoint === cp.id && checkpointResult.result) {
+          const result = checkpointResult.result;
+          box.appendChild(el('div', 'notice',
+            'Restored on a new branch: ' + (result.branch || 'created') + '. The original branch and later work stay intact.'));
+          const open = el('button', 'secondary', 'Open restored candidate');
+          open.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint_open',
+            workspace: result.workspace, runDir: result.run_dir }));
+          box.appendChild(open);
+        }
+        app.appendChild(box);
+      });
+    }
+    updateActionButton();
+    if (focusedQuestion) {
+      const input = [...document.querySelectorAll('[data-question]')].find((node) => node.dataset.question === focusedQuestion);
+      if (input) {
+        input.focus();
+        if (selection && input.tagName === 'INPUT') input.setSelectionRange(...selection);
+      }
     }
     return;
   }
-  if (!chatMode) {
-    app.appendChild(el('h1', null, state.headline));
-    app.appendChild(el('div', 'line', state.line));
+
+  app.appendChild(el('h1', null, state.headline));
+  app.appendChild(el('div', 'line', state.line));
   const meta = [
-    !chatMode ? state.status : null,
+    state.status,
     state.workflow ? state.workflow + ' workflow' : null,
     state.turn ? 'turn ' + state.turn : null,
-    !chatMode && state.iteration ? 'iteration ' + state.iteration : null,
-    !chatMode && state.nextStage ? 'next: ' + state.nextStage : null,
+    state.iteration ? 'iteration ' + state.iteration : null,
+    state.nextStage ? 'next: ' + state.nextStage : null,
     state.pause ? 'pause: ' + state.pause : null,
-    !chatMode ? state.usage : null,
+    state.usage,
   ].filter(Boolean);
   app.appendChild(el('div', 'meta', meta.join('  ·  ')));
-  } else if (state.chat && state.chat.notice) {
-    app.appendChild(el('div', 'notice', state.chat.notice));
-  } else if (state.pause) {
-    app.appendChild(el('div', 'notice', 'I couldn’t finish this step. Open Run details to see what needs attention.'));
-  }
+  if (state.stopped) renderStopped(state.stopped);
 
-  if (state.task && !chatMode) {
+  if (state.task) {
     app.appendChild(el('h2', null, 'Request'));
     app.appendChild(el('pre', null, state.task));
   }
 
-  if (state.tasks.length && !chatMode) {
+  if (state.tasks.length) {
     app.appendChild(el('h2', null, 'Tasks'));
     state.tasks.forEach(stateRow);
   }
 
-  if (state.requirements.length && !chatMode) {
+  if (state.requirements.length) {
     app.appendChild(el('h2', null, 'Requirements'));
     if (state.requirementCounts) {
       const c = state.requirementCounts;
@@ -541,36 +927,26 @@ function render(state) {
     state.requirements.forEach(stateRow);
   }
 
-  if (state.problems.length && !chatMode) {
+  if (state.problems.length) {
     app.appendChild(el('h2', null, 'Open problems'));
     state.problems.forEach((item) => {
       const row = el('div', 'row');
       row.appendChild(el('span', 'state ' + (item.blocking ? 'blocking' : ''), item.severity || 'finding'));
-      row.appendChild(el('span', null, chatMode ? item.finding : item.id + ': ' + item.finding));
+      row.appendChild(el('span', null, item.id + ': ' + item.finding));
       app.appendChild(row);
     });
   }
 
   if (state.criteria.length) {
     app.appendChild(el('h2', null, 'Criteria to accept'));
-    state.criteria.forEach((row) => app.appendChild(el('div', 'row', chatMode ? row.criterion : row.id + ': ' + row.criterion)));
+    state.criteria.forEach((row) => app.appendChild(el('div', 'row', row.id + ': ' + row.criterion)));
   }
 
   if (state.plan && state.plan.delivery) {
     app.appendChild(el('div', 'row', state.plan.delivery));
   }
 
-  // Chat shows what will be built. Run details keeps the revision, criterion IDs
-  // and verification commands; approval still uses the token of the shown plan.
-  if (state.plan && chatMode) {
-    app.appendChild(el('h2', null, 'Plan to approve'));
-    state.plan.criteria.forEach((criterion) => {
-      const item = el('div', 'row');
-      item.appendChild(el('span', null, criterion.criterion));
-      if (criterion.human_review) item.appendChild(el('span', 'why', 'You check this one yourself'));
-      app.appendChild(item);
-    });
-  } else if (state.plan) {
+  if (state.plan) {
     app.appendChild(el('h2', null, 'Plan to approve · revision ' + (state.plan.revision === null ? '?' : state.plan.revision)));
     app.appendChild(el('div', 'why',
       state.plan.criteria.length + ' acceptance criteria  ·  '
@@ -584,8 +960,6 @@ function render(state) {
       item.appendChild(el('div', 'why', 'Human review: ' + (criterion.human_review ? 'required' : 'not required')));
       app.appendChild(item);
     });
-  }
-  if (state.plan) {
     if (state.plan.constraints.length) {
       app.appendChild(el('h2', null, 'Constraints'));
       state.plan.constraints.forEach((text) => app.appendChild(el('div', 'row', text)));
@@ -596,13 +970,19 @@ function render(state) {
     }
   }
 
-  if (!state.done && !chatMode) {
+  if (!state.done && !state.stopped) {
     app.appendChild(el('h2', null, 'Waiting for'));
     app.appendChild(el('div', 'line', state.needsYou || state.needSummary || state.needKind || '—'));
     if (state.needReason) app.appendChild(el('div', 'why', state.needReason));
   }
 
-  if (state.gap) {
+  if (state.chat && state.chat.input && state.chat.input.kind === 'resolver_response' && !state.stopped) {
+    app.appendChild(el('div', 'notice', 'The conversation can accept a recovery reply. Sending information does not authorize a retry.'));
+    const chat = el('button', null, 'Open conversation');
+    chat.id = 'open-recovery-conversation';
+    chat.addEventListener('click', () => vscode.postMessage({ type: 'chat' }));
+    app.appendChild(chat);
+  } else if (state.gap) {
     app.appendChild(el('h2', null, 'No action the client can take'));
     const box = el('div', 'gap');
     box.appendChild(el('div', null,
@@ -610,11 +990,12 @@ function render(state) {
       + 'status view (#1012), not something the extension should work around.'));
     box.appendChild(el('pre', null, state.gap));
     app.appendChild(box);
-  } else if (!state.done) {
+  } else if (!state.done && !state.stopped) {
     const form = el('div');
     state.decisions.forEach((decision) => {
       const box = el('div', 'decision');
       box.appendChild(el('div', 'q', decision.text));
+      if (decision.input) box.appendChild(el('div', 'why', numericHelp(decision.input)));
       if (decision.suggested) box.appendChild(el('div', 'why', 'proposed: ' + decision.suggested));
       const name = decision.questionId;
       let input;
@@ -633,6 +1014,7 @@ function render(state) {
       } else {
         input = document.createElement('input');
         input.type = 'text';
+        if (decision.kind === 'integer') { input.inputMode = 'numeric'; input.pattern = '[0-9]*'; input.setAttribute('aria-label', decision.text); }
         if (decision.suggested) input.placeholder = decision.suggested;
       }
       input.dataset.question = name;
@@ -647,8 +1029,9 @@ function render(state) {
 
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
-    var label = state.taking ? 'Working…' : (approving ? (chatMode ? 'Approve and build' : 'Approve this plan')
-      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (chatMode ? (state.decisions.length ? 'Send answers and continue' : 'Continue') : 'Take the named action')));
+    var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve this plan'
+      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? state.numericActionLabel : state.actionLabel || 'Take the named action')));
+    if (state.actionEffect) actions.appendChild(el('div', 'why', state.actionEffect));
     const take = el('button', null, label);
     take.id = 'take-action';
     take.addEventListener('click', () => {
@@ -662,9 +1045,7 @@ function render(state) {
     app.appendChild(actions);
     updateActionButton();
 
-    if (!state.canApprove && state.needKind === 'approve_plan' && chatMode) {
-      app.appendChild(el('div', 'notice', 'The plan has not loaded here yet, so there is nothing to approve. Refresh to load it.'));
-    } else if (!state.canApprove && state.needKind === 'approve_plan') {
+    if (!state.canApprove && state.needKind === 'approve_plan') {
       const notice = el('div', 'notice');
       notice.appendChild(el('div', null,
         'AutoCode has not shown this client the plan its approval token binds to, so approving here would '
@@ -673,13 +1054,13 @@ function render(state) {
       app.appendChild(notice);
     }
 
-    if (state.personOnly && !chatMode) {
+    if (state.personOnly) {
       app.appendChild(el('div', 'notice',
         'This pause is AutoCode asking a person. The extension will ask before acting on it.'));
     }
   }
 
-  if (state.commandText && !chatMode) {
+  if (state.commandText) {
     app.appendChild(el('h2', null, 'Command the view named'));
     app.appendChild(el('pre', null, state.commandText));
   }
@@ -695,8 +1076,23 @@ function render(state) {
 function updateActionButton() {
   const take = document.getElementById('take-action');
   if (!take || !current) return;
-  const missing = current.decisions.some((decision) => !(answers[decision.questionId] || '').trim());
-  take.disabled = current.taking || missing || !current.canApprove;
+  const missing = current.decisions.some((decision) => {
+    const value = answers[decision.questionId] || '';
+    if (decision.kind !== 'integer') return !value.trim();
+    const number = /^[0-9]+$/.test(value) ? Number(value) : NaN;
+    return !Number.isSafeInteger(number) || number < decision.input.minimum || number > decision.input.maximum;
+  });
+  take.disabled = current.taking || current.working || Boolean(current.unreadable) || missing || !current.canApprove;
+}
+
+function numericHelp(input) {
+  if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
+    + '. Counted recoveries used: ' + input.used + '. Enter 1 to ' + input.maximum
+    + ' additional recoveries. A grant replenishes spent slots; history is kept.';
+  if (input.id === 'planning_review_call_limit') return 'Saved allowance: ' + input.current
+    + ' calls. Plan-review calls used: ' + input.used + '. Enter a total of at least ' + input.minimum + ' calls.';
+  return 'Saved total: ' + input.current + ' seconds. Active time used: ' + input.elapsed
+    + ' seconds. Enter a total of at least ' + input.minimum + ' seconds.';
 }
 
 window.addEventListener('message', (event) => {
@@ -704,7 +1100,8 @@ window.addEventListener('message', (event) => {
   if (data && data.type === 'state') render(data.state);
   if (data && data.type === 'chat') {
     if (data.persistSelection) {
-      vscode.setState?.({ ...(vscode.getState?.() || {}), selectedRun: data.selectedRun || null });
+      vscode.setState?.({ ...(vscode.getState?.() || {}), selectedRun: data.selectedRun || null,
+        tabs: data.tabs || [], activeTabKey: data.activeKey || '' });
     }
     renderChat(data);
   }
@@ -712,6 +1109,28 @@ window.addEventListener('message', (event) => {
     const field = document.getElementById('message');
     if (field.value === data.text) field.value = '';
     saveDraft(); updateComposer(); chatBehavior.resize();
+  }
+  if (data && data.type === 'restore_draft') {
+    const saved = vscode.getState() || {};
+    const drafts = saved.drafts || {};
+    const key = data.runKey || '';
+    if (!drafts[key]) drafts[key] = data.text;
+    vscode.setState({ ...saved, drafts });
+    const field = document.getElementById('message');
+    if (chatEnvelope && key === chatEnvelope.runKey && !field.value.trim() && data.text) {
+      field.value = data.text;
+      saveDraft(); updateComposer(); chatBehavior.resize();
+    }
+  }
+  if (data && data.type === 'checkpoint_compare') {
+    checkpointCompare[data.checkpoint] = data.error ? { error: data.error } : { comparison: data.comparison };
+    renderedState = '';
+    if (current) render(current);
+  }
+  if (data && data.type === 'checkpoint_result') {
+    checkpointResult = data;
+    renderedState = '';
+    if (current) render(current);
   }
 });
 
@@ -726,36 +1145,100 @@ function saveDraft() {
 function updateComposer() {
   if (!chatEnvelope) return;
   const input = chatEnvelope.state && chatEnvelope.state.chat && chatEnvelope.state.chat.input;
-  const allowed = !chatEnvelope.runKey || Boolean(input);
-  document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || !document.getElementById('message').value.trim();
+  const unreadable = Boolean(chatEnvelope.state && chatEnvelope.state.unreadable);
+  const allowed = !chatEnvelope.selectedRun || (Boolean(input) && !unreadable);
+  // While the run works, Pause takes Send's place (#1598); Send stays beside it when the view also takes a message.
+  const pause = chatEnvelope.selectedRun && chatEnvelope.state && chatEnvelope.state.pauseOffer;
+  const pausing = Boolean(pause && (pause.requested || chatEnvelope.pausing));
+  const pauseButton = document.getElementById('pause-run');
+  pauseButton.hidden = !pause;
+  pauseButton.disabled = !pause || pausing || unreadable;
+  pauseButton.textContent = pausing ? 'Pausing after this step…' : 'Pause';
+  pauseButton.setAttribute('aria-label', pause ? (pausing ? 'Pausing after this step' : pause.label) : 'Pause');
+  pauseButton.title = pause && pause.effect ? pause.effect : '';
+  document.getElementById('send-message').hidden = Boolean(pause) && !input;
+  document.getElementById('send-message').disabled = chatEnvelope.busy || !allowed || (Boolean(pause) && !input) || !document.getElementById('message').value.trim();
   document.getElementById('send-message').textContent = 'Send ↑';
-  document.getElementById('send-message').setAttribute('aria-label', input ? input.label + ' and continue' : 'Send message');
-  document.getElementById('send-hint').textContent = !chatEnvelope.runKey ? 'Message AutoCode'
-    : input ? input.label + ' and continue'
-    : chatEnvelope.busy ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
+  const label = input ? input.label + (input.kind === 'resolver_response' ? '' : ' and continue') : 'Send message';
+  document.getElementById('send-message').setAttribute('aria-label', label);
+  document.getElementById('send-hint').textContent = !chatEnvelope.selectedRun ? 'Message AutoCode'
+    : unreadable ? 'Waiting for the status to read again. You can keep a draft here.'
+    : pausing ? 'AutoCode pauses once this step is saved. You can keep a draft here.'
+    : input ? label
+    : (chatEnvelope.busy || (chatEnvelope.state && chatEnvelope.state.working)) ? 'AutoCode is working. You can keep a draft here.' : 'Use the action above, or start a new chat.';
   document.getElementById('chat-error').textContent = chatEnvelope.error || '';
+}
+
+/** The open chats (#1558): one tab per run or fresh chat, addressed by tab key. */
+function renderTabs(data) {
+  const host = document.getElementById('chat-tabs');
+  if (!host) return;
+  const rows = data.tabs || [{ key: data.runKey || '', name: data.runKey ? 'Chat' : 'New chat' }];
+  const signature = JSON.stringify([rows, data.activeKey]);
+  if (host.dataset.content === signature) return;
+  host.dataset.content = signature;
+  host.textContent = '';
+  rows.forEach((tab) => {
+    const item = el('div', 'chat-tab' + (tab.key === data.activeKey ? ' active' : ''));
+    item.role = 'tab';
+    item.setAttribute('aria-selected', tab.key === data.activeKey ? 'true' : 'false');
+    const name = el('span', 'name', tab.name);
+    item.appendChild(name);
+    if (tab.busy) item.appendChild(el('span', 'dot', '•'));
+    if (rows.length > 1) {
+      const close = el('span', 'close', '×');
+      close.title = 'Close chat';
+      close.setAttribute('aria-label', 'Close chat ' + tab.name);
+      close.addEventListener('click', (event) => {
+        event.stopPropagation();
+        vscode.postMessage({ type: 'close_tab', tabKey: tab.key });
+      });
+      item.appendChild(close);
+    }
+    item.title = tab.name;
+    item.addEventListener('click', () => {
+      if (tab.key !== data.activeKey) vscode.postMessage({ type: 'select_tab', tabKey: tab.key });
+    });
+    host.appendChild(item);
+  });
+  // A new chat opens past the visible strip; keep the chat you are in on screen.
+  const active = host.querySelector('.chat-tab.active');
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function renderChat(data) {
   const thread = document.getElementById('thread');
+  document.getElementById('engine-name').textContent = data.engine || 'opencode';
+  // The core's run mode for this chat; only a chat that has not started offers one.
+  document.getElementById('mode-picker').hidden = !data.mode;
+  document.getElementById('mode-name').textContent = data.mode || '';
+  const detailsBtn = document.getElementById('details');
+  if (detailsBtn) detailsBtn.disabled = !data.selectedRun;
+  renderTabs(data);
   const same = chatEnvelope && chatEnvelope.runKey === data.runKey;
   if (!same) {
+    if (chatEnvelope) tabScroll[chatEnvelope.runKey] = thread.scrollTop;
     saveDraft();
     const saved = vscode.getState() || {};
     document.getElementById('message').value = (saved.drafts || {})[data.runKey] || '';
     current = null; renderedState = ''; answers = Object.create(null);
+    checkpointCompare = Object.create(null); checkpointResult = null;
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');
   const welcome = { id: 'welcome', role: 'assistant', text: 'Hi! What would you like to work on today?' };
   const rows = data.state && data.state.chat ? data.state.chat.messages
-    : data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [welcome];
+    : [welcome, ...(data.pendingBrief ? [{ role: 'user', text: data.pendingBrief }] : [])];
+  // A start that never reached a run leaves no transcript. The thread must still
+  // hold what happened: the greeting, the request, and why it did not start.
+  if (!data.state && data.error) rows.push({ role: 'notice', text: data.error });
   const serialized = JSON.stringify(rows);
   if (messages.dataset.content !== serialized) {
     messages.dataset.content = serialized; messages.textContent = '';
     rows.forEach((row) => {
-      const item = el('div', 'message ' + (row.role === 'user' ? 'user' : 'assistant'));
-      item.appendChild(el('div', 'speaker', row.role === 'user' ? 'You' : 'AutoCode'));
+      const notice = row.role === 'notice';
+      const item = el('div', 'message ' + (notice ? 'notice' : row.role === 'user' ? 'user' : 'assistant'));
+      item.appendChild(el('div', 'speaker', notice ? 'Notice' : row.role === 'user' ? 'You' : 'AutoCode'));
       const body = el('div', 'message-content');
       const formatted = data.state && data.state.formattedMessages && data.state.formattedMessages[row.id];
       if (row.role === 'assistant' && formatted) appendFormatted(body, formatted);
@@ -764,11 +1247,33 @@ function renderChat(data) {
     });
   }
   if (data.state) render(data.state);
-  else { app.textContent = data.busy ? 'Thinking…' : ''; }
+  else {
+    app.textContent = '';
+    renderedState = '';
+    if (data.busy) {
+      app.classList.remove('muted');
+      const card = el('div', 'decision-card');
+      card.appendChild(el('div', 'speaker', 'AutoCode'));
+      card.appendChild(el('div', 'message-content', data.waitingForStart ? 'Waiting to start. Complete setup to continue.' : 'Thinking…'));
+      app.appendChild(card);
+    } else {
+      app.classList.add('muted');
+    }
+  }
   renderTelemetry(data.state && data.state.telemetry);
   updateComposer();
   chatBehavior.resize();
-  if (!same) chatBehavior.resume();
+  if (!same) {
+    // Each tab remembers where its reader was (#1558); a first open starts at
+    // the latest messages. A remembered position pauses the follow behavior,
+    // so a poll cannot yank the reader to the bottom.
+    const remembered = tabScroll[data.runKey];
+    if (remembered === undefined) chatBehavior.resume();
+    else {
+      thread.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+      thread.scrollTop = remembered;
+    }
+  }
 }
 
 function renderTelemetry(info) {
@@ -836,13 +1341,15 @@ function appendFormatted(parent, nodes) {
 
 if (chatMode) {
   const disclosure = document.getElementById('usage-details');
-  disclosure.open = initialWebviewState.modelDetailsOpen !== false;
+  disclosure.open = initialWebviewState.modelDetailsOpen === true;
   disclosure.addEventListener('toggle', () => {
     vscode.setState({ ...(vscode.getState() || {}), modelDetailsOpen: disclosure.open });
   });
   document.getElementById('history').addEventListener('click', () => vscode.postMessage({ type: 'history' }));
   document.getElementById('connections').addEventListener('click', () => vscode.postMessage({ type: 'connections' }));
-  document.getElementById('details').addEventListener('click', () => vscode.postMessage({ type: 'details' }));
+  document.getElementById('details').addEventListener('click', () => {
+    if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'details' });
+  });
   document.getElementById('message').addEventListener('input', () => { saveDraft(); updateComposer(); });
   document.getElementById('composer').addEventListener('submit', (event) => {
     event.preventDefault();
@@ -855,12 +1362,19 @@ if (chatMode) {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); document.getElementById('composer').requestSubmit(); }
   });
   document.getElementById('new-chat').addEventListener('click', () => vscode.postMessage({ type: 'new' }));
+  document.getElementById('pause-run').addEventListener('click', () => {
+    if (chatEnvelope && chatEnvelope.runKey) vscode.postMessage({ type: 'pause', runKey: chatEnvelope.runKey });
+  });
+  document.getElementById('engine-picker').addEventListener('click', () => vscode.postMessage({ type: 'engine' }));
+  document.getElementById('mode-picker').addEventListener('click', () => vscode.postMessage({ type: 'mode' }));
 }
 
 vscode.postMessage({
   type: 'ready',
   hasSelectedRun: chatMode && Object.prototype.hasOwnProperty.call(initialWebviewState, 'selectedRun'),
   selectedRun: chatMode ? initialWebviewState.selectedRun || null : null,
+  tabs: chatMode ? initialWebviewState.tabs || [] : [],
+  activeKey: chatMode ? initialWebviewState.activeTabKey || '' : '',
 });
 </script>
 </body>

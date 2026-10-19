@@ -28,6 +28,13 @@ are refused before a provider launches. The optional destination is used by
 [saved-run replay](replay.md); the run is created there without moving bound
 artifacts afterward.
 
+When the workspace is a plain, non-empty folder, the core bootstraps a task
+project inside `workspace/autocode-projects/` and runs there. A destination
+named under the selected folder's `.autocode/runs` keeps its name: the run is
+created under the bootstrapped project instead, and commands may keep using the
+selected folder and that name as the run's handle. The status view names the
+effective `workspace` and `run_dir`.
+
 This example accepts the displayed plan and chooses question defaults or the first
 listed option. An interactive client should collect the person’s answer instead,
 using the token from the view they saw. Operational recovery needs a separate decision.
@@ -157,11 +164,28 @@ receipt reuse and supported correction; readiness does not replace proof.
 
 ## Chat projection for ordinary task runs
 
+A clean user-requested pause may set `needs.confirmation_required: false` on
+its ordinary `resume` offer. The person's Resume click then needs no second
+confirmation dialog. The need remains person-only: clients must not automatically
+resume it. Missing or true preserves the client's existing confirmation policy;
+failure recovery, held operational pauses, retained attempts, report repairs and
+terminal stops do not receive this exception. Numeric allowance changes still
+need their explicit confirmation. Named commands and CLI admission checks are
+unchanged.
+
 The additive `view.chat` contains `messages` (stable `id`, `role`, `text`),
 an opaque `context`, and an optional `input` offer. Messages project existing
 human receipts and saved completed replies. At a follow-up, the prior reply is
 retained under that turn's historical record; display text grants no approval
 and does not become a new requirement. Status reads do not write a transcript.
+
+During a running step, optional `progress` is an array of core-authored display
+lines: the inspected current activity, saved task/requirement counts and up to
+three recent finished attempts in this turn. An attempt finishing does not mean
+its report was accepted or its checks passed. Unknown activity stays unconfirmed;
+queued and stopped steps are not described as running. Clients render these lines
+without deriving stage names or success from private state. Older cores may omit
+the field.
 
 During spec-first Requirements chat, `phase: "requirements"` lets clients show
 the conversation without the empty task dashboard. An assistant message may
@@ -183,6 +207,11 @@ When the only pending question is the core's current requirements review,
 A client may display that summary and submit the ordinary named answer action.
 This confirms the understanding and releases plan preparation and review.
 The resulting execution plan still needs its own displayed-token approval.
+The optional `review.spend_confirmation` supplies the modal's `title`, `detail`
+and confirm-button `label` before submitting that review's planning answer.
+`match: "trim_lower"` mechanically matches the answer after whitespace trimming
+and lowercasing, as the core does; corrections do not trigger the planning modal.
+This spend confirmation never approves an execution plan.
 The optional `notice` explains a stop or ongoing work in ordinary language;
 chat clients keep diagnostic headings, empty counts and pause categories in
 Run details. A notice never grants an action beyond the view's named command.
@@ -210,8 +239,10 @@ a Git write and cannot silently satisfy the completion gate.
 `kind` (`feedback`, `follow_up`, or `resolver_response`), a display `label`, and `next_command` with
 one literal `MESSAGE` placeholder. A client replaces that argument with the
 person's text, checks that the command names the same workspace/run, and runs it
-as an argument array without a shell. The headless conformance client's
-`message_command()` implements this same parsing boundary.
+as an argument array without a shell. Compare against the view's `workspace` and
+`run_dir` fields: after bootstrap relocation they name the run's effective
+location, which can differ from the handle the client started with. The headless
+conformance client's `message_command()` implements this same parsing boundary.
 
 A client compares the displayed `context` with a fresh status before submitting;
 if it changed, retain the draft and ask the person to review the new checkpoint.
@@ -345,6 +376,21 @@ Retained provider attempts and runner checks keep their existing recovery
 actions. A live owner or provider and a busy exclusion lock remain active;
 unverifiable ownership is reported precisely without guessing absence.
 Existing approval, source and provider cleanup gates still apply.
+
+### Pausing a working run
+
+While a run works (a live stage, a fresh birth-bound controller, or a controller
+holding the run's locks), `status()["pause"]` names the boundary pause of
+[queued interventions](interventions.md): `label`, `effect`, `requested` and
+`next_command`, an argument array following `autocode` for
+`intervention submit --kind pause --json`. Its `REQUEST_ID` placeholder is the
+client's own id for this request, so a retried submission returns the original
+receipt instead of queueing another. The current step finishes and is saved,
+then the run pauses with its next stage selected; the ordinary
+`--resume-paused` action continues it. While a pause request waits for that
+boundary, `requested` is true and `next_command` is null. The field is null when
+nothing is working, when the recorded runner cannot consume interventions, and
+for a stopped run. It never interrupts a step in progress or stops the run.
 
 ## First interaction timing
 
@@ -716,6 +762,82 @@ missing original source or immutable caller binding offers inspection. A termina
 stop or dependency wait offers no recovery command. CLI gates still validate
 freshness and authority when a person executes any displayed command.
 
+For the exact finite total-time recovery, `needs.command_inputs` describes the
+person's numeric decision additively:
+
+```json
+{"id":"max_seconds","kind":"integer","flag":"--max-seconds","placeholder":"N",
+ "arg_index":2,"label":"Total active time (seconds)","current":2700,"elapsed":2800.5,
+ "minimum":2801,"maximum":9007199254740991}
+```
+
+The field is an array containing this one descriptor, and is offered only when
+the named action requires `--resume-paused --max-seconds N`. `arg_index` counts
+the arguments after removing the executable and owned `--run-dir`/`--workspace`
+pairs. The complete remaining command must be `--resume-paused --max-seconds N
+--expected-recovery-token -`, with the current `recovery.token` in
+`AUTOCODE_EXPECTED_RECOVERY_TOKEN`. A client validates the exact command,
+descriptor and token binding before substituting that one argument. A person
+must enter a whole number between `minimum` and `maximum`; there is no default
+and no extraction of numbers from chat. The minimum exceeds both the saved cap
+and consumed active time. An empty, zero, fractional, unsafe or out-of-range
+value grants nothing. Other unresolved `N` placeholders remain client gaps.
+
+This choice changes only the total active-time cap. It neither changes other
+limits or model routes nor approves a plan. Recovery freshness is rechecked
+under the run lock, including the saved active-time accounting. Ordinary CLI
+callers retain the existing `--max-seconds 0` behavior; this finite input does
+not expose disabling the guard. Corrective information still authorizes no
+allowance: its pending deterministic review must first reach the held decision.
+
+At a reconciled `PAUSED_PLANNING_BUDGET` checkpoint, the same array can instead
+describe the existing finite planning-review allowance:
+
+```json
+{"id":"planning_review_call_limit","kind":"integer","flag":"--planning-review-call-limit",
+ "placeholder":"N","arg_index":2,"label":"Total plan-review calls","current":2,"used":2,
+ "minimum":3,"maximum":9007199254740991}
+```
+
+Only two exact remaining command shapes are supported, each followed by
+`--expected-recovery-token -` with the current token in the same private channel:
+`--resume-paused --planning-review-call-limit N` (index 2, explicit resume requested) and
+`--planning-review-call-limit N` (index 1, save only). The latter is the held
+operational-information action; a client must not insert Resume. Its next fresh
+status determines whether a separate continuation is available. Both inputs say
+"Set review allowance": even the explicit-resume form can save first and leave
+a separately named Resume. `current` is
+the saved finite allowance and `used` is the charged review-call count. Both
+are integers; the minimum exceeds both, and there is no default or unlimited
+choice. Planning accounting participates in the recovery token's freshness.
+
+The person confirms the exact total number of calls. This uses the existing
+allowance setter and preserves charged calls, recovery history, other limits,
+routes and plan approval. It does not reset a cycle, change allowance policy or
+approve the plan. Ordinary CLI callers retain their existing explicit zero
+semantics. Other numeric placeholders remain unsupported.
+
+An exhausted `PAUSED_TIMEOUT_RECOVERY` can name one additional finite choice:
+
+```json
+{"id":"grant_recovery","kind":"integer","flag":"--grant-recovery","placeholder":"N",
+ "arg_index":2,"label":"Additional recoveries","current":3,"used":3,"minimum":1,"maximum":3}
+```
+
+Its only remaining command is `--resume-paused --grant-recovery N
+--expected-recovery-token -`, using the same current private token channel.
+`current` is the existing fixed automatic-recovery allowance; `used` is counted
+spend, including the existing legacy fallback. The finite input accepts 1 through
+`used`, validated as safe integers, and never supplies a default. Pending
+corrective information must first reach its deterministic held decision.
+
+This takes the existing grant action: choosing 1 replenishes one spent slot
+(for example, 3 counted becomes 2). It does not add to the fixed allowance or
+bank an excess grant. The existing action clears the consecutive-timeout streak,
+retains historical attempts and appends its ordinary grant receipt. Accounting,
+legacy fallback inputs and prior grant receipts are bound into recovery freshness.
+Routes, global time/spend/stage limits and plan approval remain unchanged.
+
 `evidence` is what the run agreed to deliver and what supports it, for reports
 made outside the runner (such as a pull request body, docs/issues.md):
 the approved contract's intended outcome, the base commit, one row per
@@ -759,6 +881,18 @@ and `--accept-completion` refuses while the change is there.
 promise durability or concurrency but that no runner protocol exercises (`kind`
 `durability` or `concurrency`, `source_id`, `quote`, `reason`); `[]` when there
 are none. It is a disclosure, not a check: a PASS never verifies them.
+For a completed code-review workflow, `workflow_result.outcome` and its artifact
+hash name the runner-derived verdict. Its optional `review_attribution` object
+contains `pre_existing` and `inconclusive` counts, `submitted_verdict` and
+`verdict_adjustment`. The summary distinguishes nonblocking pre-existing
+observations from blockers with inconclusive attribution. The findings artifact
+preserves each executable blocker's `disposition` (`kind`, `reason`, `runner`,
+`inputs`, `base_proof`, `changed_proof`); proof references carry `path` and
+`sha256`. Only a validated runner disposition of `pre_existing` exempts a
+blocking finding. Legacy findings and reviews without an explicit patch retain
+blocking behavior. This attribution applies to review findings, not the task's
+acceptance criteria. See [patch attribution](bugs/2026-10-19-review-patch-attribution.md).
+
 `proof_stability` is the proving tests' repeats: `repeats`, `unstable` (each
 test, which side, its kind and the run outcomes), `unrepeated`, `next_step` when
 a test disagreed, and `note`; `null` when the proof did not repeat tests.
@@ -1338,6 +1472,20 @@ The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --expected-token TOKEN --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
 
+Each row of `code_checkpoints` that still has verified source objects also
+names the actions a client may take, in the same shape as a connection
+(`actions` with `id`, `label` and `next_command`: an argument array following
+`autocode`). A client executes only offered actions. The `compare` action is
+always named on an available row. The `restore` action is named only where
+restoration is currently allowed (`blocked_reason` is null); it carries
+`--expected-token -`, which reads `AUTOCODE_CHECKPOINT_EXPECTED_TOKEN` and is
+supplied only by a fresh `compare` of that same checkpoint (a stale token is
+refused), and the `REQUEST_ID` placeholder, which the client replaces with its
+own stable id for this confirmation — replaying the same id reconciles its
+candidate instead of creating another. Without the run's paths the array uses
+the `WORKSPACE` and `RUN_DIR` placeholders; the status view supplies the real
+ones.
+
 `status()["changes_by_criterion"]` attributes those saved steps to the approved
 plan's acceptance criteria. Each criterion lists the plan milestones that cover
 it, the checkpoint ids of their saved Builder steps and the union of the files
@@ -1427,3 +1575,41 @@ with no credential arguments or webview input. Its additional setup states are
 `configured` as authenticated live access. The core setup action neither chooses
 a client's default backend nor launches a model. Discovery reads its nonsecret
 metadata; an explicit check validates its private local credential setup.
+
+## Run modes for clients
+
+A client that starts runs may offer a choice of how much planning a new run does
+before the person approves it. `autocode modes list --json` returns the
+version-1 list: `schema_version`, `default` (a mode id) and `modes`, each with
+`id`, `label`, `description` and `start_args`, an argument array of start flags
+following the brief. A client shows the label and description and passes the
+chosen mode's `start_args` unchanged when it starts a run; it never builds its
+own list or adds flags to a mode. The flags apply only to the new run: a saved
+run keeps the flow it started with. Listing launches nothing and reads no run.
+Optional `spend_confirmation` is `"planning"` for Full mode: start the Requirements
+conversation without a spend dialog, then honor the core's review confirmation
+before preparing the plan. Requirements conversation still uses the selected
+model allowance. Quick mode uses `"start"` because it can plan immediately.
+Missing or unknown metadata retains confirmation at launch for older cores.
+
+| Mode | Start flags | What it changes |
+| --- | --- | --- |
+| `full` (default) | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
+| `quick` | `--joint-planning --no-spec-first --adaptive-planning` | A request the Job recognizer judges clear goes straight to the plan without Requirements; a vague one still gets it ([Adaptive planning](adaptive-planning.md)). |
+
+Every mode keeps the plan approval, the Tester and the Completion Reviewer: a
+mode changes how much planning happens before approval, never what counts as
+done. A CLI without `modes` (exit 2 with a usage error) offers no choice; a
+client then starts the full flow.
+
+### Automatic routes for new runs
+
+New runs automatically select qualified models from the chosen tool's connected
+accounts, preferring subscriptions and preserving independent checking. No per-role
+model flags are needed, including with `TaskRun.start(workspace, brief)`.
+Explicit model, effort and tool overrides win; saved runs keep their choices.
+`--no-auto-select` retains fixed defaults; conversation creation accepts both selection
+switches too. `--auto-select` requires selection to
+succeed instead of falling back when discovery or an independent checker is unavailable.
+See [automatic model selection](models.md#choosing-models-automatically) for discovery,
+reasoning levels, bounded preflight, recovery and the read-only selection preview.

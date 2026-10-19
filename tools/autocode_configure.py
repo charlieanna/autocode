@@ -164,9 +164,8 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     rather than refusing, because a defaulted attempt must never block a launch; the
     usual catalogue and launch checks still guard those routes.
     """
-    # Opt-in until #1426 step 12's qualification flips the default: an absent flag keeps
-    # the fixed routes (so the suite never reads a machine's real logins); an explicit
-    # ``auto_select=None`` is the soft default that flip will ship.
+    # The CLI parser supplies None for default selection. Older programmatic callers
+    # without this field retain their existing fixed-route behavior.
     requested = getattr(args, "auto_select", False)
     if requested is False or single_model or engine != "opencode":
         if requested is True and single_model:
@@ -191,7 +190,7 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
         return None
 
     try:
-        found = discovery.discover(provider_mod, Path(workspace))
+        found = discovery.discover(provider_mod, Path(workspace), inventory=getattr(args, "_model_inventory", None))
     except Exception as error:  # noqa: BLE001 - any failure of a defaulted listing is a fallback
         return soft(f"the tool's listings could not be read ({error}).")
     # The run's full role set, not the four DEFAULT_ROLE_MODELS the roles dict
@@ -199,12 +198,18 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
     pinned = {}
     for role in route_selector.PIPELINE_ROLES:
         named = getattr(args, f"{role}_model", None) or history_models.get(role)
+        if role == "requirements":
+            named = named or getattr(args, "glm_model", None)
         explicit_tool = getattr(args, f"{role}_provider", None) or history_providers.get(role)
         if named:
             pinned[role] = named
         elif explicit_tool:
             # A role pointed at another tool keeps whatever route it already has.
             pinned[role] = (roles.get(role) or {}).get("model") or provider_mod.DEFAULT_MODELS.get(role)
+    if requested is None and set(pinned) == set(route_selector.PIPELINE_ROLES):
+        # A fully pinned profile makes no automatic choice. Keep its existing
+        # preflight and recovery policy instead of saving an empty permitted set.
+        return None
     result = route_selector.select(route_selector.PIPELINE_ROLES, found["candidates"], pinned=pinned)
     if result["stop"]:
         return soft(result["stop"])
@@ -222,6 +227,34 @@ def _auto_select(args, roles, provider_mod, single_model, history_models, histor
         # argument omits it (providers/command.py, #1426 step 5).
         roles[role]["reasoning_effort"] = route.get("reasoning_effort")
     return result
+
+
+def persisted_review_call_limit():
+    """The review allowance a new run starts with from the user's config (#1565).
+
+    ``plan_review_call_limit`` in ~/.config/autocode/config.toml: 0 (unlimited) or an
+    integer of at least 2. Absent means the planning machinery's built-in default.
+    An explicit CLI flag always wins; a resumed run keeps its saved setting.
+    """
+    try:
+        from . import autocode_providers as providers
+    except ImportError:
+        import autocode_providers as providers
+    import tomllib
+
+    path = providers.user_config_path()
+    if not path.is_file():
+        return None, "built-in default"
+    try:
+        config = tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as error:
+        raise ValueError(f"{path} is not valid TOML: {error}") from error
+    value = config.get("plan_review_call_limit")
+    if value is None:
+        return None, "built-in default"
+    if type(value) is not int or (value != 0 and value < 2):
+        raise ValueError(f"plan_review_call_limit in {path} must be 0 (unlimited) or an integer of at least 2")
+    return value, f"plan_review_call_limit in {path}"
 
 
 def configure(args, state: RunState, *, planning, milestones, autopilot, opencode=None):
@@ -483,6 +516,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
             configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
         # A saved run re-records only the routes a flag just moved, as `budget_origins` does below.
         role_route.moved(args, settings)
+        role_route.record_reviewer_effort(args, settings, fresh=False)
         if getattr(args, "planning_v2", False):
             settings["planning_flow"] = "v2"
         if getattr(args, "unlimited_iterations", False):
@@ -715,6 +749,16 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"
     ):
         settings["adaptive_planning"] = True
+    if getattr(args, "plan_review_full", False):
+        settings["plan_review_full"] = True
+    # A persisted review allowance for new runs (#1565): the flag wins, then the
+    # user's config.toml, then the machinery's built-in default. A resumed run
+    # keeps its saved settings; this applies only where settings are first built.
+    if getattr(args, "planning_review_call_limit", None) is None and not started:
+        limit, source = persisted_review_call_limit()
+        if limit is not None:
+            settings["planning_review_call_limit"] = limit
+            settings["planning_review_call_limit_origin"] = source
     if requirements_review.new_run_setting(
         getattr(args, "spec_first", None), joint, role_names.planning_flow(settings) == "v2"
     ):
@@ -742,6 +786,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         for role, route in auto_selection["routes"].items():
             if route.get("origin") == role_route.AUTO_SELECTED:
                 settings["route_origins"][role] = role_route.AUTO_SELECTED
+    role_route.record_reviewer_effort(args, settings, fresh=True)
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args
@@ -841,7 +886,7 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
                 else mod.DEFAULT_REASONING_EFFORTS.get("glm")
             ),
         }
-        settings["roles"]["plan_reviewer"] = {
+        plan_reviewer_route = {
             "engine": "opencode",
             "provider": None,
             "model": (
@@ -861,6 +906,10 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             ),
             "model_pinned": True,
         }
+        light_effort = getattr(mod, "DEFAULT_LIGHT_EFFORTS", {}).get("plan_reviewer")
+        if light_effort is not None:
+            plan_reviewer_route["light_effort"] = light_effort
+        settings["roles"]["plan_reviewer"] = plan_reviewer_route
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model

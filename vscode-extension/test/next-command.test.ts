@@ -4,17 +4,113 @@ import test from "node:test";
 import {
   ClientGap,
   applyDecisions,
+  commandInputs,
   findUnsupplied,
   isAdvancing,
   leavesForPerson,
   openDecisions,
   parseNamedCommand,
+  requiresConfirmation,
   splitCommandLine,
 } from "../src/core/next-command";
+import type { StatusView } from "../src/core/view";
 
 const RUN = "/ws/.autocode/runs/20261015-run";
 const WS = "/ws";
 const own = { runDir: RUN, workspace: WS };
+
+function timeOffer(): StatusView {
+  return {
+    status: "PAUSED_TIME_LIMIT", done: false, recovery: { token: "current" },
+    needs: { kind: "resume", command_inputs: [{ id: "max_seconds", kind: "integer", flag: "--max-seconds", placeholder: "N",
+      arg_index: 2, label: "Total active time (seconds)", current: 2700, elapsed: 3010.885, minimum: 3011, maximum: Number.MAX_SAFE_INTEGER }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} --resume-paused --max-seconds N --expected-recovery-token -`,
+  };
+}
+
+function planningOffer(saveOnly = false): StatusView {
+  return {
+    status: "PAUSED_PLANNING_BUDGET", done: false, recovery: { token: "current" },
+    needs: { kind: "planning_budget", command_inputs: [{ id: "planning_review_call_limit", kind: "integer",
+      flag: "--planning-review-call-limit", placeholder: "N", arg_index: saveOnly ? 1 : 2,
+      label: "Total plan-review calls", current: 2, used: 2, minimum: 3, maximum: Number.MAX_SAFE_INTEGER }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} ${saveOnly ? "" : "--resume-paused "}--planning-review-call-limit N --expected-recovery-token -`,
+  };
+}
+
+function grantOffer(): StatusView {
+  return { status: "PAUSED_TIMEOUT_RECOVERY", done: false, recovery: { token: "current" },
+    needs: { kind: "resume", command_inputs: [{ id: "grant_recovery", kind: "integer", flag: "--grant-recovery", placeholder: "N",
+      arg_index: 2, label: "Additional recoveries", current: 3, used: 3, minimum: 1, maximum: 3 }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=current autocode --workspace ${WS} --run-dir ${RUN} --resume-paused --grant-recovery N --expected-recovery-token -` };
+}
+
+test("finite recovery grant is only the exact resume command and cannot exceed counted spend", () => {
+  const view = grantOffer();
+  const named = parseNamedCommand(view.next_command!, own);
+  const inputs = commandInputs(view, named);
+  assert.deepEqual(applyDecisions(named.argv, { grant_recovery: "1" }, inputs), ["--resume-paused", "--grant-recovery", "1", "--expected-recovery-token", "-"]);
+  for (const value of ["", "0", "4", "1.5", "1e2", "9007199254740992"]) assert.throws(() => applyDecisions(named.argv, { grant_recovery: value }, inputs), ClientGap);
+  for (const [key, value] of Object.entries({ used: 3.5, minimum: 0, maximum: 4, current: 0, flag: "--max-seconds" })) {
+    const bad = structuredClone(view); Object.assign(bad.needs!.command_inputs![0]!, { [key]: value });
+    assert.throws(() => commandInputs(bad, named), ClientGap);
+  }
+  assert.throws(() => commandInputs(view, { ...named, argv: named.argv.slice(1) }), ClientGap);
+  assert.throws(() => commandInputs(view, { ...named, env: { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "stale" } }), ClientGap);
+});
+
+test("typed review allowance binds both existing shapes without adding resume or approval", () => {
+  for (const saveOnly of [false, true]) {
+    const view = planningOffer(saveOnly);
+    const named = parseNamedCommand(view.next_command!, own);
+    const inputs = commandInputs(view, named);
+    const expected = [...(saveOnly ? [] : ["--resume-paused"]), "--planning-review-call-limit", "4", "--expected-recovery-token", "-"];
+    assert.deepEqual(applyDecisions(named.argv, { planning_review_call_limit: "4" }, inputs), expected);
+    for (const value of ["", "0", "2", "-1", "1.5", "4e2", "9007199254740992", "9".repeat(5000)]) {
+      assert.throws(() => applyDecisions(named.argv, { planning_review_call_limit: value }, inputs), ClientGap);
+    }
+    for (const [key, value] of Object.entries({ used: 2.5, current: 0, minimum: 2, arg_index: saveOnly ? 2 : 1, label: "Seconds", flag: "--max-seconds" })) {
+      const bad = structuredClone(view);
+      Object.assign(bad.needs!.command_inputs![0]!, { [key]: value });
+      assert.throws(() => commandInputs(bad, named), ClientGap, key);
+    }
+    assert.throws(() => commandInputs(view, { ...named, env: { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "stale" } }), ClientGap);
+    assert.throws(() => commandInputs(view, { ...named, argv: [...named.argv, "--approve-goal", "-"] }), ClientGap);
+    assert.equal(findUnsupplied(named.argv), "N");
+  }
+});
+
+test("typed total fills only the exact bound slot with the person's finite safe integer", () => {
+  const view = timeOffer();
+  const named = parseNamedCommand(view.next_command!, own);
+  const inputs = commandInputs(view, named);
+  assert.equal(findUnsupplied(named.argv, inputs), null);
+  assert.equal(openDecisions(named.argv, inputs)[0]?.kind, "integer");
+  assert.throws(() => applyDecisions(named.argv, {}, inputs), /whole number/);
+  assert.deepEqual(applyDecisions(named.argv, { max_seconds: "5400" }, inputs),
+    ["--resume-paused", "--max-seconds", "5400", "--expected-recovery-token", "-"]);
+  assert.deepEqual(named.env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "current" });
+  for (const value of ["", " ", "0", "-1", "3010", "1.5", "5e3", "Infinity", "5400 --approve-goal -", "9007199254740992", "9".repeat(5000)]) {
+    assert.throws(() => applyDecisions(named.argv, { max_seconds: value }, inputs), ClientGap, value.slice(0, 30));
+  }
+  assert.deepEqual(applyDecisions(named.argv, { max_seconds: String(Number.MAX_SAFE_INTEGER) }, inputs),
+    ["--resume-paused", "--max-seconds", String(Number.MAX_SAFE_INTEGER), "--expected-recovery-token", "-"]);
+});
+
+test("typed total rejects stale tokens, changed commands and malformed descriptor metadata", () => {
+  const view = timeOffer();
+  const named = parseNamedCommand(view.next_command!, own);
+  for (const [key, value] of Object.entries({ arg_index: 1, flag: "--max-cost-usd", minimum: 1, maximum: 0, elapsed: NaN, current: 2700.5 })) {
+    const bad = structuredClone(view);
+    Object.assign(bad.needs!.command_inputs![0]!, { [key]: value });
+    assert.throws(() => commandInputs(bad, named), ClientGap, key);
+  }
+  for (const bad of [{ ...named, argv: [...named.argv, "--approve-goal", "-"] },
+    { ...named, env: { AUTOCODE_EXPECTED_RECOVERY_TOKEN: "old" } }, { ...named, env: {} }]) {
+    assert.throws(() => commandInputs(view, bad), ClientGap);
+  }
+  assert.equal(findUnsupplied(named.argv), "N", "bare N remains unsupported");
+});
 
 test("splitCommandLine keeps quoted words whole", () => {
   assert.deepEqual(splitCommandLine(`autocode --feedback "keep the retry logic"`), [
@@ -97,4 +193,14 @@ test("a pause AutoCode stopped for a person is not the client's to answer", () =
   assert.equal(leavesForPerson({ kind: "answer", resolver_scope: "clarify" }), false);
   assert.equal(leavesForPerson({ kind: "approve_plan" }), false);
   assert.equal(leavesForPerson(null), false);
+});
+
+test("the core can suppress a duplicate resume dialog without authorizing automatic continuation", () => {
+  const need = { kind: "resume", confirmation_required: false };
+  assert.equal(requiresConfirmation(need), false);
+  assert.equal(leavesForPerson(need), true);
+  assert.equal(requiresConfirmation({ kind: "resume" }), true);
+  assert.equal(requiresConfirmation({ kind: "resume", confirmation_required: true }), true);
+  assert.equal(requiresConfirmation({ kind: "retry_job", confirmation_required: false }), true);
+  assert.equal(requiresConfirmation({ kind: "answer", resolver_scope: "blocker", confirmation_required: false }), true);
 });

@@ -8,6 +8,95 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_reviewer_effort_producers_keep_the_public_dispatch_consumer(self):
+        for path in ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"):
+            with self.subTest(path=path):
+                consumer = "tests.test_reviewer_effort_cli"
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_planning_and_replay_keep_the_saved_run_cli_consumer_even_when_slow(self):
+        consumer = "tests.test_saved_run_replay_cli"
+        for path in (
+            "tools/units/autoplanner.py",
+            "tools/autocode_replay_recording.py",
+            "tools/autocode_replay_transport.py",
+            "tools/autocode_replay_view.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_kilo_launch_and_native_hook_keep_the_progress_consumer_even_when_slow(self):
+        consumer = "tests.test_kilo_progress"
+        for path in ("tools/providers/kilocode.py", "tools/providers/opencode_activity.mjs"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_typed_planning_allowance_keeps_its_public_consumer_even_when_slow(self):
+        consumer = "tests.test_planning_allowance_cli"
+        for path in (
+            "tools/autocode_command_inputs.py",
+            "tools/autocode_recovery_view.py",
+            "tools/autocode_recovery_accounting.py",
+            "tools/autocode_recovery_grants.py",
+            "tools/autocode_run_view.py",
+            "tools/autocode_args.py",
+            "tools/autocode_control_tokens.py",
+            "tools/autocode_pause_command.py",
+            "scenarios/harness/conformance.py",
+        ):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
+    def test_activity_policy_keeps_its_public_wrapper_idle_consumer_even_when_slow(self):
+        consumer = "tests.test_kilo_wrapper_idle_cli"
+        for path in ("tools/autocode_activity.py", "tools/autocode_process.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_checkpoint_normalization_keeps_its_public_pause_regression_even_when_slow(self):
+        consumer = "tests.test_paused_approval_cli"
+        selected = run_suite.select_tests(["tools/autocode_run_records.py"], {consumer: "", "tests.test_unrelated": ""})
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertIn(consumer, kept)
+        self.assertNotIn("tests.test_unrelated", kept)
+        self.assertLessEqual(
+            {*dependencies.CORE_CONSUMERS, *dependencies.PUBLIC_FLOW_CONSUMERS},
+            dependencies.dependencies("tools/autocode_run_records.py"),
+        )
+
+    def test_truncated_repair_timeout_keeps_its_public_cli_consumer_even_when_slow(self):
+        consumer = "tests.test_truncated_review_recovery"
+        for path in (
+            "tools/autocode_stage_recovery.py",
+            "tools/autocode_report_source.py",
+            "tools/autocode_action_authority.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
+    def test_auth_preflight_keeps_its_credential_cli_consumer_even_when_slow(self):
+        consumer = "tests.test_provider_credentials"
+        for path in ("tools/autocode_model_preflight.py", "tools/autocode_provider_auth.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+        self.assertLessEqual(
+            set(dependencies.REFUSAL_CONSUMERS),
+            dependencies.dependencies("tools/autocode_model_preflight.py"),
+        )
+
     def test_chat_projection_keeps_its_public_cli_consumer(self):
         for path in ("tools/autocode_chat_view.py", "tools/autocode_run_view.py"):
             self.assertIn("tests.test_chat_cli", dependencies.dependencies(path))

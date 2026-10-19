@@ -75,6 +75,18 @@ class PolicyTests(unittest.TestCase):
             policy.guard(state)
         self.assertEqual(3, len(state["builder_retry_decisions"]))
 
+    def test_automatic_retry_cannot_add_an_unconnected_strong_route(self):
+        state = self.state()
+        state["settings"]["engine"] = "opencode"
+        state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+        state["settings"]["route_selection"] = {
+            "candidates": {"terra": [{"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "levels": ["medium"]}]}
+        }
+        self.assertEqual("retry", policy.failure(state, "e1", "failure"))
+        self.assertEqual("pause", policy.failure(state, "e2", "failure"))
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", state["settings"]["roles"]["terra"]["model"])
+        self.assertIn("saved accounts", state["stop_reason"])
+
     def test_nonexecution_classes_never_spend_or_mutate_the_builder_route(self):
         for kind, action in (("plan", "replan"), ("operational", "recover"), ("unknown", "investigate")):
             with self.subTest(kind=kind):

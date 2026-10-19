@@ -28,18 +28,23 @@ class FullHelp(argparse.Action):
 
 
 class CompactParser(argparse.ArgumentParser):
-    """Short discovery help without changing parsing, usage errors or defaults."""
+    """Short discovery help without changing parsing or defaults."""
+
+    def format_usage(self):
+        # parser.error() prints this before the message. The generated form lists
+        # every accepted option, which buries the actual error for a person and
+        # for a client showing it in chat.
+        return f"usage: {self.prog} [TASK] [OPTIONS]\n"
 
     def format_help(self):
         lines = ["usage: autocode [TASK] [OPTIONS]", "", "Plan, build and verify a task, or act on a saved run.", ""]
-        lines.extend(textwrap.wrap(self.epilog or "", width=78, break_on_hyphens=False))
+        lines.extend(textwrap.wrap(self.epilog or "", width=79, break_on_hyphens=False))
         lines += ["", "Common options:"]
         accepted = {flag for action in self._actions for flag in action.option_strings}
         for flag, description in COMMON_OPTIONS:
             if flag in accepted:
                 lines.append(f"  {flag:<16} {description}")
         lines += [
-            "",
             "  -h, --help       Show this overview",
             "  --help-all       Show every accepted option",
             "",

@@ -235,6 +235,89 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertTrue(saved["plan/mimo"]["blocking"])
         self.assertIn("Add credits", saved["plan/mimo"]["detail"])
 
+    def test_rejected_authentication_blocks_before_another_model_is_probed(self):
+        rejection = [
+            {
+                "type": "error",
+                "sessionID": "ses_auth",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "statusCode": 401,
+                        "message": "private-test-canary",
+                        "responseBody": "private-test-canary; budget exhausted",
+                    },
+                },
+            }
+        ]
+        with self.assertRaises(support.Paused) as caught:
+            self.check({"plan/glm": rejection, "plan/mimo": OK_EVENTS})
+        self.assertEqual("PAUSED_AUTH", caught.exception.status)
+        self.assertIn("401", str(caught.exception))
+        self.assertNotIn("private-test-canary", str(caught.exception))
+        self.assertEqual(["plan/glm"], self.calls)
+        self.assertTrue(probed(self.run_dir)["plan/glm"]["blocking"])
+        self.assertNotIn("private-test-canary", probed(self.run_dir)["plan/glm"]["detail"])
+
+    def test_authentication_hint_names_only_actual_withheld_probe_environment(self):
+        canary = "private-probe-credential-canary"
+        rejection = [
+            {
+                "type": "error",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "statusCode": 401,
+                        "message": canary,
+                        "responseBody": canary,
+                    },
+                },
+            }
+        ]
+        for index, (passed, expected) in enumerate(
+            (
+                ("", ["FIXTURE_API_KEY", "OTHER_PASSWORD"]),
+                ("FIXTURE_API_KEY", ["OTHER_PASSWORD"]),
+                ("FIXTURE_API_KEY,OTHER_PASSWORD", []),
+            )
+        ):
+            with self.subTest(passed=passed):
+                env = {
+                    "FIXTURE_API_KEY": canary,
+                    "OTHER_PASSWORD": canary,
+                    "AUTOCODE_RESOLVER_TOKEN": canary,
+                    "AUTOCODE_PASS_ENV": passed,
+                }
+                with (
+                    patch.dict(preflight.os.environ, env, clear=True),
+                    patch.object(
+                        preflight.transport, "execute", side_effect=self.fake_execute({"plan/glm": rejection})
+                    ) as execute,
+                ):
+                    outcome = preflight.probe(
+                        self.adapter,
+                        "plan/glm",
+                        self.root,
+                        self.run_dir,
+                        directory=self.root / f"probe-{index}",
+                    )
+                self.assertEqual(env, execute.call_args.kwargs["env"])
+                self.assertEqual("PAUSED_AUTH", outcome["status"])
+                self.assertTrue(outcome["blocking"])
+                detail = outcome["detail"]
+                self.assertIn("HTTP 401", detail)
+                self.assertNotIn(canary, detail)
+                self.assertNotIn("AUTOCODE_RESOLVER_TOKEN", detail)
+                if expected:
+                    self.assertIn("Credential-like environment variables were withheld: ", detail)
+                    names = detail.split("Credential-like environment variables were withheld: ", 1)[1].split(
+                        ". If this provider", 1
+                    )[0]
+                    self.assertEqual(expected, names.split(", "))
+                    self.assertIn("AUTOCODE_PASS_ENV", detail)
+                else:
+                    self.assertNotIn("AUTOCODE_PASS_ENV", detail)
+
     def test_resume_reprobes_a_route_that_failed_until_it_passes(self):
         with self.assertRaises(support.Paused):
             self.check({"plan/glm": OK_EVENTS, "plan/mimo": PAYWALL_EVENTS})
@@ -552,9 +635,25 @@ class SelectionPreflightTests(unittest.TestCase):
         # A second check of the same selection reuses the receipts: no new calls.
         self.assertFalse(self.check(events, self.selection()))
         self.assertEqual(3, len(self.calls))
-        (saved,) = receipt_sets(self.run_dir)
-        self.assertEqual("opencode", saved["identity"]["provider"])
-        self.assertEqual({"ok"}, {row["status"] for row in saved["probed"].values()})
+        for saved in receipt_sets(self.run_dir):
+            self.assertEqual("opencode", saved["identity"]["provider"])
+            self.assertEqual({"ok"}, {row["status"] for row in saved["probed"].values()})
+
+    def test_same_model_at_different_levels_requires_both_receipts(self):
+        selection = self.selection(probe=["openai/gpt-6-sol"])
+        selection["routes"]["completion"] = {
+            "model": "openai/gpt-6-sol",
+            "tool": "opencode",
+            "reasoning_effort": "high",
+        }
+        events = {"openai/gpt-6-sol": OK_EVENTS}
+        self.assertTrue(self.check(events, selection))
+        self.assertEqual({("openai/gpt-6-sol", None), ("openai/gpt-6-sol", "high")}, set(self.calls))
+        self.assertFalse(self.check(events, selection))
+        selection["routes"]["completion"]["reasoning_effort"] = "max"
+        self.assertTrue(self.check(events, selection))
+        self.assertEqual(("openai/gpt-6-sol", "max"), self.calls[-1])
+        self.assertEqual(3, len(self.calls))
 
     def test_routes_the_selection_knows_are_not_probed(self):
         selection = self.selection(probe=["openai/gpt-6-sol"])

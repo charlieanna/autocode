@@ -23,7 +23,7 @@ What to do:
 4. Report findings, each with a severity:
    - blocking: must be fixed before merge. A behavior that regresses, an invariant that breaks, a
      compatibility change, a defect the change's tests do not catch.
-   - advisory: everything else. Style, naming, simplification, a suggestion, a gap in documentation.
+   - advisory: unrelated pre-existing defects and everything else. Style, naming, simplification, a suggestion, a gap in documentation.
      Blocking means the change breaks something; a README or docstring that could say more breaks
      nothing, so it is advisory.
    Point at the file and the line span in the file AS IT WOULD BE AFTER THE CHANGE, and give evidence:
@@ -40,6 +40,16 @@ What to do:
    pr-184.patch), or "" when the change is already in the workspace. When a test really cannot show a
    blocking finding (a documented compatibility rule the change breaks), say why in untestable;
    otherwise untestable is "". Advisory findings need no test.
+   With an explicit patch, deliver focused single-defect probes runnable on BOTH the unpatched
+   and changed source with identical test bytes. Review patch-relative behavior: introduced or
+   worsened defects can block; unrelated older defects belong in advisory observations. The runner
+   captures source, patch and tests and runs isolated base and changed copies. It derives attribution:
+   base pass/change failure is introduced; equivalent full Python failure site, type and diagnostic
+   on both sides is pre_existing; different failures, missing/skipped tests, unsupported details or
+   setup/infrastructure failures are inconclusive and retain blockers. Any demonstrated regression
+   wins for a multi-test finding. A failing exit or identical test ID alone proves no equivalence.
+   With empty change_patch, no baseline is inferred and blocking findings stay blocking. Never declare
+   a disposition yourself: only the runner can exempt a proven pre-existing observation.
 6. Verdict: request_changes when there is at least one blocking finding, otherwise approve. Do not
    invent problems to look thorough: a correct change gets approve and, at most, advisory notes.
 

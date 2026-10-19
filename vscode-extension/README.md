@@ -6,16 +6,20 @@ Early preview. Install from the Marketplace as `ankurkothari.autocode-task-chat`
 code --install-extension ankurkothari.autocode-task-chat
 ```
 
-The AutoCode CLI must be installed separately. Provider-backed execution requires
-a supported Linux host; this extension does not bundle the CLI or model backends.
+The AutoCode CLI must be installed separately — see
+[Installing AutoCode](https://github.com/charlieanna/autocode/blob/master/docs/install.md).
+This extension does not bundle the CLI or model backends. Providers run on Linux
+and macOS (macOS without kernel session ownership); Windows is not yet qualified.
 Full interactive and live-model qualification is incomplete.
 
 A thin client for AutoCode task runs. It starts the `autocode` CLI, reads the
 status view, and takes the action the view names. It imports nothing from
 `tools/` and never reads `state.json`.
 
-Chat in the sidebar, give plan feedback, approve a reviewed plan, and continue
-with follow-up messages in the same run. Composer and scroll behavior adapt
+Chat in the sidebar — several task tabs at once — give plan feedback, approve a
+reviewed plan, compare or restore saved code checkpoints, pause a working run
+after its current step, and continue with follow-up messages in the same run. Behind the CLI's five workflows: build, bug
+fix, review, design and discuss. Composer and scroll behavior adapt
 selected Kilo Code components; see [attribution](https://github.com/charlieanna/autocode/blob/master/vscode-extension/THIRD_PARTY_NOTICES.md).
 It never launches a model on its own, cannot approve a plan it has not
 displayed, and keeps issued tokens in the child's environment rather than on the

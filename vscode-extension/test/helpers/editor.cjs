@@ -8,19 +8,37 @@ function editor() {
   const commands = new Map();
   const panels = [];
   const errors = [];
+  const notices = [];
   const providers = new Map();
   const storage = new Map();
   const workspaceState = { get: (key) => storage.get(key), update: async (key, value) => { storage.set(key, value); } };
   const log = { show() {}, append() {}, appendLine() {}, dispose() {} };
+  const configListeners = new Set();
   const vscode = {
-    workspace: { getConfiguration: () => ({ get: (key, fallback) => config.get(key) ?? fallback,
-      update: async (key, value) => { config.set(key, value); } }) },
+    workspace: {
+      getConfiguration: () => ({
+        get: (key, fallback) => config.get(key) ?? fallback,
+        update: async (key, value) => {
+          config.set(key, value);
+          for (const listener of configListeners) {
+            listener({ affectsConfiguration: (section) => section.startsWith("autocode") });
+          }
+        },
+      }),
+      onDidChangeConfiguration: (listener) => {
+        configListeners.add(listener);
+        return { dispose: () => configListeners.delete(listener) };
+      },
+    },
     window: {
       createOutputChannel: () => log,
       createStatusBarItem: () => ({ hide() {}, show() {}, dispose() {} }),
       createTreeView: () => ({ dispose() {} }),
       registerWebviewViewProvider: (id, provider) => { providers.set(id, provider); return { dispose() {} }; },
-      showInformationMessage() {},
+      showInformationMessage: (message, ...items) => new Promise((resolve) => {
+        notices.push({ message, items, resolve });
+      }),
+      showQuickPick: async () => undefined,
       createTerminal: () => ({ show() {} }),
       showErrorMessage: async (message) => { errors.push(message); },
       showWarningMessage: async (_message, _options, choice) => choice,
@@ -50,6 +68,7 @@ function editor() {
       registerCommand: (name, handler) => { commands.set(name, handler); return { dispose() {} }; },
       executeCommand: async () => {},
     },
+    env: { clipboard: { writeText: async () => {}, readText: async () => '' } },
     StatusBarAlignment: { Left: 1 }, ViewColumn: { One: 1 }, ConfigurationTarget: { Global: 1, Workspace: 2 },
     TreeItem: class {}, TreeItemCollapsibleState: { None: 0, Expanded: 2 },
     Uri: { file: (value) => value }, MarkdownString: class {}, ThemeIcon: class {}, ThemeColor: class {},
@@ -66,7 +85,7 @@ function editor() {
     try { return require(path.resolve(__dirname, '../../out-test/src', name)); }
     finally { Module._load = original; }
   }
-  return { config, commands, panels, providers, workspaceState, errors, log, load, vscode };
+  return { config, commands, panels, providers, workspaceState, errors, notices, log, load, vscode };
 }
 
 module.exports = { editor, flush: () => new Promise((resolve) => setImmediate(resolve)) };

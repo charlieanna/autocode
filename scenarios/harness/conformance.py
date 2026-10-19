@@ -3,7 +3,7 @@
 The client reads ``autocode --status`` and takes the one action the status view
 names: ``view["next_command"]``, which AutoCode formats from ``view["needs"]``
 (docs/task-run.md, "Status view"). It fills only the decisions the view leaves to
-a person (an ``ANSWER``) and passes its own engine and model options when a
+a person (an ``ANSWER`` or a typed finite time/review/recovery choice) and passes its own engine and model options when a
 command advances the run, as ``TaskRun`` does. A need whose command it cannot
 take from the view alone is a ``ConformanceGap``: a gap to fix in the CLI or the
 status view, never one to work around here. The client never imports AutoCode,
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shlex
 import signal
 import sys
@@ -139,7 +140,7 @@ class ConformanceDriver(Driver):
             else:
                 self.person_paused = False
                 words, env, source = self.named_command(view)
-            words = self.decide(need, words)
+            words = self.decide(need, words, view=view, env=env)
             self.take(view, words, env, source)
 
     def person_command(self, view: dict) -> tuple[list[str], dict, str] | None:
@@ -184,10 +185,25 @@ class ConformanceDriver(Driver):
                     raise ConformanceGap(f"next_command names {flag} {named}, not this run's {expected}")
         return words, env, "next_command"
 
-    def decide(self, need: dict, words: list[str]) -> list[str]:
+    def decide(self, need: dict, words: list[str], *, command_inputs=None, view=None, env=None) -> list[str]:
         """Fill the person's decisions the command leaves open; anything else unsupplied is a gap."""
+        inputs = self.integer_inputs(view, words, env or {}) if need.get("command_inputs") is not None else []
+        chosen = command_inputs or {}
         filled = []
-        for word in words:
+        for index, word in enumerate(words):
+            typed = next((row for row in inputs if row["arg_index"] == index), None)
+            if typed:
+                value = chosen.get(typed["id"])
+                if not isinstance(value, str) or not re.fullmatch(r"[0-9]+", value):
+                    raise ConformanceGap(f"{typed['label']} requires an explicit whole number from a person")
+                normalized = value.lstrip("0") or "0"
+                if len(normalized) > 16:
+                    raise ConformanceGap("The chosen total is outside the advertised integer bounds")
+                number = int(normalized)
+                if not typed["minimum"] <= number <= typed["maximum"]:
+                    raise ConformanceGap("The chosen total is outside the advertised integer bounds")
+                filled.append(str(number))
+                continue
             if word in UNSUPPLIED:
                 raise ConformanceGap(f"needs {need['kind']!r} leaves {word!r} open, which the view does not supply")
             question, _, placeholder = word.partition("=")
@@ -195,6 +211,84 @@ class ConformanceDriver(Driver):
                 word = f"{question}={self.answer_for(need, question, placeholder)}"
             filled.append(word)
         return filled
+
+    @staticmethod
+    def integer_inputs(view, words, env):
+        """Only closed finite-time, review-total and recovery-grant offers type an N slot."""
+        need = (view or {}).get("needs") or {}
+        rows = need.get("command_inputs")
+        row = rows[0] if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict) else {}
+        token = ((view or {}).get("recovery") or {}).get("token")
+        current = row.get("current")
+        maximum = 9007199254740991
+        if (
+            need.get("new_run_required")
+            or need.get("edit_required")
+            or not isinstance(token, str)
+            or not token
+            or env != {"AUTOCODE_EXPECTED_RECOVERY_TOKEN": token}
+            or row.get("kind") != "integer"
+            or row.get("placeholder") != "N"
+            or type(row.get("arg_index")) is not int
+            or type(current) is not int
+            or not 0 < current < maximum
+            or type(row.get("minimum")) is not int
+            or type(row.get("maximum")) is not int
+            or not 1 <= row["maximum"] <= maximum
+        ):
+            raise ConformanceGap("Unsupported or stale numeric recovery command from AutoCode")
+        elapsed, used = row.get("elapsed"), row.get("used")
+        time = (
+            (view or {}).get("status") == "PAUSED_TIME_LIMIT"
+            and need.get("kind") == "resume"
+            and row.get("id") == "max_seconds"
+            and row.get("flag") == "--max-seconds"
+            and row["arg_index"] == 2
+            and row.get("label") == "Total active time (seconds)"
+            and words == ["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"]
+            and type(elapsed) in (int, float)
+            and 0 <= elapsed < maximum
+            and math.isfinite(elapsed)
+            and row["minimum"] == math.floor(max(current, elapsed)) + 1
+        )
+        planning = (
+            (view or {}).get("status") == "PAUSED_PLANNING_BUDGET"
+            and need.get("kind") == "planning_budget"
+            and row.get("id") == "planning_review_call_limit"
+            and row.get("flag") == "--planning-review-call-limit"
+            and row.get("label") == "Total plan-review calls"
+            and current >= 2
+            and type(used) is int
+            and current <= used < maximum
+            and row["minimum"] == max(current, used) + 1
+            and (
+                (
+                    row["arg_index"] == 2
+                    and words
+                    == ["--resume-paused", "--planning-review-call-limit", "N", "--expected-recovery-token", "-"]
+                )
+                or (
+                    row["arg_index"] == 1
+                    and words == ["--planning-review-call-limit", "N", "--expected-recovery-token", "-"]
+                )
+            )
+        )
+        grant = (
+            (view or {}).get("status") == "PAUSED_TIMEOUT_RECOVERY"
+            and need.get("kind") == "resume"
+            and row.get("id") == "grant_recovery"
+            and row.get("flag") == "--grant-recovery"
+            and row["arg_index"] == 2
+            and row.get("label") == "Additional recoveries"
+            and words == ["--resume-paused", "--grant-recovery", "N", "--expected-recovery-token", "-"]
+            and type(used) is int
+            and 1 <= used <= maximum
+            and row["minimum"] == 1
+            and row["maximum"] == used
+        )
+        if (not time and not planning and not grant) or (not grant and row["maximum"] != maximum):
+            raise ConformanceGap("Unsupported or stale numeric recovery command from AutoCode")
+        return rows
 
     def message_command(self, view: dict, text: str) -> tuple[list[str], dict, str]:
         """A person's feedback/follow-up through the optional chat input offer (#884)."""
