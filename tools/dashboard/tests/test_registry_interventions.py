@@ -118,6 +118,26 @@ class RegistryInterventionTests(unittest.TestCase):
         self.assertFalse(result["task_progress_known"])
         self.assertEqual("unknown", result["tasks"][0]["state"])
 
+    def test_task_readers_use_the_recognized_non_writer_command_shapes(self):
+        import autocode_legacy_process as legacy
+
+        self.status["view"] = {"status": "RUNNING"}
+        self.save("status.json", self.status)
+        reader_kinds = []
+        original = self.console._run_json_command
+
+        def observe(args, timeout):
+            if "--status" in args or args[:2] == ["intervention", "inspect"]:
+                reader_kinds.append("status" if "--status" in args else "inspect")
+                command = " ".join([sys.executable, str(Path(__file__).resolve().parents[2] / "autocode.py"), *args])
+                self.assertFalse(legacy.duplicate_runner_command(command), command)
+            return original(args, timeout)
+
+        with patch.object(self.console, "_run_json_command", side_effect=observe):
+            view = self.console.task_view(self.workspace, self.run)
+        self.assertEqual(["status", "inspect"], reader_kinds)
+        self.assertEqual(self.status["view"], view["status_view"])
+
     def test_task_detail_carries_the_runs_status_view(self):
         self.status["view"] = {"status": "RUNNING", "dev_server": {"url": "http://127.0.0.1:8123/"}, "needs": []}
         self.save("status.json", self.status)
