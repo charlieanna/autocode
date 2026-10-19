@@ -2366,7 +2366,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/a98bc4cad7fc5b57e0f63dd65eae983a207cccf7/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2b7db5c9129977030f06db1e8fbda49daba01970/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2547,6 +2547,11 @@ planning and execution roles wait until the user confirms the requirements.</p>
 A client may display that summary and submit the ordinary named answer action.
 This confirms the understanding and releases plan preparation and review.
 The resulting execution plan still needs its own displayed-token approval.
+The optional <code>review.spend_confirmation</code> supplies the modal's <code>title</code>, <code>detail</code>
+and confirm-button <code>label</code> before submitting that review's planning answer.
+<code>match: "trim_lower"</code> mechanically matches the answer after whitespace trimming
+and lowercasing, as the core does; corrections do not trigger the planning modal.
+This spend confirmation never approves an execution plan.
 The optional <code>notice</code> explains a stop or ongoing work in ordinary language;
 chat clients keep diagnostic headings, empty counts and pause categories in
 Run details. A notice never grants an action beyond the view's named command.</p>
@@ -2751,7 +2756,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/a98bc4cad7fc5b57e0f63dd65eae983a207cccf7/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/2b7db5c9129977030f06db1e8fbda49daba01970/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -4004,7 +4009,12 @@ version-1 list: <code>schema_version</code>, <code>default</code> (a mode id) an
 following the brief. A client shows the label and description and passes the
 chosen mode's <code>start_args</code> unchanged when it starts a run; it never builds its
 own list or adds flags to a mode. The flags apply only to the new run: a saved
-run keeps the flow it started with. Listing launches nothing and reads no run.</p>
+run keeps the flow it started with. Listing launches nothing and reads no run.
+Optional <code>spend_confirmation</code> is <code>"planning"</code> for Full mode: start the Requirements
+conversation without a spend dialog, then honor the core's review confirmation
+before preparing the plan. Requirements conversation still uses the selected
+model allowance. Quick mode uses <code>"start"</code> because it can plan immediately.
+Missing or unknown metadata retains confirmation at launch for older cores.</p>
 <table>
 <thead>
 <tr>
