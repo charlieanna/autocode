@@ -199,6 +199,14 @@ class PasteTests(unittest.TestCase):
         self.assertIsNone(tui.read_paste(self.keys("x")))
         self.assertIsNone(tui.read_paste(self.keys("[", "2", "0", "1", "~")))
 
+    def test_the_keys_read_after_an_escape_that_is_no_paste_are_handed_back(self):
+        consumed: list = []
+        self.assertIsNone(tui.read_paste(self.keys("x", "y"), consumed))
+        self.assertEqual(["x"], consumed)
+        consumed = []
+        self.assertIsNone(tui.read_paste(self.keys("[", 260), consumed))
+        self.assertEqual(["[", 260], consumed)
+
 
 def screen_ui(*keys):
     """A ChatTUI over a stand-in screen that delivers ``keys``, then times out like an idle terminal."""
@@ -277,6 +285,60 @@ class AskTests(unittest.TestCase):
         self.assertEqual(
             ["AutoCode is working\nType / for commands. AutoCode asks here when it needs you."], self.info(ui)
         )
+
+    def test_escape_closes_the_menu_and_the_next_key_is_kept(self):
+        ui = screen_ui(*"/pl", "\x1b", "h", *"i\n")
+        self.assertEqual("hi", ui.ask("Anything else?"), "the key after Esc is not swallowed")
+        self.assertEqual([], self.info(ui))
+
+    def test_a_sentence_after_an_unknown_command_is_never_sent(self):
+        ui = screen_ui(*"/Build a greeting CLI\n", "\x15", *"Build it\n")
+        self.assertEqual("Build it", ui.ask("What do you want done?"))
+        self.assertIn("/build is not a command", self.info(ui)[0])
+
+    def test_escape_cancels_a_command_question(self):
+        ui = screen_ui(*"/undo 1\n", "\x1b", *"n\n")
+        ui.bind(lambda name, argument: tui.panel.Confirm("Step 1.", "Go back to step 1?", lambda: "Done."))
+        self.assertEqual("n", ui.ask("Continue? [y/N]"))
+        self.assertEqual(["/undo\nStep 1.", "Go back to step 1?\nNothing changed."], self.info(ui))
+
+    def test_diff_with_a_step_number_goes_to_the_client_and_its_answer_is_shown(self):
+        ui = screen_ui(*"/diff 2\n", *"n\n")
+        calls = []
+        ui.bind(lambda name, argument: calls.append((name, argument)) or "1 file changed since that step")
+        self.assertEqual("n", ui.ask("Continue? [y/N]"))
+        self.assertEqual([("/diff", "2")], calls)
+        self.assertEqual(["/diff\n1 file changed since that step"], self.info(ui))
+
+    def test_undo_waits_for_a_yes_and_anything_else_changes_nothing(self):
+        went: list[str] = []
+        confirm = tui.panel.Confirm("Step 1: Builder step.", "Go back to step 1?", lambda: went.append("1") or "Done.")
+        ui = screen_ui(*"/undo 1\n", *"no\n", *"/undo 1\n", *"y\n", *"n\n")
+        ui.bind(lambda name, argument: confirm)
+        self.assertEqual("n", ui.ask("Continue? [y/N]"), "the confirmation's answers never answer the question")
+        self.assertEqual(["1"], went)
+        self.assertEqual(
+            [
+                "/undo\nStep 1: Builder step.",
+                "Go back to step 1?\nNothing changed.",
+                "/undo\nStep 1: Builder step.",
+                "Go back to step 1?\nDone.",
+            ],
+            self.info(ui),
+        )
+
+    def test_the_confirmation_is_the_question_shown_while_it_waits(self):
+        ui = screen_ui(*"/undo 1\n")
+        ui.bind(lambda name, argument: tui.panel.Confirm("Step 1.", "Go back to step 1?", lambda: "Done."))
+        ui._asking, ui._prompt = True, "Continue? [y/N]"
+        for key in "/undo 1\n":
+            ui._handle(key, asking=True)
+        self.assertEqual(["? Go back to step 1? [y/N]"], ui._layout(30, 120).question)
+
+    def test_without_a_client_diff_is_not_offered(self):
+        ui = screen_ui(*"/diff\n", *"n\n")
+        self.assertEqual("n", ui.ask("Continue? [y/N]"))
+        self.assertIn("is not available right now", self.info(ui)[0])
 
     def test_keys_typed_while_autocode_worked_are_dropped_before_a_question(self):
         screen = mock.MagicMock()

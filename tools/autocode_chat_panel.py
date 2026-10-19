@@ -5,13 +5,15 @@ view to its renderer. This module turns a view into the side panel's sections (w
 the run is, its requirements, its tasks and open problems), keeps a log of how the run
 moved from one view to the next, and lists the ``/`` commands the chat offers. It is
 pure: it reads only the view it is given, never a run's files, and it decides nothing
-about the run. The one command that acts, ``/pause``, is the view's own pause offer,
-which the client takes only when its fresh status view offers it.
+about the run. The commands that act are the client's, and each takes only an action
+the view names: ``/pause`` is the view's pause offer, ``/diff`` a saved step's
+``compare`` and ``/undo`` its ``restore`` (``view["code_checkpoints"]``).
 """
 
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 LOG_LIMIT = 200
@@ -50,11 +52,22 @@ class Command:
     description: str
 
 
+@dataclass(frozen=True)
+class Confirm:
+    """A client command that waits for the person's yes: what it will do, then the question."""
+
+    text: str
+    question: str
+    then: Callable[[], str]
+
+
 COMMANDS = (
     Command("/plan", "Show the plan's requirements and how each stands"),
     Command("/tasks", "Show the task list"),
     Command("/log", "Show how the run has moved so far"),
     Command("/details", "Why the run is where it is"),
+    Command("/diff", "The saved code steps; /diff N shows what changed since step N"),
+    Command("/undo", "Go back to a saved step on a new branch: /undo N"),
     Command("/panel", "Show or hide the side panel"),
     Command("/pause", "Ask AutoCode to pause after the current step"),
     Command("/help", "List these commands"),
@@ -70,12 +83,19 @@ def _rows(value) -> list[dict]:
     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
 
 
-def commands(*, asking: bool) -> list[Command]:
+# The commands the chat client carries out, through actions its fresh status view names.
+CLIENT_COMMANDS = ("/diff", "/undo")
+
+
+def commands(*, asking: bool, client: bool = True) -> list[Command]:
     """The commands that do something now. ``/pause`` only while AutoCode works: the client then
-    takes the pause its fresh status view offers, or says there is none. ``/quit`` only at a
-    question, since leaving while AutoCode works would leave it running unseen."""
-    hidden = "/pause" if asking else "/quit"
-    return [command for command in COMMANDS if command.name != hidden]
+    takes the pause its fresh status view offers, or says there is none. ``/quit`` and ``/undo``
+    only at a question: leaving while AutoCode works would leave it running unseen, and the view
+    offers going back only at a pause. Without a client the client's commands are not offered."""
+    hidden = {"/pause"} if asking else {"/quit", "/undo"}
+    if not client:
+        hidden.update(CLIENT_COMMANDS)
+    return [command for command in COMMANDS if command.name not in hidden]
 
 
 def matching(prefix: str, available: list[Command]) -> list[Command]:
@@ -88,10 +108,13 @@ def sections(view: dict | None) -> list[Section]:
     """The panel for one view: where the run is, then its requirements, tasks and open problems."""
     view = view or {}
     progress = _mapping(view.get("progress"))
-    result = [Section("Now", progress.get("headline") or str(view.get("status") or "Starting").replace("_", " "))]
+    lines = activity(view)
+    now = lines[0] if lines else progress.get("headline") or str(view.get("status") or "Starting").replace("_", " ")
+    rows = [Row("·", line, "dim") for line in lines[1:]]
     needs = progress.get("needs_you")
     if needs and needs != NOTHING_NEEDED:
-        result[0] = Section("Now", result[0].summary, (Row("!", str(needs), "warn"),))
+        rows.insert(0, Row("!", str(needs), "warn"))
+    result = [Section("Now", now, tuple(rows))]
     requirements = _mapping(progress.get("requirements"))
     if _rows(requirements.get("items")):
         result.append(
@@ -147,6 +170,72 @@ def sections(view: dict | None) -> list[Section]:
     return result
 
 
+def activity(view: dict | None) -> list[str]:
+    """What the run is doing, as the view's ``chat.progress`` lines say: the current step, then its
+    recent attempts. The task and requirement counts it repeats are left to their own sections."""
+    view = view or {}
+    lines = [str(line) for line in _mapping(view.get("chat")).get("progress") or [] if line]
+    progress = _mapping(view.get("progress"))
+    counts = " · ".join(
+        str(row.get("label"))
+        for row in (_mapping(progress.get("tasks")), _mapping(progress.get("requirements")))
+        if row.get("total") and row.get("label")
+    )
+    return [line for number, line in enumerate(lines) if number == 0 or line != counts]
+
+
+def newest(lines: list[str]) -> str | None:
+    """The latest attempt the activity lines name: the last of "Recent steps: A · B · C"."""
+    if not lines:
+        return None
+    last = lines[-1].rsplit(" · ", 1)[-1]
+    return last.split(": ", 1)[-1] or None
+
+
+def steps(view: dict | None) -> list[dict]:
+    """The run's saved code steps, in order; ``/diff N`` and ``/undo N`` count from 1."""
+    return _rows(_mapping((view or {}).get("code_checkpoints")).get("rows"))
+
+
+def steps_text(view: dict | None, command: str) -> str:
+    """The saved steps a bare ``/diff`` or ``/undo`` lists."""
+    rows = steps(view)
+    if not rows:
+        return "There are no saved code steps yet. AutoCode saves one each time the Builder changes code."
+    lines = []
+    for number, row in enumerate(rows, 1):
+        files = [str(path) for path in row.get("changed_files") or []]
+        named = {action.get("id") for action in _rows(row.get("actions"))}
+        note = "" if "compare" in named else f" (unavailable: {row.get('reason') or 'not saved'})"
+        lines.append(f"{number}. {row.get('label') or row.get('id')}{note}")
+        if files:
+            lines.append("   " + ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else ""))
+    blocked = _mapping((view or {}).get("code_checkpoints")).get("blocked_reason")
+    if command == "/undo":
+        lines.append(
+            "Type /undo N to go back to step N." if not blocked else f"Going back is not possible now: {blocked}"
+        )
+    else:
+        lines.append("Type /diff N to see what changed since step N.")
+    return "\n".join(lines)
+
+
+def comparison_text(comparison: dict, *, limit: int = 400) -> str:
+    """What a saved step's ``compare`` returned: the files that differ, then the diff."""
+    files = [str(path) for path in comparison.get("changed_files") or []]
+    if not files:
+        return "Nothing has changed since that step."
+    lines = [f"{len(files)} file{'' if len(files) == 1 else 's'} changed since that step:"]
+    lines.extend(f"  {path}" for path in files)
+    patch = str(comparison.get("patch") or "").splitlines()
+    if patch:
+        lines.append("")
+        lines.extend(patch[:limit])
+    if len(patch) > limit or comparison.get("truncated"):
+        lines.append("(The diff is longer than this; the full changes are in the run's branch.)")
+    return "\n".join(lines)
+
+
 def text(name: str, view: dict | None, log: StageLog) -> str:
     """What ``/plan``, ``/tasks``, ``/log``, ``/details`` and ``/help`` print into the conversation."""
     view = view or {}
@@ -180,8 +269,10 @@ class StageLog:
         progress = _mapping((view or {}).get("progress"))
         if not progress:
             return False
+        lines = activity(view)
         facts = {
-            "headline": progress.get("headline"),
+            "headline": lines[0] if lines else progress.get("headline"),
+            "recent": newest(lines[1:]),
             "needs": None if progress.get("needs_you") == NOTHING_NEEDED else progress.get("needs_you"),
             **{
                 f"task {row.get('number')}": row.get("state")
@@ -197,7 +288,7 @@ class StageLog:
         for key, value in facts.items():
             if self._last.get(key) == value or value in (None, ""):
                 continue
-            if key == "headline":
+            if key in ("headline", "recent"):
                 said.append(str(value))
             elif key == "needs":
                 said.append(f"Needs you: {value}")

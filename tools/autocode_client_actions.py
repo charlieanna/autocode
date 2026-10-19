@@ -3,7 +3,8 @@
 A human-facing client (the terminal chat, the VS Code extension, the browser
 dashboard) takes only the action the status view names: ``view["next_command"]``,
 the optional ``view["chat"]["input"]`` message offer and the optional
-``view["pause"]["next_command"]`` (docs/task-run.md). It fills only the decisions
+``view["pause"]["next_command"]`` (docs/task-run.md), and a saved code step's
+``compare`` and ``restore`` actions (``view["code_checkpoints"]``). It fills only the decisions
 the view leaves to a person: a ``QUESTION=ANSWER`` or ``QUESTION=MODEL`` slot, or
 the one typed number a recovery offers. A command the client cannot take from the
 view alone is a ``ClientGap``, to fix in the CLI or the view, never to work around
@@ -387,3 +388,34 @@ def pause(view: dict, request_id: str, workspace: Path, run_dir: Path) -> list[s
     if command != expected:
         raise ClientGap("Unsupported pause action from AutoCode")
     return [request_id if word == "REQUEST_ID" else word for word in command]
+
+
+def checkpoint(view: dict, checkpoint_id: str, action_id: str, workspace: Path, run_dir: Path) -> list[str]:
+    """A saved code step's named ``compare`` or ``restore``, as arguments after ``autocode``, or a gap.
+
+    The view names ``restore`` only where going back is allowed now; it carries ``REQUEST_ID``,
+    which the caller replaces with its own stable id, and reads the token a fresh ``compare``
+    returned from ``AUTOCODE_CHECKPOINT_EXPECTED_TOKEN`` (docs/task-run.md#saved-code-checkpoints).
+    """
+    rows = (view.get("code_checkpoints") or {}).get("rows") or []
+    row = next((row for row in rows if isinstance(row, dict) and row.get("id") == checkpoint_id), None)
+    action = next(
+        (item for item in (row or {}).get("actions") or [] if isinstance(item, dict) and item.get("id") == action_id),
+        None,
+    )
+    if action is None:
+        raise ClientGap(f"AutoCode offers no {action_id} for that saved step right now")
+    workspace, run_dir = own(view, workspace, run_dir)
+    expected = [
+        "checkpoint",
+        "--workspace",
+        str(workspace),
+        "--run-dir",
+        str(run_dir),
+        "--compare" if action_id == "compare" else "--restore",
+        checkpoint_id,
+        *(["--expected-token", "-", "--request-id", "REQUEST_ID"] if action_id == "restore" else []),
+    ]
+    if action.get("next_command") != expected:
+        raise ClientGap(f"Unsupported {action_id} action from AutoCode")
+    return list(expected)

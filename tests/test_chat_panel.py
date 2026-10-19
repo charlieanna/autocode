@@ -71,6 +71,82 @@ class CommandTests(unittest.TestCase):
         self.assertEqual("There is no plan yet.", panel.text("/plan", {}, log))
 
 
+class ActivityTests(unittest.TestCase):
+    def activity_view(self):
+        shown = view()
+        shown["progress"]["tasks"]["total"] = 1
+        shown["chat"] = {
+            "progress": [
+                "Builder working · task M1",
+                "0 of 1 task done",
+                "Recent steps: Builder attempt finished · Tester attempt needs correction",
+            ]
+        }
+        return shown
+
+    def test_now_shows_the_current_step_and_recent_attempts_but_not_the_counts_again(self):
+        now = panel.sections(self.activity_view())[0]
+        self.assertEqual("Builder working · task M1", now.summary)
+        self.assertEqual(
+            ["Recent steps: Builder attempt finished · Tester attempt needs correction"], [row.text for row in now.rows]
+        )
+
+    def test_the_log_records_each_new_attempt_line(self):
+        log = panel.StageLog()
+        log.observe(self.activity_view(), now=0)
+        later = self.activity_view()
+        later["chat"]["progress"][2] = "Recent steps: Tester attempt needs correction · Builder attempt finished"
+        log.observe(later, now=1)
+        said = [line.split(" ", 1)[1] for line in log.lines]
+        self.assertEqual("Builder working · task M1", said[0])
+        self.assertIn("Tester attempt needs correction", said, "the newest attempt, not the whole line")
+        self.assertEqual("Builder attempt finished", said[-1], said)
+
+
+class StepTests(unittest.TestCase):
+    def steps_view(self, blocked=None):
+        actions = [{"id": "compare"}] + ([] if blocked else [{"id": "restore"}])
+        return {
+            "code_checkpoints": {
+                "blocked_reason": blocked,
+                "rows": [
+                    {"id": "s1", "label": "Builder step for M1", "changed_files": ["greet.py"], "actions": actions},
+                    {"id": "s2", "label": "Old step", "changed_files": [], "actions": [], "reason": "not stored"},
+                ],
+            }
+        }
+
+    def test_the_steps_are_numbered_from_one_with_their_files(self):
+        self.assertEqual(
+            "1. Builder step for M1\n   greet.py\n2. Old step (unavailable: not stored)\n"
+            "Type /diff N to see what changed since step N.",
+            panel.steps_text(self.steps_view(), "/diff"),
+        )
+        self.assertIn("Type /undo N", panel.steps_text(self.steps_view(), "/undo"))
+        self.assertIn(
+            "Going back is not possible now: a step is running",
+            panel.steps_text(self.steps_view("a step is running"), "/undo"),
+        )
+        self.assertIn("no saved code steps", panel.steps_text({}, "/diff"))
+
+    def test_a_comparison_lists_the_files_then_the_diff(self):
+        shown = panel.comparison_text({"changed_files": ["a.py"], "patch": "--- a\n+++ b", "truncated": True})
+        self.assertEqual(
+            "1 file changed since that step:\n  a.py\n\n--- a\n+++ b\n"
+            "(The diff is longer than this; the full changes are in the run's branch.)",
+            shown,
+        )
+        self.assertEqual("Nothing has changed since that step.", panel.comparison_text({"changed_files": []}))
+
+    def test_undo_only_at_a_question_and_client_commands_only_with_a_client(self):
+        self.assertIn("/undo", [command.name for command in panel.commands(asking=True)])
+        self.assertNotIn("/undo", [command.name for command in panel.commands(asking=False)])
+        self.assertIn("/diff", [command.name for command in panel.commands(asking=False)])
+        bare = [command.name for command in panel.commands(asking=True, client=False)]
+        self.assertNotIn("/diff", bare)
+        self.assertNotIn("/undo", bare)
+
+
 class StageLogTests(unittest.TestCase):
     def test_each_change_is_logged_once(self):
         log = panel.StageLog()

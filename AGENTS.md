@@ -62,7 +62,10 @@ The same contract as the VS Code client, with the shared rules in
 only `--status`, `runs --json` and `modes list --json`, and takes only the actions
 the status view names. Its full-screen form (`autocode_chat_tui.py`) adds a side
 panel, a run log and a `/` command menu (owner decision, 2026-10-19), drawn only
-from those status views; `/pause` is the view's own pause offer.
+from those status views; `/pause` is the view's own pause offer. Its `/diff` and
+`/undo` take a saved code step's named `compare` and `restore` actions
+(`view.code_checkpoints`, owner decision 2026-10-19), with `restore` confirmed by the
+person against the comparison it shows.
 
 A further new client, or growth beyond that contract, needs the owner's decision again.
 

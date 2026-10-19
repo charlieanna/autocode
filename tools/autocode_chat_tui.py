@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +41,7 @@ PANEL_MIN_COLS = 100  # below this the panel stays hidden unless /panel asks for
 MENU_ROWS = 6
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"  # bracketed paste, so a pasted newline is not Enter
+ESCAPE = "\x1b"  # the Esc key on its own
 WORDMARK = (
     "▄▀█ █░█ ▀█▀ █▀█ █▀▀ █▀█ █▀▄ █▀▀",
     "█▀█ █▄█ ░█░ █▄█ █▄▄ █▄█ █▄▀ ██▄",
@@ -287,19 +289,26 @@ class Composer:
         return text
 
 
-def read_paste(read) -> str | None:
+def read_paste(read, consumed: list | None = None) -> str | None:
     """After an escape key, the text of a bracketed paste; None when the keys were something else.
 
     ``read`` returns the next key, or None when no key follows promptly. A pasted
-    line break stays in the text instead of submitting the reply.
+    line break stays in the text instead of submitting the reply. When the keys are
+    not a paste, the ones read are added to ``consumed`` so the caller can still use them.
     """
+    keys: list = []
     opening = ""
-    while PASTE_START.startswith("\x1b" + opening) and len(opening) < len(PASTE_START) - 1:
+    while len(keys) < len(PASTE_START) - 1 and PASTE_START.startswith("\x1b" + opening):
         key = read()
+        if key is None:
+            break
+        keys.append(key)
         if not isinstance(key, str):
-            return None
+            break
         opening += key
-    if "\x1b" + opening != PASTE_START:
+    if len(opening) != len(keys) or "\x1b" + opening != PASTE_START:
+        if consumed is not None:
+            consumed.extend(keys)
         return None
     text = ""
     while not text.endswith(PASTE_END):
@@ -403,6 +412,10 @@ class ChatTUI:
         self._panel_on: bool | None = None  # None: shown when the terminal is wide enough
         self._menu_index = 0
         self._waiting = False
+        # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
+        self._act: Callable[[str, str], str | panel.Confirm] | None = None
+        self._pending: panel.Confirm | None = None
+        self._queued: list = []  # keys read while telling an escape key from a paste
         self._open()
 
     # ---- lifecycle -------------------------------------------------------------------------
@@ -475,11 +488,19 @@ class ChatTUI:
             self._transcript.add(text)
             self._draw()
 
+    def bind(self, act: Callable[[str, str], str | panel.Confirm]) -> None:
+        """The client that carries out ``/diff`` and ``/undo``: act(name, argument) returns what to
+        show, or a ``Confirm`` to ask first. It may raise to leave the question being asked."""
+        with self._lock:
+            self._act = act
+
     def observe(self, view: dict) -> None:
         """The status view the client just read: the panel and the log draw from it alone."""
         with self._lock:
             self._view = view
             self._log.observe(view)
+            if view.get("workspace") and view.get("run_dir"):  # the run the chat talks to, after going back too
+                self._context = f"{Path(view['workspace']).name} · {Path(view['run_dir']).name}"
             self._draw()
 
     def wait(self, seconds: float) -> str | None:
@@ -518,6 +539,7 @@ class ChatTUI:
                 curses.flushinp()  # keys typed while AutoCode worked never answer a question nobody saw
             self._prompt = " ".join(prompt.split())
             self._asking = True
+            self._pending = None
             self._composer.reset()
             self._scroll = 0
             self._frame = 0
@@ -539,6 +561,8 @@ class ChatTUI:
     # ---- the keyboard ----------------------------------------------------------------------
 
     def _read_key(self):
+        if self._queued:
+            return self._queued.pop(0)
         try:
             key = self._screen.get_wch()
         except curses.error:
@@ -546,11 +570,15 @@ class ChatTUI:
         if key != "\x1b":
             return key
         self._screen.timeout(50)
+        consumed: list = []
         try:
-            pasted = read_paste(self._read_next)
+            pasted = read_paste(self._read_next, consumed)
         finally:
             self._screen.timeout(-1)
-        return Pasted(pasted) if pasted is not None else None
+        if pasted is not None:
+            return Pasted(pasted)
+        self._queued.extend(consumed)  # an escape key on its own, then whatever followed it
+        return ESCAPE
 
     def _read_next(self):
         try:
@@ -568,6 +596,13 @@ class ChatTUI:
             self._menu_index = 0
         if isinstance(key, Pasted):
             composer.insert(key.text)
+            return None
+        if key == ESCAPE:  # Esc closes the menu or cancels a question a command asked
+            if self._pending is not None:
+                self._transcript.info(self._pending.question, "Nothing changed.")
+                self._pending = None
+            elif composer.text.startswith("/"):
+                composer.clear()
             return None
         if menu and key in (curses.KEY_UP, curses.KEY_DOWN):
             step = -1 if key == curses.KEY_UP else 1
@@ -630,9 +665,13 @@ class ChatTUI:
 
     def _enter(self, asking: bool) -> str | None:
         """Enter: run a ``/`` command, or send the reply (at a question only)."""
+        if self._pending is not None:
+            self._decide(self._pending)
+            return None
         text = self._composer.text
-        word = text.strip().split(" ", 1)[0].lower() if text.startswith("/") else ""
-        available = panel.commands(asking=asking)
+        word, _, argument = text.strip().partition(" ") if text.startswith("/") else ("", "", "")
+        word = word.lower()
+        available = panel.commands(asking=asking, client=self._act is not None)
         menu = self._menu(asking)
         if word and not text.startswith("//"):
             names = [command.name for command in available]
@@ -640,15 +679,13 @@ class ChatTUI:
                 word = menu[self._menu_index % len(menu)].name
             if word in names:
                 self._composer.submit()
-                return self._run(word, asking)
+                return self._run(word, asking, argument.strip())
+            known = any(command.name == word for command in panel.COMMANDS)
+            why = "is not available right now" if known else "is not a command"
+            self._transcript.info(word, f"{word} {why}. Type / to see the commands; // sends text that starts with /.")
             if " " not in text.strip():
-                known = any(command.name == word for command in panel.COMMANDS)
-                why = "is not available right now" if known else "is not a command"
-                self._transcript.info(
-                    word, f"{word} {why}. Type / to see the commands; // sends text that starts with /."
-                )
-                self._composer.clear()
-                return None
+                self._composer.clear()  # a mistyped command; a sentence stays, to fix with //
+            return None
         if not asking:
             self._transcript.info("AutoCode is working", "Type / for commands. AutoCode asks here when it needs you.")
             return None
@@ -656,10 +693,20 @@ class ChatTUI:
             self._composer.text, self._composer.cursor = text[1:], max(0, self._composer.cursor - 1)
         return self._submit()
 
-    def _run(self, name: str, asking: bool) -> str | None:
-        """A ``/`` command: "pause" goes back to the client; the rest only change what is shown."""
+    def _run(self, name: str, asking: bool, argument: str = "") -> str | None:
+        """A ``/`` command: "pause" goes back to the client, /diff and /undo are the client's,
+        the rest only change what is shown."""
         if name == "/pause":
             return "pause"
+        if name in panel.CLIENT_COMMANDS and self._act is not None:
+            result = self._act(name, argument)
+            if isinstance(result, panel.Confirm):
+                self._transcript.info(name, result.text)
+                self._pending = result
+            else:
+                self._transcript.info(name, result)
+            self._scroll = 0
+            return None
         if name == "/quit":
             raise EOFError
         if name == "/panel":
@@ -673,12 +720,24 @@ class ChatTUI:
         self._scroll = 0
         return None
 
+    def _decide(self, pending: panel.Confirm) -> None:
+        """The person's answer to a client command's question; anything but yes changes nothing."""
+        self._pending = None
+        reply = self._composer.submit().strip().lower()
+        self._scroll = 0
+        if reply not in ("y", "yes"):
+            self._transcript.info(pending.question, "Nothing changed.")
+            return
+        self._transcript.info(pending.question, pending.then())
+
     def _menu(self, asking: bool) -> list[panel.Command]:
         """The commands the composer's ``/word`` could be, while it is still one word."""
         text = self._composer.text
-        if not text.startswith("/") or text.startswith("//") or any(char.isspace() for char in text):
+        if self._pending is not None or not text.startswith("/") or text.startswith("//"):
             return []
-        return panel.matching(text, panel.commands(asking=asking))
+        if any(char.isspace() for char in text):
+            return []
+        return panel.matching(text, panel.commands(asking=asking, client=self._act is not None))
 
     def _submit(self) -> str:
         text = self._composer.submit()
@@ -712,8 +771,9 @@ class ChatTUI:
         box_top = rows - 4
         status_row = box_top - 1
         question: list[str] = []
-        if self._asking and self._prompt:
-            wrapped = wrap(f"? {self._prompt}", max(1, width - 2))
+        prompt = f"{self._pending.question} [y/N]" if self._pending is not None else self._prompt
+        if self._asking and prompt:
+            wrapped = wrap(f"? {prompt}", max(1, width - 2))
             limit = min(4, max(1, status_row - 3))
             question = wrapped[:limit]
             if len(wrapped) > limit:
@@ -813,7 +873,12 @@ class ChatTUI:
                 rows.append(("panel-now", section.summary))
             for item in section.rows:
                 mark = item.mark if self._glyphs.unicode else panel.ascii_mark(item.mark)
-                rows.append((f"panel-{item.style}", f"{mark} {item.text}"))
+                if section.title != "Now":
+                    rows.append((f"panel-{item.style}", f"{mark} {item.text}"))
+                    continue
+                # What the run is doing now wraps, so its recent attempts are read in full.
+                for number, line in enumerate(wrap(item.text, max(1, width - 2))[:3]):
+                    rows.append((f"panel-{item.style}", f"{mark if number == 0 else ' '} {line}"))
             rows.append(("plain", ""))
         room = bottom - top
         log_room = room - len(rows) - 1
@@ -968,6 +1033,7 @@ class ChatTUI:
             "panel-title": curses.A_BOLD,
             "panel-now": 0,
             "panel-plain": 0,
+            "panel-dim": curses.A_DIM,
             "panel-good": 0,
             "panel-bad": curses.A_BOLD,
             "panel-accent": curses.A_BOLD,

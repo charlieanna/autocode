@@ -17,6 +17,11 @@ PR template asks for an entry here; a change without one is incomplete.
   `/help`, `/quit` at a question, and `/pause` while AutoCode works. All of it comes from the status
   views the chat already reads.
 
+- The full-screen chat's panel shows what the run is doing now and its last few attempts, and logs
+  each one. `/diff` lists the saved code steps and shows what changed since one; `/undo N`, at a
+  question, goes back to a saved step on a new branch after asking, and the chat carries on with
+  the new run. Both take only the compare and restore actions the status view names.
+
 - `autocode chat` talks to a run in the terminal the way the VS Code extension does: it shows the
   run's conversation, asks you only for the answer, approval or reply the status view leaves to you,
   and runs exactly the command the view names. Plain `autocode` in a terminal now opens it: it picks
@@ -47,6 +52,12 @@ PR template asks for an entry here; a change without one is incomplete.
   table. `--no-auto-select` retains fixed defaults (#1426).
 
 ### Fixed
+
+- In the full-screen chat, Esc closes the `/` menu and the key typed after it is kept, and text that
+  starts with an unknown `/word` is never sent, a sentence included. The panel catches up within half
+  a second of a decision instead of the next two-second poll. A stop's "Next it runs:" names only
+  the action, without the run's paths or an issued token. A run stopped to apply a pause or feedback
+  someone asked for says so, instead of "I couldn't finish this step".
 
 - The full-screen `autocode chat` no longer lets keys typed while AutoCode works answer the next
   question, so a plan cannot be approved before it is shown. A multi-line paste stays one reply
