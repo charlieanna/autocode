@@ -1777,6 +1777,45 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#homebrew" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Homebrew
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Homebrew">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-time-setup_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-time setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#each-release_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Each release
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1869,6 +1908,45 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#homebrew" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Homebrew
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Homebrew">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-time-setup_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-time setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#each-release_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Each release
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1925,6 +2003,26 @@ store or rotate.</p>
 </ol>
 <p>PyPI never accepts the same file twice. Once an upload has succeeded, fix a bad release
 with a new version, not by moving the tag.</p>
+<h2 id="homebrew">Homebrew<a class="headerlink" href="#homebrew" title="Permanent link">&para;</a></h2>
+<p>Homebrew installs AutoCode from a tap, <code>charlieanna/homebrew-tap</code>, whose
+<code>Formula/autocode.rb</code> pins the PyPI release's source archive and each runtime
+dependency by sha256. People then install with:</p>
+<pre><code class="language-sh">brew install charlieanna/tap/autocode
+</code></pre>
+<h3 id="one-time-setup_1">One-time setup<a class="headerlink" href="#one-time-setup_1" title="Permanent link">&para;</a></h3>
+<p>Create the public GitHub repository <code>charlieanna/homebrew-tap</code> with an empty
+<code>Formula/</code> directory. Homebrew finds <code>charlieanna/tap</code> by that name.</p>
+<h3 id="each-release_1">Each release<a class="headerlink" href="#each-release_1" title="Permanent link">&para;</a></h3>
+<p>After the PyPI release above has succeeded, from a checkout of the release tag:</p>
+<pre><code class="language-sh">python3 scripts/homebrew_formula.py 0.8.0 &gt; ../homebrew-tap/Formula/autocode.rb
+cd ../homebrew-tap
+brew install --build-from-source ./Formula/autocode.rb &amp;&amp; brew test autocode
+git commit -am &quot;autocode 0.8.0&quot; &amp;&amp; git push
+</code></pre>
+<p>The script refuses a version other than <code>pyproject.toml</code>'s and a release with no
+source archive on PyPI. The formula builds a virtualenv on Homebrew's Python and
+links only the public <code>autocode</code> command; <code>brew test</code> checks that it reports the
+release's version.</p>
 
 
 
