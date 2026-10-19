@@ -55,9 +55,12 @@ await delta('text',' would you like?","constraints":["private constraint"]}');
             config = json.loads(env["KILO_CONFIG_CONTENT"])
             self.assertEqual("retained", config["model"])
             self.assertEqual("file:///existing.mjs", config["plugin"][0])
-            self.assertTrue(config["plugin"][1].endswith("requirements_stream.mjs"))
+            self.assertTrue(config["plugin"][1].endswith("opencode_activity.mjs"))
+            self.assertTrue(config["plugin"][2].endswith("requirements_stream.mjs"))
             with patch.object(provider, "_preflight_environment", return_value=inherited.copy()):
                 _, env, _ = provider.launch(
                     "sol", Path(directory), Path(directory), None, "plan/glm", "medium", False, schema=schema
                 )
-            self.assertEqual(inherited, env)
+            expected = json.loads(inherited["KILO_CONFIG_CONTENT"])
+            expected["plugin"].append(Path(kilocode.__file__).with_name("opencode_activity.mjs").resolve().as_uri())
+            self.assertEqual(expected, json.loads(env["KILO_CONFIG_CONTENT"]))

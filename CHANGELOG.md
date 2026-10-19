@@ -20,6 +20,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Ordinary Kilo launches forward bounded native text and reasoning progress while response blocks
+  are still streaming. Silent streams retain the configured idle deadline; progress remains
+  separate from tool execution and completed-report evidence (#1599).
+
 - Kilo's persistent native provider child no longer counts as an inferred running tool after
   completed tool calls, so a silent model wait honors the configured idle limit. Real or unknown
   child tools and explicit tool starts retain their separate execution grace and cleanup (#1595).
