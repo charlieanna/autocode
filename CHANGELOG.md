@@ -53,6 +53,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code shares simultaneous polling reads for the same run and CLI settings,
+  without caching completed status. Action preflights stay fresh, and a poll
+  overtaken by a command cannot restore the older decision state (#1642).
+
 - Session ownership handoff failures retain a bounded callback phase and safe reason
   code, so different ownership failures can be diagnosed without exporting exception
   payloads. Failure classification and scoped cleanup stay unchanged (#1640).

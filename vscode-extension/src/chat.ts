@@ -231,7 +231,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
       for (const tab of [...this.tabs]) {
         if (!tab.run) continue;
         try {
-          const status = await this.controller.status(tab.run);
+          const status = await this.controller.pollStatus(tab.run);
           if (this.tabs.includes(tab)) this.announce(tab, status);
         } catch (error) {
           if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);

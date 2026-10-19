@@ -51,8 +51,62 @@ export interface ActionPlan {
 export class RunController {
   constructor(private readonly log: vscode.OutputChannel) {}
 
+  private readonly polling = new Map<string, { generation: number; request: Promise<StatusView> }>();
+  private readonly mutations = new Map<string, number>();
+
   private get settings(): Settings {
     return readSettings();
+  }
+
+  private runKey(run: RunRef): string {
+    return JSON.stringify([run.workspace, run.runDir]);
+  }
+
+  private pollKey(run: RunRef, settings: Settings): string {
+    return JSON.stringify([this.runKey(run), settings.command, settings.prefix, settings.cwd ?? null,
+      Object.entries(settings.env ?? {}).sort(([left], [right]) => left.localeCompare(right))]);
+  }
+
+  /** UI polling only: share a pending read, never a completed status or action preflight. */
+  pollStatus(run: RunRef): Promise<StatusView> {
+    const runKey = this.runKey(run);
+    const generation = this.mutations.get(runKey) ?? 0;
+    const key = this.pollKey(run, this.settings);
+    const pending = this.polling.get(key);
+    if (pending?.generation === generation) return pending.request;
+    const superseded = () => (this.mutations.get(runKey) ?? 0) !== generation || this.pollKey(run, this.settings) !== key;
+    const retire = () => {
+      if (this.polling.get(key)?.request === request) this.polling.delete(key);
+    };
+    const refresh = () => {
+      // Retire before joining a replacement: settings A -> B -> A must not
+      // let the old A and B promises join each other in a cycle.
+      retire();
+      return this.pollStatus(run);
+    };
+    const request: Promise<StatusView> = this.status(run).then((view) => {
+      // A command can finish while an older poll is still reading. Its old
+      // result must not replace the new boundary or its decision/token offer.
+      return superseded() ? refresh() : view;
+    }, (error: unknown) => {
+      if (superseded()) return refresh();
+      throw error;
+    }).finally(retire);
+    this.polling.set(key, { generation, request });
+    return request;
+  }
+
+  private async mutating<T>(runs: RunRef[], command: () => Promise<T>): Promise<T> {
+    const keys = [...new Set(runs.map((run) => this.runKey(run)))];
+    const invalidate = () => {
+      for (const key of keys) this.mutations.set(key, (this.mutations.get(key) ?? 0) + 1);
+    };
+    invalidate();
+    try {
+      return await command();
+    } finally {
+      invalidate();
+    }
   }
 
   /** The per-user run pointers. Read-only: it starts nothing and changes nothing. */
@@ -94,7 +148,8 @@ export class RunController {
     const args = [brief, "--in-place", "--no-chat", ...startArgs, ...settings.runOptions, "--workspace", runWorkspace, "--new-run-dir", runDir];
     this.log.appendLine(`$ autocode ${summarize(brief)} --in-place --no-chat --new-run-dir ${runDir}`);
     created?.({ workspace: runWorkspace, runDir });
-    const result = await stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk));
+    const result = await this.mutating([{ workspace: runWorkspace, runDir }], () =>
+      stream({ ...settings, cwd: runWorkspace }, args, {}, (chunk) => this.log.append(chunk)));
     if (result.rejected || (result.code !== 0 && result.code !== 2)) throw new Error(tail(result));
     this.log.appendLine(`[autocode exited ${result.code}]`);
     return { workspace: runWorkspace, runDir };
@@ -172,7 +227,8 @@ export class RunController {
     const own = effective(view, run);
     const args = [...action.argv, "--workspace", own.workspace, "--run-dir", own.runDir];
     this.log.appendLine(`$ autocode ${args.map(redact).join(" ")}`);
-    const result = await stream(this.settings, args, action.env, (chunk) => this.log.append(chunk));
+    const result = await this.mutating([run, own], () =>
+      stream(this.settings, args, action.env, (chunk) => this.log.append(chunk)));
     this.log.appendLine(`[autocode exited ${result.code}]`);
     if (result.rejected) throw new Error(`AutoCode rejected the command:\n${tail(result)}`);
     if (result.code !== 0 && result.code !== 2) throw new Error(tail(result));
@@ -207,8 +263,8 @@ export class RunController {
     if (!operational && (!flag || parsed.argv.length !== 2 || parsed.argv[0] !== flag || parsed.argv[1] !== "MESSAGE"
       || Object.keys(parsed.env).length)) throw new ClientGap("Unsupported message action from AutoCode");
     const own = effective(view, run);
-    const result = await stream({ ...this.settings, cwd: run.workspace },
-      [...parsed.argv.slice(0, -1), text, "--workspace", own.workspace, "--run-dir", own.runDir], parsed.env);
+    const result = await this.mutating([run, own], () => stream({ ...this.settings, cwd: run.workspace },
+      [...parsed.argv.slice(0, -1), text, "--workspace", own.workspace, "--run-dir", own.runDir], parsed.env));
     if (result.code !== 0) throw new Error(tail(result));
   }
 
@@ -223,7 +279,8 @@ export class RunController {
     const expected = ["intervention", "submit", "--workspace", own.workspace, "--run-dir", own.runDir,
       "--request-id", "REQUEST_ID", "--kind", "pause", "--json"];
     if (JSON.stringify(command) !== JSON.stringify(expected)) throw new ClientGap("Unsupported pause action from AutoCode");
-    const result = await invoke(this.settings, command.map((word) => (word === "REQUEST_ID" ? requestId : word)));
+    const result = await this.mutating([run, own], () =>
+      invoke(this.settings, command.map((word) => (word === "REQUEST_ID" ? requestId : word))));
     if (result.code !== 0) throw new Error(tail(result));
   }
 
@@ -261,7 +318,8 @@ export class RunController {
     const view = await this.status(run);
     const action = this.namedCheckpointAction(view, run, checkpointId, "restore");
     const argv = action.next_command.map((word) => (word === "REQUEST_ID" ? requestId : word));
-    const result = await invoke(this.settings, argv, { AUTOCODE_CHECKPOINT_EXPECTED_TOKEN: expectedToken });
+    const result = await this.mutating([run, effective(view, run)], () =>
+      invoke(this.settings, argv, { AUTOCODE_CHECKPOINT_EXPECTED_TOKEN: expectedToken }));
     if (result.code !== 0) throw new Error(tail(result));
     return JSON.parse(result.stdout) as CheckpointRestoreResult;
   }

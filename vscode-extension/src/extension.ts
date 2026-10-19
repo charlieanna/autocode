@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const currentWatched = watched;
     try {
-      const view = await controller.status(currentWatched);
+      const view = await controller.pollStatus(currentWatched);
       if (sequence !== statusSequence || !watched || !sameRun(watched, currentWatched)) {
         return;
       }
