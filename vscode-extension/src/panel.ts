@@ -625,6 +625,12 @@ function stateRow(item) {
   return row;
 }
 
+function renderChatProgress(container, state) {
+  const lines = state.chat && Array.isArray(state.chat.progress)
+    ? state.chat.progress.filter((line) => typeof line === 'string' && line) : [];
+  (lines.length ? lines : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
+}
+
 function renderStopped(stopped) {
   app.appendChild(el('h2', null, stopped.title));
   app.appendChild(el('div', 'line', stopped.explanation));
@@ -642,7 +648,7 @@ function render(state) {
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
-    state.chat && [state.chat.phase, state.chat.notice, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.review, state.chat.input && state.chat.input.kind],
   ] : state;
   const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
@@ -693,7 +699,7 @@ function render(state) {
         strip.appendChild(el('span', 'action-prompt', 'AutoCode is waiting for you'));
         strip.appendChild(approve);
       } else if (state.needKind === 'continue' && state.working) {
-        cardContent.appendChild(el('div', 'line', 'Thinking…'));
+        renderChatProgress(cardContent, state);
       } else if (state.needKind === 'continue') {
         const resume = el('button', null, 'Continue');
         resume.id = 'take-action';
@@ -750,7 +756,7 @@ function render(state) {
       box.appendChild(el('pre', null, state.gap));
       cardContent.appendChild(box);
     } else if (!state.done && state.needKind === 'continue' && state.working) {
-      cardContent.appendChild(el('div', 'line', 'Thinking…'));
+      renderChatProgress(cardContent, state);
     } else if (!state.done) {
       if (state.decisions.length > 0) {
         const form = el('div');

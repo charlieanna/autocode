@@ -194,6 +194,8 @@ export interface StatusView {
     messages: { id: string; role: string; text: string; streaming?: boolean }[];
     phase?: "requirements" | null;
     notice?: string | null;
+    /** Core-authored activity and recent attempt descriptions; display text only. */
+    progress?: string[];
     review?: { question_id: string; answer: string; label: string; summary?: string } | null;
     context: string;
     input: { kind: "feedback" | "follow_up" | "resolver_response"; label: string; next_command: string } | null;

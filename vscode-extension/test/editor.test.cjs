@@ -1188,6 +1188,27 @@ test('requirements chat shows only Thinking while a step is running', async (t) 
   assert.equal(ui.document.querySelectorAll('#app button').length, 0);
 });
 
+for (const phase of ['requirements', null]) test(`chat renders core step progress during ${phase || 'build'} and updates it on poll`, async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase, context: 'live-step', input: null, messages: [], progress: [
+      'Builder working · task M1', '1 of 3 requirements checked (1 from earlier checks)',
+      'Recent steps: Planner attempt finished · Tester attempt needs correction',
+    ] } };
+  const ui = await openChat(t, value);
+  ui.type('Keep this draft');
+  const text = () => ui.document.querySelector('#app').textContent;
+  for (const line of value.chat.progress) assert.ok(text().includes(line));
+  assert.ok(!text().includes('Thinking…'));
+  assert.equal(ui.document.querySelectorAll('#app button').length, 0);
+  const next = structuredClone(value);
+  next.chat.progress = ['Completion Reviewer working', '3 of 3 requirements checked', 'Recent steps: Tester attempt finished'];
+  await ui.poll(next);
+  for (const line of next.chat.progress) assert.ok(text().includes(line));
+  assert.ok(!text().includes('Builder working'));
+  assert.equal(ui.document.querySelector('#message').value, 'Keep this draft');
+});
+
 test('requirements approval sends only the core-offered answer and never approves a build', async (t) => {
   const value = { status: 'WAITING_FOR_USER', done: false, pause_category: 'your_decision', pause_category_label: 'Your decision', needs: { kind: 'answer', resolver_token: 'bound-summary',
     questions: [{ id: 'requirements-review-current', question: 'Is this what you want?', options: [], proposed_default: 'plan' }] },

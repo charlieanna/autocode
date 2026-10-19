@@ -165,6 +165,7 @@
           "type": "object",
           "required": ["messages", "context", "input"],
           "properties": {
+            "progress": {"type": "array", "items": {"type": "string"}, "description": "Optional core-authored activity, saved progress counts and recent attempt descriptions. A finished attempt does not mean its result passed verification."},
             "messages": {"type": "array", "items": {
               "type": "object", "required": ["id", "role", "text"],
               "properties": {"id": {"type": "string"}, "role": {"enum": ["user", "assistant"]}, "text": {"type": "string"}}
