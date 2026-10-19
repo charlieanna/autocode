@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import autocode_command_receipt as command_receipt
+import autocode_evidence_document as evidence_document
 import autocode_evidence_export as evidence_export
 import autocode_review_job as review_job
 import autocode_run_view as run_view
@@ -283,6 +284,36 @@ class ReviewMutationEvidenceTests(unittest.TestCase):
         fresh = run_view.view(self.state)
         self.assertEqual(collected, fresh["evidence"]["mutation_check"])
         self.assertEqual(collected, fresh["evidence"]["workflow_result"]["mutation_check"])
+
+    def test_pre_existing_attribution_round_trips_through_authenticated_evidence(self):
+        receipt = self.finding_result()
+        receipt["results"]["total"] = 1
+        receipt["results"]["skipped"] = []
+        receipt["failure_details"] = {FINDING: {"format": "unittest", "traceback": "same complete failure"}}
+        reference = {"path": "/fixture/proof.json", "sha256": "a" * 64}
+        receipt["proof"] = reference
+        self.apply(run_tests=lambda *_: {"changed": receipt, "base": receipt, "inputs": reference})
+        view, _, _, report = self.publish()
+        self.assertEqual("recorded", report["availability"], report)
+        result = report["document"]["workflow_result"]
+        self.assertEqual("approve", result["outcome"])
+        self.assertEqual(view["evidence"]["workflow_result"], result)
+        metadata = result["review_attribution"]
+        self.assertEqual(
+            (1, 0, "request_changes"),
+            (metadata["pre_existing"], metadata["inconclusive"], metadata["submitted_verdict"]),
+        )
+        self.assertTrue(metadata["verdict_adjustment"])
+        self.assertIn("pre-existing observations", report["markdown"])
+        for change in (
+            {"unknown": "not an allowed contract field"},
+            {"pre_existing": "not an integer"},
+            {"submitted_verdict": "unrecognized"},
+        ):
+            invalid = copy.deepcopy(report["document"])
+            invalid["workflow_result"]["review_attribution"].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                evidence_document.validate(invalid)
 
     def test_changed_review_metadata_or_canonical_bytes_cannot_reuse_the_binding(self):
         self.apply(run_mutation_check=lambda patch: mutation_record())

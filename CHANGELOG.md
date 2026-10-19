@@ -37,6 +37,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Review evidence exports accept the optional, typed attribution metadata added
+  for explicit-patch findings. Canonical review reports and external-change
+  verification no longer fail export on that field (#1632 follow-up).
+
 - Explicit-patch reviews compare identical finding tests on base and changed source.
   Proven pre-existing Python failures remain observations instead of blocking an
   unrelated patch or becoming automatic follow-up repairs. Inconclusive evidence
