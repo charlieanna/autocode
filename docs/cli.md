@@ -590,7 +590,7 @@ also accepts `-h` / `--help`.
 | --- | --- | --- |
 | `autocode connections` | `--json`, `--provider` | List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with `setup`. See [Connections for clients](task-run.md#connections-for-clients). |
 | `autocode modes` | `--json` | List the run modes a client may offer for a new run: each mode's id, label, description and the start flags to pass. Launches nothing. See [Run modes for clients](task-run.md#run-modes-for-clients). |
-| `autocode chat` | `--workspace`, `--run-dir`, `--mode`, `--brief` | Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with; the brief, for one that starts with `-` (`--brief=-TEXT`). New-run options follow `--`. |
+| `autocode chat` | `--workspace`, `--run-dir`, `--mode`, `--brief`, `--line` | Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with; the brief, for one that starts with `-` (`--brief=-TEXT`); the line-by-line prompts instead of the full-screen interface. New-run options follow `--`. |
 | `autocode conversation` | `--workspace`, `--run-dir`, `--text`, `--title`, `--request-id`, `--expected-revision`, `--supersedes-request-id`, `--question-id`, `--resolver-token`, `--expected-plan-token`, `--timeout` | Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow `--`. On `send`, `--supersedes-request-id` queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON. |
 | `autocode verify` | `--workspace`, `--base`, `--branch`, `--patch`, `--criteria`, `--criteria-file`, `--out`, `--record`, `--engine`, `--provider`, `--model`, `--reasoning-effort`, `--evidence-provenance`, `--suite-command`, `--check-timeout`, `--max-seconds`, `--max-stage-seconds`, `--json` | Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See [Standalone verification](verify.md). |
 | `autocode doctor` | `--workspace`, `--engine`, `--json` | Project and engine to inspect; optionally print checks as JSON. |
@@ -671,7 +671,16 @@ autocode                            # in a terminal: pick up the open run, or as
 autocode chat "Add a --verbose flag to greet.py"
 autocode chat                       # the same as plain autocode in a terminal
 autocode chat --mode quick "Fix the README typo" -- --engine claude
+autocode chat --line                # the line-by-line prompts, even in a terminal
 ```
+
+In a terminal the chat takes the whole screen: the conversation in a scrollable
+transcript (`PgUp`/`PgDn`), the current stage on a status line, and a one-line
+reply composer (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to edit, `Enter` to
+send, `Ctrl-D` to leave). A plan, a question or a stop is shown where it is
+asked, and `Ctrl-C` keeps its meaning: the first asks the run to pause after the
+current step, the second interrupts it. `--line` keeps the plain prompts, and
+scripts get them automatically when there is no terminal.
 
 The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a
 terminal) still works and is being replaced by this client. Scripts that call plain

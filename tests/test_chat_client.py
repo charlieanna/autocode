@@ -455,32 +455,74 @@ class TerminalChatTests(unittest.TestCase):
         self.assertIn("Pick one (1-2), or type a new request: ", proc.stdout)
         self.assertTrue((self.workspace / "greet.py").is_file())
 
-    def test_plain_autocode_in_a_terminal_opens_the_chat(self):
-        import pty
-
-        leader, follower = pty.openpty()
-        child = subprocess.Popen(
-            [sys.executable, str(AUTOCODE)],
-            stdin=follower,
-            stdout=follower,
-            stderr=follower,
-            cwd=self.workspace,
-            env=self.env,
-            close_fds=True,
-        )
-        os.close(follower)
+    def run_terminal(self, *argv, until: bytes, reply: bytes = b"\x04") -> tuple[bytes, int]:
+        """Spawn the CLI on a pty sized for curses, answer ``until``, and leave with ``reply``."""
+        leader, child = self.spawn_terminal(*argv)
         try:
-            seen = read_terminal(leader, until=b"What do you want done?")
-            os.write(leader, b"\x04")  # Ctrl-D: leave without starting anything
+            seen = read_terminal(leader, until=until)
+            os.write(leader, reply)
             # Read to the end before reaping: once the child closes the terminal, macOS drops unread output.
             seen += read_terminal(leader)
         finally:
             os.close(leader)
             if child.poll() is None:
                 child.kill()
-        self.assertEqual(2, child.wait(timeout=60))
+        return seen, child.wait(timeout=60)
+
+    def spawn_terminal(self, *argv):
+        import fcntl
+        import pty
+        import struct
+        import termios
+
+        leader, follower = pty.openpty()
+        fcntl.ioctl(follower, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
+        child = subprocess.Popen(
+            [sys.executable, str(AUTOCODE), *argv],
+            stdin=follower,
+            stdout=follower,
+            stderr=follower,
+            cwd=self.workspace,
+            env={**self.env, "TERM": "xterm-256color"},
+            close_fds=True,
+        )
+        os.close(follower)
+        return leader, child
+
+    def test_the_full_screen_chat_runs_a_task_to_completion(self):
+        leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), BRIEF, "--", *FIXTURE_OPTIONS)
+        seen = b""
+        try:
+            for until, reply in (
+                (b"Approve understanding and prepare plan?", b"y\n"),
+                (b"Approve this plan?", b"y\n"),
+                (b"Anything else?", b"\n"),
+            ):
+                seen += read_terminal(leader, until=until)
+                os.write(leader, reply)
+            seen += read_terminal(leader)
+        finally:
+            os.close(leader)
+            if child.poll() is None:
+                child.kill()
+        self.assertEqual(0, child.wait(timeout=60), seen.decode(errors="replace")[-2000:])
+        self.assertIn(b"AutoCode chat", seen)
+        self.assertIn(b"Plan to approve:", seen)
+        self.assertIn(b"Done.", seen)
+        self.assertTrue((self.workspace / "greet.py").is_file())
+
+    def test_plain_autocode_in_a_terminal_opens_the_full_screen_chat(self):
+        seen, code = self.run_terminal(until=b"What do you want done?")
+        self.assertIn(b"AutoCode chat", seen)
+        self.assertEqual(2, code)
         self.assertIn(b"Nothing started.", seen)
         self.assertFalse((self.workspace / ".autocode" / "runs").exists())
+
+    def test_line_mode_flag_skips_the_full_screen_chat(self):
+        seen, code = self.run_terminal("chat", "--line", until=b"What do you want done?")
+        self.assertNotIn(b"AutoCode chat", seen)
+        self.assertEqual(2, code)
+        self.assertIn(b"Nothing started.", seen)
 
     def test_a_brief_and_a_run_are_not_both_named(self):
         proc = self.chat(BRIEF, "--run-dir", str(self.workspace), options=())
