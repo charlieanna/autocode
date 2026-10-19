@@ -58,7 +58,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (sequence !== statusSequence || !watched || !sameRun(watched, currentWatched)) {
         return;
       }
-      status.text = `$(autorenew) AutoCode: ${view.progress?.headline ?? view.status}`;
+      status.text = `${view.done ? "$(check)" : "$(autorenew)"} AutoCode: ${view.progress?.headline ?? view.status}`;
       status.tooltip = view.progress?.line ?? view.status;
       status.command = { command: "autocode.openRun", title: "Open Run", arguments: [currentWatched] };
       status.show();

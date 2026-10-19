@@ -5,6 +5,8 @@ export interface WaitNotice {
   /** The done flag, or the need's kind with its distinguishing fields. */
   identity: string;
   tail: string;
+  /** The run completed: it needs nobody, so the notice says it finished rather than that it waits (#1528). */
+  finished: boolean;
 }
 
 function needIdentity(need: Needs): string {
@@ -21,11 +23,11 @@ function needIdentity(need: Needs): string {
 /** A person-wait or a finished run; `continue` while a live stage or controller advances is work, not a wait. */
 function waitNotice(view: StatusView | null | undefined): WaitNotice | null {
   if (!view || typeof view !== "object") return null;
-  if (view.done) return { identity: "done", tail: needsSummary(view) };
+  if (view.done) return { identity: "done", tail: needsSummary(view), finished: true };
   const need = view.needs;
   if (!need) return null;
   if (need.kind === "continue" && isWorking(view)) return null;
-  return { identity: needIdentity(need), tail: needsSummary(view) };
+  return { identity: needIdentity(need), tail: needsSummary(view), finished: false };
 }
 
 /** The notice the tab's new status earns over its previous one, or null when the run is only working. */

@@ -1891,6 +1891,23 @@ test('autocode.watchRun toggles watching off/on, switches watched runs, and upda
   assert.equal(statusVisible, false);
 });
 
+test('the status bar marks a finished run instead of showing it as in progress (#1528)', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const mockStatus = { text: '', show() {}, hide() {}, dispose() {}, command: undefined, tooltip: undefined };
+  t.mock.method(host.vscode.window, 'createStatusBarItem', () => mockStatus);
+  let view = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, progress: { headline: 'Building' } };
+  t.mock.method(RunController.prototype, 'status', async () => structuredClone(view));
+  const context = { subscriptions: [], workspaceState: host.workspaceState };
+  activate(context);
+  t.after(() => context.subscriptions.forEach((item) => item.dispose?.()));
+  await host.commands.get('autocode.openRun')(run);
+  await flush();
+  assert.equal(mockStatus.text, '$(autorenew) AutoCode: Building');
+  view = { status: 'TASK_COMPLETE', done: true, needs: null, progress: { headline: 'Complete' } };
+  t.mock.timers.tick(5000); await flush();
+  assert.equal(mockStatus.text, '$(check) AutoCode: Complete');
+});
+
 test('delayed status resolution does not re-show unwatched run or replace newly watched run (#1543)', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   let statusVisible = false;
@@ -2444,7 +2461,7 @@ test('test_ac4_done_notifies_once_with_outcome', async (t) => {
   views.set(alpha.runDir, { status: 'COMPLETED', done: true });
   await ui.poll();
   assert.equal(host.notices.length, 2);
-  assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - nothing; the run is complete');
+  assert.equal(host.notices[1].message, 'AutoCode: alpha finished');
   await ui.poll();
   assert.equal(host.notices.length, 2);
 });
@@ -2511,7 +2528,7 @@ test('test_ac12_working_to_done_task_complete_notifies_once', async (t) => {
   views.set(alpha.runDir, { status: 'TASK_COMPLETE', done: true, needs: null });
   await ui.poll();
   assert.equal(host.notices.length, 1);
-  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - nothing; the run is complete');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha finished');
   await ui.poll();
   assert.equal(host.notices.length, 1);
 });

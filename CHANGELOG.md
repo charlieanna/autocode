@@ -20,6 +20,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code says a completed run finished instead of announcing "waiting for you - nothing; the run
+  is complete", and the status bar shows a check for a finished run (#1528).
+
 - VS Code keeps live controller/preflight continuation quiet instead of announcing that it is
   waiting for a person. Chat and Run details share the working classification; stopped or
   unverified continuation still asks for action, and real questions and completion still notify (#1590).
