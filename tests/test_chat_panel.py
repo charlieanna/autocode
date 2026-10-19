@@ -136,7 +136,10 @@ class StepTests(unittest.TestCase):
             "(The diff is longer than this; the full changes are in the run's branch.)",
             shown,
         )
-        self.assertEqual("Nothing has changed since that step.", panel.comparison_text({"changed_files": []}))
+        self.assertIn(
+            "Nothing has changed since step 2: the files match it.", panel.comparison_text({"changed_files": []}, 2)
+        )
+        self.assertIn("1 file changed since step 2:", panel.comparison_text({"changed_files": ["a.py"]}, "2"))
 
     def test_undo_only_at_a_question_and_client_commands_only_with_a_client(self):
         self.assertIn("/undo", [command.name for command in panel.commands(asking=True)])
@@ -145,6 +148,77 @@ class StepTests(unittest.TestCase):
         bare = [command.name for command in panel.commands(asking=True, client=False)]
         self.assertNotIn("/diff", bare)
         self.assertNotIn("/undo", bare)
+
+
+class LiveEventTests(unittest.TestCase):
+    def live(self, *events, needs="nothing needed from you", kind="continue"):
+        shown = view(headline="Builder working", needs=needs)
+        shown["needs"] = {"kind": kind}
+        shown["chat"] = {"activity": list(events)}
+        return shown
+
+    COMMAND = {"kind": "command", "text": "pytest -q", "status": "running"}
+    EDIT = {"kind": "edit", "text": "edited app/greet.py", "paths": ["app/greet.py"], "status": "done"}
+    FAILED = {"kind": "command", "text": "false", "status": "failed"}
+
+    def test_the_panel_lists_the_newest_events_under_now_with_their_marks(self):
+        shown = self.live(self.EDIT, self.COMMAND, self.FAILED)
+        section = panel.sections(shown)[1]
+        self.assertEqual("Activity", section.title)
+        self.assertEqual(
+            [("±", "edited app/greet.py", "plain"), ("$", "pytest -q", "accent"), ("✗", "false", "bad")],
+            [(row.mark, row.text, row.style) for row in section.rows],
+        )
+        many = self.live(*[{"kind": "tool", "text": f"read {n}", "status": "done"} for n in range(12)])
+        self.assertEqual(panel.EVENT_ROWS, len(panel.sections(many)[1].rows))
+        self.assertEqual(["Now", "Requirements", "Tasks"], [s.title for s in panel.sections(view())])
+
+    def test_the_status_row_names_the_newest_event(self):
+        self.assertEqual("Running pytest -q", panel.doing(self.live(self.EDIT, self.COMMAND)))
+        self.assertEqual("Editing: edited app/greet.py", panel.doing(self.live(self.COMMAND, self.EDIT)))
+        self.assertIsNone(panel.doing(view()))
+
+    def test_malformed_events_are_ignored(self):
+        junk = self.live({"kind": "nope", "text": "x"}, {"kind": "command"}, "text", self.COMMAND)
+        self.assertEqual([self.COMMAND], panel.events(junk))
+
+    def test_each_event_is_logged_once_and_a_failure_is_logged_when_it_happens(self):
+        log = panel.StageLog()
+        log.observe(self.live(self.COMMAND), now=0)
+        self.assertFalse(log.observe(self.live(self.COMMAND), now=1))
+        log.observe(self.live({**self.COMMAND, "status": "done"}, self.EDIT), now=2)
+        log.observe(self.live(self.FAILED), now=3)
+        log.observe(self.live(self.FAILED), now=4)
+        said = [line.split(" ", 1)[1] for line in log.lines]
+        events = [line for line in said if line.split(":")[0] in ("Ran", "Edited", "Used", "Failed")]
+        self.assertEqual(["Ran: pytest -q", "Edited: edited app/greet.py", "Ran: false", "Failed: false"], events)
+
+    def test_a_view_read_before_the_launched_step_saved_anything_is_not_shown_as_a_request(self):
+        waiting = view(headline="Waiting for you", needs="plan approval needed")
+        waiting["needs"] = {"kind": "approve_plan"}
+        self.assertEqual("plan approval needed", panel.sections(waiting)[0].rows[0].text)
+        now = panel.sections(waiting, launched=True)[0]
+        self.assertEqual(("Starting the next step…", ()), (now.summary, now.rows))
+        self.assertEqual("Builder working", panel.sections(view(), launched=True)[0].summary)
+
+    def test_the_same_command_run_twice_is_logged_twice(self):
+        log = panel.StageLog()
+        done = {**self.COMMAND, "status": "done"}
+        log.observe(self.live(done), now=0)
+        log.observe(self.live(done, done), now=1)
+        log.observe(self.live(done, done), now=2)
+        ran = [line for line in log.lines if "Ran:" in line]
+        self.assertEqual(2, len(ran), log.lines)
+
+    def test_a_run_that_continues_by_itself_needs_nobody(self):
+        words = "AutoResolver must reconcile retained attempt 001/builder-01 before any provider call"
+        shown = self.live(needs=words)
+        self.assertIsNone(panel.needs_you(shown))
+        self.assertEqual([], [row for row in panel.sections(shown)[0].rows if row.mark == "!"])
+        log = panel.StageLog()
+        log.observe(shown, now=0)
+        self.assertNotIn("Needs you", "\n".join(log.lines))
+        self.assertEqual(words, panel.needs_you(self.live(needs=words, kind="approve_plan")))
 
 
 class StageLogTests(unittest.TestCase):

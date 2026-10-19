@@ -247,9 +247,9 @@ class ChatClient:
         except actions.ClientGap as error:
             return str(error)
         if name == "/diff":
-            return panel.comparison_text(comparison)
+            return panel.comparison_text(comparison, number)
         if comparison.get("blocked_reason"):
-            return f"Going back is not possible now: {comparison['blocked_reason']}"
+            return panel.blocked_text(view, comparison["blocked_reason"])
 
         def go_back() -> str:
             try:

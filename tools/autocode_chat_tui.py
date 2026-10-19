@@ -412,6 +412,7 @@ class ChatTUI:
         self._panel_on: bool | None = None  # None: shown when the terminal is wide enough
         self._menu_index = 0
         self._waiting = False
+        self._launched = False  # a step is running since the last question; its first views may predate it
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
         self._act: Callable[[str, str], str | panel.Confirm] | None = None
         self._pending: panel.Confirm | None = None
@@ -512,6 +513,7 @@ class ChatTUI:
             time.sleep(seconds)
             return None
         deadline = time.monotonic() + seconds
+        self._launched = True
         self._waiting = True  # this loop animates the marker; the ticker must not draw beside a key read
         try:
             while (left := deadline - time.monotonic()) > 0:
@@ -539,6 +541,7 @@ class ChatTUI:
                 curses.flushinp()  # keys typed while AutoCode worked never answer a question nobody saw
             self._prompt = " ".join(prompt.split())
             self._asking = True
+            self._launched = False
             self._pending = None
             self._composer.reset()
             self._scroll = 0
@@ -865,9 +868,12 @@ class ChatTUI:
         for row in range(top, bottom):
             self._put(row, col - 2, self._glyphs.vertical, self._style("border"))
         rows: list[tuple[str, str]] = []
-        for section in panel.sections(self._view):
+        for section in panel.sections(self._view, launched=self._launched):
             rows.append(
-                ("panel-title", f"{section.title.upper()}  {section.summary}" if section.title != "Now" else "NOW")
+                (
+                    "panel-title",
+                    f"{section.title.upper()}  {section.summary}".rstrip() if section.title != "Now" else "NOW",
+                )
             )
             if section.title == "Now":
                 rows.append(("panel-now", section.summary))
@@ -934,7 +940,7 @@ class ChatTUI:
             return
         spinner = self._glyphs.spinner
         marker = spinner[self._frame % len(spinner)] if spinner else "*"
-        text = self._transcript.activity or "AutoCode is working…"
+        text = panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
         lead = f"  {marker} {text}"
         self._put(layout.status_start, 0, truncate(lead, layout.width), self._style("working"))
         tail = "ctrl-c pause after this step"

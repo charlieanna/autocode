@@ -689,10 +689,15 @@ prompts, and scripts get them automatically when there is no terminal.
 
 In a terminal at least 100 columns wide, a side panel shows the run beside the
 conversation once it has a plan: where it is and what it needs from you, the
-current step and its last few attempts (the view's `chat.progress`), each
-requirement and task with its state, open problems, and a log of how the run moved
-(a stage starting or finishing, an attempt finishing, a task done, a requirement
-checked). Everything in it comes from the status views the chat already reads.
+current step and its last few attempts (the view's `chat.progress`), what the
+running step is doing (the commands it runs, the files it edits and the tools it
+calls, from the view's `chat.activity`), each requirement and task with its state,
+open problems, and a log of how the run moved (a stage starting or finishing, an
+attempt finishing, a command run, a file edited, a task done, a requirement
+checked). The status row under the conversation names the newest command or edit,
+in any width. A command that exited 0 is shown as run, not as passing: only the
+requirement checks say what passed. Everything in it comes from the status views
+the chat already reads.
 
 Type `/` in the composer for commands, at a question or while AutoCode works. The
 menu narrows as you type; `Up`/`Down` choose, `Tab` completes and `Enter` runs the
