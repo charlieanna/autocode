@@ -28,6 +28,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Joint-planning handoffs use compact JSON while preserving exact task and source
+  values, saved decisions and commands. The retained small-task incident input is
+  3,215 bytes smaller (3.38%); latency and report-delivery improvement remain
+  unverified (#1630).
+
 - New CLI and TaskRun runs select qualified models from connected accounts automatically,
   preserving explicit overrides and saved routes. OpenCode/Kilo metadata governs supported
   reasoning levels; preflight receipts distinguish levels and actual tools. Automatic
@@ -37,7 +42,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- Keep status readable for malformed streaming-stage data and refuse verification reuse when editable source cannot be snapshotted. Stabilize successful assignment subprocess fixtures without changing live-run limits.
+- Review evidence exports accept the optional, typed attribution metadata added
+  for explicit-patch findings. Canonical review reports and external-change
+  verification no longer fail export on that field (#1632 follow-up).
 
 - Explicit-patch reviews compare identical finding tests on base and changed source.
   Proven pre-existing Python failures remain observations instead of blocking an
@@ -196,6 +203,9 @@ PR template asks for an entry here; a change without one is incomplete.
   recorded as releasing the pause, matching the Builder's stronger attempt (#611).
 
 - Lifecycle-only provider events no longer let a persistent helper process bypass an explicitly configured idle timeout; genuine tool execution keeps its tool deadline (#1562).
+
+- Keep status readable for malformed streaming-stage data and refuse verification reuse when editable source cannot be snapshotted. Stabilize successful assignment subprocess fixtures without changing live-run limits.
+
 
 ### Added
 - VS Code chat can pause a working run: Pause takes Send's place, the current step finishes and
