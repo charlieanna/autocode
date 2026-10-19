@@ -419,3 +419,15 @@ def checkpoint(view: dict, checkpoint_id: str, action_id: str, workspace: Path, 
     if action.get("next_command") != expected:
         raise ClientGap(f"Unsupported {action_id} action from AutoCode")
     return list(expected)
+
+
+def live_diff(view: dict, workspace: Path, run_dir: Path) -> list[str]:
+    """The view's named, display-only ``working`` diff of the running Builder's changes, or a gap."""
+    action = ((view.get("code_checkpoints") or {}).get("working")) or {}
+    workspace, run_dir = own(view, workspace, run_dir)
+    expected = ["checkpoint", "--workspace", str(workspace), "--run-dir", str(run_dir), "--working"]
+    if not action:
+        raise ClientGap("AutoCode offers no live diff right now. It is offered while the Builder works")
+    if action.get("next_command") != expected:
+        raise ClientGap("Unsupported working-diff action from AutoCode")
+    return expected

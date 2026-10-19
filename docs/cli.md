@@ -30,7 +30,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode unattended` | Agent wrapper that refuses operator decisions and reports a stop (see [Unattended callers](#unattended-callers-agents)). |
 | `autocode issue brief\|start\|status\|continue\|plan\|pr` | Read a GitHub issue, work on it through the task-run interface, put the plan waiting for approval in a pull request as a plan file for review (`plan`), and prepare a pull request (see [GitHub issues](issues.md)). |
 | `autocode arena init\|ingest\|cases\|run\|report\|propose\|annotate\|compare` | Run independent benchmark cases, append evidence-backed failure investigations and compare candidate cohorts (see [Arena](arena.md)). |
-| `autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT` | Compare retained code or restore it by the exact inspected token; accepts `--json` (see [Saved code checkpoints](task-run.md#saved-code-checkpoints)). |
+| `autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT` | Compare retained code or restore it by the exact inspected token (`--working` shows what the Builder has changed so far, display only); accepts `--json` (see [Saved code checkpoints](task-run.md#saved-code-checkpoints)). |
 | `autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH] [--json]` | Merge a delivered task worktree into its base branch (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
 | `autocode capture --output FILE -- COMMAND` | Run a command with exact output retained for retrieval (see [Exact output](exact-output.md)). |
 | `autocode output read\|retrieve` | Read or retrieve exact retained file bytes (see [Exact output](exact-output.md)). |
@@ -603,7 +603,7 @@ also accepts `-h` / `--help`.
 | `autocode bundle` | `--out`, `--with-diff`, `--json` | Where to write the archive; add the run's diff of the workspace source; print the archive path and manifest as JSON. |
 | `autocode prune-run` | `--yes`, `--json` | Delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON. |
 | `autocode merge` | `--workspace`, `--into`, `--json` | Select the project and target branch for a delivered task worktree; optionally format result as JSON. |
-| `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--expected-token`, `--request-id`, `--json` | Compare or restore retained code. Restore requires its exact inspected token; the request ID identifies the action. |
+| `autocode checkpoint` | `--workspace`, `--run-dir`, `--compare`, `--restore`, `--working`, `--expected-token`, `--request-id`, `--json` | Compare or restore retained code; `--working` shows what the running Builder has changed so far (display only). Restore requires its exact inspected token; the request ID identifies the action. |
 | `autocode replay` | `--into`, `--export` | Create a replay at an exact fresh run directory in an isolated workspace, or export a bounded recording bundle. Exactly one target is required. |
 | `autocode replay` | `--recorded-checks`, `--json` | Simulate archived checks with `--into` without current completion or delivery proof; optionally print the result as JSON. Fresh checks are the default. |
 | `autocode tasks` | `--workspace`, `--max-parallel`, `--dry-run`, `--json` | Project, concurrent lanes and a read-only manifest preview. |

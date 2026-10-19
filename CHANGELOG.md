@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- `autocode checkpoint --working` and `code_checkpoints.working` in the status view: while a Builder step
+  runs, a display-only diff of what it has changed so far, against the newest saved step or, before any
+  is saved, the checked-out commit. The full-screen chat's `/diff now` shows it (#1643).
+
 - The full-screen `autocode chat` shows a side panel in a wide terminal: where the run is and what
   it needs from you, each requirement and task with its state, open problems, and a log of how the
   run moved. Typing `/` opens a command menu: `/plan`, `/tasks`, `/log`, `/details`, `/panel`,
