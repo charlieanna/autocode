@@ -133,23 +133,34 @@ export interface OpenDecision {
   input?: IntegerCommandInput;
 }
 
-/** Validate the one typed slot the core names; no arbitrary N or extra authority. */
+/** Validate a closed typed slot the core names; no arbitrary N or extra authority. */
 export function commandInputs(view: StatusView, named: NamedCommand): IntegerCommandInput[] {
   const rows = view.needs?.command_inputs;
   if (rows === undefined) return [];
   const input = Array.isArray(rows) && rows.length === 1 ? rows[0] : undefined;
   const token = view.recovery?.token;
-  if (!input || view.status !== "PAUSED_TIME_LIMIT" || view.needs?.kind !== "resume"
-    || view.needs.new_run_required || view.needs.edit_required
-    || JSON.stringify(named.argv) !== JSON.stringify(["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"])
+  const same = (argv: string[]) => JSON.stringify(named.argv) === JSON.stringify(argv);
+  const time = input?.id === "max_seconds" && view.status === "PAUSED_TIME_LIMIT" && view.needs?.kind === "resume"
+    && same(["--resume-paused", "--max-seconds", "N", "--expected-recovery-token", "-"])
+    && input.flag === "--max-seconds" && input.arg_index === 2 && input.label === "Total active time (seconds)"
+    && typeof input.elapsed === "number" && Number.isFinite(input.elapsed) && input.elapsed >= 0 && input.elapsed < Number.MAX_SAFE_INTEGER
+    && input.minimum === Math.floor(Math.max(input.current, input.elapsed)) + 1;
+  const planning = input?.id === "planning_review_call_limit" && view.status === "PAUSED_PLANNING_BUDGET" && view.needs?.kind === "planning_budget"
+    && input.flag === "--planning-review-call-limit" && input.label === "Total plan-review calls" && input.current >= 2
+    && Number.isSafeInteger(input.used) && input.used >= input.current && input.used < Number.MAX_SAFE_INTEGER
+    && input.minimum === Math.max(input.current, input.used) + 1
+    && ((input.arg_index === 2 && same(["--resume-paused", "--planning-review-call-limit", "N", "--expected-recovery-token", "-"]))
+      || (input.arg_index === 1 && same(["--planning-review-call-limit", "N", "--expected-recovery-token", "-"])));
+  const grant = input?.id === "grant_recovery" && view.status === "PAUSED_TIMEOUT_RECOVERY" && view.needs?.kind === "resume"
+    && input.flag === "--grant-recovery" && input.arg_index === 2 && input.label === "Additional recoveries"
+    && same(["--resume-paused", "--grant-recovery", "N", "--expected-recovery-token", "-"])
+    && Number.isSafeInteger(input.used) && input.used >= 1 && input.minimum === 1 && input.maximum === input.used;
+  if (!input || (!time && !planning && !grant) || view.needs?.new_run_required || view.needs?.edit_required
     || typeof token !== "string" || !token
     || Object.keys(named.env).length !== 1 || named.env.AUTOCODE_EXPECTED_RECOVERY_TOKEN !== token
-    || input.id !== "max_seconds" || input.kind !== "integer" || input.flag !== "--max-seconds"
-    || input.placeholder !== "N" || input.arg_index !== 2 || input.label !== "Total active time (seconds)"
+    || input.kind !== "integer" || input.placeholder !== "N"
     || !Number.isSafeInteger(input.current) || input.current <= 0 || input.current >= Number.MAX_SAFE_INTEGER
-    || typeof input.elapsed !== "number" || !Number.isFinite(input.elapsed) || input.elapsed < 0 || input.elapsed >= Number.MAX_SAFE_INTEGER
-    || input.minimum !== Math.floor(Math.max(input.current, input.elapsed)) + 1
-    || input.maximum !== Number.MAX_SAFE_INTEGER) {
+    || (!grant && input.maximum !== Number.MAX_SAFE_INTEGER)) {
     throw new ClientGap("Unsupported or stale numeric recovery command from AutoCode");
   }
   return [input];

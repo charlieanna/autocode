@@ -41,7 +41,7 @@ try:
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
     from .autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
-    from .autocode_control_tokens import resolve_placeholders
+    from .autocode_control_tokens import resolve_placeholders, validate_recovery_selector
 except ImportError:
     import autocode_acceptance_tests as acceptance_tests
     import autocode_cli_surface as cli_surface
@@ -61,7 +61,7 @@ except ImportError:
     import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS, cost_cap
     from autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
-    from autocode_control_tokens import resolve_placeholders
+    from autocode_control_tokens import resolve_placeholders, validate_recovery_selector
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
 NEW_RUN_INPUTS = (
@@ -750,10 +750,7 @@ def parse(unit, argv, default_models):
         parser.error("--replay-checks recorded requires --replay-recording")
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
-    if args.expected_recovery_token is not None and (
-        not args.run_dir or not (args.resume_paused or args.abandon_stage)
-    ):
-        parser.error("--expected-recovery-token requires a saved run and an explicit resume or abandon action")
+    validate_recovery_selector(args, parser)
     if args.max_parallel_builders is not None and args.max_parallel_builders < 1:
         parser.error("--max-parallel-builders must be positive")
     if args.retry_builder:
