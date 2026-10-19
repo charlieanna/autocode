@@ -884,7 +884,7 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
                 else mod.DEFAULT_REASONING_EFFORTS.get("glm")
             ),
         }
-        settings["roles"]["plan_reviewer"] = {
+        plan_reviewer_route = {
             "engine": "opencode",
             "provider": None,
             "model": (
@@ -904,6 +904,10 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             ),
             "model_pinned": True,
         }
+        light_effort = getattr(mod, "DEFAULT_LIGHT_EFFORTS", {}).get("plan_reviewer")
+        if light_effort is not None:
+            plan_reviewer_route["light_effort"] = light_effort
+        settings["roles"]["plan_reviewer"] = plan_reviewer_route
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
