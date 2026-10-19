@@ -674,13 +674,15 @@ autocode chat --mode quick "Fix the README typo" -- --engine claude
 autocode chat --line                # the line-by-line prompts, even in a terminal
 ```
 
-In a terminal the chat takes the whole screen: the conversation in a scrollable
-transcript (`PgUp`/`PgDn`), the current stage on a status line, and a one-line
-reply composer (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to edit, `Enter` to
-send, `Ctrl-D` to leave). A plan, a question or a stop is shown where it is
-asked, and `Ctrl-C` keeps its meaning: the first asks the run to pause after the
-current step, the second interrupts it. `--line` keeps the plain prompts, and
-scripts get them automatically when there is no terminal.
+In a terminal the chat takes the whole screen: a wordmark splash, the conversation
+in a scrollable transcript with a colored label for each speaker
+(`PgUp`/`PgDn`), the current question or activity above a boxed composer, and a
+hint bar. The composer is labeled **New chat** when typing there starts a run and
+**Reply** when it answers the run (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to
+edit, `Enter` to send, `Ctrl-D` to leave). A plan, a question or a stop is shown
+where it is asked, and `Ctrl-C` keeps its meaning: the first asks the run to pause
+after the current step, the second interrupts it. `--line` keeps the plain
+prompts, and scripts get them automatically when there is no terminal.
 
 The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a
 terminal) still works and is being replaced by this client. Scripts that call plain
