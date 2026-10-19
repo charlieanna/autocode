@@ -17,7 +17,10 @@ command for the person to run instead.
     autocode chat --brief=-v                        a brief that starts with -
 
 Besides the status view it reads only `autocode runs --json` (the project's open
-runs) and `autocode modes list --json` (a new run's mode).
+runs) and `autocode modes list --json` (a new run's mode). The full-screen chat's
+`/diff` and `/undo` take a saved code step's `compare` and `restore` actions, which the
+status view names (`view["code_checkpoints"]`); going back makes a new run on a new
+branch, and the chat carries on with it.
 
 While a stage works, Ctrl-C asks the run to pause after the current step (the
 view's named pause), a second Ctrl-C interrupts the step and a third stops AutoCode. Leaving the chat at a
@@ -34,6 +37,7 @@ import contextlib
 import json
 import os
 import secrets
+import shlex
 import signal
 import subprocess
 import sys
@@ -44,9 +48,11 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from . import autocode_chat_panel as panel
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
 except ImportError:
+    import autocode_chat_panel as panel
     import autocode_client_actions as actions
     import autocode_events_command as events
 
@@ -59,6 +65,10 @@ PROGRESS_KEYS = ("status", "next_stage", "iteration", "phase", "needs")
 
 class Left(Exception):
     """The person left the chat at a prompt; the run is unchanged."""
+
+
+class Restored(Exception):
+    """The person went back to a saved step: the chat now talks to the new run it made."""
 
 
 class ChatClient:
@@ -74,16 +84,22 @@ class ChatClient:
         ask: Callable[[str], str] = input,
         say: Callable[[str], None] = print,
         poll_seconds: float = POLL_SECONDS,
+        observe: Callable[[dict], None] | None = None,
+        wait: Callable[[float], str | None] | None = None,
     ):
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.command = tuple(command)
         self.env = env
         self._ask, self._say = ask, say
         self.poll_seconds = poll_seconds
+        # A renderer's view of the run, and its wait between polls; "pause" asks for the view's pause.
+        self._observe = observe
+        self._wait = wait or (lambda seconds: time.sleep(seconds))
         self.seen: set[str] = set()
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
+        self.restore_requests: dict[str, str] = {}  # one stable id per step, so a retried restore reconciles
 
     # ---- the CLI ---------------------------------------------------------------------------
 
@@ -107,6 +123,8 @@ class ChatClient:
         except (ValueError, KeyError):
             raise actions.ClientGap(f"--status did not return a status view: {tail(proc)}") from None
         self.own(view)
+        if self._observe is not None:
+            self._observe(view)
         return view
 
     def take(self, command: actions.NamedCommand) -> None:
@@ -136,13 +154,16 @@ class ChatClient:
                 cwd=self.workspace,
                 process_group=0,
             )
-            interrupts = 0
+            interrupts, polls = 0, 0
             while True:
                 try:
                     while child.poll() is None:
                         with contextlib.suppress(actions.ClientGap):  # a new run has not saved a checkpoint yet
                             self.show(self.status(), live=True)
-                        time.sleep(self.poll_seconds)
+                        # The first reads come sooner, so what the person just decided shows as taken.
+                        polls += 1
+                        if self._wait(self.poll_seconds if polls > 3 else min(self.poll_seconds, 0.5)) == "pause":
+                            self.request_pause(again="Try /pause again in a moment.")
                     break
                 except KeyboardInterrupt:
                     interrupts += 1
@@ -164,19 +185,87 @@ class ChatClient:
                 log.seek(0)
                 raise actions.ClientGap(f"AutoCode exited {child.returncode}: {log.read()[-2000:].strip()}")
 
-    def request_pause(self) -> bool:
+    def request_pause(self, *, again: str = "Press Ctrl-C again to interrupt the current step.") -> bool:
         try:
             view = self.status()
             words = actions.pause(view, f"chat-pause-{secrets.token_hex(8)}", self.workspace, self.run_dir)
         except actions.ClientGap as error:
-            self.say(f"{error}. Press Ctrl-C again to interrupt the current step.")
+            self.say(f"{error}. {again}")
             return True
         proc = self.cli(words)
         if proc.returncode != 0:
-            self.say(f"The pause was not accepted: {tail(proc)}. Press Ctrl-C again to interrupt the current step.")
+            self.say(f"The pause was not accepted: {tail(proc)}. {again}")
             return True
-        self.say(f"{(view.get('pause') or {}).get('effect') or 'Pausing after this step.'} Ctrl-C again interrupts.")
+        self.say(f"{(view.get('pause') or {}).get('effect') or 'Pausing after this step.'} Ctrl-C interrupts it now.")
         return True
+
+    # ---- saved code steps ------------------------------------------------------------------
+
+    def compare(self, checkpoint_id: str) -> dict:
+        """The view's named compare: what changed since the saved step, and the token a restore needs."""
+        words = actions.checkpoint(self.status(), checkpoint_id, "compare", self.workspace, self.run_dir)
+        return self.checkpoint_result(self.cli(words))
+
+    def restore(self, checkpoint_id: str, comparison: dict) -> None:
+        """The view's named restore, bound to the comparison the person read; then talk to the new run."""
+        words = actions.checkpoint(self.status(), checkpoint_id, "restore", self.workspace, self.run_dir)
+        request = self.restore_requests.setdefault(checkpoint_id, f"chat-restore-{secrets.token_hex(8)}")
+        token = {"AUTOCODE_CHECKPOINT_EXPECTED_TOKEN": str(comparison.get("expected_token") or "")}
+        result = self.checkpoint_result(
+            self.cli([request if word == "REQUEST_ID" else word for word in words], env=token)
+        )
+        del self.restore_requests[checkpoint_id]
+        self.workspace, self.run_dir = Path(result["workspace"]), Path(result["run_dir"])
+        self.say(
+            f"\nAutoCode: Went back on a new branch, {result.get('branch')}. Your earlier work stays on "
+            f"{result.get('preserved_branch')}. The new run is paused and checks every requirement again."
+        )
+        raise Restored
+
+    @staticmethod
+    def checkpoint_result(proc: subprocess.CompletedProcess) -> dict:
+        try:
+            payload = json.loads(proc.stdout)
+        except ValueError:
+            payload = {}
+        if proc.returncode != 0 or not isinstance(payload, dict) or "error" in payload:
+            message = ((payload.get("error") or {}).get("message") if isinstance(payload, dict) else None) or tail(proc)
+            raise actions.ClientGap(f"AutoCode refused that: {message}")
+        return payload
+
+    def slash(self, name: str, argument: str):
+        """``/diff`` and ``/undo`` from the full-screen chat: what to show, or a question to confirm first."""
+        view = self.status()
+        rows = panel.steps(view)
+        if not argument:
+            return panel.steps_text(view, name)
+        if not argument.isdigit() or not 1 <= int(argument) <= len(rows):
+            return f"There is no step {argument}. " + (f"Choose 1 to {len(rows)}." if rows else "No code is saved yet.")
+        number, row = int(argument), rows[int(argument) - 1]
+        try:
+            comparison = self.compare(str(row.get("id")))
+        except actions.ClientGap as error:
+            return str(error)
+        if name == "/diff":
+            return panel.comparison_text(comparison)
+        if comparison.get("blocked_reason"):
+            return f"Going back is not possible now: {comparison['blocked_reason']}"
+
+        def go_back() -> str:
+            try:
+                self.restore(str(row.get("id")), comparison)
+            except actions.ClientGap as error:
+                return str(error)
+            return "Done."  # restore leaves the question by raising Restored
+
+        files = len(comparison.get("changed_files") or [])
+        return panel.Confirm(
+            f"Step {number}: {row.get('label') or row.get('id')}. {files} file{' differs' if files == 1 else 's differ'} "
+            "from it now. Going back makes a new run on a new branch; your current branch and its "
+            "later work stay as they are, and every requirement is checked again.",
+            f"Go back to step {number}?",
+            go_back,
+        )
 
     # ---- the person ------------------------------------------------------------------------
 
@@ -220,29 +309,36 @@ class ChatClient:
     def converse(self) -> int:
         try:
             while True:
-                view = self.status()
-                self.show(view)
-                if view.get("done"):
-                    if not self.follow_up(view):
-                        self.say("\nDone.")
-                        return 0
-                    continue
-                need = view.get("needs") or {}
-                if need.get("kind") == "continue":
-                    if actions.working(view):
-                        self.watch()
-                    else:
-                        self.take(actions.named(view, self.workspace, self.run_dir))
-                        self.require_progress(view)
-                    continue
-                if not self.respond(view):
-                    return 2
+                try:
+                    if (stop := self.step()) is not None:
+                        return stop
+                except Restored:
+                    continue  # the person went back to a saved step: carry on with the new run
         except Left:
             self.say(f"\nLeft the chat; the run is unchanged. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return 2
         except actions.ClientGap as error:
             self.say(f"\n{error}")
             return 1
+
+    def step(self) -> int | None:
+        """Act on one status view; an exit code once the chat ends here."""
+        view = self.status()
+        self.show(view)
+        if view.get("done"):
+            if not self.follow_up(view):
+                self.say("\nDone.")
+                return 0
+            return None
+        need = view.get("needs") or {}
+        if need.get("kind") == "continue":
+            if actions.working(view):
+                self.watch()
+            else:
+                self.take(actions.named(view, self.workspace, self.run_dir))
+                self.require_progress(view)
+            return None
+        return None if self.respond(view) else 2
 
     def require_progress(self, before: dict) -> None:
         """A relaunch that changed nothing would be relaunched forever: stop and say where it stands."""
@@ -427,7 +523,9 @@ class ChatClient:
             self.say(need["recovery_hint"])
         answers = {row.key: self.decide(row, need) for row in decided}
         prompt = "Accept these criteria" if need.get("kind") == "review" else "Continue"
-        if self.ask(f"{prompt} ({view.get('next_command')})? [y/N]: ").lower() not in YES:
+        # On this run, so its paths are left out; an issued token stays out of the terminal too.
+        self.say(f"Next it runs: autocode {shlex.join(actions.fill(view, command, answers).argv)}")
+        if self.ask(f"{prompt}? [y/N]: ").lower() not in YES:
             self.say(f"Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
         fresh = self.status()
@@ -626,25 +724,31 @@ def cli(argv: list[str] | None = None) -> int:
             arguments.error("the brief is empty")
         ui = terminal_ui(force_line=args.line)
         ask, say = (ui.ask, ui.say) if ui is not None else (input, print)
+        seen = {"observe": ui.observe, "wait": ui.wait} if ui is not None else {}
         workspace = (args.workspace or Path.cwd()).expanduser()
         if ui is not None and args.run_dir is None:
             ui.set_context(workspace)
         if args.brief is not None:
-            client = start(workspace, args.brief, run_mode(args.mode), options, ask=ask, say=say)
+            client = start(workspace, args.brief, run_mode(args.mode), options, ask=ask, say=say, **seen)
         elif args.run_dir is not None:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)
-            client = ChatClient(workspace, run_dir, ask=ask, say=say)
+            client = ChatClient(workspace, run_dir, ask=ask, say=say, **seen)
         else:
-            client = open_chat(workspace.resolve(), args.mode, options, ask=ask, say=say)
+            client = open_chat(workspace.resolve(), args.mode, options, ask=ask, say=say, **seen)
             if client is None:
                 return 2
         if ui is not None:
             ui.set_context(client.workspace, client.run_dir)
+            ui.bind(client.slash)
         return client.converse()
     except (actions.ClientGap, OSError, ValueError) as error:
+        if ui is not None:
+            ui.close()  # first, so the message lands on the terminal and not on the closing screen
         print(f"autocode chat: {error}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
+        if ui is not None:
+            ui.close()
         print("\nautocode chat: interrupted.", file=sys.stderr)
         return 130
     finally:

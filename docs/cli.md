@@ -679,10 +679,41 @@ in a scrollable transcript with a colored label for each speaker
 (`PgUp`/`PgDn`), the current question or activity above a boxed composer, and a
 hint bar. The composer is labeled **New chat** when typing there starts a run and
 **Reply** when it answers the run (`Up`/`Down` for history, `Ctrl-W`/`Ctrl-U` to
-edit, `Enter` to send, `Ctrl-D` to leave). A plan, a question or a stop is shown
+edit, `Enter` to send, `Ctrl-D` to leave). A paste stays in the composer as one
+reply, line breaks included, until you press `Enter`. A plan, a question or a stop is shown
 where it is asked, and `Ctrl-C` keeps its meaning: the first asks the run to pause
-after the current step, the second interrupts it. `--line` keeps the plain
+after the current step, the second interrupts it. When the chat ends, its last words
+stay on the terminal: an error, where to pick the run up, or the command a stop
+leaves for you to run. `--line` keeps the plain
 prompts, and scripts get them automatically when there is no terminal.
+
+In a terminal at least 100 columns wide, a side panel shows the run beside the
+conversation once it has a plan: where it is and what it needs from you, the
+current step and its last few attempts (the view's `chat.progress`), each
+requirement and task with its state, open problems, and a log of how the run moved
+(a stage starting or finishing, an attempt finishing, a task done, a requirement
+checked). Everything in it comes from the status views the chat already reads.
+
+Type `/` in the composer for commands, at a question or while AutoCode works. The
+menu narrows as you type; `Up`/`Down` choose, `Tab` completes and `Enter` runs the
+highlighted one:
+
+| Command | What it does |
+| --- | --- |
+| `/plan`, `/tasks`, `/log` | Show the requirements, the task list or the run's log in the conversation |
+| `/details` | Why the run is where it is (the view's explanation) |
+| `/diff` | List the saved code steps with the files each changed; `/diff N` shows the files and the diff changed since step N |
+| `/undo N` | At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again |
+| `/panel` | Show or hide the side panel |
+| `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
+| `/help` | List the commands |
+| `/quit` | At a question: leave the chat; the run stays as it is |
+
+A command never answers the question that is waiting. To send a reply that starts
+with `/`, type `//`. `/diff` and `/undo` take only the `compare` and `restore`
+actions the status view names for a saved step ([Saved code
+checkpoints](task-run.md#saved-code-checkpoints)); the view offers going back only
+at a pause it can restore from, and `/undo` says why when it cannot.
 
 The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a
 terminal) still works and is being replaced by this client. Scripts that call plain

@@ -180,6 +180,73 @@ class NamedActionTests(unittest.TestCase):
 DONE = {"status": "TASK_COMPLETE", "done": True, "needs": None, "next_command": None, "chat": {}}
 
 
+class CheckpointActionTests(unittest.TestCase):
+    """A saved step's compare and restore are taken only as the view names them."""
+
+    def view(self, *names, command=None):
+        prefix = ["checkpoint", "--workspace", str(WORKSPACE), "--run-dir", str(RUN)]
+        named = {
+            "compare": [*prefix, "--compare", "s1"],
+            "restore": [*prefix, "--restore", "s1", "--expected-token", "-", "--request-id", "REQUEST_ID"],
+        }
+        rows = [{"id": "s1", "actions": [{"id": name, "next_command": command or named[name]} for name in names]}]
+        return {"code_checkpoints": {"rows": rows}}
+
+    def test_the_named_compare_and_restore_are_returned_as_named(self):
+        view = self.view("compare", "restore")
+        self.assertEqual("--compare", actions.checkpoint(view, "s1", "compare", WORKSPACE, RUN)[5])
+        self.assertEqual("REQUEST_ID", actions.checkpoint(view, "s1", "restore", WORKSPACE, RUN)[-1])
+
+    def test_a_restore_the_view_does_not_name_or_names_differently_is_a_gap(self):
+        with self.assertRaisesRegex(actions.ClientGap, "offers no restore"):
+            actions.checkpoint(self.view("compare"), "s1", "restore", WORKSPACE, RUN)
+        with self.assertRaisesRegex(actions.ClientGap, "Unsupported compare"):
+            actions.checkpoint(
+                self.view("compare", command=["checkpoint", "--compare", "s1"]), "s1", "compare", WORKSPACE, RUN
+            )
+
+
+class SavedStepTests(unittest.TestCase):
+    """/diff and /undo through the real `autocode checkpoint` CLI, on a run paused after a saved Builder step."""
+
+    def setUp(self):
+        from tests.test_code_checkpoints import CodeCheckpoints
+
+        # The checkpoint tests' fixture alone: a Git project, an approved plan and one saved step.
+        fixture = CodeCheckpoints("setUp")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.fixture = fixture
+        self.said: list[str] = []
+        self.client = chat.ChatClient(
+            fixture.workspace,
+            fixture.run,
+            command=(sys.executable, str(AUTOCODE)),
+            env={**os.environ, "AUTOCODE_HOME": str(fixture.root / "registry")},
+            say=self.said.append,
+        )
+
+    def test_diff_shows_what_changed_since_the_step(self):
+        self.assertIn("1. ", self.client.slash("/diff", ""))
+        (self.fixture.workspace / "app.txt").write_text("later work\n")
+        shown = self.client.slash("/diff", "1")
+        self.assertIn("app.txt", shown)
+        self.assertIn("+later work", shown)
+        self.assertIn("There is no step 2", self.client.slash("/diff", "2"))
+
+    def test_undo_asks_first_then_goes_back_on_a_new_run_the_chat_talks_to(self):
+        before = self.client.run_dir
+        confirm = self.client.slash("/undo", "1")
+        self.assertIsInstance(confirm, chat.panel.Confirm)
+        self.assertEqual(before, self.client.run_dir, "nothing changes before the yes")
+        with self.assertRaises(chat.Restored):
+            confirm.then()
+        self.assertNotEqual(before, self.client.run_dir)
+        self.assertEqual("PAUSED_REQUESTED", self.client.status()["status"])
+        self.assertIn("Went back on a new branch", self.said[-1])
+        self.assertEqual({}, self.client.restore_requests)
+
+
 class ScriptedChat(chat.ChatClient):
     """The chat over a scripted sequence of views: each action taken moves to the next view."""
 
@@ -247,6 +314,12 @@ class ConversationTests(unittest.TestCase):
         out = client.text()
         self.assertLess(out.index("Does the logo look right?"), out.index("Accept these criteria"))
         self.assertLess(out.index("[C1] The logo is centred"), out.index("Accept these criteria"))
+        self.assertIn("\nNext it runs: autocode --approve-review C1 --review-token -\n", out)
+        self.assertNotIn("=rv", out, "the issued token is never printed")
+        self.assertNotIn(str(RUN), out.split("Next it runs:")[1].split("\n")[0], "the run's own paths are left out")
+        self.assertIn(
+            "\nAccept these criteria? [y/N]: ", out, "the question stays short; the command is shown above it"
+        )
         self.assertEqual([["--approve-review", "C1", "--review-token", "-"]], client.taken)
 
     def test_a_review_whose_criteria_cannot_be_shown_is_not_offered(self):
@@ -285,6 +358,19 @@ class ConversationTests(unittest.TestCase):
         self.assertLess(out.index("Models it can continue on: model-a, model-b"), out.index("Which model should sol"))
         self.assertIn("Stopped on: model-x (quota)", out)
         self.assertEqual([["--answer", "route-sol=model-b", "--resolver-token", "-"]], client.taken)
+
+    def test_going_back_at_a_question_carries_on_with_the_new_run(self):
+        class GoingBack(ScriptedChat):
+            def reply(self, prompt):
+                if not self.replies:
+                    self.views.pop(0)  # the restore made a new run; its view is the next one
+                    raise chat.Restored
+                return super().reply(prompt)
+
+        client = GoingBack(answer_view(), DONE)
+        self.assertEqual(0, client.converse())
+        self.assertEqual([], client.taken, "the old run's question was never answered")
+        self.assertIn("Done.", client.text())
 
     def test_a_follow_up_goes_through_the_offered_input(self):
         done = {
@@ -360,6 +446,24 @@ class InterruptTests(unittest.TestCase):
                     error = gap
                 self.assertLess(time.monotonic() - started, 20, "the chat waited out the child")
             return client, error
+
+    def test_a_pause_asked_for_between_polls_is_taken_through_the_view(self):
+        with tempfile.TemporaryDirectory() as folder:
+            client = ScriptedChat({"status": "RUNNING"})
+            client.workspace, client.command = Path(folder), (sys.executable, "-c", "import time; time.sleep(1)")
+            asked = iter(["pause"])
+            client._wait = lambda seconds: next(asked, None) or time.sleep(0.05)
+            with mock.patch.object(client, "request_pause") as pause, mock.patch.object(client, "show"):
+                client.advance(["--no-chat"])
+        pause.assert_called_once_with(again="Try /pause again in a moment.")
+
+    def test_every_status_view_read_reaches_the_renderer(self):
+        seen = []
+        client = chat.ChatClient(WORKSPACE, RUN, observe=seen.append)
+        payload = json.dumps({"view": {"status": "RUNNING", "workspace": str(WORKSPACE), "run_dir": str(RUN)}})
+        with mock.patch.object(client, "cli", return_value=subprocess.CompletedProcess([], 0, payload, "")):
+            view = client.status()
+        self.assertEqual([view], seen)
 
     def test_ctrl_c_while_the_pause_is_asked_for_interrupts_the_step_instead_of_leaving_it_running(self):
         child = (
@@ -517,6 +621,18 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn(b"Nothing started.", seen)
         self.assertFalse((self.workspace / ".autocode" / "runs").exists())
+
+    def test_an_error_before_the_conversation_is_shown_after_the_full_screen_closes(self):
+        leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), "--mode", "bogus", BRIEF)
+        try:
+            seen = read_terminal(leader)
+        finally:
+            os.close(leader)
+            if child.poll() is None:
+                child.kill()
+        self.assertEqual(1, child.wait(timeout=60))
+        self.assertIn(b"\x1b[?1049l", seen, "the full-screen chat opened and closed")
+        self.assertGreater(seen.rindex(b"no run mode 'bogus'"), seen.rindex(b"\x1b[?1049l"), seen[-500:])
 
     def test_line_mode_flag_skips_the_full_screen_chat(self):
         seen, code = self.run_terminal("chat", "--line", until=b"What do you want done?")
