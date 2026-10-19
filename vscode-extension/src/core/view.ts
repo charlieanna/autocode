@@ -9,7 +9,7 @@
  * No VS Code API, so it is unit-testable in-process.
  */
 
-import { usageDisplay, type ModelRoute, type Usage } from "./telemetry";
+import { usageDisplay, type BudgetCost, type ModelRoute, type Usage } from "./telemetry";
 
 export interface Needs {
   kind: string;
@@ -183,6 +183,7 @@ export interface StatusView {
   displayed_plan?: DisplayedPlan | null;
   progress?: Progress | null;
   usage?: Usage | null;
+  cost?: BudgetCost | null;
   provider?: string | null;
   routes?: Record<string, ModelRoute> | null;
   evidence?: { outcome?: string; acceptance?: { id: string; criterion: string; status: string }[] } | null;
@@ -373,12 +374,12 @@ export function planForApproval(view: StatusView): DisplayedPlan | null {
 /** Cost so far, in the words the view supports: unknown cost is not zero. */
 export function usageLine(view: StatusView): string | null {
   const usage = view.usage;
-  if (!usage) return null;
-  const display = usageDisplay(usage);
+  if (!usage && !view.cost) return null;
+  const display = usageDisplay(usage, view.cost);
   const parts: string[] = [];
   if (display.tokens !== "Tokens not reported") parts.push(display.tokens);
   if (display.cost !== "Cost not reported") parts.push(display.cost);
-  if (typeof usage.unknown_stages === "number" && usage.unknown_stages > 0) {
+  if (!view.cost && typeof usage?.unknown_stages === "number" && usage.unknown_stages > 0) {
     parts.push(`${usage.unknown_stages} stage(s) unknown`);
   }
   return parts.length ? parts.join(" · ") : null;

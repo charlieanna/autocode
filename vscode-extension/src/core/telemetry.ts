@@ -53,6 +53,14 @@ export interface Usage {
   };
 }
 
+/** Existing core accounting used for the money cap; prices and policy stay in the core. */
+export interface BudgetCost {
+  spent_usd?: number | null;
+  cap_usd?: number | null;
+  unpriced_stages?: number;
+  complete?: boolean;
+}
+
 export interface UsageDisplay {
   tokens: string;
   cost: string;
@@ -84,7 +92,7 @@ function displayQuantity(quantity: Quantity | undefined, money = false): string 
   return `${item.complete || money ? "" : "≥"}${money ? usd(item.value) : count(item.value)}${item.complete ? "" : " (partial)"}`;
 }
 
-export function usageDisplay(usage?: Usage | null): UsageDisplay {
+function historicalUsageDisplay(usage?: Usage | null): UsageDisplay {
   const result: UsageDisplay = { tokens: "Tokens not reported", cost: "Cost not reported", details: [] };
   if (!usage) return result;
   const accounting = usage.accounting;
@@ -129,7 +137,29 @@ export function usageDisplay(usage?: Usage | null): UsageDisplay {
   return result;
 }
 
-export function telemetry(view: { usage?: Usage | null; provider?: string | null; routes?: Record<string, ModelRoute> | null; done: boolean }): Telemetry {
+/** Show the cap's own accounting first, without repricing or computing a remaining balance. */
+export function usageDisplay(usage?: Usage | null, cost?: BudgetCost | null): UsageDisplay {
+  const display = historicalUsageDisplay(usage);
+  if (!cost || typeof cost !== "object" || Array.isArray(cost)) return display;
+  const known = finite(cost.spent_usd);
+  const unpriced = typeof cost.unpriced_stages === "number" && Number.isSafeInteger(cost.unpriced_stages) && cost.unpriced_stages > 0
+    ? cost.unpriced_stages : 0;
+  const complete = cost.complete === true && known && unpriced === 0;
+  const amount = known ? `${complete ? "" : "at least "}${usd(cost.spent_usd!)}` : "unknown";
+  const cap = finite(cost.cap_usd) && cost.cap_usd > 0 ? usd(cost.cap_usd)
+    : cost.cap_usd === null ? "no configured cap" : "cap not reported";
+  const partial = complete ? "" : ` (partial${unpriced ? `; ${count(unpriced)} unpriced stage${unpriced === 1 ? "" : "s"}` : ""})`;
+  const limit = finite(cost.cap_usd) && cost.cap_usd > 0 ? ` / ${cap} cap` : ` · ${cap}`;
+  display.cost = `Cost counted toward cap: ${amount}${limit}${partial}`;
+  display.details.unshift(
+    { label: "Cost counted toward cap", value: amount + partial },
+    { label: "Cost cap", value: cap },
+    { label: "Budget cost basis", value: "The core compares this known subtotal with the cap. Unpriced or unreported usage may be missing. This is not a provider bill." },
+  );
+  return display;
+}
+
+export function telemetry(view: { cost?: BudgetCost | null; usage?: Usage | null; provider?: string | null; routes?: Record<string, ModelRoute> | null; done: boolean }): Telemetry {
   const attempts = (view.usage?.accounting?.attempts ?? []).filter((row) => !row.runner_owned && row.usage_basis !== "runner");
   const current = view.done ? [] : attempts.filter((row) => row.active && !row.finished_at && !row.interrupted && !row.timed_out && !row.rejected);
   const selected = current.length ? current : attempts.slice(-1);
@@ -154,7 +184,7 @@ export function telemetry(view: { usage?: Usage | null; provider?: string | null
     used.set(key, item);
   }
   return {
-    ...usageDisplay(view.usage),
+    ...usageDisplay(view.usage, view.cost),
     modelLabel: current.length ? (current.length > 1 ? "Current attempts" : "Current attempt") : "Last used",
     models: selected.map(describe),
     configuredModels: Object.entries(view.routes ?? {}).filter(([, route]) => route && typeof route === "object").map(([role, route]) => ({

@@ -69,6 +69,12 @@ and reopening the chat. Values refresh with status polling and cover the whole
 run. Cache and reasoning are already included in input/output totals. Partial
 counts are labeled; unreported usage stays unknown.
 
+Models & usage shows **Cost counted toward cap** from the core’s public budget
+accounting beside the configured cap. Partial totals say **at least** and name
+unpriced stages; unknown amounts stay unknown. The expanded breakdown keeps the
+historical comparison estimate separately. These figures describe recorded usage,
+not an invoice or a guarantee that the next step fits within the cap.
+
 Provider-reported cost and the core's historical comparison estimates are shown
 separately. These estimates are not current API prices or your token-plan bill.
 The extension reads the public accounting view and does not calculate its own

@@ -175,3 +175,10 @@ test("a revised plan is not the plan the token approves", () => {
   // Nothing displayed to this client: approving would approve something unseen.
   assert.equal(planForApproval({ ...current, displayed_plan: undefined }), null);
 });
+
+
+test("the run-details usage line uses public cap accounting even without token usage", () => {
+  const view = readStatusPayload(envelope({ status: "RUNNING", done: false,
+    cost: { spent_usd: 1.966683, cap_usd: 2, complete: false, unpriced_stages: 10 } }));
+  assert.equal(usageLine(view), "Cost counted toward cap: at least $1.97 / $2.00 cap (partial; 10 unpriced stages)");
+});

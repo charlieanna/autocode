@@ -91,6 +91,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code shows the core’s cost counted toward the configured cap, with explicit
+  partial and unpriced coverage, before the separate historical comparison estimate.
+  The client does not reprice usage or change the cap (#1665).
+
 - The full-screen chat's `/` menu reached only its first six commands with the arrow keys; it now
   scrolls to keep the choice in view (up to ten rows, fewer on a short screen). Before a chat is
   open it offers only what works without one: `/runs`, `/open`, `/mode`, `/engine`, `/connect`,
