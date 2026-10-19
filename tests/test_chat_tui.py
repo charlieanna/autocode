@@ -58,11 +58,14 @@ class TranscriptTests(unittest.TestCase):
         self.assertTrue(transcript.add("AutoCode stopped: provider quota"))
         self.assertEqual(
             [
-                ("assistant", "AutoCode: hello"),
+                ("assistant-label", "AutoCode"),
+                ("assistant-body", "  hello"),
                 ("plain", ""),
-                ("user", "You: hi"),
+                ("user-label", "You"),
+                ("user-body", "  hi"),
                 ("plain", ""),
-                ("notice", "AutoCode stopped: provider quota"),
+                ("notice-label", "Notice"),
+                ("notice-body", "  AutoCode stopped: provider quota"),
                 ("plain", ""),
             ],
             transcript.lines(80),

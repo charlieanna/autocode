@@ -2,25 +2,37 @@
 
 The chat client (autocode_chat_client) owns every decision. It speaks to a person
 through two callables: one line at a time (``say``) and one reply at a time
-(``ask``). This module renders those callables: a scrollable transcript, the
-current stage on a status row, and a composer with editing and history. It reads
-no run, imports no controller and adds no dependency: where a terminal cannot
-run curses, the client keeps its line mode.
+(``ask``). This module renders those callables as a chat screen: a splash, a
+scrollable transcript with a colored speaker for each block, the current
+question or activity above a boxed composer, and a hint bar. It reads no run,
+imports no controller and adds no dependency: where a terminal cannot run
+curses, the client keeps its line mode.
 """
 
 from __future__ import annotations
 
 import contextlib
 import curses
+import locale
 import re
+import sys
+import threading
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
 PROGRESS_PREFIX = "· "
 HISTORY_LIMIT = 100
-HINT = "Enter send · Up/Down history · PgUp/PgDn scroll · Ctrl-D leave"
+BRAND = "AutoCode chat"
+TAGLINE = "Plan, build and test, with a reviewer at every step."
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+WORDMARK = (
+    "▄▀█ █░█ ▀█▀ █▀█ █▀▀ █▀█ █▀▄ █▀▀",
+    "█▀█ █▄█ ░█░ █▄█ █▄▄ █▄█ █▄▀ ██▄",
+)
 _ESCAPE = re.compile(r"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-_])")
+_LABELS = {"user": "You", "assistant": "AutoCode", "notice": "Notice"}
+_PREFIXES = {"user": "You:", "assistant": "AutoCode:"}
 
 
 def safe_text(text: str) -> str:
@@ -130,9 +142,19 @@ class Transcript:
         return True
 
     def lines(self, width: int) -> list[tuple[str, str]]:
+        """The transcript as ``(style, text)`` rows, labels over indented bodies."""
         rendered: list[tuple[str, str]] = []
         for role, text in self.blocks:
-            rendered.extend((role, line) for line in wrap(text, width))
+            label = _LABELS.get(role)
+            if label is None:
+                rendered.extend(("plain", line) for line in wrap(text, width))
+            else:
+                body = text
+                prefix = _PREFIXES.get(role)
+                if prefix and body.lstrip().startswith(prefix):
+                    body = body.lstrip()[len(prefix) :].lstrip()
+                rendered.append((f"{role}-label", label))
+                rendered.extend((f"{role}-body", "  " + line) for line in wrap(body, max(1, width - 2)))
             rendered.append(("plain", ""))
         return rendered
 
@@ -234,6 +256,46 @@ def window(text: str, cursor: int, width: int) -> tuple[str, int]:
     return clip(shown + after, width), display_width(shown)
 
 
+@dataclass(frozen=True)
+class Glyphs:
+    """The box-drawing set; ASCII when the terminal cannot show the rounded one."""
+
+    bar: str
+    rule: str
+    prompt: str
+    top_left: str
+    top_right: str
+    bottom_left: str
+    bottom_right: str
+    vertical: str
+    spinner: str
+    unicode: bool
+
+
+UNICODE_GLYPHS = Glyphs("▌", "─", "❯", "╭", "╮", "╰", "╯", "│", SPINNER, True)
+ASCII_GLYPHS = Glyphs("|", "-", ">", "+", "+", "+", "+", "|", "", False)
+
+
+@dataclass(frozen=True)
+class Layout:
+    """Where each part of the screen goes, for the current size and question."""
+
+    width: int
+    body_start: int
+    body_end: int
+    status_start: int
+    box_top: int
+    box_text: int
+    box_bottom: int
+    hints_row: int
+    question: list[str]
+
+
+def _unicode_terminal() -> bool:
+    encoding = getattr(sys.stdout, "encoding", "") or locale.getpreferredencoding(False)
+    return "utf" in encoding.lower()
+
+
 class ChatTUI:
     """The full-screen renderer behind one ChatClient; use ``ask`` and ``say``."""
 
@@ -246,12 +308,19 @@ class ChatTUI:
         self._scroll = 0
         self._closed = False
         self._context = ""
-        self._colors: dict[str, int] = {}
+        self._glyphs = UNICODE_GLYPHS if _unicode_terminal() else ASCII_GLYPHS
+        self._styles: dict[str, int] = {}
+        self._frame = 0
+        self._lock = threading.RLock()
+        self._stopping = threading.Event()
+        self._ticker: threading.Thread | None = None
         self._open()
 
     # ---- lifecycle -------------------------------------------------------------------------
 
     def _open(self) -> None:
+        with contextlib.suppress(Exception):
+            locale.setlocale(locale.LC_ALL, "")
         try:
             self._screen = curses.initscr()
             curses.noecho()
@@ -265,6 +334,8 @@ class ChatTUI:
             with contextlib.suppress(Exception):
                 curses.endwin()
             raise RuntimeError(f"the terminal cannot run the full-screen chat: {error}") from None
+        self._ticker = threading.Thread(target=self._tick, name="autocode-chat-tui", daemon=True)
+        self._ticker.start()
 
     def set_context(self, workspace: Path, run_dir: Path | None = None) -> None:
         self._context = Path(workspace).name
@@ -273,20 +344,22 @@ class ChatTUI:
         self._draw()
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        screen, self._screen = self._screen, None
-        if screen is None:
-            return
-        with contextlib.suppress(curses.error):
-            screen.keypad(False)
-        with contextlib.suppress(curses.error):
-            curses.nocbreak()
-            curses.echo()
-            curses.curs_set(1)
-        with contextlib.suppress(curses.error):
-            curses.endwin()
+        self._stopping.set()
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            screen, self._screen = self._screen, None
+            if screen is None:
+                return
+            with contextlib.suppress(curses.error):
+                screen.keypad(False)
+            with contextlib.suppress(curses.error):
+                curses.nocbreak()
+                curses.echo()
+                curses.curs_set(1)
+            with contextlib.suppress(curses.error):
+                curses.endwin()
         if self._transcript.blocks:
             print(self._transcript.blocks[-1][1].splitlines()[0])
 
@@ -299,20 +372,22 @@ class ChatTUI:
     # ---- what the chat client calls --------------------------------------------------------
 
     def say(self, text: str) -> None:
-        if self._closed:
-            return
-        self._transcript.add(text)
-        self._draw()
+        with self._lock:
+            if self._closed:
+                return
+            self._transcript.add(text)
+            self._draw()
 
     def ask(self, prompt: str) -> str:
-        if self._closed:
-            raise EOFError
-        words = " ".join(prompt.split())
-        self._prompt = (words + " ") if words else ""
-        self._asking = True
-        self._composer.reset()
-        self._scroll = 0
-        self._cursor(1)
+        with self._lock:
+            if self._closed:
+                raise EOFError
+            self._prompt = " ".join(prompt.split())
+            self._asking = True
+            self._composer.reset()
+            self._scroll = 0
+            self._frame = 0
+            self._cursor(1)
         try:
             while True:
                 self._draw()
@@ -320,10 +395,12 @@ class ChatTUI:
                 if answer is not None:
                     return answer
         finally:
-            self._asking = False
-            self._prompt = ""
-            self._cursor(0)
-            self._draw()
+            with self._lock:
+                self._asking = False
+                self._prompt = ""
+                self._frame = 0
+                self._cursor(0)
+                self._draw()
 
     # ---- the keyboard ----------------------------------------------------------------------
 
@@ -394,11 +471,12 @@ class ChatTUI:
             self._transcript.add(f"You: {text}")
         self._scroll = 0
         self._asking = False
+        self._frame = 0
         return text
 
     def _page(self) -> int:
-        rows, _ = self._size()
-        return max(1, (rows - 3) - 1)
+        layout = self._layout(*self._size())
+        return max(1, (layout.body_end - layout.body_start) - 1)
 
     def _scroll_by(self, delta: int) -> None:
         self._scroll = max(0, self._scroll + delta)
@@ -411,53 +489,158 @@ class ChatTUI:
         rows, cols = self._screen.getmaxyx()
         return (rows or 24), (cols or 80)
 
-    def _draw(self) -> None:
-        screen = self._screen
-        if self._closed or screen is None:
-            return
-        rows, cols = self._size()
+    def _layout(self, rows: int, cols: int) -> Layout:
         width = max(1, cols - 1)
-        try:
-            screen.erase()
-            if rows < 6 or cols < 24:
-                self._put(0, 0, truncate("Terminal too small for the chat", width), curses.A_BOLD)
-                screen.refresh()
+        hints_row = rows - 1
+        box_bottom = rows - 2
+        box_text = rows - 3
+        box_top = rows - 4
+        status_row = box_top - 1
+        question: list[str] = []
+        if self._asking and self._prompt:
+            wrapped = wrap(f"? {self._prompt}", max(1, width - 2))
+            limit = min(4, max(1, status_row - 3))
+            question = wrapped[:limit]
+            if len(wrapped) > limit:
+                question[-1] = truncate(question[-1], max(1, width - 4))
+        status_start = status_row - len(question) + 1 if question else status_row
+        return Layout(
+            width=width,
+            body_start=2,
+            body_end=max(2, status_start - 1),
+            status_start=status_start,
+            box_top=box_top,
+            box_text=box_text,
+            box_bottom=box_bottom,
+            hints_row=hints_row,
+            question=question,
+        )
+
+    def _draw(self) -> None:
+        with self._lock:
+            screen = self._screen
+            if self._closed or screen is None:
                 return
-            header = f"AutoCode chat  ·  {self._context}" if self._context else "AutoCode chat"
-            header += f"  ·  {HINT}" if self._asking else "  ·  Ctrl-C pause after this step"
-            self._put(0, 0, truncate(header, width), curses.A_REVERSE)
-            lines = self._transcript.lines(width)
-            body = rows - 3
-            self._scroll = min(self._scroll, max(0, len(lines) - body))
-            end = len(lines) - self._scroll
-            start = max(0, end - body)
-            for row, (role, text) in enumerate(lines[start:end], 1):
-                self._put(row, 0, truncate(text, width), self._style(role))
-            self._status(rows - 2, width)
-            self._composer_row(rows - 1, width)
-            screen.refresh()
-        except curses.error:
-            pass
+            rows, cols = self._size()
+            width = max(1, cols - 1)
+            try:
+                screen.erase()
+                if rows < 12 or cols < 32:
+                    self._put(0, 0, truncate("Terminal too small for the chat", width), curses.A_BOLD)
+                    screen.refresh()
+                    return
+                layout = self._layout(rows, cols)
+                self._header(layout)
+                self._body(layout)
+                self._question_or_status(layout)
+                self._composer_box(layout)
+                self._hints(layout)
+                screen.refresh()
+            except curses.error:
+                pass
 
-    def _status(self, row: int, width: int) -> None:
-        activity = self._transcript.activity
-        if self._asking:
-            text, style = self._prompt, self._style("assistant")
-        elif activity:
-            text, style = f"  · {activity}", self._style("status") | curses.A_DIM
-        else:
-            text, style = "AutoCode is working… Ctrl-C asks it to pause after this step", self._style("status")
-        self._put(row, 0, truncate(text.rstrip(), width), style)
+    def _header(self, layout: Layout) -> None:
+        brand = f"{self._glyphs.bar} {BRAND}"
+        self._put(0, 0, truncate(brand, layout.width), self._style("brand"))
+        used = display_width(brand)
+        context = f"  {self._context}" if self._context else ""
+        if context and used + display_width(context) < layout.width:
+            self._put(0, used, truncate(context, layout.width - used), self._style("dim"))
+        self._put(1, 0, self._glyphs.rule * layout.width, self._style("dim"))
 
-    def _composer_row(self, row: int, width: int) -> None:
-        if not self._asking:
+    def _body(self, layout: Layout) -> None:
+        height = max(0, layout.body_end - layout.body_start)
+        lines = self._transcript.lines(layout.width)
+        if not lines:
+            self._hero(layout, height)
             return
-        prompt = "You: "
-        shown, cursor = window(self._composer.text, self._composer.cursor, width - display_width(prompt))
-        self._put(row, 0, prompt, self._style("user"))
-        self._put(row, display_width(prompt), shown)
+        if not height:
+            return
+        self._scroll = min(self._scroll, max(0, len(lines) - height))
+        end = len(lines) - self._scroll
+        start = max(0, end - height)
+        for row, (role, text) in enumerate(lines[start:end], layout.body_start):
+            if role.endswith("-label"):
+                self._put(row, 0, truncate(f"{self._glyphs.bar} {text}", layout.width), self._style(role))
+            elif role == "user-body":
+                padded = text + " " * max(0, layout.width - display_width(text))
+                self._put(row, 0, padded, self._style(role))
+            else:
+                self._put(row, 0, truncate(text, layout.width), self._style(role))
+
+    def _hero(self, layout: Layout, height: int) -> None:
+        if height <= 0:
+            return
+        brand_rows = 2 if self._glyphs.unicode and layout.width >= 35 else 1
+        hero: list[tuple[str, str]] = []
+        if brand_rows == 2:
+            hero.extend(("brand", line) for line in WORDMARK)
+        else:
+            hero.append(("brand", "AutoCode"))
+        hero.append(("plain", ""))
+        tagline = TAGLINE if display_width(TAGLINE) <= layout.width else "Plan, build and test."
+        hero.append(("dim", tagline))
+        hero.append(("plain", ""))
+        if self._context:
+            hero.append(("dim", self._context))
+        hero = hero[:height]
+        top = layout.body_start + max(0, (height - len(hero)) // 2)
+        for offset, (role, text) in enumerate(hero):
+            col = max(0, (layout.width - display_width(text)) // 2)
+            self._put(top + offset, col, truncate(text, layout.width - col), self._style(role))
+
+    def _question_or_status(self, layout: Layout) -> None:
+        if layout.question:
+            for offset, line in enumerate(layout.question):
+                self._put(layout.status_start + offset, 2, truncate(line, layout.width - 2), self._style("question"))
+            return
+        if self._asking:
+            return
+        spinner = self._glyphs.spinner
+        marker = spinner[self._frame % len(spinner)] if spinner else "*"
+        text = self._transcript.activity or "AutoCode is working…"
+        lead = f"  {marker} {text}"
+        self._put(layout.status_start, 0, truncate(lead, layout.width), self._style("working"))
+        tail = "ctrl-c pause after this step"
+        room = layout.width - display_width(lead) - 2
+        if room >= display_width(tail):
+            self._put(layout.status_start, layout.width - display_width(tail), tail, self._style("dim"))
+
+    def _composer_box(self, layout: Layout) -> None:
+        glyphs = self._glyphs
+        width = layout.width
+        active = self._asking
+        border = self._style("border-active" if active else "border")
+        self._put(layout.box_top, 0, glyphs.top_left + glyphs.rule * (width - 2) + glyphs.top_right, border)
+        self._put(layout.box_text, 0, glyphs.vertical, border)
+        self._put(layout.box_text, width - 1, glyphs.vertical, border)
+        self._put(layout.box_bottom, 0, glyphs.bottom_left + glyphs.rule * (width - 2) + glyphs.bottom_right, border)
+        inner = max(1, width - 6)
+        self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
+        if not active:
+            self._put(layout.box_text, 4, truncate("Waiting for AutoCode…", inner), self._style("placeholder"))
+            return
+        if self._composer.text:
+            shown, cursor = window(self._composer.text, self._composer.cursor, inner)
+            self._put(layout.box_text, 4, truncate(shown, inner), self._style("input"))
+        else:
+            cursor = 0
+            self._put(layout.box_text, 4, truncate("Type your reply, then Enter", inner), self._style("placeholder"))
         with contextlib.suppress(curses.error):
-            self._screen.move(row, min(width, display_width(prompt) + cursor))
+            self._screen.move(layout.box_text, min(width - 2, 4 + cursor))
+
+    def _hints(self, layout: Layout) -> None:
+        if self._asking:
+            hints = "enter send · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
+            if not self._glyphs.unicode:
+                hints = "enter send | up/down history | pgup/pgdn scroll | ctrl-d quit"
+        else:
+            hints = "ctrl-c asks AutoCode to pause after this step"
+        self._put(layout.hints_row, 2, truncate(hints, layout.width - 2), self._style("dim"))
+        right = "AutoCode"
+        planted = 2 + display_width(hints)
+        if planted + display_width(right) + 2 < layout.width:
+            self._put(layout.hints_row, layout.width - display_width(right), right, self._style("brand"))
 
     def _put(self, row: int, col: int, text: str, attr: int = 0) -> None:
         if not text:
@@ -466,25 +649,73 @@ class ChatTUI:
             self._screen.addstr(row, col, text, attr)
 
     def _style(self, role: str) -> int:
-        return self._colors.get(role, 0)
+        return self._styles.get(role, 0)
 
     def _cursor(self, visible: int) -> None:
         with contextlib.suppress(curses.error):
             curses.curs_set(visible)
 
+    def _tick(self) -> None:
+        """Animate the working marker; never draws while a question waits for a key."""
+        while not self._stopping.wait(0.12):
+            with self._lock:
+                if self._closed or self._asking:
+                    continue
+                self._frame += 1
+                self._draw()
+
     def _start_colors(self) -> None:
+        self._styles = {
+            "dim": curses.A_DIM,
+            "brand": curses.A_BOLD,
+            "user-label": curses.A_BOLD,
+            "user-body": 0,
+            "assistant-label": curses.A_BOLD,
+            "assistant-body": 0,
+            "notice-label": curses.A_BOLD,
+            "notice-body": 0,
+            "plain": 0,
+            "border": curses.A_DIM,
+            "border-active": curses.A_BOLD,
+            "prompt": curses.A_BOLD,
+            "input": 0,
+            "placeholder": curses.A_DIM,
+            "question": curses.A_BOLD,
+            "working": 0,
+        }
         if not curses.has_colors():
             return
         with contextlib.suppress(curses.error):
             curses.start_color()
             curses.use_default_colors()
-        for role, color in (
-            ("user", curses.COLOR_CYAN),
-            ("assistant", curses.COLOR_GREEN),
-            ("notice", curses.COLOR_YELLOW),
-            ("status", curses.COLOR_BLUE),
-        ):
-            pair = len(self._colors) + 1
+        if curses.COLORS >= 256:
+            accent, good, warn, quiet, user_background = 45, 42, 214, 244, 236
+        else:
+            accent, good, warn, quiet, user_background = (
+                curses.COLOR_CYAN,
+                curses.COLOR_GREEN,
+                curses.COLOR_YELLOW,
+                -1,
+                -1,
+            )
+        pairs = 0
+
+        def pair(role: str, foreground: int, background: int = -1, attributes: int = 0) -> None:
+            nonlocal pairs
+            pairs += 1
             with contextlib.suppress(curses.error):
-                curses.init_pair(pair, color, -1)
-                self._colors[role] = curses.color_pair(pair)
+                curses.init_pair(pairs, foreground, background)
+                self._styles[role] = curses.color_pair(pairs) | attributes
+
+        pair("brand", accent, -1, curses.A_BOLD)
+        pair("user-label", accent, -1, curses.A_BOLD)
+        pair("user-body", 252 if user_background != -1 else -1, user_background)
+        pair("assistant-label", good, -1, curses.A_BOLD)
+        pair("assistant-body", -1, -1)
+        pair("notice-label", warn, -1, curses.A_BOLD)
+        pair("notice-body", warn, -1)
+        pair("border", quiet if quiet != -1 else accent, -1, curses.A_DIM)
+        pair("border-active", accent, -1, curses.A_BOLD)
+        pair("prompt", accent, -1, curses.A_BOLD)
+        pair("question", warn, -1, curses.A_BOLD)
+        pair("working", accent, -1)
