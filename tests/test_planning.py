@@ -128,6 +128,15 @@ class PlanningTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, "unexpected fields: " + field):
                 support.validate_schema({**review, field: []}, schema)
 
+    def test_alternate_flow_retains_the_unresolved_obligation_rule(self):
+        for stage in planning.V2_STAGES:
+            with self.subTest(stage=stage):
+                rule = planning.obligation_policy(stage)
+                self.assertIn("every unresolved obligation remains a blocking decision question", rule)
+                self.assertIn('initial_task.kind must be "none"', rule)
+                self.assertNotIn("remediation_records", rule)
+                self.assertNotIn("obligation_decisions", rule)
+
     def setUp(self):
         # Hermetic default-provider resolution: a contributor's own
         # ~/.config/autocode/config.toml or AUTOCODE_PROVIDER must never
