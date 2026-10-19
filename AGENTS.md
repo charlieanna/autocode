@@ -46,7 +46,8 @@ It is a client of the
 - it takes only the action the status view names (`view.next_command`, the
   optional `view.chat.input.next_command` message offer, or the optional
   `view.pause.next_command` boundary pause the owner approved on 2026-10-19
-  for #1598), so it can
+  for #1598, and a saved step's `compare`/`restore` or the running Builder's
+  display-only `code_checkpoints.working` diff, owner decision 2026-10-19), so it can
   do nothing the headless conformance client (#1012,
   `scenarios/harness/conformance.py`) cannot. Where the view names no action the
   client could take, that is a gap in the CLI or the view: report it, never work

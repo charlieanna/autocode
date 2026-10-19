@@ -1325,6 +1325,54 @@ for (const phase of ['requirements', null]) test(`chat renders core step progres
   assert.equal(ui.document.querySelector('#message').value, 'Keep this draft');
 });
 
+test('chat shows the running step\'s activity and the live diff the view names (#1643)', async (t) => {
+  const working = ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--working'];
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', label: 'Show what the Builder has changed so far', next_command: working } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working · task M1'],
+      activity: [
+        { kind: 'command', text: 'python3 -m unittest -q', status: 'done' },
+        { kind: 'edit', text: 'edited greet.py', paths: ['greet.py'], status: 'running' },
+        { kind: 'command', text: 'false', status: 'failed' },
+      ] } };
+  const ui = await openChat(t, value);
+  const text = () => ui.document.querySelector('#app').textContent;
+  assert.ok(text().includes('$python3 -m unittest -q'));
+  assert.ok(text().includes('±edited greet.py'));
+  assert.ok(text().includes('✗false'), 'a failed command is marked as failed, not as done');
+  const calls = [];
+  t.mock.method(cli, 'invoke', async (_settings, argv) => {
+    calls.push(argv);
+    return { ...ok, stdout: JSON.stringify({ since: 'start', changed_files: ['greet.py'],
+      patch: '--- checkpoint/greet.py\n+++ current/greet.py\n+print(1)\n', truncated: false }) };
+  });
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  assert.deepEqual(calls, [working], 'only the named argv runs');
+  assert.ok(text().includes('1 file(s) changed since the run started'));
+  assert.ok(text().includes('+print(1)'));
+  const done = structuredClone(value);
+  done.code_checkpoints.working = null;
+  done.chat.activity = [];
+  await ui.poll(done);
+  assert.equal(ui.document.querySelector('#working-diff'), null, 'no offer once the Builder step ends');
+  assert.ok(!text().includes('+print(1)'), 'a diff of an ended step is not left on screen');
+});
+
+test('a live diff the view names differently is refused before anything runs', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, liveness: { kind: 'supervised' },
+    next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    code_checkpoints: { rows: [], working: { id: 'working', next_command: ['checkpoint', '--working'] } },
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'] } };
+  const ui = await openChat(t, value);
+  const invoked = t.mock.method(cli, 'invoke', async () => ok);
+  ui.document.querySelector('#working-diff').click();
+  await flush();
+  assert.equal(invoked.mock.callCount(), 0);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Unsupported working-diff action'));
+});
+
 function requirementsModelQuestion(token = 'model-question:current') {
   // Native0a8 public shape: core offers only its main route-glm=MODEL action,
   // with no free-text chat input or Requirements-understanding review.

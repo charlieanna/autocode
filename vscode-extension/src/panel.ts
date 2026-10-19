@@ -71,6 +71,7 @@ export interface PanelState {
   /** Chat only: the latest status read failed, so this state is an older read and its actions stay disabled (#1593). */
   unreadable?: boolean;
   /** Saved code changes and the actions the view named for them (#1532). */
+  workingDiff: { label: string } | null;
   checkpoints: { id: string; label: string; at: string | null; files: number; available: boolean; reason: string | null; verdict: string | null; actions: { id: string; label: string }[] }[];
   checkpointsBlocked: string | null;
   /** The plan the current token asks to approve, only when the view shows it. */
@@ -383,6 +384,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
       actions: (row.actions ?? []).map((action) => ({ id: action.id, label: action.label })),
     })),
     checkpointsBlocked: view.code_checkpoints?.blocked_reason ?? null,
+    workingDiff: view.code_checkpoints?.working?.next_command ? { label: view.code_checkpoints.working.label ?? "Show changes so far" } : null,
     plan,
     token: approvalToken(view),
     canApprove: need?.kind !== "approve_plan" || plan !== null,
@@ -509,6 +511,7 @@ function emptyState(run: RunRef): PanelState {
     working: false,
     pauseOffer: null,
     checkpoints: [],
+    workingDiff: null,
     checkpointsBlocked: null,
     plan: null,
     token: null,
@@ -577,6 +580,11 @@ export function panelHtml(chat = false): string {
   .decision { margin: 10px 0; }
   .decision .q { font-size: .86rem; }
   .why { font-size: .76rem; opacity: .75; }
+  .activity { margin: 6px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: .82rem; }
+  .activity-row { display: flex; gap: 6px; opacity: .85; }
+  .activity-row.running { opacity: 1; }
+  .activity-row.failed { color: var(--vscode-errorForeground); }
+  .activity-mark { width: 1ch; flex: none; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
@@ -615,6 +623,8 @@ let current = null;
 let answers = Object.create(null);
 let renderedState = '';
 let checkpointCompare = Object.create(null);
+let workingCompare = null;
+const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·' };
 let checkpointResult = null;
 const tabScroll = Object.create(null);
 
@@ -643,6 +653,41 @@ function renderChatProgress(container, state) {
   const lines = state.chat && Array.isArray(state.chat.progress)
     ? state.chat.progress.filter((line) => typeof line === 'string' && line) : [];
   (lines.length ? lines : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
+  // What the running step does now: core-written display text, never proof that it worked.
+  const events = state.chat && Array.isArray(state.chat.activity)
+    ? state.chat.activity.filter((row) => row && typeof row.text === 'string' && row.text).slice(-6) : [];
+  if (events.length) {
+    const list = el('div', 'activity');
+    list.setAttribute('aria-label', 'What AutoCode is doing');
+    events.forEach((row) => {
+      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
+      const line = el('div', 'activity-row ' + (row.status || ''));
+      line.appendChild(el('span', 'activity-mark', mark));
+      line.appendChild(el('span', null, row.text));
+      list.appendChild(line);
+    });
+    container.appendChild(list);
+  }
+  if (state.workingDiff) {
+    const show = el('button', 'secondary', state.workingDiff.label);
+    show.id = 'working-diff';
+    show.disabled = Boolean(state.unreadable);
+    show.addEventListener('click', () => vscode.postMessage({ type: 'working_diff',
+      runKey: state.workspace + '\\n' + state.runDir }));
+    container.appendChild(show);
+  }
+  if (!state.workingDiff) return;  // a diff of a step that has ended would be stale
+  if (workingCompare && workingCompare.error) {
+    container.appendChild(el('div', 'why', workingCompare.error));
+  } else if (workingCompare) {
+    const comparison = workingCompare.comparison || {};
+    const files = (comparison.changed_files || []).length;
+    const since = comparison.since === 'start' ? 'the run started' : 'the last saved step';
+    container.appendChild(el('div', 'why', files + ' file(s) changed since ' + since + (comparison.truncated ? ' · diff truncated' : '')));
+    const patch = el('pre');
+    patch.textContent = comparison.patch || 'The Builder has not changed any files yet.';
+    container.appendChild(patch);
+  }
 }
 
 function renderStopped(stopped) {
@@ -662,7 +707,8 @@ function render(state) {
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
-    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.workingDiff,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
   if (serialized === renderedState) return;
@@ -1127,6 +1173,11 @@ window.addEventListener('message', (event) => {
     renderedState = '';
     if (current) render(current);
   }
+  if (data && data.type === 'working_diff' && chatEnvelope && data.runKey === chatEnvelope.runKey) {
+    workingCompare = data.error ? { error: data.error } : { comparison: data.comparison };
+    renderedState = '';
+    if (current) render(current);
+  }
   if (data && data.type === 'checkpoint_result') {
     checkpointResult = data;
     renderedState = '';
@@ -1222,7 +1273,7 @@ function renderChat(data) {
     const saved = vscode.getState() || {};
     document.getElementById('message').value = (saved.drafts || {})[data.runKey] || '';
     current = null; renderedState = ''; answers = Object.create(null);
-    checkpointCompare = Object.create(null); checkpointResult = null;
+    checkpointCompare = Object.create(null); checkpointResult = null; workingCompare = null;
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');
