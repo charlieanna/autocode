@@ -1479,6 +1479,27 @@ with no credential arguments or webview input. Its additional setup states are
 a client's default backend nor launches a model. Discovery reads its nonsecret
 metadata; an explicit check validates its private local credential setup.
 
+## Run modes for clients
+
+A client that starts runs may offer a choice of how much planning a new run does
+before the person approves it. `autocode modes list --json` returns the
+version-1 list: `schema_version`, `default` (a mode id) and `modes`, each with
+`id`, `label`, `description` and `start_args`, an argument array of start flags
+following the brief. A client shows the label and description and passes the
+chosen mode's `start_args` unchanged when it starts a run; it never builds its
+own list or adds flags to a mode. The flags apply only to the new run: a saved
+run keeps the flow it started with. Listing launches nothing and reads no run.
+
+| Mode | Start flags | What it changes |
+| --- | --- | --- |
+| `full` (default) | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
+| `quick` | `--joint-planning --no-spec-first --adaptive-planning` | A request the Job recognizer judges clear goes straight to the plan without Requirements; a vague one still gets it ([Adaptive planning](adaptive-planning.md)). |
+
+Every mode keeps the plan approval, the Tester and the Completion Reviewer: a
+mode changes how much planning happens before approval, never what counts as
+done. A CLI without `modes` (exit 2 with a usage error) offers no choice; a
+client then starts the full flow.
+
 ### Automatic routes for new runs
 
 New runs automatically select qualified models from the chosen tool's connected

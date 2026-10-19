@@ -38,7 +38,7 @@ class CompactParser(argparse.ArgumentParser):
 
     def format_help(self):
         lines = ["usage: autocode [TASK] [OPTIONS]", "", "Plan, build and verify a task, or act on a saved run.", ""]
-        lines.extend(textwrap.wrap(self.epilog or "", width=78, break_on_hyphens=False))
+        lines.extend(textwrap.wrap(self.epilog or "", width=79, break_on_hyphens=False))
         lines += ["", "Common options:"]
         accepted = {flag for action in self._actions for flag in action.option_strings}
         for flag, description in COMMON_OPTIONS:
