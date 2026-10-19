@@ -65,6 +65,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Session ownership failures identify the failed receipt-read check with fixed phase/reason
+  labels, without exposing its path, content or exception payload. The same failed read still
+  blocks admission and closes the lifeline for cleanup; no retry or grace is added.
+
 - VS Code’s “Latest messages” shortcut occupies its own row, so it cannot cover
   the sticky recovery and approval actions in a long chat (#1652).
 

@@ -1,9 +1,11 @@
 """Focused offline regressions for cancelled kernel session handoffs."""
 
+import copy
 import json
 import os
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -96,6 +98,149 @@ class SessionHandoffTests(unittest.TestCase):
                     with self.assertRaisesRegex(supervision.SupervisionError, "receipt is unavailable"):
                         self.reply()
                     admit.assert_not_called()
+
+    def test_receipt_failures_preserve_none_and_name_only_the_failed_read_branch(self):
+        secret = "synthetic-receipt-private-value"
+        original_metadata, original_value = copy.deepcopy(self.metadata), copy.deepcopy(self.value)
+        path = Path(self.metadata["receipt"])
+        cases = [
+            ("missing_path_key", "metadata", "metadata_invalid", lambda: self.metadata.pop("receipt")),
+            ("invalid_path_type", "metadata", "metadata_invalid", lambda: self.metadata.update(receipt=123)),
+            ("invalid_path_value", "stat", "value_invalid", lambda: self.metadata.update(receipt=secret + "\0")),
+            ("missing_file", "stat", "not_found", path.unlink),
+            (
+                "stat_denied",
+                "stat",
+                "access_denied",
+                lambda: stack.enter_context(patch.object(Path, "stat", side_effect=PermissionError(secret))),
+            ),
+            (
+                "stat_io",
+                "stat",
+                "io_error",
+                lambda: stack.enter_context(patch.object(Path, "stat", side_effect=OSError(secret))),
+            ),
+            (
+                "size_limit",
+                "stat",
+                "size_limit",
+                lambda: stack.enter_context(
+                    patch.object(
+                        Path, "stat", return_value=SimpleNamespace(st_size=supervision.receipts.MAX_RECEIPT_BYTES + 1)
+                    )
+                ),
+            ),
+            (
+                "read_missing",
+                "read",
+                "not_found",
+                lambda: stack.enter_context(patch.object(Path, "read_text", side_effect=FileNotFoundError(secret))),
+            ),
+            (
+                "read_denied",
+                "read",
+                "access_denied",
+                lambda: stack.enter_context(patch.object(Path, "read_text", side_effect=PermissionError(secret))),
+            ),
+            (
+                "read_io",
+                "read",
+                "io_error",
+                lambda: stack.enter_context(patch.object(Path, "read_text", side_effect=OSError(secret))),
+            ),
+            (
+                "read_type",
+                "read",
+                "value_invalid",
+                lambda: stack.enter_context(patch.object(Path, "read_text", side_effect=TypeError(secret))),
+            ),
+            ("text_decode", "read", "text_decode_invalid", lambda: path.write_bytes(b"\xff")),
+            ("json", "parse", "json_invalid", lambda: path.write_text("{" + secret)),
+            ("object", "validate", "object_invalid", lambda: path.write_text("[]")),
+            ("schema", "validate", "schema_invalid", lambda: path.write_text(json.dumps({**self.value, "schema": 2}))),
+        ]
+        cases += [
+            (
+                key,
+                "validate",
+                key + "_mismatch",
+                lambda key=key: path.write_text(json.dumps({**self.value, key: secret})),
+            )
+            for key in ("nonce", "owner", "keeper", "provider")
+        ]
+        for name, phase, reason, prepare in cases:
+            with self.subTest(branch=name), ExitStack() as stack:
+                self.metadata, self.value = copy.deepcopy(original_metadata), copy.deepcopy(original_value)
+                self.save()
+                prepare()
+                self.assertIsNone(supervision.receipt(self.metadata))
+                with patch.object(handoff, "admit_session") as admit:
+                    with self.assertRaisesRegex(supervision.SupervisionError, "receipt is unavailable") as caught:
+                        self.reply()
+                    admit.assert_not_called()
+                message = supervision._session_handoff_failure(caught.exception, "check_ownership")
+                self.assertIn("reason=receipt_unavailable", message)
+                self.assertIn("receipt_phase=" + phase, message)
+                self.assertIn("receipt_reason=" + reason, message)
+                self.assertNotIn(secret, message)
+                self.assertNotIn(str(path), message)
+                self.assertLess(len(message), 384)
+
+    def test_receipt_diagnostic_describes_the_same_failed_read_without_retry(self):
+        with patch.object(
+            Path, "read_text", side_effect=[OSError("synthetic-private-error"), json.dumps(self.value)]
+        ) as read:
+            with self.assertRaises(supervision.SupervisionError) as caught:
+                self.reply()
+            message = supervision._session_handoff_failure(caught.exception, "check_ownership")
+        self.assertEqual(1, read.call_count)
+        self.assertIn("receipt_phase=read", message)
+        self.assertIn("receipt_reason=io_error", message)
+        self.assertNotIn("synthetic-private-error", message)
+
+    def test_receipt_diagnostics_do_not_tighten_legacy_schema_or_exception_behavior(self):
+        for schema in (1, 1.0, True):
+            with self.subTest(schema=schema):
+                self.value["schema"] = schema
+                self.save()
+                self.assertEqual(self.value, supervision.receipt(self.metadata))
+        # The original reader does not catch arbitrary exceptions from a decoder.
+        with patch.object(supervision.json, "loads", side_effect=RecursionError("synthetic-private-error")):
+            with self.assertRaises(RecursionError):
+                supervision.receipt(self.metadata)
+
+    def test_receipt_diagnostic_formatter_rejects_untrusted_details(self):
+        class UnhashableText(str):
+            __hash__ = None
+
+        class Uninspectable:
+            def __str__(self):
+                raise AssertionError("Untrusted diagnostic detail was inspected")
+
+        secret = "synthetic-receipt-private-value"
+        details = [
+            ("read", secret),
+            (secret, "io_error"),
+            (UnhashableText("read"), "io_error"),
+            ["read", "io_error"],
+            Uninspectable(),
+            ("read", "io_error", secret),
+        ]
+        for index, detail in enumerate(details):
+            with self.subTest(index=index):
+                error = supervision.SupervisionError("Session ownership receipt is unavailable")
+                error.__dict__["_receipt_diagnostic"] = detail
+                message = supervision._session_handoff_failure(error, "check_ownership")
+                self.assertNotIn("receipt_phase=", message)
+                self.assertNotIn("receipt_reason=", message)
+                self.assertNotIn(secret, message)
+
+    def test_public_launch_names_missing_receipt_and_keeps_fail_closed_cleanup(self):
+        message = self.watch_transport(failure=None, clean=False, ownership_failure=True, receipt_missing=True)
+        self.assertIn("phase=check_ownership", message)
+        self.assertIn("reason=receipt_unavailable", message)
+        self.assertIn("receipt_phase=stat", message)
+        self.assertIn("receipt_reason=not_found", message)
 
     def test_denied_native_identity_stays_unknown_instead_of_cancelled(self):
         with (
@@ -243,7 +388,7 @@ class SessionHandoffTests(unittest.TestCase):
         self.assertIn("reason=unclassified", message)
         self.assertNotIn("untrusted payload", message)
 
-    def watch_transport(self, *, failure, clean, ownership_failure=False, expected_type=None):
+    def watch_transport(self, *, failure, clean, ownership_failure=False, expected_type=None, receipt_missing=False):
         """Drive the public launch with an offline transport and a fake event."""
 
         class Event:
@@ -283,13 +428,18 @@ class SessionHandoffTests(unittest.TestCase):
 
         socketpair = supervision.socket.socketpair
         pair_count = 0
+        receipt_probe = [False]
+        read_receipt = supervision.receipt
+
+        def current(metadata):
+            return read_receipt(metadata) if receipt_missing and receipt_probe[0] else state
 
         def callback_pair(*_args):
             nonlocal pair_count
             parent, child_socket = socketpair()
             pair_count += 1
             if ownership_failure and pair_count == 2:
-                child_socket.send(b"offline-notice")
+                child_socket.send(json.dumps(self.notice).encode() if receipt_missing else b"offline-notice")
             return parent, child_socket
 
         with (
@@ -301,7 +451,7 @@ class SessionHandoffTests(unittest.TestCase):
             patch.object(supervision, "_send") as sent,
             patch.object(supervision.os, "write", return_value=1),
             patch.object(supervision, "_read_line", return_value={"armed": "a" * 32}),
-            patch.object(supervision, "receipt", side_effect=lambda _metadata: state),
+            patch.object(supervision, "receipt", side_effect=current),
             patch.object(supervision.uuid, "uuid4", return_value=SimpleNamespace(hex="a" * 32)),
             patch.object(supervision.threading, "Event", return_value=event),
             patch.object(supervision.threading, "Thread", side_effect=thread),
@@ -318,7 +468,7 @@ class SessionHandoffTests(unittest.TestCase):
                     control_fd = sent.call_args.args[0]
                     if clean:
                         state.update(phase="stopped", cause="provider_stopped")
-                    if failure is None:
+                    if failure is None and not receipt_missing:
                         polls.extend((None, 0))
                         with patch.object(supervision.select, "select", return_value=([object()], [], [])) as select:
                             watchers[0]()  # The real callback peer has closed: recv returns EOF.
@@ -327,20 +477,33 @@ class SessionHandoffTests(unittest.TestCase):
                     elif ownership_failure:
                         with (
                             patch.object(supervision.select, "select", return_value=([object()], [], [])),
-                            patch.object(supervision, "session_handoff_reply", side_effect=failure) as checked,
+                            patch.object(
+                                supervision,
+                                "session_handoff_reply",
+                                **(
+                                    {"wraps": supervision.session_handoff_reply}
+                                    if receipt_missing
+                                    else {"side_effect": failure}
+                                ),
+                            ) as checked,
                         ):
-                            watchers[0]()
+                            receipt_probe[0] = receipt_missing
+                            try:
+                                watchers[0]()
+                            finally:
+                                receipt_probe[0] = False
                         checked.assert_called_once()
                     else:
                         with patch.object(supervision.select, "select", side_effect=failure):
                             watchers[0]()
-                    if failure is not None and not clean:
+                    if (failure is not None or receipt_missing) and not clean:
                         with self.assertRaises(OSError):
                             os.fstat(control_fd)
                     child.returncode = 0
 
-            if failure is not None and not clean:
-                expected = f"Session ownership handoff failed: {expected_type or type(failure).__name__}"
+            if (failure is not None or receipt_missing) and not clean:
+                name = expected_type or ("SupervisionError" if receipt_missing else type(failure).__name__)
+                expected = f"Session ownership handoff failed: {name}"
                 with self.assertRaisesRegex(supervision.SupervisionError, expected) as caught:
                     exercise()
                 fallback.return_value.stop.assert_called_once()
