@@ -26,8 +26,8 @@ and incomplete, so these counters do not establish complete usage or cost.
 The reported tool durations account for little of the elapsed time. The gaps
 between tool execution and reports do not separate remote model work, network
 latency, local transport or report assembly. Progress events show activity, not
-health or success. There is no demonstrated deadlock, output-protocol contradiction,
-or causal latency explanation in these artifacts.
+health or success. These timing artifacts alone establish neither a deadlock nor
+a causal latency explanation.
 
 ## What changed and what it saves
 
@@ -54,6 +54,31 @@ the project has two Python files would discard applicable obligations. Those
 rules remain. The current evidence does not justify a broader policy reduction.
 
 ## Verification and remaining work
+
+A subsequent source audit found two report-instruction contradictions. The
+shared rejected-assumption policy told Discovery and Revise to return both
+`remediation_records` and `obligation_decisions` as empty lists; their schemas
+permit only the former. The first Plan Reviewer received that same instruction
+although its schema permits only the latter. Its progressive policy also said
+the report schema "always includes progressive_proposal" and directed it to
+return an empty proposal, although this concern-only schema forbids that field.
+Following those return instructions produces a schema-invalid report.
+
+Planner remediation instructions and independent review instructions now follow
+their existing stage schemas. The first review checks the saved progressive
+proposal and raises concerns rather than generating one. Product-check,
+retirement, command and approval rules remain present. No schema or validation
+gate changes. V2 stages keep the common rejected-assumption rule without legacy
+report-field instructions their schemas do not support.
+
+Three prompt/schema regressions fail on the preceding runtime and pass with the
+correction. A negative regression retains rejection of fields owned by another
+role. All 48 affected golden renderings were checked against only the intended
+policy replacements; planning handoff bytes and unrelated renders are unchanged.
+The fake-provider dispatch consumer is mapped for these resources in Ubuntu CI.
+These checks establish a consistent report contract, not that a live model will
+return a report faster. No retained response establishes that either contradiction
+caused discovery-07's timeout, so #1630 remains open for live qualification.
 
 The rendering regression preserves literal Unicode, newlines, quotes, nested
 answers and command strings across planning and provider formatting, checks the

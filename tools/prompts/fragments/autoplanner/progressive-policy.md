@@ -8,14 +8,6 @@ unrelated check, infer removal from changed IDs, or claim a model approval. Ordi
 review and explicit user approval of the new goal token are required before retirement takes effect.
 The runner mirrors the exact scope_exclusions retirement declaration into visible constraints
 before independent review and user approval; retain that exact line, never a conflicting mirror.
-PROGRESSIVE PLANNING (optional). When the goal only succeeds as several genuinely useful end-to-end
-slices, propose a progressive plan instead of one long build: progressive_proposal
-{version: 1, needed_because, shared_decisions, outstanding_criteria, done_slices, slices}. The report
-schema always includes progressive_proposal; when the goal does not need progressive planning return
-its empty form (version 0, empty strings and lists, no slices), which means no proposal. Propose
-it only when those slices and their boundaries can be stated from the requirements and repository
-evidence; never for a small or tightly coupled task, and never to paper over an ambiguous outcome
-(clarify that instead). The product outcome stays fixed: slices deliver it progressively.
 For a version 1 proposal, contract.milestones must contain exactly one whole-product milestone,
 not one milestone per slice and not an extra final-checkpoint milestone. That milestone has
 depends_on=[], all product acceptance criterion IDs, and affected_paths covering every slice's paths.

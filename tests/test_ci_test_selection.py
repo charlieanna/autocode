@@ -8,6 +8,22 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_planning_prompt_policies_keep_the_dispatch_and_domain_consumers(self):
+        for name, domain_consumers in (
+            ("obligation", {"tests.test_autoplanner_step3"}),
+            ("obligation-planner", {"tests.test_autoplanner_step3"}),
+            ("obligation-review", {"tests.test_autoplanner_step3"}),
+            ("progressive", {"tests.test_progressive_plan_flow", "tests.test_progressive_rules"}),
+            ("progressive-proposal", {"tests.test_progressive_plan_flow", "tests.test_progressive_rules"}),
+            ("progressive-review", {"tests.test_progressive_plan_flow", "tests.test_progressive_rules"}),
+        ):
+            with self.subTest(name=name):
+                path = f"tools/prompts/fragments/autoplanner/{name}-policy.md"
+                expected = {"tests.test_planning", "tests.test_reviewer_effort_cli", *domain_consumers}
+                selected = run_suite.select_tests([path], {module: "" for module in expected})
+                kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in expected})
+                self.assertEqual(expected, set(kept))
+
     def test_reviewer_effort_producers_keep_the_public_dispatch_consumer(self):
         for path in ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"):
             with self.subTest(path=path):

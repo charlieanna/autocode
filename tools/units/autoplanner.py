@@ -918,6 +918,10 @@ OBLIGATION_POLICY = prompts.get("fragments/autoplanner/obligation-policy.md")
 
 def obligation_policy(stage):
     """Request only obligation fields this planning stage can return."""
+    if stage in ("astra_discovery", "glm_revise"):
+        return OBLIGATION_POLICY + prompts.get("fragments/autoplanner/obligation-planner-policy.md")
+    if stage == "astra_challenge":
+        return OBLIGATION_POLICY + prompts.get("fragments/autoplanner/obligation-review-policy.md")
     if stage != "astra_finalize":
         return OBLIGATION_POLICY
     return """
@@ -937,6 +941,16 @@ the finalization report does not propose remediations.
 PROGRESSIVE_POLICY = prompts.get("fragments/autoplanner/progressive-policy.md")
 
 
+def progressive_policy(stage):
+    """A concern-only review checks proposals; it cannot return one."""
+    instruction = (
+        prompts.get("fragments/autoplanner/progressive-review-policy.md")
+        if stage == "astra_challenge"
+        else prompts.get("fragments/autoplanner/progressive-proposal-policy.md")
+    )
+    return instruction + PROGRESSIVE_POLICY
+
+
 def repair_rules(stage, schema):
     """Repeat planning semantics only for fields allowed by the saved repair schema."""
     fields = schema.get("properties", {})
@@ -945,7 +959,7 @@ def repair_rules(stage, schema):
     return (
         REVISION_CONFLICT_RULE
         + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
-        + (PROGRESSIVE_POLICY if "progressive_proposal" in fields else "")
+        + (progressive_policy(stage) if "progressive_proposal" in fields else "")
     )
 
 
@@ -1177,8 +1191,8 @@ def context(state: RunState, stage, state_path):
             + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
-    progressive_policy = (
-        PROGRESSIVE_POLICY
+    progressive_rule = (
+        progressive_policy(stage)
         if stage
         in (
             "astra_discovery",
@@ -1253,7 +1267,7 @@ def context(state: RunState, stage, state_path):
         + figma_instruction
         + planning_policy
         + clarification_policy
-        + progressive_policy
+        + progressive_rule
         + s.COMMON
         + prompts.get("fragments/autoplanner/context-03.md")
         + json.dumps(packet, separators=(",", ":"))
