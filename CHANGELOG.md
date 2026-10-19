@@ -27,6 +27,10 @@ PR template asks for an entry here; a change without one is incomplete.
 - The scripted conformance lifecycle declares a finite starting planning-review allowance for
   its deliberate revisions and feedback, preserving review accounting and every lifecycle check (#1604).
 
+- Native and headless clients can bind explicit finite planning-review totals and
+  additional recovery slots to exact named commands and the current pause. Save-only
+  actions stay save-only; existing accounting, other limits and plan approval remain (#1605).
+
 - Kilo's persistent native provider child no longer counts as an inferred running tool after
   completed tool calls, so a silent model wait honors the configured idle limit. Real or unknown
   child tools and explicit tool starts retain their separate execution grace and cleanup (#1595).

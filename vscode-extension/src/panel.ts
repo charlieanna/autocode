@@ -27,6 +27,7 @@ export interface Decision {
 export const NUMERIC_RECOVERY_EFFECT = "This changes only the total active time. Other saved limits and model routes stay the same. It does not approve a plan.";
 
 export interface PanelState {
+  numericActionLabel?: string;
   chat?: StatusView["chat"];
   formattedMessages?: Record<string, TextNode[]>;
   workspace: string;
@@ -220,10 +221,10 @@ export class RunPanel {
         return;
       }
       if (numeric || (leavesForPerson(view.needs ?? null) && confirmPersonOnly())) {
-        const button = numeric ? "Set total and continue" : "Take it anyway";
+        const button = numeric ? numericActionLabel(state) : "Take it anyway";
         const proceed = await vscode.window.showWarningMessage(
           numeric ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
-          { modal: true, detail: numeric ? NUMERIC_RECOVERY_EFFECT : needsSummary(view) },
+          { modal: true, detail: numeric ? numericRecoveryEffect(state) : needsSummary(view) },
           button,
         );
         if (proceed !== button) return;
@@ -338,6 +339,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     })),
     criteria: (need?.criteria ?? []).map((row) => ({ id: row.id, criterion: row.criterion ?? "" })),
     decisions,
+    numericActionLabel: numericActionLabel({ decisions }),
     decisionContext: JSON.stringify([
       run.workspace,
       run.runDir,
@@ -416,7 +418,29 @@ function describe(
 /** A changed allowance always needs explicit confirmation, even if generic pause prompts are disabled. */
 export function numericConfirmation(state: PanelState, answers: Record<string, string>): string | null {
   const input = state.decisions.find((row) => row.kind === "integer")?.input;
-  return input ? `Set total active time to ${integerValue(answers[input.id], input)} seconds and continue?` : null;
+  if (!input) return null;
+  const total = integerValue(answers[input.id], input);
+  if (input.id === "grant_recovery") return `Replenish ${total} recovery slot${total === "1" ? "" : "s"} and continue?`;
+  if (input.id === "planning_review_call_limit") {
+    return `Set the total plan-review allowance to ${total} calls?`;
+  }
+  return `Set total active time to ${total} seconds and continue?`;
+}
+
+export function numericActionLabel(state: Pick<PanelState, "decisions">): string {
+  const input = state.decisions.find((row) => row.kind === "integer")?.input;
+  if (input?.id === "grant_recovery") return "Grant and continue";
+  return input?.id === "planning_review_call_limit"
+    ? "Set review allowance"
+    : "Set total and continue";
+}
+
+export function numericRecoveryEffect(state: PanelState): string {
+  const input = state.decisions.find((row) => row.kind === "integer")?.input;
+  if (input?.id === "grant_recovery") return "This replenishes spent recovery slots under the existing fixed allowance. Recovery history is retained; excess is not banked. Other saved limits and model routes stay the same. It does not approve a plan.";
+  return input?.id === "planning_review_call_limit"
+    ? "This changes only the plan-review allowance. Used calls stay counted. Inspect the next action after saving; continuing can require a separate Resume. Other saved limits and model routes stay the same. It does not approve a plan."
+    : NUMERIC_RECOVERY_EFFECT;
 }
 
 function safeCommandText(view: StatusView, run: RunRef, controller: RunController): string {
@@ -758,7 +782,7 @@ function render(state) {
 
       var approving = state.needKind === 'approve_plan';
       var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve and build'
-        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? 'Set total and continue' : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue'))));
+        : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? state.numericActionLabel : (state.decisions.length ? 'Send answers and continue' : state.actionLabel || 'Continue'))));
       if (state.actionEffect) cardContent.appendChild(el('div', 'why', state.actionEffect));
       const take = el('button', null, label);
       take.id = 'take-action';
@@ -975,7 +999,7 @@ function render(state) {
     const actions = el('div', 'actions');
     var approving = state.needKind === 'approve_plan';
     var label = (state.taking || state.working) ? 'Working…' : (approving ? 'Approve this plan'
-      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? 'Set total and continue' : state.actionLabel || 'Take the named action')));
+      : (state.needKind === 'review' ? 'Accept the reviewed criteria' : (state.decisions.some((row) => row.kind === 'integer') ? state.numericActionLabel : state.actionLabel || 'Take the named action')));
     if (state.actionEffect) actions.appendChild(el('div', 'why', state.actionEffect));
     const take = el('button', null, label);
     take.id = 'take-action';
@@ -1031,6 +1055,11 @@ function updateActionButton() {
 }
 
 function numericHelp(input) {
+  if (input.id === 'grant_recovery') return 'Automatic recovery allowance: ' + input.current
+    + '. Counted recoveries used: ' + input.used + '. Enter 1 to ' + input.maximum
+    + ' additional recoveries. A grant replenishes spent slots; history is kept.';
+  if (input.id === 'planning_review_call_limit') return 'Saved allowance: ' + input.current
+    + ' calls. Plan-review calls used: ' + input.used + '. Enter a total of at least ' + input.minimum + ' calls.';
   return 'Saved total: ' + input.current + ' seconds. Active time used: ' + input.elapsed
     + ' seconds. Enter a total of at least ' + input.minimum + ' seconds.';
 }

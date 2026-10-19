@@ -11,7 +11,7 @@ import { leavesForPerson } from "./core/next-command";
 import type { StatusView } from "./core/view";
 import { transitionNotice } from "./notify";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
-import { NUMERIC_RECOVERY_EFFECT, numericConfirmation, panelHtml, stateFor } from "./panel";
+import { numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, stateFor } from "./panel";
 
 interface ChatMessage {
   type?: string;
@@ -282,10 +282,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
         if (message.decisionContext !== state.decisionContext) throw new Error("The requested action changed; review it before continuing");
         const numeric = numericConfirmation(state, message.answers ?? {});
         if (numeric || (leavesForPerson(view.needs ?? null) && vscode.workspace.getConfiguration("autocode").get("confirmPersonOnly", true))) {
-          const button = numeric ? "Set total and continue" : "Continue";
+          const button = numeric ? numericActionLabel(state) : "Continue";
           const answer = await vscode.window.showWarningMessage(
             numeric ?? (state.actionLabel ? `${state.actionLabel}?` : "Continue AutoCode?"), { modal: true,
-              detail: numeric ? NUMERIC_RECOVERY_EFFECT : state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
+              detail: numeric ? numericRecoveryEffect(state) : state.actionEffect ?? view.chat?.notice ?? "Open Run details to review what needs attention before continuing." }, button,
           );
           if (answer !== button) return;
         }

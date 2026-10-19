@@ -540,12 +540,16 @@ class CommandLine(Fixture):
     def test_discovered_run_requires_explicit_recovery_with_an_expected_token(self):
         run = self.run_in(self.project, status="PAUSED_BUDGET")
         before = tree_snapshot(self.project)
-        for action in (["--resume-paused"], ["--abandon-stage", "001/terra-01"]):
+        for action in (
+            ["--resume-paused"],
+            ["--abandon-stage", "001/terra-01"],
+            ["--planning-review-call-limit", "4"],
+        ):
             with self.subTest(action=action):
                 args, _ = self.parse(*action, "--expected-recovery-token", "exact-view-token")
                 self.assertEqual((run, "exact-view-token"), (args.run_dir, args.expected_recovery_token))
         self.assertIn(
-            "--expected-recovery-token requires a saved run and an explicit resume or abandon action",
+            "--expected-recovery-token requires a saved run and an explicit resume, abandon, or planning-allowance action",
             self.parse_error("--expected-recovery-token", "exact-view-token"),
         )
         self.assertEqual(before, tree_snapshot(self.project))
