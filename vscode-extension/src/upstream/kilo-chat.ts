@@ -98,7 +98,7 @@ export const chatStyles = /* css */ `
   .action-strip button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   .action-strip button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
   .action-strip button:disabled { opacity: 0.5; cursor: not-allowed; }
-  #latest { align-self: center; margin-top: -34px; margin-bottom: 6px; z-index: 3;
+  #latest { align-self: center; flex-shrink: 0; margin: 6px 0;
     border-radius: 16px; font-size: .75rem; box-shadow: 0 2px 8px var(--vscode-widget-shadow); }
   #latest[hidden] { display: none; }
   .chat-toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; justify-content: flex-end; padding: 2px 8px; gap: 2px; }
