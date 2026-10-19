@@ -53,6 +53,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Session ownership handoff failures retain a bounded callback phase and safe reason
+  code, so different ownership failures can be diagnosed without exporting exception
+  payloads. Failure classification and scoped cleanup stay unchanged (#1640).
 - In the full-screen chat, Esc closes the `/` menu and the key typed after it is kept, and text that
   starts with an unknown `/word` is never sent, a sentence included. The panel catches up within half
   a second of a decision instead of the next two-second poll. A stop's "Next it runs:" names only
