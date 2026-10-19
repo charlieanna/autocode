@@ -1847,6 +1847,95 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         self.assertIn("counts across revisions (small clear brief)", lifecycle.render(state))
 
 
+class ReviewerEffortTierTests(unittest.TestCase):
+    """A reduced-depth run's Plan Reviewer launches at the reduced effort tier (#1564)."""
+
+    def state(self, **extra):
+        base = {
+            "status": "RUNNING",
+            "next_stage": "astra_challenge",
+            "planning": {"astra_calls": 0, "reports": {}},
+            "workflow": {"kind": "build", "clarity": "clear", "brief_size": "small"},
+            "settings": {
+                "planning_review_call_limit": 6,
+                "roles": {
+                    "plan_reviewer": {
+                        "model": "openai/gpt-6-sol",
+                        "model_pinned": True,
+                        "reasoning_effort": "high",
+                    }
+                },
+            },
+        }
+        base.update(extra)
+        return base
+
+    def test_ac1_effort_steps_down_when_policy_active(self):
+        state = self.state()
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        cycle.new_cycle(state)
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
+        self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
+
+    def test_ac2_provider_light_effort_is_the_tier(self):
+        state = self.state()
+        state["settings"]["roles"]["plan_reviewer"]["light_effort"] = "low"
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("low", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["plan_reviewer"]["model"])
+        self.assertIs(True, state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
+
+    def test_ac3_one_step_down_ladder_boundaries(self):
+        self.assertEqual("xhigh", planning.reduced_reviewer_effort({"reasoning_effort": "max"}))
+        self.assertEqual("low", planning.reduced_reviewer_effort({"reasoning_effort": "low"}))
+        self.assertIsNone(planning.reduced_reviewer_effort({"reasoning_effort": None}))
+        self.assertIsNone(planning.reduced_reviewer_effort({}))
+        self.assertEqual("turbo", planning.reduced_reviewer_effort({"reasoning_effort": "turbo"}))
+
+    def test_ac4_full_depth_flag_never_reduces(self):
+        state = self.state()
+        state["settings"]["plan_review_full"] = True
+        state["planning"]["review_depth_reduced"] = True
+        planning.apply_reviewer_effort_tier(state)
+        self.assertEqual("high", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        reduced = self.state()
+        reduced["planning"]["review_depth_reduced"] = True
+        planning.apply_reviewer_effort_tier(reduced)
+        self.assertEqual("medium", reduced["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+
+    def test_ac5_reviewer_model_unchanged(self):
+        from units import autoplanner
+
+        with_light = self.state()
+        with_light["settings"]["roles"]["plan_reviewer"]["light_effort"] = "low"
+        for state in (self.state(), with_light, self.state()):
+            before = copy.deepcopy(state["settings"]["roles"]["plan_reviewer"])
+            planning.apply_reviewer_effort_tier(state)
+            self.assertEqual(before["model"], state["settings"]["roles"]["plan_reviewer"]["model"])
+            self.assertEqual(before["model_pinned"], state["settings"]["roles"]["plan_reviewer"]["model_pinned"])
+        self.assertEqual("openai/gpt-6-sol", autoplanner.PINNED_REVIEWER_MODEL)
+
+    def test_ac8_first_launch_consumes_reduced_tier(self):
+        state = self.state()
+        state["planning_history"] = [{"astra_calls": 3, "reports": {}}]
+        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        planning.charge(state, "astra_challenge")
+        self.assertEqual(3, state["planning"]["review_calls_before_policy"])
+        self.assertEqual(4, state["planning"]["astra_calls"])
+        cycle.new_cycle(state)
+        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        planning.charge(state, "astra_challenge")
+        self.assertEqual("medium", state["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+        vague = self.state(workflow={"clarity": "vague"})
+        self.assertEqual("plan_reviewer", planning.route_for(vague, "astra_challenge"))
+        self.assertEqual("high", vague["settings"]["roles"]["plan_reviewer"]["reasoning_effort"])
+
+
 class BriefSizeTests(unittest.TestCase):
     def test_table(self):
         import autocode_workflows as workflows

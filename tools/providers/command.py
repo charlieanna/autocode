@@ -78,6 +78,9 @@ class CommandProvider:
         self.PROMPT_MODE = config.get("prompt", "stdin")
         self.DEFAULT_MODELS = {role: spec["model"] for role, spec in config["roles"].items()}
         self.DEFAULT_REASONING_EFFORTS = {role: spec["effort"] for role, spec in config["roles"].items()}
+        self.DEFAULT_LIGHT_EFFORTS = {
+            role: spec["light_effort"] for role, spec in config["roles"].items() if "light_effort" in spec
+        }
         if "glm" in self.DEFAULT_MODELS:
             self.DEFAULT_MODELS["requirements"] = self.DEFAULT_MODELS["glm"]
             self.DEFAULT_REASONING_EFFORTS["requirements"] = self.DEFAULT_REASONING_EFFORTS["glm"]
@@ -510,6 +513,8 @@ def _validate(name: str, config: dict) -> None:
             raise ValueError(f"role {role} needs a model name")
         if not isinstance(effort, str):
             raise ValueError(f"role {role} needs an effort string")
+        if "light_effort" in spec and not isinstance(spec["light_effort"], str):
+            raise ValueError(f"role {role} needs a light_effort string")
     for key in ("models", "models_command", "version_command"):
         if key not in config:
             continue

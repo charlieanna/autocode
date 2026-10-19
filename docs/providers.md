@@ -529,7 +529,7 @@ terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
 sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
 glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
-plan_reviewer = { model = "openai/gpt-6-sol", effort = "high" }
+plan_reviewer = { model = "openai/gpt-6-sol", effort = "high", light_effort = "medium" }
 ```
 
 `[roles]` must keep each verifier on a different model family from what it checks

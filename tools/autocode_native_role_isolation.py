@@ -132,13 +132,14 @@ class NativeRoleIsolation:
         _require(isinstance(roles, dict) and isinstance(roles.get(route_role), dict), "missing saved role")
         self._route = deepcopy(cast(dict, roles)[route_role])
         _require(
-            set(self._route) <= {"engine", "provider", "model", "reasoning_effort", "model_pinned"}
+            set(self._route) <= {"engine", "provider", "model", "reasoning_effort", "model_pinned", "light_effort"}
             and (self._route.get("engine") or self._settings.get("engine")) == "opencode"
             and self._route.get("provider") in (None, "opencode")
             and self._settings.get("provider") in (None, "opencode")
             and isinstance(self._route.get("model"), str)
             and re.fullmatch(r"[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+", self._route["model"])
-            and self._route.get("reasoning_effort") in ("low", "medium", "high", "xhigh", "max")
+            and self._route.get("reasoning_effort") in util.EFFORTS
+            and ("light_effort" not in self._route or self._route.get("light_effort") in util.EFFORTS)
             and ("model_pinned" not in self._route or type(self._route["model_pinned"]) is bool),
             "unsupported saved route",
         )
