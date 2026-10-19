@@ -2366,7 +2366,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/24154e6959aaad4bd96e1d60dce271c509232131/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/72e57d1cdccb1b8344d1eeda36a8c8e209284e20/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2528,6 +2528,20 @@ its report was accepted or its checks passed. Unknown activity stays unconfirmed
 queued and stopped steps are not described as running. Clients render these lines
 without deriving stage names or success from private state. Older cores may omit
 the field.</p>
+<p>While a supervised step works, optional <code>activity</code> is an array of at most 20
+display events from the running attempt's own provider event file, oldest first:
+<code>{kind, text, status}</code> with <code>kind</code> one of <code>command</code>, <code>edit</code> or <code>tool</code>, <code>status</code>
+one of <code>running</code>, <code>done</code> or <code>failed</code>, and, for an <code>edit</code>, the <code>paths</code> it names
+(relative to the project when they are inside it, at most 8). <code>text</code> is one
+bounded line: a command's first line, the files changed, or the tool called.
+Model prose, reasoning and tool output are never copied, and only the tail of a
+file inside the run directory is read. <code>done</code> and <code>failed</code> describe the tool
+call, not the work: a command that exited 0 is not a passed check, an edit is
+not an accepted change, and nothing here is proof, approval or authority to
+retry. Activity that is not confirmed as supervised, a finished or stopped step
+and a paused run have none, and the field is then omitted. Codex-style items
+(also what the built-in Claude provider writes) and OpenCode or Kilo tool parts
+are read; other event shapes show nothing. Older cores may omit the field.</p>
 <p>During spec-first Requirements chat, <code>phase: "requirements"</code> lets clients show
 the conversation without the empty task dashboard. An assistant message may
 have <code>streaming: true</code>; its text is provisional display content from the active
@@ -2756,7 +2770,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/24154e6959aaad4bd96e1d60dce271c509232131/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/72e57d1cdccb1b8344d1eeda36a8c8e209284e20/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3263,7 +3277,7 @@ preserves each executable blocker's <code>disposition</code> (<code>kind</code>,
 <code>sha256</code>. Only a validated runner disposition of <code>pre_existing</code> exempts a
 blocking finding. Legacy findings and reviews without an explicit patch retain
 blocking behavior. This attribution applies to review findings, not the task's
-acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/24154e6959aaad4bd96e1d60dce271c509232131/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/72e57d1cdccb1b8344d1eeda36a8c8e209284e20/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
