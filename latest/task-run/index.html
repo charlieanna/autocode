@@ -2310,7 +2310,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f40b04edfcb638e2a7725e902814ddc1f2e5f84c/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2a0eee01401a2c16141ec810cc8fbb88f83857ea/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2667,7 +2667,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/f40b04edfcb638e2a7725e902814ddc1f2e5f84c/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/2a0eee01401a2c16141ec810cc8fbb88f83857ea/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3060,6 +3060,29 @@ before resuming. Missing issued tokens offer a noninteractive display, and a
 missing original source or immutable caller binding offers inspection. A terminal
 stop or dependency wait offers no recovery command. CLI gates still validate
 freshness and authority when a person executes any displayed command.</p>
+<p>For the exact finite total-time recovery, <code>needs.command_inputs</code> describes the
+person's numeric decision additively:</p>
+<pre><code class="language-json">{&quot;id&quot;:&quot;max_seconds&quot;,&quot;kind&quot;:&quot;integer&quot;,&quot;flag&quot;:&quot;--max-seconds&quot;,&quot;placeholder&quot;:&quot;N&quot;,
+ &quot;arg_index&quot;:2,&quot;label&quot;:&quot;Total active time (seconds)&quot;,&quot;current&quot;:2700,&quot;elapsed&quot;:2800.5,
+ &quot;minimum&quot;:2801,&quot;maximum&quot;:9007199254740991}
+</code></pre>
+<p>The field is an array containing this one descriptor, and is offered only when
+the named action requires <code>--resume-paused --max-seconds N</code>. <code>arg_index</code> counts
+the arguments after removing the executable and owned <code>--run-dir</code>/<code>--workspace</code>
+pairs. The complete remaining command must be <code>--resume-paused --max-seconds N
+--expected-recovery-token -</code>, with the current <code>recovery.token</code> in
+<code>AUTOCODE_EXPECTED_RECOVERY_TOKEN</code>. A client validates the exact command,
+descriptor and token binding before substituting that one argument. A person
+must enter a whole number between <code>minimum</code> and <code>maximum</code>; there is no default
+and no extraction of numbers from chat. The minimum exceeds both the saved cap
+and consumed active time. An empty, zero, fractional, unsafe or out-of-range
+value grants nothing. Other unresolved <code>N</code> placeholders remain client gaps.</p>
+<p>This choice changes only the total active-time cap. It neither changes other
+limits or model routes nor approves a plan. Recovery freshness is rechecked
+under the run lock, including the saved active-time accounting. Ordinary CLI
+callers retain the existing <code>--max-seconds 0</code> behavior; this finite input does
+not expose disabling the guard. Corrective information still authorizes no
+allowance: its pending deterministic review must first reach the held decision.</p>
 <p><code>evidence</code> is what the run agreed to deliver and what supports it, for reports
 made outside the runner (such as a pull request body, docs/issues.md):
 the approved contract's intended outcome, the base commit, one row per
