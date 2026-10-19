@@ -8,6 +8,7 @@ function editor() {
   const commands = new Map();
   const panels = [];
   const errors = [];
+  const notices = [];
   const providers = new Map();
   const storage = new Map();
   const workspaceState = { get: (key) => storage.get(key), update: async (key, value) => { storage.set(key, value); } };
@@ -34,7 +35,9 @@ function editor() {
       createStatusBarItem: () => ({ hide() {}, show() {}, dispose() {} }),
       createTreeView: () => ({ dispose() {} }),
       registerWebviewViewProvider: (id, provider) => { providers.set(id, provider); return { dispose() {} }; },
-      showInformationMessage() {},
+      showInformationMessage: (message, ...items) => new Promise((resolve) => {
+        notices.push({ message, items, resolve });
+      }),
       showQuickPick: async () => undefined,
       createTerminal: () => ({ show() {} }),
       showErrorMessage: async (message) => { errors.push(message); },
@@ -82,7 +85,7 @@ function editor() {
     try { return require(path.resolve(__dirname, '../../out-test/src', name)); }
     finally { Module._load = original; }
   }
-  return { config, commands, panels, providers, workspaceState, errors, log, load, vscode };
+  return { config, commands, panels, providers, workspaceState, errors, notices, log, load, vscode };
 }
 
 module.exports = { editor, flush: () => new Promise((resolve) => setImmediate(resolve)) };
