@@ -578,7 +578,30 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--workspace", type=Path, help="the project; the current directory by default")
     result.add_argument("--run-dir", type=Path, help="pick up this run instead of the project's open one")
     result.add_argument("--mode", help="run mode for a new run, from `autocode modes list` (default: the core's)")
+    result.add_argument("--line", action="store_true", help="the line-by-line chat, even in a terminal")
     return result
+
+
+def terminal_ui(*, force_line: bool = False):
+    """The full-screen chat when both ends are a terminal; None keeps the line interface.
+
+    A terminal without curses support falls back to line mode rather than failing
+    the chat.
+    """
+    if force_line or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return None
+    try:
+        from . import autocode_chat_tui as tui
+    except ImportError:
+        try:
+            import autocode_chat_tui as tui
+        except (ImportError, OSError):
+            return None
+    try:
+        return tui.ChatTUI()
+    except RuntimeError as error:
+        print(f"autocode chat: {error}; using line mode", file=sys.stderr)
+        return None
 
 
 def cli(argv: list[str] | None = None) -> int:
@@ -597,19 +620,26 @@ def cli(argv: list[str] | None = None) -> int:
         arguments.error("a brief starts a new run; --run-dir picks up an existing one, not both")
     if args.run_dir is not None and (options or args.mode):
         arguments.error("run options and --mode apply to a new run, not to --run-dir")
+    ui = None
     try:
+        if args.brief is not None and not args.brief.strip():
+            arguments.error("the brief is empty")
+        ui = terminal_ui(force_line=args.line)
+        ask, say = (ui.ask, ui.say) if ui is not None else (input, print)
+        workspace = (args.workspace or Path.cwd()).expanduser()
+        if ui is not None and args.run_dir is None:
+            ui.set_context(workspace)
         if args.brief is not None:
-            if not args.brief.strip():
-                arguments.error("the brief is empty")
-            workspace = (args.workspace or Path.cwd()).expanduser()
-            client = start(workspace, args.brief, run_mode(args.mode), options)
+            client = start(workspace, args.brief, run_mode(args.mode), options, ask=ask, say=say)
         elif args.run_dir is not None:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)
-            client = ChatClient(workspace, run_dir)
+            client = ChatClient(workspace, run_dir, ask=ask, say=say)
         else:
-            client = open_chat((args.workspace or Path.cwd()).expanduser().resolve(), args.mode, options)
+            client = open_chat(workspace.resolve(), args.mode, options, ask=ask, say=say)
             if client is None:
                 return 2
+        if ui is not None:
+            ui.set_context(client.workspace, client.run_dir)
         return client.converse()
     except (actions.ClientGap, OSError, ValueError) as error:
         print(f"autocode chat: {error}", file=sys.stderr)
@@ -617,6 +647,9 @@ def cli(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nautocode chat: interrupted.", file=sys.stderr)
         return 130
+    finally:
+        if ui is not None:
+            ui.close()
 
 
 if __name__ == "__main__":
