@@ -26,7 +26,9 @@ try:
     from . import autocode_controller_owner as controller_owner
     from . import autocode_conversation as conversation_protocol
     from . import autocode_dev_server as dev_server
+    from . import autocode_interventions as interventions
     from . import autocode_job_report_recovery as job_report_recovery
+    from . import autocode_pause_offer as pause_offer
     from . import autocode_progress_view as progress_view
     from . import autocode_stop_explanations as stop_explanations
     from . import autocode_verification_inspection as verification
@@ -35,7 +37,9 @@ except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_conversation as conversation_protocol
     import autocode_dev_server as dev_server
+    import autocode_interventions as interventions
     import autocode_job_report_recovery as job_report_recovery
+    import autocode_pause_offer as pause_offer
     import autocode_progress_view as progress_view
     import autocode_stop_explanations as stop_explanations
     import autocode_verification_inspection as verification
@@ -155,6 +159,14 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         dev_server=dev_server.inspect(run_dir, state.get("settings")),
     )
     public_view["job_report_recovery"] = job_report_recovery.offer(runner, state, run_dir, workspace)
+    try:
+        pending = interventions.inspect(workspace, run_dir)["requests"]
+    except interventions.InterventionError:
+        pending = None  # An unreadable inbox cannot accept a request either.
+    if pending is not None:
+        public_view["pause"] = pause_offer.project(
+            state, public_view, pending=pending, run_dir=run_dir, workspace=workspace
+        )
     if inspected is not None:
         public_view["verification"] = inspected
     try:

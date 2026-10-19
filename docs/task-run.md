@@ -355,6 +355,21 @@ actions. A live owner or provider and a busy exclusion lock remain active;
 unverifiable ownership is reported precisely without guessing absence.
 Existing approval, source and provider cleanup gates still apply.
 
+### Pausing a working run
+
+While a run works (a live stage, a fresh birth-bound controller, or a controller
+holding the run's locks), `status()["pause"]` names the boundary pause of
+[queued interventions](interventions.md): `label`, `effect`, `requested` and
+`next_command`, an argument array following `autocode` for
+`intervention submit --kind pause --json`. Its `REQUEST_ID` placeholder is the
+client's own id for this request, so a retried submission returns the original
+receipt instead of queueing another. The current step finishes and is saved,
+then the run pauses with its next stage selected; the ordinary
+`--resume-paused` action continues it. While a pause request waits for that
+boundary, `requested` is true and `next_command` is null. The field is null when
+nothing is working, when the recorded runner cannot consume interventions, and
+for a stopped run. It never interrupts a step in progress or stops the run.
+
 ## First interaction timing
 
 `status()["interaction_timing"]` reports the saved first useful interactions:

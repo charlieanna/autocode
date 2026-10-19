@@ -203,6 +203,21 @@ export class RunController {
     if (result.code !== 0) throw new Error(tail(result));
   }
 
+  /** The pause the view named (#1598), checked against its exact grammar, with this request's id. */
+  async pause(run: RunRef, requestId: string): Promise<void> {
+    const view = await this.status(run);
+    const command = view.pause?.next_command;
+    if (!view.pause || view.pause.requested || !Array.isArray(command)) {
+      throw new ClientGap("AutoCode offers no pause for this run right now");
+    }
+    const own = effective(view, run);
+    const expected = ["intervention", "submit", "--workspace", own.workspace, "--run-dir", own.runDir,
+      "--request-id", "REQUEST_ID", "--kind", "pause", "--json"];
+    if (JSON.stringify(command) !== JSON.stringify(expected)) throw new ClientGap("Unsupported pause action from AutoCode");
+    const result = await invoke(this.settings, command.map((word) => (word === "REQUEST_ID" ? requestId : word)));
+    if (result.code !== 0) throw new Error(tail(result));
+  }
+
   /** The checkpoint action the view named, checked against the exact grammar before anything runs. */
   private namedCheckpointAction(view: StatusView, run: RunRef, checkpointId: string, actionId: "compare" | "restore"): CheckpointAction {
     const row = (view.code_checkpoints?.rows ?? []).find((item) => item.id === checkpointId);

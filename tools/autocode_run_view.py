@@ -271,6 +271,8 @@ def view(
         "package": package_scope.of(state.get("settings")),
         # Status inspection supplies a fresh offer; saved state alone grants no adoption.
         "job_report_recovery": None,
+        # The pause a client may request while the run works (autocode_pause_offer, #1598); status supplies it.
+        "pause": None,
     }
     result["chat"] = chat_view.project(state, result, run_dir=run_dir, workspace=workspace)
     if simulated or invalid_replay:

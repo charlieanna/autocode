@@ -123,6 +123,7 @@ class RunViewTests(unittest.TestCase):
                 "escalation_outcomes",
                 "escalations",
                 "job_report_recovery",
+                "pause",
                 "verification_obligation",
                 "evidence_report",
                 "acceptance_tests",

@@ -186,6 +186,8 @@ export interface StatusView {
   controller?: { kind?: string; checked?: boolean; alive?: boolean | null } | null;
   current_task?: { id?: string; objective?: string } | null;
   code_checkpoints?: CodeCheckpoints | null;
+  /** The pause the view offers while the run works (#1598); a client runs only its `next_command`. */
+  pause?: { label?: string; effect?: string; requested?: boolean; next_command?: string[] | null } | null;
   chat?: {
     messages: { id: string; role: string; text: string; streaming?: boolean }[];
     phase?: "requirements" | null;

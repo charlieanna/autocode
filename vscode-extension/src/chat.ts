@@ -72,6 +72,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private hasExplicitSelection = false;
   private migratedLegacySelection = false;
   private readonly busy = new Set<string>();
+  /** Tabs whose pause request is being submitted; a working run keeps `busy` the whole time (#1598). */
+  private readonly pausing = new Set<string>();
   /** Wait identities already announced, keyed by run key: a new tab for the same run does not re-announce. */
   private readonly notified = new Map<string, Set<string>>();
   private sequence = 0;
@@ -170,7 +172,8 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const tab = this.active;
     const busy = tab.starting || this.busy.has(tab.key);
     void this.view?.webview.postMessage({
-      type: "chat", runKey: tab.key, busy, error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
+      type: "chat", runKey: tab.key, busy, pausing: this.pausing.has(tab.key),
+      error: tab.error || tab.readError, pendingBrief: tab.pendingBrief,
       selectedRun: tab.run ?? null, persistSelection,
       tabs: this.tabs.map((row) => ({ key: row.key, name: tabName(row), busy: row.starting || this.busy.has(row.key), run: row.run ?? null })),
       activeKey: this.activeKey,
@@ -247,6 +250,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (message.type === "select_tab" && message.tabKey) { this.activate(message.tabKey); return; }
     if (message.type === "close_tab" && message.tabKey) { this.close(message.tabKey); return; }
     if (message.type === "checkpoint") { await this.checkpoint(message); return; }
+    if (message.type === "pause") { await this.pause(message); return; }
     if (message.type === "checkpoint_open") {
       const opened = asRunRef({ workspace: message.workspace, runDir: message.runDir });
       if (opened) this.show(opened);
@@ -329,6 +333,26 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private async advanceAfterInput(run: RunRef): Promise<void> {
     const view = await this.controller.status(run);
     if (!view.done && view.needs?.kind === "continue") await this.controller.take(view, run);
+  }
+
+  /** Ask the working run to pause after its current step: the view's named pause, never a kill (#1598). */
+  private async pause(message: ChatMessage): Promise<void> {
+    const tab = this.active;
+    const run = tab.run;
+    if (!run || message.runKey !== tab.key || this.pausing.has(tab.key)) return;
+    const key = tab.key;
+    this.pausing.add(key);
+    tab.error = "";
+    this.post();
+    try {
+      await this.controller.pause(run, `pause-${randomBytes(8).toString("hex")}`);
+    } catch (error) {
+      if (this.activeKey === key) tab.error = messageOf(error);
+      else void vscode.window.showErrorMessage(`AutoCode (${run.runDir}): ${messageOf(error)}`);
+    } finally {
+      this.pausing.delete(key);
+      await this.refresh();
+    }
   }
 
   /**

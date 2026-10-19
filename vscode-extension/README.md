@@ -17,8 +17,8 @@ status view, and takes the action the view names. It imports nothing from
 `tools/` and never reads `state.json`.
 
 Chat in the sidebar — several task tabs at once — give plan feedback, approve a
-reviewed plan, compare or restore saved code checkpoints, and continue with
-follow-up messages in the same run. Behind the CLI's five workflows: build, bug
+reviewed plan, compare or restore saved code checkpoints, pause a working run
+after its current step, and continue with follow-up messages in the same run. Behind the CLI's five workflows: build, bug
 fix, review, design and discuss. Composer and scroll behavior adapt
 selected Kilo Code components; see [attribution](https://github.com/charlieanna/autocode/blob/master/vscode-extension/THIRD_PARTY_NOTICES.md).
 It never launches a model on its own, cannot approve a plan it has not

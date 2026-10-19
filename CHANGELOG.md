@@ -132,6 +132,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - Lifecycle-only provider events no longer let a persistent helper process bypass an explicitly configured idle timeout; genuine tool execution keeps its tool deadline (#1562).
 
 ### Added
+- VS Code chat can pause a working run: Pause takes Send's place, the current step finishes and
+  saves, and Continue resumes where it paused. The status view names the request as `pause`, so
+  the client runs only the core's own `intervention submit --kind pause` (#1598).
 - The soft-default machinery for automatic selection (#1426 step 11's second half): an internal
   `auto_select=None` launch selects and, when the tool's listings cannot be read or its accounts cannot field
   a checker, prints why in account terms and uses the fixed default routes instead of refusing - a defaulted
