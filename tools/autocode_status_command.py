@@ -7,6 +7,7 @@ if TYPE_CHECKING:
 
 try:
     from . import autocode_answer_output as answer_output
+    from . import autocode_chat_activity as chat_activity
     from . import autocode_chat_progress as chat_progress
     from . import autocode_cost as cost
     from . import autocode_escalation_view as escalation_view
@@ -14,6 +15,7 @@ try:
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_answer_output as answer_output
+    import autocode_chat_activity as chat_activity
     import autocode_chat_progress as chat_progress
     import autocode_cost as cost
     import autocode_escalation_view as escalation_view
@@ -234,6 +236,10 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     public_view["chat"]["progress"] = chat_progress.project(
         state, public_view, finished=bool(active_finished), stopped=bool(next_action)
     )
+    if activity := chat_activity.project(
+        state, public_view, run_dir, finished=bool(active_finished), stopped=bool(next_action)
+    ):
+        public_view["chat"]["activity"] = activity
     if public_view.get("progressive") and completion_current is not None:
         public_view["progressive"]["current_whole_product_proof"] = {
             "verified": completion_current is True,

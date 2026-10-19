@@ -187,6 +187,21 @@ queued and stopped steps are not described as running. Clients render these line
 without deriving stage names or success from private state. Older cores may omit
 the field.
 
+While a supervised step works, optional `activity` is an array of at most 20
+display events from the running attempt's own provider event file, oldest first:
+`{kind, text, status}` with `kind` one of `command`, `edit` or `tool`, `status`
+one of `running`, `done` or `failed`, and, for an `edit`, the `paths` it names
+(relative to the project when they are inside it, at most 8). `text` is one
+bounded line: a command's first line, the files changed, or the tool called.
+Model prose, reasoning and tool output are never copied, and only the tail of a
+file inside the run directory is read. `done` and `failed` describe the tool
+call, not the work: a command that exited 0 is not a passed check, an edit is
+not an accepted change, and nothing here is proof, approval or authority to
+retry. Activity that is not confirmed as supervised, a finished or stopped step
+and a paused run have none, and the field is then omitted. Codex-style items
+(also what the built-in Claude provider writes) and OpenCode or Kilo tool parts
+are read; other event shapes show nothing. Older cores may omit the field.
+
 During spec-first Requirements chat, `phase: "requirements"` lets clients show
 the conversation without the empty task dashboard. An assistant message may
 have `streaming: true`; its text is provisional display content from the active

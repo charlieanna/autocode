@@ -169,6 +169,15 @@
           "required": ["messages", "context", "input"],
           "properties": {
             "progress": {"type": "array", "items": {"type": "string"}, "description": "Optional core-authored activity, saved progress counts and recent attempt descriptions. A finished attempt does not mean its result passed verification."},
+            "activity": {"type": "array", "maxItems": 20, "items": {
+              "type": "object", "required": ["kind", "text", "status"],
+              "properties": {
+                "kind": {"enum": ["command", "edit", "tool"]},
+                "text": {"type": "string"},
+                "status": {"enum": ["running", "done", "failed"]},
+                "paths": {"type": "array", "maxItems": 8, "items": {"type": "string"}}
+              }
+            }, "description": "Optional display-only events of the running, supervised attempt, oldest first. A command that exited 0 is not a passed check; never proof, approval or authority to retry."},
             "review": {"type": ["object", "null"], "properties": {
               "spend_confirmation": {"type": "object", "required": ["title", "detail", "label"], "properties": {
                 "title": {"type": "string"}, "detail": {"type": "string"}, "label": {"type": "string"},
