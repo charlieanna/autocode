@@ -16,9 +16,10 @@ PR template asks for an entry here; a change without one is incomplete.
   and runs exactly the command the view names. Plain `autocode` in a terminal now opens it: it picks
   up the run left open, or asks what you want done.
 
-- `autocode chat` takes the whole terminal in an interactive session: a scrollable transcript, the
-  current stage on a status line, and a reply composer with editing and history. `--line` keeps the
-  line-by-line prompts, and scripts still get them when there is no terminal.
+- `autocode chat` takes the whole terminal in an interactive session: a wordmark splash, a
+  scrollable transcript with a colored label for each speaker, the current question or activity
+  above a boxed reply composer with editing and history. `--line` keeps the line-by-line prompts,
+  and scripts still get them when there is no terminal.
 
 - New chats in VS Code offer a **Run mode**: Full (the default, Requirements first) or Quick plan,
   where a clear request goes straight to the plan. The modes and their start flags come from the
