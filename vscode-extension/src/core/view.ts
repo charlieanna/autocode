@@ -144,6 +144,8 @@ export interface CodeCheckpoints {
   version?: number;
   blocked_reason?: string | null;
   rows?: CodeCheckpointRow[];
+  /** While a Builder step runs: the display-only diff of what it has changed so far (`checkpoint --working`). */
+  working?: CheckpointAction | null;
   continuation?: Record<string, unknown> | null;
   restores?: Record<string, unknown>[] | null;
 }
@@ -198,11 +200,21 @@ export interface StatusView {
     notice?: string | null;
     /** Core-authored activity and recent attempt descriptions; display text only. */
     progress?: string[];
+    /** The running attempt's recent commands, edits and tool calls; display only, never proof. */
+    activity?: ChatActivity[];
     review?: { question_id: string; answer: string; label: string; summary?: string;
       spend_confirmation?: { title: string; detail: string; label: string; match?: "trim_lower" } } | null;
     context: string;
     input: { kind: "feedback" | "follow_up" | "resolver_response"; label: string; next_command: string } | null;
   };
+}
+
+/** One `chat.activity` event: what the running step did, never whether it was right. */
+export interface ChatActivity {
+  kind: "command" | "edit" | "tool";
+  text: string;
+  status: "running" | "done" | "failed";
+  paths?: string[];
 }
 
 /** The envelope `autocode --status` prints: the view sits under `"view"`. */

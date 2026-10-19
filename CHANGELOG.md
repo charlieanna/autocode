@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The VS Code chat shows what the running step is doing (`chat.activity`: its commands, edits and
+  tool calls, a failed one marked) and, while the Builder works, a "Show what the Builder has changed
+  so far" button that runs the view's named `checkpoint --working` diff (#1643).
+
 - The full-screen `autocode chat` keeps a history of your chats, as the VS Code extension
   does: `/runs` lists them across every project, open and finished, grouped by project (this
   one first, then by latest activity) with each one's request and state;
