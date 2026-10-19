@@ -1615,6 +1615,68 @@ test('established run with subsequent status failure does not roll back run (#15
   assert.deepEqual(ui.chat.run, run, 'temporary read failure must not roll back an established run');
 });
 
+test('a failed status read keeps the transcript but disables chat actions until a good read (#1593)', async (t) => {
+  let failing = false;
+  const value = chatView();
+  const ui = await openChat(t, value, run, { statusFor: () => { if (failing) throw new Error('status unavailable'); return value; } });
+  const take = () => ui.document.querySelector('#take-action');
+  const send = () => ui.document.querySelector('#send-message');
+  ui.type('Please keep the export format');
+  assert.equal(take().disabled, false);
+  assert.equal(send().disabled, false);
+  failing = true;
+  await ui.poll();
+  assert.equal(take().disabled, true, 'an action from an older read must not look live');
+  assert.equal(send().disabled, true, 'feedback is bound to the input the older read offered');
+  assert.ok(ui.document.querySelector('#app').textContent.includes('couldn’t read the latest status'));
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Build the requested CLI'), 'transcript stays');
+  assert.equal(ui.document.querySelector('#message').value, 'Please keep the export format', 'draft stays');
+  assert.ok(ui.document.querySelector('#chat-error').textContent.includes('status unavailable'));
+  const refresh = [...ui.document.querySelectorAll('#app button')].find((button) => button.textContent === 'Refresh');
+  assert.equal(refresh.disabled, false, 'Refresh is how the reader retries');
+  failing = false;
+  await ui.poll();
+  assert.equal(take().disabled, false);
+  assert.equal(send().disabled, false);
+  assert.ok(!ui.document.querySelector('#app').textContent.includes('couldn’t read the latest status'));
+  assert.equal(ui.document.querySelector('#chat-error').textContent, '');
+});
+
+test('a failed status read disables requirements Continue (#1593)', async (t) => {
+  let failing = false;
+  const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
+    liveness: { kind: 'unknown' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`, chat: {
+      phase: 'requirements', context: 'stopped', input: null,
+      messages: [{ id: 'u1', role: 'user', text: 'A book app' }] } };
+  const ui = await openChat(t, value, run, { statusFor: () => { if (failing) throw new Error('status unavailable'); return value; } });
+  assert.equal(ui.document.querySelector('#take-action').disabled, false);
+  failing = true;
+  await ui.poll();
+  assert.equal(ui.document.querySelector('#take-action').disabled, true);
+});
+
+test('a background tab keeps its own read error when it is shown again (#1593)', async (t) => {
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other' };
+  let failing = false;
+  const value = chatView();
+  const ui = await openChat(t, value, run, { statusFor: (target) => {
+    if (failing && target.runDir === run.runDir) throw new Error('status unavailable');
+    return value;
+  } });
+  ui.chat.show(other);
+  await flush();
+  failing = true;
+  await ui.poll();
+  const reads = [];
+  // Hold the re-read that showing the tab starts, so the first frame is the stored state.
+  t.mock.method(controller, 'status', () => new Promise((resolve) => reads.push(resolve)));
+  ui.chat.show(run);
+  await flush();
+  assert.equal(ui.document.querySelector('#take-action').disabled, true, 'shown before its re-read returns');
+  assert.ok(ui.document.querySelector('#chat-error').textContent.includes('status unavailable'));
+  reads.forEach((resolve) => resolve(structuredClone(value)));
+});
+
 test('in-flight start does not block New Chat or actions on other runs (#1540)', async (t) => {
   const runA = { workspace: '/ws', runDir: '/ws/.autocode/runs/run-a' };
   const runB = { workspace: '/ws', runDir: '/ws/.autocode/runs/run-b' };

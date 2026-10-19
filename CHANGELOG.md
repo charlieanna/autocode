@@ -20,6 +20,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code chat disables its actions and Send while the latest status read has failed, says so
+  above the transcript, and re-enables them on the next good read; a background tab keeps its
+  own read error (#1593).
 - The named recovery action can set aside a stopped planning attempt after a Resolver reply,
   instead of publishing the same operational question before reaching abandonment. Exact attempt
   and stopped-process validation still apply; resuming remains a separate action (#1588).
