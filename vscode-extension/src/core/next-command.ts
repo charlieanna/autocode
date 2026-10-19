@@ -237,6 +237,11 @@ export function leavesForPerson(need: { kind?: string; resolver_scope?: string }
   return need.kind === "answer" && PERSON_ONLY_SCOPES.includes(need.resolver_scope ?? "");
 }
 
+/** A clean requested pause still waits for a person; its Resume click needs no second dialog. */
+export function requiresConfirmation(need: { kind?: string; resolver_scope?: string; confirmation_required?: boolean } | null): boolean {
+  return leavesForPerson(need) && !(need?.kind === "resume" && need.confirmation_required === false);
+}
+
 /** The action a person takes on their own initiative while a stage runs. */
 export function retryAction(need: Record<string, unknown> | null): string | null {
   const value = need?.retry_action;

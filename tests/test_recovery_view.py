@@ -211,6 +211,33 @@ class RecoveryViewTests(unittest.TestCase):
         )
         self.assertEqual("Resume after correction", resume["label"])
 
+    def test_only_a_clean_requested_pause_can_skip_the_second_resume_confirmation(self):
+        for status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
+            with self.subTest(status=status):
+                state = self.state(status)
+                before = copy.deepcopy(state)
+                view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+                self.assertEqual("resume", view["needs"]["kind"])
+                self.assertIs(False, view["needs"]["confirmation_required"])
+                self.assertEqual("autocode --run-dir /run --workspace /ws --resume-paused", view["next_command"])
+                self.assertEqual(before, state)
+        for status, fields in (
+            ("PAUSED_INVALID_OUTPUT", {}),
+            ("PAUSED_INTERVENTION", {"pause_intent": {"held_pause": {"status": "PAUSED_TIME_LIMIT"}}}),
+            ("PAUSED_REQUESTED", {"pause_intent": {"held_pause": {"status": "PAUSED_TIME_LIMIT"}}}),
+            (
+                "PAUSED_INTERVENTION",
+                {"active_stage": {"iteration": 1, "output": "/run/iterations/001/builder-01.json"}},
+            ),
+            ("PAUSED_REQUESTED", {"active_runner_check": {"stage": "regression_proof"}}),
+            ("PAUSED_REQUESTED", {"uncertain_artifacts": ["partial.py"]}),
+            ("PAUSED_REQUESTED", {"pending_report_repair": {"original": {"stage": "sol"}}}),
+            ("PAUSED_INTERVENTION", {"applied_interventions": [{"kind": "stop"}]}),
+        ):
+            with self.subTest(status=status, fields=fields):
+                view = run_view.view(self.state(status, **fields))
+                self.assertIsNot(False, view["needs"].get("confirmation_required"))
+
     def test_interruption_is_exact_abandon_without_resume_and_missing_attempt_has_no_guess(self):
         state = self.state(
             "PAUSED_PROVIDER_UNCERTAIN",

@@ -46,7 +46,9 @@ for (const surface of ['chat', 'Run details']) {
   test(`finite recovery grant in ${surface} is blank, bounded and explicitly confirmed`, async (t) => {
     host.config.set('confirmPersonOnly', false);
     const ownController = new RunController(host.log);
-    const ui = surface === 'chat' ? await openChat(t, recoveryGrantView(), run, { controller: ownController }) : await openPanel(t, recoveryGrantView(), undefined, ownController);
+    const value = recoveryGrantView();
+    value.needs.confirmation_required = false; // A display hint cannot waive numeric authority.
+    const ui = surface === 'chat' ? await openChat(t, value, run, { controller: ownController }) : await openPanel(t, value, undefined, ownController);
     const field = ui.document.querySelector('[data-question="grant_recovery"]');
     const take = () => ui.document.querySelector('#take-action');
     assert.equal(field.value, ''); assert.equal(take().disabled, true);
@@ -581,6 +583,35 @@ test('chat recovery retry requires confirmation and keeps the exact job token ou
   assert.ok(args.includes('-'));
   assert.ok(!args.includes('jr:exact-secret'));
   assert.equal(env.AUTOCODE_JOB_RETRY_TOKEN, 'jr:exact-secret');
+});
+
+for (const surface of ['chat', 'details']) for (const [label, status, confirmation, prompts] of [
+  ['clean requested pause', 'PAUSED_REQUESTED', false, 0],
+  ['legacy requested pause', 'PAUSED_REQUESTED', undefined, 1],
+  ['explicit confirmation', 'PAUSED_INTERVENTION', true, 1],
+  ['failure pause', 'PAUSED_INVALID_OUTPUT', undefined, 1],
+]) test(`${surface}: ${label} keeps the core resume-confirmation policy`, async (t) => {
+  host.config.set('confirmPersonOnly', true);
+  t.after(() => host.config.delete('confirmPersonOnly'));
+  const value = { status, done: false, needs: { kind: 'resume',
+    ...(confirmation === undefined ? {} : { confirmation_required: confirmation }) },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=resume:exact autocode --resume-paused --expected-recovery-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+  };
+  const ui = surface === 'chat' ? await openChat(t, value) : await openPanel(t, value);
+  const prompt = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  assert.equal(launch.mock.callCount(), 0, 'a pause still waits for an explicit click');
+  ui.document.querySelector('#take-action').click();
+  await flush(); await flush();
+  assert.equal(prompt.mock.callCount(), prompts);
+  assert.equal(launch.mock.callCount(), prompts ? 0 : 1, 'declining a required dialog must keep the run paused');
+  if (!prompts) {
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.ok(args.includes('--resume-paused'));
+    assert.ok(args.includes('--expected-recovery-token'));
+    assert.equal(env.AUTOCODE_EXPECTED_RECOVERY_TOKEN, 'resume:exact');
+    assert.ok(!args.includes('resume:exact'));
+  }
 });
 
 test('chat does not guess an unresolved recovery allowance', async (t) => {
@@ -1207,6 +1238,71 @@ for (const phase of ['requirements', null]) test(`chat renders core step progres
   for (const line of next.chat.progress) assert.ok(text().includes(line));
   assert.ok(!text().includes('Builder working'));
   assert.equal(ui.document.querySelector('#message').value, 'Keep this draft');
+});
+
+function requirementsModelQuestion(token = 'model-question:current') {
+  // Native0a8 public shape: core offers only its main route-glm=MODEL action,
+  // with no free-text chat input or Requirements-understanding review.
+  return { status: 'WAITING_FOR_USER', done: false, phase: 'DISCOVERING',
+    needs: { kind: 'answer', resolver_token: token,
+      questions: [{ id: 'route-glm', question: "Requirements's response exhausted its output limit; name another model to continue on", options: [] }],
+      route: { question_id: 'route-glm', role: 'glm', candidates: [] } },
+    next_command: `AUTOCODE_RESOLVER_TOKEN=${token} autocode --answer route-glm=MODEL --resolver-token - --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: 'requirements', context: 'requirements-model-choice', input: null, review: null,
+      messages: [{ id: 'request', role: 'user', text: 'Fix the queue ordering bug' }] },
+  };
+}
+
+test('requirements model-choice renders a blank decision and sends only the named answer', async (t) => {
+  const value = requirementsModelQuestion();
+  const ui = await openChat(t, value);
+  const field = ui.document.querySelector('[data-question="route-glm"]');
+  assert.ok(field, 'the core model-choice question must remain visible in Requirements chat');
+  assert.equal(field.value, '', 'the client must not choose a model');
+  assert.ok(ui.document.querySelector('#app').textContent.includes(value.needs.questions[0].question));
+  assert.equal(ui.document.querySelector('#take-action').disabled, true);
+  assert.equal(ui.document.querySelector('#send-message').disabled, true, 'chat.input=null is not a free-text offer');
+  field.value = 'fixture/alternate'; field.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(ui.document.querySelector('#take-action').disabled, false);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 1);
+  const [, args, env] = launch.mock.calls[0].arguments;
+  assert.deepEqual(args, ['--answer', 'route-glm=fixture/alternate', '--resolver-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+  assert.deepEqual(env, { AUTOCODE_RESOLVER_TOKEN: 'model-question:current' });
+  const take = ui.sent.find((message) => message.type === 'take');
+  assert.equal(take.runKey, `${run.workspace}\n${run.runDir}`);
+  assert.ok(take.decisionContext, 'the answer retains the displayed question binding');
+  assert.ok(!args.includes('--approve-goal') && !args.includes('--grant-recovery') && !args.includes('--resume-paused'));
+});
+
+test('requirements model-choice disables stale controls after a failed status read', async (t) => {
+  const value = requirementsModelQuestion();
+  let failing = false;
+  const ui = await openChat(t, value, run, { statusFor: () => { if (failing) throw new Error('status unavailable'); return value; } });
+  const field = ui.document.querySelector('[data-question="route-glm"]');
+  assert.ok(field);
+  field.value = 'fixture/alternate'; field.dispatchEvent(new ui.window.Event('input'));
+  assert.equal(ui.document.querySelector('#take-action').disabled, false);
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  failing = true; await ui.poll();
+  assert.equal(ui.document.querySelector('#take-action').disabled, true);
+  ui.document.querySelector('#take-action').click(); await flush();
+  assert.equal(launch.mock.callCount(), 0);
+  failing = false; await ui.poll();
+  assert.equal(ui.document.querySelector('[data-question="route-glm"]').value, 'fixture/alternate');
+  assert.equal(ui.document.querySelector('#take-action').disabled, false);
+});
+
+test('requirements model-choice rejects an answer bound to the previous question', async (t) => {
+  const ui = await openChat(t, requirementsModelQuestion());
+  const field = ui.document.querySelector('[data-question="route-glm"]');
+  assert.ok(field);
+  field.value = 'fixture/alternate'; field.dispatchEvent(new ui.window.Event('input'));
+  ui.setView(requirementsModelQuestion('model-question:new'));
+  const launch = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#take-action').click(); await flush(); await flush();
+  assert.equal(launch.mock.callCount(), 0, 'a fresh read must reject the old question binding');
 });
 
 test('requirements approval sends only the core-offered answer and never approves a build', async (t) => {

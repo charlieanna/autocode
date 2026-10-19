@@ -7,7 +7,7 @@
  */
 
 import * as vscode from "vscode";
-import { ClientGap, integerValue, leavesForPerson, type OpenDecision } from "./core/next-command";
+import { ClientGap, integerValue, leavesForPerson, requiresConfirmation, type OpenDecision } from "./core/next-command";
 import type { AcceptanceCriterion, IntegerCommandInput, Question, StatusView } from "./core/view";
 import { approvalToken, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
@@ -222,7 +222,7 @@ export class RunPanel {
         void vscode.window.showErrorMessage("AutoCode: The requested action changed; review it before continuing");
         return;
       }
-      if (numeric || (leavesForPerson(view.needs ?? null) && confirmPersonOnly())) {
+      if (numeric || (requiresConfirmation(view.needs ?? null) && confirmPersonOnly())) {
         const button = numeric ? numericActionLabel(state) : "Take it anyway";
         const proceed = await vscode.window.showWarningMessage(
           numeric ?? `AutoCode stopped this run for a person to decide (${view.needs?.kind}). Taking its named action applies your answer to that decision.`,
@@ -686,7 +686,8 @@ function render(state) {
     }
 
     if (state.chat && state.chat.phase === 'requirements' && !state.gap
-        && (!state.pause || state.needKind === 'answer')) {
+        && (!state.pause || state.needKind === 'answer')
+        && (state.chat.review || state.needKind === 'continue')) {
       if (state.chat.review) {
         const review = state.chat.review;
         if (review.summary) cardContent.appendChild(el('pre', 'understanding', review.summary));

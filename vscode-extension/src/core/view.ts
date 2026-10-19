@@ -30,6 +30,8 @@ export interface Needs {
   edit_required?: boolean;
   feedback_action?: string | null;
   command_inputs?: IntegerCommandInput[];
+  /** False only when the core offers a clean requested-pause resume; the person still clicks Resume. */
+  confirmation_required?: boolean;
 }
 
 /** A person's finite total, offered only for its exact recovery command. */

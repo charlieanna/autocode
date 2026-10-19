@@ -64,6 +64,9 @@ def answer_view(**need):
 class NamedActionTests(unittest.TestCase):
     """The rules a client reads the view by, the ones next-command.ts and the conformance client follow."""
 
+    def test_no_second_confirmation_does_not_authorize_an_automatic_resume(self):
+        self.assertTrue(actions.leaves_for_person({"kind": "resume", "confirmation_required": False}))
+
     def test_a_named_command_keeps_its_token_out_of_argv_and_leaves_the_run_to_the_caller(self):
         command = actions.named(answer_view(), WORKSPACE, RUN)
         self.assertEqual(["--answer", "Q1=ANSWER", "--resolver-token", "-"], command.argv)

@@ -49,6 +49,7 @@ try:
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
     from . import autocode_package_scope as package_scope
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_pause_category as pause_category
     from . import autocode_pause_command as pause_command
     from . import autocode_plan_file as plan_file
@@ -90,6 +91,7 @@ except ImportError:
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
     import autocode_package_scope as package_scope
+    import autocode_pause_authority as pause_authority
     import autocode_pause_category as pause_category
     import autocode_pause_command as pause_command
     import autocode_plan_file as plan_file
@@ -1041,5 +1043,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         ):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
             need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
+        if "action" not in need and pause_authority.requested_only(state):
+            need["confirmation_required"] = False
         return need
     return {"kind": "continue"}

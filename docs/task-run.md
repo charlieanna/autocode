@@ -164,6 +164,15 @@ receipt reuse and supported correction; readiness does not replace proof.
 
 ## Chat projection for ordinary task runs
 
+A clean user-requested pause may set `needs.confirmation_required: false` on
+its ordinary `resume` offer. The person's Resume click then needs no second
+confirmation dialog. The need remains person-only: clients must not automatically
+resume it. Missing or true preserves the client's existing confirmation policy;
+failure recovery, held operational pauses, retained attempts, report repairs and
+terminal stops do not receive this exception. Numeric allowance changes still
+need their explicit confirmation. Named commands and CLI admission checks are
+unchanged.
+
 The additive `view.chat` contains `messages` (stable `id`, `role`, `text`),
 an opaque `context`, and an optional `input` offer. Messages project existing
 human receipts and saved completed replies. At a follow-up, the prior reply is
