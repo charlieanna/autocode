@@ -19,6 +19,18 @@ class DynamicDependenciesTests(unittest.TestCase):
             dependencies.dependencies("tools/autocode_run_records.py"),
         )
 
+    def test_truncated_repair_timeout_keeps_its_public_cli_consumer_even_when_slow(self):
+        consumer = "tests.test_truncated_review_recovery"
+        for path in (
+            "tools/autocode_stage_recovery.py",
+            "tools/autocode_report_source.py",
+            "tools/autocode_action_authority.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_auth_preflight_keeps_its_credential_cli_consumer_even_when_slow(self):
         consumer = "tests.test_provider_credentials"
         for path in ("tools/autocode_model_preflight.py", "tools/autocode_provider_auth.py"):

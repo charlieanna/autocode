@@ -806,6 +806,8 @@ def render(state: RunState, run_dir=None):
         origin = (state.get("settings") or {}).get("planning_review_call_limit_origin")
         if origin:
             budget += f" (allowance from {origin})"
+        if (state.get("planning") or {}).get("review_depth_reduced"):
+            budget += "; counts across revisions (small clear brief)"
         lines += ["", f"Joint planning: {budget}"]
         for stage, report in state["planning"]["reports"].items():
             lines.append(f"  {stage}: {report['output']}")

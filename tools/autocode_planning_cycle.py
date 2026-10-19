@@ -37,9 +37,16 @@ def planning_inputs(state: RunState):
 def new_cycle(state: RunState):
     """Archive the planning record, with its reports and review charges, and begin a cycle under the configured
     review allowance. A v2 cycle records the inputs it began after (planning_inputs, read by admit_requirements)."""
-    if state.get("planning"):
-        state.setdefault("planning_history", []).append(copy.deepcopy(state["planning"]))
+    archived = state.get("planning")
+    if archived:
+        state.setdefault("planning_history", []).append(copy.deepcopy(archived))
     state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
+    if archived and archived.get("review_depth_reduced"):
+        # A small clear brief pays one total allowance across cycles (#1564): the
+        # revision restarts the record, not the counter.
+        state["planning"]["review_depth_reduced"] = True
+        state["planning"]["review_calls_before_policy"] = archived.get("review_calls_before_policy", 0)
+        state["planning"]["astra_calls"] = archived.get("astra_calls", 0)
     saved_review_limit = state.get("settings", {}).get("planning_review_call_limit")
     if type(saved_review_limit) is int and saved_review_limit == 0:
         state["planning"].update(review_call_limit=0, review_call_limit_origin="user_explicit")

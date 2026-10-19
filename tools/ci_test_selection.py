@@ -79,6 +79,10 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ),
         ("tests.test_operational_information",),
     ),
+    (
+        ("tools/autocode_stage_recovery.py", "tools/autocode_report_source.py", "tools/autocode_action_authority.py"),
+        ("tests.test_truncated_review_recovery",),
+    ),
     (("tools/autocode_plan_chat.py",), ("tests.test_plan_chat_cli",)),
     (
         (

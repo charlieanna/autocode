@@ -188,5 +188,54 @@ class HeldPauseTests(unittest.TestCase):
             self.assertIsNone(pause_authority.correction_refusal({"status": status}, "An edited goal"), status)
 
 
+class PlanningReconsiderationTests(unittest.TestCase):
+    def test_only_abandonment_defers_exhaustion_to_its_existing_handler(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        import autocode as runner
+        import autocode_action_authority as authority
+        import autocode_args
+
+        parser = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS)
+        for pause in ("PAUSED_RESOLVER_OPERATIONAL", "PAUSED_TIMEOUT_RECOVERY"):
+            for flags in (
+                (),
+                ("--retry-builder", "M1"),
+                ("--retry-failed-stage",),
+                ("--retry-report", "001/other"),
+                ("--diagnose-failed-stage",),
+                ("--max-stage-seconds", "900"),
+                ("--abandon-stage", "001/plan-review-01"),
+            ):
+                with self.subTest(pause=pause, flags=flags):
+                    state = {"status": pause, "next_stage": "astra_challenge", "settings": {"joint_planning": True}}
+                    args = parser.parse_args(flags)
+                    decided = SimpleNamespace(decision_action=False, information_admitted=False, checked_authority=True)
+                    fake_runner = Mock()
+                    with (
+                        patch.object(authority.resolver_runtime, "record_operational_exhaustion") as publish,
+                        patch.object(authority.lifecycle, "render", return_value="Planning recovery held"),
+                    ):
+                        result = authority.reconsider(
+                            fake_runner,
+                            args,
+                            parser,
+                            state,
+                            Path("/unused/state.json"),
+                            Path("/unused"),
+                            Path("/workspace"),
+                            decided,
+                        )
+                    if "--abandon-stage" in flags:
+                        self.assertIsNone(result)
+                        publish.assert_not_called()
+                        fake_runner.write_json.assert_not_called()
+                    else:
+                        self.assertEqual(2, result)
+                        publish.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

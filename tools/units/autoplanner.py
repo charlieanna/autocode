@@ -617,6 +617,42 @@ def route_for(state: RunState, stage, role=None):
 PINNED_REVIEWER_MODEL = "openai/gpt-6-sol"
 
 
+def review_depth_reduced(state: RunState) -> bool:
+    """Whether this run's review allowance counts across planning cycles (#1564).
+
+    A small clear brief pays a total allowance, not a fresh one per revision: the
+    2026-10-18 dogfood run spent three grants because each requirements revision
+    restarted the cycle counter. ``--plan-review-full`` opts a run out; anything
+    not clearly small at recognition (and whose drafted plan is not small once it
+    exists) keeps today's per-cycle counting. Depth (effort) is unchanged here.
+    """
+    if (state.get("settings") or {}).get("plan_review_full"):
+        return False
+    workflow = state.get("workflow") or {}
+    if workflow.get("clarity") != "clear":
+        return False
+    if workflow.get("brief_size") == "small":
+        return True
+    adaptive_record = (state.get("planning") or {}).get("adaptive") or {}
+    return adaptive_record.get("size") == "small"
+
+
+def apply_review_depth_policy(state: RunState):
+    """Activate the reduced depth at review admission; earlier calls join the total.
+
+    Runs once per planning record: the first admission that finds the policy
+    applicable carries every archived cycle's usage into the current counter, so
+    reviews that already ran at full depth still count against the total.
+    """
+    planning = state.get("planning") or {}
+    if planning.get("review_depth_reduced") or not review_depth_reduced(state):
+        return
+    archived = sum(row.get("astra_calls", 0) for row in state.get("planning_history") or [])
+    planning["review_depth_reduced"] = True
+    planning["review_calls_before_policy"] = archived
+    planning["astra_calls"] = archived + planning.get("astra_calls", 0)
+
+
 def review_call_limit(state: RunState):
     limit = cast(dict, state.get("planning", {})).get(
         "review_call_limit", state.get("settings", {}).get("planning_review_call_limit", 2)
@@ -712,6 +748,7 @@ def charge(state: RunState, stage, record=None, workspace=None):
     if progressive.charge_review(state, stage, record):
         return
     planning = state["planning"]
+    apply_review_depth_policy(state)
     refund_unreported(state, planning)
     limit = review_call_limit(state)
     if limit and planning["astra_calls"] >= limit:

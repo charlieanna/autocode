@@ -748,6 +748,8 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         getattr(args, "adaptive_planning", None), joint, role_names.planning_flow(settings) == "v2"
     ):
         settings["adaptive_planning"] = True
+    if getattr(args, "plan_review_full", False):
+        settings["plan_review_full"] = True
     # A persisted review allowance for new runs (#1565): the flag wins, then the
     # user's config.toml, then the machinery's built-in default. A resumed run
     # keeps its saved settings; this applies only where settings are first built.

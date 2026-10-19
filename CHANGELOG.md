@@ -20,6 +20,14 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The named recovery action can set aside a stopped planning attempt after a Resolver reply,
+  instead of publishing the same operational question before reaching abandonment. Exact attempt
+  and stopped-process validation still apply; resuming remains a separate action (#1588).
+
+- A stopped report-only repair can use its remaining bounded attempt after an output-truncated
+  review, preserving the original evidence and charged attempts. Unchanged source, evidence pins,
+  review ownership and stopped-process checks still gate recovery (#1584).
+
 - Native chat can request an explicit finite total active-time limit from a typed,
   recovery-token-bound core offer. The selected total preserves other caps, model
   routes and plan approval; unsupported numeric recovery controls still report a gap (#1579).
