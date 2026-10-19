@@ -27,6 +27,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Small-task review keeps explicitly selected Plan Reviewer effort and legacy saved
+  efforts. Fresh default/automatic routes still use the reduced tier, with review
+  charges, model independence and replay matching unchanged (#1618).
+
 - Offline replay preserves the recorded Plan Reviewer effort instead of applying
   the small-task reduction twice. Provider light-effort settings remain portable;
   review budgets and exact recorded-route validation still apply (#1616).

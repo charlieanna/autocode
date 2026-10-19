@@ -57,6 +57,7 @@ POLICY_KEYS = (
     "roles",
     "single_model_mode",
     "budget_origins",
+    "effort_origins",
     "builder_retry",
     "route_ladders",
     "orchestration",

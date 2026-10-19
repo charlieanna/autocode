@@ -516,6 +516,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
             configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
         # A saved run re-records only the routes a flag just moved, as `budget_origins` does below.
         role_route.moved(args, settings)
+        role_route.record_reviewer_effort(args, settings, fresh=False)
         if getattr(args, "planning_v2", False):
             settings["planning_flow"] = "v2"
         if getattr(args, "unlimited_iterations", False):
@@ -785,6 +786,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         for role, route in auto_selection["routes"].items():
             if route.get("origin") == role_route.AUTO_SELECTED:
                 settings["route_origins"][role] = role_route.AUTO_SELECTED
+    role_route.record_reviewer_effort(args, settings, fresh=True)
     verification_config.validate(settings["regression"])
     return task_preflight.configure(
         state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args

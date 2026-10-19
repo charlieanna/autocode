@@ -532,6 +532,13 @@ glm = { model = "zhipuai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high", light_effort = "medium" }
 ```
 
+For clear, small tasks the Plan Reviewer may use `light_effort` (or one lower
+standard effort tier) only when a new run used an automatic/default effort.
+An explicit reviewer effort, including a project effort setting, wins. Saved
+runs without effort provenance retain their existing effort on upgrade; model
+pins alone do not establish effort provenance. The review-call allowance still
+applies independently of this effort choice.
+
 `[roles]` must keep each verifier on a different model family from what it checks
 (Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
 roles break that pauses with `PAUSED_CROSS_MODEL` before any agent is launched.

@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_reviewer_effort_producers_keep_the_public_dispatch_consumer(self):
+        for path in ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"):
+            with self.subTest(path=path):
+                consumer = "tests.test_reviewer_effort_cli"
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_planning_and_replay_keep_the_saved_run_cli_consumer_even_when_slow(self):
         consumer = "tests.test_saved_run_replay_cli"
         for path in (
