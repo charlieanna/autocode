@@ -3231,3 +3231,29 @@ test('test_ac21_first_observed_waiting_run_notifies_once', async (t) => {
   await ui.poll();
   assert.equal(host.notices.length, 1);
 });
+
+
+test('cap-counted cost renders above historical cost and polling retains its unknown coverage', async (t) => {
+  const initial = { ...chatView(), cost: { spent_usd: 1.966683, cap_usd: 2, complete: false, unpriced_stages: 10 },
+    usage: { accounting: { cost: { historical_estimated_usd: { value: null, known: 1.5335513, complete: false, known_items: 15 } } } } };
+  const ui = await openChat(t, initial);
+  ui.type('Keep this unsent feedback');
+  const summary = () => ui.document.querySelector('#usage-summary').textContent;
+  const details = ui.document.querySelector('#usage-breakdown');
+  assert.match(summary(), /Cost counted toward cap: at least \$1\.97 \/ \$2\.00 cap \(partial; 10 unpriced stages\)/);
+  assert.ok(!summary().includes('$1.53'), 'the cap uses its own accounting, not the historical subtotal');
+  const rows = [...details.querySelectorAll('.telemetry-row')].map((row) => row.textContent);
+  assert.match(rows[0], /^Cost counted toward cap/);
+  assert.ok(rows.findIndex((row) => row.startsWith('Historical cost estimate')) > 0);
+  assert.match(details.textContent, /Historical cost estimate\$1\.53 \(partial\)/);
+  const next = structuredClone(initial);
+  next.cost.spent_usd = null;
+  await ui.poll(next);
+  assert.match(summary(), /Cost counted toward cap: unknown \/ \$2\.00 cap/);
+  assert.ok(!summary().includes('$0.00'));
+  assert.equal(ui.document.querySelector('#message').value, 'Keep this unsent feedback');
+  delete next.cost;
+  await ui.poll(next);
+  assert.match(summary(), /\$1\.53 \(partial\) historical est\./);
+  assert.ok(!summary().includes('no configured cap'), 'an older core missing cost does not mean a free or uncapped run');
+});
