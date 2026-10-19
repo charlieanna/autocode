@@ -213,7 +213,7 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
         elif unloadable and test_cases.named_in(case["test_name"], source):
             verdicts[case["id"]] = "cannot load"
         else:
-            wrong.append(f"{case['id']}: no test named {case['test_name']} ran in {rows[case['id']]['file']}")
+            wrong.append(_not_run(case, rows[case["id"]]["file"], source, run, results))
     if wrong:
         raise ValueError(
             "The runner ran the acceptance tests on today's code: "
@@ -222,6 +222,27 @@ def _verdicts(state: RunState, cases: list[dict], value: dict, workspace, run: d
             "already exists, keep its test and also report the case in already_passing; do not weaken the test."
         )
     return verdicts
+
+
+def _not_run(case: dict, file: str, source: str, run: dict, results: dict) -> str:
+    """Why the runner saw no result for a case's test, so the Tester's retry can fix the test (#1567).
+
+    A file can define the test in a form the runner's command does not collect (a bare pytest function
+    under ``python -m unittest``): every retry then sees the same "no test ran" until the Tester gives up."""
+    missing = f"{case['id']}: no test named {case['test_name']} ran in {file}"
+    if not test_cases.named_in(case["test_name"], source):
+        return missing
+    ran = sum(len(results.get(key) or []) for key in ("passed", "failed", "skipped"))
+    command = run.get("command") or "the project's test command"
+    hint = (
+        " (python -m unittest collects only test_ methods of a unittest.TestCase subclass)"
+        if "unittest" in command
+        else ""
+    )
+    return (
+        f"{missing}: the file defines it, but the runner's command `{command}` ran {ran} test(s) and did not "
+        f"collect it; write the test so that command runs it{hint}"
+    )
 
 
 def apply(

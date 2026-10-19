@@ -9,7 +9,7 @@
 import * as vscode from "vscode";
 import { ClientGap, integerValue, leavesForPerson, type OpenDecision } from "./core/next-command";
 import type { AcceptanceCriterion, IntegerCommandInput, Question, StatusView } from "./core/view";
-import { approvalToken, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
+import { approvalToken, isWorking, needsSummary, pauseLabel, planForApproval, progressLine, usageLine } from "./core/view";
 import type { RunController, RunRef } from "./controller";
 import { markdown, type TextNode } from "./chat-markdown";
 import { chatStyles, installChatBehavior } from "./upstream/kilo-chat";
@@ -63,7 +63,7 @@ export interface PanelState {
   commandText: string;
   personOnly: boolean;
   taking: boolean;
-  /** This client is acting, or AutoCode reports a live model step. */
+  /** This client is acting, or AutoCode reports live stage/controller work. */
   working: boolean;
   /** Chat only: the latest status read failed, so this state is an older read and its actions stay disabled (#1593). */
   unreadable?: boolean;
@@ -288,7 +288,7 @@ export function stateFor(view: StatusView, run: RunRef, controller: RunControlle
     }
   }
   const requirements = progress?.requirements;
-  const working = taking || ["supervised", "unsupervised"].includes(view.liveness?.kind ?? "");
+  const working = taking || isWorking(view);
   return {
     chat: view.chat,
     formattedMessages: Object.fromEntries((view.chat?.messages ?? []).filter((row) => row.role === "assistant").map((row) => [row.id, markdown(row.text)])),

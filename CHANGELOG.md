@@ -20,9 +20,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code keeps live controller/preflight continuation quiet instead of announcing that it is
+  waiting for a person. Chat and Run details share the working classification; stopped or
+  unverified continuation still asks for action, and real questions and completion still notify (#1590).
+
+- When the runner cannot see an acceptance test the Tester wrote, its rejection now says the file
+  defines the test, names the runner's command and how many tests it ran, and for unittest that only
+  `TestCase` methods are collected, so the retry can fix the test instead of the run pausing for good (#1567).
+
 - VS Code chat disables its actions and Send while the latest status read has failed, says so
   above the transcript, and re-enables them on the next good read; a background tab keeps its
   own read error (#1593).
+
 - The named recovery action can set aside a stopped planning attempt after a Resolver reply,
   instead of publishing the same operational question before reaching abandonment. Exact attempt
   and stopped-process validation still apply; resuming remains a separate action (#1588).
