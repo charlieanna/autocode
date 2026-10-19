@@ -25,6 +25,88 @@ function totalTimeView(token = 'time:current') {
   };
 }
 
+function planningAllowanceView(saveOnly = false, token = 'planning:current') {
+  return {
+    status: 'PAUSED_PLANNING_BUDGET', done: false, recovery: { token },
+    needs: { kind: 'planning_budget', command_inputs: [{ id: 'planning_review_call_limit', kind: 'integer',
+      flag: '--planning-review-call-limit', placeholder: 'N', arg_index: saveOnly ? 1 : 2,
+      label: 'Total plan-review calls', current: 2, used: 2, minimum: 3, maximum: Number.MAX_SAFE_INTEGER }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=${token} autocode --run-dir ${run.runDir} --workspace ${run.workspace} ${saveOnly ? '' : '--resume-paused '}--planning-review-call-limit N --expected-recovery-token -`,
+  };
+}
+
+function recoveryGrantView(token = 'recovery:current') {
+  return { status: 'PAUSED_TIMEOUT_RECOVERY', done: false, recovery: { token },
+    needs: { kind: 'resume', command_inputs: [{ id: 'grant_recovery', kind: 'integer', flag: '--grant-recovery', placeholder: 'N',
+      arg_index: 2, label: 'Additional recoveries', current: 3, used: 3, minimum: 1, maximum: 3 }] },
+    next_command: `AUTOCODE_EXPECTED_RECOVERY_TOKEN=${token} autocode --run-dir ${run.runDir} --workspace ${run.workspace} --resume-paused --grant-recovery N --expected-recovery-token -` };
+}
+
+for (const surface of ['chat', 'Run details']) {
+  test(`finite recovery grant in ${surface} is blank, bounded and explicitly confirmed`, async (t) => {
+    host.config.set('confirmPersonOnly', false);
+    const ownController = new RunController(host.log);
+    const ui = surface === 'chat' ? await openChat(t, recoveryGrantView(), run, { controller: ownController }) : await openPanel(t, recoveryGrantView(), undefined, ownController);
+    const field = ui.document.querySelector('[data-question="grant_recovery"]');
+    const take = () => ui.document.querySelector('#take-action');
+    assert.equal(field.value, ''); assert.equal(take().disabled, true);
+    for (const text of ['Automatic recovery allowance: 3', 'Counted recoveries used: 3', '1 to 3 additional recoveries']) assert.ok(ui.document.body.textContent.includes(text), text);
+    for (const value of ['0', '4', '1.5', '1e2', '9007199254740992']) {
+      field.value = value; field.dispatchEvent(new ui.window.Event('input')); assert.equal(take().disabled, true);
+    }
+    field.value = '1'; field.dispatchEvent(new ui.window.Event('input'));
+    assert.equal(take().disabled, false);
+    const launch = t.mock.method(cli, 'stream', async () => ok);
+    const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+    take().click(); await flush(); assert.equal(launch.mock.callCount(), 0);
+    const [title, options, button] = confirm.mock.calls[0].arguments;
+    assert.ok(title.includes('1 recovery slot')); assert.equal(button, 'Grant and continue');
+    for (const text of ['fixed allowance', 'history is retained', 'excess is not banked', 'does not approve a plan']) assert.ok(options.detail.includes(text), text);
+    confirm.mock.mockImplementation(async () => button);
+    take().click(); await flush(); assert.equal(launch.mock.callCount(), 1);
+    const [, args, env] = launch.mock.calls[0].arguments;
+    assert.deepEqual(args, ['--resume-paused', '--grant-recovery', '1', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+    assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'recovery:current' });
+    ui.setView(recoveryGrantView('recovery:new'));
+    take().click(); await flush(); assert.equal(launch.mock.callCount(), 1);
+  });
+}
+
+for (const surface of ['chat', 'Run details']) {
+  for (const saveOnly of [false, true]) {
+    test(`typed review allowance in ${surface}, saveOnly=${saveOnly}, is explicit and preserves the named action`, async (t) => {
+      host.config.set('confirmPersonOnly', false);
+      const ownController = new RunController(host.log);
+      const view = planningAllowanceView(saveOnly);
+      const ui = surface === 'chat' ? await openChat(t, view, run, { controller: ownController }) : await openPanel(t, view, undefined, ownController);
+      const input = ui.document.querySelector('[data-question="planning_review_call_limit"]');
+      const take = () => ui.document.querySelector('#take-action');
+      assert.equal(input.value, ''); assert.equal(take().disabled, true);
+      for (const text of ['Saved allowance: 2', 'calls used: 2', 'at least 3 calls']) assert.ok(ui.document.body.textContent.includes(text), text);
+      for (const value of ['0', '2', '-1', '1.5', '4e2', '9007199254740992']) {
+        input.value = value; input.dispatchEvent(new ui.window.Event('input')); assert.equal(take().disabled, true, value);
+      }
+      input.value = '4'; input.dispatchEvent(new ui.window.Event('input'));
+      assert.equal(take().disabled, false);
+      const launch = t.mock.method(cli, 'stream', async () => ok);
+      const confirm = t.mock.method(host.vscode.window, 'showWarningMessage', async () => undefined);
+      take().click(); await flush(); assert.equal(launch.mock.callCount(), 0);
+      const [title, options, button] = confirm.mock.calls[0].arguments;
+      assert.ok(title.includes('4 calls')); assert.equal(title.includes('and continue'), false);
+      assert.ok(options.detail.includes('Used calls stay counted'));
+      assert.ok(options.detail.includes('does not approve a plan'));
+      assert.equal(button, 'Set review allowance');
+      confirm.mock.mockImplementation(async () => button);
+      take().click(); await flush(); assert.equal(launch.mock.callCount(), 1);
+      const [, args, env] = launch.mock.calls[0].arguments;
+      assert.deepEqual(args, [...(saveOnly ? [] : ['--resume-paused']), '--planning-review-call-limit', '4', '--expected-recovery-token', '-', '--workspace', run.workspace, '--run-dir', run.runDir]);
+      assert.deepEqual(env, { AUTOCODE_EXPECTED_RECOVERY_TOKEN: 'planning:current' });
+      ui.setView(planningAllowanceView(saveOnly, 'planning:new'));
+      take().click(); await flush(); assert.equal(launch.mock.callCount(), 1, 'stale input cannot execute again');
+    });
+  }
+}
+
 for (const surface of ['chat', 'Run details']) {
   test(`typed total in ${surface} is blank, validates, confirms exact total and sends only its bound action`, async (t) => {
     host.config.set('confirmPersonOnly', false);

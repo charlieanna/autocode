@@ -753,6 +753,54 @@ callers retain the existing `--max-seconds 0` behavior; this finite input does
 not expose disabling the guard. Corrective information still authorizes no
 allowance: its pending deterministic review must first reach the held decision.
 
+At a reconciled `PAUSED_PLANNING_BUDGET` checkpoint, the same array can instead
+describe the existing finite planning-review allowance:
+
+```json
+{"id":"planning_review_call_limit","kind":"integer","flag":"--planning-review-call-limit",
+ "placeholder":"N","arg_index":2,"label":"Total plan-review calls","current":2,"used":2,
+ "minimum":3,"maximum":9007199254740991}
+```
+
+Only two exact remaining command shapes are supported, each followed by
+`--expected-recovery-token -` with the current token in the same private channel:
+`--resume-paused --planning-review-call-limit N` (index 2, explicit resume requested) and
+`--planning-review-call-limit N` (index 1, save only). The latter is the held
+operational-information action; a client must not insert Resume. Its next fresh
+status determines whether a separate continuation is available. Both inputs say
+"Set review allowance": even the explicit-resume form can save first and leave
+a separately named Resume. `current` is
+the saved finite allowance and `used` is the charged review-call count. Both
+are integers; the minimum exceeds both, and there is no default or unlimited
+choice. Planning accounting participates in the recovery token's freshness.
+
+The person confirms the exact total number of calls. This uses the existing
+allowance setter and preserves charged calls, recovery history, other limits,
+routes and plan approval. It does not reset a cycle, change allowance policy or
+approve the plan. Ordinary CLI callers retain their existing explicit zero
+semantics. Other numeric placeholders remain unsupported.
+
+An exhausted `PAUSED_TIMEOUT_RECOVERY` can name one additional finite choice:
+
+```json
+{"id":"grant_recovery","kind":"integer","flag":"--grant-recovery","placeholder":"N",
+ "arg_index":2,"label":"Additional recoveries","current":3,"used":3,"minimum":1,"maximum":3}
+```
+
+Its only remaining command is `--resume-paused --grant-recovery N
+--expected-recovery-token -`, using the same current private token channel.
+`current` is the existing fixed automatic-recovery allowance; `used` is counted
+spend, including the existing legacy fallback. The finite input accepts 1 through
+`used`, validated as safe integers, and never supplies a default. Pending
+corrective information must first reach its deterministic held decision.
+
+This takes the existing grant action: choosing 1 replenishes one spent slot
+(for example, 3 counted becomes 2). It does not add to the fixed allowance or
+bank an excess grant. The existing action clears the consecutive-timeout streak,
+retains historical attempts and appends its ordinary grant receipt. Accounting,
+legacy fallback inputs and prior grant receipts are bound into recovery freshness.
+Routes, global time/spend/stage limits and plan approval remain unchanged.
+
 `evidence` is what the run agreed to deliver and what supports it, for reports
 made outside the runner (such as a pull request body, docs/issues.md):
 the approved contract's intended outcome, the base commit, one row per

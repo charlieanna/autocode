@@ -485,6 +485,12 @@ names that pause, the driver calls `--resume-paused` with those flags once
 (never twice for the same pause), records an `acknowledge` approval, and passes
 the new values on every later call in place of the scenario's `[fake] flags`.
 
+A scripted fixture that deliberately needs several planning passes can declare a finite
+`[fake] plan_review_call_limit` (an integer of at least 2). Fake setup writes that starting
+allowance to an isolated `XDG_CONFIG_HOME/autocode/config.toml`. This uses the public user
+configuration before the run starts; it does not disable review accounting or authorize a
+new allowance when a run pauses. Undeclared fixtures retain the normal default.
+
 ## Hybrid runs
 
 Some failures a real model rarely makes on cue. In six live `claude-tiers` runs
