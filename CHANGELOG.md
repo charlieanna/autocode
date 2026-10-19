@@ -24,6 +24,9 @@ PR template asks for an entry here; a change without one is incomplete.
   are still streaming. Silent streams retain the configured idle deadline; progress remains
   separate from tool execution and completed-report evidence (#1599).
 
+- The scripted conformance lifecycle declares a finite starting planning-review allowance for
+  its deliberate revisions and feedback, preserving review accounting and every lifecycle check (#1604).
+
 - Kilo's persistent native provider child no longer counts as an inferred running tool after
   completed tool calls, so a silent model wait honors the configured idle limit. Real or unknown
   child tools and explicit tool starts retain their separate execution grace and cleanup (#1595).

@@ -7,6 +7,9 @@ brief_from = "completion-rework-direct"
 
 [fake]
 check = "python3 -m unittest test_greet.py"
+# Three deliberate review passes (the initial blocking finding, its revision, and later feedback)
+# need a finite allowance across cycles; the production small-clear policy still counts every call.
+plan_review_call_limit = 6
 # The first Builder keeps the seed's defect, so the Tester fails and the Completion Reviewer sends
 # it back; the scripted first plan review is blocking (conformance.scripted_setup).
 fault = "completion_rework_direct"
