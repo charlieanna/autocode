@@ -163,9 +163,16 @@ def _normalize_entries(value, label, records, *, negation=False):
     return normalized
 
 
-def _citing(criteria, sentence):
-    """The criteria whose quotes cover ``sentence``."""
-    return [row for row in criteria if _covered(sentence, [citation["quote"] for citation in row.get("sources") or []])]
+def _citing(criteria, sentence, source_id):
+    """The criteria whose citations of this source cover ``sentence``."""
+    return [
+        row
+        for row in criteria
+        if _covered(
+            sentence,
+            [citation["quote"] for citation in row.get("sources") or [] if citation["source_id"] == source_id],
+        )
+    ]
 
 
 def _corpus(body, citing):
@@ -214,7 +221,7 @@ def _survival_errors(body, records, waivers):
     criteria = body.get("acceptance_criteria") or []
     for record in records:
         for sentence in cues.sentences(record["text"]):
-            citing = _citing(criteria, sentence)
+            citing = _citing(criteria, sentence, record["id"])
             if not citing:
                 continue
             corpus = _corpus(body, citing)
@@ -250,10 +257,15 @@ def _survival_errors(body, records, waivers):
 
 def _coverage_errors(body, records, out_of_scope):
     criteria = body.get("acceptance_criteria") or []
-    quotes = [citation["quote"] for row in criteria for citation in row.get("sources") or []]
-    excluded = [entry["quote"] for entry in out_of_scope]
     errors = []
     for record in records:
+        quotes = [
+            citation["quote"]
+            for row in criteria
+            for citation in row.get("sources") or []
+            if citation["source_id"] == record["id"]
+        ]
+        excluded = [entry["quote"] for entry in out_of_scope if entry["source_id"] == record["id"]]
         for sentence in cues.sentences(record["text"]):
             covered = _covered(sentence, quotes, spans=True)
             excluded_here = _covered(sentence, excluded)

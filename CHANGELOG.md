@@ -65,6 +65,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Source-trace citations and reviewer exclusions apply only to the source ID they
+  name, preventing false coverage conflicts and preserving each source's number,
+  literal and negation checks (#1650).
 - The offline recovery-context regression checks the saved timeout kind and event path in the
   structured handoff, so compact JSON formatting does not falsely fail the full-suite gate.
 
