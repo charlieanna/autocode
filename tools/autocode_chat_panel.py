@@ -72,7 +72,7 @@ COMMANDS = (
     Command("/details", "Why the run is where it is"),
     Command("/diff", "The saved code steps; /diff N shows what changed since step N"),
     Command("/undo", "Go back to a saved step on a new branch: /undo N"),
-    Command("/runs", "This project's chats, open and finished; /open N opens one"),
+    Command("/runs", "Your chats in every project, open and finished; /open N opens one"),
     Command("/open", "Open chat N from /runs and carry on there"),
     Command("/new", "Start a new chat here"),
     Command("/mode", "The mode new chats start in: /mode ID"),
@@ -101,15 +101,22 @@ CLIENT_COMMANDS = ("/diff", "/undo", "/runs", "/open", "/new", "/mode", "/engine
 SWITCHING_COMMANDS = ("/open", "/new")
 
 
-def commands(*, asking: bool, client: bool = True) -> list[Command]:
+# What needs a run to act on: none of these does anything before the first chat is open.
+RUN_COMMANDS = ("/plan", "/tasks", "/log", "/details", "/diff", "/undo", "/new", "/panel", "/pause")
+
+
+def commands(*, asking: bool, client: bool = True, run: bool = True) -> list[Command]:
     """The commands that do something now. ``/pause`` only while AutoCode works: the client then
     takes the pause its fresh status view offers, or says there is none. ``/quit`` and ``/undo``
     only at a question: leaving while AutoCode works would leave it running unseen, and the view
     offers going back only at a pause; ``/open`` and ``/new`` too, as they leave this run. Without a
-    client the client's commands are not offered."""
+    client the client's commands are not offered, and before a chat is open (``run`` false) only those
+    that work without one: opening a chat, choosing what a new one starts with, help and leaving."""
     hidden = {"/pause"} if asking else {"/quit", "/undo", *SWITCHING_COMMANDS}
     if not client:
         hidden.update(CLIENT_COMMANDS)
+    if not run:
+        hidden.update(RUN_COMMANDS)
     return [command for command in COMMANDS if command.name not in hidden]
 
 

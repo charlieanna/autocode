@@ -1064,7 +1064,7 @@ def cli(argv: list[str] | None = None) -> int:
             history.outside = ui.outside
         if ui is not None and args.run_dir is None:
             ui.set_context(workspace)
-            ui.bind(history.slash)  # /runs, /open, /mode, /engine and /connect work before a chat is open
+            ui.bind(history.slash, run=False)  # /runs, /open, /mode, /engine and /connect, before a chat
         mode, options = new.mode, new.options
         if args.brief is not None:
             chosen = mode_row(mode)

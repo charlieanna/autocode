@@ -309,6 +309,26 @@ class AskTests(unittest.TestCase):
     def info(self, ui):
         return [text for role, text in ui._transcript.blocks if role == "info"]
 
+    def test_before_a_chat_is_open_the_menu_offers_what_works_without_one(self):
+        ui = screen_ui()
+        ui.bind(lambda name, argument: "ok", run=False)
+        ui._composer.text = "/"
+        self.assertEqual("/runs", ui._menu(True)[0].name)
+        self.assertNotIn("/plan", [command.name for command in ui._menu(True)])
+
+    def test_every_command_is_reachable_with_the_arrows_however_long_the_menu(self):
+        ui = screen_ui()
+        ui.bind(lambda name, argument: "ok")
+        ui._asking, ui._composer.text = True, "/"
+        menu = ui._menu(True)
+        self.assertGreater(len(menu), tui.MENU_ROWS)
+        drawn = []
+        ui._put = lambda row, col, text, attr=0: drawn.append(text)
+        layout = ui._layout(30, 120)
+        ui._menu_index = len(menu) - 1  # the last entry, below the first window
+        ui._command_menu(layout)
+        self.assertTrue(any(menu[-1].name in text for text in drawn), "the window follows the choice")
+
     def test_a_question_after_work_rings_the_terminal_bell(self):
         ui = screen_ui(*"y\n", *"y\n")
         with mock.patch.object(tui.curses, "beep", create=True) as beep:

@@ -49,13 +49,14 @@ class ChatScreenTests(unittest.TestCase):
     def test_the_command_menu_closes_on_escape_and_never_sends_an_unknown_command(self):
         screen = self.chat()
         screen.type("/")
-        screen.wait_for("Show the plan")  # the menu's first entry
+        shown = screen.wait_for("Your chats in every project")  # the first entry before a chat is open
+        self.assertNotIn("/plan", shown, "commands that need a run are not offered before one")
         screen.keys("Escape")
         screen.type("x")  # straight after Escape: the key is typed, not swallowed
         composer = screen.wait_for(
-            lambda shown: "Show the plan" not in shown and composer_text(shown) == "x", what="x alone"
+            lambda shown: "Your chats in every project" not in shown and composer_text(shown) == "x", what="x alone"
         )
-        self.assertNotIn("Show the plan", composer)
+        self.assertNotIn("Your chats in every project", composer)
         screen.keys("C-u")
         screen.type("/Build something nice")
         screen.keys("Enter")

@@ -42,7 +42,7 @@ NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
 REPLY_PLACEHOLDER = "Type your reply, then Enter"
 WORKING_PLACEHOLDER = "AutoCode is working… type / for commands"
 PANEL_MIN_COLS = 100  # below this the panel stays hidden unless /panel asks for it
-MENU_ROWS = 6
+MENU_ROWS = 10  # at most; fewer where the screen is short, scrolled to keep the choice in view
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"  # bracketed paste, so a pasted newline is not Enter
 ESCAPE = "\x1b"  # the Esc key on its own
@@ -458,6 +458,7 @@ class ChatTUI:
         self._launched = False  # a step is running since the last question; its first views may predate it
         # The client's own commands (/diff, /undo), and one of them waiting for the person's yes.
         self._act: Callable[[str, str], str | panel.Confirm] | None = None
+        self._run_open = True  # whether a chat is open: the run-only commands wait for one
         self._pending: panel.Confirm | None = None
         self._queued: list = []  # keys read while telling an escape key from a paste
         self._history_file: Path | None = None  # the project's ↑/↓ history, kept between chats
@@ -577,11 +578,13 @@ class ChatTUI:
             self._view, self._pending, self._scroll, self._launched = None, None, 0, False
             self.set_context(workspace, run_dir)
 
-    def bind(self, act: Callable[[str, str], str | panel.Confirm]) -> None:
+    def bind(self, act: Callable[[str, str], str | panel.Confirm], *, run: bool = True) -> None:
         """The client that carries out ``/diff`` and ``/undo``: act(name, argument) returns what to
-        show, or a ``Confirm`` to ask first. It may raise to leave the question being asked."""
+        show, or a ``Confirm`` to ask first. It may raise to leave the question being asked.
+        ``run`` false: no chat is open yet, so the menu offers only what works without one."""
         with self._lock:
             self._act = act
+            self._run_open = run
 
     def stream(self, text: str | None) -> None:
         """The reply AutoCode is writing now, from the view's streaming message; None once it is done."""
@@ -774,7 +777,7 @@ class ChatTUI:
         text = self._composer.text
         word, _, argument = text.strip().partition(" ") if text.startswith("/") else ("", "", "")
         word = word.lower()
-        available = panel.commands(asking=asking, client=self._act is not None)
+        available = panel.commands(asking=asking, client=self._act is not None, run=self._run_open)
         menu = self._menu(asking)
         if word and not text.startswith("//"):
             names = [command.name for command in available]
@@ -840,7 +843,7 @@ class ChatTUI:
             return []
         if any(char.isspace() for char in text):
             return []
-        return panel.matching(text, panel.commands(asking=asking, client=self._act is not None))
+        return panel.matching(text, panel.commands(asking=asking, client=self._act is not None, run=self._run_open))
 
     def _submit(self) -> str:
         text = self._composer.submit()
@@ -998,15 +1001,19 @@ class ChatTUI:
 
     def _command_menu(self, layout: Layout) -> None:
         """The ``/`` commands matching what is typed, just above the composer."""
-        menu = self._menu(self._asking)[:MENU_ROWS]
+        menu = self._menu(self._asking)
         if not menu:
             return
+        rows = max(1, min(MENU_ROWS, len(menu), layout.box_top - layout.body_start))
+        chosen = self._menu_index % len(menu)
+        start = min(max(0, chosen - rows + 1), len(menu) - rows)  # every entry is reachable: the window follows
+        shown = menu[start : start + rows]
         width = min(layout.width - 2, 64)
-        first = layout.box_top - len(menu)
+        first = layout.box_top - len(shown)
         for row in range(first, layout.box_top):  # the rows under the menu, the status line among them
             self._put(row, 0, " " * layout.width)
-        for offset, command in enumerate(menu):
-            selected = offset == self._menu_index % len(menu)
+        for offset, command in enumerate(shown):
+            selected = start + offset == chosen
             line = f" {command.name:<9} {command.description}"
             line = truncate(line, width)
             line += " " * max(0, width - display_width(line))
