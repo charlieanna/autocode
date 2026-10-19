@@ -24,7 +24,7 @@ def references_run(command, absolute, relative):
 
 
 def _readonly_runner_command(command):
-    """Recognize only the unambiguous reader argv emitted by TaskRun.
+    """Recognize only unambiguous TaskRun and dashboard observer argv.
 
     ps command text does not preserve argument boundaries for quoted paths or
     task/prompt text. Keep those cases blocking, along with every option outside
@@ -42,14 +42,23 @@ def _readonly_runner_command(command):
     if script >= len(argv) or os.path.basename(argv[script]) != "autocode.py":
         return False
     args = argv[script + 1 :]
-    if not args or args[0] not in ("--status", "--dry-run"):
+    if args[:2] == ["intervention", "inspect"]:
+        reader, index = "inspect", 2
+    elif args and args[0] in ("--status", "--dry-run"):
+        reader, index = args[0], 1
+    else:
         return False
-    reader = args[0]
     paths = {}
     inspected = False
-    index = 1
+    as_json = False
     while index < len(args):
         option, separator, value = args[index].partition("=")
+        if option == "--json" and not separator:
+            if reader != "inspect" or as_json:
+                return False
+            as_json = True
+            index += 1
+            continue
         if option == "--inspect-evidence" and not separator:
             if reader != "--status" or inspected:
                 return False
@@ -67,7 +76,7 @@ def _readonly_runner_command(command):
             return False
         paths[option] = value
         index += 1
-    return set(paths) == {"--workspace", "--run-dir"}
+    return set(paths) == {"--workspace", "--run-dir"} and (reader != "inspect" or as_json)
 
 
 def duplicate_runner_command(command):
