@@ -9,6 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- The full-screen chat's `/` menu reached only its first six commands with the arrow keys; it now
+  scrolls to keep the choice in view (up to ten rows, fewer on a short screen). Before a chat is
+  open it offers only what works without one: `/runs`, `/open`, `/mode`, `/engine`, `/connect`,
+  `/help` and `/quit`.
+
 ### Added
 
 - The terminal chat now does what the VS Code extension's pickers and Connections view do:

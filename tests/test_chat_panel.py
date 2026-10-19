@@ -319,6 +319,10 @@ class RunListTests(unittest.TestCase):
         self.assertIn("\n\nold  /w/old\n  5. o1", text)
         self.assertIn("(1 more in other projects cannot be opened: their runs were removed.)", text)
 
+    def test_before_a_chat_is_open_only_what_works_without_one_is_offered(self):
+        names = [command.name for command in panel.commands(asking=True, run=False)]
+        self.assertEqual(["/runs", "/open", "/mode", "/engine", "/connect", "/help", "/quit"], names)
+
     def test_opening_and_starting_a_chat_wait_for_a_question(self):
         working = [command.name for command in panel.commands(asking=False)]
         asking = [command.name for command in panel.commands(asking=True)]
