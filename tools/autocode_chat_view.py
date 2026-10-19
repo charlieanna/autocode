@@ -115,13 +115,14 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             "\n".join(filter(None, [q.get("question"), q.get("why"), *q.get("options", [])]))
             for q in need.get("questions", [])
         )
-        # Operational requests retain their full question/options in needs.
-        # Chat names the recorded cause and the reply's effect once, rather
-        # than repeating terminal recovery instructions as a requirements ask.
-        cause = (state.get("user_request") or {}).get("discovered")
-        if need.get("resolver_scope") == "operational_exhaustion" and isinstance(cause, str) and cause.strip():
-            question_text = cause.strip() + (
-                "\n\nYour saved work and evidence are kept. Reply with what changed so recovery can be reviewed. "
+        # The recovery card owns the human explanation; raw causes and full
+        # question/options remain available in Run details.
+        if need.get("resolver_scope") == "operational_exhaustion":
+            recovery = public.get("recovery") or {}
+            explanation = recovery.get("what_happened") or "I couldn’t finish this step."
+            question_text = explanation + (
+                " Open Run details to see what needs attention.\n\n"
+                "Your saved work and evidence are kept. Reply with what changed so recovery can be reviewed. "
                 "Sending a reply does not authorize a retry or change your limits; the run stays paused until "
                 "you take its next recovery action."
             )

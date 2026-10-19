@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import autocode_chat_view as chat
+import autocode_run_view as run_view
 import autocode_util as util
 
 
@@ -148,7 +149,7 @@ class ChatViewTests(unittest.TestCase):
         rows = self.project(state, "resume")["messages"]
         self.assertEqual(["Build it", "How should we proceed?", "Leave this task blocked"], [r["text"] for r in rows])
 
-    def test_operational_recovery_is_one_question_with_cause_and_unchanged_authority(self):
+    def test_operational_recovery_uses_human_summary_with_unchanged_authority(self):
         for scope in ("blocker", "operational_exhaustion"):
             with self.subTest(scope=scope):
                 state = {
@@ -159,6 +160,10 @@ class ChatViewTests(unittest.TestCase):
                 }
                 public = {
                     "status": state["status"],
+                    "recovery": {
+                        "what_happened": "The model connection could not authenticate.",
+                        "saved_reason": state["user_request"]["discovered"],
+                    },
                     "needs": {
                         "kind": "answer",
                         "resolver_scope": scope,
@@ -178,7 +183,9 @@ class ChatViewTests(unittest.TestCase):
                 self.assertEqual(["resolver-req-1"], [row["id"] for row in result["messages"]])
                 text = result["messages"][0]["text"]
                 if scope == "operational_exhaustion":
-                    self.assertIn("HTTP 401", text)
+                    self.assertIn(public["recovery"]["what_happened"], text)
+                    self.assertNotIn("HTTP 401", text)
+                    self.assertIn("Run details", text)
                     self.assertIn("does not authorize a retry", text)
                     self.assertNotIn("--abandon-stage", text)
                 else:
@@ -187,6 +194,71 @@ class ChatViewTests(unittest.TestCase):
                 self.assertIn("AUTOCODE_RESOLVER_TOKEN=current-token", result["input"]["next_command"])
                 self.assertIn("--resolver-response provide_information", result["input"]["next_command"])
                 self.assertEqual(before, (state, public))
+
+    def test_operational_failure_without_recovery_summary_does_not_leak_diagnostics(self):
+        cause = (
+            "Completed requirements_gather_report_repair output was rejected ($: missing assistant_reply); "
+            "inspect the saved output probe. Cross-model verification violated."
+        )
+        state = {"status": "WAITING_FOR_USER", "user_request": {"kind": "blocker", "discovered": cause}}
+        public = {
+            "status": state["status"],
+            "needs": {
+                "kind": "answer",
+                "resolver_scope": "operational_exhaustion",
+                "resolver_request_id": "req-1",
+                "resolver_token": "current-token",
+                "questions": [{"question": cause}],
+            },
+        }
+        for recovery in (None, {}, {"what_happened": ""}):
+            with self.subTest(recovery=recovery):
+                public["recovery"] = recovery
+                before = copy.deepcopy((state, public))
+                result = chat.project(state, public, workspace="/ws", run_dir="/run")
+                text = result["messages"][0]["text"]
+                self.assertIn("couldn’t finish", text)
+                self.assertIn("Run details", text)
+                self.assertIn("Reply with what changed", text)
+                self.assertIn("does not authorize a retry", text)
+                for raw in ("requirements_gather", "assistant_reply", "output probe", "Cross-model"):
+                    self.assertNotIn(raw, text)
+                self.assertEqual("resolver_response", result["input"]["kind"])
+                self.assertEqual(before, (state, public))
+
+    def test_public_view_keeps_raw_failure_in_details_and_human_summary_in_chat(self):
+        cause = "requirements_gather_report_repair: $: missing assistant_reply; inspect the output probe"
+        state = {
+            "status": "WAITING_FOR_USER",
+            "next_stage": "requirements_gather",
+            "user_request": {"kind": "blocker", "discovered": cause},
+            "stop_reason": cause,
+            "pending_questions": [{"id": "q1", "question": cause, "options": []}],
+            "resolver_human_request": {
+                "request_id": "req-1",
+                "request_token": "current-token",
+                "scope": "operational_exhaustion",
+            },
+            "resolver": {
+                "human_escalations": {
+                    "req-1": {
+                        "status": "pending",
+                        "identity": {"proposal": {"origin": {"pause_status": "PAUSED_REPEATED_FAILURE"}}},
+                    }
+                }
+            },
+        }
+        before = copy.deepcopy(state)
+        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        text = view["chat"]["messages"][0]["text"]
+        self.assertIn("The same step repeatedly failed.", text)
+        self.assertIn("Run details", text)
+        for raw in ("requirements_gather", "assistant_reply", "output probe"):
+            self.assertNotIn(raw, text)
+        self.assertEqual(cause, view["recovery"]["saved_reason"])
+        self.assertEqual(cause, view["needs"]["questions"][0]["question"])
+        self.assertEqual("resolver_response", view["chat"]["input"]["kind"])
+        self.assertEqual(before, state)
 
     def test_routed_and_unbound_operational_questions_stay_visible_in_requirements(self):
         state = {
