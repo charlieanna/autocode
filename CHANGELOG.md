@@ -27,6 +27,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Offline replay preserves the recorded Plan Reviewer effort instead of applying
+  the small-task reduction twice. Provider light-effort settings remain portable;
+  review budgets and exact recorded-route validation still apply (#1616).
+
 - A pause you asked for in the VS Code chat now says "Paused as you asked" with a plain **Resume**,
   instead of "I couldn't finish this step" and "Resume after correction". The chat also shows
   your button presses in words ("Looks right. Prepare the plan.", "Approved the plan.") instead

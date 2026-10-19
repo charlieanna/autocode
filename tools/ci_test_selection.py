@@ -73,6 +73,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/units/autoplanner.py", "tools/autocode_replay_"),
+        ("tests.test_saved_run_replay_cli",),
+    ),
     (("tools/providers/kilocode.py",), ("tests.test_kilo_progress",)),
     (
         (

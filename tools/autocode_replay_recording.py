@@ -217,9 +217,11 @@ def _validate(document):
     if not isinstance(roles, dict) or not roles:
         raise RecordingError("Recording model routes are missing")
     for value in roles.values():
-        _object(value, {"model"}, {"engine", "provider", "reasoning_effort", "model_pinned"})
+        _object(value, {"model"}, {"engine", "provider", "reasoning_effort", "model_pinned", "light_effort"})
         if not isinstance(value["model"], str) or not value["model"].strip():
             raise RecordingError("Recording model route is invalid")
+        if "light_effort" in value and not isinstance(value["light_effort"], str):
+            raise RecordingError("Recording model light effort is invalid")
     for name in ("blobs", "snapshots", "artifacts"):
         if not isinstance(document[name], dict) or len(document[name]) > MAX_FILES:
             raise RecordingError("Recording inventory is invalid or too large")

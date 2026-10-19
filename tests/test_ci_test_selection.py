@@ -8,6 +8,19 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_planning_and_replay_keep_the_saved_run_cli_consumer_even_when_slow(self):
+        consumer = "tests.test_saved_run_replay_cli"
+        for path in (
+            "tools/units/autoplanner.py",
+            "tools/autocode_replay_recording.py",
+            "tools/autocode_replay_transport.py",
+            "tools/autocode_replay_view.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_kilo_launch_and_native_hook_keep_the_progress_consumer_even_when_slow(self):
         consumer = "tests.test_kilo_progress"
         for path in ("tools/providers/kilocode.py", "tools/providers/opencode_activity.mjs"):
