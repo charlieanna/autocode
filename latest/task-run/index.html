@@ -1688,7 +1688,18 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Connections for clients">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-modes-for-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run modes for clients
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Run modes for clients">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2270,7 +2281,18 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Connections for clients">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-modes-for-clients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run modes for clients
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Run modes for clients">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2310,7 +2332,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/7103d0710b3d997f2b2128b636ba92557a5339c4/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/375f3bf9702640adf66761a7a05c868cbd867f6c/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2667,7 +2689,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/7103d0710b3d997f2b2128b636ba92557a5339c4/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/375f3bf9702640adf66761a7a05c868cbd867f6c/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3083,6 +3105,44 @@ under the run lock, including the saved active-time accounting. Ordinary CLI
 callers retain the existing <code>--max-seconds 0</code> behavior; this finite input does
 not expose disabling the guard. Corrective information still authorizes no
 allowance: its pending deterministic review must first reach the held decision.</p>
+<p>At a reconciled <code>PAUSED_PLANNING_BUDGET</code> checkpoint, the same array can instead
+describe the existing finite planning-review allowance:</p>
+<pre><code class="language-json">{&quot;id&quot;:&quot;planning_review_call_limit&quot;,&quot;kind&quot;:&quot;integer&quot;,&quot;flag&quot;:&quot;--planning-review-call-limit&quot;,
+ &quot;placeholder&quot;:&quot;N&quot;,&quot;arg_index&quot;:2,&quot;label&quot;:&quot;Total plan-review calls&quot;,&quot;current&quot;:2,&quot;used&quot;:2,
+ &quot;minimum&quot;:3,&quot;maximum&quot;:9007199254740991}
+</code></pre>
+<p>Only two exact remaining command shapes are supported, each followed by
+<code>--expected-recovery-token -</code> with the current token in the same private channel:
+<code>--resume-paused --planning-review-call-limit N</code> (index 2, explicit resume requested) and
+<code>--planning-review-call-limit N</code> (index 1, save only). The latter is the held
+operational-information action; a client must not insert Resume. Its next fresh
+status determines whether a separate continuation is available. Both inputs say
+"Set review allowance": even the explicit-resume form can save first and leave
+a separately named Resume. <code>current</code> is
+the saved finite allowance and <code>used</code> is the charged review-call count. Both
+are integers; the minimum exceeds both, and there is no default or unlimited
+choice. Planning accounting participates in the recovery token's freshness.</p>
+<p>The person confirms the exact total number of calls. This uses the existing
+allowance setter and preserves charged calls, recovery history, other limits,
+routes and plan approval. It does not reset a cycle, change allowance policy or
+approve the plan. Ordinary CLI callers retain their existing explicit zero
+semantics. Other numeric placeholders remain unsupported.</p>
+<p>An exhausted <code>PAUSED_TIMEOUT_RECOVERY</code> can name one additional finite choice:</p>
+<pre><code class="language-json">{&quot;id&quot;:&quot;grant_recovery&quot;,&quot;kind&quot;:&quot;integer&quot;,&quot;flag&quot;:&quot;--grant-recovery&quot;,&quot;placeholder&quot;:&quot;N&quot;,
+ &quot;arg_index&quot;:2,&quot;label&quot;:&quot;Additional recoveries&quot;,&quot;current&quot;:3,&quot;used&quot;:3,&quot;minimum&quot;:1,&quot;maximum&quot;:3}
+</code></pre>
+<p>Its only remaining command is <code>--resume-paused --grant-recovery N
+--expected-recovery-token -</code>, using the same current private token channel.
+<code>current</code> is the existing fixed automatic-recovery allowance; <code>used</code> is counted
+spend, including the existing legacy fallback. The finite input accepts 1 through
+<code>used</code>, validated as safe integers, and never supplies a default. Pending
+corrective information must first reach its deterministic held decision.</p>
+<p>This takes the existing grant action: choosing 1 replenishes one spent slot
+(for example, 3 counted becomes 2). It does not add to the fixed allowance or
+bank an excess grant. The existing action clears the consecutive-timeout streak,
+retains historical attempts and appends its ordinary grant receipt. Accounting,
+legacy fallback inputs and prior grant receipts are bound into recovery freshness.
+Routes, global time/spend/stage limits and plan approval remain unchanged.</p>
 <p><code>evidence</code> is what the run agreed to deliver and what supports it, for reports
 made outside the runner (such as a pull request body, docs/issues.md):
 the approved contract's intended outcome, the base commit, one row per
@@ -3874,6 +3934,40 @@ with no credential arguments or webview input. Its additional setup states are
 <code>configured</code> as authenticated live access. The core setup action neither chooses
 a client's default backend nor launches a model. Discovery reads its nonsecret
 metadata; an explicit check validates its private local credential setup.</p>
+<h2 id="run-modes-for-clients">Run modes for clients<a class="headerlink" href="#run-modes-for-clients" title="Permanent link">&para;</a></h2>
+<p>A client that starts runs may offer a choice of how much planning a new run does
+before the person approves it. <code>autocode modes list --json</code> returns the
+version-1 list: <code>schema_version</code>, <code>default</code> (a mode id) and <code>modes</code>, each with
+<code>id</code>, <code>label</code>, <code>description</code> and <code>start_args</code>, an argument array of start flags
+following the brief. A client shows the label and description and passes the
+chosen mode's <code>start_args</code> unchanged when it starts a run; it never builds its
+own list or adds flags to a mode. The flags apply only to the new run: a saved
+run keeps the flow it started with. Listing launches nothing and reads no run.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Start flags</th>
+<th>What it changes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>full</code> (default)</td>
+<td><code>--joint-planning --spec-first</code></td>
+<td>Requirements talks with the person and confirms what it understood before the plan is prepared (<a href="../spec-first/">Spec-first runs</a>).</td>
+</tr>
+<tr>
+<td><code>quick</code></td>
+<td><code>--joint-planning --no-spec-first --adaptive-planning</code></td>
+<td>A request the Job recognizer judges clear goes straight to the plan without Requirements; a vague one still gets it (<a href="../adaptive-planning/">Adaptive planning</a>).</td>
+</tr>
+</tbody>
+</table>
+<p>Every mode keeps the plan approval, the Tester and the Completion Reviewer: a
+mode changes how much planning happens before approval, never what counts as
+done. A CLI without <code>modes</code> (exit 2 with a usage error) offers no choice; a
+client then starts the full flow.</p>
 <h3 id="automatic-routes-for-new-runs">Automatic routes for new runs<a class="headerlink" href="#automatic-routes-for-new-runs" title="Permanent link">&para;</a></h3>
 <p>New runs automatically select qualified models from the chosen tool's connected
 accounts, preferring subscriptions and preserving independent checking. No per-role
