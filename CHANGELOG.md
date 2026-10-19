@@ -32,6 +32,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode chat` no longer exits while AutoCode keeps working: Ctrl-C while the pause is being asked
+  for interrupts the step, and a third Ctrl-C stops AutoCode. It stops instead of relaunching a run
+  that makes no progress, shows a review's criteria before asking you to accept them, shows what
+  stopped and the models offered at a model question, hands you the command when it cannot continue,
+  reports a failing run listing instead of treating the project as empty, and takes a brief that
+  starts with `-` as `--brief=TEXT`.
+
 - Small-task review keeps explicitly selected Plan Reviewer effort and legacy saved
   efforts. Fresh default/automatic routes still use the reduced tier, with review
   charges, model independence and replay matching unchanged (#1618).
