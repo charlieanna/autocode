@@ -9,6 +9,7 @@ from pathlib import Path
 import autocode_chat_view as chat
 import autocode_run_view as run_view
 import autocode_util as util
+import goal_fixtures
 
 
 class ChatViewTests(unittest.TestCase):
@@ -353,6 +354,85 @@ class ChatViewTests(unittest.TestCase):
             ],
             texts,
         )
+
+    def approved_plan(self, revision=1, outcome="Deliver the first plan"):
+        body = goal_fixtures.body(human=True)
+        body["intended_outcome"] = outcome
+        body["acceptance_criteria"][0]["criterion"] = outcome + " works"
+        body["git_delivery"] = {"kind": "atomic_commit", "message": "Deliver the approved greeting"}
+        contract = {"task_id": "task-1", "revision": revision, "body": body}
+        contract["hash"] = util.digest(contract)
+        event = {"kind": "goal_approval", "actor": "user_cli", "token": f"r{revision}:{contract['hash']}"}
+        contract.update(approval_status="approved", approval_event=event, origin="fixture")
+        return contract, event
+
+    def test_approved_plan_stays_before_approval_during_build_and_after_completion(self):
+        contract, event = self.approved_plan()
+        state = {
+            "status": "RUNNING",
+            "task": "Build a greeting",
+            "goal_contract": contract,
+            "user_events": [event],
+        }
+        before = copy.deepcopy(state)
+        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        rows = view["chat"]["messages"]
+        self.assertEqual(["user", "assistant", "user"], [r["role"] for r in rows])
+        self.assertEqual("Approved the plan.", rows[-1]["text"])
+        text = rows[-2]["text"]
+        for expected in (
+            "revision 1",
+            contract["body"]["intended_outcome"],
+            contract["body"]["acceptance_criteria"][0]["criterion"],
+            contract["body"]["acceptance_criteria"][0]["verification_method"],
+            "your review",
+            contract["body"]["constraints"][0],
+            contract["body"]["permission_boundaries"][0],
+            contract["body"]["git_delivery"]["message"],
+        ):
+            self.assertIn(expected, text)
+        self.assertEqual(before, state)
+        state["status"] = "TASK_COMPLETE"
+        completed = self.project(state, "done", True)["messages"]
+        self.assertEqual(rows, completed[:-1])
+        self.assertEqual(completed, self.project(copy.deepcopy(state), "done", True)["messages"])
+
+    def test_each_approval_keeps_its_own_plan_across_revisions_and_followups(self):
+        first, first_event = self.approved_plan(1, "First approved outcome")
+        second, second_event = self.approved_plan(2, "Second approved outcome")
+        draft, _ = self.approved_plan(3, "Unapproved replacement")
+        draft.update(approval_status="draft", approval_event=None)
+        state = {
+            "status": "AWAITING_GOAL_APPROVAL",
+            "task": "Follow-up task",
+            "turns": [{"event_id": "follow-up", "previous": {"task": "Original task"}}],
+            "contract_history": [first, second],
+            "goal_contract": draft,
+            "user_events": [
+                first_event,
+                {"kind": "brief_feedback", "id": "follow-up", "text": "Add a feature"},
+                second_event,
+            ],
+        }
+        rows = self.project(state)["messages"]
+        self.assertEqual(["user", "assistant", "user", "user", "assistant", "user"], [r["role"] for r in rows])
+        self.assertIn("First approved outcome", rows[1]["text"])
+        self.assertNotIn("Second approved outcome", rows[1]["text"])
+        self.assertIn("Second approved outcome", rows[4]["text"])
+        self.assertNotIn("Unapproved replacement", "\n".join(r["text"] for r in rows))
+        self.assertNotEqual(rows[1]["id"], rows[4]["id"])
+
+    def test_unbound_or_damaged_contract_never_supplies_approved_plan_text(self):
+        contract, event = self.approved_plan()
+        tampered = copy.deepcopy(contract)
+        tampered["body"]["intended_outcome"] = "Changed without approval"
+        forged = copy.deepcopy(contract)
+        forged["approval_event"] = {**event, "actor": "model"}
+        for saved in (None, {}, tampered, forged, {**contract, "approval_event": None}):
+            with self.subTest(contract=saved):
+                state = {"status": "RUNNING", "goal_contract": saved, "user_events": [event]}
+                rows = self.project(state, "continue")["messages"]
+                self.assertEqual(["Approved the plan."], [r["text"] for r in rows])
 
     def test_saved_discussion_answer_and_previous_response_are_visible(self):
         state = {
