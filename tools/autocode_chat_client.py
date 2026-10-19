@@ -11,7 +11,7 @@ command for the person to run instead.
 
     autocode chat "Add a --verbose flag"            start a run here and talk to it
     autocode chat --mode quick "Fix the typo"       start with a run mode from `autocode modes list`
-    autocode chat                                   pick up this project's run
+    autocode chat                                   pick up this project's open run, or ask what to do
     autocode chat --run-dir RUN                     pick up that run
     autocode chat "..." -- --engine claude          options for a new run, after --
 
@@ -461,13 +461,64 @@ def run_mode(mode: str | None, *, command=AUTOCODE, env=None) -> list[str]:
     raise actions.ClientGap(f"no run mode {wanted!r}; choose one of: {names}")
 
 
+def unfinished(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
+    """The project's runs that need a person or are still working, as `autocode runs --json` lists them."""
+    proc = subprocess.run(
+        [*command, "runs", "--workspace", str(workspace), "--json"], capture_output=True, text=True, env=env
+    )
+    if proc.returncode == 2 and not proc.stdout.strip():
+        return []  # no runs in this project yet
+    if proc.returncode != 0:
+        raise actions.ClientGap(f"could not list this project's runs: {tail(proc)}")
+    return [row for row in json.loads(proc.stdout)["runs"] if row.get("bucket") in ("needs you", "working")]
+
+
+def open_chat(
+    workspace: Path,
+    mode=None,
+    options=(),
+    *,
+    ask: Callable[[str], str] = input,
+    say: Callable[[str], None] = print,
+    **kwargs,
+):
+    """`autocode chat` with nothing named: pick up the run left open here, or ask what to do.
+
+    One unfinished run is picked up; with several the person chooses one or a new
+    task. With none, the chat asks for a request and starts a run with the core's
+    mode and options from the command line, if any. None: the person left without choosing.
+    """
+    runs = unfinished(workspace, command=kwargs.get("command", AUTOCODE), env=kwargs.get("env"))
+    try:
+        if len(runs) == 1:
+            say(f"Picking up {runs[0]['name']}.")
+            return ChatClient(workspace, Path(runs[0]["run_dir"]), ask=ask, say=say, **kwargs)
+        if runs:
+            say("Runs waiting here:")
+            for number, row in enumerate(runs, 1):
+                say(f"  {number}. {row['name']} ({row.get('pause_category_label') or row['bucket']})")
+            choice = ask(f"Pick one (1-{len(runs)}), or type a new request: ").strip()
+            if choice.isdigit() and 1 <= int(choice) <= len(runs):
+                return ChatClient(workspace, Path(runs[int(choice) - 1]["run_dir"]), ask=ask, say=say, **kwargs)
+            brief = choice
+        else:
+            brief = ask("What do you want done? ").strip()
+    except (EOFError, KeyboardInterrupt):
+        brief = ""
+    if not brief:
+        say("Nothing started.")
+        return None
+    command, env = kwargs.get("command", AUTOCODE), kwargs.get("env")
+    return start(workspace, brief, run_mode(mode, command=command, env=env), options, ask=ask, say=say, **kwargs)
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="autocode chat", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     result.add_argument("brief", nargs="?", help="what you want done; starts a new run (omit to pick up a run)")
     result.add_argument("--workspace", type=Path, help="the project; the current directory by default")
-    result.add_argument("--run-dir", type=Path, help="pick up this run instead of the project's only run")
+    result.add_argument("--run-dir", type=Path, help="pick up this run instead of the project's open one")
     result.add_argument("--mode", help="run mode for a new run, from `autocode modes list` (default: the core's)")
     return result
 
@@ -482,17 +533,21 @@ def cli(argv: list[str] | None = None) -> int:
     args = arguments.parse_args(argv)
     if args.brief is not None and args.run_dir is not None:
         arguments.error("a brief starts a new run; --run-dir picks up an existing one, not both")
-    if args.brief is None and (options or args.mode):
-        arguments.error("run options and --mode apply to a new run; give a brief")
+    if args.run_dir is not None and (options or args.mode):
+        arguments.error("run options and --mode apply to a new run, not to --run-dir")
     try:
         if args.brief is not None:
             if not args.brief.strip():
                 arguments.error("the brief is empty")
             workspace = (args.workspace or Path.cwd()).expanduser()
             client = start(workspace, args.brief, run_mode(args.mode), options)
-        else:
+        elif args.run_dir is not None:
             run_dir, workspace = events.resolve(args.workspace, args.run_dir)
             client = ChatClient(workspace, run_dir)
+        else:
+            client = open_chat((args.workspace or Path.cwd()).expanduser().resolve(), args.mode, options)
+            if client is None:
+                return 2
         return client.converse()
     except (actions.ClientGap, OSError, ValueError) as error:
         print(f"autocode chat: {error}", file=sys.stderr)

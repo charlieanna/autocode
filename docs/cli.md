@@ -15,12 +15,12 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode "Your rough idea"` | The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint). |
 | `replay RUN --into WORKSPACE/.autocode/runs/NAME` | Re-drive a saved run offline with recorded provider events and fresh verification checks; see [Replay](replay.md). |
 | `replay RUN --export DIR` | Export a bounded recording; `--recorded-checks` on replay simulates historical checks without current completion evidence. |
-| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a stop. |
+| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task, run from a script or with output redirected, relaunches a running run the same way but only shows a stop; in an interactive terminal it opens `autocode chat`. |
 | `autocode status` | The same as `autocode --status`: read-only status of that run. Command words are recognized wherever they stand among the options; a task whose whole text is `resume`, `status` or `explain` goes after `--` (`autocode -- status`). |
 | `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
 | `autocode demo [--directory PATH]` | Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing `--directory`. See [Offline demo](#offline-demo). |
 | `autocode verify` | Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See [Standalone verification](verify.md). |
-| `autocode chat [BRIEF] [--mode ID] [-- RUN_OPTIONS]` | Talk to a run in the terminal, the way the VS Code extension does: it prints the run's conversation, asks you only for what the [status view](task-run.md#status-view) leaves to you (an answer, a plan approval, a reply) and runs exactly the command the view names. With a brief it starts a new run in the project (`--in-place`, with the start flags of the `--mode` from `autocode modes list`, else its default); without one it picks up the project's run, or `--run-dir RUN`. Leaving at a prompt changes nothing. While a stage works, Ctrl-C asks for the view's pause after the current step and a second Ctrl-C interrupts it. Where the view names no action it can take, it prints the command to run yourself. Exits 0 when the run completes, 2 when it waits for you. See [Terminal chat](#terminal-chat). |
+| `autocode chat [BRIEF] [--mode ID] [-- RUN_OPTIONS]` | Talk to a run in the terminal, the way the VS Code extension does: it prints the run's conversation, asks you only for what the [status view](task-run.md#status-view) leaves to you (an answer, a plan approval, a reply) and runs exactly the command the view names. Plain `autocode` in an interactive terminal opens it too. With a brief it starts a new run in the project (`--in-place`, with the start flags of the `--mode` from `autocode modes list`, else its default). Without one it picks up the project's open run (or `--run-dir RUN`), lets you choose when several are open, and asks what you want done when none is. Leaving at a prompt changes nothing. While a stage works, Ctrl-C asks for the view's pause after the current step and a second Ctrl-C interrupts it. Where the view names no action it can take, it prints the command to run yourself. Exits 0 when the run completes, 2 when it waits for you. See [Terminal chat](#terminal-chat). |
 | `autocode conversation start\|attach\|read\|send\|refresh\|handoff` | Core Requirements conversation journal tied to one task run: queue human messages, explicitly refresh its draft and inspect the handoff. See [Core Requirements conversations](task-run.md#core-requirements-conversations). |
 | `autocode ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` | Run a multi-lane task flow file; accepts `--json`. |
@@ -665,13 +665,15 @@ follow, so a person gets the same choices in each:
 - **When the run completes** you can type a follow-up, or press Enter to finish.
 
 ```sh
+autocode                            # in a terminal: pick up the open run, or ask what to do
 autocode chat "Add a --verbose flag to greet.py"
-autocode chat                       # pick up this project's run
+autocode chat                       # the same as plain autocode in a terminal
 autocode chat --mode quick "Fix the README typo" -- --engine claude
 ```
 
 The older inline chat (`--chat`, the default when `autocode "TASK"` runs in a
-terminal) still works and is being replaced by this client.
+terminal) still works and is being replaced by this client. Scripts that call plain
+`autocode` without a terminal are unchanged.
 
 ## Unattended callers (agents)
 

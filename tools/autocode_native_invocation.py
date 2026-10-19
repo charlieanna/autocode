@@ -50,6 +50,8 @@ def main_body(base, unit=None, *, launched_at=None):
         from . import autocode_subcommands as subcommands
     except ImportError:
         import autocode_subcommands as subcommands
+    if not sys.argv[1:] and unit is None and sys.stdin.isatty() and sys.stdout.isatty():
+        return subcommands.dispatch(["chat"])  # plain `autocode` in a terminal opens the chat
     handled = subcommands.dispatch(sys.argv[1:])
     if handled is not None:
         return handled

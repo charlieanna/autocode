@@ -1,5 +1,6 @@
 """`autocode chat`, the terminal client: the view's named actions, and fake runs driven by typed replies."""
 
+import contextlib
 import json
 import os
 import subprocess
@@ -199,6 +200,46 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
         self.assertIn("Plan to approve:", resumed.stdout)
         self.assertTrue((self.workspace / "greet.py").is_file())
+
+    def test_with_nothing_open_the_chat_asks_what_to_do_and_starts_it(self):
+        proc = self.chat(replies=BRIEF + "\ny\ny\n\n")
+        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+        self.assertTrue(proc.stdout.startswith("What do you want done? "), proc.stdout[:200])
+        self.assertTrue((self.workspace / "greet.py").is_file())
+
+    def test_with_several_runs_open_the_person_picks_one(self):
+        for _ in range(2):
+            self.assertEqual(2, self.chat(BRIEF, replies="y\n").returncode)
+        proc = self.chat(replies="2\ny\n\n", options=())
+        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+        self.assertIn("Runs waiting here:\n  1. ", proc.stdout)
+        self.assertIn("Pick one (1-2), or type a new request: ", proc.stdout)
+        self.assertTrue((self.workspace / "greet.py").is_file())
+
+    def test_plain_autocode_in_a_terminal_opens_the_chat(self):
+        import pty
+
+        leader, follower = pty.openpty()
+        child = subprocess.Popen(
+            [sys.executable, str(AUTOCODE)],
+            stdin=follower,
+            stdout=follower,
+            stderr=follower,
+            cwd=self.workspace,
+            env=self.env,
+            close_fds=True,
+        )
+        os.close(follower)
+        seen = b""
+        while b"What do you want done?" not in seen:
+            seen += os.read(leader, 1024)
+        os.write(leader, b"\x04")  # Ctrl-D: leave without starting anything
+        self.assertEqual(2, child.wait(timeout=60))
+        with contextlib.suppress(OSError):
+            seen += os.read(leader, 4096)
+        os.close(leader)
+        self.assertIn(b"Nothing started.", seen)
+        self.assertFalse((self.workspace / ".autocode" / "runs").exists())
 
     def test_a_brief_and_a_run_are_not_both_named(self):
         proc = self.chat(BRIEF, "--run-dir", str(self.workspace), options=())
