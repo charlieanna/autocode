@@ -61,7 +61,9 @@ function newTab(key: string, run?: RunRef): ChatTab {
 
 function tabName(tab: ChatTab): string {
   if (!tab.run) return "New chat";
-  const name = tab.run.runDir.split("/").filter(Boolean).pop() ?? tab.run.runDir;
+  // The request the run is working on reads better than its directory name.
+  const request = (tab.status?.task ?? tab.pendingBrief ?? "").split("\n", 1)[0]!.trim();
+  const name = request || (tab.run.runDir.split("/").filter(Boolean).pop() ?? tab.run.runDir);
   return name.length > 22 ? `${name.slice(0, 21)}…` : name;
 }
 

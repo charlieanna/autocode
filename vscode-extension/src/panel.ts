@@ -1180,6 +1180,9 @@ function renderTabs(data) {
     });
     host.appendChild(item);
   });
+  // A new chat opens past the visible strip; keep the chat you are in on screen.
+  const active = host.querySelector('.chat-tab.active');
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function renderChat(data) {

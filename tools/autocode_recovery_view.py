@@ -598,11 +598,14 @@ def project(state: RunState, need=None):
         and not active
         and not state.get("active_runner_check")
     ):
+        requested = cause in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION")
         actions.append(
             _action(
                 "resume",
-                "Resume after correction",
-                "Continue from this saved pause after its cause is corrected. Existing model pins, limits and approval gates still apply.",
+                "Resume" if requested else "Resume after correction",
+                "Continue from where the run paused. Existing model pins, limits and approval gates still apply."
+                if requested
+                else "Continue from this saved pause after its cause is corrected. Existing model pins, limits and approval gates still apply.",
             )
         )
     for member in _parallel_members(state):

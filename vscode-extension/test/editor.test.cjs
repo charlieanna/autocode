@@ -2513,6 +2513,22 @@ test('two runs open as separate tabs with names and busy marks (#1558)', async (
   assert.equal(active, 'other-run');
 });
 
+test('a run tab is named after the request it works on and stays in view (#1528)', async (t) => {
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/20261019-063752-vscode-bea9dd' };
+  const ui = await openChat(t, chatView(), run, {
+    statusFor: (target) => target.runDir === other.runDir
+      ? { ...chatView(), task: 'Add a --shout flag\n\nThis follows up an earlier request' }
+      : chatView(),
+  });
+  const scrolled = [];
+  ui.window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.textContent); };
+  ui.chat.show(other);
+  await flush();
+  const names = [...ui.document.querySelectorAll('.chat-tab .name')].map((node) => node.textContent);
+  assert.deepEqual(names, ['test', 'Add a --shout flag'], 'the first line of the request, not the run directory');
+  assert.ok(scrolled.some((text) => text.startsWith('Add a --shout flag')), 'the active tab is scrolled into view');
+});
+
 test('switching tabs preserves each tab draft and closes to the neighbor (#1558)', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-run' };
   const ui = await openChat(t, chatView());

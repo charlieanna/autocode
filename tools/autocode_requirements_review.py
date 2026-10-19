@@ -71,7 +71,8 @@ def _lines(title: str, rows) -> list[str]:
     if not rows:
         return []
     more = [f"  … and {len(rows) - SHOWN} more"] if len(rows) > SHOWN else []
-    return [f"{title}:", *(f"  - {row}" for row in rows[:SHOWN]), *more]
+    # A blank line before each section keeps a Markdown client from folding the title into the list above.
+    return ["", f"{title}:", *(f"  - {row}" for row in rows[:SHOWN]), *more]
 
 
 def review_question(state: RunState) -> dict:
@@ -83,12 +84,14 @@ def review_question(state: RunState) -> dict:
     text = "\n".join(
         [
             "Here’s what I understand. Does this match what you want?",
+            "",
             f"Outcome: {str(report.get('intended_outcome', '')).strip()}",
             *_lines("Behaviors", report.get("required_behaviors")),
             *_lines("Acceptance examples", report.get("acceptance_tests")),
             *_lines("Constraints", report.get("constraints")),
             *_lines("Left out", report.get("ignored_statements")),
             *_lines("Assumptions", assumptions),
+            "",
             "Approve this understanding to prepare a reviewed plan, or tell me what to change.",
         ]
     )
