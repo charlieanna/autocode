@@ -1225,7 +1225,7 @@ def context(state: RunState, stage, state_path):
     )
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
     design_rule += PROGRAM_GUIDANCE_RULE if guidance else ""
-    design_rule += task_authority.instruction(state.get("investigation"))
+    design_rule += task_authority.instruction(test_cases.current_diagnosis(state))
     if turn:
         design_rule += prompts.get("fragments/autoplanner/context-02.md")
     if stage != "requirements_gather":

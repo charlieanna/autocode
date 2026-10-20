@@ -5,6 +5,7 @@ the runner's proof then requires that test to pass with the change and not witho
 See autocode_test_cases and docs/workflow.md.
 """
 
+import copy
 import json
 import sys
 import tempfile
@@ -58,6 +59,73 @@ def feature_state(project, criteria, milestones=1):
             }
         },
     }
+
+
+class CurrentDiagnosisTests(unittest.TestCase):
+    def state(self):
+        return {
+            "investigation": {
+                "outcome": "reproduced",
+                "output": "old-bug.json",
+                "test_cases": [{"id": "T1", "given": "old bug", "when": "pop", "then": "correct order"}],
+            },
+            "stages": [{"stage": "investigate_bug", "output": "old-bug.json"}],
+            "turns": [{"stage_index": 1}],
+            "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": [EXAMPLE]}},
+        }
+
+    def test_feature_followup_proves_its_contract_instead_of_the_finished_bug(self):
+        state = self.state()
+        before = copy.deepcopy(state)
+        self.assertEqual([], test_cases.diagnosis_cases(state))
+        self.assertEqual(["C2"], [row["id"] for row in test_cases.proof_cases(state, all_due=True)])
+        self.assertNotIn("old bug", test_cases.builder_note(state))
+        self.assertEqual(before, state, "historical evidence and the current contract stay intact")
+
+    def test_a_second_feature_turn_does_not_reactivate_the_old_bug(self):
+        state = self.state()
+        state["stages"].append({"stage": "terra", "output": "feature.json"})
+        state["turns"].append({"stage_index": 2})
+        self.assertEqual([], test_cases.diagnosis_cases(state))
+
+    def test_a_fresh_investigator_or_its_repair_is_current_before_and_after_save(self):
+        for stage in ("investigate_bug", "investigate_bug_report_repair"):
+            for active in (True, False):
+                with self.subTest(stage=stage, active=active):
+                    state = self.state()
+                    state["investigation"]["output"] = "new-bug.json"
+                    row = {"stage": stage, "output": "new-bug.json"}
+                    if stage.endswith("_report_repair"):
+                        row["original_stage"] = "investigate_bug"
+                    if active:
+                        state["active_stage"] = row
+                    else:
+                        state["stages"].append(row)
+                    self.assertEqual(state["investigation"]["test_cases"], test_cases.diagnosis_cases(state))
+
+    def test_unbound_rejected_and_historical_outputs_do_not_become_current(self):
+        for change in ("missing-output", "wrong-stage", "rejected", "reused-output", "invalid-boundary"):
+            with self.subTest(change=change):
+                state = self.state()
+                state["investigation"]["output"] = "new-bug.json"
+                row = {"stage": "investigate_bug", "output": "new-bug.json"}
+                if change == "missing-output":
+                    state["investigation"].pop("output")
+                if change == "wrong-stage":
+                    row["stage"] = "investigate_stuck"
+                if change == "rejected":
+                    row["rejected"] = True
+                if change == "reused-output":
+                    state["investigation"]["output"] = row["output"] = "old-bug.json"
+                if change == "invalid-boundary":
+                    state["turns"][-1]["stage_index"] = True
+                state["active_stage"] = row
+                self.assertEqual([], test_cases.diagnosis_cases(state))
+
+    def test_single_turn_legacy_diagnoses_still_supply_their_cases(self):
+        state = self.state()
+        state.pop("turns")
+        self.assertEqual(state["investigation"]["test_cases"], test_cases.diagnosis_cases(state))
 
 
 class ContractCasesTests(unittest.TestCase):
