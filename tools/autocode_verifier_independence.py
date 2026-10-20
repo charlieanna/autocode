@@ -3,8 +3,10 @@
 Pure domain logic over route dicts; imports only autocode_model_identity and the screen
 names in autocode_roles. A verifier never runs the model that produced the work it judges:
 one model is always a clash, however its route is spelled (a gateway in front of its vendor,
-or the native Codex and OpenCode spellings of one GPT tier), and GLM and MiMo are families,
-so GLM checks MiMo work and MiMo checks GLM work (user 2026-09-26).
+or the native Codex and OpenCode spellings of one GPT tier), and GLM, MiMo and Claude are
+families, so GLM checks MiMo work and MiMo checks GLM work (user 2026-09-26), and no Claude model
+checks another's. The built-in Claude Code engine reaches only Claude models, so a run on it keeps
+Claude checking Claude, never one model checking itself (``same_vendor_engine``).
 
 Asked by the dispatch guard before a launch (autocode_dispatch, which a human
 ``--answer route-<role>=MODEL`` also re-checks through), the Builder's stronger attempt
@@ -42,18 +44,26 @@ def verifiers(producer):
     return tuple(verifier for role, verifier, _label in PAIRS if role == producer)
 
 
-def shares(producer_model, verifier_model):
-    """Whether a verifier on ``verifier_model`` would be checking its own model's work."""
-    return model_identity.shared_family(producer_model, verifier_model)
+def shares(producer_model, verifier_model, *, vendor_engine=False):
+    """Whether a verifier on ``verifier_model`` would be checking its own model's work.
+
+    ``vendor_engine`` is an engine that reaches only one vendor's models (``same_vendor_engine``):
+    there, two different Claude models are not one model, only a model checking itself is.
+    """
+    if not model_identity.shared_family(producer_model, verifier_model):
+        return False
+    if vendor_engine and model_identity.family(producer_model) == "claude":
+        return model_identity.identity(producer_model) == model_identity.identity(verifier_model)
+    return True
 
 
-def may_share(producer_model, verifier_model):
+def may_share(producer_model, verifier_model, *, vendor_engine=False):
     """``shares``, or the two might name one model: any ``openai/X`` and a bare ``X``.
 
     For a remedy that moves a checker, where moving one too many is harmless; the guard
     refuses only what ``shares`` proves (another provider's ``openai/`` name is not a GPT alias).
     """
-    if shares(producer_model, verifier_model):
+    if shares(producer_model, verifier_model, vendor_engine=vendor_engine):
         return True
     return (
         isinstance(producer_model, str)
@@ -63,13 +73,18 @@ def may_share(producer_model, verifier_model):
     )
 
 
-def clash(producer_model, verifier_model):
+def clash(producer_model, verifier_model, *, vendor_engine=False):
     """Why one model cannot check the other's work, or None."""
-    if not shares(producer_model, verifier_model):
+    if not shares(producer_model, verifier_model, vendor_engine=vendor_engine):
         return None
     if model_identity.identity(producer_model) == model_identity.identity(verifier_model):
         return f"identical model {producer_model}"
     return f"same family {model_identity.family(producer_model)} ({producer_model} / {verifier_model})"
+
+
+def same_vendor_engine(settings):
+    """Whether the run's engine can reach only one vendor's models: the built-in Claude Code provider."""
+    return (settings or {}).get("provider") == "claude"
 
 
 def clashes(settings):
@@ -88,7 +103,7 @@ def clashes(settings):
         verifier_model = (roles.get(verifier) or {}).get("model")
         if not producer_model or not verifier_model:
             continue
-        problem = clash(producer_model, verifier_model)
+        problem = clash(producer_model, verifier_model, vendor_engine=same_vendor_engine(settings))
         if problem:
             found.append(
                 {
