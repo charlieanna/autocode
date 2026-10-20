@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Claude models are one family for verifier independence. Before, a Claude Sonnet could check a Claude Opus's
+  work, or the reverse, on Kilo, OpenCode or a custom provider, because only GLM and MiMo counted as families.
+  The built-in Claude Code engine is unchanged: it reaches only Claude models, so its default routes (Sonnet
+  producing, Opus checking) still run, and a model still never checks itself.
 - Automatic model selection no longer chooses MiMo to review a plan. The Plan Reviewer is GPT-6 Sol when the
   ChatGPT login is connected, then Claude Opus 5.5 (provisional), and with neither the run stops and offers those
   logins (owner decision, 2026-10-20). On ladder-07, GPT-6 Sol reviewed in 43 s with three substantive concerns

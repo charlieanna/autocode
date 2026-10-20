@@ -13,6 +13,11 @@ def settings(**models):
     return {"roles": {role: {"model": model} for role, model in models.items()}}
 
 
+SONNET = "claude-sonnet-5-5"
+OPUS = "claude-opus-5-5"
+HAIKU = "claude-haiku-4-5-20251001"
+
+
 class VerifierIndependenceTests(unittest.TestCase):
     def test_the_builder_is_checked_by_the_tester_and_completion_reviewer(self):
         self.assertEqual(("sol", "completion"), independence.verifiers("terra"))
@@ -75,6 +80,44 @@ class VerifierIndependenceTests(unittest.TestCase):
             f"same family mimo (kilo/xiaomi/mimo-v2.6-pro / {MIMO})",
             independence.clash("kilo/xiaomi/mimo-v2.6-pro", MIMO),
         )
+
+
+class ClaudeFamilyTests(unittest.TestCase):
+    def test_two_claude_models_are_one_family_however_they_are_reached(self):
+        self.assertEqual(f"same family claude ({SONNET} / {OPUS})", independence.clash(SONNET, OPUS))
+        self.assertEqual(
+            "same family claude (anthropic/claude-opus-5-5 / kilo/anthropic/claude-sonnet-5-5)",
+            independence.clash("anthropic/claude-opus-5-5", "kilo/anthropic/claude-sonnet-5-5"),
+        )
+        self.assertIsNone(independence.clash(SONNET, "openai/gpt-6-sol"))
+        self.assertIsNone(independence.clash(OPUS, GLM))
+
+    def test_a_claude_model_beside_another_vendor_passes_the_guard(self):
+        chosen = settings(
+            terra=HAIKU, sol="openai/gpt-6-sol", completion="openai/gpt-6-sol", glm=GLM, plan_reviewer=OPUS
+        )
+        self.assertEqual([], independence.violations({**chosen, "provider": "opencode"}))
+
+    def test_claude_checking_claude_is_refused_on_an_engine_that_reaches_other_vendors(self):
+        same = settings(terra=HAIKU, sol=SONNET, completion=OPUS, glm=SONNET, plan_reviewer=OPUS)
+        self.assertEqual(
+            [
+                f"Builder/Tester: same family claude ({HAIKU} / {SONNET})",
+                f"Builder/Completion Reviewer: same family claude ({HAIKU} / {OPUS})",
+                f"Planner/Plan Reviewer: same family claude ({SONNET} / {OPUS})",
+            ],
+            independence.violations({**same, "provider": "opencode"}),
+        )
+
+    def test_the_claude_engine_reaches_only_claude_so_its_default_routes_keep_working(self):
+        defaults = {
+            **settings(terra=HAIKU, sol=SONNET, completion=OPUS, glm=SONNET, plan_reviewer=OPUS),
+            "provider": "claude",
+        }
+        self.assertEqual([], independence.violations(defaults))
+        # The exemption is for different Claude models, not for one model grading itself.
+        itself = {**defaults, "roles": {**defaults["roles"], "sol": {"model": HAIKU}}}
+        self.assertEqual([f"Builder/Tester: identical model {HAIKU}"], independence.violations(itself))
 
 
 if __name__ == "__main__":

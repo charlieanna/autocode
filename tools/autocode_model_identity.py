@@ -26,7 +26,7 @@ def identity(model):
 
 
 def family(model):
-    """GLM/MiMo share a family; GPT tiers and other model IDs stay distinct."""
+    """GLM, MiMo and Claude each share a family; GPT tiers and other model IDs stay distinct."""
     if not isinstance(model, str) or not model:
         return ""
     name = identity(model).rsplit("/", 1)[-1]
@@ -34,6 +34,8 @@ def family(model):
         return "glm"
     if model.startswith("xiaomi-token-plan-sgp/") or name.startswith("mimo-"):
         return "mimo"
+    if name.startswith("claude-"):
+        return "claude"
     return model
 
 
@@ -44,4 +46,4 @@ def shared_family(left, right):
     left_id, right_id = identity(left), identity(right)
     if left_id and left_id == right_id:
         return True
-    return family(left) in ("glm", "mimo") and family(left) == family(right)
+    return family(left) in ("glm", "mimo", "claude") and family(left) == family(right)
