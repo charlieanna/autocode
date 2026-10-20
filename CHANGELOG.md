@@ -9,6 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- 0.8.1's keep-awake (#1717) spawned `caffeinate -w PID` as a child. A supervised CLI's keeper (the scenario
+  harness's owner lifeline) found it alive at discharge and SIGKILLed the CLI, so every macOS scenario run ended
+  `INTERRUPTED_UNGRADED — start exited on signal 9`. The controller now takes the `PreventUserIdleSystemSleep`
+  assertion in its own process through IOKit, which the kernel releases when the process exits. No child remains.
+
 ## [0.8.1] — 2026-10-20
 
 ### Changed
