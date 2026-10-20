@@ -68,6 +68,7 @@ try:
     from .autocode_test_cases import (  # noqa: F401 (used by callers)
         case_test_name,
         case_text,
+        current_diagnosis,
         diagnosis_cases,
         match_cases,
         run_probes,
@@ -79,7 +80,14 @@ except ImportError:
     import autocode_stray_writes as stray_writes
     import autocode_util as util
     import autocode_workflows as workflows
-    from autocode_test_cases import case_test_name, case_text, diagnosis_cases, match_cases, run_probes  # noqa: F401
+    from autocode_test_cases import (  # noqa: F401
+        case_test_name,
+        case_text,
+        current_diagnosis,
+        diagnosis_cases,
+        match_cases,
+        run_probes,
+    )
 
 STAGE = workflows.INVESTIGATE_STAGE
 (NOTES_PREFIX,) = stage_access.job_writes(STAGE)
@@ -407,7 +415,7 @@ def apply(state: RunState, value: dict, record: dict, workspace, run_probe=None)
 
 def large_correction(state: RunState) -> dict | None:
     """The diagnosis the Planner plans a fix from (a large one, or any the user asked to approve), or None."""
-    found = state.get("investigation") or {}
+    found = current_diagnosis(state)
     if found.get("outcome") != "reproduced" or small_correction(state):
         return None
     return {

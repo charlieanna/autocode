@@ -134,10 +134,34 @@ def plan_cases(body) -> list[dict]:
     return cases
 
 
+def current_diagnosis(state: RunState) -> dict:
+    """Retain historical diagnoses, but only use this turn's investigation as instructions."""
+    found = state.get("investigation") or {}
+    turns = state.get("turns") or []
+    if not turns:
+        return found
+    boundary = turns[-1].get("stage_index")
+    stages = state.get("stages") or []
+    output = found.get("output")
+    if type(boundary) is not int or not 0 <= boundary <= len(stages) or not output:
+        return {}
+    if any(row.get("output") == output for row in stages[:boundary]):
+        return {}
+    candidates = stages[boundary:] + [state.get("active_stage") or {}]
+    if any(
+        (row.get("original_stage") or row.get("stage")) == "investigate_bug"
+        and row.get("output") == output
+        and not row.get("rejected")
+        for row in candidates
+    ):
+        return found
+    return {}
+
+
 def diagnosis_cases(state: RunState) -> list[dict]:
     """A reproduced bug's English test cases (autocode_bug_job), or [] (bugs planned without an
     investigation, older runs)."""
-    found = state.get("investigation") or {}
+    found = current_diagnosis(state)
     return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
 
 

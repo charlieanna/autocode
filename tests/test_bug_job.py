@@ -1083,6 +1083,37 @@ class BugPlanningTaskAuthorityTests(unittest.TestCase):
     STAGES = ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
     TASK = "Fix duplicate renews after a timeout; preserve the existing return value and callback behavior."
 
+    def test_completed_bug_does_not_instruct_the_feature_followup_to_restore_it_again(self):
+        import autocode_follow_up as follow_up
+        from units import autoplanner
+
+        with tempfile.TemporaryDirectory() as temporary:
+            state = state_for(temporary, self.TASK)
+            state.update(
+                status="TASK_COMPLETE",
+                investigation={**diagnosis(fix_size="large"), "output": "old.json"},
+                stages=[{"stage": "investigate_bug", "output": "old.json"}],
+            )
+            follow_up.accept(state, "Add a non-destructive peek method; keep the fixed behavior.", temporary, "t1")
+            workflows.apply(
+                state, {"workflow": "build", "reason": "new method", "signals": []}, {"output": "kind.json"}
+            )
+            saved = json.loads(json.dumps(state["investigation"]))
+            for stage in self.STAGES:
+                with self.subTest(stage=stage):
+                    prompt, _ = autoplanner.context(state, stage, Path(temporary) / "state.json")
+                    instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+                    packet = json.loads(raw)
+                    self.assertNotIn("bug_diagnosis", packet)
+                    self.assertNotIn(autoplanner.BUG_DIAGNOSIS_RULE, instruction)
+                    self.assertIn(
+                        "peek",
+                        packet["task"]
+                        if not packet.get("source_inventory")
+                        else json.dumps(packet["source_inventory"]),
+                    )
+            self.assertEqual(saved, state["investigation"], "the prior diagnosis remains available as history")
+
     def render(self, stage, investigation):
         from units import autoplanner
 
