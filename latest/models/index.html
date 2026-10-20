@@ -2122,7 +2122,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/974d36984bccdcc063ba92a286656909ec1368de/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2851ffad8f682b58b395322d6e2b36348b7b6e29/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2278,7 +2278,7 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/974d36984bccdcc063ba92a286656909ec1368de/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/2851ffad8f682b58b395322d6e2b36348b7b6e29/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2408,7 +2408,10 @@ is never silently added.</p>
   different model families (<code>tools/autocode_verifier_independence.py</code>); when the
   connected accounts cannot provide that, the run stops before any work and says what
   is missing in account terms ("connect a second model family"), never by suggesting
-  <code>--single-model</code>.</li>
+  <code>--single-model</code>. GLM, MiMo and Claude are each one family, so no Claude model checks
+  another Claude model's work on Kilo, OpenCode or a custom provider. The built-in Claude
+  Code engine reaches only Claude models, so there different Claude models check each
+  other (for example Sonnet's work is reviewed by Opus); a model never checks itself.</li>
 <li><strong>No invented reasoning levels.</strong> A route gets a reasoning level only when the model
   advertises it; otherwise the model uses its own default.</li>
 <li><strong>Explicit choices win.</strong> <code>--&lt;role&gt;-model</code>, <code>--provider</code>, <code>--role-transport</code> and
