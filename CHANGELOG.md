@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-10-20
+
 ### Changed
 
 - Requirements conversation reports use a smaller output contract without unrelated test-verdict and command-receipt instructions; the model, session and structured handoff stay unchanged.
