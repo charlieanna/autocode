@@ -13,6 +13,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - VS Code suppresses a person-wait notice while its own action automatically continues a chat;
   a genuinely stopped Continue checkpoint still notifies after that action finishes (#1692).
+- The source-trace check no longer rejects a correct plan for not repeating a standard's name: "ISO 8601",
+  "RFC 3339", "UTF-8" or "SHA-256" in the request is a name, not a number the criteria must restate.
+  Every other number the request states must still survive (#1689).
 - VS Code completion notifications say the chat finished, rather than claiming a completed run
   is waiting for the user (#1687).
 - A Tester report that cited a file it read (`hello.txt`) beside its passing checks was refused whole and

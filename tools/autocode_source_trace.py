@@ -67,6 +67,12 @@ REVIEW_KEYS = {"stage", "events", "events_sha256", "output", "output_sha256", "t
 # Dotted runs are one token: an IP (127.0.0.1) or version is a single stated
 # value, while a range's double dot (1..100) still separates its two numbers.
 _NUMBER = re.compile(r"\d+(?:\.\d+)*")
+# A standard's designation names the standard, not a value the request states: "ISO 8601 weeks"
+# is satisfied by criteria about ISO weeks without repeating 8601 (#1689). Version-like suffixes
+# stay part of the name (ISO/IEC 27001:2022, RFC 9110, HTTP/2, UTF-8, SHA-256, PEP 8).
+_STANDARD = re.compile(
+    r"\b(?:ISO(?:/IEC)?|IEC|RFC|IEEE|ECMA(?:-)?|ANSI|PEP|UTF|SHA|HTTP|TLS|IPv)[-/ ]?\d+(?:[-:.]\d+)*(?!\w)"
+)
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
 
 
@@ -225,7 +231,7 @@ def _survival_errors(body, records, waivers):
             if not citing:
                 continue
             corpus = _corpus(body, citing)
-            numbers = _NUMBER.findall(sentence)
+            numbers = _NUMBER.findall(_STANDARD.sub(" ", sentence))
             lost = [number for number in dict.fromkeys(numbers) if not _number_in(number, corpus)]
             if lost:
                 errors.append(f"Criteria citing {record['id']} changed a number the source states: " + ", ".join(lost))
