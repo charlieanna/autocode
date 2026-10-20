@@ -65,6 +65,7 @@ ACCOUNT_LABELS = {
     "xiaomi-token-plan-sgp": "the Xiaomi Token Plan",
     "alibaba-token-plan": "the Alibaba Token Plan",
     "openai": "the ChatGPT login",
+    "anthropic": "the Anthropic (Claude) login",
     "kilo": "Kilo Gateway credits",
 }
 _ROLE_LABELS = {
@@ -106,6 +107,8 @@ def _validate_entry(role, entry):
         raise ValueError(f"{where}: evidence is required")
     if entry.get("effort") is not None and (not isinstance(entry["effort"], str) or not entry["effort"]):
         raise ValueError(f"{where}: effort must be a level name or null")
+    if "preference" in entry and (type(entry["preference"]) is not int or entry["preference"] < 0):
+        raise ValueError(f"{where}: preference must be a nonnegative integer")
     benchmark = entry.get("benchmark")
     if benchmark is not None and (
         not isinstance(benchmark, dict)
@@ -143,11 +146,16 @@ def _account_label(model):
 
 
 def _rank(candidate, entry):
-    """The sort key that orders one role's candidates: billing, probe, price, then id."""
+    """The sort key that orders one role's candidates: the table's preference, billing, probe, price, then id.
+
+    Preference is the owner's explicit order for a role (the Plan Reviewer: GPT-6 Sol, then Claude Opus,
+    2026-10-20); an entry without one ranks 0, so every other role keeps billing-then-price order.
+    """
     billing = candidate.get("billing") if candidate.get("billing") in BILLING_ORDER else None
     row = prices.rate(candidate.get("model")) or prices.rate(entry["model"])
     total = row["input"] + row["output"] if row else math.inf
     return (
+        entry.get("preference", 0),
         BILLING_ORDER[billing],
         0 if candidate.get("probe") == "known" else 1,
         total,

@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-17",
+  "as_of": "2026-10-20",
   "basis": "The minimum standard per role (#1426): automatic selection never chooses a model this table does not list for the role. An entry is qualified by AutoCode's own runs (a shipped default route, or a live qualification profile in scenarios/harness/profiles.py); a public benchmark admits a model only provisionally until such a run confirms it, and selection treats both alike until then. Every entry names its evidence. Routes list the spellings the tools record for the same weights, so one entry covers every tool that serves the model. Updated by pull request, like the price table.",
   "roles": {
     "requirements": [
@@ -49,15 +49,17 @@
         "model": "openai/gpt-6-sol",
         "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],
         "effort": "high",
+        "preference": 0,
         "provenance": "qualified",
-        "evidence": "Today's default Plan Reviewer route (DEFAULT_MODELS, user 2026-09-28) and the plan reviewer of the default OpenCode qualification runs."
+        "evidence": "Today's default Plan Reviewer route (DEFAULT_MODELS, user 2026-09-28) and the plan reviewer of the default OpenCode qualification runs. Live 2026-10-20 (ladder-07 on Kilo): 43 s and 1.4k reasoning tokens per review with three substantive concerns, against MiMo v2.6 Pro's 526-890 s and 32-45k tokens. Owner decision 2026-10-20: the first choice when its login is connected."
       },
       {
-        "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
-        "routes": ["xiaomi-token-plan-sgp/mimo-v2.6-pro"],
+        "model": "anthropic/claude-opus-5-5",
+        "routes": ["anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"],
         "effort": "high",
-        "provenance": "qualified",
-        "evidence": "Reviewed plans in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py), checking GLM planning work."
+        "preference": 1,
+        "provenance": "provisional",
+        "evidence": "Owner decision 2026-10-20: the second choice for plan review when no GPT-6 Sol login is connected; MiMo is no longer used for review. Provisional until an AutoCode qualification run reviews plans with it."
       }
     ],
     "sol": [
@@ -81,13 +83,15 @@
         "model": "openai/gpt-6-sol",
         "routes": ["openai/gpt-6-sol", "kilo/openai/gpt-6-sol"],
         "effort": "medium",
+        "preference": 0,
         "provenance": "qualified",
-        "evidence": "Today's default Completion Reviewer route (DEFAULT_MODELS)."
+        "evidence": "Today's default Completion Reviewer route (DEFAULT_MODELS). Owner decision 2026-10-20: the final gate is a short, high-stakes judgment, so GPT-6 Sol comes first when its login is connected; GLM 5.3 remains the fallback."
       },
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
         "effort": "medium",
+        "preference": 1,
         "provenance": "qualified",
         "evidence": "Completed MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
       }
