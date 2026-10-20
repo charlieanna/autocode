@@ -9,6 +9,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- Automatic model selection no longer chooses MiMo to review a plan. The Plan Reviewer is GPT-6 Sol when the
+  ChatGPT login is connected, then Claude Opus 5.5 (provisional), and with neither the run stops and offers those
+  logins (owner decision, 2026-10-20). On ladder-07, GPT-6 Sol reviewed in 43 s with three substantive concerns
+  where MiMo v2.6 Pro took 526-890 s and 32-45k reasoning tokens, and twice ran out of output. Qualification
+  entries may carry a `preference` that orders a role's models before billing and price. The Completion
+  Reviewer, the final gate, likewise prefers GPT-6 Sol when connected, with GLM 5.3 as its fallback.
+
 ### Fixed
 
 - 0.8.1's keep-awake (#1717) spawned `caffeinate -w PID` as a child. A supervised CLI's keeper (the scenario

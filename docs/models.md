@@ -200,7 +200,14 @@ The rules the choice keeps:
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,
   and a route whose access is already proven beats one that would need a probe. The
   checkers are never downgraded to save money: they start on their cheapest *qualified*
-  model, and only a failure ever moves a role up.
+  model, and only a failure ever moves a role up. A role whose table entries carry a
+  `preference` is ordered by it first: the Plan Reviewer is GPT-6 Sol when the ChatGPT
+  login is connected, then Claude Opus, and MiMo is not used for review (owner decision,
+  2026-10-20: MiMo spent 32-45k reasoning tokens and up to 15 minutes per plan review).
+  With neither connected, the run stops before any work and offers those two logins.
+  The Completion Reviewer, the final gate, likewise prefers GPT-6 Sol over GLM 5.3. The
+  long, token-heavy stages (Requirements, Planner, Builder, Tester) stay on the cheapest
+  qualified models, because their volume would exhaust a subscription's limits.
 - **Independence is never lowered quietly.** Every producer and checker pair stays on
   different model families (`tools/autocode_verifier_independence.py`); when the
   connected accounts cannot provide that, the run stops before any work and says what
