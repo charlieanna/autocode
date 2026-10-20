@@ -203,13 +203,26 @@ _RECEIPT_READ_REASONS = frozenset(
 )
 
 
+def _open_receipt(path):
+    """Allow 100 ms of initial-open visibility lag during atomic replacement."""
+    for attempt in range(5):
+        try:
+            return path.open("rb")
+        except FileNotFoundError:
+            if attempt == 4:
+                raise
+            # A Mac Docker bind can briefly hide the replaced directory entry.
+            # Never cache old evidence or retry failures after a descriptor opens.
+            time.sleep(0.025)
+
+
 def _read_receipt(metadata):
-    """Size-check and read one opened receipt; fixed failure labels, no retry."""
+    """Size-check and read one opened receipt; only initial absence is retried."""
     phase = "metadata"
     try:
         path = Path(metadata["receipt"])
         phase = "open"
-        with path.open("rb") as stream:
+        with _open_receipt(path) as stream:
             phase = "stat"
             if os.fstat(stream.fileno()).st_size > receipts.MAX_RECEIPT_BYTES:
                 return None, (phase, "size_limit")

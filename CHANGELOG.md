@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Session ownership checks briefly retry a missing initial receipt open during atomic replacement
+  on Mac Docker binds; persistent absence and invalid ownership evidence still stop the run (#1680).
 - A stopped step's chat notice no longer tells terminal users to "Open Run details", a button only VS Code has;
   it now says the run's details say what needs attention, which every client shows its own way.
 - VS Code saved-code compare and restore buttons explain when they are unavailable while

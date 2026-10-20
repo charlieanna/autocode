@@ -81,6 +81,82 @@ class SessionHandoffTests(unittest.TestCase):
         native.assert_not_called()
         admit.assert_not_called()
 
+    def test_initial_missing_open_retries_then_checks_the_matching_receipt(self):
+        with (
+            Path(self.metadata["receipt"]).open("rb") as stream,
+            patch.object(Path, "open", side_effect=[FileNotFoundError("synthetic"), stream]) as opened,
+            patch.object(supervision.time, "sleep") as sleep,
+        ):
+            self.assertEqual(self.value, supervision.receipt(self.metadata))
+        self.assertEqual(2, opened.call_count)
+        sleep.assert_called_once_with(0.025)
+
+    def test_initial_open_retry_preserves_the_enclosing_admission_decision(self):
+        for admitted in (False, True):
+            with (
+                self.subTest(admitted=admitted),
+                Path(self.metadata["receipt"]).open("rb") as stream,
+                patch.object(Path, "open", side_effect=[FileNotFoundError("synthetic"), stream]) as opened,
+                patch.object(supervision.time, "sleep") as sleep,
+                patch.object(processes, "process_table", return_value={502: self.creator}),
+                patch.object(handoff, "admit_session", return_value=admitted) as admit,
+            ):
+                key = "session_admitted" if admitted else "session_cancelled"
+                self.assertEqual({key: 123, "guard": "a" * 32}, self.reply())
+            self.assertEqual(2, opened.call_count)
+            sleep.assert_called_once_with(0.025)
+            admit.assert_called_once_with(self.metadata, self.record, 15)
+
+    def test_persistent_missing_open_stays_bounded_and_cannot_grant_admission(self):
+        with (
+            patch.object(Path, "open", side_effect=FileNotFoundError("synthetic")) as opened,
+            patch.object(supervision.time, "sleep") as sleep,
+            patch.object(handoff, "admit_session") as admit,
+        ):
+            with self.assertRaisesRegex(supervision.SupervisionError, "receipt is unavailable") as caught:
+                self.reply()
+        self.assertEqual(5, opened.call_count)
+        self.assertEqual([((0.025,), {})] * 4, sleep.call_args_list)
+        admit.assert_not_called()
+        message = supervision._session_handoff_failure(caught.exception, "check_ownership")
+        self.assertIn("receipt_phase=open", message)
+        self.assertIn("receipt_reason=not_found", message)
+
+    def test_initial_open_retry_never_bypasses_content_or_access_validation(self):
+        cases = [
+            ("wrong_nonce", {**self.value, "nonce": "foreign"}, "nonce_mismatch"),
+            ("wrong_owner", {**self.value, "owner": {}}, "owner_mismatch"),
+            ("wrong_keeper", {**self.value, "keeper": {}}, "keeper_mismatch"),
+            ("wrong_provider", {**self.value, "provider": {}}, "provider_mismatch"),
+            ("wrong_schema", {**self.value, "schema": 2}, "schema_invalid"),
+            ("malformed", "{", "json_invalid"),
+        ]
+        for name, value, reason in cases:
+            with self.subTest(case=name):
+                Path(self.metadata["receipt"]).write_text(value if isinstance(value, str) else json.dumps(value))
+                with (
+                    Path(self.metadata["receipt"]).open("rb") as stream,
+                    patch.object(Path, "open", side_effect=[FileNotFoundError("synthetic"), stream]) as opened,
+                    patch.object(supervision.time, "sleep") as sleep,
+                    patch.object(handoff, "admit_session") as admit,
+                ):
+                    with self.assertRaises(supervision.SupervisionError) as caught:
+                        self.reply()
+                self.assertEqual(2, opened.call_count)
+                sleep.assert_called_once_with(0.025)
+                admit.assert_not_called()
+                self.assertIn(
+                    "receipt_reason=" + reason,
+                    supervision._session_handoff_failure(caught.exception, "check_ownership"),
+                )
+        with (
+            patch.object(Path, "open", side_effect=PermissionError("synthetic")) as opened,
+            patch.object(supervision.time, "sleep") as sleep,
+        ):
+            self.assertEqual((None, ("open", "access_denied")), supervision._read_receipt(self.metadata))
+        opened.assert_called_once_with("rb")
+        sleep.assert_not_called()
+
     def test_terminal_clean_publication_makes_a_queued_notice_obsolete(self):
         self.value.update(phase="stopped", cause="provider_stopped", session_admissions=[])
         self.save()
@@ -97,7 +173,7 @@ class SessionHandoffTests(unittest.TestCase):
                     self.save()
                 else:
                     Path(self.metadata["receipt"]).unlink()
-                with patch.object(handoff, "admit_session") as admit:
+                with patch.object(handoff, "admit_session") as admit, patch.object(supervision.time, "sleep"):
                     with self.assertRaisesRegex(supervision.SupervisionError, "receipt is unavailable"):
                         self.reply()
                     admit.assert_not_called()
@@ -184,7 +260,7 @@ class SessionHandoffTests(unittest.TestCase):
             for key in ("nonce", "owner", "keeper", "provider")
         ]
         for name, phase, reason, prepare in cases:
-            with self.subTest(branch=name), ExitStack() as stack:
+            with self.subTest(branch=name), ExitStack() as stack, patch.object(supervision.time, "sleep"):
                 self.metadata, self.value = copy.deepcopy(original_metadata), copy.deepcopy(original_value)
                 self.save()
                 prepare()
@@ -575,6 +651,7 @@ class SessionHandoffTests(unittest.TestCase):
             patch.object(supervision.uuid, "uuid4", return_value=SimpleNamespace(hex="a" * 32)),
             patch.object(supervision.threading, "Event", return_value=event),
             patch.object(supervision.threading, "Thread", side_effect=thread),
+            patch.object(supervision.time, "sleep"),
             # This transport control does not install a Linux boundary. A
             # portable stream pair supplies the same closed-peer EOF here.
             patch.object(supervision.socket, "socketpair", side_effect=callback_pair),
