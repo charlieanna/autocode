@@ -1346,6 +1346,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Regression checks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-a-run-spent-money" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a run spent money
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1967,6 +1984,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Regression checks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-a-run-spent-money" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where a run spent money
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -2144,6 +2178,15 @@ cover cost arithmetic against the actual provider normalizer, missing data,
 retry model identity, repeated events, failed attempts, and both CLI entry paths.
 They make no live model calls. The subprocess fixture needs local process-table
 access for its process-supervision checks.</p>
+<h3 id="where-a-run-spent-money">Where a run spent money<a class="headerlink" href="#where-a-run-spent-money" title="Permanent link">&para;</a></h3>
+<p><code>cost.breakdown</code> in <code>--status --json</code> attributes the money-cap ledger by stage
+and process outcome. Repeated stages and failed/interrupted attempts also appear
+in the <code>Cost:</code> line, with their known subtotal and unpriced count. Reported and
+estimated amounts stay separate in JSON. A process that exits successfully may
+still reject a plan; a failed check can be useful. This breakdown measures where
+money went, without labelling those attempts productive or wasted. Restored
+checkpoint spend remains separately identified as <code>inherited_usd</code>. See the
+<a href="../task-run/">status contract</a> for completeness and rounding semantics.</p>
 
 
 
