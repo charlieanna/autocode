@@ -15,9 +15,11 @@ import subprocess
 
 try:
     from . import autocode_direct_config as direct
+    from . import autocode_providers as providers
     from .providers import command
 except ImportError:
     import autocode_direct_config as direct
+    import autocode_providers as providers
     from providers import command
 
 BUILTINS = {
@@ -147,7 +149,17 @@ def view():
     names = {*BUILTINS, "autocode"}
     root = command.user_config_path("discovery").parent
     names.update(path.stem for path in root.glob("*.toml") if command._NAME.fullmatch(path.stem))
-    return {"version": 1, "connections": [connection_view(name) for name in sorted(names)]}
+    rows = [connection_view(name) for name in sorted(names)]
+    # The provider new runs use without --provider (AUTOCODE_PROVIDER, then default_provider in the
+    # user's config, then OpenCode): display only, so a client can say what a new chat runs on.
+    try:
+        default = providers.default_name()
+    except (OSError, ValueError):
+        default = None
+    for row in rows:
+        if row["id"] == default:
+            row["default"] = True
+    return {"version": 1, "connections": rows}
 
 
 def cli(argv):

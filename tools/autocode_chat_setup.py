@@ -115,10 +115,17 @@ def mode_label(listed: dict, mode: str | None) -> str:
     return str(wanted or "default")
 
 
-def summary(listed: dict | None, chosen: NewChat) -> str:
-    """One line: what a new chat starts with."""
+def default_connection(rows: list[dict]) -> str | None:
+    """The connection new runs use without --provider, as `connections list` marks it (``default``)."""
+    return next((str(row["id"]) for row in rows if row.get("default") is True), None)
+
+
+def summary(listed: dict | None, chosen: NewChat, default: str | None = None) -> str:
+    """One line: what a new chat starts with. Without an --engine or --provider of its own, a new
+    chat runs on the default connection (``default``, from `connections list`), else OpenCode."""
     mode = mode_label(listed or {}, chosen.mode) if listed else (chosen.mode or "the default mode")
-    engine = engine_of(chosen.options)
+    own = flag_value(chosen.options, "--engine") or flag_value(chosen.options, "--provider")
+    engine = engine_of(chosen.options) if own or not default else default
     return f"New chats: {mode} · {ENGINE_LABELS.get(engine, engine)}. /mode and /engine change them."
 
 

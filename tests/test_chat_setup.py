@@ -103,6 +103,14 @@ class ListingTests(unittest.TestCase):
         )
         self.assertIn("  claude  Claude Code  (current)", setup.engines_text(chosen))
 
+    def test_a_new_chat_runs_on_the_default_connection_unless_it_names_one(self):
+        rows = [{"id": "opencode"}, {"id": "kilo_glm_mimo_gpt", "default": True}]
+        default = setup.default_connection(rows)
+        self.assertEqual("kilo_glm_mimo_gpt", default)
+        self.assertIn("· kilo_glm_mimo_gpt.", setup.summary(MODES, setup.NewChat(), default))
+        self.assertIn("· Claude Code.", setup.summary(MODES, setup.NewChat(None, ["--engine", "claude"]), default))
+        self.assertIn("· OpenCode.", setup.summary(MODES, setup.NewChat(), None))
+
     def test_connections_offer_their_own_actions_and_use_only_when_usable(self):
         rows = setup.connections(CONNECTIONS)
         text = setup.connections_text(rows, setup.NewChat(None, ["--provider", "opencode"]))
