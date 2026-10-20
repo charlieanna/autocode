@@ -9,6 +9,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- When AutoCode refuses to start a new chat's run (no engine on PATH, an unsupported host), `autocode`
+  now shows AutoCode's reason instead of `--status did not return a status view: … state.json`.
+
 ### Added
 
 - Tabs in the full-screen `autocode chat`, as in the VS Code extension: `Ctrl-T` (or `/new`)
