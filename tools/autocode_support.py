@@ -296,8 +296,10 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
     for check in normalized:
         if (
             not isinstance(check, dict)
-            or not isinstance(check.get("command"), str)
             or not isinstance(check.get("evidence_ref"), str)
+            or not isinstance(check.get("command"), str)
+            # A capture receipt already names its command: a check citing one may leave it null (#1710).
+            and (check.get("command") is not None or check["evidence_ref"].startswith("event:"))
         ):
             raise ValueError("Check needs a command and evidence reference")
         missing_exit = check.get("exit_code") is None
@@ -363,6 +365,8 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             raise ValueError(
                 f"Cannot read check receipt {path}: {error}. Cite the exact captured receipt path."
             ) from error
+        if check["command"] is None and isinstance(receipt.get("command"), list):
+            check["command"] = shlex.join(str(part) for part in receipt["command"])
         if (
             not isinstance(receipt.get("command"), list)
             or not all(isinstance(part, str) for part in receipt["command"])
@@ -386,6 +390,25 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
     # Failed or ambiguous normalization must not partly repair the caller's report.
     for original, derived in zip(checks, normalized, strict=False):
         original.update(derived)
+
+
+def derived_check_fields(checks, reported_checks, events_path):
+    """Which fields of each check the runner filled from its evidence: an exit code, or a receipt's command."""
+    derived = []
+    for index, check in enumerate(checks):
+        reported = reported_checks[index] if index < len(reported_checks) else {}
+        derived += [
+            {
+                "check_index": index,
+                "field": field,
+                "value": check[field],
+                "evidence_ref": check["evidence_ref"],
+                "events": events_path,
+            }
+            for field in ("exit_code", "command")
+            if reported.get(field) is None
+        ]
+    return derived
 
 
 def local_settings():

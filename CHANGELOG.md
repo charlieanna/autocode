@@ -12,7 +12,13 @@ PR template asks for an entry here; a change without one is incomplete.
 ### Changed
 
 - Requirements conversation reports use a smaller output contract without unrelated test-verdict and command-receipt instructions; the model, session and structured handoff stay unchanged.
-
+- A small approved plan's first Builder attempt runs at low reasoning effort (#1710, owner decision): one milestone
+  and at most four files. A small `peek()` feature's Builder spent about 555 of 786 s reasoning at medium. Any
+  earlier attempt at the same task (rejected report, failed check, Tester send-back) brings the configured effort
+  back. Planning roles, the Tester and the Completion Reviewer are unchanged. `AUTOCODE_LIGHT_BUILDER=0` turns it off.
+- A Tester check that cites a capture receipt may give `command` null, and the runner copies the command from the
+  receipt and verifies it as before (#1710). The Tester no longer retypes every command, about 9 KB of a 20 KB report.
+- Passed tool checks are now reused for an hour within a run (was 10 minutes; owner decision).
 - A chat turn no longer re-runs the tool's version, model-list and login checks it already passed in this run:
   a successful check is reused for 10 minutes, keyed by the exact command, folder, environment and tool
   executable, so an upgrade or changed setting checks again. On Kilo this saves about 6 s per follow-up message.
