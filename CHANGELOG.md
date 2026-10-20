@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Tester report that cited a file it read (`hello.txt`) beside its passing checks was refused whole and
+  needed a Resolver step and a repair call. AutoCode now drops the extra citation when the requirement
+  already cites a verified check, records the drop on the stage (`dropped_evidence_refs`, the raw report
+  kept as `.reported.json`), and accepts. A requirement with no verified citation is still refused, and
+  the Tester's instructions now say a project file is not criterion evidence.
 - Session ownership checks briefly retry a missing initial receipt open during atomic replacement
   on Mac Docker binds; persistent absence and invalid ownership evidence still stop the run (#1680).
 - A stopped step's chat notice no longer tells terminal users to "Open Run details", a button only VS Code has;

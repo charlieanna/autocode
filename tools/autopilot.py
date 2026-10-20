@@ -16,7 +16,6 @@ except ImportError:
 
 
 import copy
-import re
 from pathlib import Path
 
 try:
@@ -779,25 +778,12 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     support.verify_checks(value["checks"], workspace, record["events"], **runtime.check_evidence_options(record))
     check_refs.resolve(value)  # check:<n> evidence names a check whose event the runner just attached
     design_refs = design_coverage.report_refs(state, value, stage=stage)
-    managed_root = (Path(workspace) / ".autocode").resolve()
-    writable = re.compile(r"tool-containment-[0-9a-f]{32}|scratch|investigation")
-
-    def runner_receipt(ref: str) -> bool:
-        # Outside model scratch, containment and investigation areas the runner alone writes under
-        # .autocode/ (events, receipts, captures, activity), so a citation there is evidence this run
-        # recorded — #638's live Validator cited activity.jsonl — and ownership stays with the
-        # rework policy.
-        try:
-            path = (Path(ref) if Path(ref).is_absolute() else Path(workspace) / ref).resolve()
-        except OSError:
-            return False
-        return path.is_relative_to(managed_root) and not any(
-            writable.fullmatch(part) for part in path.relative_to(managed_root).parts
-        )
-
     cited = [ref for row in value["criterion_results"] for ref in row.get("evidence_refs") or []]
     unbound = check_refs.unbound_refs(
-        value, {c["evidence_ref"] for c in value["checks"]} | set(design_refs) | {r for r in cited if runner_receipt(r)}
+        value,
+        {c["evidence_ref"] for c in value["checks"]}
+        | set(design_refs)
+        | {r for r in cited if check_refs.runner_receipt(workspace, r)},
     )
     if unbound:
         criterion, ref = unbound[0]
