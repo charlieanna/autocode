@@ -3023,7 +3023,7 @@ test('test_ac4_done_notifies_once_with_outcome', async (t) => {
   views.set(alpha.runDir, { status: 'COMPLETED', done: true });
   await ui.poll();
   assert.equal(host.notices.length, 2);
-  assert.equal(host.notices[1].message, 'AutoCode: alpha is waiting for you - nothing; the run is complete');
+  assert.equal(host.notices[1].message, 'AutoCode: alpha finished.');
   await ui.poll();
   assert.equal(host.notices.length, 2);
 });
@@ -3090,7 +3090,7 @@ test('test_ac12_working_to_done_task_complete_notifies_once', async (t) => {
   views.set(alpha.runDir, { status: 'TASK_COMPLETE', done: true, needs: null });
   await ui.poll();
   assert.equal(host.notices.length, 1);
-  assert.equal(host.notices[0].message, 'AutoCode: alpha is waiting for you - nothing; the run is complete');
+  assert.equal(host.notices[0].message, 'AutoCode: alpha finished.');
   await ui.poll();
   assert.equal(host.notices.length, 1);
 });

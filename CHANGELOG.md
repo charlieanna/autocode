@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code completion notifications say the chat finished, rather than claiming a completed run
+  is waiting for the user (#1687).
 - A Tester report that cited a file it read (`hello.txt`) beside its passing checks was refused whole and
   needed a Resolver step and a repair call. AutoCode now drops the extra citation when the requirement
   already cites a verified check, records the drop on the stage (`dropped_evidence_refs`, the raw report

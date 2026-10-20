@@ -258,8 +258,9 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     seen.add(notice.identity);
     if (vscode.workspace.getConfiguration("autocode").get<boolean>("notify", true) === false) return;
     void (async () => {
+      const outcome = notice.identity === "done" ? "finished." : `is waiting for you - ${notice.tail}`;
       const choice = await vscode.window.showInformationMessage(
-        `AutoCode: ${tabName(tab)} is waiting for you - ${notice.tail}`, "Open chat",
+        `AutoCode: ${tabName(tab)} ${outcome}`, "Open chat",
       );
       if (choice === "Open chat") this.show(run);
     })();
