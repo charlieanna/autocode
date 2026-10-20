@@ -42,7 +42,9 @@ def revised(body, answer_id=""):
     after = copy.deepcopy(body)
     after["acceptance_criteria"][0]["criterion"] = PROPOSED
     basis = "user_answer" if answer_id else "agent_proposed"
-    return after, [{"item": "AC2", "change": "reworded", "basis": basis, "answer_id": answer_id, "replacement": PROPOSED}]
+    return after, [
+        {"item": "AC2", "change": "reworded", "basis": basis, "answer_id": answer_id, "replacement": PROPOSED}
+    ]
 
 
 class GuardTests(unittest.TestCase):

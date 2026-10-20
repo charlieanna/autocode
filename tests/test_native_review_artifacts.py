@@ -272,7 +272,6 @@ class NativeReviewArtifactTests(unittest.TestCase):
         self.assertEqual("PAUSED_STALE_VALIDATION", caught.exception.status)
 
 
-
 class KiloReviewArtifactTests(NativeReviewArtifactTests):
     """Kilo, an OpenCode fork, keeps the same snapshots under its own name (kilo/snapshot, .git/kilo).
 
