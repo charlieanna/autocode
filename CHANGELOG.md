@@ -19,6 +19,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - When a planner rewords a criterion or protected item of a plan the person already approved, AutoCode now
   asks the person, showing the approved and the proposed wording, instead of repairing the report back and
   pausing as invalid output. The answer is saved like any other, so the next plan can cite it (#1691).
+- A Code Review on Kilo that delivered only its allowed `review/tests/` files paused as "Repository changed
+  during read-only review": the check read OpenCode's snapshot cache, and Kilo keeps its own
+  (`kilo/snapshot`, `.git/kilo`). The check now reads the cache of the CLI that ran the stage.
 - VS Code suppresses a person-wait notice while its own action automatically continues a chat;
   a genuinely stopped Continue checkpoint still notifies after that action finishes (#1692).
 - The source-trace check no longer rejects a correct plan for not repeating a standard's name: "ISO 8601",

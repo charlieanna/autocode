@@ -17,6 +17,8 @@ import autocode_util as util
 
 
 class NativeReviewArtifactTests(unittest.TestCase):
+    APP = "opencode"
+
     @classmethod
     def setUpClass(cls):
         cls.seed_dir = tempfile.TemporaryDirectory()
@@ -74,15 +76,15 @@ class NativeReviewArtifactTests(unittest.TestCase):
             "role": "sol",
             "stage": "review_change",
             "events": str(self.events),
-            "command": ["opencode", "run", "--dir", str(self.root)],
+            "command": [self.APP, "run", "--dir", str(self.root)],
             "output": str(self.artifacts / "report.json"),
             "schema": str(schema),
         }
         policy.prepare_opencode_snapshots(self.root, record=self.record, env={"XDG_DATA_HOME": str(self.data)})
         source.capture(self.root, self.artifacts / "review", self.record, util.snapshot(self.root))
         project = subprocess.check_output(["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True).strip()
-        (self.root / ".git/opencode").write_text(project)
-        self.cache = self.data / "opencode/snapshot" / project / ("c" * 64)
+        (self.root / ".git" / self.APP).write_text(project)
+        self.cache = self.data / self.APP / "snapshot" / project / ("c" * 64)
         subprocess.run(["git", "init", "-q", "--bare", str(self.cache)], check=True)
         self.git("config", "core.bare", "false")
         self.git("config", "core.worktree", str(self.root))
@@ -268,6 +270,25 @@ class NativeReviewArtifactTests(unittest.TestCase):
         with self.assertRaises(util.Paused) as caught:
             runner.load_stage_report(self.record, evidence_record=original)
         self.assertEqual("PAUSED_STALE_VALIDATION", caught.exception.status)
+
+
+
+class KiloReviewArtifactTests(NativeReviewArtifactTests):
+    """Kilo, an OpenCode fork, keeps the same snapshots under its own name (kilo/snapshot, .git/kilo).
+
+    A live Kilo review that added only review/tests/ files paused as a changed repository because the
+    reader looked in OpenCode's cache.
+    """
+
+    APP = "kilo"
+
+    def test_a_kilo_review_is_never_judged_from_the_opencode_cache(self):
+        self.add_test()
+        self.events_for([self.before, self.tree()])
+        self.record["opencode_snapshot_context"] = policy.native_snapshots.context(
+            self.root, {"XDG_DATA_HOME": str(self.data)}
+        )
+        self.rejected()
 
 
 if __name__ == "__main__":

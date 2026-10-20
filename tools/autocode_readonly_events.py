@@ -108,7 +108,7 @@ def prepare_opencode_snapshots(workspace, *, record=None, env=None):
     # Written only here, before provider admission; the native-tree reader uses
     # this stage-record metadata on immediate parsing and saved-report recovery.
     if record is not None and record.get("stage") == review_job.STAGE and not record.get("report_only"):
-        record["opencode_snapshot_context"] = native_snapshots.context(workspace, env)
+        record["opencode_snapshot_context"] = native_snapshots.context(workspace, env, native_snapshots.app(record))
     try:
         name = subprocess.check_output(
             ["git", "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
