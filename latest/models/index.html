@@ -2122,7 +2122,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f9f3d423ae632700aefc73e7020999527820ab0d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/f3cc8b6ea56b7a23f5f9fee51ac1b42ab37e2e5e/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2278,7 +2278,7 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/f9f3d423ae632700aefc73e7020999527820ab0d/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/f3cc8b6ea56b7a23f5f9fee51ac1b42ab37e2e5e/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2396,7 +2396,14 @@ is never silently added.</p>
   counts as cheaper than any pay-per-token one, then the price-table cost orders them,
   and a route whose access is already proven beats one that would need a probe. The
   checkers are never downgraded to save money: they start on their cheapest <em>qualified</em>
-  model, and only a failure ever moves a role up.</li>
+  model, and only a failure ever moves a role up. A role whose table entries carry a
+  <code>preference</code> is ordered by it first: the Plan Reviewer is GPT-6 Sol when the ChatGPT
+  login is connected, then Claude Opus, and MiMo is not used for review (owner decision,
+  2026-10-20: MiMo spent 32-45k reasoning tokens and up to 15 minutes per plan review).
+  With neither connected, the run stops before any work and offers those two logins.
+  The Completion Reviewer, the final gate, likewise prefers GPT-6 Sol over GLM 5.3. The
+  long, token-heavy stages (Requirements, Planner, Builder, Tester) stay on the cheapest
+  qualified models, because their volume would exhaust a subscription's limits.</li>
 <li><strong>Independence is never lowered quietly.</strong> Every producer and checker pair stays on
   different model families (<code>tools/autocode_verifier_independence.py</code>); when the
   connected accounts cannot provide that, the run stops before any work and says what
