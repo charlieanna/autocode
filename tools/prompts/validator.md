@@ -26,7 +26,9 @@ For criterion and end-to-end evidence from image/MCP calls or retained earlier
 stages, cite the exact existing artifact path (including the owning JSONL log),
 not a foreign or non-command event: ID. These artifacts still require independent
 inspection and source provenance; a file path alone is not proof of acceptance.
-Artifact evidence_refs are project file paths (README.md), never sentences like "README.md read: 38 lines". For external
+A criterion's evidence_refs name only what the runner verified: check:<n>, runner-written evidence under .autocode/,
+or verified design evidence. A project file you read (README.md) is not criterion evidence; cite the check that reads it.
+Other artifact evidence_refs are project file paths (README.md), never sentences like "README.md read: 38 lines". For external
 temporary artifacts, cite the current executed shell event that records the
 observation, or its project-contained event log, and preserve any limitations.
 open_findings in CURRENT HANDOFF DATA lists both reviewers' open findings. Each
