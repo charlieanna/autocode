@@ -376,7 +376,7 @@ def answer_cross_model_question(runner, args, state: RunState, run_dir, workspac
             role,
             model,
             configured_tool=getattr(runner.opencode, "CONFIGURED", False),
-            cross_check=runner.dispatch.enforce_cross_model_verification,
+            cross_check=quota_route.cross_model_check(role),
             job=asked.get("job"),
         )
         if quota_route.engine(candidate["settings"], role) == "opencode":
@@ -396,8 +396,7 @@ def answer_cross_model_question(runner, args, state: RunState, run_dir, workspac
             attempt={"pause_status": quota_route.CROSS_MODEL_STATUS, "role": role},
         )
         candidate["stop_reason"] = (
-            f"The {record['job']} now runs on {model} (was {record['from']}). "
-            "Continue with --resume-paused."
+            f"The {record['job']} now runs on {model} (was {record['from']}). Continue with --resume-paused."
         )
         runner.commit_user_action(state, candidate, run_dir)
     except (ValueError, KeyError) as error:

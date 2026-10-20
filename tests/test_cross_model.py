@@ -273,6 +273,42 @@ class CrossModelTest(unittest.TestCase):
         self.assertEqual("gpt-5.6-terra", state["settings"]["roles"]["plan_reviewer"]["model"])
         dispatch.enforce_cross_model_verification(state)  # the named model clears the guard
 
+    def test_each_clash_is_asked_in_turn_when_two_pairs_break_independence(self):
+        import autocode_quota_route as quota_route
+
+        state = {
+            "status": "PAUSED_CROSS_MODEL",
+            "settings": {
+                "engine": "codex",
+                "roles": {
+                    "terra": {"model": "gpt-5.6-sol"},
+                    "sol": {"model": "gpt-5.6-sol"},
+                    "completion": {"model": "gpt-6-luna"},
+                    "glm": {"model": "gpt-5.6-terra"},
+                    "plan_reviewer": {"model": "gpt-5.6-terra"},
+                },
+            },
+            "user_events": [],
+        }
+        asked = quota_route.cross_model_question(state)
+        self.assertEqual("sol", asked["route_role"])
+        self.assertIn("gpt-6-luna", asked["candidates"])  # the Planner/Plan Reviewer clash does not refuse it
+        check = quota_route.cross_model_check("sol")
+        with self.assertRaisesRegex(RuntimeError, r"^Builder/Tester: identical model gpt-5\.6-sol$"):
+            check(state)  # the Tester's own pair still counts; the other pair does not
+        quota_route.validate(state, "sol", "gpt-6-luna", configured_tool=False, cross_check=check)
+        quota_route.assign(
+            state,
+            "sol",
+            "gpt-6-luna",
+            at="t",
+            via="answer",
+            attempt={"pause_status": quota_route.CROSS_MODEL_STATUS, "role": "sol"},
+        )
+        with self.assertRaisesRegex(support.Paused, "Planner/Plan Reviewer"):
+            dispatch.enforce_cross_model_verification(state)  # the launch guard still holds the other pair
+        self.assertEqual("plan_reviewer", quota_route.cross_model_question(state)["route_role"])
+
 
 if __name__ == "__main__":
     unittest.main()

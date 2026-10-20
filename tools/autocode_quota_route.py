@@ -540,7 +540,7 @@ def cross_model_question(state: RunState) -> dict | None:
         state,
         role,
         current,
-        cross_check=_independence_check,
+        cross_check=cross_model_check(role),
         job=job,
         current=current,
     )
@@ -616,13 +616,26 @@ def validate(
         raise ValueError(clash)
 
 
-def _independence_check(trial: dict) -> None:
-    """``cross_check`` for a pure view: raise like the dispatch guard when routes clash."""
-    problems = verifier_independence.violations(trial.get("settings") or {})
-    if problems:
-        error = RuntimeError("; ".join(problems))
-        error.status = CROSS_MODEL_STATUS  # type: ignore[attr-defined]
-        raise error
+def cross_model_check(role: str):
+    """``cross_check`` for a cross-model answer: raise like the dispatch guard when ``role`` still clashes.
+
+    Only the pairs ``role`` is in count. Another pair that also breaks independence is
+    asked about next: the dispatch guard pauses on it again before any launch, so an
+    answer that fixes this pair is never refused for a clash it cannot fix.
+    """
+
+    def check(trial: dict) -> None:
+        problems = [
+            f"{row['label']}: {row['problem']}"
+            for row in verifier_independence.clashes(trial.get("settings") or {})
+            if role in (row["producer"], row["verifier"])
+        ]
+        if problems:
+            error = RuntimeError("; ".join(problems))
+            error.status = CROSS_MODEL_STATUS  # type: ignore[attr-defined]
+            raise error
+
+    return check
 
 
 def _clashes(settings: dict, role: str, model: str, cross_check) -> str | None:
