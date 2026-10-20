@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Answering Requirements' greeting with "Nothing yet, just saying hello." got the honest reply (no goal, no
+  question) refused as a handoff without an outcome, repaired twice and sent to the Investigator. In a spec-first
+  chat, such a reply now asks the standard "what would you like to build or change" question and waits for you.
 - A run stopped with "Cannot snapshot source ... git rev-parse HEAD failed" when the project held an
   untracked nested Git repository with no commit yet (a scratch `git init`). The nested repository is now
   hashed with an unborn head, so edits inside it are still seen; the project itself still needs a commit.
