@@ -490,7 +490,9 @@ def row_actions(row, *, restorable, run_dir=None, workspace=None):
 
 def working_action(state: RunState, *, run_dir=None, workspace=None):
     """The display-only `checkpoint --working` action, named while a Builder step is running."""
-    active = state.get("active_stage") or {}
+    active = state.get("active_stage")
+    if not isinstance(active, dict):
+        return None
     if active.get("stage") not in ("terra", "orchestrator") or not approved(state):
         return None
     return {

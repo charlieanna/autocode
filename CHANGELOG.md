@@ -9,6 +9,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- The status view remains usable when a saved active-stage record is malformed: it omits the
+  optional running-Builder diff action rather than raising an exception (#1671).
+
 ### Added
 
 - Tabs in the full-screen `autocode chat`, as in the VS Code extension: `Ctrl-T` (or `/new`)
