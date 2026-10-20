@@ -308,6 +308,16 @@ PR template asks for an entry here; a change without one is incomplete.
   level. Automatic quota recovery retains and accounts for the stopped attempt before retrying,
   and remembers exhausted alternatives across restarts instead of cycling between them (#1426).
 
+- Native Figma launch validation reuses canonical validation for exact, freshly reread history-row bytes
+  within one invocation. It still checks original locks, namespace, paths, chain order and evidence pins;
+  changed bytes are validated again. This reduces repeated parsing before provider release without
+  extending the saved idle, tool or stage deadlines (#250, #251).
+
+- Figma captures of focused inputs and textareas no longer fail because Playwright's own caret hiding
+  changes the DOM. Captures retain the caret's initial behavior while still rejecting application DOM
+  changes during screenshots. Used prototype actions now reject missing, null or empty node destinations,
+  including nested conditional actions; explicitly excluded originals remain preserved (#250, #251).
+
 - The VS Code chat showed plan-approval internals: "Plan the approval is bound to (revision 3)",
   criterion IDs (`AC1`, `AC2`), each verification command and a token notice with a raw CLI command.
   The chat now lists what the plan will deliver under "Plan to approve", marks the items you check
@@ -350,6 +360,9 @@ PR template asks for an entry here; a change without one is incomplete.
   recorded as releasing the pause, matching the Builder's stronger attempt (#611).
 
 - Lifecycle-only provider events no longer let a persistent helper process bypass an explicitly configured idle timeout; genuine tool execution keeps its tool deadline (#1562).
+
+- Keep status readable for malformed streaming-stage data and refuse verification reuse when editable source cannot be snapshotted. Stabilize successful assignment subprocess fixtures without changing live-run limits.
+
 
 ### Added
 - VS Code chat can pause a working run: Pause takes Send's place, the current step finishes and

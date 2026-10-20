@@ -304,6 +304,17 @@ class RequirementsChatTests(unittest.TestCase):
             state["active_stage"]["stage"] = "astra_challenge"
             self.assertEqual("", chat.streaming_reply(state, root))
 
+    def test_malformed_stream_or_repair_identity_has_no_provisional_reply(self):
+        for invalid in (None, "requirements_gather", ["requirements_gather"], True, 42):
+            with self.subTest(invalid=invalid):
+                state = {"settings": {"spec_first": True}, "active_stage": invalid}
+                self.assertEqual("", chat.streaming_reply(state, Path("/unused-run")))
+                state["active_stage"] = {"stage": chat.STAGE + "_report_repair"}
+                state["pending_report_repair"] = invalid
+                self.assertEqual("", chat.streaming_reply(state, Path("/unused-run")))
+                state["pending_report_repair"] = {"original": invalid}
+                self.assertEqual("", chat.streaming_reply(state, Path("/unused-run")))
+
 
 if __name__ == "__main__":
     unittest.main()

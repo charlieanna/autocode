@@ -100,9 +100,12 @@ class AssignmentScenarios(unittest.TestCase):
                 "iteration_ceiling": 5,
                 "max_seconds": None,
                 "no_progress_batches": 3,
-                "stage_timeout_seconds": 3,
-                "idle_timeout_seconds": 2,
-                "tool_timeout_seconds": 2,
+                # Successful subprocess scenarios measure assignment behavior,
+                # not startup latency on a shared macOS host. The hung-worker
+                # scenario below keeps its own short watchdog bounds.
+                "stage_timeout_seconds": 40,
+                "idle_timeout_seconds": 20,
+                "tool_timeout_seconds": 20,
             },
         )
         first = milestones[0]
@@ -401,6 +404,7 @@ class AssignmentScenarios(unittest.TestCase):
     def test_hung_builder_is_stopped_and_not_completed(self):
         self.seed()
         self.greeting_contract(self.partner())
+        self.state["settings"]["limits"].update(stage_timeout_seconds=3, idle_timeout_seconds=2, tool_timeout_seconds=2)
         self.install_builder("hang")
         with self.assertRaises(s.Paused):
             self.build()

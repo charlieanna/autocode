@@ -373,16 +373,8 @@ def compute_use(full_source_facts, complete_owner_index, cases):
             for key in matching:
                 variable_ids.update((key[0], alias) for alias in sources.aliases(resources["variables"][key]["value"]))
 
-        def destinations(value):
-            if isinstance(value, list):
-                return set().union(*(destinations(item) for item in value))
-            if not isinstance(value, dict):
-                return set()
-            found = {value["destinationId"]} if value.get("destinationId") else set()
-            return found | set().union(*(destinations(item) for item in value.values()))
-
         for file_key, transition in transitions:
-            for destination in destinations(transition["action"]) | (
+            for destination in sources.prototype_destinations(transition["action"]) | (
                 {transition["target_node_id"]} if transition["target_node_id"] else set()
             ):
                 candidates = node_lookup.get((file_key, destination), ())

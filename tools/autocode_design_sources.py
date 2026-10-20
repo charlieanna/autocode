@@ -939,6 +939,21 @@ def aliases(value):
     return found
 
 
+def prototype_destinations(value, *, require_resolved=True):
+    """Collect original nested targets; required NODE actions must resolve."""
+    if isinstance(value, list):
+        return set().union(*(prototype_destinations(row, require_resolved=require_resolved) for row in value))
+    if not isinstance(value, dict):
+        return set()
+    destination = value.get("destinationId")
+    if require_resolved and value.get("type") == "NODE" and (not isinstance(destination, str) or not destination):
+        raise ValueError("Used prototype NODE action has no resolvable destination")
+    found = {destination} if destination else set()
+    for row in value.values():
+        found.update(prototype_destinations(row, require_resolved=require_resolved))
+    return found
+
+
 def validate(file, root, node_tables):
     try:
         return _validate(file, root, node_tables)

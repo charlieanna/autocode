@@ -239,6 +239,31 @@ class IsolationTests(unittest.TestCase):
             self.stage(owner, True)
         self.assertEqual(before, set(self.run.iterdir()))
 
+    def test_openai_subscription_keeps_builtin_auth_without_inheriting_external_plugins(self):
+        self.state["settings"]["roles"]["terra"]["model"] = "openai/gpt-6-sol"
+        self.command[self.command.index("--model") + 1] = "openai/gpt-6-sol"
+        self.env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "1"
+        owner = self.owner()
+        command, env, boundary, descriptor = self.finalize_fixture(owner)
+        self.assertNotIn("OPENCODE_DISABLE_DEFAULT_PLUGINS", env)
+        final = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+        self.assertEqual(["openai"], final["enabled_providers"])
+        self.assertEqual(1, len(final["plugin"]))
+        self.assertTrue(final["plugin"][0].endswith("/activity.mjs"))
+        self.assertEqual("1", env["OPENCODE_DISABLE_PROJECT_CONFIG"])
+        with patch.object(containment, "sys", SimpleNamespace(platform="darwin")):
+            self.assertEqual(
+                descriptor, owner.verify_launch(state=self.state, command=command, environment=env, boundary=boundary)
+            )
+
+    def test_other_native_routes_still_disable_default_auth_plugins(self):
+        for model in ("zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2.6-pro"):
+            with self.subTest(model=model):
+                self.state["settings"]["roles"]["terra"]["model"] = model
+                self.command[self.command.index("--model") + 1] = model
+                _, env = self.stage(self.owner())
+                self.assertEqual("1", env["OPENCODE_DISABLE_DEFAULT_PLUGINS"])
+
     def test_custom_singapore_configuration_is_held_without_route_substitution(self):
         self.state["settings"]["roles"]["terra"]["model"] = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
         self.state["settings"]["transport_identity"]["config_hashes"]["/custom/opencode.json"] = "a" * 64
