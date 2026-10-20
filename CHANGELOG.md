@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A planner correcting its own wording in a plan nobody has approved yet (an expected-output literal with
+  one space too many) was refused as a protected rewording that "needs a saved user answer", and the run
+  spent its repair attempts restoring the wrong text. Before any approval, a criterion may now be reworded
+  when it keeps every request quote it cited; once a plan was approved, every rewording still needs the
+  person (#1691).
 - VS Code suppresses a person-wait notice while its own action automatically continues a chat;
   a genuinely stopped Continue checkpoint still notifies after that action finishes (#1692).
 - The source-trace check no longer rejects a correct plan for not repeating a standard's name: "ISO 8601",
