@@ -148,6 +148,16 @@ def stage_rows(state: RunState, estimator=None):
                 "model": model,
                 "tokens": {key: _count(tokens.get(key)) for key in TOKEN_KEYS},
                 "partial": metrics.get("provider_tokens_partial") is True,
+                # Process completion is not a passing review or accepted work.
+                "process_outcome": (
+                    "interrupted"
+                    if any(record.get(flag) is True for flag in ("timed_out", "abandoned", "interrupted"))
+                    else "failed"
+                    if type(record.get("exit_code")) is int and record["exit_code"] != 0
+                    else "completed"
+                    if type(record.get("exit_code")) is int and record["exit_code"] == 0
+                    else "unknown"
+                ),
                 "cost_usd": cost,
                 "basis": basis,
             }

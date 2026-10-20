@@ -8,6 +8,19 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_cost_aliases_and_attribution_keep_the_public_cap_consumer(self):
+        consumer = "tests.test_cost_cap"
+        for path in (
+            "tools/autocode_prices.json",
+            "tools/autocode_cost.py",
+            "tools/autocode_cost_breakdown.py",
+            "tools/autocode_usage.py",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_checkpoint_projection_keeps_its_public_status_consumers(self):
         consumers = {"tests.test_liveness", "tests.test_usage"}
         selected = run_suite.select_tests(

@@ -176,3 +176,14 @@ cover cost arithmetic against the actual provider normalizer, missing data,
 retry model identity, repeated events, failed attempts, and both CLI entry paths.
 They make no live model calls. The subprocess fixture needs local process-table
 access for its process-supervision checks.
+
+### Where a run spent money
+
+`cost.breakdown` in `--status --json` attributes the money-cap ledger by stage
+and process outcome. Repeated stages and failed/interrupted attempts also appear
+in the `Cost:` line, with their known subtotal and unpriced count. Reported and
+estimated amounts stay separate in JSON. A process that exits successfully may
+still reject a plan; a failed check can be useful. This breakdown measures where
+money went, without labelling those attempts productive or wasted. Restored
+checkpoint spend remains separately identified as `inherited_usd`. See the
+[status contract](task-run.md) for completeness and rounding semantics.

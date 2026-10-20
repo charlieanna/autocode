@@ -971,6 +971,20 @@ has that basis, and `spent_usd` is null when no stage is known at all; while `co
 `spent_usd` is a floor. `usage.cost_usd` keeps the frozen comparison rates its reports are bound to,
 so its `estimated` can differ from `cost.estimated_usd`.
 
+`cost.breakdown` groups that same finished-stage ledger in two alternative ways:
+`by_stage` and `by_process_outcome` (`completed`, `failed`, `interrupted`, `unknown`).
+Each row has `stages`, `spent_usd`, `reported_usd`, `estimated_usd`, `unpriced_stages`,
+`partial_stages`, `failed_stages`, `interrupted_stages` and `complete`; stage rows
+also name the `stage` and routing-aware `job`. The two groupings overlap and must
+not be added together. Each grouping plus `inherited_usd` reconciles with the known
+run total, subject to six-decimal rounding. Inherited spend has no stage attribution.
+Active attempts and unaccounted workers are excluded, just as in the money-cap
+ledger; the overall `cost.complete` remains false while they run. Unknown cost is
+not zero. A completed process may return a rejecting review, and another attempt
+may be required work: these labels do not claim acceptance or wasted spend.
+The cost line calls out repeated stages and failed/interrupted attempts. For
+observed repetition reasons, consult the existing `efficiency.repeats` projection.
+
 `escalation_outcomes` counts the run's escalations and Builder retries by the outcome the runner
 stamped on them (`passed`, `paused`, `open`; `tools/autocode_route_ladder.py`). The runner stamps
 every one still open `passed` when the run completes on work a validation passed (including when
