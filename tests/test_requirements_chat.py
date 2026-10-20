@@ -304,6 +304,46 @@ class RequirementsChatTests(unittest.TestCase):
             state["active_stage"]["stage"] = "astra_challenge"
             self.assertEqual("", chat.streaming_reply(state, root))
 
+    def test_the_latest_assistant_reply_replaces_an_earlier_shorter_one(self):
+        """Codex writes whole agent_message items; a later one is the refined reply."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = root / "requirements.jsonl"
+            state = {"settings": {"spec_first": True}, "active_stage": {"stage": chat.STAGE, "events": str(events)}}
+            first = {
+                "type": "item.completed",
+                "item": {"id": "item_0", "type": "agent_message", "text": '{"assistant_reply":"I’ll check…"}'},
+            }
+            second = {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_1",
+                    "type": "agent_message",
+                    "text": '{"assistant_reply":"What should this build?","acceptance_tests":[]}',
+                },
+            }
+            events.write_text(json.dumps(first) + "\n")
+            self.assertEqual("I’ll check…", chat.streaming_reply(state, root))
+            with events.open("a") as target:
+                target.write(json.dumps(second) + "\n")
+            self.assertEqual("What should this build?", chat.streaming_reply(state, root))
+
+    def test_a_growing_item_update_streams_its_decoded_reply(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = root / "requirements.jsonl"
+            state = {"settings": {"spec_first": True}, "active_stage": {"stage": chat.STAGE, "events": str(events)}}
+            for text, expected in (
+                ('{"assistant_reply":"Hel', "Hel"),
+                ('{"assistant_reply":"Hello the', "Hello the"),
+                ('{"assistant_reply":"Hello there","acceptance_tests":[]}', "Hello there"),
+            ):
+                events.write_text(
+                    json.dumps({"type": "item.updated", "item": {"id": "item_0", "type": "agent_message", "text": text}})
+                    + "\n"
+                )
+                self.assertEqual(expected, chat.streaming_reply(state, root))
+
 
 if __name__ == "__main__":
     unittest.main()

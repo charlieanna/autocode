@@ -259,6 +259,7 @@ class ChatClient:
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
+        self._live_text: str | None = None  # the streaming reply from the last show(), for watch's poll pace
         self.restore_requests: dict[str, str] = {}  # one stable id per step, so a retried restore reconciles
         # /runs, /open and /new: the project's chats, and how a new one starts (start flags, run options).
         self.history: History | None = None
@@ -330,7 +331,8 @@ class ChatClient:
                         self.check_others()
                         # The first reads come sooner, so what the person just decided shows as taken.
                         polls += 1
-                        if self._wait(self.poll_seconds if polls > 3 else min(self.poll_seconds, 0.5)) == "pause":
+                        pace = 0.25 if self._live_text else (self.poll_seconds if polls > 3 else min(self.poll_seconds, 0.5))
+                        if self._wait(pace) == "pause":
                             self.request_pause(again="Try /pause again in a moment.")
                     break
                 except KeyboardInterrupt:
@@ -498,6 +500,7 @@ class ChatClient:
             self.said.add(text)
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
+        self._live_text = live
         if self._stream is not None:
             self._stream(live)
         self.started = True
@@ -659,11 +662,15 @@ class ChatClient:
         )
 
     def watch(self) -> None:
-        """Another process is advancing the run: show its progress until it stops."""
+        """Another process is advancing the run: show its progress until it stops.
+
+        While a reply is streaming, poll at a short fixed pace so each new extract
+        appears immediately; otherwise the ordinary poll interval is enough.
+        """
         try:
             while actions.working(view := self.status()):
                 self.show(view, live=True)
-                time.sleep(self.poll_seconds)
+                time.sleep(0.25 if self._live_text else self.poll_seconds)
         except KeyboardInterrupt:
             if not self.request_pause():
                 raise Left from None

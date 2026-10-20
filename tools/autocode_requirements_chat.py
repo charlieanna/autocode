@@ -200,4 +200,14 @@ def streaming_reply(state: RunState, run_dir):
         if row.get("type") in ("item.updated", "item.completed") and item.get("type") == "agent_message":
             item_text = item.get("text", "")
             texts[str(item.get("id", len(texts)))] = item_text if isinstance(item_text, str) else ""
-    return live or partial_string("\n".join(texts.values()))
+    if live:
+        return live
+    # Later messages replace earlier ones, so a short intermediate reply is shown
+    # only until the next one (or the final report) lands. Growing item.updated
+    # text is the same story: the newest extract wins.
+    reply = ""
+    for text in texts.values():
+        extracted = partial_string(text)
+        if extracted:
+            reply = extracted
+    return reply[:12000]
