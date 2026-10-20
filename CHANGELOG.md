@@ -90,6 +90,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Opt-in warm source snapshots (`AUTOCODE_SOURCE_HOST=1`, #1707 stage 1). A long-lived helper keeps file
+  fingerprints in memory and answers every AutoCode process's source snapshot. Each new process otherwise
+  re-reads the whole workspace: 2.5-3 s on a 13.6k-file project. A chat status refresh drops from 1.5-3 s to
+  0.45 s. The answers are identical, and nothing is written to disk.
+
 - Tabs in the full-screen `autocode chat`, as in the VS Code extension: `Ctrl-T` (or `/new`)
   opens another chat in a new tab, `Ctrl-←`/`Ctrl-→` or `/tab N` switch, and a tab bar lists the
   session's chats with what each waits on (working, needs you, done). Tabs switch at a question,
