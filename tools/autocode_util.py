@@ -552,7 +552,11 @@ _CONTENT_HASHES = ContentHashes()
 def _other_entry(path):
     """A listed name that is neither a file nor a link: a nested repository, gone, or left out."""
     if path.is_dir():
-        return "submodule:" + snapshot(path)["revision"] if (path / ".git").exists() else "uninitialized-submodule"
+        return (
+            "submodule:" + snapshot(path, nested=True)["revision"]
+            if (path / ".git").exists()
+            else "uninitialized-submodule"
+        )
     if not path.exists():
         return "deleted"
     return None
@@ -572,8 +576,21 @@ def _snapshot_git(root, *args, text=False):
         ) from error
 
 
-def snapshot(workspace):
-    """Hash current source content, executable modes and nested Git worktrees."""
+def _unborn(root):
+    """Whether ``root`` is a Git repository with no commit yet (``git init`` and nothing more)."""
+    try:
+        found = subprocess.run(["git", "rev-parse", "--verify", "--quiet", "HEAD"], cwd=root, capture_output=True)
+    except OSError:
+        return False
+    return found.returncode == 1 and not found.stdout and not found.stderr
+
+
+def snapshot(workspace, nested=False):
+    """Hash current source content, executable modes and nested Git worktrees.
+
+    A nested repository with no commit yet (a scratch ``git init`` inside the project) has
+    head "unborn" rather than stopping the run; the workspace itself still needs a HEAD.
+    """
     root = Path(workspace)
     names = git_names(_snapshot_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"))
     hashes = _CONTENT_HASHES
@@ -598,7 +615,7 @@ def snapshot(workspace):
             files[name] = ("executable:" if info.st_mode & 0o111 else "") + content
         elif (entry := _other_entry(root / name)) is not None:
             files[name] = entry
-    head = _snapshot_git(root, "rev-parse", "HEAD", text=True).strip()
+    head = "unborn" if nested and _unborn(root) else _snapshot_git(root, "rev-parse", "HEAD", text=True).strip()
     hashes.finish(key, kept, epoch)
     return {"head": head, "files": files, "revision": digest({"head": head, "files": files})}
 

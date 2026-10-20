@@ -126,6 +126,23 @@ class SnapshotContentHashTests(unittest.TestCase):
         self.assertEqual(expected, util.snapshot(self.root))
         self.assertEqual(expected, util.snapshot(self.root))  # from remembered hashes
 
+    def test_an_empty_nested_repository_does_not_stop_the_snapshot(self):
+        scratch = self.root / "scratch-live-demo"  # a leftover `git init` with no commit yet
+        scratch.mkdir()
+        self.git(scratch, "init", "-q")
+        (scratch / "note.txt").write_text("draft\n")
+        before = util.snapshot(self.root)
+        self.assertTrue(before["files"]["scratch-live-demo/"].startswith("submodule:"))
+        (scratch / "note.txt").write_text("edited\n")
+        self.assertEqual(["scratch-live-demo/"], util.changed_paths(before, util.snapshot(self.root)))
+
+    def test_a_workspace_with_no_commit_still_stops_the_snapshot(self):
+        empty = self.root / "scratch-live-demo"
+        empty.mkdir()
+        self.git(empty, "init", "-q")
+        with self.assertRaises(util.Paused):
+            util.snapshot(empty)
+
     def test_a_settled_unchanged_file_is_not_read_again(self):
         util.snapshot(self.root)
         opened = self.reads()
