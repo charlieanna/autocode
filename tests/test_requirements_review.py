@@ -6,6 +6,7 @@ provider; the public status view and the provider's stage sequence are the oracl
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import sys
 import tempfile
@@ -19,6 +20,7 @@ SCENARIOS = Path(__file__).resolve().parents[1] / "scenarios"
 if str(SCENARIOS) not in sys.path:
     sys.path.insert(0, str(SCENARIOS))
 from harness import catalog
+from harness import clarifying_requirements_provider as clarifying
 from harness.driver import fake_setup
 from harness.project import materialize, without_maintenance
 
@@ -57,6 +59,37 @@ class SettingTests(unittest.TestCase):
         state["requirements_history"] = [{"report": report}]
         self.assertNotEqual(first["id"], review.review_question(state)["id"])
         self.assertEqual([], review.questions({**state, "settings": {}}))
+
+    def test_a_questions_only_handoff_waits_on_the_default_flow_and_requirements_runs_again(self):
+        question = {
+            "id": "Q1",
+            "question": "Library, command line, or both?",
+            "why": "The request does not say how the greeting is invoked.",
+            "options": [],
+            "proposed_default": "",
+            "kind": "decision",
+            "category": "requested_outcome",
+            "delegable": False,
+        }
+        report = {
+            "intended_outcome": "Greet by name",
+            "required_behaviors": [],
+            "acceptance_tests": [],
+            "open_questions": [question],
+        }
+        state = {"settings": {}, "requirements_handoff": {"report": report}, "next_stage": review.NEXT}
+        self.assertEqual([question], review.questions(state), "the handoff's own question, no review question")
+        self.assertTrue(review.accepts(state, {"scope": "clarification", "questions": [question]}))
+        state["answers"] = {"Q1": {"text": "Both"}}
+        self.assertEqual([], review.questions(state))
+        review.after_answers(state)
+        self.assertEqual(review.STAGE, state["next_stage"], "the answer is requirements input, not planning input")
+        # A complete handoff with an open question still goes to the Planner, whose draft carries the question.
+        complete = {**report, "required_behaviors": ["prints Hello, NAME"], "acceptance_tests": ["greet.py Ada"]}
+        pending = {"settings": {}, "requirements_handoff": {"report": complete}, "next_stage": review.NEXT}
+        self.assertEqual([], review.questions(pending))
+        review.after_answers(pending)
+        self.assertEqual(review.NEXT, pending["next_stage"])
 
 
 class RequirementsReviewCliTests(unittest.TestCase):
@@ -97,6 +130,22 @@ class RequirementsReviewCliTests(unittest.TestCase):
     def test_without_the_setting_requirements_flow_straight_into_planning(self):
         run, view = self.start(*JOINT)
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
+
+    def test_without_the_setting_a_handoff_that_only_asks_waits_for_the_answer_then_plans(self):
+        # Live (program plan, "build an adaptive learning engine", 2026-10-20): three good questions with empty
+        # acceptance tests were refused as invalid output on the default flow until a person resumed the run.
+        self.scenario = dataclasses.replace(self.scenario, fake_fault="clarifying_requirements")
+        run, view = self.start(*JOINT)
+        need = view.get("needs") or {}
+        self.assertEqual("answer", need.get("kind"), {key: view.get(key) for key in ("status", "next_stage", "needs")})
+        self.assertEqual([clarifying.QUESTION_ID], [row["id"] for row in need["questions"]])
+        self.assertNotIn("astra_discovery", self.stages(run))
+        run.answer(clarifying.QUESTION_ID, "Both", resolver_token=need["resolver_token"])
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
+        stages = self.stages(run)
+        self.assertEqual(2, stages.count("requirements_gather"), stages)
+        self.assertIn("astra_discovery", stages)
 
     def test_plan_releases_the_planner_after_the_user_sees_the_requirements(self):
         run, view = self.start(*JOINT, "--spec-first")

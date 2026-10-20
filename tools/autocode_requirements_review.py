@@ -1,11 +1,18 @@
 """Spec-first runs (#1200): the user confirms what Requirements understood before any plan exists.
 
-Opt-in per new run (``--spec-first``, saved as ``settings.spec_first``). On the default flow
-requirements_gather goes straight to astra_discovery, and a run with no open question never shows
+Opt-in per new run (``--spec-first``, saved as ``settings.spec_first``). On the default flow a
+complete handoff goes straight to astra_discovery, and a run with no open question never shows
 the user its requirements until goal approval. With the setting, every accepted handoff stops the
 run with one runner-written question beside the handoff's own open questions: answer ``plan`` to
 start planning, or say what to change and Requirements runs again with that answer in its
 saved_answers. The question id carries the handoff's digest, so a new handoff asks again.
+
+On every flow, a handoff that has only questions so far (``questions_only``: open questions and no
+behaviors or acceptance tests yet, as the Requirements prompt asks while a vague request is still
+being clarified) stops the run the same way with the handoff's own questions, and Requirements runs
+again with the answers. Before that, the default flow refused such a handoff as invalid output: a
+live ``program plan`` on "build an adaptive learning engine" asked three good questions and stalled
+until a person resumed it.
 
 Published through the ordinary clarification request, like the bug Investigator's questions
 (autocode_bug_questions): resolver_human admits these exact questions with ``accepts``. Imports
@@ -66,6 +73,13 @@ def _report(state: RunState) -> dict:
     return (state.get("requirements_handoff") or {}).get("report") or {}
 
 
+def questions_only(report: dict) -> bool:
+    """A report with open questions and no behaviors or acceptance tests yet: Requirements is still clarifying."""
+    return bool(report.get("open_questions")) and not (
+        report.get("required_behaviors") and report.get("acceptance_tests")
+    )
+
+
 def _lines(title: str, rows) -> list[str]:
     rows = [str(row).strip() for row in rows or [] if str(row).strip()]
     if not rows:
@@ -111,14 +125,18 @@ def review_question(state: RunState) -> dict:
 
 
 def questions(state: RunState) -> list[dict]:
-    """The handoff's unanswered open questions, then the review question; [] when there is nothing to confirm."""
-    if not enabled(state) or not state.get("requirements_handoff") or state.get("goal_contract"):
+    """The handoff's unanswered open questions, then (spec-first) the review question; [] when nothing waits."""
+    if not state.get("requirements_handoff") or state.get("goal_contract"):
         return []
     answered = state.get("answers") or {}
+    unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
+    if not enabled(state):
+        # The default flow stops only while Requirements is still clarifying. A complete handoff with open
+        # questions goes to the Planner, whose draft carries them (autocode_planning_clarification).
+        return unresolved if questions_only(_report(state)) else []
     review = review_question(state)
     if review["id"] in answered:
         return []
-    unresolved = [row for row in _report(state).get("open_questions") or [] if row.get("id") not in answered]
     # Establish the requested outcome before offering to plan anything.
     return unresolved or [review]
 
@@ -150,14 +168,16 @@ def accepts(state: RunState, proposal: dict) -> bool:
 
 
 def after_answers(state: RunState) -> None:
-    """A review answer other than 'plan' is new requirements input: Requirements runs again, not the Planner."""
-    if not enabled(state) or state.get("goal_contract") or state.get("pending_questions"):
+    """A review answer other than 'plan', or the answers to a questions-only handoff, are new requirements
+    input: Requirements runs again, not the Planner."""
+    if state.get("goal_contract") or state.get("pending_questions") or not state.get("requirements_handoff"):
         return
-    answer = (
-        (state.get("answers") or {}).get(review_question(state)["id"]) if state.get("requirements_handoff") else None
-    )
-    needs_refresh = (answer and answer.get("text", "").strip().lower() != APPROVE) or (
-        not answer and bool(_report(state).get("open_questions"))
-    )
+    if enabled(state):
+        answer = (state.get("answers") or {}).get(review_question(state)["id"])
+        needs_refresh = (answer and answer.get("text", "").strip().lower() != APPROVE) or (
+            not answer and bool(_report(state).get("open_questions"))
+        )
+    else:
+        needs_refresh = questions_only(_report(state))
     if needs_refresh and state.get("next_stage") == NEXT:
         state.update({"next_stage": STAGE, "phase": "DISCOVERING"})
