@@ -103,6 +103,11 @@ appears only when the status view names the pause (`view.pause`); a cancelled
 mid-step model call is not offered, and the run's terminal Stop stays outside
 the chat.
 
+**Saved code changes** offers only the comparisons and restores named by the
+core. While this chat waits for one of its commands to finish, those buttons
+are disabled with an explanation. They become available again when the command
+finishes; inspecting a run started elsewhere does not disable a named comparison.
+
 **Run details** opens the detailed progress panel. The Runs list reads the local
 registry and retains unavailable pointers with their diagnostic. Both surfaces
 use the core's named commands, including the optional `view.chat.input` offer.

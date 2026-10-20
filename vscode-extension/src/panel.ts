@@ -883,6 +883,9 @@ function render(state) {
     if (chatMode && state.checkpoints && state.checkpoints.length) {
       app.appendChild(el('h2', null, 'Saved code changes'));
       if (state.checkpointsBlocked) app.appendChild(el('div', 'why', state.checkpointsBlocked));
+      if (state.taking && state.checkpoints.some((cp) => cp.available && cp.actions.length)) {
+        app.appendChild(el('div', 'why', 'Saved-code actions are available after the current AutoCode action finishes.'));
+      }
       state.checkpoints.forEach((cp) => {
         const box = el('div', 'decision');
         const title = cp.label + (cp.verdict ? ' · ' + cp.verdict : '');
@@ -893,7 +896,7 @@ function render(state) {
             const button = el('button', action.id === 'restore' ? null : 'secondary', action.label);
             button.dataset.checkpointAction = action.id;
             button.dataset.checkpointId = cp.id;
-            button.disabled = Boolean(state.unreadable);
+            button.disabled = Boolean(state.taking || state.unreadable);
             button.addEventListener('click', () => vscode.postMessage({ type: 'checkpoint', action: action.id,
               checkpoint: cp.id, runKey: state.workspace + '\\n' + state.runDir }));
             box.appendChild(button);
