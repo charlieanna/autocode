@@ -421,6 +421,7 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual(["terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
         for key in ("PYTHONPATH", "SCENARIO_REWORK_CRASH_ON_ASSIGNMENT", "SCENARIO_REWORK_CRASH_WHEN"):
             driver.env.pop(key)
+        driver.resume_after_crash()  # the Resume the view offers after the crash (#1698)
         final = driver.until_stopped()
         self.assert_delivery(driver, final)
         self.assertEqual(1, len(final["direct_rework_assignments"]))

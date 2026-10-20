@@ -762,6 +762,7 @@ class VerificationRestartCLI(unittest.TestCase):
         self.assertFalse(driver.view()["done"])
         # Keep the same execution environment: changing PYTHONPATH even solely
         # to remove a test hook would correctly invalidate the old receipt.
+        driver.resume_after_crash()  # the Resume the view offers after the crash (#1698)
         final = driver.until_stopped()
         self.assertTrue(final["done"], final)
         accepted = final["evidence"]["check_replay"]

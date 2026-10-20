@@ -585,6 +585,15 @@ def _unborn(root):
     return found.returncode == 1 and not found.stdout and not found.stderr
 
 
+_SNAPSHOT_SERVICE = None
+
+
+def use_snapshot_service(service) -> None:
+    """Ask ``service(workspace, nested)`` first; None from it means take the snapshot here (#1707)."""
+    global _SNAPSHOT_SERVICE
+    _SNAPSHOT_SERVICE = service
+
+
 def snapshot(workspace, nested=False, unborn_ok=True):
     """Hash current source content, executable modes and nested Git worktrees.
 
@@ -592,6 +601,8 @@ def snapshot(workspace, nested=False, unborn_ok=True):
     head "unborn" rather than stopping the run; the workspace itself still needs a HEAD.
     ``unborn_ok=False`` keeps the refusal for callers that bind an identity to the whole tree.
     """
+    if _SNAPSHOT_SERVICE is not None and unborn_ok and (served := _SNAPSHOT_SERVICE(workspace, nested)) is not None:
+        return served
     root = Path(workspace)
     names = git_names(_snapshot_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"))
     hashes = _CONTENT_HASHES
