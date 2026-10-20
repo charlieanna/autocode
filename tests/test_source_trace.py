@@ -158,6 +158,19 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed a number"):
             self.ready(draft)
 
+    def test_a_standards_name_is_not_a_number_the_criteria_must_repeat(self):
+        # Live bugfix-iso-weeks (#1689): "ISO 8601 weeks" was refused because no criterion said 8601.
+        text = "The README promises ISO 8601 weeks, so the four days form one `2025-W01` row with 29.50h."
+        records = [{"id": "answer:weeks", "kind": "answer", "text": text}]
+        kept = "weekly_totals returns one `2025-W01` row with 29.50h, keyed by ISO week (date.isocalendar())"
+        draft = body([criterion("C1", kept, [text], source_id="answer:weeks")])
+        trace.check_citations(draft, records)
+        self.ready(draft, records=records)
+        dropped = "weekly_totals returns one `2025-W01` row, keyed by ISO 8601 week"
+        draft = body([criterion("C1", dropped, [text], source_id="answer:weeks")])
+        with self.assertRaisesRegex(ValueError, "changed a number the source states: 29.50"):
+            self.ready(draft, records=records)
+
     def test_a_dropped_literal_is_refused(self):
         draft = body(
             [
