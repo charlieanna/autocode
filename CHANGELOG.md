@@ -13,6 +13,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - VS Code saved-code compare and restore buttons explain when they are unavailable while
   this chat waits for a command, instead of accepting clicks that silently do nothing (#1676).
+- The chat's "New chats:" line named OpenCode even when `default_provider` chose another
+  connection. `connections list --json` now marks the connection new runs use (`default: true`),
+  and the line names it, for example `New chats: Full · kilo_glm_mimo_gpt`.
 - When AutoCode refuses to start a new chat's run (no engine on PATH, an unsupported host), `autocode`
   now shows AutoCode's reason instead of `--status did not return a status view: … state.json`.
 - The status view remains usable when a saved active-stage record is malformed: it omits the

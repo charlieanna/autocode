@@ -1569,6 +1569,9 @@ receipts separately from fresh verification.
 Connection setup is a core interface alongside task runs. A client may read
 `autocode connections list --json` before starting a task. The version-1 object
 contains `connections`, each with `id`, `label`, `connection_status`, `detail`, and `actions`.
+The connection new runs use without `--provider` (`AUTOCODE_PROVIDER`, then `default_provider`
+in `~/.config/autocode/config.toml`, else `opencode`) also has `default: true`; it is display
+only, so a client can say what a new chat runs on.
 An action has `id`, `label`, and `next_command`: an argument array following
 `autocode`, not shell text. Clients execute only offered actions. Listing reads
 user-level provider configuration and executable availability; it never launches
