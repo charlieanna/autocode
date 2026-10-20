@@ -261,10 +261,10 @@ def _survival_errors(body, records, waivers):
     return errors
 
 
-def _coverage_errors(body, records, out_of_scope):
+def _coverage_errors(body, records, out_of_scope, *, coverage_records=None):
     criteria = body.get("acceptance_criteria") or []
     errors = []
-    for record in records:
+    for record in records if coverage_records is None else coverage_records:
         quotes = [
             citation["quote"]
             for row in criteria
@@ -279,11 +279,14 @@ def _coverage_errors(body, records, out_of_scope):
                 errors.append(f"{record['id']} sentence is both covered and out of scope: {sentence[:80]!r}")
             elif not covered and not excluded_here:
                 errors.append(f"{record['id']} sentence is neither cited nor out of scope: {sentence[:80]!r}")
+    # Exclusions stay bound to the full authenticated inventory, even when a
+    # new workflow turn scopes the obligations being checked to later sources.
+    by_id = {row["id"]: row for row in records}
     for entry in out_of_scope:
-        if not any(
-            _covered(sentence, [entry["quote"]])
-            for sentence in cues.sentences(next(row["text"] for row in records if row["id"] == entry["source_id"]))
-        ):
+        source = by_id.get(entry["source_id"])
+        if source is None:
+            errors.append(f"out_of_scope cites unknown source {entry['source_id']}")
+        elif not any(_covered(sentence, [entry["quote"]]) for sentence in cues.sentences(source["text"])):
             errors.append(f"out_of_scope quote in {entry['source_id']} covers no source sentence")
     return errors
 
@@ -299,7 +302,7 @@ def _turn_scoped(state: RunState, records):
     return records[ids.index(marker) :] if marker in ids else records
 
 
-def check_ready(body, records, wrapper):
+def check_ready(body, records, wrapper, *, coverage_records=None):
     """The approval/completion gate for a body carrying the source-trace seal.
 
     A contract whose criteria cite nothing predates the trace (or a report sealed
@@ -312,8 +315,10 @@ def check_ready(body, records, wrapper):
     uncited = [row.get("id", "?") for row in criteria if not row.get("sources")]
     if uncited:
         raise ValueError("Every criterion must cite its source; uncited: " + ", ".join(uncited))
-    errors = _coverage_errors(body, records, wrapper["out_of_scope"])
-    errors += _survival_errors(body, records, wrapper["negation_waivers"])
+    errors = _coverage_errors(body, records, wrapper["out_of_scope"], coverage_records=coverage_records)
+    errors += _survival_errors(
+        body, records if coverage_records is None else coverage_records, wrapper["negation_waivers"]
+    )
     if errors:
         raise ValueError("The contract no longer traces to the original request: " + "; ".join(errors))
 
@@ -356,7 +361,7 @@ def verify(state: RunState, body, records, *, ready=False):
     ):
         raise ValueError("Source-trace Plan Reviewer provenance is missing or changed")
     if ready:
-        check_ready(body, _turn_scoped(state, records), wrapper)
+        check_ready(body, records, wrapper, coverage_records=_turn_scoped(state, records))
 
 
 # A report without source_trace seals the strictest judgment: nothing is out of
@@ -396,7 +401,7 @@ def reviewed(state: RunState, body, trace, record, records):
     # Seal-time coverage: incomplete citations repair before human approval.
     # Pending planner drafts keep the old seal until the next Plan Reviewer pass.
     if any_citations(result):
-        check_ready(result, _turn_scoped(state, records), result[KEY])
+        check_ready(result, records, result[KEY], coverage_records=_turn_scoped(state, records))
     return result
 
 

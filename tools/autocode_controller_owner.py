@@ -26,11 +26,13 @@ try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_process as processes
     from . import autocode_run_status as run_status
+    from . import autocode_supervision as supervision
     from . import autocode_util as util
 except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_process as processes
     import autocode_run_status as run_status
+    import autocode_supervision as supervision
     import autocode_util as util
 
 FILE = "controller-owner.json"
@@ -182,6 +184,41 @@ def _worker_ownership(state: RunState, run_dir):
     return ("unknown", "Provider ownership cannot be verified absent") if uncertain else ("absent", None)
 
 
+def _completed_stage(state: RunState, run_dir):
+    """A collected, accounted report may be rechecked; an uncertain attempt may not."""
+    record = state.get("active_stage")
+    if (
+        not isinstance(record, dict)
+        or record.get("accounted") is not True
+        or type(record.get("exit_code")) is not int
+        or record["exit_code"] != 0
+        or record.get("timed_out")
+        or not record.get("finished_at")
+        or not _timestamp(record["finished_at"])
+        or not isinstance(record.get("output"), str)
+        or not isinstance(record.get("supervision"), dict)
+    ):
+        return False
+    output = Path(record["output"])
+    if output.is_symlink() or not output.is_file() or not output.resolve().is_relative_to(Path(run_dir).resolve()):
+        return False
+    observed = supervision.observe(record["supervision"])
+    if not isinstance(observed, dict) or not isinstance(observed.get("receipt"), dict):
+        return False
+    receipt = observed["receipt"]
+    return (
+        receipt.get("phase") == "stopped"
+        and receipt.get("cause") in ("provider_stopped", "controller_finished")
+        and receipt.get("cleanup_error") is None
+        and all(
+            isinstance(observed.get(key), dict)
+            and observed[key].get("checked") is True
+            and observed[key].get("alive") is False
+            for key in ("owner", "keeper", "provider")
+        )
+    )
+
+
 def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_locked=False):
     """Fresh read-only controller inspection; no saved status substitutes for it."""
     result = {
@@ -191,6 +228,7 @@ def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_l
         "persisted_status": state.get("status"),
         "checked": False,
         "alive": None,
+        "completed_stage": False,
     }
     try:
         receipt = _read(run_dir)
@@ -241,7 +279,11 @@ def inspect(state: RunState, run_dir, workspace, *, run_locked=False, checkout_l
                     return result
                 # A disappeared birth or a legacy checkpoint with both free
                 # exclusion locks can be recovered without guessing an exit code.
-                result.update(kind="ended", reason="No controller or provider owns the saved running checkpoint")
+                result.update(
+                    kind="ended",
+                    reason="No controller or provider owns the saved running checkpoint",
+                    completed_stage=_completed_stage(state, run_dir),
+                )
                 return result
     except (OSError, ValueError, TypeError, KeyError, OverflowError, processes.ProcessError) as error:
         result["reason"] = f"Controller ownership could not be inspected: {error}"
@@ -252,7 +294,7 @@ def project(state: RunState, inspection):
     """A status projection only; callers explicitly persist at writer boundaries."""
     if (
         state.get("status") != "RUNNING"
-        or state.get("active_stage")
+        or (state.get("active_stage") and not (inspection or {}).get("completed_stage"))
         or state.get("active_runner_check")
         or not inspection
         or inspection["kind"] in ("running", "busy", "ready", "boundary")

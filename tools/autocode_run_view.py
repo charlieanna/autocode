@@ -1017,6 +1017,17 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
         active = state.get("active_stage") or {}
+        if (
+            status == "PAUSED_CONTROLLER_EXIT"
+            and active.get("accounted") is True
+            and type(active.get("exit_code")) is int
+            and active["exit_code"] == 0
+            and active.get("finished_at")
+        ):
+            # The owner projection freshly confirmed stopped supervision and a
+            # retained report. Resume rechecks it; abandonment would discard it.
+            need["action"] = "--resume-paused"
+            return need
         # An inventory refusal leaves a retained result available for the usual
         # reconciliation checks. It is not authority to discard or replay it.
         if status != "PAUSED_SOURCE_UNAVAILABLE" and active.get("output") and isinstance(active.get("iteration"), int):

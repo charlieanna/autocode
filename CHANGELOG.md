@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Same-chat follow-ups validate historical source exclusions against the full
+  source inventory while checking current-turn obligations, avoiding a source-trace
+  crash. A controller exit while applying a completed, accounted report offers
+  Resume after confirmed cleanup, preserving the report and used calls (#1697).
 - Wait for controller-recorded sibling completion before killing the owner in the
   guarded-worker recovery CI fixture (#1695).
 

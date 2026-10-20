@@ -356,6 +356,60 @@ class SealTests(unittest.TestCase):
         )
         trace.verify(self.state, sealed, obligations.sources(self.state), ready=True)
 
+    def followup(self):
+        # Native #1697: bugfix -> build keeps a valid historical exclusion in the review.
+        self.state = make_state("Do not add peek yet.")
+        event = {
+            "id": "peek-followup",
+            "kind": "brief_feedback",
+            "actor": "user_cli",
+            "text": "Add peek with at most 7 tasks.",
+        }
+        source_log.save_feedback(self.state, event)
+        self.state["turns"] = [{"event_id": event["id"], "say": event["text"], "previous": {"workflow": "bugfix"}}]
+        self.state["workflow"] = {"kind": "build"}
+        draft = body([criterion("C1", event["text"], [event["text"]], source_id="feedback:peek-followup")])
+        report = {
+            "source_trace": {
+                "out_of_scope": [
+                    {"source_id": "task:0", "quote": "Do not add peek yet.", "reason": "Earlier turn finished"}
+                ],
+                "negation_waivers": [],
+            }
+        }
+        return draft, report, obligations.sources(self.state)
+
+    def test_followup_seals_with_a_valid_historical_exclusion(self):
+        draft, report, records = self.followup()
+        sealed = trace.reviewed(self.state, draft, report["source_trace"], self.record(report), records)
+        trace.verify(self.state, sealed, records, ready=True)
+        self.assertEqual(report["source_trace"]["out_of_scope"], sealed["source_trace"]["out_of_scope"])
+
+    def test_followup_verify_keeps_full_inventory_for_historical_exclusions(self):
+        draft, report, records = self.followup()
+        self.state["workflow"] = {"kind": "bugfix"}
+        sealed = trace.reviewed(self.state, draft, report["source_trace"], self.record(report), records)
+        self.state["workflow"] = {"kind": "build"}
+        trace.verify(self.state, sealed, records, ready=True)
+
+    def test_followup_still_rejects_a_fragment_of_a_historical_sentence(self):
+        draft, report, records = self.followup()
+        report["source_trace"]["out_of_scope"][0]["quote"] = "add peek"
+        with self.assertRaisesRegex(ValueError, "covers no source sentence"):
+            trace.reviewed(self.state, draft, report["source_trace"], self.record(report), records)
+
+    def test_followup_still_rejects_a_fabricated_historical_source(self):
+        draft, report, records = self.followup()
+        report["source_trace"]["out_of_scope"][0]["source_id"] = "answer:invented"
+        with self.assertRaisesRegex(ValueError, "without quoting it verbatim"):
+            trace.reviewed(self.state, draft, report["source_trace"], self.record(report), records)
+
+    def test_followup_still_rejects_a_changed_current_turn_limit(self):
+        draft, report, records = self.followup()
+        draft["acceptance_criteria"][0]["criterion"] = "Add peek with at most 8 tasks."
+        with self.assertRaisesRegex(ValueError, "changed a number the source states: 7"):
+            trace.reviewed(self.state, draft, report["source_trace"], self.record(report), records)
+
     def test_a_model_cannot_invent_or_rewrite_the_seal(self):
         report = {"source_trace": {"out_of_scope": [], "negation_waivers": []}}
         record = self.record(report)
