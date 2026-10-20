@@ -36,7 +36,7 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 
-REUSE_SECONDS = 600
+REUSE_SECONDS = 3600  # owner decision 2026-10-20: an hour
 REUSE_FOLDER = "preflight-reuse"
 _reuse: Path | None = None
 
