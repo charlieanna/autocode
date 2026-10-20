@@ -8,12 +8,39 @@ fits — and warns below the measured projection, so the operator sees the numbe
 before hours of model spend instead of an opaque ENOSPC git error mid-run.
 """
 
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
 SNAPSHOT_MULTIPLIER = 3
-_INTERNAL = {".git", ".autocode", ".autocode-ui"}
+_INTERNAL = {".git", ".autocode", ".autocode-ui", ".scenario-runs"}
 _SKIP_DIRS = {"__pycache__"}
+
+
+def conversation_only(state):
+    """Requirements chat does not prepare the workspace copies being budgeted."""
+    return bool((state.get("settings") or {}).get("spec_first") and state.get("next_stage") == "requirements_gather")
+
+
+def _other_worktrees(root):
+    """Other checkouts are not source inputs, even when stored below this one."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "worktree", "list", "--porcelain", "-z"],
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {
+        path
+        for field in result.stdout.split(b"\0")
+        if field.startswith(b"worktree ")
+        and (path := Path(os.fsdecode(field[len(b"worktree ") :])).resolve()) != root
+        and path.is_relative_to(root)
+    }
 
 
 def human(size):
@@ -30,18 +57,29 @@ def workspace_bytes(workspace):
     Git objects and the run's own storage are excluded: worktrees share the
     object store, and a nested .autocode run dir is the consumer being measured,
     not its input. Dependency trees a verification copy only links are counted
-    anyway, so the projection stays conservative.
+    anyway, so the projection stays conservative. Prune excluded trees before
+    descending: run history can contain many complete workspace copies.
     """
-    root = Path(workspace)
+    root = Path(workspace).resolve()
+    other_worktrees = _other_worktrees(root)
     total = 0
-    for path in root.rglob("*"):
+    pending = [root]
+    while pending:
+        directory = pending.pop()
         try:
-            if path.is_symlink() or not path.is_file():
-                continue
-            parts = path.relative_to(root).parts
-            if parts[0] in _INTERNAL or any(part in _SKIP_DIRS for part in parts) or path.suffix == ".pyc":
-                continue
-            total += path.stat().st_size
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if entry.name in _SKIP_DIRS or entry.name in _INTERNAL:
+                        continue
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            path = Path(entry.path)
+                            if path not in other_worktrees:
+                                pending.append(path)
+                        elif entry.is_file(follow_symlinks=False) and Path(entry.name).suffix != ".pyc":
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
         except OSError:
             continue
     return total

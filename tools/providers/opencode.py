@@ -591,6 +591,13 @@ def launch(
 
 
 def prompt_for_schema(prompt, schema, events):
+    properties = schema.get("properties", {})
+    if "assistant_reply" in properties and not any(
+        name in properties for name in ("checks", "criterion_results", "commands_run", "evidence_refs")
+    ):
+        instructions = prompts.get("fragments/provider-opencode/conversation-output.md").format(events=events)
+        instructions += "\n" + json.dumps(schema, separators=(",", ":")) + "\n"
+        return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
     prompt = tool_handoff.with_capture_command(prompt)
     instructions = (
         prompts.get("fragments/provider-opencode/prompt-for-schema-02.md")
