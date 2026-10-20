@@ -726,6 +726,37 @@ class StreamAndNoticeTests(unittest.TestCase):
         self.assertEqual(1, client.text().count("Another chat needs you: plan approval needed (r0)"))
 
 
+class RefusedStartTests(unittest.TestCase):
+    """A new run AutoCode refuses before saving anything: the chat says why, not that it has no status."""
+
+    def test_the_refusal_is_shown_instead_of_a_missing_status(self):
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "autocode"
+            script.write_text(
+                "import sys\n"
+                "if '--status' in sys.argv:\n"
+                "    sys.exit(\"autocode: [Errno 2] No such file or directory: 'state.json'\")\n"
+                "print('autocode: OpenCode is not on PATH; no provider request was launched', file=sys.stderr)\n"
+                "sys.exit(2)\n"
+            )
+            said: list[str] = []
+            with self.assertRaises(actions.ClientGap) as caught:
+                chat.start(
+                    Path(folder),
+                    "hi",
+                    [],
+                    [],
+                    command=(sys.executable, str(script)),
+                    say=said.append,
+                    poll_seconds=0.01,
+                    wait=lambda seconds: None,
+                )
+        self.assertEqual(
+            "AutoCode did not start the run: autocode: OpenCode is not on PATH; no provider request was launched",
+            str(caught.exception),
+        )
+
+
 class InterruptTests(unittest.TestCase):
     """Ctrl-C while a stage works, against a real child that stands in for AutoCode."""
 

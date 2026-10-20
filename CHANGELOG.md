@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- When AutoCode refuses to start a new chat's run (no engine on PATH, an unsupported host), `autocode`
+  now shows AutoCode's reason instead of `--status did not return a status view: … state.json`.
 - The status view remains usable when a saved active-stage record is malformed: it omits the
   optional running-Builder diff action rather than raising an exception (#1671).
 

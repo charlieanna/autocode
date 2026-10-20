@@ -251,6 +251,7 @@ class ChatClient:
         self.titles: dict[str, str] = {}
         self.tabs_changed: Callable[[list[dict]], None] | None = None
         self.seen: set[str] = set()
+        self.viewed: set[str] = set()  # runs that have answered --status, so a refusal before one is told apart
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
@@ -280,6 +281,7 @@ class ChatClient:
             view = json.loads(proc.stdout)["view"]
         except (ValueError, KeyError):
             raise actions.ClientGap(f"--status did not return a status view: {tail(proc)}") from None
+        self.viewed.add(str(self.run_dir))
         self.own(view)
         self.identity = wait_identity(view)
         self.titles[str(self.run_dir)] = title_of(view) or self.titles.get(str(self.run_dir), "")
@@ -346,6 +348,14 @@ class ChatClient:
             if child.returncode not in (0, 2):
                 log.seek(0)
                 raise actions.ClientGap(f"AutoCode exited {child.returncode}: {log.read()[-2000:].strip()}")
+            if str(self.run_dir) not in self.viewed:
+                try:
+                    self.status()
+                except actions.ClientGap:
+                    # Exit 2 before the run saved anything is a refusal (a missing engine, an unsupported
+                    # host): say what AutoCode said, not that the run it never made has no status.
+                    log.seek(0)
+                    raise actions.ClientGap(f"AutoCode did not start the run: {log.read()[-2000:].strip()}") from None
 
     def request_pause(self, *, again: str = "Press Ctrl-C again to interrupt the current step.") -> bool:
         try:
