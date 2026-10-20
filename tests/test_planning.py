@@ -1887,6 +1887,33 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         cycle.new_cycle(state)
         self.assertEqual(state["planning"]["astra_calls"], 0)
 
+    def test_explicit_finite_allowance_survives_when_restart_keeps_spent_calls(self):
+        state = self.state(settings={"planning_review_call_limit": 2, "joint_planning": True})
+        state["task_id"] = "t"
+        state["goal_contract"] = {"task_id": "t", "revision": 1, "hash": "h", "body": {}, "approval_status": "draft"}
+        planning.charge(state, "astra_challenge")
+        state["planning"]["astra_calls"] = 7
+        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_challenge")
+        planning.set_review_call_limit(state, 8)
+        settings = copy.deepcopy(state["settings"])
+        cycle.start(state)
+        self.assertEqual(8, planning.review_call_limit(state))
+        self.assertIn("7/8 plan-review calls used", lifecycle.render(state))
+        planning.charge(state, "astra_challenge")
+        with self.assertRaises(support.Paused):
+            planning.charge(state, "astra_challenge")
+        self.assertIn("8/8 plan-review calls used", lifecycle.render(state))
+        self.assertEqual(settings, state["settings"])
+        self.assertEqual("user_explicit", state["planning"]["review_call_limit_origin"])
+
+    def test_automatic_allowance_is_not_promoted_to_explicit_on_restart(self):
+        state = self.state()
+        planning.charge(state, "astra_challenge")
+        state["planning"]["review_call_limit"] = 8
+        cycle.start(state)
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertNotIn("review_call_limit_origin", state["planning"])
+
     def test_full_depth_flag_opts_out(self):
         state = self.state(settings={"planning_review_call_limit": 2, "plan_review_full": True})
         planning.charge(state, "astra_challenge")

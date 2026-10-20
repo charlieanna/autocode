@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Planning restarts that retain consumed review calls also preserve the user's
+  explicit finite allowance, including a spec-first return for guard correction.
+  Restarting does not refund calls or approve the corrected plan (#1699).
 - Same-chat follow-ups validate historical source exclusions against the full
   source inventory while checking current-turn obligations, avoiding a source-trace
   crash. A controller exit while applying a completed, accounted report offers

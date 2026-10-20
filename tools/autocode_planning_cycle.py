@@ -47,6 +47,14 @@ def new_cycle(state: RunState):
         state["planning"]["review_depth_reduced"] = True
         state["planning"]["review_calls_before_policy"] = archived.get("review_calls_before_policy", 0)
         state["planning"]["astra_calls"] = archived.get("astra_calls", 0)
+        if archived.get("review_call_limit_origin") == "user_explicit":
+            # Carry the explicit bound with the charges it limits. Otherwise a
+            # spec-first send-back retains spent calls but silently restores the
+            # smaller configured default. Ordinary per-cycle allowances below
+            # keep their existing reset policy.
+            state["planning"].update(
+                review_call_limit=archived["review_call_limit"], review_call_limit_origin="user_explicit"
+            )
     saved_review_limit = state.get("settings", {}).get("planning_review_call_limit")
     if type(saved_review_limit) is int and saved_review_limit == 0:
         state["planning"].update(review_call_limit=0, review_call_limit_origin="user_explicit")
