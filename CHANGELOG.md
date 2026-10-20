@@ -9,6 +9,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- A chat turn no longer re-runs the tool's version, model-list and login checks it already passed in this run:
+  a successful check is reused for 10 minutes, keyed by the exact command, folder, environment and tool
+  executable, so an upgrade or changed setting checks again. On Kilo this saves about 6 s per follow-up message.
+
 ### Fixed
 
 - Answering Requirements' greeting with "Nothing yet, just saying hello." got the honest reply (no goal, no

@@ -14,14 +14,31 @@ and the process environment through :func:`combined_environment`.
 
 Pure functions over mappings, standard library only. This module imports
 nothing from AutoCode, so it cannot create an import cycle.
+
+Within a run (``reuse_checks``), a preflight that succeeded is answered from the
+run directory for ``REUSE_SECONDS``. A chat message relaunches the controller,
+and the same `kilo --version`, `kilo models` and `kilo auth list` cost 6.4 s of
+a 28 s follow-up turn on 2026-10-20. Reuse is keyed by the exact command, working
+directory, the complete environment and the executable's resolved file
+identity, so a new tool install, a changed setting or another folder runs the
+check again; a failed check is never kept.
 """
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import json
 import os
 import shutil
 import subprocess
+import time
 from collections.abc import Mapping
+from pathlib import Path
+
+REUSE_SECONDS = 600
+REUSE_FOLDER = "preflight-reuse"
+_reuse: Path | None = None
 
 
 def snapshot_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -73,7 +90,63 @@ def preflight_run(command, env: Mapping[str, str], *, require_executable=False, 
     """
     if require_executable and not resolve_executable(command[0], env, cwd=kwargs.get("cwd")):
         raise FileNotFoundError(f"{command[0]!r} cannot be found in the explicit environment")
-    return subprocess.run(command, env=dict(env), **kwargs)
+    key = _reuse_key(command, env, kwargs)
+    kept = _recall(key, command)
+    if kept is not None:
+        return kept
+    result = subprocess.run(command, env=dict(env), **kwargs)
+    if key and result.returncode == 0:
+        _keep(key, result)
+    return result
+
+
+@contextlib.contextmanager
+def reuse_checks(run_dir):
+    """While one run is driven, reuse its successful preflights (see the module docstring)."""
+    global _reuse
+    previous, _reuse = _reuse, Path(run_dir) / REUSE_FOLDER
+    try:
+        yield
+    finally:
+        _reuse = previous
+
+
+def _reuse_key(command, env: Mapping[str, str], kwargs) -> str | None:
+    if _reuse is None or not kwargs.get("capture_output") or not kwargs.get("text") or "input" in kwargs:
+        return None
+    executable = resolve_executable(command[0], env, cwd=kwargs.get("cwd"))
+    if not executable:
+        return None
+    try:
+        real = os.path.realpath(executable)
+        info = os.stat(real)
+    except OSError:
+        return None
+    identity = [list(command), str(kwargs.get("cwd")), sorted(env.items()), real, info.st_mtime_ns, info.st_size]
+    return hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
+
+
+def _recall(key, command):
+    if key is None or _reuse is None:
+        return None
+    try:
+        kept = json.loads((_reuse / f"{key}.json").read_text(encoding="utf-8"))
+        if 0 <= time.time() - kept["at"] < REUSE_SECONDS:
+            return subprocess.CompletedProcess(command, 0, kept["stdout"], kept["stderr"])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _keep(key, result) -> None:
+    if _reuse is None:
+        return
+    with contextlib.suppress(OSError):
+        _reuse.mkdir(mode=0o700, exist_ok=True)
+        temporary = _reuse / f".{key}.{os.getpid()}"
+        temporary.write_text(json.dumps({"at": time.time(), "stdout": result.stdout, "stderr": result.stderr}))
+        temporary.chmod(0o600)
+        os.replace(temporary, _reuse / f"{key}.json")
 
 
 def combined_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
