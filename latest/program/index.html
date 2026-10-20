@@ -2122,7 +2122,7 @@
 
 
 <h1 id="programs-large-requirements-as-parallel-workstreams">Programs: large requirements as parallel workstreams<a class="headerlink" href="#programs-large-requirements-as-parallel-workstreams" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f3cc8b6ea56b7a23f5f9fee51ac1b42ab37e2e5e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/974d36984bccdcc063ba92a286656909ec1368de/README.md">← Back to README</a></p>
 <p>One bounded run cannot absorb a requirement that spans many components. A <strong>program</strong>
 splits it into workstreams with explicit dependencies and literal ownership. The
 program manifest is the program's <strong>agreement</strong>: you approve it by exact token before
@@ -2174,10 +2174,14 @@ walking the main user journey, with the shared interface contracts it needs. Eve
 other milestone depends on it and extends it. Deployment, credentials and external
 systems stay outside every milestone. Answer the questions and approve the displayed
 plan exactly as for any run:</p>
-<pre><code class="language-sh">autocode --workspace /path/to/project --run-dir RUN --answer 'Q1=...'
+<pre><code class="language-sh">autocode --workspace /path/to/project --run-dir RUN --status        # needs.questions and needs.resolver_token
+autocode --workspace /path/to/project --run-dir RUN --answer 'Q1=...' --resolver-token 'TOKEN'
 autocode --workspace /path/to/project --run-dir RUN --show-goal
 autocode --workspace /path/to/project --run-dir RUN --approve-goal 'r3:&lt;hash&gt;'
 </code></pre>
+<p><code>--answer</code> needs the current resolver token from the status view, and a question that offers options
+takes one of their exact labels (or its proposed default); <code>--delegate Q1</code> with the same token accepts
+the proposed default (<a href="../cli/">CLI</a>).</p>
 <p>When the plan run ends, <code>program plan</code> prints the next commands (derive, show, approve,
 run).</p>
 <h2 id="derive-the-manifest">Derive the manifest<a class="headerlink" href="#derive-the-manifest" title="Permanent link">&para;</a></h2>
@@ -2847,7 +2851,7 @@ journey does not prove.</p>
 <p>Each new run of the final check is proven against the integration head it starts from:
 before it starts, the program writes that head as the <code>base_commit</code> of the integration
 worktree's <code>.autocode/task-workspace.json</code>, which the run reads once
-(<a href="https://github.com/charlieanna/autocode/blob/f3cc8b6ea56b7a23f5f9fee51ac1b42ab37e2e5e/docs/bugs/2026-10-06-final-check-proof-base.md">bug note</a>). The program's own delivery checks
+(<a href="https://github.com/charlieanna/autocode/blob/974d36984bccdcc063ba92a286656909ec1368de/docs/bugs/2026-10-06-final-check-proof-base.md">bug note</a>). The program's own delivery checks
 keep the head the first run on its current record started from; a new integration
 worktree record renews it, including isolation of a retired final check at the accepted
 frontier. Without that replacement, they still cover commits made on the branch since.
@@ -2968,7 +2972,7 @@ with the fake Codex provider.
 <code>approve</code> and <code>run</code> with real child runs under the scripted model: a walking skeleton,
 two parallel workstreams, an accepted interface change request that re-checks the
 producer and both consumers, and the final check by journey
-(<a href="https://github.com/charlieanna/autocode/blob/f3cc8b6ea56b7a23f5f9fee51ac1b42ab37e2e5e/scenarios/README.md#programs">scenarios/README.md, Programs</a>):</p>
+(<a href="https://github.com/charlieanna/autocode/blob/974d36984bccdcc063ba92a286656909ec1368de/scenarios/README.md#programs">scenarios/README.md, Programs</a>):</p>
 <pre><code class="language-sh">.venv/bin/python scenarios/run.py run program-notes-cli --fake
 </code></pre>
 <p><code>program-adaptive-learning</code> adds shared exact hint-rule inheritance in engine and
