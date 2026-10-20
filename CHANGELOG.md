@@ -27,6 +27,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat's Requirements line kept showing the first short reply after a later one arrived, and a
+  reply being written showed at most one new piece every 2 s. The newest reply now replaces earlier ones, and
+  while it is still changing the chat reads it every 0.25 s, going back to the ordinary pace once it has not
+  changed for a few reads, so a model running tools between messages does not keep `--status` running nonstop.
 - A Mac that idled to sleep mid-stage stopped a live run for a person: the controller cannot supervise while
   suspended, and the provider connection reset on wake (#1717). A controller driving a run now holds macOS's
   idle-sleep assertion (`caffeinate -i -w PID`, released when it exits; `AUTOCODE_KEEP_AWAKE=0` turns it off),
