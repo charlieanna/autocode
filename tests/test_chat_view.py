@@ -49,6 +49,12 @@ class ChatViewTests(unittest.TestCase):
                 self.assertNotIn("Paused", text)
                 self.assertNotIn("no task list", text)
 
+    def test_a_failed_step_names_no_control_only_one_client_has(self):
+        # The terminal chat has no "Run details" button; every client shows the run's details its own way.
+        text = chat.notice({"status": "PAUSED_JOB_FAILURE"})
+        self.assertEqual("I couldn’t finish this step. The run’s details say what needs attention.", text)
+        self.assertNotIn("Run details", text)
+
     def test_a_pause_someone_asked_for_is_not_reported_as_a_failure(self):
         for status in ("PAUSED_INTERVENTION", "PAUSED_REQUESTED"):
             with self.subTest(status=status):
@@ -211,7 +217,7 @@ class ChatViewTests(unittest.TestCase):
                 if scope == "operational_exhaustion":
                     self.assertIn(public["recovery"]["what_happened"], text)
                     self.assertNotIn("HTTP 401", text)
-                    self.assertIn("Run details", text)
+                    self.assertIn("details say what needs attention", text)
                     self.assertIn("does not authorize a retry", text)
                     self.assertNotIn("--abandon-stage", text)
                 else:
@@ -244,7 +250,7 @@ class ChatViewTests(unittest.TestCase):
                 result = chat.project(state, public, workspace="/ws", run_dir="/run")
                 text = result["messages"][0]["text"]
                 self.assertIn("couldn’t finish", text)
-                self.assertIn("Run details", text)
+                self.assertIn("details say what needs attention", text)
                 self.assertIn("Reply with what changed", text)
                 self.assertIn("does not authorize a retry", text)
                 for raw in ("requirements_gather", "assistant_reply", "output probe", "Cross-model"):
@@ -278,7 +284,7 @@ class ChatViewTests(unittest.TestCase):
         view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
         text = view["chat"]["messages"][0]["text"]
         self.assertIn("The same step repeatedly failed.", text)
-        self.assertIn("Run details", text)
+        self.assertIn("details say what needs attention", text)
         for raw in ("requirements_gather", "assistant_reply", "output probe"):
             self.assertNotIn(raw, text)
         self.assertEqual(cause, view["recovery"]["saved_reason"])
