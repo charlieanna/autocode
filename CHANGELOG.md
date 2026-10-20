@@ -11,11 +11,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Requirements conversation reports use a smaller output contract without unrelated test-verdict and command-receipt instructions; the model, session and structured handoff stay unchanged.
+
 - A chat turn no longer re-runs the tool's version, model-list and login checks it already passed in this run:
   a successful check is reused for 10 minutes, keyed by the exact command, folder, environment and tool
   executable, so an upgrade or changed setting checks again. On Kilo this saves about 6 s per follow-up message.
 
 ### Fixed
+
+- Requirements chat no longer scans workspace disk usage before each reply; the copy-space gate runs when planning starts. The estimate prunes run history, caches and sibling Git worktrees before traversing them.
+- A question clarifying user intent no longer triggers report repair merely because it retains a stated requirement without citing code. Complete handoffs and explicitly cited source files still require source inspection.
 
 - Answering Requirements' greeting with "Nothing yet, just saying hello." got the honest reply (no goal, no
   question) refused as a handoff without an outcome, repaired twice and sent to the Investigator. In a spec-first

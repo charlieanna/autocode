@@ -68,9 +68,12 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     local_refs = [
         ref for ref in value["source_refs"] if ref not in input_refs and not ref.startswith(("https://", "http://"))
     ]
-    # Asking the user for a goal makes no code claim. Do not demand a citation
-    # to unrelated editor settings merely because this is a nonempty checkout.
-    if local_refs or not intake_only:
+    # User requirements and constraints can be retained while asking what the
+    # outcome means. Until there are behaviors or acceptance tests, that intent
+    # clarification needs no unrelated source citation. A complete handoff and
+    # every explicitly supplied source reference still go through inspection.
+    intent_only = clarification_only and not any(value[key] for key in ("required_behaviors", "acceptance_tests"))
+    if local_refs or not intent_only:
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
     project_memory.capture(state, value)

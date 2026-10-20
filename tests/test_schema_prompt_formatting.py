@@ -8,6 +8,22 @@ from providers import opencode
 
 
 class CompactSchemaPromptTests(unittest.TestCase):
+    def test_conversation_keeps_the_schema_and_boundary_without_execution_evidence_instructions(self):
+        schema = {"type": "object", "properties": {"assistant_reply": {"type": "string"}}}
+        prompt = opencode.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))
+        self.assertIn(json.dumps(schema, separators=(",", ":")), prompt)
+        self.assertIn("assistant_reply first", prompt)
+        self.assertIn("filesystem boundary", prompt)
+        self.assertIn("Never modify this log", prompt)
+        self.assertIn("/run/events.jsonl", prompt)
+        self.assertNotIn("A PASS report", prompt)
+        self.assertNotIn("checks[].command", prompt)
+
+    def test_a_verdict_report_with_assistant_text_keeps_execution_evidence_rules(self):
+        schema = {"properties": {"assistant_reply": {"type": "string"}, "checks": {"type": "array"}}}
+        prompt = opencode.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))
+        self.assertIn("A PASS report", prompt)
+
     def test_schema_prompt_is_compact_and_round_trips_exactly(self):
         path = Path(__file__).resolve().parents[1] / "tools/autocode-schemas/v2/sol-report.schema.json"
         schema = json.loads(path.read_text())

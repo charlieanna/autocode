@@ -441,7 +441,10 @@ class RenderedPromptTests(unittest.TestCase):
                     rendered = render(prompt, planner.schema_for(state, stage), Path("/run/events.jsonl"))
                     after = json.loads(rendered.split("\nCURRENT HANDOFF DATA\n", 1)[1])
                     self.assertEqual(packet, {key: after[key] for key in packet}, name)
-                    self.assertIn("capture_command", after)
+                    if name == "opencode" and stage == "requirements_gather":
+                        self.assertNotIn("capture_command", after)
+                    else:
+                        self.assertIn("capture_command", after)
                     self.assertTrue(rendered.startswith(instruction), name)
                 self.assertEqual(before, state, "rendering must not change authority or saved context")
 

@@ -96,6 +96,22 @@ def record_resume(runner, args, state: RunState, state_path) -> None:
 
 def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checkout_owned=False):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
+    storage_checked = False
+
+    def check_storage(current):
+        nonlocal storage_checked
+        if storage_checked or storage_budget.conversation_only(current):
+            return True
+        budget = storage_budget.projection(workspace)
+        reason = storage_budget.refusal(budget)
+        if reason:
+            print(f"Cannot start: {reason}", file=sys.stderr)
+            return False
+        note = storage_budget.warning(budget)
+        if note:
+            print(f"warning: {note}", file=sys.stderr)
+        storage_checked = True
+        return True
 
     def consume_boundary(current):
         try:
@@ -124,6 +140,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         return stopped.code
 
     def before_code_stage(current):
+        if not check_storage(current):
+            raise runner.orchestrator.LoopExit(2)
         native = getattr(runner, "native_calls", None)
         if native is not None:
             native.guard(current)
@@ -360,17 +378,10 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         if args.pause_after_stage and current["status"] == "RUNNING":
             raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
 
-    # Fail before spend (#971): a filesystem that cannot host this run's copies
-    # must not consume model budget first. The floor is provable (not one source
-    # copy fits); below the measured projection the run proceeds with a warning.
-    budget = storage_budget.projection(workspace)
-    reason = storage_budget.refusal(budget)
-    if reason:
-        print(f"Cannot start: {reason}", file=sys.stderr)
+    # A conversation creates no workspace copies. Defer their storage estimate
+    # until planning starts, including a transition within this same invocation.
+    if not check_storage(state):
         return 2
-    note = storage_budget.warning(budget)
-    if note:
-        print(f"warning: {note}", file=sys.stderr)
 
     try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
         from contextlib import nullcontext
