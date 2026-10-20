@@ -716,11 +716,18 @@ def next_milestone(done: set) -> dict | None:
 def lazy_citations(report):
     """fault=lazy_validator: the Validator certifies every criterion with its own say-so — plausible
     prose naming nothing the runner verified — the false-completion shape #1070's gate must refuse
-    even when every listed check exits 0."""
-    if CONFIG.get("fault") != "lazy_validator" or not isinstance(report, dict):
+    even when every listed check exits 0.
+
+    fault=extra_file_citation: beside its checks, the Validator also cites the project file it read,
+    as a live Kilo Tester did on 2026-10-20 (``["check:1", "check:3", "hello.txt"]``). The proof is
+    in the checks, so the run must complete without a report repair."""
+    if CONFIG.get("fault") not in ("lazy_validator", "extra_file_citation") or not isinstance(report, dict):
         return report
     for row in report.get("criterion_results") or []:
-        row["evidence_refs"] = ["validator inspected the builder output directly"]
+        if CONFIG["fault"] == "lazy_validator":
+            row["evidence_refs"] = ["validator inspected the builder output directly"]
+        else:
+            row["evidence_refs"] = [*row.get("evidence_refs", []), "todo.py"]
     return report
 
 
