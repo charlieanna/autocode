@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Session ownership checks briefly retry a missing initial receipt open during atomic replacement
+  on Mac Docker binds; persistent absence and invalid ownership evidence still stop the run (#1680).
 - The chat's "New chats:" line named OpenCode even when `default_provider` chose another
   connection. `connections list --json` now marks the connection new runs use (`default: true`),
   and the line names it, for example `New chats: Full · kilo_glm_mimo_gpt`.
