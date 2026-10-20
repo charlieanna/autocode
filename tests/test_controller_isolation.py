@@ -4,9 +4,11 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_controller_isolation as isolation
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 
@@ -22,6 +24,7 @@ class ControllerIsolationCliTests(unittest.TestCase):
         (self.root / "fixture-bin" / "codex").chmod(0o755)
         (self.project / "tools").mkdir()
         (self.project / "tools" / "autocode.py").write_text("# AutoCode checkout marker\n")
+        (self.project / "tools" / "autocode_controller_isolation.py").write_text("# AutoCode checkout marker\n")
         (self.project / "AGENTS.md").write_text("AutoCode fixture instructions\n")
         self.git("add", ".")
         self.git("commit", "-qm", "AutoCode markers")
@@ -120,6 +123,22 @@ class ControllerIsolationCliTests(unittest.TestCase):
         self.assertEqual(2, refused.returncode, refused.stderr)
         self.assertIn("Unsafe AutoCode self-build", refused.stderr)
         self.assertEqual(before, checkpoint.read_bytes())
+
+
+class VendoredCopyTests(unittest.TestCase):
+    """A project carrying an old copy of tools/autocode.py is not an AutoCode self-build."""
+
+    def test_a_vendored_autocode_copy_is_an_ordinary_project(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp).resolve()
+            (project / "tools").mkdir()
+            (project / "tools" / "autocode.py").write_text("# vendored copy\n")
+            (project / "AGENTS.md").write_text("the project's own instructions\n")
+            controller = Path(isolation.__file__)
+            isolation.require_isolated(project, controller)  # not refused
+            (project / "tools" / "autocode_controller_isolation.py").write_text("# AutoCode itself\n")
+            with self.assertRaisesRegex(ValueError, "Unsafe AutoCode self-build"):
+                isolation.require_isolated(project, controller)
 
 
 class ControllerIdentityViewTests(unittest.TestCase):

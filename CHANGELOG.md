@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode` in a project that keeps an old vendored copy of `tools/autocode.py` beside its own `AGENTS.md`
+  (idlecampus) refused to start as an "Unsafe AutoCode self-build". A self-build is now recognized only in a
+  checkout that also has AutoCode's self-build admission module.
 - A planner correcting its own wording in a plan nobody has approved yet (an expected-output literal with
   one space too many) was refused as a protected rewording that "needs a saved user answer", and the run
   spent its repair attempts restoring the wrong text. Before any approval, a criterion may now be reworded

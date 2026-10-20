@@ -42,10 +42,23 @@ def _linked_worktree(workspace: Path) -> bool:
     )
 
 
+def is_autocode_checkout(workspace: Path) -> bool:
+    """Whether ``workspace`` is an AutoCode checkout this controller could be built from.
+
+    A project that vendors an old copy of tools/autocode.py beside its own AGENTS.md (idlecampus
+    kept one from 2026-10-12) is not AutoCode: it lacks this admission module, which every
+    checkout that can refuse a self-build has.
+    """
+    tools = workspace / "tools"
+    return all(
+        (path).is_file() for path in (tools / "autocode.py", tools / Path(__file__).name, workspace / "AGENTS.md")
+    )
+
+
 def require_isolated(workspace: Path, controller_file: Path) -> None:
     """Refuse an AutoCode self-build unless its controller and edits are separated."""
     workspace = workspace.resolve()
-    if not (workspace / "tools" / "autocode.py").is_file() or not (workspace / "AGENTS.md").is_file():
+    if not is_autocode_checkout(workspace):
         return
     controller = controller_file.resolve()
     if not controller.is_relative_to(workspace) and _linked_worktree(workspace):
