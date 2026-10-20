@@ -16,6 +16,9 @@ PR template asks for an entry here; a change without one is incomplete.
   spent its repair attempts restoring the wrong text. Before any approval, a criterion may now be reworded
   when it keeps every request quote it cited; once a plan was approved, every rewording still needs the
   person (#1691).
+- When a planner rewords a criterion or protected item of a plan the person already approved, AutoCode now
+  asks the person, showing the approved and the proposed wording, instead of repairing the report back and
+  pausing as invalid output. The answer is saved like any other, so the next plan can cite it (#1691).
 - VS Code suppresses a person-wait notice while its own action automatically continues a chat;
   a genuinely stopped Continue checkpoint still notifies after that action finishes (#1692).
 - The source-trace check no longer rejects a correct plan for not repeating a standard's name: "ISO 8601",

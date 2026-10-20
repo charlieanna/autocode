@@ -15,11 +15,13 @@ try:
     from . import autocode_contract_delta as delta
     from . import autocode_draft_examples as examples
     from . import autocode_protected_text as protected
+    from . import autocode_rewording_question as rewording
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_contract_delta as delta
     import autocode_draft_examples as examples
     import autocode_protected_text as protected
+    import autocode_rewording_question as rewording
     import autocode_test_cases as test_cases
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
@@ -203,11 +205,27 @@ def revision_guard(state: RunState, body, changes, origin):
         if raw.get("item") in example_corrections:
             continue
         protected_changes.append(raw)
-        basis = raw.get("basis")
-        if not saved_user_basis(state, basis, raw.get("answer_id")):
-            raise ValueError(
-                f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event; change={raw['change']!r}"
-            )
+    unbacked = [raw for raw in protected_changes if not saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))]
+    if unbacked:
+        raw = unbacked[0]
+        message = f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event; change={raw['change']!r}"
+        approved = protected_history or previous_contract.get("approval_status") == "approved"
+        rewordings = [
+            {
+                "item": row["item"],
+                "approved": rewording.approved_text(previous, row["item"]),
+                "proposed": str(row.get("replacement") or "").strip(),
+            }
+            for row in unbacked
+            if row["change"] == "reworded"
+        ]
+        if (
+            approved
+            and len(rewordings) == len(unbacked)
+            and all(row["approved"] and row["proposed"] for row in rewordings)
+        ):
+            raise rewording.ProtectedRewording(message, rewordings)  # the person is asked (#1691)
+        raise ValueError(message)
     declared: dict = {}
     for raw in protected_changes:
         declared.setdefault(raw["item"], []).append(raw)

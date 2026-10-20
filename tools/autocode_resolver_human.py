@@ -27,6 +27,7 @@ try:
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_requirements_review as requirements_review
     from . import autocode_resolver_recommendation as recommendation
+    from . import autocode_rewording_question as rewording
     from . import autocode_run_status as run_status
     from . import autocode_support as support
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -38,6 +39,7 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_requirements_review as requirements_review
     import autocode_resolver_recommendation as recommendation
+    import autocode_rewording_question as rewording
     import autocode_run_status as run_status
     import autocode_support as support
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
@@ -331,7 +333,10 @@ def _decision(state: RunState, proposal):
         declared = body.get("open_blocking_questions") or []
         investigation = bug_questions.accepts(state, proposal)
         review = requirements_review.accepts(state, proposal)
-        if not (investigation or review) and (not questions or any(q not in declared for q in questions)):
+        approved_wording = rewording.accepts(state, proposal)
+        if not (investigation or review or approved_wording) and (
+            not questions or any(q not in declared for q in questions)
+        ):
             return "reject", "Clarification must match the validated draft questions"
         for question in questions:
             answer = state.get("answers", {}).get(question.get("id"))
@@ -347,6 +352,8 @@ def _decision(state: RunState, proposal):
             if investigation
             else "Only the user can confirm what Requirements understood before planning"
             if review
+            else "Only the user can change wording they approved"
+            if approved_wording
             else "The validated draft requires user intent absent from authenticated saved answers"
         )
     if scope in ("permission", "goal_change"):
