@@ -15,6 +15,10 @@ PR template asks for an entry here; a change without one is incomplete.
   now shows AutoCode's reason instead of `--status did not return a status view: … state.json`.
 - The status view remains usable when a saved active-stage record is malformed: it omits the
   optional running-Builder diff action rather than raising an exception (#1671).
+- A run stopped by the provider's HTTP 401 now says so in the chat (VS Code and terminal): "The
+  model provider rejected the saved credentials (HTTP 401) … sign in again", instead of the generic
+  "The provider ended without a confirmed result". `connections check` now says plainly that it finds
+  saved credentials without testing them, so an expired key is caught when a run starts.
 
 ### Added
 

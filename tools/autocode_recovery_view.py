@@ -20,12 +20,14 @@ try:
     from . import autocode_accepted_source as accepted_source
     from . import autocode_builder_policy as builder_policy
     from . import autocode_member_stop as member_stop
+    from . import autocode_provider_auth as provider_auth
     from . import autocode_quota_route as quota_route
     from .autocode_role_names import role_name
 except ImportError:
     import autocode_accepted_source as accepted_source
     import autocode_builder_policy as builder_policy
     import autocode_member_stop as member_stop
+    import autocode_provider_auth as provider_auth
     import autocode_quota_route as quota_route
     from autocode_role_names import role_name
 
@@ -173,6 +175,18 @@ _JOB_STOP_CAUSE = {
     "quota": "PAUSED_BUDGET",
     "output_limit": "PAUSED_OUTPUT_CAP",
 }
+
+
+AUTH_STOP = (
+    "The model provider rejected the saved credentials (HTTP 401): the key or sign-in has expired or "
+    "been revoked. Sign in to the backend again (in the terminal chat: /connect NAME login), then reply here."
+)
+
+
+def _auth_stop(state: RunState) -> str | None:
+    """A stop on the core's own authentication diagnostic, in plain words; never the provider's message."""
+    reason = str(state.get("stop_reason") or "")
+    return AUTH_STOP if reason.startswith(provider_auth.AUTH_FAILED) else None
 
 
 def _job_model_stop(state: RunState, role):
@@ -423,7 +437,7 @@ def project(state: RunState, need=None):
         "category": "stopped" if terminal else "request" if decision else "recovery",
         "what_happened": "The current step finished and saved. This conversation will launch no more stages."
         if terminal
-        else (_job_model_stop(state, role) or _explanation(cause, role)),
+        else (_auth_stop(state) or _job_model_stop(state, role) or _explanation(cause, role)),
         "retained": f"{finished} finished attempt(s) remain in the history. Saved plan, messages and recorded evidence remain available; partial work still needs verification.",
         "saved_reason": state.get("stop_reason"),
         "context": {

@@ -130,7 +130,7 @@ def connection_view(name, *, check=False):
         elif ready:
             row.update(
                 connection_status="credentials_present",
-                detail="Backend reports saved credentials. Selected model access and billing routes are checked when a run starts.",
+                detail="Saved credentials found; they are not tested here. An expired or revoked key, model access and billing show up when a run starts.",
             )
         else:
             row.update(
