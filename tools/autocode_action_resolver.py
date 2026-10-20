@@ -358,7 +358,9 @@ def answer_cross_model_question(runner, args, state: RunState, run_dir, workspac
     launch and independence rules saves that route; --resume-paused then continues
     in this invocation, otherwise the person resumes explicitly.
     """
-    if not (args.answer or args.delegate) or state.get("status") != quota_route.CROSS_MODEL_STATUS:
+    if state.get("status") != quota_route.CROSS_MODEL_STATUS:
+        return None
+    if not (args.answer or args.delegate):
         return None
     if not any(item.partition("=")[0].startswith(quota_route.PREFIX) for item in [*args.answer, *args.delegate]):
         return None
