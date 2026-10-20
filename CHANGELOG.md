@@ -9,22 +9,23 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- When AutoCode refuses to start a new chat's run (no engine on PATH, an unsupported host), `autocode`
+  now shows AutoCode's reason instead of `--status did not return a status view: … state.json`.
+- The status view remains usable when a saved active-stage record is malformed: it omits the
+  optional running-Builder diff action rather than raising an exception (#1671).
+- A run stopped by the provider's HTTP 401 now says so in the chat (VS Code and terminal): "The
+  model provider rejected the saved credentials (HTTP 401) … sign in again", instead of the generic
+  "The provider ended without a confirmed result". `connections check` now says plainly that it finds
+  saved credentials without testing them, so an expired key is caught when a run starts.
+
 ### Added
 
 - Tabs in the full-screen `autocode chat`, as in the VS Code extension: `Ctrl-T` (or `/new`)
   opens another chat in a new tab, `Ctrl-←`/`Ctrl-→` or `/tab N` switch, and a tab bar lists the
   session's chats with what each waits on (working, needs you, done). Tabs switch at a question,
   so a step is never left running unwatched; the other tabs are checked and announced.
-
-### Fixed
-
-- A run stopped by the provider's HTTP 401 now says so in the chat (VS Code and terminal): "The
-  model provider rejected the saved credentials (HTTP 401) … sign in again", instead of the generic
-  "The provider ended without a confirmed result". `connections check` now says plainly that it finds
-  saved credentials without testing them, so an expired key is caught when a run starts.
-- `autocode chat` no longer hides why AutoCode refused to start a run. A start refused before the
-  run existed (exit 2, as a busy checkout, a missing engine or an unusable request do) was reported
-  as "--status did not return a status view … state.json"; the chat now shows AutoCode's own message.
 
 ## [0.8.0] — 2026-10-19
 

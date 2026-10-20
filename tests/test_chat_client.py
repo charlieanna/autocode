@@ -726,27 +726,35 @@ class StreamAndNoticeTests(unittest.TestCase):
         self.assertEqual(1, client.text().count("Another chat needs you: plan approval needed (r0)"))
 
 
-class StartRefusedTests(unittest.TestCase):
-    def test_a_start_refused_before_the_run_exists_shows_autocodes_reason(self):
-        with tempfile.TemporaryDirectory() as folder:
-            refuse = (
-                "import sys; print('autocode: OpenCode is not on PATH; no provider request was launched'); sys.exit(2)"
-            )
-            client = chat.ChatClient(Path(folder), Path(folder) / ".autocode" / "runs" / "r1", ask=input, say=print)
-            client.command = (sys.executable, "-c", refuse)
-            client.status = mock.Mock(side_effect=chat.actions.ClientGap("--status did not return a status view"))
-            with self.assertRaises(chat.actions.ClientGap) as gap:
-                client.advance(["hi", "--new-run-dir", str(client.run_dir)])
-            self.assertIn("AutoCode did not start the run", str(gap.exception))
-            self.assertIn("OpenCode is not on PATH", str(gap.exception))
+class RefusedStartTests(unittest.TestCase):
+    """A new run AutoCode refuses before saving anything: the chat says why, not that it has no status."""
 
-    def test_a_started_run_is_not_second_guessed(self):
+    def test_the_refusal_is_shown_instead_of_a_missing_status(self):
         with tempfile.TemporaryDirectory() as folder:
-            client = chat.ChatClient(Path(folder), Path(folder) / "r1", ask=input, say=print)
-            client.command = (sys.executable, "-c", "import sys; sys.exit(2)")
-            client.status = mock.Mock(return_value={"status": "WAITING_FOR_USER"})
-            client.show = mock.Mock()
-            client.advance(["hi", "--new-run-dir", str(client.run_dir)])  # no error: the run exists
+            script = Path(folder) / "autocode"
+            script.write_text(
+                "import sys\n"
+                "if '--status' in sys.argv:\n"
+                "    sys.exit(\"autocode: [Errno 2] No such file or directory: 'state.json'\")\n"
+                "print('autocode: OpenCode is not on PATH; no provider request was launched', file=sys.stderr)\n"
+                "sys.exit(2)\n"
+            )
+            said: list[str] = []
+            with self.assertRaises(actions.ClientGap) as caught:
+                chat.start(
+                    Path(folder),
+                    "hi",
+                    [],
+                    [],
+                    command=(sys.executable, str(script)),
+                    say=said.append,
+                    poll_seconds=0.01,
+                    wait=lambda seconds: None,
+                )
+        self.assertEqual(
+            "AutoCode did not start the run: autocode: OpenCode is not on PATH; no provider request was launched",
+            str(caught.exception),
+        )
 
 
 class InterruptTests(unittest.TestCase):
