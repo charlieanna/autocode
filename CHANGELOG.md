@@ -25,6 +25,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Mac that idled to sleep mid-stage stopped a live run for a person: the controller cannot supervise while
+  suspended, and the provider connection reset on wake (#1717). A controller driving a run now holds macOS's
+  idle-sleep assertion (`caffeinate -i -w PID`, released when it exits; `AUTOCODE_KEEP_AWAKE=0` turns it off),
+  and a read-only stage (Requirements, planning, plan or completion review, Investigator) that a retryable reset
+  cuts short after read-only tools or partial text is retried once automatically when the workspace is
+  unchanged. The Builder and Tester keep their hold.
 - Requirements chat no longer scans workspace disk usage before each reply; the copy-space gate runs when planning starts. The estimate prunes run history, caches and sibling Git worktrees before traversing them.
 - A question clarifying user intent no longer triggers report repair merely because it retains a stated requirement without citing code. Complete handoffs and explicitly cited source files still require source inspection.
 

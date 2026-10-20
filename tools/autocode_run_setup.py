@@ -46,6 +46,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_job_route as job_route
+    from . import autocode_keep_awake as keep_awake
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
     from . import autocode_package_scope as package_scope
@@ -90,6 +91,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_job_route as job_route
+    import autocode_keep_awake as keep_awake
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
     import autocode_package_scope as package_scope
@@ -788,6 +790,7 @@ def run_locked(
 
     with ExitStack() as ownership:
         ownership.enter_context(env_prep.reuse_checks(run_dir))  # a chat turn reuses this run's tool checks
+        keep_awake.hold()  # a sleeping Mac cannot supervise a stage (#1717)
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
         if native is None:
