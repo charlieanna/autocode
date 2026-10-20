@@ -520,6 +520,14 @@ class Driver:
                 shutil.copy2(self.project / path, target / path)
         return target
 
+    def resume_after_crash(self) -> None:
+        """Take the Resume a controller exit offers after a completed, accounted report (#1698).
+
+        The person decides to continue such a run; the view names `--resume-paused` for it."""
+        view = self.view()
+        if view["needs"]["kind"] == "resume" and (view.get("controller") or {}).get("completed_stage"):
+            self.call("resume", "--resume-paused")
+
     def until_stopped(self, say_at: str | None = None) -> dict:
         """Drive until the run is done or needs something the driver does not serve.
         ``say_at`` (``needs:<kind>``) stops at that need instead of serving it, so the
