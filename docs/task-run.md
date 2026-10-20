@@ -70,9 +70,11 @@ code the run starts from (`base_commit`), not part of its change. `options`
 (engine and model flags) are passed whenever the run starts or advances. Any
 rejected command raises `TaskRunError` with AutoCode's message.
 
-AutoCode self-builds require a linked Git worktree and an executing controller
-outside that workspace. `TaskRun.start` accepts a caller-owned linked worktree;
-an ordinary CLI launch creates its own worktree by default. An unsafe new run
+An AutoCode self-build requires an executing controller outside the task
+workspace, so the task cannot edit the code that runs it. With such a controller
+(an installed `autocode`, or another checkout), an AutoCode checkout is an ordinary
+project and `TaskRun.start` or `--in-place` works in it directly, main checkout
+included; an ordinary CLI launch creates its own worktree by default. An unsafe new run
 or advancing invocation is refused before starting a provider. Saved status,
 explanations and dry runs remain readable without changing the checkpoint.
 
@@ -85,8 +87,8 @@ Builder's starting code separately. Legacy runs without a saved identity report
 revision for this saved identity. The existing resume warning names a change
 in the controller revision.
 
-To build AutoCode itself from a source checkout, keep that checkout fixed and
-create a separate workspace:
+To build AutoCode itself with the controller from that same source checkout, keep
+that checkout fixed and create a separate workspace:
 
 ```sh
 git -C /path/to/autocode worktree add --detach /path/to/autocode-self-build HEAD

@@ -60,24 +60,27 @@ class ControllerIsolationCliTests(unittest.TestCase):
         self.git("add", "tools")
         self.git("commit", "-qm", "Controller fixture")
 
-    def test_main_checkout_is_refused_before_a_run_or_provider_is_created(self):
+    def test_external_controller_works_in_place_in_the_main_checkout(self):
+        run = taskrun.TaskRun.start(
+            self.project, BRIEF, command=self.entry, options=FIXTURE_OPTIONS, env=self.env, timeout=240
+        )
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertFalse(Path(view["runner"]["path"]).is_relative_to(self.project))
+        self.assertEqual([run.run_dir], taskrun.TaskRun.runs_in(self.project))
+
+    def test_main_checkout_cannot_execute_its_own_controller(self):
+        self.copy_controller()
         before = set(self.project.iterdir())
-        result = self.invoke(self.project, BRIEF, "--in-place", "--no-chat", "--provider", "missing-provider")
+        local = [sys.executable, str(self.project / "tools/autocode.py")]
+        result = self.invoke(
+            self.project, BRIEF, "--in-place", "--no-chat", "--provider", "missing-provider", command=local
+        )
         self.assertEqual(2, result.returncode, result.stderr)
         self.assertIn("Unsafe AutoCode self-build", result.stderr)
+        self.assertIn("executing controller is inside", result.stderr)
         self.assertIn("worktree add --detach", result.stderr)
-        self.assertIn("--workspace", result.stderr)
         self.assertEqual(before, set(self.project.iterdir()))
-
-    def test_taskrun_requires_a_linked_worktree_for_a_self_build(self):
-        with self.assertRaises(taskrun.TaskRunError) as caught:
-            taskrun.TaskRun.start(
-                self.project, BRIEF, command=self.entry, options=FIXTURE_OPTIONS, env=self.env, timeout=240
-            )
-        self.assertIsNotNone(caught.exception.process)
-        self.assertEqual(2, caught.exception.process.returncode)
-        self.assertIn("Unsafe AutoCode self-build", caught.exception.process.stderr)
-        self.assertEqual([], taskrun.TaskRun.runs_in(self.project))
 
     def test_external_controller_can_start_in_a_caller_owned_linked_worktree(self):
         tree = self.linked("self build\nwith trailing space ")
@@ -137,8 +140,9 @@ class VendoredCopyTests(unittest.TestCase):
             controller = Path(isolation.__file__)
             isolation.require_isolated(project, controller)  # not refused
             (project / "tools" / "autocode_controller_isolation.py").write_text("# AutoCode itself\n")
+            isolation.require_isolated(project, controller)  # an outside controller may edit it in place
             with self.assertRaisesRegex(ValueError, "Unsafe AutoCode self-build"):
-                isolation.require_isolated(project, controller)
+                isolation.require_isolated(project, project / "tools" / "autocode_controller_isolation.py")
 
 
 class ControllerIdentityViewTests(unittest.TestCase):

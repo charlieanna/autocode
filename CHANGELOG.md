@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `autocode` in AutoCode's own main checkout refused to start even when the running `autocode` was
+  installed elsewhere, asking for a separate Git worktree. AutoCode now works in place there like in any
+  other project; it still refuses only when the running controller is inside the checkout it would edit.
+
 - `autocode` in a project that keeps an old vendored copy of `tools/autocode.py` beside its own `AGENTS.md`
   (idlecampus) refused to start as an "Unsafe AutoCode self-build". A self-build is now recognized only in a
   checkout that also has AutoCode's self-build admission module.
