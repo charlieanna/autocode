@@ -129,6 +129,40 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         self.assertEqual("approve_plan", self.status()["needs"]["kind"])
         self.assert_unapproved(used=3)
 
+    def test_restarted_reduced_plan_keeps_the_explicit_finite_allowance(self):
+        self.checkpoint()
+        # Seed only the reduced-depth classification at this owned fault
+        # boundary. The plan and its two actual fake reviews are unchanged.
+        run, state = self.saved()
+        state["workflow"].update(kind="build", clarity="clear", brief_size="small")
+        state["planning"]["review_depth_reduced"] = True
+        runner.write_json(run / "state.json", state)
+        selected, env = self.choose(self.status())
+        code, launched, output = self.invoke(*selected, env=env)
+        self.assertEqual((0, False), (code, launched), output)
+        self.assert_unapproved()
+
+        # Feedback begins another real fake-provider planning cycle. Its
+        # reviews must use the remaining two calls, not the default 2/2 hold.
+        before = self.status()["usage"]["accounting"]["attempts"]
+        self.launch(["--run-dir", str(run), "--feedback", "Print the greeting on its own line."], 0)
+        self.launch(["--run-dir", str(run), "--no-chat"], 2)
+        current = self.status()
+        self.assertEqual("approve_plan", current["needs"]["kind"], current["stop_reason"])
+        self.assert_unapproved(used=4)
+        attempts = current["usage"]["accounting"]["attempts"]
+        old_ids = {row["identity"] for row in before}
+        reviews = [
+            row
+            for row in attempts
+            if row["identity"] not in old_ids
+            and row["stage"] in ("astra_challenge", "astra_finalize")
+            and not row["report_only"]
+            and not row["runner_owned"]
+        ]
+        self.assertEqual(2, len(reviews))
+        self.assertEqual(self.initial_settings, self.payload()["settings"])
+
     def test_finite_recovery_grant_replenishes_one_slot_without_other_authority(self):
         view = self.checkpoint(operational=True, grant=True)
         before = self.status()["usage"]["accounting"]["attempts"]
