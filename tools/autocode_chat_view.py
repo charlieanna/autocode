@@ -41,7 +41,7 @@ def notice(public):
         # The run stopped to apply a pause, feedback or stop someone asked for; not a failure either.
         return "Paused to apply your request. Your work so far is saved; continue when you’re ready."
     if status.startswith("PAUSED"):
-        return "I couldn’t finish this step. Open Run details to see what needs attention."
+        return "I couldn’t finish this step. The run’s details say what needs attention."
     if status == "RUNNING":
         liveness = public.get("liveness") or {}
         if isinstance(liveness, dict) and liveness.get("kind") in ("supervised", "unsupervised"):
@@ -124,7 +124,7 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             recovery = public.get("recovery") or {}
             explanation = recovery.get("what_happened") or "I couldn’t finish this step."
             question_text = explanation + (
-                " Open Run details to see what needs attention.\n\n"
+                " The run’s details say what needs attention.\n\n"
                 "Your saved work and evidence are kept. Reply with what changed so recovery can be reviewed. "
                 "Sending a reply does not authorize a retry or change your limits; the run stays paused until "
                 "you take its next recovery action."

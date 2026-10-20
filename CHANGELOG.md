@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A stopped step's chat notice no longer tells terminal users to "Open Run details", a button only VS Code has;
+  it now says the run's details say what needs attention, which every client shows its own way.
 - VS Code saved-code compare and restore buttons explain when they are unavailable while
   this chat waits for a command, instead of accepting clicks that silently do nothing (#1676).
 - The chat's "New chats:" line named OpenCode even when `default_provider` chose another
