@@ -766,6 +766,24 @@ class StreamAndNoticeTests(unittest.TestCase):
         self.assertNotIn("Thinking about", client.text(), "the live text is never printed as a message")
         self.assertIn("AutoCode: Done thinking.", client.text())
 
+    def test_reads_come_fast_only_while_the_streaming_reply_changes(self):
+        client = ScriptedChat({})
+
+        def streaming(text):
+            return {"chat": {"messages": [{"id": "live", "role": "assistant", "text": text, "streaming": True}]}}
+
+        self.assertEqual(2.0, client.pace(2.0), "nothing is streaming")
+        client.show(streaming("I'll check"))
+        self.assertEqual(chat.STREAM_POLL_SECONDS, client.pace(2.0))
+        self.assertEqual(0.1, client.pace(0.1), "a shorter ordinary pace is never slowed down")
+        for _ in range(chat.STREAM_QUIET_POLLS):
+            client.show(streaming("I'll check"))
+        self.assertEqual(2.0, client.pace(2.0), "a reply that stopped changing is read at the ordinary pace")
+        client.show(streaming("I'll check the tests"))
+        self.assertEqual(chat.STREAM_POLL_SECONDS, client.pace(2.0), "a change makes reads fast again")
+        client.show({"chat": {"messages": [{"id": "m2", "role": "assistant", "text": "Done."}]}})
+        self.assertEqual(2.0, client.pace(2.0), "the finished message ends streaming")
+
     def test_the_wait_a_notice_tells_apart(self):
         self.assertEqual(("done",), chat.wait_identity({"done": True}))
         self.assertIsNone(chat.wait_identity({"needs": {"kind": "continue"}}))
