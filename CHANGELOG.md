@@ -24,6 +24,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Saved-run replay accepts the Builder's recorded effort origin. #1727 began recording `effort_origins.terra`, and
+  replay export refused every new recording ("Recording reviewer effort origin is invalid"), which turned
+  `tests.test_saved_run_replay_cli` red on master. Replay validation now allows `plan_reviewer` and `terra`, each
+  with `user_explicit`, `runner_default` or `auto_selected`, and still refuses any other role or value.
 - A small clear brief's plan-review total (#1564) dead-ended planning when AutoCode settled the reviewer's final
   technical question itself: planning restarted for the redraft, but the new cycle carried the spent 2/2, so the
   redrafted plan could never be reviewed and the run waited for a person (live, 2026-10-20). A restart caused by

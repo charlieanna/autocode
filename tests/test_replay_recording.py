@@ -100,7 +100,7 @@ class RecordingValidationTests(unittest.TestCase):
         document = copy.deepcopy(self.document)
         settings = document["launch"]["settings"]
         for origin in ("user_explicit", "runner_default", "auto_selected"):
-            settings["effort_origins"] = {"plan_reviewer": origin}
+            settings["effort_origins"] = {"plan_reviewer": origin, "terra": origin}
             self.save(document)
             saved = recording.load(self.manifest).document["launch"]["settings"]
             self.assertEqual(settings["effort_origins"], recording.launch_settings(saved)["effort_origins"])
@@ -110,7 +110,8 @@ class RecordingValidationTests(unittest.TestCase):
             [],
             {"plan_reviewer": "derived"},
             {"plan_reviewer": []},
-            {"terra": "user_explicit"},
+            {"terra": "derived"},
+            {"completion": "user_explicit"},
         ):
             settings["effort_origins"] = invalid
             self.save(document)
