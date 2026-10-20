@@ -796,9 +796,8 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         )
 
     cited = [ref for row in value["criterion_results"] for ref in row.get("evidence_refs") or []]
-    unbound = check_refs.unbound_refs(
-        value, {c["evidence_ref"] for c in value["checks"]} | set(design_refs) | {r for r in cited if runner_receipt(r)}
-    )
+    verified = {c["evidence_ref"] for c in value["checks"]} | set(design_refs) | {r for r in cited if runner_receipt(r)}
+    unbound, dropped = check_refs.citations(value, verified, check_refs.outside(managed_root, workspace))
     if unbound:
         criterion, ref = unbound[0]
         raise ValueError(
@@ -864,6 +863,7 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         "source_revision": record["source_revision"],
         "output": record["output"],
         "reviewer_role": record.get("role", stage),
+        **({"dropped_evidence_refs": dropped} if dropped else {}),
     }
     human_pending = modern and any(
         goals.human_only_pending_validation(state, value, c["id"])

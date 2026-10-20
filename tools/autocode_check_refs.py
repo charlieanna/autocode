@@ -11,6 +11,7 @@ attached evidence reference, after the checks are verified. Imports nothing from
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 REFERENCE = re.compile(r"check:(\d+)")
 
@@ -31,6 +32,51 @@ def unbound_refs(report: dict, allowed) -> list[tuple[str, str]]:
         for ref in row.get("evidence_refs") or []
         if isinstance(ref, str) and ref not in allowed
     ]
+
+
+def outside(root, workspace):
+    """A ``droppable`` test: true for a citation outside ``root`` (the run's .autocode/). A citation into
+    it the runner did not write (model scratch, containment) is never dropped quietly."""
+
+    def check(ref: str) -> bool:
+        try:
+            path = (Path(ref) if Path(ref).is_absolute() else Path(workspace) / ref).resolve()
+        except (OSError, ValueError):
+            return False
+        return not path.is_relative_to(Path(root))
+
+    return check
+
+
+def drop_redundant_unbound(report: dict, allowed, droppable=lambda ref: True) -> list[tuple[str, str]]:
+    """Remove, in place, the citations the runner cannot verify from a criterion that also cites
+    verified evidence; return what was removed as (criterion id, reference).
+
+    A reviewer that ran and cited a check sometimes adds the file it checked ("hello.txt") beside
+    ``check:1``. That extra name proves nothing, but the verified check still does: dropping it is
+    what a report repair would do, without a model call. A criterion citing nothing verified keeps
+    its citations, so ``unbound_refs`` still refuses it and nothing unverified is ever accepted.
+    ``droppable`` limits what may go quietly: a citation it rejects (model scratch under .autocode/)
+    is kept, so the report is still refused for it.
+    """
+    dropped: list[tuple[str, str]] = []
+    for row in report.get("criterion_results") or []:
+        if not isinstance(row, dict):
+            continue
+        refs = [ref for ref in row.get("evidence_refs") or [] if isinstance(ref, str)]
+        verified = [ref for ref in refs if ref in allowed]
+        extra = [ref for ref in refs if ref not in allowed]
+        if verified and extra and all(droppable(ref) for ref in extra):
+            dropped += [(row["id"], ref) for ref in extra]
+            row["evidence_refs"] = verified
+    return dropped
+
+
+def citations(report: dict, verified, droppable) -> tuple[list[tuple[str, str]], list[dict]]:
+    """Drop what may go quietly (``drop_redundant_unbound``), then what is still unverified: the
+    refusals (criterion id, reference), and the dropped citations as the validation records them."""
+    dropped = drop_redundant_unbound(report, verified, droppable)
+    return unbound_refs(report, verified), [{"criterion": criterion, "ref": ref} for criterion, ref in dropped]
 
 
 def resolve(report: dict) -> dict:

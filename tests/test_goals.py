@@ -1447,6 +1447,22 @@ class GoalTests(unittest.TestCase):
         self.state["validation"]["criterion_results"] = []
         self.assertFalse(completion_gate.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
 
+    def test_a_file_name_beside_a_verified_check_is_dropped_and_recorded_not_a_rejection(self):
+        # A live Tester cited "hello.txt" beside check:1 and the whole report went to a model repair.
+        # The verified check still proves the criterion; the extra name is dropped and recorded.
+        self.approve()
+        current = self.validation()
+        value = copy.deepcopy(self.state["validation"])
+        verified = list(value["criterion_results"][0]["evidence_refs"])
+        value["criterion_results"][0]["evidence_refs"] = [*verified, "greet.py"]
+        events = str(self.run / "sol.jsonl")
+        record = {"events": events, "source_revision": current["revision"], "output": events}
+        runner.apply_result(self.state, "sol", value, record, self.root, self.run)
+        accepted = self.state["validation"]
+        self.assertEqual(verified, accepted["criterion_results"][0]["evidence_refs"])
+        criterion = value["criterion_results"][0]["id"]
+        self.assertEqual([{"criterion": criterion, "ref": "greet.py"}], accepted["dropped_evidence_refs"])
+
     def test_criterion_cannot_cite_a_fabricated_event_beside_a_real_passing_check(self):
         self.approve()
         self.validation()

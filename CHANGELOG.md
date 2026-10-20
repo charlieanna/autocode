@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Tester report that cites a verified check and also names the file it checked (`hello.txt`) is no
+  longer rejected and sent to a model repair: the runner drops the unverifiable name, records it as
+  `dropped_evidence_refs` in the validation, and accepts the verified check. A criterion citing
+  nothing verified, or citing model scratch under `.autocode/`, is still refused. The Tester's
+  instructions now say to cite the check, not the file (they had invited project file paths).
 - Session ownership checks briefly retry a missing initial receipt open during atomic replacement
   on Mac Docker binds; persistent absence and invalid ownership evidence still stop the run (#1680).
 - A stopped step's chat notice no longer tells terminal users to "Open Run details", a button only VS Code has;

@@ -72,12 +72,12 @@
     "sha256": "1422185d4af2dc18662a4506475a7725d94852c7432ec138bc3a2550ef4ff513"
   },
   "execution/sol/v2": {
-    "bytes": 12251,
-    "sha256": "431cd736fcfc5699b897bd19581c911822eca260d55d84fc64df989ae44d1bc9"
+    "bytes": 12456,
+    "sha256": "be5f6aa02172a81ee2559d3bb36d697000cc9618dd6a4b0c969f119ec93c4f57"
   },
   "execution/sol/v3": {
-    "bytes": 14952,
-    "sha256": "336b1c3d3bbb8160e9926d112e8c434836a2c392e6197591bb7e2d3a32142cf3"
+    "bytes": 15157,
+    "sha256": "74c97e347ca2647577f10e2a94a2dc3ce096709016ffc129b8234046a03568fe"
   },
   "execution/terra/v2": {
     "bytes": 9030,
@@ -244,12 +244,12 @@
     "sha256": "04765da9c2f10a1cbe166b2e758ca8760f053f3be0455d6fd3592e38c2150e3c"
   },
   "milestones/sol/False": {
-    "bytes": 18876,
-    "sha256": "29ecdfa4f1be878cc493ce0f4f873051aa033a2a2d487c3e25b56ff20ca31034"
+    "bytes": 19081,
+    "sha256": "dabc74f02569e612a4c6c27dde98aa33854c2335330b49b69fb9e46462191f28"
   },
   "milestones/sol/True": {
-    "bytes": 19297,
-    "sha256": "a0cb6e7073bd7419e8b5741f9332ae94e91ec69057ff8ac85fc4deb93540ee70"
+    "bytes": 19502,
+    "sha256": "e327d0b55d8e5e960e5394e383f37c792f48fc0a17e66579e6675860297470ea"
   },
   "milestones/terra/False": {
     "bytes": 15498,
@@ -476,8 +476,8 @@
     "sha256": "8bfced33880c2c4cd194fb1788bbf9cde13da86774f66030b3d7638dbb44f4ec"
   },
   "progressive/sol": {
-    "bytes": 16356,
-    "sha256": "158657693336167ed60e3e3c0170a628bdf50f0cf955ec21989ccb5db4723b75"
+    "bytes": 16561,
+    "sha256": "9a2d9fe78a0ea63466ea168e4295a8afeb9529eded13b4b9e3ee0e0f31869cc6"
   },
   "progressive/terra": {
     "bytes": 13135,
@@ -632,8 +632,8 @@
     "sha256": "ccb97f9a51bd25f9991cc43cca315fe8b6c51ba70c27dfee13da318edaae41b7"
   },
   "review/sol": {
-    "bytes": 21464,
-    "sha256": "819e4d198be0228d17a8ecf1f4b685a138ed8b8c4b807c458dcbca64c766ee54"
+    "bytes": 21669,
+    "sha256": "3887f1d6808873063b9db2a7fb0e9f4f7fe3c664b6d359c0c29a1ef00dccc9b9"
   },
   "scratch/answer_question": {
     "bytes": 293,
@@ -744,8 +744,8 @@
     "sha256": "1422185d4af2dc18662a4506475a7725d94852c7432ec138bc3a2550ef4ff513"
   },
   "unit/sol": {
-    "bytes": 21464,
-    "sha256": "819e4d198be0228d17a8ecf1f4b685a138ed8b8c4b807c458dcbca64c766ee54"
+    "bytes": 21669,
+    "sha256": "3887f1d6808873063b9db2a7fb0e9f4f7fe3c664b6d359c0c29a1ef00dccc9b9"
   },
   "unit/terra": {
     "bytes": 12062,
@@ -760,11 +760,11 @@
     "sha256": "6658d692fea811c51e90471f02ead4d4e7da3e26a50191ad57f924713b5ff736"
   },
   "workflow/sol/False": {
-    "bytes": 14706,
-    "sha256": "021cad6dd9e28749a7763cd70b5c667c56fedb4420183351cb8d7a6d77690b19"
+    "bytes": 14911,
+    "sha256": "a9365dcbc13ec82136d837f935829fe0b7b46f31cfb6208d70bb4b46990d2483"
   },
   "workflow/sol/True": {
-    "bytes": 15382,
-    "sha256": "ee2b99525d58db718cd163309a7d45134a3d5d86cfd4114b586f21f5ae8de4ac"
+    "bytes": 15587,
+    "sha256": "d96b5bb1a63d6320a6378dce6fc4381f377ae1d3bc4b0917a9275b02bb12ce53"
   }
 }

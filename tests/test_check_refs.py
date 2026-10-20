@@ -61,3 +61,27 @@ class CheckRefsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DropRedundantTests(unittest.TestCase):
+    def report(self, *refs):
+        return {"criterion_results": [{"id": "AC1", "status": "PASS", "evidence_refs": list(refs)}]}
+
+    def test_an_unverified_name_beside_a_verified_check_is_dropped(self):
+        report = self.report("event:e1", "hello.txt")
+        self.assertEqual([("AC1", "hello.txt")], check_refs.drop_redundant_unbound(report, {"event:e1"}))
+        self.assertEqual(["event:e1"], report["criterion_results"][0]["evidence_refs"])
+        self.assertEqual([], check_refs.unbound_refs(report, {"event:e1"}))
+
+    def test_a_criterion_with_nothing_verified_keeps_its_citations_and_is_still_refused(self):
+        report = self.report("hello.txt")
+        self.assertEqual([], check_refs.drop_redundant_unbound(report, {"event:e1"}))
+        self.assertEqual([("AC1", "hello.txt")], check_refs.unbound_refs(report, {"event:e1"}))
+
+    def test_a_citation_that_may_not_go_quietly_keeps_the_refusal(self):
+        report = self.report("event:e1", ".autocode/scratch/x.png")
+        kept = check_refs.drop_redundant_unbound(
+            report, {"event:e1"}, droppable=lambda ref: not ref.startswith(".autocode")
+        )
+        self.assertEqual([], kept)
+        self.assertEqual([("AC1", ".autocode/scratch/x.png")], check_refs.unbound_refs(report, {"event:e1"}))

@@ -26,6 +26,8 @@ For criterion and end-to-end evidence from image/MCP calls or retained earlier
 stages, cite the exact existing artifact path (including the owning JSONL log),
 not a foreign or non-command event: ID. These artifacts still require independent
 inspection and source provenance; a file path alone is not proof of acceptance.
+In criterion_results, cite the check that proved the criterion (check:<n>), not the file it checked: a
+project file path there is not verified evidence; only artifacts AutoCode wrote under .autocode/ are.
 Artifact evidence_refs are project file paths (README.md), never sentences like "README.md read: 38 lines". For external
 temporary artifacts, cite the current executed shell event that records the
 observation, or its project-contained event log, and preserve any limitations.
