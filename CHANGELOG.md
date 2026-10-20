@@ -22,6 +22,16 @@ PR template asks for an entry here; a change without one is incomplete.
 - A Code Review on Kilo that delivered only its allowed `review/tests/` files paused as "Repository changed
   during read-only review": the check read OpenCode's snapshot cache, and Kilo keeps its own
   (`kilo/snapshot`, `.git/kilo`). The check now reads the cache of the CLI that ran the stage.
+- Planning restarts that retain consumed review calls also preserve the user's
+  explicit finite allowance, including a spec-first return for guard correction.
+  Restarting does not refund calls or approve the corrected plan (#1699).
+- Same-chat follow-ups validate historical source exclusions against the full
+  source inventory while checking current-turn obligations, avoiding a source-trace
+  crash. A controller exit while applying a completed, accounted report offers
+  Resume after confirmed cleanup, preserving the report and used calls (#1697).
+- Wait for controller-recorded sibling completion before killing the owner in the
+  guarded-worker recovery CI fixture (#1695).
+
 - VS Code suppresses a person-wait notice while its own action automatically continues a chat;
   a genuinely stopped Continue checkpoint still notifies after that action finishes (#1692).
 - The source-trace check no longer rejects a correct plan for not repeating a standard's name: "ISO 8601",
