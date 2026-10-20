@@ -339,7 +339,9 @@ class RequirementsChatTests(unittest.TestCase):
                 ('{"assistant_reply":"Hello there","acceptance_tests":[]}', "Hello there"),
             ):
                 events.write_text(
-                    json.dumps({"type": "item.updated", "item": {"id": "item_0", "type": "agent_message", "text": text}})
+                    json.dumps(
+                        {"type": "item.updated", "item": {"id": "item_0", "type": "agent_message", "text": text}}
+                    )
                     + "\n"
                 )
                 self.assertEqual(expected, chat.streaming_reply(state, root))
