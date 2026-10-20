@@ -274,7 +274,7 @@ class QuotaRouteTests(unittest.TestCase):
             (
                 ["route-sol=gpt-6-luna"],
                 {"pause_status": "PAUSED_TIME_LIMIT"},
-                "Only a quota, content-filter or output-limit stop",
+                "Only a quota, content-filter, output-limit or cross-model stop",
             ),
             (["route-terra=gpt-6-luna"], origin, "not the model question"),
             (["route-sol="], origin, "Name the model"),

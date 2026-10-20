@@ -38,12 +38,14 @@ try:
     from . import autocode_role_route as role_route
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as roles
+    from . import autocode_verifier_independence as verifier_independence
 except ImportError:
     import autocode_output_cap as output_cap
     import autocode_provider_refusal as provider_refusal
     import autocode_role_route as role_route
     import autocode_role_transport as role_transport
     import autocode_roles as roles
+    import autocode_verifier_independence as verifier_independence
 
 PREFIX = "route-"
 CATEGORY = "quota"  # a non-inferable question category (autocode_goals); all model stops use it
@@ -51,6 +53,12 @@ QUOTA_STATUS = "PAUSED_BUDGET"
 REFUSAL_STATUS = provider_refusal.STATUS
 OUTPUT_STATUS = output_cap.STATUS
 STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS)
+# The cross-model guard is the same kind of model question: a person names the
+# verifier's next model. It is not a provider stop, so it is kept out of STATUSES
+# (which classify attempt failures) and added to MODEL_STOPS for --answer.
+CROSS_MODEL_STATUS = "PAUSED_CROSS_MODEL"
+CROSS_CAUSE = "cross_model"
+MODEL_STOPS = STATUSES + (CROSS_MODEL_STATUS,)
 _STOPPED = {
     QUOTA_STATUS: "stopped on quota",
     REFUSAL_STATUS: "its provider's content filter refused",
@@ -490,11 +498,72 @@ def answers_route(questions, origin: dict | None, role: str) -> bool:
     return (origin or {}).get("pause_status") in STATUSES and asked_route(questions, PREFIX + role) is not None
 
 
+def cross_model_question(state: RunState) -> dict | None:
+    """The model question for the verifier whose route breaks independence, or None.
+
+    ``PAUSED_CROSS_MODEL`` is not a provider stop and has no attempt: the question
+    is derived from the saved routes, so it needs no issued token. ``candidates``
+    lists configured models for the same engine that would pass the launch and
+    cross-model rules; the person may still name another.
+    """
+    rows = verifier_independence.clashes(state.get("settings") or {})
+    if not rows:
+        return None
+    row = rows[0]
+    role = row["verifier"]
+    settings = state.get("settings") or {}
+    current = ((settings.get("roles") or {}).get(role) or {}).get("model")
+    job = roles.screen_name(role, state)
+    asked = {
+        "id": PREFIX + role,
+        "question": f"{job} would grade its own work ({row['label']}: {row['problem']}); name the {job}'s model",
+        "why": (
+            f"The {row['label']} route shares a model family ({row['problem']}). "
+            f"A verifier never runs the model that produced the work it judges. "
+            f"Name a model for the same engine ({engine(settings, role)}) for the {job} "
+            f"that does not share {row['producer_model']}'s family. "
+            "AutoCode never switches models on its own."
+        ),
+        "options": [],
+        "proposed_default": "",
+        "kind": "decision",
+        "category": CATEGORY,
+        "delegable": False,
+        "route_role": role,
+        "job": job,
+        "current_model": current,
+        "engine": engine(settings, role),
+        "cause": CROSS_CAUSE,
+        "stopped_model": current,
+    }
+    passing, refused = candidates(
+        state,
+        role,
+        current,
+        cross_check=_independence_check,
+        job=job,
+        current=current,
+    )
+    # candidates() skips the current model as ``refused_model``; for this stop the
+    # refusal is the family clash, so the same exclusion is what we want.
+    asked["candidates"] = passing
+    asked["recommendation"] = (
+        f"Configured models that pass the launch rules for the {job}: {', '.join(passing)}."
+        if passing
+        else f"No other configured model passes the launch rules for the {job}"
+        + (f" (refused: {', '.join(refused)})" if refused else "")
+        + "; name one that does not share the producer's family."
+    )
+    asked["why"] += " " + asked["recommendation"]
+    return asked
+
+
 def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
-    """(question, model) from ``--answer route-<role>=MODEL`` at a quota or refusal stop; ValueError otherwise."""
-    if (origin or {}).get("pause_status") not in STATUSES:
+    """(question, model) from ``--answer route-<role>=MODEL`` at a model stop; ValueError otherwise."""
+    if (origin or {}).get("pause_status") not in MODEL_STOPS:
         raise ValueError(
-            "Only a quota, content-filter or output-limit stop is answered with a model; use --resolver-response for this request"
+            "Only a quota, content-filter, output-limit or cross-model stop is answered with a model; "
+            "use --resolver-response for this request"
         )
     if len(answers) != 1:
         raise ValueError("Answer the model question on its own: --answer route-ROLE=MODEL")
@@ -547,8 +616,19 @@ def validate(
         raise ValueError(clash)
 
 
+def _independence_check(trial: dict) -> None:
+    """``cross_check`` for a pure view: raise like the dispatch guard when routes clash."""
+    problems = verifier_independence.violations(trial.get("settings") or {})
+    if problems:
+        error = RuntimeError("; ".join(problems))
+        error.status = CROSS_MODEL_STATUS  # type: ignore[attr-defined]
+        raise error
+
+
 def _clashes(settings: dict, role: str, model: str, cross_check) -> str | None:
     """The cross-model refusal a launch would raise with ``model`` on ``role``, or None."""
+    if cross_check is None:
+        return None
     trial = {"settings": copy.deepcopy(settings)}
     trial["settings"]["roles"][role]["model"] = model
     try:

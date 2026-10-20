@@ -72,6 +72,66 @@ class NamedActionTests(unittest.TestCase):
         self.assertEqual(["--answer", "Q1=ANSWER", "--resolver-token", "-"], command.argv)
         self.assertEqual({"AUTOCODE_RESOLVER_TOKEN": "t1"}, command.env)
 
+    def test_a_cross_model_stop_asks_for_the_verifier_model_without_a_token(self):
+        view = {
+            "status": "PAUSED_CROSS_MODEL",
+            "needs": {
+                "kind": "answer",
+                "questions": [{"id": "route-plan_reviewer", "question": "Name the Plan Reviewer's model"}],
+                "route": {
+                    "question_id": "route-plan_reviewer",
+                    "role": "plan_reviewer",
+                    "cause": "cross_model",
+                    "stopped_model": "gpt-5.6-sol",
+                    "candidates": ["gpt-5.6-terra"],
+                },
+            },
+            "next_command": f"autocode {PLACE} --answer route-plan_reviewer=MODEL",
+        }
+        command = actions.named(view, WORKSPACE, RUN)
+        self.assertEqual(["--answer", "route-plan_reviewer=MODEL"], command.argv)
+        decided = actions.decisions(view, command)
+        self.assertEqual([("route-plan_reviewer", "model")], [(row.key, row.kind) for row in decided])
+        filled = actions.fill(view, command, {"route-plan_reviewer": "gpt-5.6-terra"})
+        self.assertEqual(
+            ["--answer", "route-plan_reviewer=gpt-5.6-terra"],
+            filled.argv,
+        )
+
+    def test_a_cross_model_question_is_a_model_prompt_even_during_requirements(self):
+        view = {
+            "status": "PAUSED_CROSS_MODEL",
+            "needs": {
+                "kind": "answer",
+                "questions": [{"id": "route-plan_reviewer", "question": "Name the Plan Reviewer's model"}],
+                "route": {
+                    "question_id": "route-plan_reviewer",
+                    "role": "plan_reviewer",
+                    "cause": "cross_model",
+                    "stopped_model": "gpt-5.6-sol",
+                    "candidates": ["gpt-5.6-terra"],
+                },
+            },
+            "next_command": f"autocode {PLACE} --answer route-plan_reviewer=MODEL",
+            "chat": {
+                "phase": "requirements",
+                "context": "c1",
+                "messages": [
+                    {
+                        "id": "requirements-question",
+                        "role": "assistant",
+                        "text": "Name the Plan Reviewer's model",
+                    }
+                ],
+            },
+        }
+        client = ScriptedChat(view, DONE, replies=["gpt-5.6-terra"])
+        self.assertEqual(0, client.converse())
+        out = client.text()
+        self.assertIn("Which model should plan_reviewer continue on?", out)
+        self.assertIn("Models it can continue on: gpt-5.6-terra", out)
+        self.assertEqual([["--answer", "route-plan_reviewer=gpt-5.6-terra"]], client.taken)
+
     def test_a_command_naming_another_run_is_a_gap(self):
         view = {**answer_view(), "next_command": f"autocode --run-dir {WORKSPACE}/other --answer Q1=ANSWER"}
         with self.assertRaisesRegex(actions.ClientGap, "not this run's"):

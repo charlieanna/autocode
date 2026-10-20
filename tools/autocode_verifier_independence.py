@@ -72,16 +72,17 @@ def clash(producer_model, verifier_model):
     return f"same family {model_identity.family(producer_model)} ({producer_model} / {verifier_model})"
 
 
-def violations(settings):
-    """Every producer/verifier pair of a run's routes that breaks independence.
+def clashes(settings):
+    """Every broken producer/verifier pair as structured rows for a model question.
 
-    Empty in single-model mode, which the user chose knowing one model checks itself.
+    Each row names the verifier role a person can reroute so it stops grading its
+    own producer's work. Empty in single-model mode.
     """
     settings = settings or {}
     if settings.get("single_model_mode"):
         return []
     roles = settings.get("roles") or {}
-    problems = []
+    found = []
     for producer, verifier, label in PAIRS:
         producer_model = (roles.get(producer) or {}).get("model")
         verifier_model = (roles.get(verifier) or {}).get("model")
@@ -89,5 +90,22 @@ def violations(settings):
             continue
         problem = clash(producer_model, verifier_model)
         if problem:
-            problems.append(f"{label}: {problem}")
-    return problems
+            found.append(
+                {
+                    "producer": producer,
+                    "verifier": verifier,
+                    "label": label,
+                    "problem": problem,
+                    "producer_model": producer_model,
+                    "verifier_model": verifier_model,
+                }
+            )
+    return found
+
+
+def violations(settings):
+    """Every producer/verifier pair of a run's routes that breaks independence.
+
+    Empty in single-model mode, which the user chose knowing one model checks itself.
+    """
+    return [f"{row['label']}: {row['problem']}" for row in clashes(settings)]

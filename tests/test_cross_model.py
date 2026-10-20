@@ -11,6 +11,7 @@ sys.path.insert(0, str(HERE))
 
 import autocode_dispatch as dispatch  # noqa: E402
 import autocode_support as support  # noqa: E402
+import autocode_verifier_independence as verifier_independence  # noqa: E402
 
 
 def roles(**models):
@@ -184,6 +185,93 @@ class CrossModelTest(unittest.TestCase):
                 dry_run=True,
             )
         self.assertEqual("PAUSED_CROSS_MODEL", ctx.exception.status)
+
+    def test_clashes_name_the_verifier_role_to_reroute(self):
+        rows = verifier_independence.clashes(
+            roles(
+                terra="zai-coding-plan/glm-5.3",
+                sol="zai-coding-plan/glm-5.3",
+                completion="xiaomi-token-plan-sgp/mimo-v2.6-pro",
+                glm="gpt-5.6-sol",
+                plan_reviewer="gpt-5.6-sol",
+            )["settings"]
+        )
+        self.assertEqual(["sol", "plan_reviewer"], [row["verifier"] for row in rows])
+        self.assertEqual("terra", rows[0]["producer"])
+        self.assertIn("identical model", rows[0]["problem"])
+
+    def test_cross_model_question_offers_models_that_pass_and_the_view_asks_for_one(self):
+        import autocode_quota_route as quota_route
+        import autocode_run_view as run_view
+
+        state = {
+            "status": "PAUSED_CROSS_MODEL",
+            "stop_reason": "Cross-model verification violated; Planner/Plan Reviewer: identical model gpt-5.6-sol",
+            "settings": {
+                "engine": "codex",
+                "roles": {
+                    "terra": {"model": "gpt-5.6-terra"},
+                    "sol": {"model": "gpt-6-sol"},
+                    "completion": {"model": "gpt-6-luna"},
+                    "glm": {"model": "gpt-5.6-sol"},
+                    "plan_reviewer": {"model": "gpt-5.6-sol"},
+                },
+            },
+        }
+        asked = quota_route.cross_model_question(state)
+        self.assertEqual("route-plan_reviewer", asked["id"])
+        self.assertEqual("plan_reviewer", asked["route_role"])
+        self.assertEqual("cross_model", asked["cause"])
+        self.assertEqual("gpt-5.6-sol", asked["stopped_model"])
+        self.assertIn("gpt-5.6-terra", asked["candidates"])
+        self.assertNotIn("gpt-5.6-sol", asked["candidates"])
+        view = run_view.view(state, workspace=Path("/ws"), run_dir=Path("/run"))
+        self.assertEqual("answer", view["needs"]["kind"])
+        self.assertEqual("route-plan_reviewer", view["needs"]["route"]["question_id"])
+        self.assertEqual("cross_model", view["needs"]["route"]["cause"])
+        self.assertIn("--answer route-plan_reviewer=MODEL", view["next_command"])
+        self.assertNotIn("--resume-paused", view["next_command"])
+
+    def test_the_named_answer_switches_the_verifier_and_is_accepted(self):
+        import autocode_quota_route as quota_route
+
+        state = {
+            "status": "PAUSED_CROSS_MODEL",
+            "stop_reason": "Cross-model verification violated",
+            "settings": {
+                "engine": "codex",
+                "roles": {
+                    "glm": {"model": "gpt-5.6-sol"},
+                    "plan_reviewer": {"model": "gpt-5.6-sol"},
+                },
+            },
+            "user_events": [],
+        }
+        asked = quota_route.cross_model_question(state)
+        asked, model = quota_route.parse_answer(
+            [f"{asked['id']}=gpt-5.6-terra"], [asked], {"pause_status": quota_route.CROSS_MODEL_STATUS}
+        )
+        self.assertEqual("plan_reviewer", asked["route_role"])
+        self.assertEqual("gpt-5.6-terra", model)
+        quota_route.validate(
+            state,
+            "plan_reviewer",
+            model,
+            configured_tool=False,
+            cross_check=dispatch.enforce_cross_model_verification,
+        )
+        record = quota_route.assign(
+            state,
+            "plan_reviewer",
+            model,
+            at="t",
+            via="answer",
+            attempt={"pause_status": quota_route.CROSS_MODEL_STATUS, "role": "plan_reviewer"},
+        )
+        self.assertEqual("gpt-5.6-terra", record["to"])
+        self.assertEqual("gpt-5.6-sol", record["from"])
+        self.assertEqual("gpt-5.6-terra", state["settings"]["roles"]["plan_reviewer"]["model"])
+        dispatch.enforce_cross_model_verification(state)  # the named model clears the guard
 
 
 if __name__ == "__main__":

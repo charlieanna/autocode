@@ -71,6 +71,10 @@ def command(need, *, run_dir=None, workspace=None, resume_flags=None, terminal=F
             question = route.get("question_id") or need["questions"][0].get("id")
             if question:
                 flags = ["--answer", f"{question}={'MODEL' if route else 'ANSWER'}", "--resolver-token", token]
+        elif route.get("question_id"):
+            # A cross-model stop derives its question from the saved routes; no issued
+            # token binds it. The answer is its own action; --resume-paused comes next.
+            flags = ["--answer", f"{route['question_id']}=MODEL"]
         if not flags:
             flags = ["--no-chat"]  # No issued token: relaunch to publish the current request.
     elif kind == "retry_job" and not need.get("job_retry_token"):

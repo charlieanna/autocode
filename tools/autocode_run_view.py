@@ -970,8 +970,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                     answer["recommended_revision_response"] = recommendation.ACCEPTANCE
         # A quota stop or a content-filter refusal asks for a model (#184): answer --answer
         # route-ROLE=MODEL. It has no default and is a person's decision, never a delegable
-        # requirements answer. ``cause`` is "quota" or "content_filter"; ``stopped_model`` is the
-        # model that stopped; ``candidates`` (refusal only) the configured models that would pass.
+        # requirements answer. ``cause`` is "quota", "content_filter", "output_limit" or
+        # "cross_model"; ``stopped_model`` is the
+        # model that stopped; ``candidates`` (refusal and cross-model) the configured models that would pass.
         route = next(
             (
                 q
@@ -997,6 +998,18 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             if state.get("displayed_goal")
             else {"kind": "continue"}
         )
+    if status == quota_route.CROSS_MODEL_STATUS:
+        # Same model question as a quota stop, derived from the saved routes rather
+        # than an attempt: name the verifier's next model so it stops grading its
+        # own work. --answer route-ROLE=MODEL applies it; --resume-paused continues.
+        asked = quota_route.cross_model_question(state)
+        if asked:
+            return {
+                "kind": "answer",
+                "reason": state.get("stop_reason") or status,
+                "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
+                "route": _route(asked),
+            }
     if status == "PAUSED_PLANNING_BUDGET":
         need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
