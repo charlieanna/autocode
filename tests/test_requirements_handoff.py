@@ -36,9 +36,9 @@ def report(**change):
 
 
 class RequirementsHandoffTests(unittest.TestCase):
-    def accept(self, value, settings=None):
+    def accept(self, value, settings=None, **saved):
         settings = {"spec_first": True} if settings is None else settings
-        state = {"task": "What is your name?", "settings": settings, "stages": []}
+        state = {"task": "What is your name?", "settings": settings, "stages": [], **saved}
         queued = []
         handoff.accept(
             state,
@@ -61,6 +61,28 @@ class RequirementsHandoffTests(unittest.TestCase):
             (report(open_questions=[]), None),
         ):
             with self.subTest(value=value, settings=settings), self.assertRaisesRegex(ValueError, "needs an outcome"):
+                self.accept(value, settings)
+
+    def test_a_reply_that_names_no_goal_and_asks_nothing_waits_for_the_person(self):
+        # Live, Kilo GLM 5.3 in idlecampus: "hi", then "Nothing yet, just saying hello." The honest
+        # reply was refused, repaired twice and sent to the Investigator.
+        reply = report(
+            open_questions=[],
+            assistant_reply="Understood. Whenever something comes to mind, just describe it.",
+            summary="The user answered Q1 with 'Nothing yet, just saying hello.'",
+        )
+        state, queued = self.accept(reply, answers={"Q1": {"text": "Nothing yet, just saying hello."}})
+        [[question]] = [row["questions"] for row in queued]
+        self.assertEqual("requested_outcome", question["category"])
+        self.assertEqual(handoff.OUTCOME_QUESTION, question["question"])
+        self.assertTrue(question["id"].startswith("outcome-"))
+        self.assertNotIn(question["id"], state["answers"], "a new id: an answered question cannot be asked again")
+        self.assertEqual("", state["requirements_handoff"]["report"]["intended_outcome"])
+
+    def test_without_spec_first_or_with_claimed_work_a_goalless_reply_is_still_refused(self):
+        chat = {"open_questions": [], "assistant_reply": "Understood."}
+        for value, settings in ((report(**chat), {}), (report(**chat, required_behaviors=["Greet"]), None)):
+            with self.subTest(settings=settings), self.assertRaisesRegex(ValueError, "needs an outcome"):
                 self.accept(value, settings)
 
 

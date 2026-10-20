@@ -124,6 +124,11 @@ except ImportError:
     import autocode_workspaces as task_workspaces
     import model_catalogue
 
+try:
+    from providers import env_prep
+except ImportError:
+    from .providers import env_prep
+
 # Recovery actions that answer or act on the published operational request themselves; a settings change
 # that comes with one leaves that request for the action to check.
 OTHER_RECOVERY = (
@@ -782,6 +787,7 @@ def run_locked(
         return owner.result(code, ready=ready) if owner is not None else code
 
     with ExitStack() as ownership:
+        ownership.enter_context(env_prep.reuse_checks(run_dir))  # a chat turn reuses this run's tool checks
         if runner.stop_policy.applied_stop(state):
             return runner.stop_policy.refuse_before_configure(runner.write_json, state, state_path) or 0
         if native is None:

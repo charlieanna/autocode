@@ -40,6 +40,8 @@ except ImportError:
 
 def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue) -> None:
     """Install ``value`` as the requirements handoff; ``queue`` is resolver_human.queue for the spec-first stop."""
+    if requirements_review.enabled(state) and not_yet_a_goal(value):
+        value["open_questions"] = [outcome_question(state)]
     questions = value["open_questions"]
     clarification_only = requirements_review.enabled(state) and bool(questions)
     intake_only = clarification_only and not any(
@@ -78,6 +80,38 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
         return
     run_status.running(state, "PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"])
     requirements_review.wait(state, record, queue)
+
+
+OUTCOME_QUESTION = "What would you like me to help you build, change, fix, or review in this project?"
+
+
+def not_yet_a_goal(value: dict) -> bool:
+    """A chat reply that names no software outcome and asks nothing ("Nothing yet, just saying hello").
+
+    Requirements answered correctly, but a handoff needed either an outcome or a question, so the reply was
+    refused, repaired twice (the second invented a source reference) and sent to the Investigator.
+    """
+    return bool(str(value.get("assistant_reply") or "").strip()) and not (
+        str(value.get("intended_outcome") or "").strip()
+        or any(value.get(key) for key in ("requirements", "required_behaviors", "acceptance_tests", "open_questions"))
+    )
+
+
+def outcome_question(state: RunState) -> dict:
+    """The runner's own requested-outcome question, under an id no earlier answer used."""
+    return {
+        "id": "outcome-"
+        + util.digest(
+            {"round": len(state.get("requirements_history") or []), "answers": sorted(state.get("answers") or {})}
+        )[:12],
+        "question": OUTCOME_QUESTION,
+        "why": "No software outcome has been named yet.",
+        "options": [],
+        "proposed_default": "",
+        "kind": "decision",
+        "category": "requested_outcome",
+        "delegable": False,
+    }
 
 
 def accept_chat(state: RunState, value: dict, record: dict, *, queue) -> bool:
