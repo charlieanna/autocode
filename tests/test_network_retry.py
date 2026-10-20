@@ -115,6 +115,42 @@ class NetworkDiagnosticTests(unittest.TestCase):
                 self.assertIsNone(retry.retryable_error(stream))
 
 
+def cut_short_stream(*extra):
+    """The #1717 shape: progress, read-only tools and text, then a retryable reset, Kilo's echo and flushed text."""
+    rows = [
+        {"type": "step_start", "part": {"type": "step-start"}},
+        {"type": "autocode_progress", "detail": "native provider stream advanced"},
+        {"type": "tool_use", "part": {"type": "tool", "tool": "read", "state": {"status": "completed"}}},
+        {"type": "step_finish", "part": {"type": "step-finish", "reason": "tool-calls"}},
+        {"type": "step_start", "part": {"type": "step-start"}},
+        {"type": "reasoning", "part": {"type": "reasoning", "text": "thinking"}},
+        failure(),
+    ]
+    lines = [json.dumps(row) for row in rows[:-1]] + ["\x1b[91m\x1b[1mError: \x1b[0mConnection reset by server"]
+    lines += [json.dumps(rows[-1]), json.dumps({"type": "text", "part": {"type": "text", "text": '{"contract": {'}})]
+    return ("\n".join(lines + [json.dumps(row) for row in extra]) + "\n").encode()
+
+
+class ReadOnlyPartialStreamTests(unittest.TestCase):
+    def test_a_stream_cut_short_by_a_retryable_reset_classifies(self):
+        self.assertEqual("ECONNRESET", retry.read_only_partial_error(cut_short_stream()))
+
+    def test_a_finished_turn_a_running_tool_an_unknown_row_or_a_second_error_does_not(self):
+        for extra in (
+            {"type": "step_finish", "part": {"type": "step-finish", "reason": "stop"}},
+            {"type": "tool_use", "part": {"type": "tool", "state": {"status": "running"}}},
+            {"type": "turn.completed"},
+            {"type": "usage"},
+            failure(),
+        ):
+            with self.subTest(extra=extra):
+                self.assertIsNone(retry.read_only_partial_error(cut_short_stream(extra)))
+        self.assertIsNone(retry.read_only_partial_error(cut_short_stream() + b"a diagnostic line\n"))
+        not_retryable = cut_short_stream().replace(b'"isRetryable": true', b'"isRetryable": false')
+        self.assertIsNone(retry.read_only_partial_error(not_retryable))
+        self.assertIsNone(retry.read_only_partial_error(cut_short_stream().replace(b"ECONNRESET", b"ENOTFOUND")))
+
+
 class CommandProviderShapeTests(unittest.TestCase):
     """#1001: command providers (kilocode) log the bare name/data error row —
     the same APIError/isRetryable facts, a different nesting than OpenCode's
@@ -408,7 +444,7 @@ class RecoveryAdmissionTests(unittest.TestCase):
             ("exit_code", -15),
             ("expected_session", "ses_prior"),
             ("report_only", True),
-            ("activity", {"completed_tool_count": 1}),
+            ("activity", {"active_tool_count": 1}),
             ("activity", ["unknown"]),
             ("output", str(self.workspace / "foreign.json")),
             ("events", str(self.base.parent / "foreign.jsonl")),
@@ -436,6 +472,34 @@ class RecoveryAdmissionTests(unittest.TestCase):
         self.assertEqual(before, self.state)
         self.assertEqual(raw + b'{"type":"tool_use"}\n', events.read_bytes())
         Path(self.record["output"]).write_text("partial report")
+        self.assertFalse(self.recover())
+
+    def cut_short(self, role):
+        events = Path(self.record["events"])
+        events.chmod(0o600)
+        events.write_bytes(cut_short_stream())
+        events.chmod(0o400)
+        self.record.update(role=role, activity={"active_tool_count": 0, "completed_tool_count": 1})
+
+    def test_a_read_only_stage_cut_short_by_a_reset_retries_once(self):
+        # #1717: the laptop slept mid-plan; on wake the stream reset after read-only tools and partial text.
+        self.cut_short("glm")
+        self.assertTrue(self.recover())
+        archived = self.state["stages"][-1]
+        self.assertEqual("ECONNRESET", archived["network_retry_chain"]["cause"])
+        self.assertTrue(archived["abandoned"])
+
+    def test_a_writer_or_tester_cut_short_the_same_way_keeps_its_hold(self):
+        for role in ("terra", "sol"):
+            with self.subTest(role=role):
+                self.cut_short(role)
+                before = copy.deepcopy(self.state)
+                self.assertFalse(self.recover())
+                self.assertEqual(before, self.state)
+
+    def test_a_read_only_stage_that_changed_the_workspace_keeps_its_hold(self):
+        self.cut_short("astra")
+        (self.workspace / "seed.txt").write_text("changed\n")
         self.assertFalse(self.recover())
 
     def test_live_actor_or_denied_process_inspection_never_archives(self):
