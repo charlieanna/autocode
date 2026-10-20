@@ -195,6 +195,8 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_completion_properties", "tests.test_completion_status"),
     ),
     (("tools/autocode_milestone",), ("tests.test_subprocess",)),
+    # These public status consumers reach the checkpoint projection through run_view.
+    (("tools/autocode_code_checkpoints",), ("tests.test_liveness", "tests.test_usage")),
     # A parallel batch's integrated step is attributed to each member's requirements (#730) only through
     # a real orchestrated run: dispatch integrates it, code_checkpoints records it, criterion_changes reads it.
     (
