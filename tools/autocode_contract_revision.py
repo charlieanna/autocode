@@ -15,11 +15,13 @@ try:
     from . import autocode_contract_delta as delta
     from . import autocode_draft_examples as examples
     from . import autocode_protected_text as protected
+    from . import autocode_rewording_question as rewording
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_contract_delta as delta
     import autocode_draft_examples as examples
     import autocode_protected_text as protected
+    import autocode_rewording_question as rewording
     import autocode_test_cases as test_cases
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
@@ -76,6 +78,33 @@ def draft_proof_corrections(state: RunState, before: dict, after: dict) -> set[s
         and not (marked(old[cid]["verification_method"]) and not marked(new[cid]["verification_method"]))
         and not protected_proof(state, old[cid])
     }
+
+
+def unapproved_rewordings(previous_contract, previous, body, protected_history):
+    """Criterion IDs a planner may reword in a plan nobody has approved yet (#1691).
+
+    The Planner's own first draft can be wrong (a live run miscounted the spaces of an expected
+    output), and the next planning step must be able to correct it. While no contract was ever
+    approved or edited by the person, a criterion's wording may change when it still cites every
+    request quote it cited before, so whatever came from the person stays traced; once a contract
+    was approved, every wording change needs the person again.
+    """
+    if (
+        protected_history
+        or previous_contract.get("approval_status") != "draft"
+        or previous_contract.get("approval_event")
+    ):
+        return set()
+    old = {row["id"]: row for row in previous.get("acceptance_criteria", []) if isinstance(row, dict) and row.get("id")}
+    allowed = set()
+    for row in body.get("acceptance_criteria", []):
+        before = old.get(row.get("id")) if isinstance(row, dict) else None
+        if not before or before.get("criterion") == row.get("criterion"):
+            continue
+        sources = [source for source in before.get("sources") or [] if isinstance(source, dict)]
+        if sources and all(source in (row.get("sources") or []) for source in sources):
+            allowed.add(row["id"])
+    return allowed
 
 
 def saved_user_basis(state: RunState, basis, answer_id):
@@ -159,6 +188,7 @@ def revision_guard(state: RunState, body, changes, origin):
         if isinstance(raw, dict) and saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))
     }
     example_corrections = examples.corrections(state, previous, body, changes, saved_user_basis)
+    example_corrections |= unapproved_rewordings(previous_contract, previous, body, protected_history)
     protected_changes = []
     for raw in changes:
         if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
@@ -175,11 +205,27 @@ def revision_guard(state: RunState, body, changes, origin):
         if raw.get("item") in example_corrections:
             continue
         protected_changes.append(raw)
-        basis = raw.get("basis")
-        if not saved_user_basis(state, basis, raw.get("answer_id")):
-            raise ValueError(
-                f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event; change={raw['change']!r}"
-            )
+    unbacked = [raw for raw in protected_changes if not saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))]
+    if unbacked:
+        raw = unbacked[0]
+        message = f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event; change={raw['change']!r}"
+        approved = protected_history or previous_contract.get("approval_status") == "approved"
+        rewordings = [
+            {
+                "item": row["item"],
+                "approved": rewording.approved_text(previous, row["item"]),
+                "proposed": str(row.get("replacement") or "").strip(),
+            }
+            for row in unbacked
+            if row["change"] == "reworded"
+        ]
+        if (
+            approved
+            and len(rewordings) == len(unbacked)
+            and all(row["approved"] and row["proposed"] for row in rewordings)
+        ):
+            raise rewording.ProtectedRewording(message, rewordings)  # the person is asked (#1691)
+        raise ValueError(message)
     declared: dict = {}
     for raw in protected_changes:
         declared.setdefault(raw["item"], []).append(raw)

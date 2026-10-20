@@ -11,6 +11,17 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A planner correcting its own wording in a plan nobody has approved yet (an expected-output literal with
+  one space too many) was refused as a protected rewording that "needs a saved user answer", and the run
+  spent its repair attempts restoring the wrong text. Before any approval, a criterion may now be reworded
+  when it keeps every request quote it cited; once a plan was approved, every rewording still needs the
+  person (#1691).
+- When a planner rewords a criterion or protected item of a plan the person already approved, AutoCode now
+  asks the person, showing the approved and the proposed wording, instead of repairing the report back and
+  pausing as invalid output. The answer is saved like any other, so the next plan can cite it (#1691).
+- A Code Review on Kilo that delivered only its allowed `review/tests/` files paused as "Repository changed
+  during read-only review": the check read OpenCode's snapshot cache, and Kilo keeps its own
+  (`kilo/snapshot`, `.git/kilo`). The check now reads the cache of the CLI that ran the stage.
 - Planning restarts that retain consumed review calls also preserve the user's
   explicit finite allowance, including a spec-first return for guard correction.
   Restarting does not refund calls or approve the corrected plan (#1699).

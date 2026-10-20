@@ -787,3 +787,68 @@ class PermissionReplacementTests(unittest.TestCase):
                 [self.row(self.DOCS, self.CODE), self.row(assumption, change="removed")],
                 "astra_discovery",
             )
+
+
+class UnapprovedRewordingTests(unittest.TestCase):
+    """#1691: the Planner may correct its own wording in a plan nobody approved, keeping every request quote."""
+
+    QUOTE = {
+        "source_id": "task:0",
+        "quote": "Combining `--by-project` with `--project NAME` prints only that project's rows.",
+    }
+    WRONG = "stdout is exactly '2025-W10 ops     3.50h\\ntotal             3.50h\\n'"
+    RIGHT = "stdout is exactly '2025-W10 ops     3.50h\\ntotal            3.50h\\n'"
+
+    def inputs(self, **contract_fields):
+        body = {
+            "acceptance_criteria": [
+                {
+                    "id": "AC2",
+                    "criterion": self.WRONG,
+                    "verification_method": "Run python3 -m timesheet report examples/march.csv --by-project --project ops",
+                    "human_review": False,
+                    "sources": [self.QUOTE],
+                }
+            ],
+            "required_behaviors": [],
+            "scope_exclusions": [],
+            "constraints": [],
+            "important_failure_cases": [],
+            "permission_boundaries": ["No network"],
+        }
+        contract = {
+            "body": body,
+            "approval_status": "draft",
+            "approval_event": None,
+            "origin": "glm_draft",
+            **contract_fields,
+        }
+        after = copy.deepcopy(body)
+        after["acceptance_criteria"][0]["criterion"] = self.RIGHT
+        changes = [
+            {"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": self.RIGHT}
+        ]
+        return {"goal_contract": contract}, after, changes
+
+    def test_a_planner_corrects_its_own_unapproved_criterion(self):
+        state, after, changes = self.inputs()
+        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+    def test_a_rewording_that_drops_a_request_quote_is_still_refused(self):
+        state, after, changes = self.inputs()
+        after["acceptance_criteria"][0]["sources"] = []
+        with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
+            revision_guard(state, after, changes, "glm_revise")
+
+    def test_once_approved_every_rewording_needs_the_person(self):
+        for fields, history in (
+            ({"approval_status": "approved"}, []),
+            ({"approval_status": "draft", "approval_event": {"kind": "goal_approval"}}, []),
+            ({}, [{"approval_status": "approved"}]),
+            ({}, [{"origin": "user_cli_edit"}]),
+        ):
+            with self.subTest(fields=fields, history=history):
+                state, after, changes = self.inputs(**fields)
+                state["contract_history"] = history
+                with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
+                    revision_guard(state, after, changes, "glm_revise")
