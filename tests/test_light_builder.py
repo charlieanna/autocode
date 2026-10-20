@@ -7,8 +7,16 @@ from unittest import mock
 import autocode_light_builder as light
 
 
-def state(*, milestones=1, paths=("task_queue.py", "test_task_queue_regressions.py"), stages=(), approved=True):
+def state(
+    *,
+    milestones=1,
+    paths=("task_queue.py", "test_task_queue_regressions.py"),
+    stages=(),
+    approved=True,
+    origin="runner_default",
+):
     return {
+        "settings": {"effort_origins": {"terra": origin} if origin else {}},
         "goal_contract": {
             "approval_status": "approved" if approved else "draft",
             "body": {"milestones": [{"id": f"M{n}"} for n in range(milestones)]},
@@ -51,6 +59,13 @@ class LightBuilderTests(unittest.TestCase):
         self.assertEqual("medium", light.effort(state(), "terra", True, "medium"))
         self.assertEqual("low", light.effort(state(), "terra", False, "low"))
         self.assertIsNone(light.effort(state(), "terra", False, None))
+
+    def test_an_effort_the_person_chose_or_nobody_recorded_is_never_lowered(self):
+        # --terra-reasoning-effort high means every build runs at high; a saved run with no provenance keeps its effort.
+        for origin in ("user_explicit", None):
+            with self.subTest(origin=origin):
+                self.assertEqual("high", light.effort(state(origin=origin), "terra", False, "high"))
+        self.assertEqual("low", light.effort(state(origin="auto_selected"), "terra", False, "high"))
 
     def test_the_setting_turns_it_off(self):
         with mock.patch.dict(os.environ, {light.SETTING: "0"}):

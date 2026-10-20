@@ -9,6 +9,8 @@ The safety net is this module's own, because the effort ladder (autocode_route_l
 most routes: any earlier Builder attempt at the same task (a rejected report, a failed check, a
 Tester's send-back) means the next one runs at the configured effort. The Tester, the Completion
 Reviewer and every planning role keep their configured effort. ``AUTOCODE_LIGHT_BUILDER=0`` turns it off.
+An effort the person chose (``--terra-reasoning-effort``, ``--reasoning-effort`` or a project setting), and a
+saved run that recorded no provenance, keep it: only the runner's or selector's own default is lowered.
 """
 
 from __future__ import annotations
@@ -18,6 +20,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
+
+try:
+    from . import autocode_role_route as role_route
+except ImportError:
+    import autocode_role_route as role_route
 
 STAGE = "terra"
 LOW = "low"
@@ -33,6 +40,8 @@ def effort(state: RunState, stage, report_only, configured):
 
 def applies(state: RunState, stage, report_only, configured) -> bool:
     if stage != STAGE or report_only or configured not in _ABOVE_LOW or os.environ.get(SETTING) == "0":
+        return False
+    if not role_route.effort_can_reduce(state.get("settings") or {}, STAGE):
         return False
     contract = state.get("goal_contract") or {}
     if contract.get("approval_status") != "approved":
