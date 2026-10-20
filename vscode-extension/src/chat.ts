@@ -246,10 +246,12 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
 
   /** Land the tab's fresh status and announce a new person-wait or a finished run once per run. */
   private announce(tab: ChatTab, status: StatusView): void {
-    const notice = transitionNotice(tab.status, status);
+    // The per-run identities below dedupe notices. Reconsider a Continue after
+    // our action settles: its intermediate checkpoint is not a person-wait.
+    const notice = transitionNotice(null, status);
     tab.status = status;
     tab.readError = "";
-    if (!notice || !tab.run) return;
+    if (!notice || !tab.run || (status.needs?.kind === "continue" && this.busy.has(tab.key))) return;
     const run = tab.run;
     const key = runKey(run);
     let seen = this.notified.get(key);

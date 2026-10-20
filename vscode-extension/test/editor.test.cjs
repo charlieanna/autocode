@@ -912,6 +912,41 @@ test('follow-up submits to the same finished run and never invents another start
   assert.equal(launch.mock.calls[0].arguments[1].at(-1), run.runDir);
 });
 
+for (const [label, finalState, extraNotice] of [
+  ['working', workingView(), 0],
+  ['stopped', { status: 'PAUSED', done: false, needs: { kind: 'continue' } }, 1],
+]) {
+  test(`follow-up automatic continue stays quiet until ${label} result`, async (t) => {
+    const ui = await openChat(t, chatView({ status: 'TASK_COMPLETE', done: true, needs: null }, 'follow_up'));
+    assert.equal(host.notices.length, 1, 'completed turn has its own notification');
+    let finishAdvance;
+    const launch = t.mock.method(cli, 'stream', async (_options, args) => {
+      if (args.includes('--follow-up')) {
+        ui.setView({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+          controller: { kind: 'ready', checked: true, alive: false },
+          progress: { needs_you: 'nothing needed from you' } });
+      } else {
+        await new Promise((resolve) => { finishAdvance = resolve; });
+        ui.setView(finalState);
+      }
+      return ok;
+    });
+    ui.type('Add peek to the same queue'); ui.submit();
+    await flush(); await flush();
+    assert.equal(launch.mock.callCount(), 2, 'one save and one automatic continuation');
+    assert.equal(typeof finishAdvance, 'function');
+    try {
+      await ui.poll(); await ui.poll();
+      assert.equal(host.notices.length, 1, 'client-owned continuation is not a person wait');
+    } finally {
+      finishAdvance(); await flush(); await flush();
+    }
+    assert.equal(host.notices.length, 1 + extraNotice, 'a genuine stopped checkpoint must still notify');
+    await ui.poll();
+    assert.equal(host.notices.length, 1 + extraNotice, 'settled result is announced only once');
+  });
+}
+
 test('chat drafts survive polling, hidden view restoration and switching runs', async (t) => {
   const ui = await openChat(t, chatView());
   ui.type('a draft for this run');
