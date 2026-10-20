@@ -119,6 +119,30 @@ class CostCapCliTests(unittest.TestCase):
         self.assertIn("Cost: $", summary.stdout)
         self.assertIn("cap $5.00.", summary.stdout)
 
+    def test_qualified_claude_aliases_stop_at_the_cap_and_show_the_charged_attempt(self):
+        for alias in ("anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"):
+            with self.subTest(alias=alias):
+                started = taskrun.TaskRun.start(
+                    self.workspace,
+                    BRIEF,
+                    options=OPTIONS,
+                    start_options=("--max-cost-usd", CAP, "--astra-model", alias),
+                    env=self.env,
+                    timeout=300,
+                )
+                view = started.status()
+                self.assert_cost_pause(view)
+                self.assertEqual(1, self.model_stages(view))
+                [attempt] = [row for row in view["usage"]["accounting"]["attempts"] if not row["runner_owned"]]
+                self.assertEqual(alias, attempt["model"])
+                [group] = [row for row in view["cost"]["breakdown"]["by_stage"] if row["stage"] == attempt["stage"]]
+                self.assertEqual(view["cost"]["spent_usd"], group["spent_usd"])
+                self.assertEqual(1, group["stages"])
+                self.assertIsNotNone(group["estimated_usd"])
+                held = self.task(started.run_dir).resume_paused()
+                self.assertEqual(view["cost"], held["cost"])
+                self.assertEqual(1, self.model_stages(held))
+
     def test_without_a_cap_the_spend_is_shown_and_never_pauses_the_run(self):
         started = taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS, env=self.env, timeout=300)
         view = started.status()

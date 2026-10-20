@@ -79,6 +79,18 @@ class PriceTableTests(unittest.TestCase):
             usage.REFERENCE_PRICES["zai-coding-plan/glm-5.3"]["input"], prices.rate("zai-coding-plan/glm-5.3")["input"]
         )
 
+    def test_qualified_claude_aliases_share_the_dated_rates_and_provenance(self):
+        tokens = {"input_tokens": 1_000_000, "cached_input_tokens": 600_000, "output_tokens": 100_000}
+        for alias, existing in (
+            ("anthropic/claude-opus-5-5", "claude-opus-5-5"),
+            ("kilo/anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5.5"),
+        ):
+            with self.subTest(alias=alias):
+                self.assertIsNotNone(prices.rate(alias))
+                for key in ("input", "cached_input", "output", "source", "retrieved"):
+                    self.assertEqual(prices.rate(existing)[key], prices.rate(alias)[key])
+                self.assertAlmostEqual(3.72, prices.estimate(alias + "#high", tokens))
+
     def test_a_malformed_table_is_refused_with_the_field(self):
         cases = {
             "negative": ("input", -1),

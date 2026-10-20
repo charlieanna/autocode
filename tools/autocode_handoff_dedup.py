@@ -1,4 +1,4 @@
-"""Lossless references for repeated text in independent-review prompts only.
+"""Lossless references for repeated text in Builder and independent-review prompts.
 
 The approved contract and all reported/replayed results remain inline. References
 are presentation details of a copied handoff, never persisted run-state changes.
@@ -19,7 +19,7 @@ REFERENCE_POLICY = (
 def deduplicate(base):
     """Copy a packet, replacing only exact duplicates when the whole packet shrinks."""
     result = copy.deepcopy(base)
-    if result.get("stage") not in ("sol", "astra_review", "astra_checkpoint"):
+    if result.get("stage") not in ("terra", "sol", "astra_review", "astra_checkpoint"):
         return result
     changed = False
     contract = result.get("goal_contract") or {}

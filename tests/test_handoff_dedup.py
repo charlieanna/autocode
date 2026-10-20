@@ -98,8 +98,36 @@ class ReviewHandoffTests(unittest.TestCase):
                             [{k: c[k] for k in ("id", "criterion")} for c in report["acceptance_criteria"]],
                         )
 
+    def test_scripted_builder_preserves_requirements_and_builds_from_compact_handoff(self):
+        original = packet("terra")
+        requirements = [row["criterion"] for row in original["acceptance_criteria"]]
+        original["current_task"] = {"id": "task", "milestone_id": "M1", "requirements": requirements}
+        original["actionable_findings"] = []
+        small, _ = context.compact(original, "/nonexistent/state.json")
+        self.assertIn("acceptance_criteria_ref", small)
+        provider = Path(__file__).resolve().parents[1] / "tools" / "fake_codex.py"
+        for data in (original, small):
+            with self.subTest(compact=data is small), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "report.json"
+                process = subprocess.run(
+                    [sys.executable, str(provider), "-o", str(output)],
+                    input="CURRENT HANDOFF DATA\n" + json.dumps(data),
+                    cwd=tmp,
+                    text=True,
+                    capture_output=True,
+                    timeout=20,
+                )
+                self.assertEqual(0, process.returncode, process.stderr)
+                report = json.loads(output.read_text())
+                self.assertEqual(requirements, report["addressed_requirements"])
+                for argument, code, stdout in (("Ada", 0, "Hello, Ada\n"), ("", 2, "")):
+                    result = subprocess.run(
+                        [sys.executable, "greet.py", argument], cwd=tmp, text=True, capture_output=True, timeout=20
+                    )
+                    self.assertEqual((code, stdout), (result.returncode, result.stdout))
+
     def test_duplicates_shrink_without_losing_rejection_evidence(self):
-        for stage in ("sol", "astra_review", "astra_checkpoint"):
+        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
             with self.subTest(stage=stage):
                 original = packet(stage)
                 before = copy.deepcopy(original)
@@ -122,13 +150,15 @@ class ReviewHandoffTests(unittest.TestCase):
                 self.assertEqual(small, context.compact(small, "/nonexistent/state.json")[0])
 
     def test_different_criteria_or_commands_are_never_conflated(self):
-        original = packet()
-        original["acceptance_criteria"][0]["criterion"] = "Different approved wording"
-        original["validation"]["check_replay"]["checks"][0]["command"] += " --different"
-        self.assertEqual((original, []), context.compact(original, "/nonexistent/state.json"))
+        for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
+            with self.subTest(stage=stage):
+                original = packet(stage)
+                original["acceptance_criteria"][0]["criterion"] = "Different approved wording"
+                original["validation"]["check_replay"]["checks"][0]["command"] += " --different"
+                self.assertEqual((original, []), context.compact(original, "/nonexistent/state.json"))
 
-    def test_planning_builder_and_legacy_packets_keep_their_shape(self):
-        for stage in ("terra", "astra_discovery", "astra_plan"):
+    def test_planning_and_legacy_packets_keep_their_shape(self):
+        for stage in ("astra_discovery", "astra_plan"):
             original = packet(stage)
             self.assertEqual((original, []), context.compact(original, "/nonexistent/state.json"))
         original = {"stage": "sol", "acceptance_criteria": [{"id": "C1", "criterion": "Legacy"}]}
@@ -154,7 +184,7 @@ class ReviewHandoffTests(unittest.TestCase):
             )
             before = copy.deepcopy(state)
             with patch.object(stage_context.support, "snapshot", return_value={"revision": "r", "head": "h"}):
-                for stage in ("sol", "astra_review", "astra_checkpoint"):
+                for stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
                     prompt, metrics = stage_context.context_packet(state, stage, Path(tmp) / "state.json")
                     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
                     self.assertIn("acceptance_criteria_ref", data)

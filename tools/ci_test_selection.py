@@ -48,6 +48,10 @@ SUITE_CONSUMERS = (
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "tools/autocode_prices.json",
+        ("tests.test_prices", "tests.test_cost", "tests.test_cost_cap", "tests.test_route_selector"),
+    ),
+    (
         "tools/autocode-schemas/evidence-report.schema.json",
         (
             "tests.test_evidence_report",
@@ -102,6 +106,8 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("tools/autocode_cost", "tools/autocode_usage.py"), ("tests.test_cost_cap",)),
+    (("tools/autocode_handoff_dedup.py",), ("tests.test_handoff_dedup",)),
     (
         ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"),
         ("tests.test_reviewer_effort_cli",),

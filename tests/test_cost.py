@@ -78,6 +78,16 @@ class CostProjectionTests(unittest.TestCase):
         # A stage without a rate cannot trip it: the line says the spend is a floor.
         self.assertIsNone(cost.exceeded(run(stage("mystery-model"), cap=0.000001)))
 
+    def test_claude_aliases_reach_the_cap_and_reported_cost_still_wins(self):
+        for alias in ("anthropic/claude-opus-5-5", "kilo/anthropic/claude-opus-5-5"):
+            with self.subTest(alias=alias):
+                state = run(stage(alias), cap=0.008)
+                self.assertEqual((0.008, 0.008), cost.exceeded(state))
+                self.assertEqual(0, cost.view(state)["unpriced_stages"])
+                state = run(stage(alias, metrics={"provider_cost_usd": 0.01, "provider_tokens": TOKENS}), cap=0.01)
+                self.assertEqual((0.01, 0.01), cost.exceeded(state))
+                self.assertIsNone(cost.view(state)["estimated_usd"])
+
     def test_a_climb_is_priced_from_the_last_attempts_tokens_at_the_stronger_models_rate(self):
         attempt = stage("gpt-5.6-luna", stage="terra")
         spent = prices.estimate("gpt-5.6-luna", TOKENS)
@@ -131,7 +141,8 @@ class CostProjectionTests(unittest.TestCase):
         reported = stage(metrics={"provider_tokens": TOKENS, "provider_cost_usd": 0.5})
         line = cost.line(cost.view(run(stage(), reported, cap=12.5)))
         self.assertRegex(
-            line, r"^Cost: \$0\.5\d* so far \(\$0\.0\d+ estimated, \$0\.50 reported by the provider\); cap \$12\.50\.$"
+            line,
+            r"^Cost: \$0\.5\d* so far \(\$0\.0\d+ estimated, \$0\.50 reported by the provider\); cap \$12\.50\. Stage costs: Tester 2 attempts: \$0\.5\d*\.$",
         )
         self.assertEqual("$0.00123", cost.usd(0.00123))
         self.assertEqual("$0.000001", cost.usd(0.000001))

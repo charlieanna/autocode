@@ -146,6 +146,22 @@
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "retrieved": "2026-10-14",
       "note": "The cached rate is Anthropic's published 0.1x cache-read multiplier for this model. 5-minute cache writes 1.25."
+    },
+    "anthropic/claude-opus-5-5": {
+      "input": 4.0,
+      "cached_input": 0.2,
+      "output": 20.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "retrieved": "2026-10-14",
+      "note": "Route alias of claude-opus-5-5. 5-minute cache writes 5.00, 1-hour 8.00. The built-in claude provider reports its own cost, which is used before this estimate."
+    },
+    "kilo/anthropic/claude-opus-5-5": {
+      "input": 4.0,
+      "cached_input": 0.2,
+      "output": 20.0,
+      "source": "https://kilo.ai/models/anthropic-claude-opus-5-5",
+      "retrieved": "2026-10-14",
+      "note": "Route alias of kilo/anthropic/claude-opus-5.5. Kilo Gateway charges Anthropic's API rates with no markup. Cache writes 5.00."
     }
   }
 }
