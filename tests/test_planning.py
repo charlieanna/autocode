@@ -1879,6 +1879,32 @@ class ReviewDepthPolicyTests(unittest.TestCase):
             planning.charge(state, "astra_challenge")
         self.assertIn("PAUSED_PLANNING_BUDGET", str(raised.exception) + getattr(raised.exception, "status", ""))
 
+    def test_an_internal_answer_restart_renews_the_spent_total_once(self):
+        # Live 2026-10-20: the Plan Reviewer's final question was settled by AutoCode, planning restarted,
+        # and the redrafted plan could never be reviewed (2/2 carried); the run waited for a person.
+        state = self.state()
+        planning.charge(state, "astra_challenge")
+        state["planning"]["astra_calls"] = 2
+        cycle.internal_answer_restart(state)
+        cycle.new_cycle(state)
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(1, state["planning"]["internal_answer_renewals"])
+        planning.charge(state, "astra_challenge")
+        planning.charge(state, "astra_finalize")
+        cycle.internal_answer_restart(state)
+        cycle.new_cycle(state)
+        self.assertEqual(2, state["planning"]["astra_calls"], "only one renewal per run")
+        with self.assertRaises(support.Paused):
+            planning.charge(state, "astra_challenge")
+
+    def test_an_ordinary_restart_still_carries_the_small_brief_total(self):
+        state = self.state()
+        planning.charge(state, "astra_challenge")
+        state["planning"]["astra_calls"] = 2
+        cycle.new_cycle(state)
+        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(0, state["planning"]["internal_answer_renewals"])
+
     def test_normal_brief_resets_per_cycle_as_today(self):
         state = self.state(workflow={"kind": "build", "clarity": "vague"})
         planning.charge(state, "astra_challenge")

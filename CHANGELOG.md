@@ -24,6 +24,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A small clear brief's plan-review total (#1564) dead-ended planning when AutoCode settled the reviewer's final
+  technical question itself: planning restarted for the redraft, but the new cycle carried the spent 2/2, so the
+  redrafted plan could never be reviewed and the run waited for a person (live, 2026-10-20). A restart caused by
+  AutoCode's own answer now renews the allowance once per run; a second one still stops.
 - The low-effort first Builder attempt (#1710) no longer overrides an effort the person chose. A run started with
   `--terra-reasoning-effort high`, `--reasoning-effort high` or a project effort setting ran its first attempt at
   `low` anyway, which is also what had turned master's `tests.test_planning` red. The Builder's effort provenance

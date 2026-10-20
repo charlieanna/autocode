@@ -393,6 +393,7 @@ def install_draft(state: RunState, body, *, origin, allow_legacy=False, changes=
         questions = remaining
         if not questions:
             # The default is planning input, never a ready or approved plan.
+            planning_cycle.internal_answer_restart(state)
             state.update(
                 {
                     "status": "RUNNING",
