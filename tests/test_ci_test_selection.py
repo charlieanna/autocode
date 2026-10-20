@@ -8,6 +8,15 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_checkpoint_projection_keeps_its_public_status_consumers(self):
+        consumers = {"tests.test_liveness", "tests.test_usage"}
+        selected = run_suite.select_tests(
+            ["tools/autocode_code_checkpoints.py"],
+            {**{module: "" for module in consumers}, "tests.test_unrelated": ""},
+        )
+        kept, _ = run_suite.drop_slow(selected, {module: "30s" for module in consumers})
+        self.assertEqual(consumers, set(kept))
+
     def test_planning_prompt_policies_keep_the_dispatch_and_domain_consumers(self):
         for name, domain_consumers in (
             ("obligation", {"tests.test_autoplanner_step3"}),
