@@ -25,6 +25,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
+  questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
+  `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers
+  with the handoff's own questions, and Requirements runs again with them.
 - Requirements chat no longer scans workspace disk usage before each reply; the copy-space gate runs when planning starts. The estimate prunes run history, caches and sibling Git worktrees before traversing them.
 - A question clarifying user intent no longer triggers report repair merely because it retains a stated requirement without citing code. Complete handoffs and explicitly cited source files still require source inspection.
 
