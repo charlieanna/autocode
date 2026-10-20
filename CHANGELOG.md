@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Automatic model selection prefers GPT-6 Sol as Builder, then Claude Opus 5.5 (provisional), then the cheapest of
+  GLM 5.3, MiMo and DeepSeek (owner decision, 2026-10-20, for pay-per-use companies). On ladder-07 on Kilo, a GPT-6 Sol
+  Builder took 66 s against MiMo v2.6 Pro's 404-474 s, and the whole task passed 9/9 in 16.4 min for $1.14 against
+  34-46 min for $1.02-1.07. GLM checks a Sol build as Tester and Completion Reviewer.
 - Claude models are one family for verifier independence. Before, a Claude Sonnet could check a Claude Opus's
   work, or the reverse, on Kilo, OpenCode or a custom provider, because only GLM and MiMo counted as families.
   The built-in Claude Code engine is unchanged: it reaches only Claude models, so its default routes (Sonnet

@@ -205,9 +205,13 @@ The rules the choice keeps:
   login is connected, then Claude Opus, and MiMo is not used for review (owner decision,
   2026-10-20: MiMo spent 32-45k reasoning tokens and up to 15 minutes per plan review).
   With neither connected, the run stops before any work and offers those two logins.
-  The Completion Reviewer, the final gate, likewise prefers GPT-6 Sol over GLM 5.3. The
-  long, token-heavy stages (Requirements, Planner, Builder, Tester) stay on the cheapest
-  qualified models, because their volume would exhaust a subscription's limits.
+  The Builder likewise prefers GPT-6 Sol, then Claude Opus, then the cheapest of GLM 5.3,
+  MiMo and DeepSeek (owner decision, 2026-10-20: on ladder-07 a GPT-6 Sol Builder took
+  66 s against MiMo's 404-474 s and the whole task 16 min against 34-46 min, for about
+  $0.10 more). Because a checker never grades its own family, a Sol Builder is checked by
+  GLM as Tester and Completion Reviewer; the Completion Reviewer prefers GPT-6 Sol only
+  when Sol did not build. Requirements, Planner and Tester stay on the cheapest qualified
+  models.
 - **Independence is never lowered quietly.** Every producer and checker pair stays on
   different model families (`tools/autocode_verifier_independence.py`); when the
   connected accounts cannot provide that, the run stops before any work and says what
