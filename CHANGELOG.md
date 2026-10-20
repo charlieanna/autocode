@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Claude models are one family for verifier independence. Before, a Claude Sonnet could check a Claude Opus's
+  work, or the reverse, on Kilo, OpenCode or a custom provider, because only GLM and MiMo counted as families.
+  The built-in Claude Code engine is unchanged: it reaches only Claude models, so its default routes (Sonnet
+  producing, Opus checking) still run, and a model still never checks itself.
 - Automatic model selection no longer chooses MiMo to review a plan. The Plan Reviewer is GPT-6 Sol when the
   ChatGPT login is connected, then Claude Opus 5.5 (provisional), and with neither the run stops and offers those
   logins (owner decision, 2026-10-20). On ladder-07, GPT-6 Sol reviewed in 43 s with three substantive concerns
@@ -24,6 +28,12 @@ PR template asks for an entry here; a change without one is incomplete.
   technical question itself: planning restarted for the redraft, but the new cycle carried the spent 2/2, so the
   redrafted plan could never be reviewed and the run waited for a person (live, 2026-10-20). A restart caused by
   AutoCode's own answer now renews the allowance once per run; a second one still stops.
+- The low-effort first Builder attempt (#1710) no longer overrides an effort the person chose. A run started with
+  `--terra-reasoning-effort high`, `--reasoning-effort high` or a project effort setting ran its first attempt at
+  `low` anyway, which is also what had turned master's `tests.test_planning` red. The Builder's effort provenance
+  is now recorded like the Plan Reviewer's (`effort_origins.terra`): only the runner's or selector's own default
+  is lowered, and a saved run with no recorded provenance keeps its effort. Also annotates the new
+  `conversation_only(state)` as `RunState`, which had pushed `tests.test_run_state`'s ratchet one over.
 - A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
   questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
   `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers

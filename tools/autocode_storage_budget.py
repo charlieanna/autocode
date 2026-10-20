@@ -8,17 +8,23 @@ fits — and warns below the measured projection, so the operator sees the numbe
 before hours of model spend instead of an opaque ENOSPC git error mid-run.
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
 
 SNAPSHOT_MULTIPLIER = 3
 _INTERNAL = {".git", ".autocode", ".autocode-ui", ".scenario-runs"}
 _SKIP_DIRS = {"__pycache__"}
 
 
-def conversation_only(state):
+def conversation_only(state: RunState):
     """Requirements chat does not prepare the workspace copies being budgeted."""
     return bool((state.get("settings") or {}).get("spec_first") and state.get("next_stage") == "requirements_gather")
 

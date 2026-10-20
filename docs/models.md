@@ -212,7 +212,10 @@ The rules the choice keeps:
   different model families (`tools/autocode_verifier_independence.py`); when the
   connected accounts cannot provide that, the run stops before any work and says what
   is missing in account terms ("connect a second model family"), never by suggesting
-  `--single-model`.
+  `--single-model`. GLM, MiMo and Claude are each one family, so no Claude model checks
+  another Claude model's work on Kilo, OpenCode or a custom provider. The built-in Claude
+  Code engine reaches only Claude models, so there different Claude models check each
+  other (for example Sonnet's work is reviewed by Opus); a model never checks itself.
 - **No invented reasoning levels.** A route gets a reasoning level only when the model
   advertises it; otherwise the model uses its own default.
 - **Explicit choices win.** `--<role>-model`, `--provider`, `--role-transport` and

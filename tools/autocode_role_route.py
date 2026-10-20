@@ -16,8 +16,8 @@ holds, so it stays None. Whether that account is connected, and whether it may b
 the model preflight's answer (autocode_model_preflight), never this record's.
 
 ``reasoning_effort`` is the level a launch passes; None means the model's own default.
-The separate ``settings.effort_origins.plan_reviewer`` records an explicit effort
-choice versus the runner/selector default. Configure owns this map; the planning
+The separate ``settings.effort_origins.<role>`` (the Plan Reviewer and the Builder) records an
+explicit effort choice versus the runner/selector default. Configure owns this map; the planning
 policy reads it. Unknown legacy effort provenance never means a default.
 
 ``origin`` is why the route is what it is, read from the record that moved it, the newest
@@ -197,24 +197,38 @@ def record_reviewer_effort(args, settings, *, fresh):
     counts only when the reviewer actually uses it. Old saved routes keep no
     inferred provenance: their existing effort must survive an upgrade.
     """
-    route = (settings.get("roles") or {}).get("plan_reviewer")
+    _record_effort(args, settings, "plan_reviewer", fresh=fresh)
+
+
+def record_builder_effort(args, settings, *, fresh):
+    """The Builder's effort provenance, so the light first attempt (#1710) never overrides a chosen level."""
+    _record_effort(args, settings, "terra", fresh=fresh)
+
+
+def _record_effort(args, settings, role, *, fresh):
+    route = (settings.get("roles") or {}).get(role)
     if not isinstance(route, dict):
         return
-    named = getattr(args, "plan_reviewer_reasoning_effort", None)
+    named = getattr(args, f"{role}_reasoning_effort", None)
     global_effort = getattr(args, "reasoning_effort", None)
     if named is not None or global_effort is not None and route.get("reasoning_effort") == global_effort:
         chosen = USER_EXPLICIT
     elif fresh:
-        selected = ((settings.get("route_selection") or {}).get("routes") or {}).get("plan_reviewer") or {}
+        selected = ((settings.get("route_selection") or {}).get("routes") or {}).get(role) or {}
         chosen = AUTO_SELECTED if selected.get("origin") == AUTO_SELECTED else RUNNER_DEFAULT
     else:
         return
-    settings.setdefault("effort_origins", {})["plan_reviewer"] = chosen
+    settings.setdefault("effort_origins", {})[role] = chosen
 
 
 def reviewer_effort_can_reduce(settings):
     """Only a recorded automatic/default effort may be tiered; unknown saved choices stay."""
-    return (settings.get("effort_origins") or {}).get("plan_reviewer") in (RUNNER_DEFAULT, AUTO_SELECTED)
+    return effort_can_reduce(settings, "plan_reviewer")
+
+
+def effort_can_reduce(settings, role):
+    """True only when the role's effort was recorded as the runner's or selector's, never a person's or unknown."""
+    return (settings.get("effort_origins") or {}).get(role) in (RUNNER_DEFAULT, AUTO_SELECTED)
 
 
 def _rows(values):

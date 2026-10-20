@@ -120,7 +120,9 @@ def configured(strong_model=None, provider=None, single_model=None):
     if (
         not single_model
         and config["strong_model"]
-        and independence.may_share(config["strong_model"], config["checker_model"])
+        and independence.may_share(
+            config["strong_model"], config["checker_model"], vendor_engine=getattr(provider, "NAME", None) == "claude"
+        )
     ):
         # Refused here, at run creation: the same clash found at escalation would pause mid-run.
         raise ValueError(
@@ -302,15 +304,16 @@ def _tool_swap_problem(state: RunState, config, model):
     does (autocode_roles), in prose.
     """
     roles = state["settings"]["roles"]
+    vendor = independence.same_vendor_engine(state["settings"])
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     routed = {route.get("model") for route in roles.values() if isinstance(route, dict)}
     for role in colliding_checkers(state, model):
         route = roles[role]
-        if not independence.shares(model, route.get("model")):
+        if not independence.shares(model, route.get("model"), vendor_engine=vendor):
             return f"a Tester or Completion Reviewer route names it {route.get('model')}"
         if not _movable(state, route):
             return "a Tester or Completion Reviewer on it is pinned or uses another provider"
-        if independence.may_share(model, replacement):
+        if independence.may_share(model, replacement, vendor_engine=vendor):
             return f"the checkers would move to {replacement}, the stronger model or its family"
         if replacement not in routed:
             return f"the checkers would move to {replacement}, which no role of this run uses"
@@ -320,10 +323,12 @@ def _tool_swap_problem(state: RunState, config, model):
 def colliding_checkers(state: RunState, model):
     """Checker roles the dispatch guard would refuse with the given Builder model, or that may run it."""
     roles = state["settings"]["roles"]
+    vendor = independence.same_vendor_engine(state["settings"])
     return [
         role
         for role in CHECKERS
-        if isinstance(roles.get(role), dict) and independence.may_share(model, roles[role].get("model"))
+        if isinstance(roles.get(role), dict)
+        and independence.may_share(model, roles[role].get("model"), vendor_engine=vendor)
     ]
 
 
@@ -337,7 +342,10 @@ def swap_checkers(state: RunState, current, config, model):
     # Runs saved before checker_model existed use the default rather than check their own work.
     replacement = config.get("checker_model") or DEFAULTS["checker_model"]
     swapped = {}
-    for role in colliding_checkers(state, model) if not independence.may_share(model, replacement) else ():
+    vendor = independence.same_vendor_engine(state["settings"])
+    for role in (
+        colliding_checkers(state, model) if not independence.may_share(model, replacement, vendor_engine=vendor) else ()
+    ):
         route = state["settings"]["roles"][role]
         if not _movable(state, route):
             continue

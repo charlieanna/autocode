@@ -2111,11 +2111,8 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         launches = self.operations("launch")
         self.assertTrue(launches)
         self.assertTrue(all(row["session"] for row in launches))
-        # A small approved plan's first Builder attempt runs at low effort (#1710); every other stage keeps high.
-        self.assertEqual(
-            {(row["stage"], "low" if row["stage"] == "terra" else "high") for row in launches},
-            {(row["stage"], row["effort"]) for row in launches},
-        )
+        # The person set --reasoning-effort high, so the Builder's light first attempt (#1710) leaves every stage at high.
+        self.assertEqual({"high"}, {row["effort"] for row in launches})
         self.assertTrue(all(row["session"].startswith(row["tool"] + "_") for row in launches))
         self.assertTrue(all(row["resume_session"] in (None, row["session"]) for row in launches))
         expected = {

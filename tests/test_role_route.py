@@ -308,6 +308,29 @@ class ConfiguredRouteOriginTests(unittest.TestCase):
                     "medium" if global_effort else "low", settings["roles"]["plan_reviewer"]["reasoning_effort"]
                 )
 
+    def test_configure_records_whether_the_person_chose_the_builders_effort(self):
+        # The light first Builder attempt (#1710) lowers only the runner's own default.
+        for flags, origin in (({}, "runner_default"), ({"terra_reasoning_effort": "high"}, "user_explicit")):
+            with self.subTest(flags=flags):
+                settings = self.configure({"workspace": "/fixture", "iteration": 0}, **flags)
+                self.assertEqual(origin, settings["effort_origins"]["terra"])
+
+    def test_the_builders_effort_provenance_follows_the_same_rule(self):
+        for named, global_effort, fresh, expected in (
+            ("high", None, True, "user_explicit"),
+            (None, "medium", True, "user_explicit"),
+            (None, None, True, "runner_default"),
+            (None, None, False, None),
+        ):
+            with self.subTest(named=named, global_effort=global_effort, fresh=fresh):
+                settings = {"roles": {"terra": {"reasoning_effort": "medium"}}}
+                args = SimpleNamespace(terra_reasoning_effort=named, reasoning_effort=global_effort)
+                role_route.record_builder_effort(args, settings, fresh=fresh)
+                self.assertEqual(expected, (settings.get("effort_origins") or {}).get("terra"))
+                self.assertEqual(
+                    expected in ("runner_default", "auto_selected"), role_route.effort_can_reduce(settings, "terra")
+                )
+
     def test_a_new_run_records_why_each_role_has_the_route_it_has(self):
         settings = self.configure({"workspace": "/fixture", "iteration": 0}, sol_model=LUNA)
         self.assertEqual("user_explicit", settings["route_origins"]["sol"])
