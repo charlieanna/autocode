@@ -34,6 +34,16 @@ def planning_inputs(state: RunState):
     )
 
 
+def internal_answer_restart(state: RunState):
+    """Planning restarts because AutoCode settled a reviewer's technical question itself, not the person.
+
+    Under the small-brief total (#1564) the next cycle would carry a spent allowance into a plan that still
+    needs its review; ``new_cycle`` renews it once per run for this cause."""
+    planning = state.get("planning")
+    if isinstance(planning, dict):
+        planning["internal_answer_restart"] = True
+
+
 def new_cycle(state: RunState):
     """Archive the planning record, with its reports and review charges, and begin a cycle under the configured
     review allowance. A v2 cycle records the inputs it began after (planning_inputs, read by admit_requirements)."""
@@ -47,6 +57,13 @@ def new_cycle(state: RunState):
         state["planning"]["review_depth_reduced"] = True
         state["planning"]["review_calls_before_policy"] = archived.get("review_calls_before_policy", 0)
         state["planning"]["astra_calls"] = archived.get("astra_calls", 0)
+        renewals = archived.get("internal_answer_renewals", 0)
+        state["planning"]["internal_answer_renewals"] = renewals
+        if archived.get("internal_answer_restart") and not renewals:
+            # AutoCode settled the reviewer's technical question itself and planning restarted, so the
+            # redrafted plan needs a review the carried total had already spent: a live run dead-ended at
+            # 2/2 with nobody to ask. One fresh allowance per run; a second internal restart still stops.
+            state["planning"].update(astra_calls=0, internal_answer_renewals=1)
         if archived.get("review_call_limit_origin") == "user_explicit":
             # Carry the explicit bound with the charges it limits. Otherwise a
             # spec-first send-back retains spent calls but silently restores the

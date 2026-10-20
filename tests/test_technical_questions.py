@@ -311,6 +311,8 @@ class TechnicalPlanningTests(EpisodeCase):
         self.assertEqual("astra_discovery", self.state["next_stage"])
         self.assertEqual("none", lifecycle.human.evaluate(self.state))
         self.assertFalse(goals.approved(self.state))
+        # The restart is AutoCode's own answer, recorded so the next cycle can renew a spent review allowance.
+        self.assertTrue(self.state["planning"]["internal_answer_restart"])
 
 
 if __name__ == "__main__":

@@ -20,6 +20,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A small clear brief's plan-review total (#1564) dead-ended planning when AutoCode settled the reviewer's final
+  technical question itself: planning restarted for the redraft, but the new cycle carried the spent 2/2, so the
+  redrafted plan could never be reviewed and the run waited for a person (live, 2026-10-20). A restart caused by
+  AutoCode's own answer now renews the allowance once per run; a second one still stops.
 - A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
   questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
   `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers
