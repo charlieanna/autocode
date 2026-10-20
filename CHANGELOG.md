@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run stopped with "Cannot snapshot source ... git rev-parse HEAD failed" when the project held an
+  untracked nested Git repository with no commit yet (a scratch `git init`). The nested repository is now
+  hashed with an unborn head, so edits inside it are still seen; the project itself still needs a commit.
+
 - `autocode` in AutoCode's own main checkout refused to start even when the running `autocode` was
   installed elsewhere, asking for a separate Git worktree. AutoCode now works in place there like in any
   other project; it still refuses only when the running controller is inside the checkout it would edit.
