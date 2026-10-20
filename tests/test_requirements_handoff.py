@@ -80,6 +80,30 @@ class RequirementsHandoffTests(unittest.TestCase):
         self.assertNotIn(question["id"], state["answers"], "a new id: an answered question cannot be asked again")
         self.assertEqual("", state["requirements_handoff"]["report"]["intended_outcome"])
 
+    def test_a_handoff_that_only_asks_waits_for_the_answers_on_the_default_flow(self):
+        # Live (program plan, "build an adaptive learning engine", 2026-10-20): Requirements asked three good
+        # questions with the acceptance tests still empty, as its prompt asks while clarifying, and the default
+        # flow refused the handoff as invalid output until a person resumed the run.
+        task = "Build an adaptive learning engine."
+        question = {**QUESTION, "id": "Q-form", "question": "What form should the engine take, and who uses it?"}
+        value = report(
+            intended_outcome=task,
+            requirements=[{"id": "R1", "text": task, "source_quote": task}],
+            open_questions=[question],
+        )
+        state, queued = self.accept(value, {}, task=task)
+        self.assertEqual([[question]], [row["questions"] for row in queued], "its own questions, no review question")
+        self.assertEqual(value, state["requirements_handoff"]["report"])
+        self.assertNotIn("goal_contract", state)
+
+    def test_without_an_open_question_a_handoff_still_needs_behaviors_and_acceptance_tests(self):
+        for value in (
+            report(intended_outcome="Add export", open_questions=[]),
+            report(intended_outcome="Add export", required_behaviors=["Export CSV"], open_questions=[]),
+        ):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "needs an outcome"):
+                self.accept(value, {})
+
     def test_without_spec_first_or_with_claimed_work_a_goalless_reply_is_still_refused(self):
         chat = {"open_questions": [], "assistant_reply": "Understood."}
         for value, settings in ((report(**chat), {}), (report(**chat, required_behaviors=["Greet"]), None)):

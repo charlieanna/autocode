@@ -20,6 +20,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
+  questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
+  `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers
+  with the handoff's own questions, and Requirements runs again with them.
 - 0.8.1's keep-awake (#1717) spawned `caffeinate -w PID` as a child. A supervised CLI's keeper (the scenario
   harness's owner lifeline) found it alive at discharge and SIGKILLed the CLI, so every macOS scenario run ended
   `INTERRUPTED_UNGRADED — start exited on signal 9`. The controller now takes the `PreventUserIdleSystemSleep`

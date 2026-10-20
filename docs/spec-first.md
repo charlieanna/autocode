@@ -17,6 +17,10 @@ assumptions.
 Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.
 
+Without the setting, a complete handoff goes straight to planning. A handoff that has only questions so
+far, with no behaviors or acceptance tests yet, still stops the run for your answers on any flow, and
+Requirements runs again with them; only the confirmation of a complete handoff is spec-first's own.
+
 ## 2. The Tester writes the acceptance tests before the Builder
 
 After you approve the plan, and before the first Builder call, the run goes to `write_acceptance_tests`.

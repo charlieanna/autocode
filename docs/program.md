@@ -62,10 +62,15 @@ systems stay outside every milestone. Answer the questions and approve the displ
 plan exactly as for any run:
 
 ```sh
-autocode --workspace /path/to/project --run-dir RUN --answer 'Q1=...'
+autocode --workspace /path/to/project --run-dir RUN --status        # needs.questions and needs.resolver_token
+autocode --workspace /path/to/project --run-dir RUN --answer 'Q1=...' --resolver-token 'TOKEN'
 autocode --workspace /path/to/project --run-dir RUN --show-goal
 autocode --workspace /path/to/project --run-dir RUN --approve-goal 'r3:<hash>'
 ```
+
+`--answer` needs the current resolver token from the status view, and a question that offers options
+takes one of their exact labels (or its proposed default); `--delegate Q1` with the same token accepts
+the proposed default ([CLI](cli.md)).
 
 When the plan run ends, `program plan` prints the next commands (derive, show, approve,
 run).

@@ -2,7 +2,8 @@
 
 Checks the report, archives the previous handoff to ``requirements_history``, binds its local source
 references (the caller's ``check_code_refs``, autopilot's source-inspection gate) and hands the run to
-Discovery. A spec-first run stops for the user first (autocode_requirements_review, #1200).
+Discovery. A spec-first run, or a handoff that has only questions so far, stops for the user first
+(autocode_requirements_review, #1200).
 
 Moved out of autopilot.apply_planning, so the controller does not grow; besides that stop, the only
 change is that continuing goes through autocode_run_status, which also retires a stale stop reason.
@@ -43,9 +44,16 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     if requirements_review.enabled(state) and not_yet_a_goal(value):
         value["open_questions"] = [outcome_question(state)]
     questions = value["open_questions"]
-    clarification_only = requirements_review.enabled(state) and bool(questions)
-    intake_only = clarification_only and not any(
-        value[key] for key in ("requirements", "required_behaviors", "acceptance_tests")
+    # Requirements keeps behaviors and acceptance tests empty while it is still clarifying (its prompt says
+    # so). Such a questions-only handoff is accepted on every flow; the run then waits for the answers (wait,
+    # below) instead of refusing it as invalid output, as the default flow did.
+    clarification_only = bool(questions) and (
+        requirements_review.enabled(state) or requirements_review.questions_only(value)
+    )
+    intake_only = (
+        requirements_review.enabled(state)
+        and clarification_only
+        and not any(value[key] for key in ("requirements", "required_behaviors", "acceptance_tests"))
     )
     # A chat that has not named any software outcome yet ("what is your name?")
     # may say so honestly, provided it asks the person for that outcome.

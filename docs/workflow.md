@@ -270,7 +270,9 @@ Role defaults and escalation ladders are documented in [Models](models.md).
 The Requirements Gatherer saves a separate structured report under the run's `iterations/`
 directory. The Planner receives that artifact, originates alternatives and a task DAG,
 and can push back on the Plan Reviewer using source evidence. Unanswered requirements
-questions cannot silently disappear from the draft.
+questions cannot silently disappear from the draft. A handoff that has only questions so
+far, with no behaviors or acceptance tests yet (a vague request), stops the run for your
+answers before any Planner call, on every flow; Requirements then runs again with them.
 
 Each question is classified by `kind` (`discoverable`, `inferable`, or `decision`),
 `category`, and `delegable`. A **discoverable** question, one the workspace can answer,
