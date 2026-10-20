@@ -9,12 +9,25 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- Automatic model selection no longer chooses MiMo to review a plan. The Plan Reviewer is GPT-6 Sol when the
+  ChatGPT login is connected, then Claude Opus 5.5 (provisional), and with neither the run stops and offers those
+  logins (owner decision, 2026-10-20). On ladder-07, GPT-6 Sol reviewed in 43 s with three substantive concerns
+  where MiMo v2.6 Pro took 526-890 s and 32-45k reasoning tokens, and twice ran out of output. Qualification
+  entries may carry a `preference` that orders a role's models before billing and price. The Completion
+  Reviewer, the final gate, likewise prefers GPT-6 Sol when connected, with GLM 5.3 as its fallback.
+
 ### Fixed
 
 - A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
   questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
   `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers
   with the handoff's own questions, and Requirements runs again with them.
+- 0.8.1's keep-awake (#1717) spawned `caffeinate -w PID` as a child. A supervised CLI's keeper (the scenario
+  harness's owner lifeline) found it alive at discharge and SIGKILLed the CLI, so every macOS scenario run ended
+  `INTERRUPTED_UNGRADED — start exited on signal 9`. The controller now takes the `PreventUserIdleSystemSleep`
+  assertion in its own process through IOKit, which the kernel releases when the process exits. No child remains.
 
 ## [0.8.1] — 2026-10-20
 
