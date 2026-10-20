@@ -24,6 +24,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The low-effort first Builder attempt (#1710) no longer overrides an effort the person chose. A run started with
+  `--terra-reasoning-effort high`, `--reasoning-effort high` or a project effort setting ran its first attempt at
+  `low` anyway, which is also what had turned master's `tests.test_planning` red. The Builder's effort provenance
+  is now recorded like the Plan Reviewer's (`effort_origins.terra`): only the runner's or selector's own default
+  is lowered, and a saved run with no recorded provenance keeps its effort. Also annotates the new
+  `conversation_only(state)` as `RunState`, which had pushed `tests.test_run_state`'s ratchet one over.
 - A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
   questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
   `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers
