@@ -683,7 +683,11 @@ class ChatClient:
             return self.hand_off(view)  # another run's command (a dependency), or none at all (a stop)
         if actions.unsupplied(view, command):
             return self.hand_off(view)
-        if (view.get("chat") or {}).get("phase") == "requirements" and need.get("kind") == "answer":
+        if (
+            (view.get("chat") or {}).get("phase") == "requirements"
+            and need.get("kind") == "answer"
+            and not need.get("route")
+        ):
             return self.requirements(view, command)
         if any(row.kind in ("answer", "model") for row in decided):
             return self.answer(view, command, decided)

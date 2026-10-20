@@ -66,6 +66,9 @@ def answer(runner, args, parser, state: RunState, state_path, run_dir, workspace
     routed = answer_quota_question(runner, args, state, run_dir, workspace)
     if routed is not None:
         return routed
+    crossed = answer_cross_model_question(runner, args, state, run_dir, workspace)
+    if crossed is not None:
+        return crossed
     if args.resolver_response:
         answered = ((state.get("resolver") or {}).get("human_escalations") or {}).get(args.resolver_request) or {}
         replay = isinstance(answered, dict) and answered.get("status") == "consumed"
@@ -202,6 +205,8 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
     """
     if not (args.answer or args.delegate):
         return None
+    if state.get("status") == quota_route.CROSS_MODEL_STATUS:
+        return None  # a cross-model route question (answer_cross_model_question)
     candidate = copy.deepcopy(state)
     published = resolver_human.current(candidate)
     if not any(item.partition("=")[0].startswith(quota_route.PREFIX) for item in [*args.answer, *args.delegate]):
@@ -339,6 +344,63 @@ def answer_quota_question(runner, args, state: RunState, run_dir, workspace):
                 "Continue with --resume-paused."
             )
             runner.commit_user_action(state, candidate, run_dir)
+    except (ValueError, KeyError) as error:
+        return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
+    print(f"{state['status']}: {state['stop_reason']} Saved; no agent launched.")
+    return 0
+
+
+def answer_cross_model_question(runner, args, state: RunState, run_dir, workspace):
+    """--answer route-ROLE=MODEL at PAUSED_CROSS_MODEL; None when this invocation answers something else.
+
+    The cross-model stop has no attempt or issued token: the question is the
+    verifier route that would grade its own work. Naming a model that passes the
+    launch and independence rules saves that route; --resume-paused then continues
+    in this invocation, otherwise the person resumes explicitly.
+    """
+    if state.get("status") != quota_route.CROSS_MODEL_STATUS:
+        return None
+    if not (args.answer or args.delegate):
+        return None
+    if not any(item.partition("=")[0].startswith(quota_route.PREFIX) for item in [*args.answer, *args.delegate]):
+        return None
+    candidate = copy.deepcopy(state)
+    try:
+        asked = quota_route.cross_model_question(candidate)
+        if not asked:
+            raise ValueError("This run's routes no longer break cross-model verification; --resume-paused continues")
+        if args.delegate or args.delegate_all:
+            raise ValueError("A model question has no default to delegate; name the model yourself")
+        asked, model = quota_route.parse_answer(args.answer, [asked], {"pause_status": quota_route.CROSS_MODEL_STATUS})
+        role = asked["route_role"]
+        quota_route.validate(
+            candidate,
+            role,
+            model,
+            configured_tool=getattr(runner.opencode, "CONFIGURED", False),
+            cross_check=quota_route.cross_model_check(role),
+            job=asked.get("job"),
+        )
+        if quota_route.engine(candidate["settings"], role) == "opencode":
+            try:
+                facade = role_transport.adapter(candidate["settings"], role, runner.opencode, workspace)
+                facade.check_models({role: {"model": model}}, workspace)
+            except RuntimeError as error:
+                raise ValueError(str(error)) from None
+        if runner.interventions.pending(run_dir):
+            raise ValueError("Apply the queued intervention before answering")
+        record = quota_route.assign(
+            candidate,
+            role,
+            model,
+            at=runner.now(),
+            via="answer",
+            attempt={"pause_status": quota_route.CROSS_MODEL_STATUS, "role": role},
+        )
+        candidate["stop_reason"] = (
+            f"The {record['job']} now runs on {model} (was {record['from']}). Continue with --resume-paused."
+        )
+        runner.commit_user_action(state, candidate, run_dir)
     except (ValueError, KeyError) as error:
         return runner.status_command.reject_input(runner, state, workspace, run_dir, error)
     print(f"{state['status']}: {state['stop_reason']} Saved; no agent launched.")
