@@ -116,6 +116,16 @@ class ConnectionTests(unittest.TestCase):
         code, _ = self.call("login", "--provider", "company")
         self.assertEqual(2, code)
 
+    def test_the_list_marks_the_provider_new_runs_use(self):
+        with mock.patch.dict(os.environ, {"AUTOCODE_PROVIDER": "kilocode"}):
+            rows = connections.view()["connections"]
+        self.assertEqual(["kilocode"], [row["id"] for row in rows if row.get("default")])
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AUTOCODE_PROVIDER", None)
+            self.assertEqual(
+                ["opencode"], [row["id"] for row in connections.view()["connections"] if row.get("default")]
+            )
+
     def test_empty_kilo_auth_list_is_not_a_successful_login(self):
         for output, status in (
             ("0 credentials", "sign_in_required"),

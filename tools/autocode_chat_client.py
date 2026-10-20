@@ -117,9 +117,13 @@ class History:
 
     def summary(self) -> str:
         try:
-            return setup.summary(self.read(["modes", "list", "--json"]), self.new)
+            default = setup.default_connection(setup.connections(self.read(["connections", "list", "--json"])))
         except actions.ClientGap:
-            return setup.summary(None, self.new)
+            default = None
+        try:
+            return setup.summary(self.read(["modes", "list", "--json"]), self.new, default)
+        except actions.ClientGap:
+            return setup.summary(None, self.new, default)
 
     def chose(self, done: str) -> str:
         kept = self.new.save(self.workspace)
