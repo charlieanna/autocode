@@ -9,6 +9,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
+  questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
+  `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers
+  with the handoff's own questions, and Requirements runs again with them.
+
+## [0.8.1] — 2026-10-20
+
 ### Changed
 
 - Requirements conversation reports use a smaller output contract without unrelated test-verdict and command-receipt instructions; the model, session and structured handoff stay unchanged.
@@ -25,10 +34,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- A vague request no longer stalls at its first step on the default flow. A Requirements handoff that has only
-  questions so far (no behaviors or acceptance tests yet) was refused as invalid output unless the run was
-  `--spec-first`, and a person had to resume it; it is now accepted on every flow, the run stops for the answers
-  with the handoff's own questions, and Requirements runs again with them.
+- The terminal chat's Requirements line kept showing the first short reply after a later one arrived, and a
+  reply being written showed at most one new piece every 2 s. The newest reply now replaces earlier ones, and
+  while it is still changing the chat reads it every 0.25 s, going back to the ordinary pace once it has not
+  changed for a few reads, so a model running tools between messages does not keep `--status` running nonstop.
+- A Mac that idled to sleep mid-stage stopped a live run for a person: the controller cannot supervise while
+  suspended, and the provider connection reset on wake (#1717). A controller driving a run now holds macOS's
+  idle-sleep assertion (`caffeinate -i -w PID`, released when it exits; `AUTOCODE_KEEP_AWAKE=0` turns it off),
+  and a read-only stage (Requirements, planning, plan or completion review, Investigator) that a retryable reset
+  cuts short after read-only tools or partial text is retried once automatically when the workspace is
+  unchanged. The Builder and Tester keep their hold.
 - Requirements chat no longer scans workspace disk usage before each reply; the copy-space gate runs when planning starts. The estimate prunes run history, caches and sibling Git worktrees before traversing them.
 - A question clarifying user intent no longer triggers report repair merely because it retains a stated requirement without citing code. Complete handoffs and explicitly cited source files still require source inspection.
 

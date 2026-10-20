@@ -62,6 +62,11 @@ except ImportError:
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 POLL_SECONDS = 2.0
+# While a reply is being written the view is read this often, so each new extract shows at once. A reply
+# that has not changed for STREAM_QUIET_POLLS reads (a model running tools between messages) is read at
+# the ordinary pace again: every read is a new `autocode --status` process.
+STREAM_POLL_SECONDS = 0.25
+STREAM_QUIET_POLLS = 8
 OTHERS_SECONDS = 10.0  # how often chats opened earlier this session are checked while AutoCode works
 YES = ("y", "yes")
 # What a relaunch must change, as TaskRun.advance_until_input and the scenario driver check.
@@ -259,6 +264,8 @@ class ChatClient:
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
+        self._live_text: str | None = None  # the streaming reply from the last show(), for the poll pace
+        self._live_quiet = 0  # reads since the streaming reply last changed
         self.restore_requests: dict[str, str] = {}  # one stable id per step, so a retried restore reconciles
         # /runs, /open and /new: the project's chats, and how a new one starts (start flags, run options).
         self.history: History | None = None
@@ -326,11 +333,12 @@ class ChatClient:
                 try:
                     while child.poll() is None:
                         with contextlib.suppress(actions.ClientGap):  # a new run has not saved a checkpoint yet
-                            self.show(self.status(), live=True)
+                            self.show(self.status())
                         self.check_others()
                         # The first reads come sooner, so what the person just decided shows as taken.
                         polls += 1
-                        if self._wait(self.poll_seconds if polls > 3 else min(self.poll_seconds, 0.5)) == "pause":
+                        pace = self.poll_seconds if polls > 3 else min(self.poll_seconds, 0.5)
+                        if self._wait(self.pace(pace)) == "pause":
                             self.request_pause(again="Try /pause again in a moment.")
                     break
                 except KeyboardInterrupt:
@@ -478,14 +486,14 @@ class ChatClient:
         except (EOFError, KeyboardInterrupt):
             raise Left from None
 
-    def show(self, view: dict, *, live=False) -> None:
+    def show(self, view: dict) -> None:
         """New conversation messages, the notice and the progress line, each once."""
         chat = view.get("chat") or {}
-        live = None
+        streaming_text = None
         for row in chat.get("messages") or []:
             key = str(row.get("id"))
             if row.get("streaming"):
-                live = row.get("text") or None  # shown while written, replaced by the finished message
+                streaming_text = row.get("text") or None  # shown while written, replaced by the finished message
                 continue
             if key in self.seen:
                 continue
@@ -498,8 +506,10 @@ class ChatClient:
             self.said.add(text)
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
+        self._live_quiet = 0 if streaming_text != self._live_text else self._live_quiet + 1
+        self._live_text = streaming_text
         if self._stream is not None:
-            self._stream(live)
+            self._stream(streaming_text)
         self.started = True
         progress = view.get("progress") or {}
         line = (chat.get("notice"), progress.get("line"))
@@ -507,7 +517,7 @@ class ChatClient:
             self.last_line = line
             if chat.get("notice"):
                 self.say(f"\n{chat['notice']}")
-            if progress.get("line") and (live or not chat.get("notice")):
+            if progress.get("line") and (streaming_text or not chat.get("notice")):
                 self.say(f"  · {progress['line']}")
 
     # ---- the conversation ------------------------------------------------------------------
@@ -658,12 +668,22 @@ class ChatClient:
             f"see autocode --status --run-dir {self.run_dir}"
         )
 
+    def pace(self, seconds: float) -> float:
+        """The wait before the next read: short while a reply is still changing, else ``seconds``."""
+        if self._live_text and self._live_quiet < STREAM_QUIET_POLLS:
+            return min(STREAM_POLL_SECONDS, seconds)
+        return seconds
+
     def watch(self) -> None:
-        """Another process is advancing the run: show its progress until it stops."""
+        """Another process is advancing the run: show its progress until it stops.
+
+        While a reply is still changing, poll at the short streaming pace so each new
+        extract appears immediately; otherwise the ordinary poll interval is enough.
+        """
         try:
             while actions.working(view := self.status()):
-                self.show(view, live=True)
-                time.sleep(self.poll_seconds)
+                self.show(view)
+                time.sleep(self.pace(self.poll_seconds))
         except KeyboardInterrupt:
             if not self.request_pause():
                 raise Left from None

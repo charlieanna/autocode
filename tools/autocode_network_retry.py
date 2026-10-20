@@ -53,6 +53,12 @@ MAX_ERROR_BYTES = 65536
 NETWORK_CODES = frozenset({"ECONNRESET", "ETIMEDOUT", "EPIPE"})
 HTTP_CODES = frozenset({500, 502, 503, 504})
 MAX_NETWORK_RETRIES = 2  # consecutive recoveries in one command-provider chain (#1001)
+# Roles whose stages only read the workspace: Requirements, planning and plan review, completion review and
+# the Investigator. The Builder writes and the Tester runs commands, so a partial attempt of theirs keeps its hold.
+READ_ONLY_ROLES = frozenset({"requirements", "glm", "astra"})
+PARTIAL_LIMIT = 8 * 1024 * 1024
+_NO_EFFECT_ROWS = frozenset({"autocode_progress", "step_start", "step_finish", "text", "reasoning", "tool_use"})
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 CONFLICT = re.compile(
     r"quota|credits?|rate.?limit|429|authenticat|unauthori|content.?filter|output(?:.?token)?.?limit", re.I
 )
@@ -187,6 +193,45 @@ def retryable_error(raw):
         return (code or str(status)) if code in NETWORK_CODES or status in HTTP_CODES else None
     except (ValueError, TypeError, RecursionError, UnicodeError):
         return None
+
+
+def read_only_partial_error(raw):
+    """A read-only stage's stream that a retryable reset cut short: its cause, or None (#1717).
+
+    The laptop slept mid-stream and the connection reset on wake: the log held progress rows, four completed
+    read-only tool calls and a finished tool step, the error row, Kilo's console echo of it, and the unfinished
+    text it flushed. Such a stream is accepted only when every row is model text, reasoning, progress or a
+    completed tool call, no step finished the turn, and exactly one error row classifies as retryable.
+    """
+    if not isinstance(raw, bytes):
+        return None
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeError:
+        return None
+    errors = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            if _ANSI.sub("", line).strip().startswith("Error:"):
+                continue  # Kilo's console echo of the error row
+            return None
+        if not isinstance(row, dict):
+            return None
+        if row.get("type") == "error" or ("type" not in row and "name" in row):
+            errors.append(line)
+            continue
+        part = row.get("part") if isinstance(row.get("part"), dict) else {}
+        if row.get("type") not in _NO_EFFECT_ROWS:
+            return None
+        if row["type"] == "tool_use" and (part.get("state") or {}).get("status") not in ("completed", "error"):
+            return None
+        if row["type"] == "step_finish" and part.get("reason") == "stop":
+            return None  # the turn finished: not a cut-short stream
+    return retryable_error(errors[0]) if len(errors) == 1 else None
 
 
 def _read(path, root, limit):
@@ -327,7 +372,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
             state.get(key)
             for key in ("pending_report_repair", "uncertain_artifacts", "pending_questions", "pause_requested")
         )
-        or any(activity.get(key) for key in ("active_tool_count", "completed_tool_count"))
+        or activity.get("active_tool_count")
+        or (activity.get("completed_tool_count") and record.get("role") not in READ_ONLY_ROLES)
     ):
         return False
     agent_request = state.get("agent_request") or {}
@@ -349,8 +395,11 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
             for path in (output, output.with_suffix(".reported.json"), output.with_suffix(".response.txt"))
         ):
             return False
-        raw = _read(record["events"], run_dir, MAX_ERROR_BYTES)
-        code = retryable_error(raw.decode("utf-8"))
+        read_only = record.get("role") in READ_ONLY_ROLES
+        raw = _read(record["events"], run_dir, PARTIAL_LIMIT if read_only else MAX_ERROR_BYTES)
+        code = (len(raw) <= MAX_ERROR_BYTES and retryable_error(raw.decode("utf-8"))) or (
+            read_only and read_only_partial_error(raw)
+        )
         if not code:
             return False
         before = json.loads(_read(record["before_ref"], run_dir, 8 * 1024 * 1024))
@@ -434,7 +483,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error):
     delay = 0 if retry_number == 1 else 30
     spacing = f" after {delay}s" if delay else ""
     reason = (
-        f"Retryable provider network failure ({code}) before any observed turn/tool effects; "
+        f"Retryable provider network failure ({code}) with no workspace effects; "
         f"fresh same-stage retry {retry_number}/{MAX_NETWORK_RETRIES}{spacing}"
     )
     originals = runtime.archive_rejected_stage(state, run_dir, record, reason)
