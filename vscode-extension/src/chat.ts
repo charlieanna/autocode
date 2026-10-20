@@ -414,6 +414,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     if (!run || !checkpointId || message.runKey !== tab.key || this.busy.has(tab.key)) return;
     const key = tab.key;
     this.busy.add(key);
+    this.post();
     try {
       if (message.action === "compare") {
         const comparison = await this.controller.compareCheckpoint(run, checkpointId);

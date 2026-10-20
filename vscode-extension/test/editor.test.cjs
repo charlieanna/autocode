@@ -1758,6 +1758,80 @@ test('saved code changes render with only the actions the view named', async (t)
   );
 });
 
+for (const outcome of ['success', 'failure']) {
+  test(`saved-code actions explain a pending chat command and recover after ${outcome}`, async (t) => {
+    const ui = await openChat(t, checkpointView());
+    let finish;
+    const launch = t.mock.method(cli, 'stream', () => new Promise((resolve) => {
+      finish = () => resolve(outcome === 'success' ? ok : { ...ok, code: 1, stderr: 'Fixture command failed' });
+    }));
+    t.after(() => finish?.());
+    const compare = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+      checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
+    }) }));
+    const actions = () => [...ui.document.querySelectorAll('[data-checkpoint-action]')];
+    assert.ok(actions().every((button) => !button.disabled), 'named actions start available');
+
+    ui.document.querySelector('#take-action').click();
+    await flush(); await flush();
+    assert.equal(launch.mock.callCount(), 1, 'the existing command is still pending');
+    for (const button of actions()) button.click();
+    await flush();
+    assert.equal(compare.mock.callCount(), 0, 'checkpoint clicks must not interfere with the pending command');
+    assert.equal(launch.mock.callCount(), 1, 'no second run action starts');
+    assert.ok(actions().every((button) => button.disabled), 'busy controls must not silently accept a click');
+    assert.ok(ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
+
+    finish(); await flush(); await flush();
+    assert.ok(actions().every((button) => !button.disabled), 'the named actions return when the command settles');
+    assert.ok(!ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
+    ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+    await flush();
+    assert.deepEqual(compare.mock.calls[0].arguments[1],
+      ['checkpoint', '--workspace', run.workspace, '--run-dir', run.runDir, '--compare', 'cp-1']);
+    assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
+  });
+}
+
+test('a pending saved-code comparison explains its own busy state without duplicate reads', async (t) => {
+  const ui = await openChat(t, checkpointView());
+  let finish;
+  const compare = t.mock.method(cli, 'invoke', () => new Promise((resolve) => {
+    finish = () => resolve({ ...ok, stdout: JSON.stringify({
+      checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
+    }) });
+  }));
+  t.after(() => finish?.());
+  const button = () => ui.document.querySelector('[data-checkpoint-action="compare"]');
+  button().click(); await flush();
+  assert.equal(compare.mock.callCount(), 1);
+  button().click(); await flush();
+  assert.equal(compare.mock.callCount(), 1, 'the pending comparison is not dispatched again');
+  assert.equal(button().disabled, true, 'a pending comparison must publish its busy state immediately');
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Saved-code actions are available after the current AutoCode action finishes.'));
+  finish(); await flush(); await flush();
+  assert.equal(button().disabled, false);
+  assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
+});
+
+test('a named saved-code comparison stays available during work not owned by this chat', async (t) => {
+  const view = checkpointView();
+  view.status = 'RUNNING';
+  view.liveness = { kind: 'supervised' };
+  view.needs = { kind: 'continue' };
+  view.code_checkpoints.rows[0].actions = [view.code_checkpoints.rows[0].actions[0]];
+  const ui = await openChat(t, view);
+  const compare = t.mock.method(cli, 'invoke', async () => ({ ...ok, stdout: JSON.stringify({
+    checkpoint_id: 'cp-1', changed_files: [], patch: '', blocked_reason: null,
+  }) }));
+  assert.ok(ui.document.querySelector('#app').textContent.includes('Thinking…'));
+  assert.equal(ui.document.querySelector('[data-checkpoint-action="compare"]').disabled, false);
+  ui.document.querySelector('[data-checkpoint-action="compare"]').click();
+  await flush();
+  assert.equal(compare.mock.callCount(), 1, 'working status alone must not suppress the named read-only action');
+  assert.ok(ui.document.querySelector('#app').textContent.includes('The files match this checkpoint.'));
+});
+
 test('compare runs exactly the named argv and renders the returned diff', async (t) => {
   const ui = await openChat(t, checkpointView());
   const calls = [];
