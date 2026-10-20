@@ -333,7 +333,7 @@ class ChatClient:
                 try:
                     while child.poll() is None:
                         with contextlib.suppress(actions.ClientGap):  # a new run has not saved a checkpoint yet
-                            self.show(self.status(), live=True)
+                            self.show(self.status())
                         self.check_others()
                         # The first reads come sooner, so what the person just decided shows as taken.
                         polls += 1
@@ -486,14 +486,14 @@ class ChatClient:
         except (EOFError, KeyboardInterrupt):
             raise Left from None
 
-    def show(self, view: dict, *, live=False) -> None:
+    def show(self, view: dict) -> None:
         """New conversation messages, the notice and the progress line, each once."""
         chat = view.get("chat") or {}
-        live = None
+        streaming_text = None
         for row in chat.get("messages") or []:
             key = str(row.get("id"))
             if row.get("streaming"):
-                live = row.get("text") or None  # shown while written, replaced by the finished message
+                streaming_text = row.get("text") or None  # shown while written, replaced by the finished message
                 continue
             if key in self.seen:
                 continue
@@ -506,10 +506,10 @@ class ChatClient:
             self.said.add(text)
             who = "You" if row.get("role") == "user" else "AutoCode"
             self.say(f"\n{who}: {text}")
-        self._live_quiet = 0 if live != self._live_text else self._live_quiet + 1
-        self._live_text = live
+        self._live_quiet = 0 if streaming_text != self._live_text else self._live_quiet + 1
+        self._live_text = streaming_text
         if self._stream is not None:
-            self._stream(live)
+            self._stream(streaming_text)
         self.started = True
         progress = view.get("progress") or {}
         line = (chat.get("notice"), progress.get("line"))
@@ -517,7 +517,7 @@ class ChatClient:
             self.last_line = line
             if chat.get("notice"):
                 self.say(f"\n{chat['notice']}")
-            if progress.get("line") and (live or not chat.get("notice")):
+            if progress.get("line") and (streaming_text or not chat.get("notice")):
                 self.say(f"  · {progress['line']}")
 
     # ---- the conversation ------------------------------------------------------------------
@@ -682,7 +682,7 @@ class ChatClient:
         """
         try:
             while actions.working(view := self.status()):
-                self.show(view, live=True)
+                self.show(view)
                 time.sleep(self.pace(self.poll_seconds))
         except KeyboardInterrupt:
             if not self.request_pause():
