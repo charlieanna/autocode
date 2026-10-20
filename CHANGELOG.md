@@ -13,6 +13,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Session ownership checks briefly retry a missing initial receipt open during atomic replacement
   on Mac Docker binds; persistent absence and invalid ownership evidence still stop the run (#1680).
+- VS Code saved-code compare and restore buttons explain when they are unavailable while
+  this chat waits for a command, instead of accepting clicks that silently do nothing (#1676).
 - The chat's "New chats:" line named OpenCode even when `default_provider` chose another
   connection. `connections list --json` now marks the connection new runs use (`default: true`),
   and the line names it, for example `New chats: Full · kilo_glm_mimo_gpt`.
