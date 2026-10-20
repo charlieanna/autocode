@@ -392,6 +392,14 @@ actions. A live owner or provider and a busy exclusion lock remain active;
 unverifiable ownership is reported precisely without guessing absence.
 Existing approval, source and provider cleanup gates still apply.
 
+A controller exit while applying a returned, accounted report also projects this
+pause after fresh inspection confirms all supervised processes stopped with
+successful cleanup and the regular report file remains inside the run directory.
+`status()["controller"]["completed_stage"]` is `true` at that boundary. Resume
+revalidates the retained report without abandoning it or replaying that provider
+call. Usage, model routes, limits and plan-approval gates stay in force. An
+unaccounted, interrupted or missing result keeps its existing recovery controls.
+
 ### Pausing a working run
 
 While a run works (a live stage, a fresh birth-bound controller, or a controller

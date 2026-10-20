@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import autocode_controller_owner as owners
 import autocode_process as processes
+import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_util as util
 import autocode_visual_profile as profiles
@@ -137,6 +138,90 @@ class OwnerInspectionTests(unittest.TestCase):
             owner.result(2)
         self.assertEqual("RUNNING", util.read(self.run_dir / "state.json")["status"])
         self.assertEqual("unexpected", util.read(self.run_dir / owners.FILE)["disposition"])
+
+    def completed_attempt(self):
+        output = self.run_dir / "completed-review.json"
+        output.write_text("{}")
+        self.state["active_stage"] = {
+            "stage": "astra_challenge",
+            "iteration": 1,
+            "output": str(output),
+            "finished_at": owners.now(),
+            "duration_seconds": 1.0,
+            "exit_code": 0,
+            "accounted": True,
+            "supervision": {"receipt": "controlled"},
+        }
+        self.persist(self.run_dir / "state.json", self.state)
+        with util.run_lock(self.run_dir), owners.Owner(self.state, self.run_dir, self.persist) as owner:
+            owner.result(1)
+        return {
+            "receipt": {"phase": "stopped", "cause": "provider_stopped", "cleanup_error": None},
+            **{key: {"checked": True, "alive": False} for key in ("owner", "keeper", "provider")},
+        }
+
+    def test_completed_accounted_report_gets_resume_without_abandonment(self):
+        for cause in ("provider_stopped", "controller_finished"):
+            with self.subTest(cause=cause):
+                observation = self.completed_attempt()
+                observation["receipt"]["cause"] = cause
+                before = (self.run_dir / "state.json").read_bytes()
+                with patch.object(processes, "process_table", return_value={}):
+                    with patch("autocode_supervision.observe", return_value=observation):
+                        inspected = owners.inspect(self.state, self.run_dir, self.workspace)
+                shown = owners.project(self.state, inspected)
+                self.assertEqual(owners.STATUS, shown["status"])
+                action = run_view.action(shown, run_dir=self.run_dir, workspace=self.workspace)
+                self.assertEqual("resume", action["needs"]["kind"])
+                self.assertIn("--resume-paused", action["next_command"])
+                self.assertNotIn("--abandon-stage", action["next_command"])
+                self.assertEqual(self.state["active_stage"], shown["active_stage"])
+                self.assertEqual(before, (self.run_dir / "state.json").read_bytes(), "Inspection is read-only")
+
+    def test_completed_report_requires_confirmed_terminal_supervision_and_accounting(self):
+        observation = self.completed_attempt()
+        for cause in (
+            "unknown",
+            "live",
+            "cleanup",
+            "unaccounted",
+            "failed",
+            "missing",
+            "symlink",
+            "interrupted",
+            "malformed",
+            "armed",
+        ):
+            with self.subTest(cause=cause):
+                state = json.loads(json.dumps(self.state))
+                seen = json.loads(json.dumps(observation))
+                if cause == "unknown":
+                    seen["keeper"] = {"checked": False, "alive": None}
+                elif cause == "live":
+                    seen["provider"]["alive"] = True
+                elif cause == "cleanup":
+                    seen["receipt"]["cleanup_error"] = "not confirmed"
+                elif cause == "unaccounted":
+                    state["active_stage"]["accounted"] = False
+                elif cause == "failed":
+                    state["active_stage"]["exit_code"] = 1
+                elif cause == "missing":
+                    state["active_stage"]["output"] = str(self.run_dir / "missing.json")
+                elif cause == "interrupted":
+                    seen["receipt"]["cause"] = "owner_lost"
+                elif cause == "malformed":
+                    seen["provider"] = None
+                elif cause == "armed":
+                    seen["receipt"]["phase"] = "armed"
+                else:
+                    alias = self.run_dir / "alias.json"
+                    alias.symlink_to(state["active_stage"]["output"])
+                    state["active_stage"]["output"] = str(alias)
+                with patch.object(processes, "process_table", return_value={}):
+                    with patch("autocode_supervision.observe", return_value=seen):
+                        inspected = owners.inspect(state, self.run_dir, self.workspace)
+                self.assertIs(state, owners.project(state, inspected))
+                self.assertIsNone(run_view.action(state)["next_command"])
 
     def test_nonzero_return_retains_a_durable_pause_and_exit_event(self):
         for code, requested_ready in ((2, False), (5, True)):
@@ -325,6 +410,60 @@ class ControllerExitCliTests(unittest.TestCase):
         self.assertEqual(checkpoint, (run.run_dir / "state.json").read_bytes(), "Status is read-only")
         resumed = run.resume_paused()
         self.assertEqual("approve_plan", resumed["needs"]["kind"], resumed)
+
+    def test_exit_with_completed_accounted_report_resumes_without_replaying_provider(self):
+        marker = self.root / "provider-stages.jsonl"
+        provider = self.root / "bin/codex"
+        implementation = provider.read_text()
+        point = '    repairing = bool(data.get("report_repair"))\n'
+        self.assertEqual(1, implementation.count(point))
+        provider.write_text(
+            implementation.replace(
+                point,
+                f"    with open({str(marker)!r}, 'a') as calls: calls.write(json.dumps(stage) + '\\n')\n" + point,
+                1,
+            )
+        )
+        fault = self.root / "fault-completed.py"
+        fault.write_text(
+            textwrap.dedent(f"""\
+            import os, sys
+            from pathlib import Path
+            sys.path.insert(0, {str(TOOLS)!r})
+            import autocode
+            apply = autocode.apply_result
+            def before_apply(state, stage, value, record, workspace, run_dir, **kwargs):
+                if (stage == 'requirements_gather' and record.get('finished_at')
+                        and record.get('accounted') is True and record.get('exit_code') == 0):
+                    assert Path(record['output']).is_file(), 'Fault must occur after report materialization'
+                    os._exit(72)
+                return apply(state, stage, value, record, workspace, run_dir, **kwargs)
+            autocode.apply_result = before_apply
+            raise SystemExit(autocode.cli())
+        """)
+        )
+        with self.assertRaises(taskrun.TaskRunError) as failure:
+            taskrun.TaskRun.start(
+                self.workspace,
+                BRIEF,
+                options=OPTIONS,
+                command=(sys.executable, "-B", str(fault)),
+                env=self.env,
+                timeout=300,
+            )
+        self.assertEqual(72, failure.exception.process.returncode, failure.exception.process.stderr)
+        run = taskrun.TaskRun.attach(self.workspace, command=self.command, env=self.env, timeout=300)
+        before = (run.run_dir / "state.json").read_bytes()
+        stopped = run.status()
+        self.assertEqual(owners.STATUS, stopped["status"], stopped)
+        self.assertTrue(stopped["controller"]["completed_stage"])
+        self.assertIn("--resume-paused", stopped["next_command"])
+        self.assertNotIn("--abandon-stage", stopped["next_command"])
+        self.assertEqual(before, (run.run_dir / "state.json").read_bytes())
+        resumed = run.resume_paused()
+        self.assertEqual("approve_plan", resumed["needs"]["kind"], resumed)
+        calls = [json.loads(line) for line in marker.read_text().splitlines()]
+        self.assertEqual(1, calls.count("requirements_gather"), "A collected report must not replay its provider")
 
     def test_approval_and_unit_handoff_remain_ready_without_a_new_provider(self):
         run = taskrun.TaskRun.start(
