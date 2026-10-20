@@ -1,0 +1,3502 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/v0.8.1/providers/">
+      
+      
+        <link rel="prev" href="../windows/">
+      
+      
+        <link rel="next" href="../models/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Providers - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#providers-and-adapters" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Providers
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#provider-process-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider process ownership
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opencode-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenCode adapter
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpenCode adapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#output-cap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output cap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables-agents-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables agents see
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-provider-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Check provider compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codex-provider-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codex provider overrides
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Codex provider overrides">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-final-message-that-is-only-a-shell-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A final message that is only a shell command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gocode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GoCode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#claude-code-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Claude Code provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#add-a-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add a tool
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Add a tool">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-different-tool-for-one-role" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A different tool for one role
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#builder-retry-on-a-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builder retry on a tool
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output modes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#codex-commands-that-write-capture-receipts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codex commands that write capture receipts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#auth-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auth checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kilocode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        KiloCode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default provider
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conformance-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conformance matrix
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Conformance matrix">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connection-setup-and-company-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection setup and company backends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autocode-direct-connections-issue-1493" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AutoCode direct connections (issue #1493)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#automatic-routes-for-new-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic routes for new runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../program/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Large projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#provider-process-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider process ownership
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opencode-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenCode adapter
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpenCode adapter">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#output-cap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output cap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables-agents-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables agents see
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#check-provider-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Check provider compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codex-provider-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codex provider overrides
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Codex provider overrides">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-final-message-that-is-only-a-shell-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A final message that is only a shell command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gocode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GoCode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#claude-code-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Claude Code provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#add-a-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add a tool
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Add a tool">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-different-tool-for-one-role" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A different tool for one role
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#builder-retry-on-a-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builder retry on a tool
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output modes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#codex-commands-that-write-capture-receipts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codex commands that write capture receipts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#auth-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auth checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kilocode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        KiloCode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#default-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default provider
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conformance-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conformance matrix
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Conformance matrix">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connection-setup-and-company-backends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection setup and company backends
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autocode-direct-connections-issue-1493" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AutoCode direct connections (issue #1493)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#automatic-routes-for-new-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic routes for new runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="providers-and-adapters">Providers and adapters<a class="headerlink" href="#providers-and-adapters" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/20041443fe5f0d1301b0a92875ebf1e9b0924917/README.md">← Back to README</a></p>
+<p>OpenCode is the default engine. Codex: <code>--engine codex</code>. Claude Code: <code>--engine claude</code>
+(<a href="#claude-code-provider">built in</a>). Any other tool registers with one TOML file.</p>
+<h2 id="provider-process-ownership">Provider process ownership<a class="headerlink" href="#provider-process-ownership" title="Permanent link">&para;</a></h2>
+<p>Supervised task-stage providers, including core TaskRun conversations and
+<code>autocode ui</code>, require a native little-endian Linux x86_64 or aarch64
+runtime, matching <code>/proc</code> PID namespace, and working seccomp user notifications
+with syscall continuation. A Linux host without them, and any other unsupported
+host except macOS, refuses the launch before provider spawn. The refusal
+identifies the unavailable boundary; it does not send a model request. There is
+no CLI opt-out.</p>
+<p>macOS has no seccomp, so providers there run without this boundary (#1195):
+the keeper's lifeline and sampled process-group and session ownership, as for
+runner commands, with no kernel proof that every descendant exited. The run
+prints one notice on stderr, and the supervision receipt carries no
+<code>session_boundary</code>. A provider child that calls <code>setsid()</code> and reparents
+between samples can outlive the run there; use Linux when that matters.</p>
+<p>Automatic model-access probes started by a task use the same provider boundary
+and retain attempt-local admission and cleanup receipts. Admission or cleanup
+failure pauses the task. A probe timeout remains uncertain and can be retried;
+it does not become a cached access pass.</p>
+<p>Each automatic probe counts toward the run's recorded spend and active time.
+The runner checks the remaining money/time allowance and pending human input
+before each request, limits its timeout to the remaining active time, and saves
+its usage before admitting another probe or workflow stage. Stop is acknowledged
+only after the previous probe's cleanup is verified. Interrupted attempts retain
+their evidence and usage; they require verified cleanup before a retry. Older
+marker-only access passes remain readable, but their historical probe usage
+cannot be reconstructed from the marker.</p>
+<p>The dashboard's separate conversation/intake transports and explicitly invoked
+standalone provider probes use other launch paths; this task-owned boundary does
+not qualify them.</p>
+<p>The owner chose this macOS fallback in
+<a href="https://github.com/charlieanna/autocode/issues/1195">#1195</a> (delivered by
+<a href="https://github.com/charlieanna/autocode/pull/1204">#1204</a>). #1265 replaced it
+with strict refusal on 2026-10-14; the owner restored the fallback on
+2026-10-15, so local live qualification can run on macOS.</p>
+<p>Normal detached shell tools remain allowed: the independent keeper records a
+prospective session before permitting <code>setsid()</code>. Its receipt preserves that
+ownership through controller or keeper loss. Cleanup is verified only when the
+kernel reports that no task retains the inherited boundary. Permission errors,
+missing receipts and unverified cleanup remain failures.</p>
+<p>Providers inherit <code>no_new_privs</code>, so privilege elevation through exec is
+unavailable. Additional ordinary seccomp filters remain allowed, but installing
+a replacement notification listener is refused. Launches with permitted or
+effective <code>CAP_SYS_PTRACE</code> or <code>CAP_SYS_ADMIN</code> are also refused. The keeper is
+non-dumpable to protect its listener from same-user descriptor access. This is
+a process ownership boundary, not a filesystem or network sandbox.</p>
+<p>Offline native tests cover detached spawning, thread callers, double forks,
+descriptor closure, owner loss and keeper loss. They do not establish live-model
+or provider-version conformance. This policy changes no role models or routes.</p>
+<p>Runner-owned verification commands use their existing portable lifeline and
+sampled SID guard, including nested preparation workers. They do not install a
+provider listener or claim its kernel family-extinction proof. Commands already
+inside a provider family continue to inherit that family's filter. The model
+adapters always use the mandatory provider boundary; there is no CLI opt-out.</p>
+<h2 id="opencode-adapter">OpenCode adapter<a class="headerlink" href="#opencode-adapter" title="Permanent link">&para;</a></h2>
+<p>The Requirements Gatherer, Planner and default Builder use the connections already configured in OpenCode. <code>--engine opencode</code>
+is accepted but is optional for new runs:</p>
+<pre><code class="language-sh">python3 tools/autocode.py &quot;Your rough idea&quot; --workspace /path/to/project
+</code></pre>
+<p>Override the planning roles with <code>--requirements-model</code>, <code>--glm-model</code>, and
+<code>--plan-reviewer-model</code> (plus their reasoning-effort flags). For a new task without
+a conversation-handoff profile, <code>--glm-model</code> also selects the initial Requirements
+model unless <code>--requirements-model</code> selects it separately. Conversation handoffs
+apply an independent profile: Requirements keeps that profile's default unless
+<code>--requirements-model</code> selects it explicitly. Resuming keeps the saved Requirements
+model unless <code>--requirements-model</code> explicitly changes it.
+Override execution roles with <code>--astra-model</code>, <code>--terra-model</code>,
+<code>--sol-model</code>, or <code>--completion-model</code> using a provider/model ID from <code>opencode models</code>, including
+<code>openai/…</code> with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
+engines and sessions; no existing run is migrated by a dashboard selection.
+If an account offers only one model, <code>--single-model MODEL</code> assigns it to all
+roles and permits same-model verification. The roles still run in separate
+sessions and all normal evidence, approval and completion gates remain active,
+but model-family independence is intentionally unavailable in this mode.
+OpenCode reasoning variants can be selected in the browser or with the existing
+role-specific reasoning-effort flags. New joint runs start with separate GLM requirements
+and planner sessions, GPT-6 Sol High for the Plan Reviewer, GLM Medium for the Builder, GPT-6
+Sol High for the Validator, and a separate GPT-6 Sol Medium session for the Completion Owner.
+Escalation then follows the ladders and Builder retry policy documented in
+<a href="../models/">Models</a>. Provider
+credentials remain with OpenCode: Autocode does
+not read its auth file or change your global configuration.</p>
+<p>The same approval, task, independent-evidence and completion gates apply. The adapter
+uses OpenCode's <a href="https://opencode.ai/docs/cli/#run">non-interactive JSON event interface</a>,
+validates the final report against the stage schema, and verifies command evidence
+against actual completed bash events; the runner then re-runs a passing Validator's
+checks itself in a clean copy (<a href="../execution/#the-runner-re-runs-the-validators-checks">Execution</a>). Raw events, session IDs and stage-local
+permission overrides are saved alongside the checkpoint. Token limits include cache
+reads/writes and reasoning tokens. Malformed or uncertain results pause; the runner
+does not automatically replay an ambiguous provider request. An explicitly retryable
+native <code>APIError</code> with <code>ECONNRESET</code>, <code>ETIMEDOUT</code>, <code>EPIPE</code>, or HTTP 500/502/503/504 may
+receive one fresh same-stage, same-model retry when its entire event stream contains
+only that error, its collected failed process exited normally with verified owned
+cleanup, and its source, Git index, task, settings and route are unchanged. The
+failed attempt, raw events and usage remain charged and retained. The existing
+run-wide automatic-recovery limit still applies; restarts, abandonment and route
+changes do not renew a failed chain's allowance. Session continuations, partial
+turns/tools/reports, uncertain cleanup, human gates, quota/auth failures and output
+limits keep their ordinary recovery policy. Saved attempts without the launch
+binding and non-native transports remain unsupported by this automatic retry.
+The supported native error fields follow <a href="https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/session/message-v2.ts#L600">OpenCode 1.18.33's conversion</a>
+and <a href="https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/provider/error.ts#L160">HTTP error metadata</a>;
+unknown metadata keeps the ordinary hold.</p>
+<p>When a Validator or Completion Owner response is cut off by the output-token limit and the process
+exited cleanly with the source unchanged, the runner archives the attempt and queues a bounded
+report-only repair from the saved partial response and check evidence rather than
+replaying the provider request.</p>
+<p>OpenCode has a different isolation boundary: Requirements Planner sessions and other
+read-only OpenCode roles have edit tools denied and their workspace snapshots
+checked, but OpenCode tool permissions are <strong>not an OS sandbox</strong>. Shell commands
+and configured external tools retain OpenCode's native permission policy. Autocode
+also rejects a read-only report when native OpenCode step snapshots record a
+workspace change during the attempt, even if the final files were restored. This
+check applies when loading saved reports and when reusing review evidence for
+report repair. Before a native OpenCode launch, the runner adds local Git
+exclusions for <code>.autocode/</code>, <code>.autocode-ui/</code>, <code>__pycache__/</code> and <code>*.pyc</code>, matching
+its existing source-snapshot boundary and preserving other exclusion rules.
+This prevents runtime evidence writes from looking like source drift. The check
+cannot detect writes outside the workspace, ignored files, or
+transient changes between snapshots, and is unavailable when the transport omits
+snapshots. Use an OS sandbox when filesystem prevention is required.
+The built-in OpenCode adapter does not enable <code>--auto</code> or override user-level
+permission rules with blanket allows.
+A denied required operation is reported back as a blocker.
+See OpenCode's <a href="https://opencode.ai/docs/permissions/">permission documentation</a>.</p>
+<h3 id="output-cap">Output cap<a class="headerlink" href="#output-cap" title="Permanent link">&para;</a></h3>
+<p>OpenCode derives a requested response limit from the model's listed output limit
+and <code>OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX</code>, with a 32000-token default. Provider routes
+can override it. On routes that honor the setting, reasoning counts against the same
+limit; a planning report can exceed it and stop with finish reason <code>length</code> and
+truncated JSON. AutoCode therefore launches OpenCode with
+<code>OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=64000</code> unless you set a positive whole number
+yourself, which wins:</p>
+<pre><code class="language-sh">OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000 autocode &quot;...&quot;
+</code></pre>
+<p>The setting is a request, not a verified provider limit. For example, OpenCode 1.18.33's
+<a href="https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/plugin/openai/codex.ts#L569-L573">OpenAI Codex plugin clears <code>maxOutputTokens</code></a>
+after OpenCode <a href="https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/session/llm/request.ts#L114-L131">derives it from this setting</a>.
+A real Codex check returned responses exceeding the requested setting. Increasing this
+variable cannot be assumed to fix truncation on that route.</p>
+<p>AutoCode does not default to the model's whole listed limit: OpenCode's context planning
+uses this setting, and some APIs refuse a request whose input plus maximum output
+exceeds the window. Each stage record keeps the requested setting (or OpenCode's default
+when absent) under <code>output_token_cap</code> (<code>tokens</code>, and <code>set_by</code>:
+<code>operator</code>, <code>autocode</code>, or <code>opencode</code> when the variable did not reach it). A length stop's
+pause distinguishes that setting from how many tokens the last response used. A collected, terminal
+<code>length</code> stop offers a <code>route-ROLE</code> question (<code>PAUSED_OUTPUT_CAP</code>): answer it with a
+different model on the same engine, then resume. The answer retains the incomplete
+attempt, work and usage; it never launches a provider. Workflow jobs also require
+the displayed job retry token and issue a new token for the explicit retry.
+On a route that honors the setting, another recovery option is to request a larger limit,
+set the attempt aside with <code>--abandon-stage</code>, and <code>--resume-paused</code>. Model and provider
+limits still apply. Automatic report repair remains bounded to the existing read-only
+Tester and Completion Reviewer stages; Builder and Requirements never retry
+an output-limit stop automatically. Ambiguous or interrupted output remains uncertain.
+The cap-setting rules are in <code>tools/autocode_output_cap.py</code>; they do not alter configured
+command providers' environment or token limits.</p>
+<p>For an isolated native run paused before plan approval, an OpenCode authentication
+failure can also be set aside explicitly with the displayed <code>--abandon-stage</code>
+attempt. This requires a collected nonzero exit containing only one terminal
+401/403 <code>APIError</code>, no response or report, and the original stopped supervisor,
+unchanged source, settings and runtime. Other uncertain output remains refused.
+The command preserves the failed attempt and pauses without launching a model.
+Refresh the provider credential before <code>--resume-paused</code>; resume retains the
+same models, review gates and time limits. An older run cannot adopt a changed
+runtime to gain this recovery operation.</p>
+<h3 id="environment-variables-agents-see">Environment variables agents see<a class="headerlink" href="#environment-variables-agents-see" title="Permanent link">&para;</a></h3>
+<p>Every provider process, and every test command the runner executes itself, gets
+the runner's environment minus variables that look like credentials: a name word
+such as <code>TOKEN</code>, <code>SECRET</code>, <code>PASSWORD</code>, <code>KEY</code> or <code>AUTH</code> (<code>GITHUB_TOKEN</code>,
+<code>AWS_SECRET_ACCESS_KEY</code>, <code>SSH_AUTH_SOCK</code>, <code>OPENAI_API_KEY</code>), or a URL value with
+an embedded password. Proxy variables and AutoCode's ordinary <code>AUTOCODE_*</code> settings are
+kept. The nine <a href="../cli/#keeping-authorization-tokens-out-of-argv">controller token variables</a>
+are always withheld, including when named in <code>AUTOCODE_PASS_ENV</code>. Token counts are kept:
+a <code>TOKEN</code> word followed by <code>MAX</code>, <code>LIMIT</code>, <code>COUNT</code> or
+<code>BUDGET</code>, or after <code>MAX</code>, holding a whole number
+(<code>OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000</code>). Each stage record lists the withheld
+names (never values) under <code>withheld_env</code>. The rules are in <code>tools/autocode_agent_env.py</code>.</p>
+<p>Providers sign in from their own stored logins (OpenCode, Codex and Kilo auth
+files, and the Claude Code login), so the default routes need none of these. If
+your provider or your project's tests genuinely need one, name it:</p>
+<pre><code class="language-sh">AUTOCODE_PASS_ENV=ZHIPU_API_KEY,DATABASE_URL autocode &quot;...&quot;
+</code></pre>
+<p>Configured providers' version, model and authentication preflights use the same
+filtered ambient environment as their stage processes. A check that needs an
+explicitly named variable therefore needs the same <code>AUTOCODE_PASS_ENV</code> opt-in.
+An authentication listing can still describe a stored route without proving the
+request will authenticate. When a configured stage returns a native HTTP 401 or
+403 API error, AutoCode names any withheld candidates and points to the opt-in;
+those names do not establish which variable the provider requires. Pass only
+variables you intend to expose to that provider and its agents. Private controller
+tokens remain withheld even when listed.</p>
+<p>Withholding variables is not a sandbox: an agent with shell access can still read
+files such as <code>~/.aws/credentials</code> or <code>~/.config/gh/hosts.yml</code>.</p>
+<p>Resuming preserves the saved engine, models and separate role sessions. Start a new
+run when switching between Codex, OpenCode and Claude Code; their session IDs cannot be reused
+across engines. A response with an unexpected session ID pauses the run.
+OpenCode version or configuration drift pauses the saved run, including changes to
+custom config-directory files, agent definitions and local plugin/tool definitions.
+This adapter was live-checked with OpenCode <strong>1.18.31</strong>. OpenCode 2.x is accepted: the stage runs in the workspace directory with <code>--standalone</code>, and reasoning effort is <code>provider/model#effort</code> rather than <code>--variant</code>. A saved run records the OpenCode version, so resume refuses a silent major-version change. Strict tool containment and verified visual delivery stay qualified only for OpenCode <strong>1.18.33</strong>.</p>
+<h2 id="check-provider-compatibility">Check provider compatibility<a class="headerlink" href="#check-provider-compatibility" title="Permanent link">&para;</a></h2>
+<p>Before relying on a new tool/model combination, run the shared
+<a href="../provider-conformance/">provider conformance probe</a>. It checks the same workspace,
+JSON report, command evidence, usage and session rules through Codex, OpenCode,
+KiloCode and Claude Code. Passing applies to that recorded tool/model/configuration combination.</p>
+<h2 id="codex-provider-overrides">Codex provider overrides<a class="headerlink" href="#codex-provider-overrides" title="Permanent link">&para;</a></h2>
+<p>Pass <code>--engine codex</code> to start a Codex-engine run. Roles can use different
+<strong>Responses-compatible Codex providers</strong> in one run, e.g. planning on the ChatGPT
+subscription while the Validator audits and the Builder codes via another compatible provider:</p>
+<pre><code class="language-sh">python3 tools/autocode.py &quot;Build a greeting CLI&quot; --workspace /path/to/project \
+  --engine codex \
+  --astra-model gpt-6-astra \
+  --sol-model audit-model --sol-provider other_provider \
+  --terra-model implementation-model --terra-provider other_provider --reasoning-effort high
+</code></pre>
+<p>Each role can also have its own reasoning effort. For example, use the Astra route at
+extra-high (<code>xhigh</code>) for read-only discovery and planning:</p>
+<pre><code class="language-sh">python3 tools/autocode.py &quot;Build a greeting CLI&quot; --workspace /path/to/project \
+  --engine codex --astra-model gpt-6-astra --astra-reasoning-effort xhigh
+</code></pre>
+<p>Role-specific effort overrides the shared <code>--reasoning-effort</code> value. All selected
+models and providers are saved in the run checkpoint, so resumed runs retain this
+assignment.</p>
+<p>An interactive terminal starts in chat mode by default. The Requirements Gatherer presents a few material
+questions at a time; type replies directly or <code>/default</code> to accept a proposed default.
+When the build brief is displayed, type feedback to revise it, <code>y</code> to approve that exact
+revision, or <code>/pause</code> to save and exit. After approval the implementation, validation
+and review loop runs automatically within the configured limits. During questions,
+<code>/feedback TEXT</code> sends a broader correction to the Requirements Gatherer.</p>
+<p>Use <code>--chat</code> to select this mode explicitly, or <code>--no-chat</code> for one command per turn.
+Non-interactive invocations default to the command-per-turn interface.</p>
+<p><code>--&lt;role&gt;-provider</code> is saved per role like models and is passed to Codex as a
+<code>model_provider</code> override; roles without a provider keep the local Codex login
+(ChatGPT auth). The named provider must implement the OpenAI <strong>Responses</strong> API.
+For the connected Z.ai Coding Plan, use the OpenCode engine above. Changing the global
+provider/auth in local Codex config still pauses a saved Codex-engine run.</p>
+<h3 id="a-final-message-that-is-only-a-shell-command">A final message that is only a shell command<a class="headerlink" href="#a-final-message-that-is-only-a-shell-command" title="Permanent link">&para;</a></h3>
+<p>Some models served through a Codex transport sometimes end a stage with the
+arguments of a shell tool call instead of the stage's JSON report
+(<a href="https://github.com/charlieanna/autocode/issues/512">#512</a>):</p>
+<pre><code class="language-json">{&quot;cmd&quot;: &quot;ls docs/ &amp;&amp; wc -l docs/*.md&quot;}
+</code></pre>
+<p>AutoCode treats this as a known provider defect, never as a report, and never
+runs the command. A final message counts as only a command when its keys are
+<code>cmd</code> or <code>command</code> (holding a command) and, at most, the other arguments of a
+Codex shell call (<code>workdir</code>, <code>timeout_ms</code>, <code>yield_time_ms</code>, <code>max_output_tokens</code>,
+<code>shell</code>, <code>login</code>, <code>with_escalated_permissions</code>, <code>justification</code>), and none of
+them is a field of the stage's schema. A command whose text embeds a JSON report
+is still a command: AutoCode does not unwrap it, though a wrapper in your
+provider command may before AutoCode reads the report. The stage is rejected
+with <code>Provider final message is a shell command ({"cmd": ...}) instead of the
+JSON report; ...</code> and then:</p>
+<ol>
+<li>On a transport that keeps sessions (<code>--engine codex</code>, OpenCode, or a tool with
+   <code>output = "opencode_events"</code> and <code>resume</code>), the runner resumes the stage's own
+   session once and asks for the report alone, with no command. This correction
+   spends no report-repair attempt. It applies to every stage, planning stages
+   included, but only when it would run on the route (engine, provider, model,
+   effort) that started the session: a Plan Reviewer attempt that ran on its
+   one-use fallback route goes straight to step 2.</li>
+<li>Otherwise, or when that correction fails, the usual report-only repairs run
+   (<code>report_repair.max_attempts</code>, two by default), told that the rejected report
+   is a command with nothing to repair.</li>
+<li>A stage that keeps doing it stops there, usually at <code>PAUSED_REPEATED_FAILURE</code>,
+   with that reason in <code>stop_reason</code>. As for any stuck stage, the Investigator
+   looks at it first.</li>
+</ol>
+<p><strong>Roles affected.</strong> Every stage's final message is checked, so every role is
+covered. The defect was seen (2026-10-05) on the roles one profile ran through
+Codex with the <code>gocode</code> provider: the Plan Reviewer (<code>astra_challenge</code>,
+<code>astra_finalize</code>) and the Tester (<code>sol</code>). Its Builder and Requirements ran
+through another tool and did not show it. No role is qualified on a route that
+shows the defect: if a role keeps stopping this way, run it on another model,
+and check a new tool/model pair with the
+<a href="../provider-conformance/">conformance probe</a> first.</p>
+<h2 id="gocode">GoCode<a class="headerlink" href="#gocode" title="Permanent link">&para;</a></h2>
+<p>Register GoCode as <code>~/.config/autocode/providers/gocode.toml</code> (the command wraps
+<code>gocode env</code> then <code>codex exec</code>). The provider sets API credentials for its own
+child process. Keep <code>OPENAI_API_KEY</code>, <code>CODEX_API_KEY</code>, and <code>OPENAI_BASE_URL</code> out
+of the AutoCode process itself: ambient keys trip joint-planning's billing-route
+gate (<code>PAUSED_BILLING_ROUTE</code>) even when GoCode would have supplied the right
+route for the child. Unset them in the shell that launches <code>autocode</code> or
+<code>scenarios/run.py</code>, or put them in the provider's <code>forbid_env</code> so AutoCode
+strips them before the stage.</p>
+<p>Put <code>-o {report}</code> (or <code>--output-last-message {report}</code>) in the <strong>command list</strong>
+as its own argv slot, not only inside a <code>sh -c</code> string. When Autocode sees that
+slot, the stage prompt asks the model to return the JSON report as its final
+response (Codex persists it). If the flag is buried in a shell string, Autocode
+asks the model to write the report with a tool, which fails under
+<code>--sandbox read-only</code> and yields empty Requirements contracts with
+<code>REPORT_WRITE</code> blockers (docs/bugs/2026-10-12-gocode-cross-product-fixes.md).</p>
+<pre><code class="language-toml">name = &quot;gocode&quot;
+command = [
+  &quot;sh&quot;, &quot;-c&quot;, &quot;eval \&quot;$(gocode env --shell bash)\&quot; &amp;&amp; exec \&quot;$@\&quot;&quot;, &quot;gocode&quot;,
+  &quot;codex&quot;, &quot;exec&quot;,
+  &quot;-C&quot;, &quot;{workspace}&quot;,
+  &quot;--sandbox&quot;, &quot;{sandbox}&quot;,
+  &quot;--model&quot;, &quot;{model}&quot;,
+  &quot;-c&quot;, &quot;model_reasoning_effort=\&quot;{effort}\&quot;&quot;,
+  &quot;--output-schema&quot;, &quot;{schema}&quot;,
+  &quot;-o&quot;, &quot;{report}&quot;,
+  &quot;-&quot;,
+]
+prompt = &quot;stdin&quot;
+models_command = [&quot;gocode&quot;, &quot;models&quot;]
+version_command = [&quot;gocode&quot;, &quot;--version&quot;]
+
+[roles]
+astra = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
+terra = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;low&quot; }
+sol = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
+completion = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
+glm = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;low&quot; }
+plan_reviewer = { model = &quot;gpt-5.6-luna&quot;, effort = &quot;high&quot; }
+</code></pre>
+<p>In <code>~/.codex/config.toml</code>, under <code>[model_providers.gocode.auth]</code>, set
+<code>timeout_ms = 45000</code> so a slow <code>gocode api-key-helper</code> refresh does not end the
+stage as a bare exit 1. Autocode names that stop as a provider auth-helper
+timeout when the trailing log lines match.</p>
+<p>The scenario harness profile <code>gocode-cross</code> (scenarios/harness/profiles.py) is
+the reliability scorecard route: Luna for requirements and planning, Terra for
+the Builder, Sol for the Plan Reviewer, Validator and Completion Reviewer, Astra
+for the Resolver. Batch the three RELIABILITY.md cases with three repeats each:</p>
+<pre><code class="language-sh">unset OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL
+for scenario in bugfix-iso-weeks greenfield-todo-cli feature-timesheet-by-project; do
+  for n in 1 2 3; do
+    .venv/bin/python scenarios/run.py run &quot;$scenario&quot; --profile gocode-cross \
+      --i-authorize-live-model-spend --out .scenario-runs/gocode-cross-scorecard
+  done
+done
+.venv/bin/python scenarios/run.py stats --out .scenario-runs/gocode-cross-scorecard
+</code></pre>
+<p>Any <code>FALSE_COMPLETE</code> blocks the change under test. A drop in pass rate is
+investigated by re-running the same case on <code>origin/master</code>.</p>
+<h2 id="claude-code-provider">Claude Code provider<a class="headerlink" href="#claude-code-provider" title="Permanent link">&para;</a></h2>
+<p><code>--engine claude</code> (or <code>--provider claude</code>, or <code>engine = "claude"</code> in the <a href="../cli/#project-settings">project
+settings</a>) runs every role through Claude Code (<code>claude -p</code>) with your
+Claude Code login: no OpenCode or Codex install, no API key. It is built in
+(<code>tools/providers/claude.py</code>); <code>--engine claude</code> is the OpenCode engine's facade with the provider
+<code>claude</code>, so the status view shows <code>provider: "claude"</code> and every route's engine <code>opencode</code>.</p>
+<pre><code class="language-sh">claude auth login                     # once, with a Claude subscription
+autocode doctor --engine claude       # claude on PATH and logged in, in the agents' environment
+autocode --engine claude &quot;Add a --json flag to the export command&quot;
+</code></pre>
+<p>Default routes: Sonnet (<code>claude-sonnet-5-5</code>) drafts requirements and plans and tests, Opus
+(<code>claude-opus-5-5</code>) reviews plans, resolves and completes, Haiku (<code>claude-haiku-4-5-20251001</code>) builds;
+every role at effort <code>medium</code>. A stuck Builder's stronger attempt runs Sonnet and its checkers move
+to Opus. The usual <code>--*-model</code> and <code>--*-reasoning-effort</code> flags take these bare ids and the efforts
+<code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> and <code>max</code>.</p>
+<p><strong>How a stage runs.</strong> Each stage is one process:
+<code>python -I tools/providers/claude_stream.py … -- claude -p --output-format stream-json …</code> with the
+stage prompt on standard input. The translator inserts the report schema (<code>--json-schema</code>), reads
+Claude's stream and writes Codex-shaped events to the stage log, so sessions, usage, cost, command
+evidence, the idle watchdog and the output cap work as for any stage. Claude's raw rows (stream deltas
+left out) are kept beside the log as <code>&lt;stage&gt;.claude.jsonl</code>.</p>
+<ul>
+<li><strong>Sessions.</strong> Every stage starts a fresh Claude session: its stage record has
+  <code>expected_session: null</code> and its command no <code>--resume</code>. When a role's earlier session is set aside
+  for this, the record says so (<code>fresh_session_reason</code>); a role's first stage and every
+  joint-planning stage have no earlier session to set aside. Only a same-stage correction (a report
+  that did not parse, or a shell command returned as the report) resumes the stage's own session.</li>
+<li><strong>Reports.</strong> The report is the JSON object Claude Code's StructuredOutput tool accepted. A stage
+  that ends without one gets the same-session format correction, then the bounded report repair.
+  A report Claude Code rejected is never used.</li>
+<li><strong>Evidence.</strong> Every Bash call is a <code>command_execution</code> event with Claude Code's real exit code,
+  cited as <code>event:item_N</code>; capture receipts work too. A command whose exit code Claude Code did not
+  report (moved to the background, interrupted, timed out, denied, or an unrecognized result) has
+  exit code <code>null</code> and is never evidence: run it again in the foreground.</li>
+<li><strong>Tools and permissions.</strong> The same <code>--tools Bash,Read,Edit,Write,Glob,Grep</code> on every stage, no MCP
+  servers (<code>--strict-mcp-config</code>), no skills (<code>--disable-slash-commands</code>), project settings only
+  (<code>--setting-sources project</code>). Edit and Write are pre-approved unless the stage's sandbox is
+  read-only (planning stages); judging stages keep them, and the after-stage snapshot catches a
+  judge's source edit. <code>git commit</code>, <code>push</code>, <code>checkout</code>, <code>reset</code>, <code>stash</code>, <code>branch</code>, <code>rebase</code> and
+  <code>merge</code> are denied.</li>
+<li><strong>Login.</strong> Before every stage of a joint-planning run, after <code>--accept-transport-change</code>, and in
+  doctor, <code>claude auth status --json</code> runs in the agents' environment and must report a first-party
+  Claude subscription login (<code>claude.ai</code> or <code>oauth_token</code>). An API key (<code>ANTHROPIC_API_KEY</code>,
+  <code>ANTHROPIC_AUTH_TOKEN</code>, an <code>apiKeyHelper</code>), Bedrock or Vertex is refused
+  (<code>PAUSED_BILLING_ROUTE</code>); a variable only in your own shell is fine, because the agent scrub withholds
+  it. <code>auth status</code> does not apply an untrusted project's settings, while <code>claude -p</code> trusts them, so
+  before every stage, at run start and in doctor the project's <code>.claude/settings.json</code> is read too: one
+  that sets <code>apiKeyHelper</code>, <code>awsAuthRefresh</code>, <code>awsCredentialExport</code> or <code>gcpAuthRefresh</code>, or an <code>env</code>
+  entry for an Anthropic API key, auth token or base URL, <code>CLAUDE_CODE_USE_*</code> or
+  <code>CLAUDE_CODE_OAUTH_TOKEN</code>, is refused, and so is one that is not valid JSON. A stage whose Claude
+  Code still reports an API key source (<code>apiKeySource</code> in its first row) is stopped at once and pauses
+  <code>PAUSED_BILLING_ROUTE</code>. A setup token reaches Claude Code only through
+  <code>AUTOCODE_PASS_ENV=CLAUDE_CODE_OAUTH_TOKEN</code>. The account's email and organization are never stored
+  or printed. <code>auth status</code> is necessary, not sufficient: the stage's own call proves it authenticates.</li>
+<li><strong>Environment.</strong> The agent environment, minus ten variables that would tie the child to a parent
+  Claude Code session (<code>CLAUDE_CODE_SESSION_ID</code>, <code>CLAUDE_CODE_REMOTE_SESSION_ID</code>,
+  <code>CLAUDE_CODE_CHILD_SESSION</code>, <code>CLAUDE_CODE_DEBUG</code>, <code>CLAUDE_CODE_DIAGNOSTICS_FILE</code>,
+  <code>CLAUDE_CODE_TEE_SDK_STDOUT</code>, <code>CLAUDE_CODE_MESSAGING_SOCKET</code>, <code>CLAUDE_EFFORT</code>,
+  <code>CLAUDE_AUTO_BACKGROUND_TASKS</code>, <code>CLAUDE_CODE_ENTRYPOINT</code>), plus <code>DISABLE_AUTOUPDATER=1</code>.</li>
+<li><strong>Identity.</strong> A saved run records the launch policy (hashed), the resolved <code>claude</code>, its version, a
+  hash of <code>&lt;workspace&gt;/.claude/settings.json</code> and hashes of <code>ANTHROPIC_BASE_URL</code> and
+  <code>CLAUDE_CONFIG_DIR</code>. A change pauses it with <code>PAUSED_TRANSPORT_CHANGED</code>; after a <code>claude</code> update,
+  <code>autocode resume --accept-transport-change</code> re-checks the login and continues.
+  <code>CLAUDE_CODE_MAX_OUTPUT_TOKENS</code> is not part of it.</li>
+<li><strong>Cost.</strong> Each stage's reported cost is that call's share of Claude Code's <code>total_cost_usd</code>
+  (list price, not your subscription's spend). Claude reports a session's total, so a resumed call
+  subtracts what the session had already cost (a ledger under the run's <code>claude-sessions/</code>); when
+  that is unknown the stage falls back to the dated price estimate.</li>
+</ul>
+<p><strong>Stops.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Claude Code says</th>
+<th>The run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Output token limit (<code>max_output_tokens</code>)</td>
+<td><code>PAUSED_OUTPUT_CAP</code>; a truncated Tester or Completion report is repaired automatically. Raise <code>CLAUDE_CODE_MAX_OUTPUT_TOKENS</code> or name another model.</td>
+</tr>
+<tr>
+<td>Context window limit</td>
+<td><code>PAUSED_PROVIDER_UNCERTAIN</code> (never an output cap)</td>
+</tr>
+<tr>
+<td>Subscription usage limit, spend limit, billing</td>
+<td><code>PAUSED_BUDGET</code> (with the reset time when Claude gave one)</td>
+</tr>
+<tr>
+<td>Rate limit (429)</td>
+<td><code>PAUSED_RATE_LIMIT</code></td>
+</tr>
+<tr>
+<td>Overloaded (529)</td>
+<td><code>PAUSED_PROVIDER_CAPACITY</code></td>
+</tr>
+<tr>
+<td>Refusal</td>
+<td><code>PAUSED_CONTENT_FILTER</code></td>
+</tr>
+<tr>
+<td>Authentication (401/403)</td>
+<td><code>PAUSED_PROVIDER_UNCERTAIN</code>, naming any withheld variables; run <code>claude auth login</code></td>
+</tr>
+<tr>
+<td>An API key source in its first row (<code>apiKeySource</code>)</td>
+<td><code>PAUSED_BILLING_ROUTE</code>; Claude Code is stopped before the stage runs</td>
+</tr>
+<tr>
+<td>Anything else, a cut stream, a start failure</td>
+<td><code>PAUSED_PROVIDER_UNCERTAIN</code>, no automatic replay</td>
+</tr>
+</tbody>
+</table>
+<p>The model's own words never classify a stop, and nothing is retried automatically (Claude Code
+retries API errors itself). Rejections of a report that did not parse read "OpenCode final message is
+not a JSON report" for every event-mode provider.</p>
+<p><strong>The name <code>claude</code> is reserved.</strong> <code>--provider claude</code> always selects the built-in provider; a user
+<code>~/.config/autocode/providers/claude.toml</code> (the retired example) is ignored and doctor names it. A run
+started with that example resolves to the built-in on resume and pauses <code>PAUSED_TRANSPORT_CHANGED</code> at
+its next stage; resume it with <code>--accept-transport-change</code>.</p>
+<p><strong>Limits.</strong> No kernel tool containment (Claude Code's permission flags and the workspace snapshot
+checks apply); no verified visual evidence; no <code>--task-preflight</code>; no hybrid split by stage; no replay
+of recorded Claude runs; no Investigator report adoption; <code>autocode models</code> lists nothing for the bare
+ids. <code>program</code>, <code>components</code> and <code>verify</code> take <code>--provider claude</code> rather than <code>--engine claude</code>;
+<code>tasks</code> has neither and runs its lanes on Claude Code through <code>AUTOCODE_PROVIDER=claude</code>,
+<code>default_provider = "claude"</code> or the project's <code>engine = "claude"</code>. Claude Code loads <code>CLAUDE.md</code> files of the workspace and its ancestors, so keep a
+scenario's <code>--out</code> outside this repository. In a root cloud container, prefix runs with
+<code>setpriv --bounding-set=-sys_admin,-sys_ptrace</code> (<a href="https://github.com/charlieanna/autocode/blob/20041443fe5f0d1301b0a92875ebf1e9b0924917/examples/claude-provider/CLOUD-SESSION.md">cloud sessions</a>).</p>
+<h2 id="add-a-tool">Add a tool<a class="headerlink" href="#add-a-tool" title="Permanent link">&para;</a></h2>
+<p>OpenCode and Claude Code are built in. Any other tool registers with one TOML file, not a Python
+package. <code>--provider &lt;name&gt;</code> loads <code>~/.config/autocode/providers/&lt;name&gt;.toml</code> and,
+if that file is absent, the bundled example at <code>tools/providers/configs/&lt;name&gt;.toml</code>.
+Configs inside a project are not loaded. The names <code>opencode</code> and <code>claude</code> are reserved for the built-in
+providers; a user config with either name is never read. <a href="#kilocode">KiloCode</a> is a worked example.</p>
+<pre><code class="language-toml">name = &quot;kilocode&quot;
+command = [&quot;kilo&quot;, &quot;run&quot;, &quot;--auto&quot;, &quot;--dir&quot;, &quot;{workspace}&quot;, &quot;--model&quot;, &quot;{model}&quot;, &quot;--variant&quot;, &quot;{effort}&quot;, &quot;--format&quot;, &quot;json&quot;]
+prompt = &quot;stdin&quot;                        # or &quot;file&quot; (uses {prompt_file})
+output = &quot;opencode_events&quot;              # or &quot;report_file&quot;; see below
+resume = [&quot;--session&quot;, &quot;{session}&quot;]     # optional; enables saved sessions
+models_command = [&quot;kilo&quot;, &quot;models&quot;]     # optional; or a static list: models = [...]
+version_command = [&quot;kilo&quot;, &quot;--version&quot;]
+
+[roles]
+astra = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+terra = { model = &quot;openai/gpt-5.6-terra&quot;, effort = &quot;medium&quot; }
+sol = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+completion = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;medium&quot; }
+glm = { model = &quot;zhipuai-coding-plan/glm-5.3&quot;, effort = &quot;medium&quot; }
+plan_reviewer = { model = &quot;openai/gpt-6-sol&quot;, effort = &quot;high&quot;, light_effort = &quot;medium&quot; }
+</code></pre>
+<p>For clear, small tasks the Plan Reviewer may use <code>light_effort</code> (or one lower
+standard effort tier) only when a new run used an automatic/default effort.
+An explicit reviewer effort, including a project effort setting, wins. Saved
+runs without effort provenance retain their existing effort on upgrade; model
+pins alone do not establish effort provenance. The review-call allowance still
+applies independently of this effort choice.</p>
+<p><code>[roles]</code> must keep each verifier on a different model family from what it checks
+(Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
+roles break that pauses with <code>PAUSED_CROSS_MODEL</code> before any agent is launched.</p>
+<p>Placeholders are <code>{model}</code>, <code>{effort}</code>, <code>{workspace}</code>, <code>{report}</code>, <code>{schema}</code>,
+<code>{prompt_file}</code>, <code>{run_dir}</code>, <code>{role}</code>, and <code>{sandbox}</code>. The opt-in Codex
+artifact adapter below adds the standalone <code>{sandbox_args}</code> argv splice. <code>{sandbox}</code> is
+<code>read-only</code> for planning, <code>workspace-write</code> for the builder, and
+<code>workspace-write</code> for the judging stages (Validator, Completion Owner,
+milestone checkpoint): their contract requires writing runner-owned
+operational files under <code>.autocode/</code> (capture receipts, reports), which
+<code>read-only</code> forbids. Their source contract stays enforced by the runner's
+after-stage workspace snapshot, not by the sandbox.
+<code>{effort}</code> reaches the tool only if the command uses it.
+Use <code>{{</code> and <code>}}</code> for literal braces in a command argument, such as
+<code>${{VAR}}</code> or <code>{{"key":1}}</code>; single braces are reserved for placeholders.
+Changing the config file or the tool version pauses a saved run.</p>
+<h3 id="a-different-tool-for-one-role">A different tool for one role<a class="headerlink" href="#a-different-tool-for-one-role" title="Permanent link">&para;</a></h3>
+<p>For a <strong>new</strong> run on <code>--engine opencode --provider opencode</code>, repeat
+<code>--role-transport ROLE=PROVIDER</code> to select an external configured tool for only
+those roles. <code>ROLE</code> is the existing CLI code name, such as <code>sol</code> or <code>completion</code>;
+<code>PROVIDER</code> names its registered TOML config, such as <code>kilocode</code>. Each selection
+requires an explicit corresponding model flag. Select its exact model ID from
+that tool's catalogue, including a bare ID when the tool publishes one:</p>
+<pre><code class="language-sh">autocode models --provider opencode
+autocode models --provider kilocode
+# Replace the placeholder with an ID actually offered by the second catalogue.
+autocode &quot;Your task&quot; --engine opencode --provider opencode \
+  --role-transport sol=kilocode --sol-model '&lt;MODEL_FROM_KILO_CATALOGUE&gt;' \
+  --sol-reasoning-effort high
+</code></pre>
+<p>The other roles retain their routes selected by the ordinary model flags and
+OpenCode defaults. Roles derived mid-run (such as Analyst, Investigator, Architect,
+Acceptance Tester, Resolver, Stuck Investigator, or Utility) inherit the external
+tool transport identity bound to their source role when their own route is on that
+tool. A derived role whose own route stays on the run's tool, such as a Resolver
+given its own <code>--resolver-model</code> on OpenCode, inherits nothing and runs there. Keep the GLM and MiMo role flags when using a profile that
+assigns them requirements, planning, building, plan review or resolution; a
+role selection does not assign every role to the new tool. Each tool checks
+only its own selected models and auth routes. At build start, the model-access
+probe covers every tool whose config declares <code>[auth]</code> billing routes, including
+a selected tool when the run's own tool declares none. It sends each role's model
+only through the tool that runs that role. Before the first request, it checks
+the login of each of those tools that still has a model to probe; a tool whose
+models all passed earlier in the run is not probed again. A pass on one tool
+never counts for the same model on another. Independent verification and all
+ordinary approval, evidence and completion gates still apply.</p>
+<p>The binding is immutable once the run starts. Do not repeat <code>--role-transport</code>
+when advancing or reattaching with <code>TaskRun</code>; pass it in <code>start_options</code> only.
+A missing or mismatched saved identity cannot fall back to the default tool.
+Changes to a bound config fingerprint, executable path or version pause rather than move its
+session to another tool; <code>--accept-transport-change</code> does not replace these
+bindings. This selection cannot combine with <code>--single-model</code> or recorded
+replay.</p>
+<p>Ordinary transport compatibility does <strong>not</strong> qualify a tool for native role
+isolation or image acceptance. Those flows still require their exact supported
+native owner and independently verified containment/image transport. Registered
+Kilo roles remain refused by those guards until such qualification exists; a
+model appearing in its catalogue is insufficient. Check the concrete tool/model
+pair with <a href="../provider-conformance/">provider conformance</a> before relying on it.</p>
+<h3 id="builder-retry-on-a-tool">Builder retry on a tool<a class="headerlink" href="#builder-retry-on-a-tool" title="Permanent link">&para;</a></h3>
+<p>A Builder that keeps failing a milestone gets one ordinary retry and then one stronger
+attempt (<a href="../models/#builder-retry-policy">Models</a>). By default that attempt runs GPT-6 Sol,
+and a checker on GPT-6 Sol moves to GLM; a tool whose model list (<code>models</code> or <code>models_command</code>)
+lacks GPT-6 Sol, or lacks GLM while a checker would move to it, gets only one more ordinary retry
+instead. A tool that serves other models names its own in an optional
+<code>[builder_retry]</code> table (the built-in claude provider uses the same policy: Sonnet, checked by Opus):</p>
+<pre><code class="language-toml">[builder_retry]
+strong_model = &quot;claude-sonnet-5-5&quot;   # the Builder's stronger attempt
+checker_model = &quot;claude-opus-5-5&quot;    # a Tester or Completion Reviewer on strong_model moves here
+strong_effort = &quot;xhigh&quot;              # optional; xhigh when left out
+</code></pre>
+<p>Both models are the tool's own spelling. When the config lists <code>models</code>, both must be in
+it. <code>strong_model</code> must differ from the <code>[roles]</code> Builder's model, and <code>checker_model</code> must be
+neither <code>strong_model</code> nor another model of its GLM or MiMo family; a config that breaks either
+is refused when it loads. A new run takes the
+table when it is created (<code>--builder-strong-model</code> still wins). A Builder that already runs
+the strong model makes its stronger attempt on that model at <code>strong_effort</code>. When the stronger attempt
+starts, a Tester or Completion Reviewer that runs the strong model moves to <code>checker_model</code>
+until the next milestone, as does one on another model of the strong model's GLM or MiMo family.
+When the Builder's model has no <code>provider/</code> prefix it moves only when it runs the strong model
+in the tool's spelling (or such a family member), is neither pinned nor on another provider, and
+<code>checker_model</code> is a model the run already routes a role to; otherwise the run pauses with
+<code>PAUSED_BUILDER_RETRY_LIMIT</code> before changing any route. A config without the table keeps the
+default models, and <code>provider/model</code> names such as KiloCode's keep the earlier rule (a checker
+that cannot move is left for the cross-model guard). Adding or changing the table
+changes the config file, so saved runs on that tool stop with <code>PAUSED_TRANSPORT_CHANGED</code> at
+their next stage: change it between runs.</p>
+<h3 id="output-modes">Output modes<a class="headerlink" href="#output-modes" title="Permanent link">&para;</a></h3>
+<p><code>output</code> says how the result comes back:</p>
+<ul>
+<li><code>output = "report_file"</code> (the default): the tool writes exactly one JSON object
+  to <code>{report}</code>, as <code>codex exec -o</code> does. Every stage starts fresh. Command
+  evidence is a <code>capture_command</code> receipt file, not an <code>event:</code> id. These tools
+  need supported usage events for token accounting; otherwise those counts
+  remain unknown in the usage ledger.</li>
+<li><code>output = "opencode_events"</code>: the tool prints OpenCode-format JSON events, as
+  <code>opencode run --format json</code> and <code>kilo run --format json</code> do. Autocode reads
+  the final report, token usage and command exit codes from those events, and
+  resumes each role's session with the required <code>resume</code> template, for example
+  <code>resume = ["--session", "{session}"]</code>.</li>
+</ul>
+<p>Every structured handoff for these output modes includes an executable
+<code>capture_command</code>, including standalone review, design, discuss and investigation
+jobs. Models append <code>--output .autocode/evidence/&lt;unique-name&gt;.json -- &lt;command&gt;</code>
+to that value. It uses the public <code>autocode.py capture</code> entry point; the
+<code>autocode_capture_command.py</code> implementation module is not a standalone command.
+An existing handoff command and its explicit output mode are preserved; the
+supplied default inherits the runner's output-mode environment. This supplies
+tool context without granting additional filesystem permissions.</p>
+<p>The runner can fill an omitted check exit code from a unique executed event or
+the cited, verified capture receipt before checking the unchanged report schema.
+It never replaces a supplied exit code, guesses from output text, or resolves
+ambiguous executions. The original report is retained as <code>.reported.json</code>, and
+the stage records the derived metadata. Nonzero exits remain failures.
+For <code>report_file</code> tools, capture commands must inherit <code>AUTOCODE_CAPTURE_CONTEXT</code>
+from the tool process: the capture helper records it automatically and the
+validator checks it against the saved attempt. Receipts from another attempt,
+missing capture context, or changed output hashes are rejected. Event providers
+continue to require their independent tool-event attestation.</p>
+<p>A stage log holds the tool's stdout and stderr. When a tool exits with an error,
+AutoCode reads the provider's reason from its <code>error</code> and <code>turn.failed</code> JSON
+events and from the plain-text error lines (<code>ERROR: …</code>, <code>Error: …</code>) that end the
+log, as <code>codex exec</code> without <code>--json</code> prints them. So
+<code>ERROR: exceeded retry limit, last status: 429 Too Many Requests</code> stops the stage
+as a rate limit, and a used-up plan or a busy model as a quota or capacity stop
+(<a href="../models/#when-a-roles-quota-runs-out">Models</a>). Tool output earlier in the log
+is never read as the provider's error, even when it mentions 429.</p>
+<h3 id="codex-commands-that-write-capture-receipts">Codex commands that write capture receipts<a class="headerlink" href="#codex-commands-that-write-capture-receipts" title="Permanent link">&para;</a></h3>
+<p>A registered <code>report_file</code> command that passes <code>--sandbox read-only</code> to Codex
+cannot create AutoCode's required capture receipts. For that command, opt in to
+<code>sandbox_adapter = "codex_artifacts"</code> and replace the legacy sandbox flag and
+<code>{sandbox}</code> value with the standalone <code>{sandbox_args}</code> argument:</p>
+<p>This adapter permits <code>-C</code>/<code>--cd</code> only with the exact <code>{workspace}</code> binding; literal
+or derived destinations and other sandbox/worktree overrides are refused before
+launch. Config arguments must use a valid <code>key=value</code> override, with policy and
+project-trust keys reserved for the adapter. JSON blobs are not config overrides.</p>
+<pre><code class="language-toml">name = &quot;codex_receipts&quot;
+sandbox_adapter = &quot;codex_artifacts&quot;
+command = [&quot;codex&quot;, &quot;exec&quot;, &quot;--ephemeral&quot;, &quot;{sandbox_args}&quot;, &quot;-C&quot;, &quot;{workspace}&quot;, &quot;--model&quot;, &quot;{model}&quot;, &quot;-c&quot;, &quot;model_reasoning_effort=\&quot;{effort}\&quot;&quot;, &quot;-c&quot;, &quot;approval_policy=\&quot;never\&quot;&quot;, &quot;-c&quot;, &quot;forced_login_method=\&quot;chatgpt\&quot;&quot;, &quot;--output-schema&quot;, &quot;{schema}&quot;, &quot;-o&quot;, &quot;{report}&quot;, &quot;--json&quot;, &quot;-&quot;]
+prompt = &quot;stdin&quot;
+output = &quot;report_file&quot;
+version_command = [&quot;codex&quot;, &quot;--version&quot;]
+
+[roles]
+astra = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
+terra = { model = &quot;gpt-6-luna&quot;, effort = &quot;medium&quot; }
+sol = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
+completion = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
+glm = { model = &quot;gpt-6-luna&quot;, effort = &quot;medium&quot; }
+plan_reviewer = { model = &quot;gpt-6-sol&quot;, effort = &quot;medium&quot; }
+
+[auth]
+command = [&quot;codex&quot;, &quot;login&quot;, &quot;status&quot;]
+forbid_env = [&quot;OPENAI_API_KEY&quot;, &quot;CODEX_API_KEY&quot;, &quot;OPENAI_BASE_URL&quot;]
+[[auth.routes]]
+models = &quot;gpt-&quot;
+pattern = &quot;(?m)^Logged in using (ChatGPT)$&quot;
+expect = &quot;ChatGPT&quot;
+</code></pre>
+<p>Save this as <code>~/.config/autocode/providers/codex_receipts.toml</code>, then select it
+with <code>autocode "Your task" --provider codex_receipts</code>. Choose models available
+to your login. Registered command providers synthesize Requirements defaults
+from the config's own <code>glm</code> model and effort. For a new provider-configured task,
+<code>--glm-model</code> overrides the model for both Planner and Requirements;
+<code>--requirements-model</code> wins for Requirements when given. The provider's Requirements reasoning default stays
+independent of <code>--glm-reasoning-effort</code>; use <code>--requirements-reasoning-effort</code> to
+change it. OpenCode keeps its separately defined Requirements defaults when
+neither model override is given.</p>
+<p>An existing Requirements route keeps its saved model when <code>--glm-model</code> changes
+the Planner. Enabling joint planning at a supported migration boundary uses the
+same fallback only when creating a missing Requirements route. Pass
+<code>--requirements-model</code> to explicitly change that role, or <code>--single-model</code> on a
+new run to move every role.</p>
+<p>This adapter requires <strong>Codex CLI 0.160.0 or later</strong>, checked before a model
+request. For planning and review it selects a named permission profile derived
+from <code>:read-only</code>, adding writes only to the workspace's <code>.autocode/evidence/</code>,
+<code>.autocode/output/</code>, and the exact assigned stage JSON report. The Builder keeps
+<code>workspace-write</code>. Codex's <code>-o</code> option saves the final JSON response; the model
+still runs actual capture commands to produce independently checked receipts.
+No permission answer automatically changes this profile.</p>
+<p><strong>Opting in passes <code>--ignore-user-config</code> to each Codex invocation.</strong> Global files
+are untouched and the stored login is reused, but user-level configuration,
+plugins, MCP servers and provider defaults are omitted. Supply any required,
+compatible options explicitly in the command. Managed requirements still apply.
+Do not combine the adapter with legacy sandbox flags, additional writable roots,
+configuration profiles or permission-policy overrides. The adapter rejects those
+combinations instead of silently overriding a policy.</p>
+<p>Operational paths must be canonical and unaliased. Pre-existing symlinks,
+hard-linked files and special files in the writable operational directories are
+rejected before launch; AutoCode does not delete or rewrite them. A stage report
+must be a JSON file under the run's <code>iterations/</code> directory. Existing source
+snapshot, receipt identity, hash, regression-proof and completion checks still
+apply. Language tools that need additional caches must use an allowed operational
+path or a separately configured provider; this adapter does not grant arbitrary
+cache directories.</p>
+<p>Existing provider configs and <code>--engine codex</code> keep their configuration semantics.
+Changing a saved run's provider config triggers its existing transport-change
+pause; inspect and accept that change through the public recovery command.
+Permission-profile behavior has been exercised on macOS with Codex 0.160.0;
+other platform/version combinations need their own conformance check.</p>
+<h3 id="auth-checks">Auth checks<a class="headerlink" href="#auth-checks" title="Permanent link">&para;</a></h3>
+<p>A tool can declare how its subscription login is checked. Without an <code>[auth]</code>
+table Autocode does not inspect the tool's login. With one, before an OpenAI
+role starts, Autocode runs <code>command</code>, strips terminal color codes, and requires
+every match of <code>pattern</code> to equal <code>expect</code>. A mismatch, a failed listing, or a
+variable in <code>forbid_env</code> pauses the run with <code>PAUSED_BILLING_ROUTE</code> before any
+model is called:</p>
+<pre><code class="language-toml">[auth]
+command = [&quot;kilo&quot;, &quot;auth&quot;, &quot;list&quot;]
+forbid_env = [&quot;OPENAI_API_KEY&quot;, &quot;CODEX_API_KEY&quot;, &quot;OPENAI_BASE_URL&quot;]
+
+[[auth.routes]]
+models = &quot;openai/&quot;
+name = &quot;OpenAI&quot;
+billing = &quot;subscription&quot;
+pattern = &quot;^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$&quot;
+expect = &quot;oauth&quot;
+</code></pre>
+<p>A route may also carry <code>name</code> (the login name the tool itself prints; defaults to
+the prefix) and <code>billing</code> (<code>"subscription"</code> or <code>"pay per token"</code>; unknown when
+unset). These feed automatic route selection (#1426): the discovery step reads the
+same listing to learn which accounts are connected and which models each one can
+bill, so a model no connected login serves is never offered to the selector. A
+command template whose <code>{effort}</code> arguments (like Kilo's <code>--variant {effort}</code>) get
+no reasoning level omits those arguments instead of passing an empty value, and the
+model uses its own default level.</p>
+<p>A tool that reports a subscription usage limit or runs out of pay-as-you-go
+credit pauses the run with <code>PAUSED_BUDGET</code>.</p>
+<h3 id="kilocode">KiloCode<a class="headerlink" href="#kilocode" title="Permanent link">&para;</a></h3>
+<p><code>tools/providers/configs/kilocode.toml</code> is bundled. It runs <code>kilo run --auto</code>.
+Its default routes use ChatGPT OAuth for <code>openai/...</code>, Zhipu AI Coding Plan for
+<code>zhipuai-coding-plan/...</code>, and Alibaba Token Plan for <code>alibaba-token-plan/...</code>.
+Optional <code>zai-coding-plan/...</code> and <code>kilo/...</code> routes require their separate
+Z.AI Coding Plan <code>api</code> and Kilo Gateway <code>oauth</code> logins. Check <code>kilo models</code> and
+<code>kilo auth list</code> for your installed version and configured account; distinct
+provider names are not credential aliases. Connect the routes you select with
+<code>kilo auth</code> first. The plan reviewer is GPT-5.6 Sol here because Kilo has no
+Cursor ACP route:</p>
+<pre><code class="language-toml">name = &quot;kilocode&quot;
+command = [&quot;kilo&quot;, &quot;run&quot;, &quot;--auto&quot;, &quot;--dir&quot;, &quot;{workspace}&quot;, &quot;--model&quot;, &quot;{model}&quot;, &quot;--variant&quot;, &quot;{effort}&quot;, &quot;--format&quot;, &quot;json&quot;]
+prompt = &quot;stdin&quot;
+output = &quot;opencode_events&quot;
+resume = [&quot;--session&quot;, &quot;{session}&quot;]
+models_command = [&quot;kilo&quot;, &quot;models&quot;]
+version_command = [&quot;kilo&quot;, &quot;--version&quot;]
+
+[roles]
+astra = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+terra = { model = &quot;openai/gpt-5.6-terra&quot;, effort = &quot;medium&quot; }
+sol = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+completion = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;medium&quot; }
+glm = { model = &quot;zhipuai-coding-plan/glm-5.3&quot;, effort = &quot;medium&quot; }
+plan_reviewer = { model = &quot;openai/gpt-5.6-sol&quot;, effort = &quot;high&quot; }
+
+[auth]
+command = [&quot;kilo&quot;, &quot;auth&quot;, &quot;list&quot;]
+forbid_env = [&quot;OPENAI_API_KEY&quot;, &quot;CODEX_API_KEY&quot;, &quot;OPENAI_BASE_URL&quot;]
+
+[[auth.routes]]
+models = &quot;openai/&quot;
+pattern = &quot;^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$&quot;
+expect = &quot;oauth&quot;
+
+[[auth.routes]]
+models = &quot;alibaba-token-plan/&quot;
+pattern = &quot;^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$&quot;
+expect = &quot;api&quot;
+
+# Each coding plan keeps its own login and quota; the gateway is an explicit paid route.
+[[auth.routes]]
+models = &quot;zai-coding-plan/&quot;
+pattern = &quot;^\\s*[●•]\\s+Z\\.AI Coding Plan\\s+(\\S+)\\s*$&quot;
+expect = &quot;api&quot;
+
+[[auth.routes]]
+models = &quot;zhipuai-coding-plan/&quot;
+pattern = &quot;^\\s*[●•]\\s+Zhipu AI Coding Plan\\s+(\\S+)\\s*$&quot;
+expect = &quot;api&quot;
+
+[[auth.routes]]
+models = &quot;kilo/&quot;
+pattern = &quot;^\\s*[●•]\\s+Kilo Gateway\\s+(\\S+)\\s*$&quot;
+expect = &quot;oauth&quot;
+</code></pre>
+<p>Copy it to <code>~/.config/autocode/providers/kilocode.toml</code> to change models or
+reasoning levels. Select an ID published by your <code>kilo models</code> whose prefix is
+declared in <code>[auth]</code> and whose login passes the check. Available model prefixes
+and login rows depend on your Kilo installation and configured account.
+If a selected model matches no configured route, <code>PAUSED_BILLING_ROUTE</code> lists
+those routed prefixes before running the login check. Choose a published model
+with one of those prefixes; add a route only when you intend to configure it.
+The message lists your loaded configuration, including user-defined routes.
+<code>kilo/...</code> IDs bill the Kilo Gateway pay-as-you-go account instead of a
+subscription. The <code>[auth]</code> table above runs <code>kilo auth list</code> before a role on any declared route and pauses with
+<code>PAUSED_BILLING_ROUTE</code> if its own login is absent or has the wrong mode:</p>
+<table>
+<thead>
+<tr>
+<th>Model prefix</th>
+<th>Kilo login</th>
+<th>Required mode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>openai/</code></td>
+<td>OpenAI</td>
+<td><code>oauth</code></td>
+</tr>
+<tr>
+<td><code>alibaba-token-plan/</code></td>
+<td>Alibaba Token Plan</td>
+<td><code>api</code></td>
+</tr>
+<tr>
+<td><code>zai-coding-plan/</code></td>
+<td>Z.AI Coding Plan</td>
+<td><code>api</code></td>
+</tr>
+<tr>
+<td><code>zhipuai-coding-plan/</code></td>
+<td>Zhipu AI Coding Plan</td>
+<td><code>api</code></td>
+</tr>
+<tr>
+<td><code>kilo/</code></td>
+<td>Kilo Gateway</td>
+<td><code>oauth</code></td>
+</tr>
+</tbody>
+</table>
+<p>Each coding plan uses its separate login; a gateway login does not satisfy a
+coding-plan route. A missing <code>Kilo Gateway oauth</code> row refuses Gateway calls.
+For these routes the check also refuses a set
+<code>OPENAI_API_KEY</code>, <code>CODEX_API_KEY</code>, or <code>OPENAI_BASE_URL</code>. When <code>[auth]</code> declares
+routes, every selected model must match a declared prefix; add an
+<code>[[auth.routes]]</code> entry for another vendor before using it.</p>
+<p>The bundled command uses Kilo's <code>--auto</code> for noninteractive stages: ordinary
+permission requests are approved once; effective explicit <code>deny</code> rules in
+Kilo's configuration and selected agent still block the tool. AutoCode does
+not replace that permission configuration or enable Kilo's permission-bypass
+flags. Without <code>--auto</code>, Kilo rejects the first request and exits with an
+auto-rejected-permission error. If you copied an older provider config to
+<code>~/.config/autocode/providers/kilocode.toml</code>, add <code>--auto</code> to its command too;
+the bundled update does not replace your custom file. AutoCode's plan approvals,
+human reviews and recovery choices still require their own user input.</p>
+<p>This command does not establish an OS sandbox or native read-only planning
+policy. A read-only stage that edits source is caught afterwards by AutoCode's
+workspace snapshot check and pauses; use explicit Kilo permission restrictions
+for operations that must be blocked before execution. See Kilo's
+<a href="https://kilo.ai/docs/code-with-ai/platforms/cli#permissions">permission reference</a>.</p>
+<p>The <code>alibaba-token-plan/</code> route serves that login's own plan rather than the
+Gateway: Qwen (<code>qwen3.8-max</code>, <code>qwen3.7-plus</code>, <code>qwen3.6-flash</code> and the rest of
+<code>kilo models</code>' <code>alibaba-token-plan/</code> list), and on the same login DeepSeek, GLM,
+Kimi and MiniMax. Because one login reaches several vendors, a Builder and the
+Tester that checks it can be different model families, which is what the
+cross-model guard is for.</p>
+<h3 id="default-provider">Default provider<a class="headerlink" href="#default-provider" title="Permanent link">&para;</a></h3>
+<p>New runs use OpenCode unless you choose otherwise. <code>--provider &lt;name&gt;</code> picks the
+tool for one run. To change the default for every new run and for the dashboard,
+set <code>AUTOCODE_PROVIDER=kilocode</code> or add this to <code>~/.config/autocode/config.toml</code>:</p>
+<pre><code class="language-toml">default_provider = &quot;kilocode&quot;
+</code></pre>
+<p>A saved run keeps the provider it started with, and <code>--engine codex</code> runs still
+use Codex. <code>autocode-dashboard --provider &lt;name&gt;</code> overrides the default for the
+dashboard; its model pickers list that tool's models.</p>
+<p>See also: <a href="../models/">Models</a> · <a href="../install/">Install</a> · <a href="../cli/">CLI</a></p>
+<h2 id="conformance-matrix">Conformance matrix<a class="headerlink" href="#conformance-matrix" title="Permanent link">&para;</a></h2>
+<!-- BEGIN provider conformance matrix -->
+
+<p>Generated by <code>python tools/provider_matrix.py --write</code> from
+<a href="https://github.com/charlieanna/autocode/blob/20041443fe5f0d1301b0a92875ebf1e9b0924917/tools/provider-matrix.json">tools/provider-matrix.json</a>. Do not edit by hand.
+A version the offline conformance suite has not been run against is
+<code>untested</code> — never guess. Run the suite with
+<code>python tools/provider_conformance.py --fake</code> (no model calls).</p>
+<table>
+<thead>
+<tr>
+<th>Engine</th>
+<th>Version</th>
+<th>Transport</th>
+<th>Containment</th>
+<th>Visual</th>
+<th>Result</th>
+<th>Date</th>
+<th>Commit</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>opencode</td>
+<td>1.18.33</td>
+<td>opencode</td>
+<td>qualified</td>
+<td>qualified</td>
+<td>known-good</td>
+<td>2026-10-08</td>
+<td><code>a8852cf4</code></td>
+<td>The version the glm53-mimo three-case reliability sweep ran on (docs/bugs/2026-10-06-opencode-2.md).</td>
+</tr>
+<tr>
+<td>opencode</td>
+<td>1.18.31</td>
+<td>opencode</td>
+<td>untested</td>
+<td>untested</td>
+<td>known-good</td>
+<td>2026-10-01</td>
+<td><code>68e89aa4</code></td>
+<td>Live-checked in the 2026-10-01 glm53-openai sweep; containment/visual stay qualified only for 1.18.33.</td>
+</tr>
+<tr>
+<td>opencode</td>
+<td>2.0.20</td>
+<td>opencode-standalone</td>
+<td>refused</td>
+<td>refused</td>
+<td>accepted-for-ordinary-runs</td>
+<td>2026-10-06</td>
+<td><code>9a31a8e8</code></td>
+<td>Uses --standalone and a provider/model#effort id. A 2.x binary fails the containment and visual checks closed until it has its own conformance pass (docs/bugs/2026-10-06-opencode-2.md).</td>
+</tr>
+<tr>
+<td>codex</td>
+<td>native</td>
+<td>codex</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>known-good</td>
+<td>2026-10-03</td>
+<td><code>b96a633e</code></td>
+<td>Native Codex probes in docs/provider-conformance.md; ChatGPT login required.</td>
+</tr>
+<tr>
+<td>kilocode</td>
+<td>registered-adapter</td>
+<td>kilocode</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>known-good</td>
+<td>2026-10-03</td>
+<td><code>b96a633e</code></td>
+<td>Registered KiloCode adapter; see docs/provider-conformance.md.</td>
+</tr>
+</tbody>
+</table>
+<!-- END provider conformance matrix -->
+
+<h3 id="connection-setup-and-company-backends">Connection setup and company backends<a class="headerlink" href="#connection-setup-and-company-backends" title="Permanent link">&para;</a></h3>
+<p><code>autocode connections list --json</code> lists built-in Kilo, OpenCode and Claude Code
+and user-registered providers. <code>connections check --provider NAME --json</code> checks
+credentials without model traffic. <code>connections login --provider NAME</code> opens the
+backend's own interactive sign-in. AutoCode does not store a second copy of keys,
+SSO sessions, or AWS credentials. Kilo/OpenCode login lets the backend choose its
+supported API-key or browser flow; existing route/billing checks still apply
+before a task launches.</p>
+<p>A company GoCode adapter can keep its corporate authentication and Bedrock
+routing. AutoCode does not require it to go through Kilo or OpenCode. In a
+registered provider's user-level TOML, optionally add:</p>
+<pre><code class="language-toml">[connection]
+login_command = [&quot;your-company-cli&quot;, &quot;its-documented-login-command&quot;]
+status_command = [&quot;your-company-cli&quot;, &quot;its-documented-login-status-command&quot;]
+</code></pre>
+<p>These are argument arrays executed without a shell. Use the company's documented
+commands; the names above are placeholders, not GoCode commands. The status
+command must make no inference requests: exit 0 for credentials present, 1 for
+sign-in required, and another code for a failed check. Its stdout/stderr is
+withheld from clients. The interactive login command owns its terminal output.
+Without these optional commands AutoCode reports login as unchecked and offers
+no guessed sign-in command. Provider files are trusted user configuration; files
+in a project are never discovered as connection definitions.</p>
+<h3 id="autocode-direct-connections-issue-1493">AutoCode direct connections (issue #1493)<a class="headerlink" href="#autocode-direct-connections-issue-1493" title="Permanent link">&para;</a></h3>
+<p>AutoCode includes its own text/tool runtime. It does not require Kilo, OpenCode,
+Codex, Claude Code, or another coding-agent executable. In VS Code open
+<strong>Connections → AutoCode · Direct connection → Set up AutoCode</strong>, or run:</p>
+<pre><code class="language-sh">autocode connections setup
+autocode connections check --provider autocode --json
+autocode &quot;hi&quot; --provider autocode --joint-planning --spec-first
+</code></pre>
+<p>Setup is interactive in a terminal and launches no model. Choose <strong>mimo</strong>,
+<strong>zai</strong>, <strong>openai</strong>, <strong>claude</strong>, or a custom <strong>compatible</strong> API. One direct
+provider/endpoint is selected for a connection; mixed-provider routing remains
+available through the existing Kilo backend.</p>
+<table>
+<thead>
+<tr>
+<th>API choice</th>
+<th>Protocol</th>
+<th>Authentication</th>
+<th>Response limit field</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MiMo</td>
+<td>Chat Completions</td>
+<td><code>api-key</code></td>
+<td><code>max_completion_tokens</code></td>
+</tr>
+<tr>
+<td>Z.ai</td>
+<td>Chat Completions</td>
+<td>Bearer key</td>
+<td><code>max_tokens</code></td>
+</tr>
+<tr>
+<td>OpenAI / custom compatible</td>
+<td>Chat Completions</td>
+<td>Bearer key</td>
+<td><code>max_completion_tokens</code></td>
+</tr>
+<tr>
+<td>Claude</td>
+<td>Anthropic Messages</td>
+<td><code>x-api-key</code>, version <code>2023-06-01</code></td>
+<td><code>max_tokens</code></td>
+</tr>
+</tbody>
+</table>
+<p>MiMo and Z.ai require an explicit base URL, including its version path. Use the
+exact endpoint and matching key for your billing route: ordinary API access and
+Token/Coding Plan subscriptions have separate endpoints. Setup shows the API
+examples and requires you to choose; it never falls back to another billing
+route. OpenAI defaults to <code>https://api.openai.com/v1</code>; Claude defaults to
+<code>https://api.anthropic.com/v1</code>. Endpoint overrides require HTTPS (HTTP is allowed
+only for loopback fixtures). This setup accepts API keys, not ChatGPT or Claude
+subscription logins. Kilo continues to own its separate sign-in and routes.</p>
+<p>MiMo/Z.ai assistant messages retain <code>reasoning_content</code> across tool turns.
+Claude uses native <code>tool_use</code>/<code>tool_result</code> blocks and replays signed thinking
+blocks in order. Unsupported content and incomplete responses fail closed.
+Nonempty Chat Completions effort overrides are sent as <code>reasoning_effort</code> and
+must be supported by that model. Claude effort overrides are currently refused;
+its default reasoning is used. Redirects are refused, with no automatic
+parameter change, retry or provider fallback. Bedrock is outside this scope.</p>
+<p>Model IDs are those the endpoint accepts, not Kilo/OpenCode routing aliases.
+Setup groups Planner/Builder/Requirements and independent reviewers/testers; the
+existing verifier-independence rules still apply. Reopening setup with blank
+model answers preserves every saved role assignment. <code>models --provider autocode</code>
+lists the configured roster; unconfigured model escalation is refused.</p>
+<p>The API key lives in a separate <code>auth.json</code> file, mode <code>0600</code>, under
+<code>$XDG_CONFIG_HOME/autocode/direct/</code> (default <code>~/.config/autocode/direct/</code>), whose
+mode is <code>0700</code>. This is a private local file, not an OS keychain. The credential
+is bound to the API endpoint: changing the endpoint requires an explicit key for
+that destination. Status and launch arguments never contain key values. Listing
+connections reads metadata only; <strong>Check setup</strong> validates local setup, not live
+model access. <code>configured</code> and <code>setup_required</code> are distinct.
+Key rotation for the same endpoint preserves transport identity; changes to the
+API provider, endpoint, models or runtime change it and trigger the saved
+run's existing drift checks. Configuration is never read from project files.</p>
+<p>Select <strong>Use for new chats</strong> after setup. This does not replace an existing
+Kilo/GoCode connection or change its model routes. CLI callers explicitly pass
+<code>--provider autocode</code>; setup does not silently change the global default.</p>
+<p>The existing supported-Linux provider supervisor owns each launch and cleanup.
+Model-requested commands run only through AutoCode's existing kernel shell
+boundary, with credentials removed, no network, protected run files, and the
+stage's read/write authority. Read-only execution uses the existing verification
+copy mechanism. There are at most 32 model responses per stage and eight tool
+calls per response, an 8192-token requested response cap, a 60-second HTTP read
+bound, and a 90-second tool bound; outer task/stage/spend limits still apply.
+Tool output is bounded at 65536 bytes and explicitly marked when truncated.
+Actual tool output and exit codes supply evidence; model prose cannot manufacture
+command events. Reported input/output usage is retained across requests, including failed turns;
+output counts include reasoning. A separate reasoning-token breakdown is not yet
+reported by this runtime. Missing token fields and prices remain unknown.</p>
+<p>This initial runtime supports text and shell tools with a fresh context per
+stage. It does not provide native image qualification, in-process file tools,
+MCP tools, or external-agent session resumption. Local HTTP fixtures and
+supported-Linux task tests verify protocol and safety behavior; they do not
+establish live model access. The implementation stays draft
+pending live qualification with an explicitly configured connection.</p>
+<p>Protocol references: <a href="https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create">OpenAI Chat Completions</a>,
+<a href="https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call">MiMo API and Token Plan setup</a>,
+<a href="https://mimo.mi.com/docs/en-US/api/chat/openai-api">MiMo Chat Completions</a>,
+<a href="https://docs.z.ai/api-reference/llm/chat-completion">Z.ai Chat Completions</a>,
+<a href="https://docs.z.ai/guides/capabilities/thinking-mode">Z.ai thinking replay</a>,
+and <a href="https://platform.claude.com/docs/en/api/messages/create">Claude Messages</a>.</p>
+<h3 id="automatic-routes-for-new-runs">Automatic routes for new runs<a class="headerlink" href="#automatic-routes-for-new-runs" title="Permanent link">&para;</a></h3>
+<p>New runs automatically select qualified models from the chosen tool's connected
+accounts, preferring subscriptions and preserving independent checking. No per-role
+model flags are needed, including with <code>TaskRun.start(workspace, brief)</code>.
+Explicit model, effort and tool overrides win; saved runs keep their choices.
+<code>--no-auto-select</code> retains fixed defaults. <code>--auto-select</code> requires selection to
+succeed instead of falling back when discovery or an independent checker is unavailable.
+See <a href="../models/#choosing-models-automatically">automatic model selection</a> for discovery,
+reasoning levels, bounded preflight, recovery and the read-only selection preview.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

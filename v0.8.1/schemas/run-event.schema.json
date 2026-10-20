@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "autocode:schemas/run-event@1",
+  "title": "Autocode run event",
+  "description": "One event a run appended to its own user_events list, printed verbatim as one line of `autocode events` (JSON lines, in the order the run recorded them). This is the envelope every event carries; the fields beside it belong to that event's kind alone, so a consumer reads `kind` first and treats the rest as that kind's payload. The vocabulary of kinds grows with the runner, so an unknown kind and unknown fields are both normal and must be accepted rather than rejected. Two recorded exceptions to the envelope: a dependency binding carries no `at`, and two retry authorizations carry no `actor`.",
+  "type": "object",
+  "required": [
+    "kind"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What happened, in the runner's own vocabulary: an approval (`goal_approval`, `workflow_approval`), an answer (`answer`, `permission_answer`, `checkpoint_answer`), a recorded decision (`human_review`, `review_reconciliation`, `completion_accept`), feedback (`brief_feedback`), a configuration or contract change (`protected_tests_revised`, `verification_commands_changed`, `planning_budget_change`, `base_patch_set`), a routing decision (`route_assignment`), or a recovery the runner took on its own (`automatic_timeout_recovery`, `builder_retry`, `stage_abandoned`, `report_repair_resume_epoch`). Not an enumeration: a run may carry kinds this list predates."
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the run recorded the event, as an ISO 8601 UTC timestamp from the runner's own clock. Absent on a dependency binding, which is written by the producing run's manifest instead."
+    },
+    "actor": {
+      "type": "string",
+      "description": "Who recorded the event: `user_cli` for a person answering through the CLI, `user_intervention` for a queued intervention, `runner` for the engine acting on its own, `workflow_policy` for a policy decision, `user` on the older workflow approvals. Absent on two retry authorizations that predate the field."
+    }
+  }
+}
