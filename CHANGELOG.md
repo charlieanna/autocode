@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code suppresses a person-wait notice while its own action automatically continues a chat;
+  a genuinely stopped Continue checkpoint still notifies after that action finishes (#1692).
 - VS Code completion notifications say the chat finished, rather than claiming a completed run
   is waiting for the user (#1687).
 - A Tester report that cited a file it read (`hello.txt`) beside its passing checks was refused whole and
