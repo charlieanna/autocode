@@ -9,8 +9,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-10-20
+
 ### Changed
 
+- Requirements conversation reports use a smaller output contract without unrelated test-verdict and command-receipt instructions; the model, session and structured handoff stay unchanged.
+- A small approved plan's first Builder attempt runs at low reasoning effort (#1710, owner decision): one milestone
+  and at most four files. A small `peek()` feature's Builder spent about 555 of 786 s reasoning at medium. Any
+  earlier attempt at the same task (rejected report, failed check, Tester send-back) brings the configured effort
+  back. Planning roles, the Tester and the Completion Reviewer are unchanged. `AUTOCODE_LIGHT_BUILDER=0` turns it off.
+- A Tester check that cites a capture receipt may give `command` null, and the runner copies the command from the
+  receipt and verifies it as before (#1710). The Tester no longer retypes every command, about 9 KB of a 20 KB report.
+- Passed tool checks are now reused for an hour within a run (was 10 minutes; owner decision).
 - A chat turn no longer re-runs the tool's version, model-list and login checks it already passed in this run:
   a successful check is reused for 10 minutes, keyed by the exact command, folder, environment and tool
   executable, so an upgrade or changed setting checks again. On Kilo this saves about 6 s per follow-up message.
@@ -21,12 +31,22 @@ PR template asks for an entry here; a change without one is incomplete.
   reply being written showed at most one new piece every 2 s. The newest reply now replaces earlier ones, and
   while it is still changing the chat reads it every 0.25 s, going back to the ordinary pace once it has not
   changed for a few reads, so a model running tools between messages does not keep `--status` running nonstop.
+- A Mac that idled to sleep mid-stage stopped a live run for a person: the controller cannot supervise while
+  suspended, and the provider connection reset on wake (#1717). A controller driving a run now holds macOS's
+  idle-sleep assertion (`caffeinate -i -w PID`, released when it exits; `AUTOCODE_KEEP_AWAKE=0` turns it off),
+  and a read-only stage (Requirements, planning, plan or completion review, Investigator) that a retryable reset
+  cuts short after read-only tools or partial text is retried once automatically when the workspace is
+  unchanged. The Builder and Tester keep their hold.
+- Requirements chat no longer scans workspace disk usage before each reply; the copy-space gate runs when planning starts. The estimate prunes run history, caches and sibling Git worktrees before traversing them.
+- A question clarifying user intent no longer triggers report repair merely because it retains a stated requirement without citing code. Complete handoffs and explicitly cited source files still require source inspection.
+
 - Answering Requirements' greeting with "Nothing yet, just saying hello." got the honest reply (no goal, no
   question) refused as a handoff without an outcome, repaired twice and sent to the Investigator. In a spec-first
   chat, such a reply now asks the standard "what would you like to build or change" question and waits for you.
 - A run stopped with "Cannot snapshot source ... git rev-parse HEAD failed" when the project held an
   untracked nested Git repository with no commit yet (a scratch `git init`). The nested repository is now
   hashed with an unborn head, so edits inside it are still seen; the project itself still needs a commit.
+  The controller's own editable-source identity keeps refusing such a repository, so it never binds a cache key to it.
 
 - `autocode` in AutoCode's own main checkout refused to start even when the running `autocode` was
   installed elsewhere, asking for a separate Git worktree. AutoCode now works in place there like in any
@@ -87,6 +107,11 @@ PR template asks for an entry here; a change without one is incomplete.
   saved credentials without testing them, so an expired key is caught when a run starts.
 
 ### Added
+
+- Opt-in warm source snapshots (`AUTOCODE_SOURCE_HOST=1`, #1707 stage 1). A long-lived helper keeps file
+  fingerprints in memory and answers every AutoCode process's source snapshot. Each new process otherwise
+  re-reads the whole workspace: 2.5-3 s on a 13.6k-file project. A chat status refresh drops from 1.5-3 s to
+  0.45 s. The answers are identical, and nothing is written to disk.
 
 - Tabs in the full-screen `autocode chat`, as in the VS Code extension: `Ctrl-T` (or `/new`)
   opens another chat in a new tab, `Ctrl-←`/`Ctrl-→` or `/tab N` switch, and a tab bar lists the

@@ -16,18 +16,21 @@ try:
     from . import autocode_native_calls as native_calls
     from . import autocode_native_launch as native_launch
     from . import autocode_native_stage_recovery as stage_recovery
+    from . import autocode_source_host as source_host
     from . import autocode_visual_profile as native_profile
 except ImportError:
     import autocode_controller_owner as controller_owner
     import autocode_native_calls as native_calls
     import autocode_native_launch as native_launch
     import autocode_native_stage_recovery as stage_recovery
+    import autocode_source_host as source_host
     import autocode_visual_profile as native_profile
 
 
 def main(base, unit=None):
     """Restore the invocation's provider and output streams before returning to the caller."""
     launched_at = base.now()
+    source_host.install()  # opt-in warm snapshots (#1707)
     saved_opencode = base.opencode
     saved_argv = sys.argv
     try:

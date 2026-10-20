@@ -1,6 +1,7 @@
 """Which Requirements reports the runner accepts as the handoff (autocode_requirements_handoff.accept)."""
 
 import unittest
+from unittest import mock
 
 import autocode_requirements_handoff as handoff
 
@@ -84,6 +85,42 @@ class RequirementsHandoffTests(unittest.TestCase):
         for value, settings in ((report(**chat), {}), (report(**chat, required_behaviors=["Greet"]), None)):
             with self.subTest(settings=settings), self.assertRaisesRegex(ValueError, "needs an outcome"):
                 self.accept(value, settings)
+
+    def test_clarifying_a_stated_requirement_does_not_require_inspecting_source(self):
+        task = "Make chat respond quickly while keeping all safety checks."
+        question = {**QUESTION, "question": "What response time would be quick enough?"}
+        value = report(
+            intended_outcome=task,
+            requirements=[{"id": "R1", "text": task, "source_quote": task}],
+            constraints=["Keep all safety checks"],
+            open_questions=[question],
+        )
+        state, queued = self.accept(value, task=task)
+        self.assertEqual([[question]], [row["questions"] for row in queued])
+        self.assertNotIn("goal_contract", state)
+
+    def test_completed_requirements_and_explicit_source_refs_still_check_source(self):
+        for value in (
+            report(intended_outcome="Add export", source_refs=["export.py"]),
+            report(intended_outcome="Add export", required_behaviors=["Export CSV"]),
+            report(
+                intended_outcome="Add export",
+                required_behaviors=["Export CSV"],
+                acceptance_tests=["The export is valid CSV"],
+                open_questions=[],
+            ),
+        ):
+            with self.subTest(value=value):
+                check = mock.Mock(side_effect=ValueError("source check required"))
+                with self.assertRaisesRegex(ValueError, "source check required"):
+                    handoff.accept(
+                        {"task": "Add export", "settings": {"spec_first": True}, "stages": []},
+                        value,
+                        {"output": None},
+                        check_code_refs=check,
+                        queue=mock.Mock(),
+                    )
+                check.assert_called_once()
 
 
 if __name__ == "__main__":

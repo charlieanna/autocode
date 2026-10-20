@@ -63,6 +63,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
     ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
     ("tools/prompts/requirements-gather.md", ("tests.test_chat_cli", "tests.test_requirements_review")),
+    (
+        "tools/prompts/fragments/provider-opencode/conversation-output.md",
+        ("tests.test_schema_prompt_formatting", "tests.test_requirements_chat", "tests.test_plan_chat"),
+    ),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/autocode_native_capture_linux.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),
     ("tools/prompts/plan-chat.md", ("tests.test_plan_chat_cli",)),

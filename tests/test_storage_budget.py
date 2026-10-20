@@ -7,6 +7,8 @@ numbers (issue #971, fix direction 2).
 
 import contextlib
 import io
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,7 +28,7 @@ class WorkspaceBytesTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
 
     def test_counts_source_bytes_only(self):
         (self.root / "src").mkdir()
@@ -48,6 +50,61 @@ class WorkspaceBytesTests(unittest.TestCase):
         self.assertEqual(budget["workspace_bytes"], 1000)
         self.assertEqual(budget["projected_bytes"], 3000)
         self.assertEqual(budget["free_bytes"], 2_500)
+
+    def test_excluded_trees_are_never_traversed(self):
+        excluded = [self.root / name for name in (".git", ".autocode", ".autocode-ui", ".scenario-runs", "__pycache__")]
+        excluded.append(self.root / "src" / "__pycache__")
+        excluded.extend(self.root / "nested" / name for name in (".git", ".autocode", ".autocode-ui"))
+        for directory in excluded:
+            directory.mkdir(parents=True)
+            (directory / "large-history").write_bytes(b"ignored")
+        (self.root / "src" / "main.py").write_bytes(b"source")
+        scandir = os.scandir
+
+        def guarded_scandir(path):
+            self.assertNotIn(Path(path), excluded, "storage estimate traversed an excluded tree")
+            return scandir(path)
+
+        with mock.patch.object(os, "scandir", side_effect=guarded_scandir):
+            self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"source"))
+
+    def test_directory_symlinks_are_not_followed_and_dependencies_are_counted(self):
+        dependencies = self.root / "node_modules"
+        dependencies.mkdir()
+        (dependencies / "package.js").write_bytes(b"dependency")
+        (self.root / "linked-dependencies").symlink_to(dependencies, target_is_directory=True)
+        (self.root / "loop").symlink_to(self.root, target_is_directory=True)
+        (self.root / "broken").symlink_to(self.root / "missing")
+        self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"dependency"))
+
+    def test_registered_nested_worktrees_are_not_source_but_nested_projects_are(self):
+        def git(*args):
+            subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True)
+
+        git("init", "-q")
+        git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "seed")
+        worktree = self.root / "agent checkouts" / "other\ncheckout"
+        git("worktree", "add", "--detach", str(worktree), "HEAD")
+        (worktree / "duplicate.py").write_bytes(b"duplicate" * 100)
+        nested = self.root / "component"
+        nested.mkdir()
+        subprocess.run(["git", "-C", str(nested), "init", "-q"], check=True, capture_output=True)
+        (nested / "source.py").write_bytes(b"source")
+        scandir = os.scandir
+
+        def guarded_scandir(path):
+            self.assertNotEqual(Path(path), worktree, "storage estimate traversed another checkout")
+            return scandir(path)
+
+        with mock.patch.object(os, "scandir", side_effect=guarded_scandir):
+            self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"source"))
+
+    def test_workspace_without_git_still_counts_files(self):
+        (self.root / "main.py").write_bytes(b"source")
+        for failure in (FileNotFoundError(), subprocess.TimeoutExpired("git", 5)):
+            with self.subTest(failure=type(failure).__name__):
+                with mock.patch.object(storage_budget.subprocess, "run", side_effect=failure):
+                    self.assertEqual(storage_budget.workspace_bytes(self.root), len(b"source"))
 
 
 class VerdictTests(unittest.TestCase):
@@ -103,6 +160,42 @@ class BuildLoopFloorTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+
+    def test_requirements_chat_does_not_scan_the_workspace(self):
+        state = {"settings": {"spec_first": True}, "next_stage": "requirements_gather"}
+        runner = SimpleNamespace(orchestrator=SimpleNamespace(drive=mock.Mock(), LoopExit=RuntimeError))
+        with (
+            mock.patch.object(build_loop.storage_budget, "projection") as projection,
+            mock.patch.object(build_loop.checkout_lock, "exclusive", return_value=contextlib.nullcontext()),
+        ):
+            build_loop.run(runner, SimpleNamespace(unit=None), state, self.root / "state.json", self.root, self.root)
+        projection.assert_not_called()
+        runner.orchestrator.drive.assert_called_once()
+
+    def test_chat_transition_checks_storage_before_dispatching_planning(self):
+        state = {"settings": {"spec_first": True}, "next_stage": "requirements_gather"}
+
+        class LoopExit(Exception):
+            def __init__(self, code):
+                self.code = code
+
+        def drive(current, dispatch, *, before, **kwargs):
+            current["next_stage"] = "astra_discovery"
+            before(current)
+            self.fail("planning dispatched without the storage refusal")
+
+        runner = SimpleNamespace(orchestrator=SimpleNamespace(drive=drive, LoopExit=LoopExit))
+        floor = {"workspace_bytes": 1000, "free_bytes": 1}
+        with (
+            mock.patch.object(build_loop.storage_budget, "projection", return_value=floor) as projection,
+            mock.patch.object(build_loop.checkout_lock, "exclusive", return_value=contextlib.nullcontext()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            code = build_loop.run(
+                runner, SimpleNamespace(unit=None), state, self.root / "state.json", self.root, self.root
+            )
+        self.assertEqual(code, 2)
+        projection.assert_called_once_with(self.root)
 
     def test_a_doomed_filesystem_is_refused_before_the_loop(self):
         floor = {

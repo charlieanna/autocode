@@ -1764,7 +1764,7 @@ def execution_identity(
                     if (target / ".git").exists():
                         # Scope Git's inventory before reading files: an unrelated test can create an
                         # empty nested repository or remove a fixture while a whole-checkout scan runs.
-                        files = util.snapshot(target / package)["files"]
+                        files = util.snapshot(target / package, unborn_ok=False)["files"]
                         editable_sources[str(target)] = util.digest(
                             {package + "/" + name: value for name, value in files.items()}
                         )

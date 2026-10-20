@@ -136,6 +136,13 @@ class SnapshotContentHashTests(unittest.TestCase):
         (scratch / "note.txt").write_text("edited\n")
         self.assertEqual(["scratch-live-demo/"], util.changed_paths(before, util.snapshot(self.root)))
 
+    def test_a_caller_binding_an_identity_can_still_refuse_an_empty_nested_repository(self):
+        scratch = self.root / "scratch-live-demo"
+        scratch.mkdir()
+        self.git(scratch, "init", "-q")
+        with self.assertRaises(util.Paused):
+            util.snapshot(self.root, unborn_ok=False)
+
     def test_a_workspace_with_no_commit_still_stops_the_snapshot(self):
         empty = self.root / "scratch-live-demo"
         empty.mkdir()

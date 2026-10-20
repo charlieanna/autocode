@@ -549,11 +549,11 @@ class ContentHashes:
 _CONTENT_HASHES = ContentHashes()
 
 
-def _other_entry(path):
+def _other_entry(path, unborn_ok=True):
     """A listed name that is neither a file nor a link: a nested repository, gone, or left out."""
     if path.is_dir():
         return (
-            "submodule:" + snapshot(path, nested=True)["revision"]
+            "submodule:" + snapshot(path, nested=True, unborn_ok=unborn_ok)["revision"]
             if (path / ".git").exists()
             else "uninitialized-submodule"
         )
@@ -585,12 +585,24 @@ def _unborn(root):
     return found.returncode == 1 and not found.stdout and not found.stderr
 
 
-def snapshot(workspace, nested=False):
+_SNAPSHOT_SERVICE = None
+
+
+def use_snapshot_service(service) -> None:
+    """Ask ``service(workspace, nested)`` first; None from it means take the snapshot here (#1707)."""
+    global _SNAPSHOT_SERVICE
+    _SNAPSHOT_SERVICE = service
+
+
+def snapshot(workspace, nested=False, unborn_ok=True):
     """Hash current source content, executable modes and nested Git worktrees.
 
     A nested repository with no commit yet (a scratch ``git init`` inside the project) has
     head "unborn" rather than stopping the run; the workspace itself still needs a HEAD.
+    ``unborn_ok=False`` keeps the refusal for callers that bind an identity to the whole tree.
     """
+    if _SNAPSHOT_SERVICE is not None and unborn_ok and (served := _SNAPSHOT_SERVICE(workspace, nested)) is not None:
+        return served
     root = Path(workspace)
     names = git_names(_snapshot_git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"))
     hashes = _CONTENT_HASHES
@@ -613,9 +625,13 @@ def snapshot(workspace, nested=False):
         elif info is not None and stat.S_ISREG(info.st_mode):
             content = hashes.content(full, info, known, kept, settled_before)
             files[name] = ("executable:" if info.st_mode & 0o111 else "") + content
-        elif (entry := _other_entry(root / name)) is not None:
+        elif (entry := _other_entry(root / name, unborn_ok)) is not None:
             files[name] = entry
-    head = "unborn" if nested and _unborn(root) else _snapshot_git(root, "rev-parse", "HEAD", text=True).strip()
+    head = (
+        "unborn"
+        if nested and unborn_ok and _unborn(root)
+        else _snapshot_git(root, "rev-parse", "HEAD", text=True).strip()
+    )
     hashes.finish(key, kept, epoch)
     return {"head": head, "files": files, "revision": digest({"head": head, "files": files})}
 

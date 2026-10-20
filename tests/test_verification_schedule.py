@@ -573,14 +573,14 @@ class ExecutionIdentityTests(unittest.TestCase):
         for failure in failures:
             with self.subTest(failure=type(failure).__name__):
 
-                def unreadable_controller(path):
+                def unreadable_controller(path, **options):
                     if Path(path).resolve() == package:
                         raise failure
-                    return snapshot(path)
+                    return snapshot(path, **options)
 
                 with mock.patch.object(util, "snapshot", side_effect=unreadable_controller) as collect:
                     result = verify.execution_identity(project.root, command=command)
-                collect.assert_has_calls([mock.call(project.root), mock.call(package)])
+                collect.assert_has_calls([mock.call(project.root), mock.call(package, unborn_ok=False)])
                 self.assertEqual(snapshot(project.root)["revision"], result["source_revision"])
                 self.assertEqual({}, result["editable_sources"])
                 self.assertEqual([str(metadata)], result["unbound_editables"])
@@ -593,10 +593,10 @@ class ExecutionIdentityTests(unittest.TestCase):
         # pause reasons and the task's own unavailable source stay fail-closed.
         unrelated = util.Paused("PAUSED_PROCESS_CLEANUP", "cleanup is uncertain")
 
-        def unrelated_pause(path):
+        def unrelated_pause(path, **options):
             if Path(path).resolve() == package:
                 raise unrelated
-            return snapshot(path)
+            return snapshot(path, **options)
 
         with mock.patch.object(util, "snapshot", side_effect=unrelated_pause):
             with self.assertRaises(util.Paused) as raised:
@@ -762,6 +762,7 @@ class VerificationRestartCLI(unittest.TestCase):
         self.assertFalse(driver.view()["done"])
         # Keep the same execution environment: changing PYTHONPATH even solely
         # to remove a test hook would correctly invalidate the old receipt.
+        driver.resume_after_crash()  # the Resume the view offers after the crash (#1698)
         final = driver.until_stopped()
         self.assertTrue(final["done"], final)
         accepted = final["evidence"]["check_replay"]
