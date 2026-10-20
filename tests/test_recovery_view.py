@@ -596,3 +596,24 @@ class RecoveryViewTests(unittest.TestCase):
                 self.assertEqual(["inspect", "feedback"], [row["kind"] for row in card["actions"]])
                 self.assertIn("original source identity", card["saved_reason"])
                 self.assertEqual(before, state)
+
+
+class AuthenticationStopTests(unittest.TestCase):
+    """A run stopped on the core's own HTTP 401 diagnostic says so in plain words (an expired key)."""
+
+    def test_an_authentication_stop_names_the_credentials_and_the_fix(self):
+        import autocode_provider_auth as provider_auth
+
+        state = {
+            "status": "PAUSED_PROVIDER_UNCERTAIN",
+            "stop_reason": provider_auth.AUTH_FAILED + ". requirements exited 1; reconcile iterations/001/x.jsonl",
+            "active_stage": {"stage": "requirements_gather"},
+        }
+        what = recovery.project(state)["what_happened"]
+        self.assertIn("rejected the saved credentials (HTTP 401)", what)
+        self.assertIn("/connect NAME login", what)
+        self.assertNotIn("reconcile", what, "raw diagnostics stay in the details")
+
+    def test_another_stop_keeps_its_own_explanation(self):
+        state = {"status": "PAUSED_PROVIDER_UNCERTAIN", "stop_reason": "requirements exited 1"}
+        self.assertNotIn("credentials", recovery.project(state)["what_happened"])

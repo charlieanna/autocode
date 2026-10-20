@@ -346,6 +346,15 @@ class ChatClient:
             if child.returncode not in (0, 2):
                 log.seek(0)
                 raise actions.ClientGap(f"AutoCode exited {child.returncode}: {log.read()[-2000:].strip()}")
+            if "--new-run-dir" in argv:
+                # Exit 2 also means "refused before the run existed" (a busy checkout, a missing engine,
+                # a request it cannot take): then there is no run to read, and its reason is in the output.
+                try:
+                    self.status()
+                except actions.ClientGap:
+                    log.seek(0)
+                    said = log.read()[-2000:].strip() or f"exit {child.returncode} and no output"
+                    raise actions.ClientGap(f"AutoCode did not start the run:\n{said}") from None
 
     def request_pause(self, *, again: str = "Press Ctrl-C again to interrupt the current step.") -> bool:
         try:

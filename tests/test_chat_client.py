@@ -726,6 +726,29 @@ class StreamAndNoticeTests(unittest.TestCase):
         self.assertEqual(1, client.text().count("Another chat needs you: plan approval needed (r0)"))
 
 
+class StartRefusedTests(unittest.TestCase):
+    def test_a_start_refused_before_the_run_exists_shows_autocodes_reason(self):
+        with tempfile.TemporaryDirectory() as folder:
+            refuse = (
+                "import sys; print('autocode: OpenCode is not on PATH; no provider request was launched'); sys.exit(2)"
+            )
+            client = chat.ChatClient(Path(folder), Path(folder) / ".autocode" / "runs" / "r1", ask=input, say=print)
+            client.command = (sys.executable, "-c", refuse)
+            client.status = mock.Mock(side_effect=chat.actions.ClientGap("--status did not return a status view"))
+            with self.assertRaises(chat.actions.ClientGap) as gap:
+                client.advance(["hi", "--new-run-dir", str(client.run_dir)])
+            self.assertIn("AutoCode did not start the run", str(gap.exception))
+            self.assertIn("OpenCode is not on PATH", str(gap.exception))
+
+    def test_a_started_run_is_not_second_guessed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            client = chat.ChatClient(Path(folder), Path(folder) / "r1", ask=input, say=print)
+            client.command = (sys.executable, "-c", "import sys; sys.exit(2)")
+            client.status = mock.Mock(return_value={"status": "WAITING_FOR_USER"})
+            client.show = mock.Mock()
+            client.advance(["hi", "--new-run-dir", str(client.run_dir)])  # no error: the run exists
+
+
 class InterruptTests(unittest.TestCase):
     """Ctrl-C while a stage works, against a real child that stands in for AutoCode."""
 
