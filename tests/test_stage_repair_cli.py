@@ -297,6 +297,36 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual([False, True], [row["repair"] for row in attempts], trace)
         self.assertIn("was not changed", attempts[1]["error"])
 
+    def test_concern_only_review_reaches_approval_without_contract_field_repairs(self):
+        from autocode_taskrun import TaskRun
+
+        fixture = self.fixture_for("review-policy")
+        run = TaskRun.start(
+            fixture.project,
+            "Build a greeting tool",
+            options=fixture.new_run_engine_args,
+            command=fixture.entry,
+            env=fixture.env,
+            cwd=fixture.root,
+            timeout=240,
+        )
+        waiting = run.status()
+        needs = waiting["needs"]
+        self.assertEqual("answer", needs["kind"], waiting.get("stop_reason"))
+        question = needs["questions"][0]["id"]
+        run.answer(question, "CLI", resolver_token=needs["resolver_token"])
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        self.assertFalse(view["done"])
+        self.assertTrue(view["displayed_plan"]["token"])
+        self.assertFalse((fixture.project / "greet.py").exists(), "Builder must await actual plan approval")
+        trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
+        reviews = [row for row in trace if row["stage"] == "astra_challenge"]
+        self.assertEqual(1, len(reviews), reviews)
+        self.assertFalse(reviews[0]["repair"], reviews)
+        self.assertEqual([], reviews[0]["active_contract_commands"])
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
     def test_exhausted_report_repair_allowance_buys_no_third_provider_call(self):
         fixture = self.fixture_for("repair-limit")
         run, _, view, trace = self.plan(fixture)

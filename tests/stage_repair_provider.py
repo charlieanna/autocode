@@ -169,6 +169,18 @@ def main():
     event_rows = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
     case = os.environ["STAGE_REPAIR_CASE"]
     row = {"stage": stage, "repair": repair, "error": data.get("error", ""), "output": str(output)}
+    if stage == "astra_challenge" and case == "review-policy":
+        # Follow the actual active writer commands, rather than returning PASS
+        # regardless of the instructions. Contextual audit rules are data.
+        active = prompt.split("CURRENT HANDOFF DATA\n", 1)[0]
+        commands = {
+            "delegated_decisions": "Otherwise return delegated_decisions=[]",
+            "contract_changes": "Use contract_changes=[]",
+            "contract": "Set contract.initial_task.kind=none",
+        }
+        row["active_contract_commands"] = [field for field, command in commands.items() if command in active]
+        for field in row["active_contract_commands"]:
+            value[field] = {} if field == "contract" else []
     if (
         case == "unchanged-rewording"
         and not repair

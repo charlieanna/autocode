@@ -67,6 +67,10 @@ PR template asks for an entry here; a change without one is incomplete.
   path, and the proof records that the base has no source to preserve; a base that holds source still needs
   passing-test evidence, and other non-empty files still need preservation.
 
+- Concern-only Plan Reviewers now receive contract-authoring policies as rules to audit,
+  with instructions to report concerns rather than return or edit contract fields their
+  report schema forbids (#1808). Contract-author prompts and the approval/validation gates are unchanged.
+
 ## [0.8.2] — 2026-10-21
 
 ### Added
