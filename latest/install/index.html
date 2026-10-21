@@ -2072,7 +2072,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/133b847ee0430e17ced8f3e71cab8fe31a76533d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/2f60abc16a55fe49f5860ee707477870235da065/README.md">← Back to README</a></p>
 <h2 id="ten-minute-quickstart">Ten-minute quickstart<a class="headerlink" href="#ten-minute-quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2282,6 +2282,13 @@ and limits.</p>
 tool for one run. To change the default for every new run and for the dashboard,
 set <code>AUTOCODE_PROVIDER=kilocode</code> or add this to <code>~/.config/autocode/config.toml</code>:</p>
 <pre><code class="language-toml">default_provider = &quot;kilocode&quot;
+</code></pre>
+<p>A Kilo provider needs the Kilo CLI on PATH. On Linux, install the pinned release;
+a launch there refuses any other version, because its restricted read-only and
+planning stages need that release's kernel shell. macOS has no kernel shell, so its
+checkers use Kilo's own shell with edits denied and any Kilo release launches:</p>
+<pre><code class="language-sh">npm install -g @kilocode/cli@7.8.3
+kilo auth list
 </code></pre>
 <p>A saved run keeps the provider it started with, and <code>--engine codex</code> runs still
 use Codex. <code>autocode doctor</code> then checks the default provider instead of OpenCode.
