@@ -383,6 +383,8 @@ def approved_contract(state: RunState) -> dict | None:
             "token": contract_identity.token(contract),
             "task_id": contract.get("task_id"),
             "approved_at": (contract.get("approval_event") or {}).get("at"),
+            # "skip_to_build" when the person chose approval when starting the run, else "person" (#1731)
+            "approval_source": (contract.get("approval_event") or {}).get("source") or "person",
             "body": deepcopy(contract["body"]),
             "goal_hash": plan_file.goal_hash(contract["body"]),
         }
@@ -1010,6 +1012,15 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
                 "route": _route(asked),
             }
+    if status == "PAUSED_PERMISSION_LOOP":
+        disposition = (state.get("resolver") or {}).get("human_disposition") or {}
+        return {
+            "kind": "resume",
+            "reason": state.get("stop_reason"),
+            "action": "--feedback 'WHAT CHANGED'",
+            "permission_decisions": disposition.get("count"),
+            "permission_decision_limit": disposition.get("limit"),
+        }
     if status == "PAUSED_PLANNING_BUDGET":
         need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).

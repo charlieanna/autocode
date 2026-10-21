@@ -162,6 +162,16 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         )
     )
     if (
+        args.feedback is None
+        and not args.edit_goal
+        and not args.goal_file
+        and args.follow_up is None
+        and args.program_guidance is None
+        and (hold := resolver_human.permission_hold(state))
+    ):
+        print(f"{state['status']}: {hold['reason']}")
+        return 2
+    if (
         args.resume_paused
         and not decision_action
         and not explicit_recovery_requested(args, state)

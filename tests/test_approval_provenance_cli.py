@@ -58,6 +58,7 @@ class ApprovalProvenanceCLITests(unittest.TestCase):
                     "contract_token": plan,
                     "criterion": None,
                     "pause_status": None,
+                    "source": None,
                     "provenance": {
                         **IDENTITY,
                         "host": host,
@@ -72,6 +73,7 @@ class ApprovalProvenanceCLITests(unittest.TestCase):
                     "contract_token": None,
                     "criterion": "C1",
                     "pause_status": None,
+                    "source": None,
                     "provenance": {
                         **IDENTITY,
                         "host": host,

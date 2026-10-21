@@ -1130,7 +1130,8 @@ or completion proof; the existing CLI approval checks remain authoritative.
 
 `approved_contract` is the plan in force: the contract that was approved, for as long
 as that approval holds. It has `revision`, `hash`, `token` (the `r<revision>:<hash>`
-that was approved), `task_id`, `approved_at` and `body`, the full approved contract
+that was approved), `task_id`, `approved_at`, `approval_source` (`skip_to_build` when the
+person chose on starting the run to approve the reviewed plan, otherwise `person`) and `body`, the full approved contract
 body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
 end-to-end flow, technical approach, milestones and the rest) copied as saved. It also has
 `goal_hash`, the SHA-256 of that body (what `autocode plan --check FILE` prints for a file
@@ -1165,7 +1166,8 @@ person, `workflow_policy` for a small bug fix approved under the workflow policy
 `contract_token` (the plan token approved, or the draft an edit installed; null for a review,
 a completion acceptance or a resume), `criterion` (the accepted criterion, null otherwise),
 `pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
-one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
+one a pause intervention interrupted; null otherwise), `source` (`skip_to_build` for a plan
+approved because the run was started with `--skip-to-build`; null otherwise) and `provenance`: `git_user_name`,
 `git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and
 the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
 null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
@@ -1660,3 +1662,17 @@ switches too. `--auto-select` requires selection to
 succeed instead of falling back when discovery or an independent checker is unavailable.
 See [automatic model selection](models.md#choosing-models-automatically) for discovery,
 reasoning levels, bounded preflight, recovery and the read-only selection preview.
+
+### Repeated permission handoffs
+
+`PAUSED_PERMISSION_LOOP` stops a fourth permission handoff after three authenticated
+material decisions at the same task, contract, source and validation result. Changed
+wording, report paths, elapsed time, budget settings and previous answers do not renew
+that allowance. This is a conservative bound on unchanged work, not a semantic claim
+that every question has identical wording or intent. Actual source, contract or
+validation progress admits new decisions; corrective `--feedback` can establish a new
+scope. No prior permission or completion gate is silently bypassed.
+
+The public `needs` includes `permission_decisions`, `permission_decision_limit`, the
+saved blocker reason, and a named feedback action. Plain resume remains held without
+another provider call. All earlier requests, answers and usage remain retained.

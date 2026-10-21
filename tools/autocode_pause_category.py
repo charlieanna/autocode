@@ -128,6 +128,7 @@ STATUS_GROUPS = MappingProxyType(
                 "PAUSED_ORCHESTRATOR_WORKER",
                 "PAUSED_ORCHESTRATOR_WORKERS",
                 run_status.PAUSE_PHASE,
+                "PAUSED_PERMISSION_LOOP",
                 "PAUSED_PLANNING_BUDGET",
                 "PAUSED_PROCESS_CLEANUP",
                 "PAUSED_PROGRESSIVE_AUTHORITY",

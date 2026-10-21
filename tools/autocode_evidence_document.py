@@ -21,7 +21,7 @@ except ImportError:
 
 SCHEMA_PATH = Path(__file__).parent / "autocode-schemas/evidence-report.schema.json"
 # The fields of a status-view approvals row the report copies beside its kind and provenance (#722).
-APPROVAL_FIELDS = ("at", "actor", "contract_token", "criterion", "pause_status")
+APPROVAL_FIELDS = ("at", "actor", "contract_token", "criterion", "pause_status", "source")
 POLICY_ACTOR = "workflow_policy"  # an approval no person typed (autocode_workflows)
 APPROVER_UNVERIFIED = (
     "Who approved is recorded as given, not verified: the Git identity is what the checkout's Git configuration "

@@ -319,7 +319,7 @@ def _render(literal, placeholder, *, capture=()):
     return "".join(pieces)
 
 
-def _format_pattern(declaration, steps, bindings, *, capture=False):
+def _format_pattern(declaration, steps, bindings, *, capture=False, capture_ids=False):
     variables, used = _variables(declaration), set()
 
     def placeholder(name):
@@ -342,7 +342,9 @@ def _format_pattern(declaration, steps, bindings, *, capture=False):
             return re.escape(steps[binding["step"]]["argv"][binding["argument"]])
         raise ValueError(f"Output placeholder {name} must be tied to an invocation argument")
 
-    pattern = _render(declaration["literal"], placeholder, capture=variables - {"ID"} if capture else ())
+    pattern = _render(
+        declaration["literal"], placeholder, capture={"ID"} if capture_ids else variables - {"ID"} if capture else ()
+    )
     if used != {
         name
         for name in bindings
@@ -368,7 +370,7 @@ def _supplied(observation):
     return declaration, supplied
 
 
-def line_pattern(observation, *, capture=False):
+def line_pattern(observation, *, capture=False, capture_ids=False):
     """Any one listed line of a canonical observation's `one per line` output.
 
     The sealed item pattern names one item; a listing prints every item
@@ -387,17 +389,21 @@ def line_pattern(observation, *, capture=False):
         values = sorted(supplied.get(name, ()))
         return "(?:" + "|".join(re.escape(value) for value in values) + ")" if values else "(?!)"
 
-    return _render(declaration["literal"], placeholder, capture=_variables(declaration) - {"ID"} if capture else ())
+    return _render(
+        declaration["literal"],
+        placeholder,
+        capture={"ID"} if capture_ids else _variables(declaration) - {"ID"} if capture else (),
+    )
 
 
-def field_patterns(observation):
+def field_patterns(observation, *, ids=False):
     proposal = observation["proposal"]
     bindings = {}
     for binding in proposal["bindings"]:
         bindings.setdefault(binding["placeholder"], binding)
     return (
-        line_pattern(observation, capture=True),
-        _format_pattern(observation["declaration"], proposal["steps"], bindings, capture=True),
+        line_pattern(observation, capture=not ids, capture_ids=ids),
+        _format_pattern(observation["declaration"], proposal["steps"], bindings, capture=not ids, capture_ids=ids),
     )
 
 
@@ -412,15 +418,28 @@ def required_values(observation):
     _, supplied = _supplied(observation)
     proposal = observation["proposal"]
     if proposal.get("expect") is not None:
-        return sorted({_bound_value(observation, row) for row in proposal["expect"]})
-    gone = {_bound_value(observation, row) for row in proposal.get("absent") or ()}
+        return sorted({_bound_value(observation, row) for row in proposal["expect"] if row["placeholder"] != "ID"})
+    gone = {_bound_value(observation, row) for row in proposal.get("absent") or () if row["placeholder"] != "ID"}
     return sorted({value for name, values in supplied.items() if name != "ID" for value in values if value not in gone})
 
 
 def absent_values(observation):
     """Values the Plan Reviewer named that must not appear (#644)."""
     proposal = observation["proposal"]
-    return sorted({_bound_value(observation, row) for row in proposal.get("absent") or ()})
+    return sorted(
+        {_bound_value(observation, row) for row in proposal.get("absent") or () if row["placeholder"] != "ID"}
+    )
+
+
+def id_values(observation, field):
+    """Explicit ID expectations compare ID fields, never item text (#1735)."""
+    return sorted(
+        {
+            _bound_value(observation, row)
+            for row in observation["proposal"].get(field) or ()
+            if row["placeholder"] == "ID"
+        }
+    )
 
 
 def _bound_value(observation, binding):
@@ -428,7 +447,19 @@ def _bound_value(observation, binding):
     return steps[binding["step"]]["argv"][binding["argument"]]
 
 
-def output_reason(output, pattern, line, required=(), absent=(), exact=False, *, fields):
+def output_reason(
+    output,
+    pattern,
+    line,
+    required=(),
+    absent=(),
+    exact=False,
+    *,
+    fields,
+    required_ids=(),
+    absent_ids=(),
+    id_fields=None,
+):
     """'' when stdout bytes are the declared `one per line` listing, else why not.
 
     One optional final LF or CRLF; one kind of line ending (CRLF when the output ends
@@ -458,10 +489,20 @@ def output_reason(output, pattern, line, required=(), absent=(), exact=False, *,
     if not any(items) and not required:
         return "CLI output differs from the original brief format"
     ids = [row.split(" ", 1)[0] for row, item in zip(rows, items, strict=False) if item or re.fullmatch(line, row)]
+    if id_fields is not None:
+        ids = [
+            value
+            for row in rows
+            for value in (re.fullmatch(id_fields[0], row) or re.fullmatch(id_fields[1], row)).groups()
+        ]
     if len(set(ids)) != len(ids):
         return "CLI listing repeats an ID"
     if any(ident in ("ID", "TEXT") for ident in ids):
         return "CLI listing uses a placeholder name as an ID"
+    if any(value in ids for value in absent_ids):
+        return "CLI output still lists an ID the observation removed"
+    if any(value not in ids for value in required_ids):
+        return "CLI output omits an ID the observation expected"
     listed = [(re.fullmatch(fields[0], row) or re.fullmatch(fields[1], row)).groups() for row in rows]
     for value in absent or ():
         if any(value in row for row in listed):
@@ -685,12 +726,18 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
                 reason='CLI output differs from the original brief format'
             else:
                 ids=[line.split(' ',1)[0] for line,item in zip(lines,items) if item or re.fullmatch(case['line_pattern'],line)]
+                if case.get('id_fields') is not None:
+                    ids=[value for line in lines for value in (re.fullmatch(case['id_fields'][0],line) or re.fullmatch(case['id_fields'][1],line)).groups()]
                 fields=case['field_patterns']
                 listed=[(re.fullmatch(fields[0],line) or re.fullmatch(fields[1],line)).groups() for line in lines]
                 if len(set(ids))!=len(ids):
                     reason='CLI listing repeats an ID'
                 elif any(ident in ('ID','TEXT') for ident in ids):
                     reason='CLI listing uses a placeholder name as an ID'
+                elif any(value in ids for value in case.get('absent_ids') or ()):
+                    reason='CLI output still lists an ID the observation removed'
+                elif any(value not in ids for value in case.get('required_ids') or ()):
+                    reason='CLI output omits an ID the observation expected'
                 elif any(value in line for value in case.get('absent') or () for line in listed):
                     reason='CLI output still lists an item the observation removed'
                 else:
@@ -731,6 +778,9 @@ def commands(sources, manifest, *, inactive=(), python="python3", timeout=15):
             "line_pattern": line_pattern(observation),
             "field_patterns": field_patterns(observation),
             "required": required_values(observation),
+            "required_ids": id_values(observation, "expect"),
+            "absent_ids": id_values(observation, "absent"),
+            "id_fields": field_patterns(observation, ids=True),
             "absent": absent_values(observation),
             "exact": observation["proposal"].get("expect") is not None,
             "hash": observation["hash"],

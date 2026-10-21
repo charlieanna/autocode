@@ -465,6 +465,15 @@ class WorkingDiff(unittest.TestCase):
         self.assertIn("+builder is editing", shown["patch"])
         self.assertNotIn("expected_token", shown, "display only: nothing here can restore")
 
+    def test_a_follow_up_with_a_revised_plan_still_shows_the_working_diff(self):
+        self.state["goal_contract"] = dict(self.state["goal_contract"], hash="revised-plan-hash")
+        self.save()
+        (self.workspace / "app.txt").write_text("follow-up edit\n")
+        shown = self.working()
+        self.assertEqual(self.ident, shown["since"])
+        self.assertEqual(["app.txt"], shown["changed_files"])
+        self.assertIn("+follow-up edit", shown["patch"])
+
     def test_before_any_step_is_saved_it_is_against_the_checked_out_commit(self):
         self.state["code_checkpoints"] = []
         self.save()

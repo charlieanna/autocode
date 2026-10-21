@@ -108,6 +108,7 @@ def prepare(
     except ImportError:
         from providers.kilocode import KiloProvider
     kilo_owner = type(native_role_isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
+    kilo_readonly = type(adapter) is KiloProvider and not allow_write and not planning and not kilo_owner
     uncontained = containment_policy.accepted(settings)
     if native_image_preparation is not None:
         try:
@@ -167,7 +168,7 @@ def prepare(
         if (
             enforce_tool_boundary
             and (not planning or native_role_isolation is not None)
-            and (not getattr(adapter, "CONFIGURED", False) or kilo_owner)
+            and (not getattr(adapter, "CONFIGURED", False) or kilo_owner or kilo_readonly)
         ):
             session = None
             runtime = Path(__file__).resolve().parent
@@ -215,6 +216,10 @@ def prepare(
             )
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
+                if type(adapter) is KiloProvider and (planning or not allow_write):
+                    raise util.Paused(
+                        "PAUSED_TOOL_CONTAINMENT", "Kilo readonly tool policy was not established: " + str(error)
+                    ) from error
                 raise
             try:
                 from . import autocode_tool_containment as tool_containment
@@ -226,6 +231,8 @@ def prepare(
                 if isinstance(error, tool_containment.STORE_ERRORS)
                 else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
                 if native_role_isolation is not None
+                else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; readonly Kilo cannot waive this boundary"
+                if kilo_readonly
                 else ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
                 "this run's non-planning stages with OpenCode's own permission checks only"
             )
@@ -264,6 +271,7 @@ def prepare(
         and not allow_write
         and sandbox == "workspace-write"
         and not kilo_owner
+        and not (kilo_readonly and enforce_tool_boundary)
         and (engine == "codex" or getattr(adapter, "CONFIGURED", False))
     ):
         try:
@@ -294,6 +302,11 @@ def prepare(
         "environment": environment,
         "provider_session": session,
     }
+    if type(adapter) is KiloProvider and (planning or not allow_write) and not kilo_owner:
+        worker["provider_session"] = None
+        session = None
+        fresh_reason = "Kilo restricted stages require a fresh session without prior tool grants"
+        worker["kilo_readonly_tools"] = True
     if prior_session and session is None:
         worker["fresh_session_reason"] = (
             fresh_reason or "Native tool containment requires a newly bound provider session"
@@ -312,9 +325,14 @@ def prepare(
         )
     if native_image_preparation is not None:
         worker["visual_runtime"] = native_image_preparation.context()
-    if engine == "opencode" and (not worker["configured"] or kilo_owner):
+    if engine == "opencode" and (not worker["configured"] or type(adapter) is KiloProvider):
         # Read from the scrubbed environment: the cap the process will actually get.
-        worker["output_token_cap"] = output_cap.recorded(os.environ, environment)
+        variable = (
+            output_cap.KILO_VARIABLE
+            if type(adapter) is KiloProvider and native_role_isolation is None
+            else output_cap.VARIABLE
+        )
+        worker["output_token_cap"] = output_cap.recorded(os.environ, environment, variable)
     return command, environment, overrides, worker
 
 
@@ -334,6 +352,8 @@ def stage_record(worker):
         record["provider"] = worker["provider"]
         if worker.get("fresh_session_reason"):
             record["fresh_session_reason"] = worker["fresh_session_reason"]
+    if worker.get("output_token_cap") is not None:
+        record["output_token_cap"] = worker["output_token_cap"]
     if worker.get("verification_copy"):
         checks = "Codex sandbox" if engine == "codex" else "Configured-provider permission checks"
         record.update(
@@ -351,6 +371,14 @@ def stage_record(worker):
             "output_token_cap": worker.get("output_token_cap"),
         }
     if worker.get("configured"):
+        if worker.get("kilo_readonly_tools"):
+            return {
+                **record,
+                "isolation": "Kernel-constrained Kilo shell; other tools disabled"
+                if worker.get("tool_containment")
+                else "Kilo read-tools-only permissions; no shell or OS sandbox",
+                "tool_containment": worker.get("tool_containment"),
+            }
         return {**record, "isolation": "Config-tool sandbox flag and workspace snapshot checks"}
     record.update(
         {

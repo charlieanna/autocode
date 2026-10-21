@@ -820,6 +820,13 @@
               "null"
             ]
           },
+          "source": {
+            "description": "skip_to_build when the person chose, on starting the run, to approve the plan once the Plan Reviewer finalized it (#1731); otherwise null. Absent from reports written before AutoCode recorded it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "child": {
             "description": "Only in a program or components report: the id of the child run (as children lists it) whose own report lists this approval.",
             "type": "string"

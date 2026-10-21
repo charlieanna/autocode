@@ -815,7 +815,7 @@ def apply_intervention_feedback(state: RunState, receipt, applied_receipt):
     )
 
 
-def answer(state: RunState, question_id, text, *, delegated=False):
+def answer(state: RunState, question_id, text, *, delegated=False, source=None, round=None):
     if (state.get("user_request") or {}).get("kind") == "blocker" or (state.get(RESOLVER_REQUEST_KEY) or {}).get(
         "scope"
     ) in ("blocker", "operational_exhaustion"):
@@ -841,6 +841,7 @@ def answer(state: RunState, question_id, text, *, delegated=False):
         "text": q["proposed_default"] if delegated else text,
         "contract_token": token(contract) if contract else state.get("requirements_artifact_token", ""),
     }
+    event.update({"source": source, "round": round} if source else {})  # --skip-requirements (#1731)
     if not delegated:
         # New user intent; delegation only accepts an already-proposed default.
         event["starts_episode"] = True
@@ -921,6 +922,14 @@ def resolve_obligation(state: RunState, obligation_id, resolved_by):
     return None
 
 
+def delegable(state: RunState) -> list:
+    """Pending questions a default may answer: delegable, with a default, inferable category, no rejected assumption."""
+    obligations = {ob["id"] for ob in open_obligations(state)}
+    ok = lambda q: q.get("delegable", False) and q.get("category", "requested_outcome") not in NON_INFERABLE_CATEGORIES
+    return [q for q in state.get("pending_questions", []) if q.get("proposed_default", "").strip() and ok(q)
+            and q["id"] not in obligations]  # fmt: skip
+
+
 def delegate_all(state: RunState, selected):
     """Bulk-delegate every currently pending question to its proposed default.
     Conservative by construction: a question with no default, or not explicitly
@@ -931,15 +940,7 @@ def delegate_all(state: RunState, selected):
     pending = state.get("pending_questions", [])
     if not pending:
         raise ValueError("No pending questions to delegate")
-    obligations = {ob["id"] for ob in open_obligations(state)}
-    blocked = [
-        q["id"]
-        for q in pending
-        if not q.get("proposed_default", "").strip()
-        or not q.get("delegable", False)
-        or q.get("category", "requested_outcome") in NON_INFERABLE_CATEGORIES
-        or q["id"] in obligations
-    ]
+    blocked = [q["id"] for q in pending if q not in delegable(state)]
     if blocked:
         raise ValueError(
             "These questions cannot be bulk-delegated (no proposed default, not marked delegable, "

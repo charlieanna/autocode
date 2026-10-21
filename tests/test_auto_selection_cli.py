@@ -62,7 +62,7 @@ data = json.loads(prompt.split""",
             "effort = sys.argv[sys.argv.index(effort_flag) + 1] if effort_flag in sys.argv else None",
         )
         (self.root / "bin/opencode").write_text(script)
-        (self.root / "bin/kilocode").write_text(
+        (self.root / "bin/fixture_command").write_text(
             script.replace("models = " + repr(models), "models = ['fixture-claude']")
         )
 
@@ -100,12 +100,12 @@ data = json.loads(prompt.split""",
         self.assertTrue((self.workspace / "greet.py").is_file())
 
     def test_explicit_model_and_tool_win_over_default_selection(self):
-        run = self.start(("--sol-model", "fixture-claude", "--role-transport", "sol=kilocode"))
+        run = self.start(("--sol-model", "fixture-claude", "--role-transport", "sol=fixture_command"))
         shown = run.status()
         self.assertEqual("approve_plan", shown["needs"]["kind"], shown)
         self.assertEqual("fixture-claude", shown["routes"]["sol"]["model"])
         probes = self.operations("probe")
-        self.assertTrue(any(row["tool"] == "kilocode" and "fixture-claude" in row["argv"] for row in probes))
+        self.assertTrue(any(row["tool"] == "fixture_command" and "fixture-claude" in row["argv"] for row in probes))
         self.assertFalse(any(row["tool"] == "opencode" and "fixture-claude" in row["argv"] for row in probes))
 
     def test_explicit_selection_without_checker_refuses_before_spend(self):

@@ -183,8 +183,22 @@ set the attempt aside with `--abandon-stage`, and `--resume-paused`. Model and p
 limits still apply. Automatic report repair remains bounded to the existing read-only
 Tester and Completion Reviewer stages; Builder and Requirements never retry
 an output-limit stop automatically. Ambiguous or interrupted output remains uncertain.
-The cap-setting rules are in `tools/autocode_output_cap.py`; they do not alter configured
-command providers' environment or token limits.
+The cap-setting rules are in `tools/autocode_output_cap.py`. Ordinary Kilo 7.8.3 uses
+`KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, not the OpenCode variable. AutoCode sets that
+native variable to 64000. A valid Kilo-specific operator value wins; otherwise a
+valid legacy OpenCode value is carried across for existing callers. Kilo records
+also name `variable`, and length-stop guidance names that same native setting.
+A network-disabled local API qualification observes `max_tokens: 64000` with the
+native default and the chosen operator override. This proves request construction,
+not that every remote provider honors it. Other configured providers and the
+separate native-isolation path retain their existing cap behavior.
+
+Ordinary Kilo planning uses a fresh read-tools-only agent. Read-only verification uses
+Kilo 7.8.3's qualified kernel-constrained shell, with a writable verification copy and
+source writes denied. Every other native tool is disabled there. Effective operator
+denies are retained; headless asks are denied rather than auto-approved. Restricted
+stages start fresh sessions so previous session grants cannot override their policy.
+Builder permissions and the separate native-isolation route keep their existing contract.
 
 For an isolated native run paused before plan approval, an OpenCode authentication
 failure can also be set aside explicitly with the displayed `--abandon-stage`
