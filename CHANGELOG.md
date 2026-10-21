@@ -11,6 +11,22 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A provider connection that OpenCode marks retryable now gets its one no-effect retry even when it names the loss
+  only generically (`Network connection failed`, with empty `code`/`syscall` and no HTTP status) instead of stopping
+  as `PAUSED_PROVIDER_UNCERTAIN` (#1797). The provider's own retryable flag, a read-only stage, an unchanged
+  workspace and no written files are still required; empty errno fields no longer hide the flag.
+- A refused revision of a criterion now says what to change (#1630). Rewording a criterion in a plan nobody approved
+  names the request quotes it dropped, and replacing a `test:`/`guard:` proof with an unmarked command says to keep a
+  named test and put an aggregate run in its own criterion. Both refusals were right, but said only that a user answer
+  was missing, so two live revisions spent two report repairs each and then paused. No refusal is loosened.
+- The terminal chat shows every Requirements question, not only the first (#1792). Every question shared one chat
+  message id, and the client shows an id once, so a second question stayed hidden behind a bare `You:` prompt and
+  the person's reply answered a question they never saw. Each question now has its own message id; the chat prints
+  the question its prompt waits on, waits while Requirements is still working on a reply, and repeats the question
+  instead of a bare prompt when a reply has not been taken up.
+- The terminal chat says a running run's notice (`Working on your request…`) once per state instead of repeating it
+  every time the progress line changes, and says it again after it clears and returns (#1798).
+
 - A Planner that declares a rewording while leaving the protected criterion or list entry unchanged no longer
   creates a human wording-choice question (#1791, #1793). Inconsistent change metadata now follows the existing
   report-repair path. Genuine protected wording changes still require the person's decision.

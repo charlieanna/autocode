@@ -262,6 +262,7 @@ class ChatClient:
         self.seen: set[str] = set()
         self.viewed: set[str] = set()  # runs that have answered --status, so a refusal before one is told apart
         self.said: set[str] = set()  # message texts already shown, so a question is not printed twice
+        self._replied_context: str | None = None  # the chat context the last sent reply answered
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
         self.last_notice: str | None = None  # the notice said last, so a progress change does not repeat it
@@ -758,6 +759,26 @@ class ChatClient:
         """
         chat = view.get("chat") or {}
         review, context = chat.get("review"), chat.get("context") or ""
+        if actions.working(view):
+            # A reply was sent and Requirements is still working on it: this view's question is the
+            # one just answered. Wait for the next one rather than prompting on it again (#1792).
+            self.watch()
+            return True
+        question = next(
+            (
+                (row.get("text") or "").strip()
+                for row in reversed(chat.get("messages") or [])
+                # The status view's Requirements question message (autocode_chat_view.REQUIREMENTS_QUESTION).
+                if str(row.get("id", "")).startswith("requirements-question") and not row.get("streaming")
+            ),
+            "",
+        )
+        if question and context == self._replied_context:
+            self.say(f"\nAutoCode is still waiting on this question:\n{question}")
+        elif question and question not in self.said:
+            # Ask the question this prompt waits on, even if the transcript has not shown it yet.
+            self.said.add(question)
+            self.say(f"\nAutoCode: {question}")
         summary = ((review or {}).get("summary") or "").strip()
         if summary and summary not in self.said:
             self.said.add(summary)
@@ -896,6 +917,7 @@ class ChatClient:
     def send(self, text: str, context: str) -> bool:
         """A message through the view's chat input, then on with the run, as the extension does."""
         self.take(actions.message(self.status(), text, context, self.workspace, self.run_dir))
+        self._replied_context = context
         return self.continue_after_input()
 
     def continue_after_input(self) -> bool:
