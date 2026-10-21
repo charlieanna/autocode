@@ -195,11 +195,11 @@ def _job_model_stop(state: RunState, role):
     Once a person named another model (``route_assignment``), the next step is only the retry
     with the token issued for it; a job without a route keeps only its exact retry.
     """
-    if state.get("status") not in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):
+    if not quota_route.job_pause_current(state):
         return None
     failure = _dict(state.get("job_failure"))
     route = _dict(quota_route.job_question(state))
-    cause = failure.get("pause_status") or _JOB_STOP_CAUSE.get(failure.get("kind"))
+    cause = quota_route.job_stop_status(failure) or _JOB_STOP_CAUSE.get(failure.get("kind"))
     job = route.get("job") or role or "job"
     on = f" on {route['stopped_model']}" if route.get("stopped_model") else ""
     assigned = _dict(failure.get("route_assignment")).get("to") if route else None
@@ -221,6 +221,15 @@ def _job_model_stop(state: RunState, role):
             " Name another model for this job, then retry it with the new token."
             if route
             else " This stop keeps only its exact retry."
+        )
+    if cause == quota_route.AUTH_STATUS:
+        stopped = f"The {job}'s provider authentication failed{on}."
+        if now:
+            return f"{stopped} {now}"
+        return stopped + (
+            " Repair the provider login and retry unchanged, or name another model for this exact job."
+            if route
+            else " Repair the provider login before retrying this exact job."
         )
     if cause == "PAUSED_BUDGET":
         spent = f"The {job}'s provider reported its quota, usage limit or credits used up{on}."

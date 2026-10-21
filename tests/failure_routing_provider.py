@@ -47,7 +47,12 @@ def main():
         assert data.get("builder_failure"), "The quota fault requires a real Builder classification"
         assert sys.argv[sys.argv.index("--sandbox") + 1] == "read-only"
         print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
-        print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}), flush=True)
+        error = (
+            {"statusCode": 401, "message": "Authentication failed"}
+            if os.environ.get("FAILURE_ROUTING_STOP_KIND")
+            else {"message": "subscription usage limit reached"}
+        )
+        print(json.dumps({"type": "error", "error": error}), flush=True)
         raise SystemExit(3)
     retained_rework = os.environ.get("FAILURE_ROUTING_RETAINED_REWORK") == "1"
     if data["stage"] == "investigate_stuck_report_repair":

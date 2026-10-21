@@ -5,10 +5,12 @@ import copy
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 import autocode_job_failure as job_failure
 import autocode_job_route as job_route
 import autocode_quota_route as quota_route
+import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
 
 from tests import test_failure_routing_cli as fixture
@@ -25,8 +27,10 @@ class InvestigatorRouteCLI(unittest.TestCase):
     seed = fixture.FailureRoutingCLI.seed
     approve = fixture.FailureRoutingCLI.approve
 
-    def stopped(self, *, equals_pin=False):
+    def stopped(self, *, equals_pin=False, auth=False):
         self.seed(planner_extra=("--investigator-model", "gpt-6-sol"))
+        if auth:
+            self.env["FAILURE_ROUTING_STOP_KIND"] = "1"
         self.env.update(
             BUILD_AUDIT_FAULT="no_change",
             FAILURE_ROUTING_QUOTA_MODEL="gpt-6-sol",
@@ -96,6 +100,66 @@ class InvestigatorRouteCLI(unittest.TestCase):
             check=True,
         )
         self.assertEqual("hello\n", oracle.stdout)
+
+    def test_auth_failure_names_another_model_without_resetting_usage_or_limits(self):
+        run, held = self.stopped(auth=True)
+        self.assertEqual("authentication", held["needs"]["route"]["cause"])
+        self.assertIn("--answer route-stuck_investigator=MODEL", held["next_command"])
+        self.assertIn("authentication", held["recovery"]["what_happened"])
+        calls = self.call_order()
+        with self.assertRaises(TaskRunError):
+            run.assign_model("stuck_investigator", "gpt-6-luna", job_retry_token="jr:wrong")
+        self.unchanged(held, run.status())
+        assigned = run.assign_model("stuck_investigator", "gpt-6-luna")
+        self.assertEqual(calls, self.call_order())
+        for key in ("usage", "cost"):
+            self.assertEqual(held[key], assigned[key], key)
+        for role, route in held["routes"].items():
+            expected = (
+                dict(route, model="gpt-6-luna", origin="quota_assigned") if role == "stuck_investigator" else route
+            )
+            self.assertEqual(expected, assigned["routes"][role])
+        with self.assertRaises(TaskRunError):
+            run.retry_job(held["needs"]["job_retry_token"])
+        self.env.pop("BUILD_AUDIT_FAULT")
+        completed = run.retry_job(assigned["needs"]["job_retry_token"])
+        self.assertTrue(completed["done"], completed)
+        self.assertEqual(["gpt-6-sol", "gpt-6-luna"], [r["model"] for r in self.trace("investigate_stuck")])
+
+    def test_billing_preflight_preserves_failed_job_action_and_bound_route_answer(self):
+        run, held = self.stopped()
+        calls = self.call_order()
+        token = held["needs"]["job_retry_token"]
+        with mock.patch(
+            "autocode_model_preflight.check", side_effect=util.Paused("PAUSED_BILLING_ROUTE", "fixture login missing")
+        ):
+            self.call(
+                "autocode",
+                [
+                    "--run-dir",
+                    str(self.run),
+                    "--resume-paused",
+                    "--retry-failed-stage",
+                    "--job-retry-token",
+                    token,
+                    "--no-chat",
+                ],
+                codes=(2,),
+            )
+        paused = run.status()
+        self.assertEqual("PAUSED_BILLING_ROUTE", paused["status"])
+        self.assertEqual("retry_job", paused["needs"]["kind"])
+        self.assertEqual(token, paused["needs"]["job_retry_token"])
+        self.assertIn("fixture login missing", paused["needs"]["reason"])
+        self.assertEqual(calls, self.call_order())
+        assigned = run.assign_model("stuck_investigator", "gpt-6-luna")
+        self.assertNotEqual(token, assigned["needs"]["job_retry_token"])
+        with self.assertRaises(TaskRunError):
+            run.retry_job(token)
+        self.env.pop("BUILD_AUDIT_FAULT")
+        completed = run.retry_job(assigned["needs"]["job_retry_token"])
+        self.assertTrue(completed["done"], completed)
+        self.assertEqual(["gpt-6-sol", "gpt-6-luna"], [r["model"] for r in self.trace("investigate_stuck")])
 
     def test_equals_pin_option_is_updated_before_a_fresh_exact_retry(self):
         run, held = self.stopped(equals_pin=True)
@@ -348,6 +412,37 @@ class InvestigatorRoutePolicyTests(unittest.TestCase):
             else:
                 altered["job_failure"].pop(missing)
             self.assertIsNone(quota_route.job_question(altered))
+
+    def test_retained_auth_stop_projects_only_its_bound_physical_attempt(self):
+        state = self.state()
+        failure = state["job_failure"]
+        failure.pop("pause_status")
+        failure["kind"] = "provider_auth"
+        before = copy.deepcopy(state)
+        question = quota_route.job_question(state)
+        self.assertEqual("authentication", question["cause"])
+        self.assertEqual(before, state)
+        state["stages"][0]["job_source"]["before_identity"] = "other"
+        self.assertIsNone(quota_route.job_question(state))
+
+    def test_preflight_projection_requires_unconsumed_current_job_authority(self):
+        state = self.state()
+        state["status"] = "PAUSED_BILLING_ROUTE"
+        state["next_stage"] = "investigate_stuck"
+        state["job_retry_authorization"] = {"stage": "investigate_stuck", "token": "jr:bound", "consumed": False}
+        self.assertTrue(quota_route.job_pause_current(state))
+        for key, value in (("consumed", True), ("token", "jr:old"), ("stage", "sol")):
+            changed = copy.deepcopy(state)
+            changed["job_retry_authorization"][key] = value
+            self.assertFalse(quota_route.job_pause_current(changed))
+        for key, value in (
+            ("next_stage", "sol"),
+            ("active_stage", {"stage": "model_preflight"}),
+            ("recovery_context", {"kind": "job_failure", "attempt_id": "another"}),
+        ):
+            changed = copy.deepcopy(state)
+            changed[key] = value
+            self.assertFalse(quota_route.job_pause_current(changed))
 
     def test_effort_and_pin_changes_cannot_be_saved_beside_a_model_answer(self):
         state = self.state()

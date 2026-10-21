@@ -878,7 +878,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         known_source = bool(failure.get("source_identity"))
         need = {
             "kind": "retry_job" if known_source else "recover_source",
-            "reason": failure["reason"],
+            "reason": (str(state.get("stop_reason") or "") + ". " + failure["reason"])
+            if status in quota_route.JOB_PREFLIGHT_PAUSES
+            else failure["reason"],
             "stage": failure["stage"],
             "attempt_id": failure["attempt_id"],
             "job_retry_token": failure["job_retry_token"],
@@ -907,7 +909,7 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
-            if need["route"]["cause"] in ("content_filter", "output_limit") and not isinstance(
+            if need["route"]["cause"] in ("content_filter", "output_limit", "authentication") and not isinstance(
                 failure.get("route_assignment"), dict
             ):
                 need["action"] = (
