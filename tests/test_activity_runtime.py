@@ -724,9 +724,13 @@ class ActivityRuntimeTests(unittest.TestCase):
             "stage": "terra",
             "events": str(events),
             "output": str(self.run / "completed-terra.json"),
+            "schema": str(self.run / "terra.schema.json"),
             "changed_files": ["greet.py"],
             "after_ref": str(self.run / "completed-terra.after.json"),
             "source_revision": support.snapshot(self.root)["revision"],
+            # #1825 renews the streak only for a valid saved checkpoint, as run_role records it.
+            "exit_code": 0,
+            "finished_at": support.now(),
         }
         with self.assertRaises(support.Paused) as caught:
             runner.apply_result(self.state, "terra", {**report, "contract_hash": "stale"}, record, self.root, self.run)
