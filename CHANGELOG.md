@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A criterion change the Plan Reviewer asked for, which the runner refuses without the person's say, is now the
+  person's question at once instead of a report repair (#1630). In a plan nobody approved, when a blocking concern of
+  the saved review names the criterion, the refusal becomes the existing rewording question (#1691), naming the
+  concern and, when it changed, the proof; `Accept the new wording` lets the next revision cite the answer, `Keep the
+  approved wording` sends the Planner back with the refusal's hint. Two live revisions had spent two repairs each on
+  this before the Planner asked the same question itself.
 - Before a chat is open, the full-screen terminal chat's `/new` and Ctrl-T now say `This is a new chat: type what
   you want done.` (#1759). `/new` answered `/new is not available right now` and Ctrl-T `Tabs switch once a chat is
   open`, though the client already had the right reply; `/new` is now offered in the `/` menu there too.
