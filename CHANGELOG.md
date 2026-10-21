@@ -15,6 +15,11 @@ PR template asks for an entry here; a change without one is incomplete.
   of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
   run in both. A finished run in between leaves a gap (`Pick one (1, 3), …`).
 
+- A read-only stage that compiles Python in the workspace no longer pauses the run as a source edit (#1630).
+  The exclusions AutoCode wrote to the project's `.git/info/exclude` never reached a provider's snapshot
+  repository, which has its own git dir; the runner now names its own excludes file through the provider's
+  environment (`core.excludesFile`), for Kilo as well as OpenCode, and the read-only guard and the exclusions
+  share one predicate. The user's global ignore rules are kept. `docs/bugs/native-snapshot-excludes.md`.
 - Leaving the full-screen terminal chat at its first question (Ctrl-D or `/quit` at the run picker) no longer leaves
   the whole run list on the terminal (#1755). Before any conversation, only what the chat said after its last
   question, such as `Nothing started.`, stays behind.

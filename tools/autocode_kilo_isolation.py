@@ -29,6 +29,7 @@ try:
     from . import autocode_kilo_source_relay as relay
     from . import autocode_native_conformance as observations
     from . import autocode_native_locators as native_locators
+    from . import autocode_opencode_snapshots as native_snapshots
     from . import autocode_output_cap as output_cap
     from . import autocode_process as processes
     from . import autocode_supervision as supervision
@@ -41,6 +42,7 @@ except ImportError:
     import autocode_kilo_source_relay as relay
     import autocode_native_conformance as observations
     import autocode_native_locators as native_locators
+    import autocode_opencode_snapshots as native_snapshots
     import autocode_output_cap as output_cap
     import autocode_process as processes
     import autocode_supervision as supervision
@@ -636,20 +638,23 @@ class KiloRoleIsolation:
         pins, child = (
             {},
             {
-                key: env[key]
-                for key in (
-                    "PATH",
-                    "LANG",
-                    "LC_CTYPE",
-                    "LC_ALL",
-                    "TZ",
-                    "AUTOCODE_OUTPUT_MODE",
-                    "AUTOCODE_OUTPUT_STORE",
-                    "AUTOCODE_OUTPUT_ATTEMPT",
-                    "AUTOCODE_CAPTURE_CONTEXT",
-                    "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX",
-                )
-                if key in env
+                **native_snapshots.git_config_env(env),  # the snapshot excludes file (#1630)
+                **{
+                    key: env[key]
+                    for key in (
+                        "PATH",
+                        "LANG",
+                        "LC_CTYPE",
+                        "LC_ALL",
+                        "TZ",
+                        "AUTOCODE_OUTPUT_MODE",
+                        "AUTOCODE_OUTPUT_STORE",
+                        "AUTOCODE_OUTPUT_ATTEMPT",
+                        "AUTOCODE_CAPTURE_CONTEXT",
+                        "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX",
+                    )
+                    if key in env
+                },
             },
         )
         for key, name in DIRECTORIES.items():
