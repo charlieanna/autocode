@@ -1429,11 +1429,12 @@ def after_challenge(state: RunState, value, record):
     except ImportError:
         import autocode_goal_lifecycle as lifecycle
     # The same path a final review takes: install the approved body and queue the user's approval.
-    # Install on a copy and publish only on success, as approve() does: a refused install must leave no draft behind.
-    candidate = copy.deepcopy(state)
+    # The same path a final review takes: install the approved body and queue the user's approval. A refused
+    # install is rolled back to the saved state, so no half-installed draft survives it.
+    saved = copy.deepcopy(state)
     try:
         body = brief_obligations.reviewed_body(
-            candidate,
+            state,
             contract["body"],
             value.get("brief_observations") or [],
             record,
@@ -1441,23 +1442,23 @@ def after_challenge(state: RunState, value, record):
             trace=value.get("source_trace"),
         )
         body = risk_obligations.reviewed_body(
-            candidate,
+            state,
             body,
             value.get("risk_observations") or [],
             record,
             changes=value.get("risk_observation_changes") or [],
         )
-        lifecycle.install_draft(candidate, body, origin="adaptive_review_approval", record=record)
+        lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
     except ValueError as error:
         # The draft cannot go to the user as it stands, for example a brief sentence no criterion
         # cites. The Planner owns the contract: rejecting this review sent it to report repair,
         # which cannot change the contract, and the run paused with no plan (#1630). Revise
         # instead, as every first review leads to outside adaptive planning.
-        planning["adaptive"]["approval_refused"] = str(error)
+        cast(dict, state).clear()
+        state.update(saved)
+        state["planning"]["adaptive"]["approval_refused"] = str(error)
         state["next_stage"] = "glm_revise"
         return
-    cast(dict, state).clear()
-    state.update(candidate)
     planning = state["planning"]
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(
