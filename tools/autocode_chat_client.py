@@ -1066,13 +1066,27 @@ def every_project_runs(*, command=AUTOCODE, env=None) -> list[dict]:
     return list(json.loads(proc.stdout)["runs"])
 
 
+def waiting(listed: list[dict]) -> list[dict]:
+    """The runs that need a person or are still working."""
+    return [row for row in listed if row.get("bucket") in ("needs you", "working")]
+
+
 def unfinished(workspace: Path, *, command=AUTOCODE, env=None) -> list[dict]:
     """The project's runs that need a person or are still working, as `autocode runs --json` lists them."""
-    return [
-        row
-        for row in project_runs(workspace, command=command, env=env)
-        if row.get("bucket") in ("needs you", "working")
-    ]
+    return waiting(project_runs(workspace, command=command, env=env))
+
+
+def picker_numbers(listed: list[dict]) -> dict[str, int]:
+    """Each of the project's runs by the number /runs gives it (this project's chats come first there,
+    newest first), so the startup picker and /runs call a run by the same number (#1754)."""
+    return {str(row["run_dir"]): number for number, row in enumerate(panel.run_rows(listed), 1)}
+
+
+def numbers_text(numbers: list[int]) -> str:
+    """``1-3`` for a run of numbers, else ``1, 3, 4``."""
+    if numbers == list(range(numbers[0], numbers[0] + len(numbers))):
+        return f"{numbers[0]}-{numbers[-1]}"
+    return ", ".join(str(number) for number in numbers)
 
 
 def open_chat(
@@ -1094,20 +1108,25 @@ def open_chat(
     In the full-screen chat ``/runs`` and ``/open N`` work at that question too (``Opened``).
     """
     command, env = kwargs.get("command", AUTOCODE), kwargs.get("env")
-    runs = unfinished(workspace, command=command, env=env)
-    earlier = project_runs(workspace, command=command, env=env) if hint and not runs else []
+    listed = project_runs(workspace, command=command, env=env)
+    runs = waiting(listed)
+    earlier = listed if hint and not runs else []
     try:
         if len(runs) == 1:
-            say(f"Picking up {runs[0]['name']}.")
+            say(f"Picking up {runs[0].get('title') or runs[0]['name']}.")
             return ChatClient(workspace, Path(runs[0]["run_dir"]), ask=ask, say=say, **kwargs)
         if runs:
+            numbers = picker_numbers(listed)
+            by_number = {numbers[str(row["run_dir"])]: row for row in runs}
             say("Runs waiting here:")
-            for number, row in enumerate(runs, 1):
-                say(f"  {number}. {row['name']} ({row.get('pause_category_label') or row['bucket']})")
-            while (choice := ask(f"Pick one (1-{len(runs)}), or type a new request: ").strip()).isdigit():
-                if 1 <= int(choice) <= len(runs):
-                    return ChatClient(workspace, Path(runs[int(choice) - 1]["run_dir"]), ask=ask, say=say, **kwargs)
-                say(f"There is no run {choice}.")
+            for number, row in sorted(by_number.items()):
+                state = row.get("pause_category_label") or row["bucket"]
+                say(f"  {number}. {row.get('title') or row['name']} ({state})")
+            offered = numbers_text(sorted(by_number))
+            while (choice := ask(f"Pick one ({offered}), or type a new request: ").strip()).isdigit():
+                if int(choice) in by_number:
+                    return ChatClient(workspace, Path(by_number[int(choice)]["run_dir"]), ask=ask, say=say, **kwargs)
+                say(f"There is no run {choice} waiting.")
             brief = choice
         else:
             if earlier:

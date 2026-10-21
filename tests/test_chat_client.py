@@ -563,14 +563,48 @@ class ConversationTests(unittest.TestCase):
         runs = [
             {"name": f"run-{n}", "run_dir": f"{WORKSPACE}/.autocode/runs/r{n}", "bucket": "needs you"} for n in (1, 2)
         ]
-        said, replies = [], iter(["7", "2"])
+        said, replies = [], iter(["7", "1"])
         with (
-            mock.patch.object(chat, "unfinished", return_value=runs),
+            mock.patch.object(chat, "project_runs", return_value=runs),
             mock.patch.object(chat, "start", side_effect=AssertionError("started a run")),
         ):
             client = chat.open_chat(WORKSPACE, ask=lambda prompt: next(replies), say=said.append)
-        self.assertEqual(Path(runs[1]["run_dir"]), client.run_dir)
-        self.assertIn("There is no run 7.", said)
+        self.assertEqual(Path(runs[1]["run_dir"]), client.run_dir, "1 is the newest, as /runs numbers it")
+        self.assertIn("There is no run 7 waiting.", said)
+
+    def test_the_run_picker_names_and_numbers_runs_as_runs_does(self):
+        """#1754: the picker listed raw run names, oldest first, numbered apart from /runs."""
+
+        def run(n, bucket, title, day):
+            return {
+                "name": f"202610{day}-chat-{n}",
+                "run_dir": f"{WORKSPACE}/.autocode/runs/r{n}",
+                "workspace": str(WORKSPACE),
+                "bucket": bucket,
+                "title": title,
+                "updated_at": f"2026-10-{day}T10:00:00",
+                "pause_category_label": "Your decision" if bucket == "needs you" else None,
+            }
+
+        listed = [
+            run(1, "needs you", "Old dashboard", "01"),
+            run(2, "complete", "Fix the typo", "10"),
+            run(3, "needs you", "Add a --shout flag", "20"),
+        ]
+        said, asked, replies = [], [], iter(["3"])
+        with mock.patch.object(chat, "project_runs", return_value=listed):
+            client = chat.open_chat(
+                WORKSPACE, ask=lambda prompt: asked.append(prompt) or next(replies), say=said.append
+            )
+        self.assertEqual(
+            ["Runs waiting here:", "  1. Add a --shout flag (Your decision)", "  3. Old dashboard (Your decision)"],
+            said,
+        )
+        self.assertEqual(["Pick one (1, 3), or type a new request: "], asked)
+        self.assertEqual(Path(listed[0]["run_dir"]), client.run_dir)
+        runs = chat.panel.runs_text(chat.panel.run_rows(listed))
+        self.assertIn("  1. Add a --shout flag", runs)
+        self.assertIn("  3. Old dashboard", runs, "the same number in /runs")
 
     def test_a_failing_run_listing_is_reported_not_taken_for_an_empty_project(self):
         broken = subprocess.CompletedProcess([], 2, "", "Traceback: registry unreadable")
@@ -685,10 +719,8 @@ class HistoryTests(unittest.TestCase):
         def ask(prompt):
             raise chat.Opened(self.ROWS[1])
 
-        with (
-            mock.patch.object(chat, "unfinished", return_value=[]),
-            mock.patch.object(chat, "project_runs", return_value=self.ROWS),
-        ):
+        finished = [{**row, "bucket": "complete"} for row in self.ROWS]  # nothing waits: the first question is asked
+        with mock.patch.object(chat, "project_runs", return_value=finished):
             said = []
             client = chat.open_chat(WORKSPACE, ask=ask, say=said.append, hint=True)
         self.assertEqual(Path(self.ROWS[1]["run_dir"]), client.run_dir)

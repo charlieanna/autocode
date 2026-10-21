@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat's startup run picker now lists runs as `/runs` does (#1754): by their request's title instead
+  of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
+  run in both. A finished run in between leaves a gap (`Pick one (1, 3), …`).
+
 - Leaving the full-screen terminal chat at its first question (Ctrl-D or `/quit` at the run picker) no longer leaves
   the whole run list on the terminal (#1755). Before any conversation, only what the chat said after its last
   question, such as `Nothing started.`, stays behind.
