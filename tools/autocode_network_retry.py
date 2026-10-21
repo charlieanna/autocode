@@ -62,6 +62,8 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 CONFLICT = re.compile(
     r"quota|credits?|rate.?limit|429|authenticat|unauthori|content.?filter|output(?:.?token)?.?limit", re.I
 )
+# OpenCode's wording when the connection dropped with no errno or HTTP status to name (#1797).
+GENERIC_NETWORK = re.compile(r"network connection (?:was )?(?:lost|failed)", re.I)
 
 
 def _unique(pairs):
@@ -186,11 +188,19 @@ def retryable_error(raw):
         code, status = metadata.get("code"), data.get("statusCode")
         if ("code" in metadata and not isinstance(code, str)) or ("statusCode" in data and type(status) is not int):
             return None
+        # Empty code/syscall strings mean no errno facts, not an unrecognized cause.
+        code = code or None
         if code is not None and code not in NETWORK_CODES:
             return None
         if status is not None and (type(status) is not int or status not in HTTP_CODES):
             return None
-        return (code or str(status)) if code in NETWORK_CODES or status in HTTP_CODES else None
+        if code in NETWORK_CODES or status in HTTP_CODES:
+            return code or str(status)
+        # The provider marked it retryable and named only a generic connection loss; the
+        # no-effect admission gate still bounds the single retry (#1797).
+        if GENERIC_NETWORK.search(data.get("message", "")) or GENERIC_NETWORK.search(metadata.get("message", "")):
+            return "network"
+        return None
     except (ValueError, TypeError, RecursionError, UnicodeError):
         return None
 

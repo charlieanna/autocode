@@ -15,6 +15,14 @@ PR template asks for an entry here; a change without one is incomplete.
   (#1761). The README and install guide now say the activation lasts for one shell and name the lasting fixes
   (`pipx install --editable .` or the venv's `bin` on `PATH`), and `autocode doctor` has a `path` row that warns,
   without failing, when `autocode` is not on `PATH` and names the directory to add.
+- A provider connection that OpenCode marks retryable now gets its one no-effect retry even when it names the loss
+  only generically (`Network connection failed`, with empty `code`/`syscall` and no HTTP status) instead of stopping
+  as `PAUSED_PROVIDER_UNCERTAIN` (#1797). The provider's own retryable flag, a read-only stage, an unchanged
+  workspace and no written files are still required; empty errno fields no longer hide the flag.
+- A refused revision of a criterion now says what to change (#1630). Rewording a criterion in a plan nobody approved
+  names the request quotes it dropped, and replacing a `test:`/`guard:` proof with an unmarked command says to keep a
+  named test and put an aggregate run in its own criterion. Both refusals were right, but said only that a user answer
+  was missing, so two live revisions spent two report repairs each and then paused. No refusal is loosened.
 - The terminal chat shows every Requirements question, not only the first (#1792). Every question shared one chat
   message id, and the client shows an id once, so a second question stayed hidden behind a bare `You:` prompt and
   the person's reply answered a question they never saw. Each question now has its own message id; the chat prints
