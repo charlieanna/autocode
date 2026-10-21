@@ -427,6 +427,118 @@ class RecoveryPacketTests(unittest.TestCase):
                 retry_authorization=retained,
             )
 
+    def routed_hold(self):
+        self.state["settings"]["roles"]["resolver"] = {
+            "engine": "opencode",
+            "model": "old/model",
+            "reasoning_effort": "medium",
+        }
+        state = self.legacy_failure()
+        state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve", active_seconds=123)
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": "held"}, self.root, self.run)
+        return state
+
+    def test_explicit_resolver_route_retains_packet_and_history_without_restart_credit(self):
+        state = self.routed_hold()
+        pointer = state["resolution_request"]["recovery_packet"]
+        packet = recovery.load_packet(pointer, self.run)
+        before = copy.deepcopy(state)
+        state["settings"]["roles"]["resolver"]["model"] = "openai/gpt-6-astra"
+        state["settings"]["route_origins"] = {"resolver": "user_explicit"}
+        selected = copy.deepcopy(state)
+        preview = recovery.authorize_retry(
+            runner, state, self.run, self.root, previous_settings=before["settings"], preview=True
+        )
+        self.assertEqual(selected, state)
+        self.assertNotIn("consumed", preview)
+        authorization = recovery.authorize_retry(
+            runner, state, self.run, self.root, previous_settings=before["settings"]
+        )
+        attempt = {"stage": "astra_resolve", "output": "approved-new-model"}
+        recovery.admit_dispatch(state, attempt, self.root, self.run, retry_authorization=authorization)
+        self.assertEqual("explicit_retry", attempt["recovery_novelty"]["reason"])
+        self.assertEqual("openai/gpt-6-astra", state["settings"]["roles"]["resolver"]["model"])
+        for key in ("failure_history", "active_seconds", "stages"):
+            self.assertEqual(before[key], state[key])
+        self.assertEqual(packet, recovery.load_packet(pointer, self.run))
+        state["stages"].append(attempt)
+        audit = state["failure_retry_authorizations"][-1]
+        for grant in (None, audit, authorization):
+            with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                recovery.admit_dispatch(
+                    state,
+                    {"stage": "astra_resolve", "output": "not-approved"},
+                    self.root,
+                    self.run,
+                    retry_authorization=grant,
+                )
+        # A later explicit effort change is still the same incident and retains both assignments.
+        previous = copy.deepcopy(state["settings"])
+        state["settings"]["roles"]["resolver"]["reasoning_effort"] = "high"
+        second = recovery.authorize_retry(runner, state, self.run, self.root, previous_settings=previous)
+        recovery.admit_dispatch(
+            state,
+            {"stage": "astra_resolve", "output": "approved-effort"},
+            self.root,
+            self.run,
+            retry_authorization=second,
+        )
+        self.assertEqual(packet, recovery.load_packet(pointer, self.run))
+        self.assertEqual(2, len(state["failure_retry_authorizations"]))
+        self.assertIsNotNone(escalation.advance(state, "resolver", trigger="rejected_output"))
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(
+                state, {"stage": "astra_resolve", "output": "climbed-no-credit"}, self.root, self.run
+            )
+
+        # Choosing an earlier rung after that climb is another explicit grant,
+        # not permission for old climb records to swallow the new assignment.
+        previous = copy.deepcopy(state["settings"])
+        state["settings"]["roles"]["resolver"]["reasoning_effort"] = "high"
+        third = recovery.authorize_retry(runner, state, self.run, self.root, previous_settings=previous)
+        recovery.admit_dispatch(
+            state,
+            {"stage": "astra_resolve", "output": "approved-earlier-rung"},
+            self.root,
+            self.run,
+            retry_authorization=third,
+        )
+        self.assertEqual(packet, recovery.load_packet(pointer, self.run))
+
+    def test_resolver_route_retry_refuses_other_changes_and_unsettled_work(self):
+        for mutation in ("other-role", "permission", "engine", "source", "scope", "contract", "active", "uncertain"):
+            with self.subTest(mutation=mutation):
+                state = self.routed_hold()
+                previous = copy.deepcopy(state["settings"])
+                state["settings"]["roles"]["resolver"]["model"] = "new/model"
+                if mutation == "other-role":
+                    state["settings"]["roles"]["terra"]["model"] = "also-changed"
+                elif mutation == "permission":
+                    state["settings"]["allow_uncontained_tools"] = True
+                elif mutation == "engine":
+                    state["settings"]["roles"]["resolver"]["engine"] = "codex"
+                elif mutation == "scope":
+                    state["current_task"]["acceptance_criteria"].append("C2")
+                elif mutation == "contract":
+                    state["goal_contract"]["hash"] = "changed"
+                elif mutation == "active":
+                    state["active_stage"] = {"stage": "astra_resolve"}
+                elif mutation == "uncertain":
+                    state["uncertain_artifacts"] = ["unsettled"]
+                selected = copy.deepcopy(state)
+                revision = "changed-source" if mutation == "source" else "s1"
+                with patch.object(util, "snapshot", return_value={"revision": revision, "files": {}}):
+                    with self.assertRaises(ValueError):
+                        recovery.authorize_retry(runner, state, self.run, self.root, previous_settings=previous)
+                self.assertEqual(selected, state)
+
+    def test_resolver_change_without_current_invocation_provenance_is_stale(self):
+        state = self.routed_hold()
+        state["settings"]["roles"]["resolver"]["model"] = "new/model"
+        with self.assertRaisesRegex(ValueError, "stale"):
+            recovery.authorize_retry(runner, state, self.run, self.root)
+
     def capture_resolution(self, state, decision):
         self.output.write_text(json.dumps(decision))
         source = {key: value for key, value in self.record.items() if key != "recovery_packet"}

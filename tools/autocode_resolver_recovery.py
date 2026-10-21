@@ -33,14 +33,13 @@ try:
     from . import autocode_check_refs as check_refs
     from . import autocode_cost as cost
     from . import autocode_efficiency as efficiency
-    from . import autocode_escalation as escalation
     from . import autocode_failure_classification as classification
     from . import autocode_failures as failures
     from . import autocode_process as processes
-    from . import autocode_quota_route as quota_route
     from . import autocode_recovery_inputs as inputs
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_novelty as novelty
+    from . import autocode_resolver_retry_route as retry_route
     from . import autocode_retained_work as retained
     from . import autocode_rework_policy as rework
     from . import autocode_support as support
@@ -53,14 +52,13 @@ except ImportError:
     import autocode_check_refs as check_refs
     import autocode_cost as cost
     import autocode_efficiency as efficiency
-    import autocode_escalation as escalation
     import autocode_failure_classification as classification
     import autocode_failures as failures
     import autocode_process as processes
-    import autocode_quota_route as quota_route
     import autocode_recovery_inputs as inputs
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_novelty as novelty
+    import autocode_resolver_retry_route as retry_route
     import autocode_retained_work as retained
     import autocode_rework_policy as rework
     import autocode_support as support
@@ -157,7 +155,7 @@ _CEILINGS = {
 def _bound_settings(state: RunState, ceilings):
     # A model a person named at a quota stop (#184) is bound as the route it replaced,
     # and the Resolver's own climb (#1345) as the rung it left.
-    settings = escalation.unclimbed(state, quota_route.unassigned(state, state.get("settings", {})), "resolver")
+    settings = retry_route.unassigned(state, state.get("settings", {}))
     for section, keys in ceilings.items():
         for key in keys:
             if section in settings:
@@ -1277,7 +1275,7 @@ def route_known_change(runtime, state: RunState, decision, record, *, run_dir, r
     return True
 
 
-def authorize_retry(runner, state: RunState, run_dir, workspace):
+def authorize_retry(runner, state: RunState, run_dir, workspace, *, previous_settings=None, preview=False):
     """Existing explicit CLI control, bound to the actual suppressed frontier."""
     request = _request(state, state.get("next_stage"))
     held = request.get("novelty_hold")
@@ -1287,11 +1285,28 @@ def authorize_retry(runner, state: RunState, run_dir, workspace):
         raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
     packet = load_packet(request["recovery_packet"], run_dir)
     revision = _source_revision(state, held.get("stage"), request["recovery_packet"], packet, workspace)
-    if not _holds(held.get("binding"), state, revision) or held.get("scope") != _scope(state):
+    route_change = retry_route.change(state, previous_settings)
+    checked = state
+    if route_change:
+        # Prospective provenance is checked before it is saved. Every other
+        # setting, source, contract and scope must still match the old hold.
+        checked = {
+            **state,
+            "failure_retry_authorizations": [
+                *state.get("failure_retry_authorizations", []),
+                {
+                    "actor": "user_cli",
+                    "stage": "astra_resolve",
+                    "novelty_packet": util.digest(packet),
+                    "resolver_route_change": route_change,
+                },
+            ],
+        }
+    if not _holds(held.get("binding"), checked, revision) or held.get("scope") != _scope(state):
         raise ValueError("Scoped recovery retry is stale; source, settings or approved scope changed")
     if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
         raise ValueError("Scoped recovery retry requires its no-progress hold")
-    public = runner.resolver_human.current(state)
+    public = runner.resolver_human.current({**state, "settings": previous_settings} if route_change else state)
     if public:
         entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(public["request_id"], {})
         if (
@@ -1323,6 +1338,10 @@ def authorize_retry(runner, state: RunState, run_dir, workspace):
         or ("terra" if state.get("next_stage") == "orchestrator" else state.get("next_stage")),
         "ordinal": len(state.get("failure_retry_authorizations", [])),
     }
+    if route_change:
+        grant["resolver_route_change"] = route_change
+    if preview:
+        return grant  # Validate before run setup writes settings; this is not launch credit.
     if pending:
         grant["superseded_proposal"] = copy.deepcopy(pending)
         cast(dict, state).pop(runner.resolver_human.PRIVATE)

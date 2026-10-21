@@ -176,7 +176,13 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                 elif args.retry_failed_stage:
                     try:
                         authorization = runner.resolver_recovery.authorize_retry(
-                            runner, state, run_dir, workspace
+                            runner,
+                            state,
+                            run_dir,
+                            workspace,
+                            previous_settings=getattr(args, "_recovery_grant_settings", None)
+                            if args.resolver_model or args.resolver_reasoning_effort
+                            else None,
                         ) or runner.authorize_failure_retry(state, run_dir, workspace)
                         args._failure_retry_authorization = authorization
                         print(

@@ -931,12 +931,7 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             settings["roles"]["requirements"]["model"] = args.requirements_model
         if getattr(args, "requirements_reasoning_effort", None):
             settings["roles"]["requirements"]["reasoning_effort"] = args.requirements_reasoning_effort
-    if getattr(args, "resolver_model", None) or getattr(args, "resolver_reasoning_effort", None):
-        settings["roles"].setdefault("resolver", copy.deepcopy(settings["roles"]["astra"]))
-        if getattr(args, "resolver_model", None):
-            settings["roles"]["resolver"]["model"] = args.resolver_model
-        if getattr(args, "resolver_reasoning_effort", None):
-            settings["roles"]["resolver"]["reasoning_effort"] = args.resolver_reasoning_effort
+    _resolver_override(settings, args)
     if getattr(args, "glm_reasoning_effort", None):
         settings["roles"]["glm"]["reasoning_effort"] = args.glm_reasoning_effort
     if getattr(args, "plan_reviewer_model", None):
@@ -956,6 +951,16 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         )
         if problem:
             raise ValueError(problem)
+
+
+def _resolver_override(settings, args):
+    """The saved Resolver override has identical semantics on both engines."""
+    if getattr(args, "resolver_model", None) or getattr(args, "resolver_reasoning_effort", None):
+        settings["roles"].setdefault("resolver", copy.deepcopy(settings["roles"]["astra"]))
+        if getattr(args, "resolver_model", None):
+            settings["roles"]["resolver"]["model"] = args.resolver_model
+        if getattr(args, "resolver_reasoning_effort", None):
+            settings["roles"]["resolver"]["reasoning_effort"] = args.resolver_reasoning_effort
 
 
 def configure_codex_joint(settings, args, *, planning):
@@ -980,6 +985,7 @@ def configure_codex_joint(settings, args, *, planning):
             route["model"] = model
         if effort:
             route["reasoning_effort"] = effort
+    _resolver_override(settings, args)
     roles["plan_reviewer"]["model_pinned"] = True
     for role, route in roles.items():
         if planning.engine_for(settings, role) != "codex":

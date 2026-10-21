@@ -619,6 +619,31 @@ def load_locked(runner, args, parser, state: RunState, state_path, run_dir, work
         )
         # A stopped job's model answer changes only that model; nothing else is saved with it (#463).
         refusal = refusal or job_route.settings_refusal(args, state, settings)
+        # A held Resolver route changes only beside an explicitly scoped retry.
+        # Validate against this locked invocation's old settings before saving
+        # any selected settings, so a rejected retry cannot strand the packet.
+        if (
+            not refusal
+            and state.get("next_stage") == "astra_resolve"
+            and resolver_recovery.recovery_limits.held_request(state, "astra_resolve").get("novelty_hold")
+            and (args.resolver_model or args.resolver_reasoning_effort)
+        ):
+            if not (args.resume_paused and args.retry_failed_stage):
+                refusal = (
+                    "A held Resolver model change requires --resume-paused --retry-failed-stage; nothing was saved"
+                )
+            else:
+                try:
+                    resolver_recovery.authorize_retry(
+                        runner,
+                        {**state, "settings": settings},
+                        run_dir,
+                        workspace,
+                        previous_settings=state["settings"],
+                        preview=True,
+                    )
+                except ValueError as error:
+                    refusal = str(error) + "; nothing was saved"
         # Check a parallel retry before saving the settings beside it. The actual retry repeats
         # these checks. A collected refusal (Paused, #541) still asks its question there; only a
         # stop carrying its member payload proceeds there. Other stops reject before settings

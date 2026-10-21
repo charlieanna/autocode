@@ -700,6 +700,15 @@ derives flags from the action's `kind`, so a new action needs no client change.
 Inspection, feedback, decision and conversation actions have no `args`: they
 open a view or ask the person for input instead of running a command.
 
+An operator changing the Resolver's model at its no-progress hold supplies
+`--resolver-model MODEL` (and optionally `--resolver-reasoning-effort EFFORT`)
+together with `--resume-paused --retry-failed-stage`. This records the exact
+Resolver route change alongside one invocation-local retry. The original incident,
+usage and spent allowances remain intact; changing another role, engine, source,
+contract or scope is refused. A model change alone cannot authorize a call, and a
+rejected combined change saves no settings. Clients continue to use only named
+view actions; this operator control does not add a client-side route override.
+
 ## Inspecting current verification
 
 `autocode --run-dir RUN --status --inspect-evidence` performs a read-only source
