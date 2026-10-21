@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat's banner, `/engine` and `/connect` now agree on what new chats use when the user config sets
+  `default_provider` (#1756). The banner named the default connection by its id, `/engine` marked OpenCode current
+  and `/connect` marked nothing. All three now read one rule (`autocode_chat_setup.backend`): the banner shows the
+  connection's label, `/connect` marks it, and `/engine` says new chats use that connection.
+
 - Switching tabs in the terminal chat (`/tab`, Ctrl-←/→) no longer draws the chat switched to as working when it is
   waiting for the person or done (#1757). The tab kept no state until its status was read again; it now keeps the
   state last read for it.

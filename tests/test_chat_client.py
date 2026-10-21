@@ -722,6 +722,20 @@ class NewChatSetupTests(unittest.TestCase):
             self.assertEqual(chat.setup.NewChat("quick", ["--provider", "claude", "--engine", "claude"]), history.new)
             self.assertEqual(history.new, chat.setup.NewChat.load(Path(folder)))
 
+    def test_the_banner_engine_and_connect_name_the_same_default_connection(self):
+        """#1756: with default_provider = "kilocode" they named kilocode, OpenCode and nothing."""
+        from tests.test_chat_setup import CONNECTIONS
+
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            rows = [{**row, "default": row["id"] == "kilocode"} for row in CONNECTIONS["connections"]]
+            listings = {"modes": history.read(["modes"]), "connections": {**CONNECTIONS, "connections": rows}}
+            history.read = lambda argv: listings[argv[0]]
+            self.assertEqual("New chats: Full · Kilo. /mode and /engine change them.", history.summary())
+            self.assertIn("New chats use the Kilo connection (kilocode)", history.slash("/engine", ""))
+            self.assertNotIn("(current)", history.slash("/engine", ""))
+            self.assertIn("  kilocode  Kilo: unavailable  (new chats use it)", history.slash("/connect", ""))
+
     def test_connect_checks_signs_in_through_the_terminal_and_uses_a_backend(self):
         with tempfile.TemporaryDirectory() as folder:
             history = self.history(folder)
