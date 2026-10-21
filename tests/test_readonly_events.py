@@ -323,6 +323,29 @@ class SnapshotIgnoreTests(unittest.TestCase):
         self.assertEqual(env, policy.snapshot_excludes(self.root, {"HOME": str(home)}))
         self.assertEqual(before, path.stat().st_mtime_ns, "an unchanged file is not rewritten")
 
+    def test_global_ignore_is_read_from_git_config_files_without_starting_a_process(self):
+        # #1630: launch preparation runs before refusals that promise nothing starts; it must not spawn git.
+        policy = importlib.import_module("autocode_readonly_events")
+        home = self.root / "home"
+        (home / ".config/git").mkdir(parents=True)
+        custom = home / "custom-ignore"
+        custom.write_text("*.swp\n")
+        (home / ".gitconfig").write_text(
+            '[user]\n\texcludesfile = /not/core\n[core]\n\texcludesFile = "~/custom-ignore"\n'
+        )
+        with patch("subprocess.Popen", side_effect=AssertionError("no process may start")):
+            env = policy.snapshot_excludes(self.root, {"HOME": str(home)})
+        lines = Path(env["GIT_CONFIG_VALUE_0"]).read_text().splitlines()
+        self.assertEqual("*.swp", lines[0])
+        # ~/.gitconfig is read after the XDG config, so it wins, as in git.
+        (home / ".config/git/config").write_text("[core]\n\texcludesfile = /xdg/ignore\n")
+        self.assertEqual(custom, policy._global_ignore({"HOME": str(home)}))
+        (home / ".gitconfig").unlink()
+        self.assertIsNone(policy._global_ignore({"HOME": str(home)}), "/xdg/ignore does not exist")
+        (home / ".config/git/config").unlink()
+        (home / ".config/git/ignore").write_text("*.tmp\n")
+        self.assertEqual(home / ".config/git/ignore", policy._global_ignore({"HOME": str(home)}))
+
     def test_excludes_env_appends_to_a_git_config_set_the_environment_keeps(self):
         policy = importlib.import_module("autocode_readonly_events")
         kept = {

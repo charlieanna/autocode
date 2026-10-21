@@ -15,6 +15,9 @@ PR template asks for an entry here; a change without one is incomplete.
   of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
   run in both. A finished run in between leaves a gap (`Pick one (1, 3), …`).
 
+- Preparing a launch no longer starts `git` to find the global ignore file (#1630): it reads `core.excludesFile`
+  from git's config files, so a launch that is refused before it starts runs no process at all.
+
 - A read-only stage that compiles Python in the workspace no longer pauses the run as a source edit (#1630).
   The exclusions AutoCode wrote to the project's `.git/info/exclude` never reached a provider's snapshot
   repository, which has its own git dir; the runner now names its own excludes file through the provider's
