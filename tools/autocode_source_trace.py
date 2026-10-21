@@ -48,6 +48,7 @@ try:
     from . import autocode_brief_literals as brief_literals
     from . import autocode_prompts as prompts
     from . import autocode_requirement_cues as cues
+    from . import autocode_requirements_review as requirements_review
     from . import autocode_util as util
     from .autocode_requirement_coverage import requirement_coverage_text
 except ImportError:
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_brief_literals as brief_literals
     import autocode_prompts as prompts
     import autocode_requirement_cues as cues
+    import autocode_requirements_review as requirements_review
     import autocode_util as util
     from autocode_requirement_coverage import requirement_coverage_text
 
@@ -298,15 +300,25 @@ def _coverage_errors(body, records, out_of_scope, *, coverage_records=None):
     return errors
 
 
+def quotable(records):
+    """The sources a criterion must quote: all but a requirements review's bare go-ahead.
+
+    A ``plan`` reply only starts planning. Requiring a quote of it cost live Planners reasoning, and a draft that
+    rightly left it uncited failed the Plan Reviewer's seal (#1630). It stays a valid source to cite or exclude,
+    so saved contracts that cite it still verify.
+    """
+    return [row for row in records if not requirements_review.approval_source(row)]
+
+
 def _turn_scoped(state: RunState, records):
     """A receipted follow-up that changed jobs scopes obligations to its own turn
     (requirement_cues.new_workflow_turn); same-kind revisions keep every source."""
     turn = cues.new_workflow_turn(state)
     if not turn:
-        return records
+        return quotable(records)
     marker = "feedback:" + turn["event_id"]
     ids = [row["id"] for row in records]
-    return records[ids.index(marker) :] if marker in ids else records
+    return quotable(records[ids.index(marker) :] if marker in ids else records)
 
 
 def check_ready(body, records, wrapper, *, coverage_records=None):
@@ -438,6 +450,6 @@ def rule(records):
     return (
         prompts.get("fragments/autoplanner/source-citation-rule.md")
         + "\n"
-        + "\n".join(f"  [{row['id']}] kind={row['kind']}" for row in records)
+        + "\n".join(f"  [{row['id']}] kind={row['kind']}" for row in quotable(records))
         + "\n"
     )

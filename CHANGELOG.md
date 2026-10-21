@@ -73,6 +73,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first run's `plan` reply to the Requirements review is no longer a source every plan must quote
+  (#1630). A Planner draft that cited every sentence of the brief failed the Plan Reviewer's source-trace seal
+  for leaving the single word `plan` uncited. The reply stays in the run's source log, and contracts that
+  already cite it still verify.
 - A criterion quoting a hard-wrapped brief is no longer refused as a misquote (#1777). Every live GLM Requirements
   report on ladder-07 quoted a sentence with a space where the brief breaks the line, failed "without quoting it
   verbatim" and spent 100-151 s on a report repair. Quotes now match with runs of whitespace treated alike; any other

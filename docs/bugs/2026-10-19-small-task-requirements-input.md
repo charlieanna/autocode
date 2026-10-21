@@ -134,3 +134,39 @@ Within the 193-second Requirements stage, tools took about 7 seconds and one mod
 173 seconds to write a 4,497-token report. The 55,383 bytes of planner instructions were unchanged here;
 their largest parts are the example-criteria (7.3 KB), contract-reference (5.1 KB), progressive (4.0 KB),
 evidence-facts (3.9 KB) and bug-diagnosis (2.9 KB) rules.
+
+## Why the Requirements stage ran to its deadline (2026-10-21)
+
+The discovery-07 run directory is no longer on the qualification host. Its sibling native run of the same
+queue task (`20261019-110001-vscode-abfc35`) kept its discovery prompts. Its discovery-01 prompt (98,884 bytes
+with the provider output contract and saved schema, close to discovery-07's 95,131) was replayed through Kilo's
+direct Xiaomi and Z.AI logins, never the Kilo Gateway. The replay used a read-only-tools agent, a 900-second
+limit and a copy of the project restored to the files that discovery-01 saw.
+
+| Route | Seconds | Reasoning tokens | Output tokens | Result |
+| --- | ---: | ---: | ---: | --- |
+| MiMo Flash, medium | 827 | 34,701 | 6,134 | report, all but 10 s in one model step |
+| MiMo Flash, medium (source not yet restored) | 900 | 24,281 | 1,562 | stopped, no report; first tool at 276 s |
+| GLM-5.3, low | 98 | 940 | 4,831 | schema-valid report, every brief sentence cited |
+
+The stage did not stall. Throughput was steady: MiMo produced 30–50 tokens per second in every retained
+Kilo session examined, so a stage's time is close to its token count divided by that rate. On MiMo Flash at
+medium effort, this discovery prompt needs about 35,000 reasoning tokens, which puts it at the 900-second limit
+the trial set; the new-run default is 3,600 seconds. Most of that reasoning reconciles overlapping obligations:
+which brief sentence each criterion quotes, and whether each requirement row, diagnosis case and required
+behavior needs its own `test:` or `guard:` criterion. The same prompt on GLM-5.3 low took 98 seconds.
+
+The GLM-5.3 low draft left one source uncited: the person's `plan` reply to the spec-first Requirements review,
+which the source log records as a `user_answer`. The Plan Reviewer's seal refuses any uncited source sentence, so
+that draft would have been sent back. A go-ahead is not requirement text; `source_trace.quotable` now leaves it
+out of the sources a criterion must quote and out of the inventory models are shown. The source log, inventory
+hashes and contracts that already cite it are unchanged. Any other review answer is still a traced source.
+
+A live spec-first run of the same reprioritization brief with the fix, run
+`20261021-024734-fix-the-reprioritization-bug-in-pqueue-py-priori-fab18778`, put Requirements and Planner on
+GLM-5.3 low and the Plan Reviewer on GPT-5.6 Sol. AutoCode refuses a Plan Reviewer on the Planner's own model,
+and the bug Investigator follows the Plan Reviewer route. After the person answered `plan`, the run reached
+goal approval with plan r3. Requirements took 40 seconds and discovery 70; total model time across nine calls
+was 773 seconds. The review's four blocking concerns were real plan defects, and none of them was the `plan`
+reply. One revision repair was refused for changing a criterion the review had asked to change: "Planner
+revision drops or changes 'AC6' without a user-backed contract change". That conflict is outside this fix.
