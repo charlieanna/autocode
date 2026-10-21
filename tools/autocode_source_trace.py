@@ -46,17 +46,17 @@ from pathlib import Path
 try:
     from . import autocode_brief_acceptance as acceptance
     from . import autocode_brief_literals as brief_literals
+    from . import autocode_control_replies as control_replies
     from . import autocode_prompts as prompts
     from . import autocode_requirement_cues as cues
-    from . import autocode_requirements_review as requirements_review
     from . import autocode_util as util
     from .autocode_requirement_coverage import requirement_coverage_text
 except ImportError:
     import autocode_brief_acceptance as acceptance
     import autocode_brief_literals as brief_literals
+    import autocode_control_replies as control_replies
     import autocode_prompts as prompts
     import autocode_requirement_cues as cues
-    import autocode_requirements_review as requirements_review
     import autocode_util as util
     from autocode_requirement_coverage import requirement_coverage_text
 
@@ -301,13 +301,14 @@ def _coverage_errors(body, records, out_of_scope, *, coverage_records=None):
 
 
 def quotable(records):
-    """The sources a criterion must quote: all but a requirements review's bare go-ahead.
+    """The sources a criterion must quote: all but replies that only steer a runner-written question.
 
-    A ``plan`` reply only starts planning. Requiring a quote of it cost live Planners reasoning, and a draft that
-    rightly left it uncited failed the Plan Reviewer's seal (#1630). It stays a valid source to cite or exclude,
-    so saved contracts that cite it still verify.
+    A ``plan`` reply to the Requirements review, or a choice on a rewording question, states no requirement
+    (autocode_control_replies). Requiring a quote of one cost live Planners reasoning, and a draft that rightly left
+    it uncited failed the Plan Reviewer's seal (#1630). It stays a valid source to cite or exclude, so saved
+    contracts that cite it still verify.
     """
-    return [row for row in records if not requirements_review.approval_source(row)]
+    return [row for row in records if not control_replies.control_record(row)]
 
 
 def _turn_scoped(state: RunState, records):

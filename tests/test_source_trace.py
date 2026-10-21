@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 import autocode_brief_obligations as obligations
+import autocode_control_replies as control
 import autocode_source_log as source_log
 import autocode_source_trace as trace
 
@@ -342,6 +343,72 @@ class ReadyGateTests(unittest.TestCase):
         out = wrapper(out_of_scope=[{"source_id": "task:0", "quote": "rows and exits", "reason": "fragment"}])
         with self.assertRaisesRegex(ValueError, "covers no source sentence"):
             self.ready(draft, out)
+
+
+class ControlReplyTests(unittest.TestCase):
+    """Replies that only steer a runner-written question are not requirements to quote (#1630)."""
+
+    def row(self, question_id, text, kind="user_answer"):
+        return {"id": "answer:" + question_id, "kind": kind, "text": text}
+
+    def test_the_registered_replies_are_control(self):
+        for question_id, text in (
+            ("requirements-review-0123abcd", "plan"),
+            ("requirements-review-0123abcd", "  PLAN\n"),
+            ("rewording-0123abcd", "Keep the approved wording"),
+            ("rewording-0123abcd", "accept the new wording"),
+        ):
+            with self.subTest(question_id=question_id, text=text):
+                self.assertTrue(control.control_record(self.row(question_id, text)))
+
+    def test_anything_else_is_still_a_source(self):
+        for question_id, text, kind in (
+            ("requirements-review-0123abcd", "Also reject empty files.", "user_answer"),
+            ("rewording-0123abcd", "Use the wording from the ticket.", "user_answer"),
+            ("rewording-0123abcd", "plan", "user_answer"),  # a reply belongs to its own question
+            ("Q1", "plan", "user_answer"),  # a model-written question never joins the registry
+            ("Q1", "Keep the approved wording", "user_answer"),
+            ("requirements-review-0123abcd", "plan", "user_feedback"),
+        ):
+            with self.subTest(question_id=question_id, text=text, kind=kind):
+                self.assertFalse(control.control_record(self.row(question_id, text, kind)))
+        self.assertFalse(control.control_record({"id": "task:0", "kind": "task", "text": "plan"}))
+        self.assertFalse(control.control_record(None))
+
+    def test_quotable_and_the_source_rule_leave_them_out(self):
+        records = [
+            {"id": "task:0", "kind": "task", "text": "Build it."},
+            self.row("rewording-0123abcd", "Keep the approved wording"),
+            self.row("Q1", "Use SQLite."),
+        ]
+        self.assertEqual(["task:0", "answer:Q1"], [row["id"] for row in trace.quotable(records)])
+        self.assertNotIn("rewording", trace.rule(records))
+
+    def test_a_contract_sealed_while_a_reply_was_quoted_still_verifies(self):
+        state = make_state("Build it.")
+        event = {
+            "kind": "answer",
+            "actor": "user_cli",
+            "question_id": "rewording-0123abcd",
+            "text": "Keep the approved wording",
+        }
+        source_log.save_answer(state, "rewording-0123abcd", event)
+        state.setdefault("user_events", []).append(event)
+        records = obligations.sources(state)
+        self.assertEqual(2, len(records))
+        quotes = [(row["id"], row["text"]) for row in records]
+        draft = body(
+            [criterion("C1", "Build it. Keep the approved wording", [text], source_id=sid) for sid, text in quotes]
+        )
+        report = {"source_trace": {"out_of_scope": [], "negation_waivers": []}}
+        output = Path(tempfile.mkdtemp()) / "review.json"
+        output.write_text(json.dumps(report))
+        events = output.with_suffix(".jsonl")
+        events.write_text(json.dumps({"type": "item.completed"}) + "\n")
+        record = {"stage": "astra_finalize", "output": str(output), "events": str(events)}
+        state["task_id"] = "task"
+        sealed = trace.reviewed(state, draft, report["source_trace"], record, records)
+        trace.verify(state, sealed, records, ready=True)
 
 
 class UncitedSentenceTests(unittest.TestCase):
