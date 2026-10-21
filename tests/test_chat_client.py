@@ -776,6 +776,16 @@ class TabTests(unittest.TestCase):
             client.slash("/tab", "previous")
         self.assertEqual(RUN, client.run_dir)
 
+    def test_a_chat_switched_to_keeps_its_last_state_until_it_is_read_again(self):
+        """#1757: the tabs drawn on /tab showed a chat that waits for the person as working."""
+        client, other = self.client()
+        client.others[other] = (WORKSPACE, ("approve_plan", "t0"))
+        drawn = []
+        client.tabs_changed = drawn.append
+        with self.assertRaises(chat.Switched):
+            client.slash("/tab", "1")
+        self.assertEqual(["needs you", "needs you"], [row["state"] for row in drawn[0]])
+
     def test_a_long_task_makes_a_short_title(self):
         self.assertEqual("Hierarchical planning", chat.title_of({"task": "# Hierarchical planning\nbody"}))
         self.assertEqual(40, len(chat.title_of({"task": "x" * 99})))
