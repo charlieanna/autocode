@@ -25,6 +25,7 @@ PR template asks for an entry here; a change without one is incomplete.
   A greenfield repair had repeated only the validator error, then cited an archived `.autocode/` log. The workspace
   inventory no longer lists tool caches (`.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`) the citation check refuses.
 
+- The `greenfield-todo-cli` brief now says the listing's status word is printed inside literal square brackets (`1 buy milk [open]`), as its oracle and its `unbracketed-status` broken variant already required. Before, a model could read `[open|done]` as usage notation, ask, and take its own "bare word" default. The scenario harness also classes a `PAUSED_PROVIDER_UNCERTAIN` stop as a provider failure rather than a safety stop (#1794).
 - A planner report that resolves a requirement conflict nobody recorded is now rejected with an error that lists the recorded conflicts, or says none is recorded and `conflict_resolutions` must be `[]`. The report repair sees only that error, so it no longer guesses new requirement-ID groupings until its repairs run out (#1823).
 - The terminal chat's startup run picker now lists runs as `/runs` does (#1754): by their request's title instead
   of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
