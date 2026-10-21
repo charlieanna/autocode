@@ -54,7 +54,7 @@ class KiloProvider(command.CommandProvider):
                 sandbox=sandbox,
                 env=env,
             )
-            output_cap.apply(child)
+            output_cap.apply(child, output_cap.KILO_VARIABLE)
             # Kilo's JSON CLI withholds text/reasoning until a block completes.
             # Forward real native deltas through the same bounded activity hook
             # as OpenCode; this grants neither tool proof nor completion credit.
