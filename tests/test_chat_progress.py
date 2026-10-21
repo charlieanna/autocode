@@ -81,6 +81,15 @@ class ChatProgressTests(unittest.TestCase):
         ]
         self.assertEqual("Recent steps: Tester attempt finished", progress.project(self.state, self.public)[-1])
 
+    def test_a_runner_owned_dispatch_with_no_exit_code_finished(self):
+        # #1643: the Orchestrator's record carries no exit_code, and read as "attempt stopped" on a clean run.
+        dispatch = {"stage": "orchestrator", "finished_at": "2026-10-19T08:03:00Z", "runner_owned": True}
+        self.state["stages"] = [dispatch, {"stage": "terra", "finished_at": "2026-10-19T08:04:00Z"}]
+        self.assertEqual(
+            "Recent steps: Orchestrator attempt finished · Builder attempt stopped",
+            progress.project(self.state, self.public)[-1],
+        )
+
     def test_waits_and_pauses_never_show_active_work(self):
         for status, need in (("WAITING_FOR_USER", "answer"), ("PAUSED_REQUESTED", "resume"), ("TASK_COMPLETE", "done")):
             with self.subTest(status=status):
