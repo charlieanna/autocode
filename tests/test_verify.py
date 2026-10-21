@@ -598,6 +598,14 @@ class PreservationEvidenceCase(unittest.TestCase):
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual(["tests.test_feature.Feature.test_new_value"], proof["fail_to_pass"], proof)
 
+    def test_in_place_with_a_launch_record_a_manifest_and_an_empty_package_can_prove_a_first_feature(self):
+        # #1783: the live first-project launch base held README.md, pyproject.toml and an
+        # empty tests/__init__.py; the recorded launch inputs make it a separate checkout.
+        project = Project({**self.DESIGNED, "pyproject.toml": "[project]\nname = 'calc'\nversion = '0.1.0'\n"})
+        proof = self.prove_in_place(project)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["tests.test_feature.Feature.test_new_value"], proof["fail_to_pass"], proof)
+
     def test_in_place_without_a_launch_record_prove_does_not_admit_a_design_document(self):
         proof = self.prove_in_place(Project(self.DESIGNED), record=False)
         self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)

@@ -9,6 +9,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Fixed
+
+- A first project whose pinned base holds only a README, a manifest and an empty test package can now complete
+  (#1783). The preservation gate accepted only the root README.md, Markdown, .gitignore and empty files, so a base
+  holding `pyproject.toml` was reported as having no complete passing-test evidence and the run could never finish,
+  even though the base had no executable source. A project, dependency or license manifest (such as
+  `pyproject.toml`, a lockfile or `LICENSE`) is now accepted when no nonempty file in the base is code or a test
+  path, and the proof records that the base has no source to preserve; a base that holds source still needs
+  passing-test evidence, and other non-empty files still need preservation.
+
 ## [0.8.2] — 2026-10-21
 
 ### Added
