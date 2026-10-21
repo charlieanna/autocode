@@ -61,7 +61,7 @@ class KiloProvider(command.CommandProvider):
         if report_recovery and (allow_write or not planning or isolation is not None):
             raise ValueError("Kilo report recovery requires ordinary read-only planning")
         if isolation is None:
-            if image_preparation is not None or containment is not None and (allow_write or planning):
+            if image_preparation is not None or containment is not None and allow_write:
                 raise ValueError("Kilo native launch requires its original concrete isolation owner")
             argv, child, saved = super().launch(
                 role,
@@ -100,7 +100,7 @@ class KiloProvider(command.CommandProvider):
                     role=role,
                     request=containment,
                     report_recovery=report_recovery,
-                    portable_shell=portable_shell and not planning,
+                    portable_shell=portable_shell,
                 )
             return argv, child, saved
         try:

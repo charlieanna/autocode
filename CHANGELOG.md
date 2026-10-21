@@ -135,6 +135,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Every Planner has a shell (owner decision 2026-10-21). On OpenCode and Kilo, planning stages had read tools only, so a
+  Planner worked out the exact values its examples state by hand; a replayed one derived IEEE-754 bits for a
+  temperature conversion. They now get the shell the read-only checkers already get: the kernel-contained one
+  (Seatbelt on macOS for OpenCode, bubblewrap on Linux), which also cannot read the run's private state, or on macOS
+  Kilo's own shell with edits denied and any source write put back. `--allow-uncontained-tools` covers planning like
+  every other stage. Codex and Claude Code Planners already had one. Planning report recovery still has no tools.
 - A `kilocode` run's default stuck-stage Investigator is one of the run's own direct routes, the first outside the
   stuck stage's model family, never the Kilo Gateway's Claude it used to be (#1630). A gateway (`kilo/`) model now
   needs `--investigator-model`; a run on GLM-5.3 and GPT-5.6 Sol without the flag had sent it to the gateway.
