@@ -47,9 +47,15 @@ def fixture_workspace(test: unittest.TestCase) -> tuple[Path, dict[str, str]]:
     bindir.mkdir()
     shutil.copy2(ROOT / "tools" / "live_fixture_provider.py", bindir / "codex")
     (bindir / "codex").chmod(0o755)
+    config_home = root / "xdg-config"
+    config_home.mkdir()
+    codex_home = root / "codex-home"
+    codex_home.mkdir()
     env = {
         "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
         "AUTOCODE_HOME": str(root / "registry"),
+        "XDG_CONFIG_HOME": str(config_home),
+        "CODEX_HOME": str(codex_home),
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     return workspace, env

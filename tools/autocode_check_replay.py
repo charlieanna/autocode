@@ -78,10 +78,7 @@ except ImportError:
 
 PASS, FAIL = "PASS", "FAIL"
 LifecycleFailure = risk_evidence.LifecycleFailure
-
-
-class PlannedCheckFailure(ValueError):
-    """An approved plan check failed independent clean replay; a report repair cannot change it."""
+PlannedCheckFailure = verification_plan.PlannedCheckFailure
 
 
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check

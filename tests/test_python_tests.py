@@ -1,9 +1,11 @@
+import os
 import shlex
 import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_test_environment as test_environment
 import autocode_verify as verify
@@ -193,23 +195,40 @@ class UnittestResultParserTests(unittest.TestCase):
         self.assertEqual([], results["skipped"])
         self.assertFalse(results["complete"])
 
-    def test_ensure_python_shim_creates_symlinks(self):
-        shim_dir = test_environment.ensure_python_shim(sys.executable)
-        self.assertIsNotNone(shim_dir)
-        shim_path = Path(shim_dir)
-        self.assertTrue((shim_path / "python").is_symlink() or (shim_path / "python").is_file())
-        self.assertTrue((shim_path / "python3").is_symlink() or (shim_path / "python3").is_file())
-        self.assertEqual(Path(sys.executable).resolve(), (shim_path / "python").resolve())
+    def test_ensure_python_shim_links_only_python_and_verifies_target_and_owner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shim_root = Path(tmp) / "shims"
+            shim_dir = test_environment.ensure_python_shim(sys.executable, root=shim_root)
+            self.assertIsNotNone(shim_dir)
+            shim_path = Path(shim_dir)
+            self.assertTrue((shim_path / "python").is_symlink())
+            self.assertFalse((shim_path / "python3").exists())
+            self.assertEqual(sys.executable, os.readlink(shim_path / "python"))
+
+            # Replace the link with a wrong target and confirm ensure_python_shim repairs it.
+            (shim_path / "python").unlink()
+            (shim_path / "python").symlink_to(Path(tmp) / "wrong-python")
+            repaired = test_environment.ensure_python_shim(sys.executable, root=shim_root)
+            self.assertEqual(shim_dir, repaired)
+            self.assertEqual(sys.executable, os.readlink(shim_path / "python"))
+
+            # Refuse a directory whose owner does not match os.getuid().
+            if hasattr(os, "getuid"):
+                with mock.patch("os.getuid", return_value=os.getuid() + 1):
+                    self.assertIsNone(test_environment.ensure_python_shim(sys.executable, root=shim_root))
 
     def test_test_environment_injects_shim_when_bare_python_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "empty_proj"
             project.mkdir()
-            # Environment without python on PATH
-            base_env = {"PATH": "/usr/bin:/bin"}
-            env = verify.test_environment(project, env=base_env)
+            empty_bin = Path(tmp) / "empty_bin"
+            empty_bin.mkdir()
+            temp_root = Path(tmp) / "tmp"
+            temp_root.mkdir()
+            with mock.patch("tempfile.gettempdir", return_value=str(temp_root)):
+                env = verify.test_environment(project, env={"PATH": str(empty_bin)})
             self.assertIn("PATH", env)
-            # Should have injected a shim directory containing python
             python_which = shutil.which("python", path=env["PATH"])
             self.assertIsNotNone(python_which)
             self.assertEqual(Path(sys.executable).resolve(), Path(python_which).resolve())
+            self.assertIsNone(shutil.which("python3", path=env["PATH"]))

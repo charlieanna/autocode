@@ -772,11 +772,13 @@ def test_environment(tree, env=None):
         environment["PATH"] = str(Path(python).parent) + os.pathsep + environment.get("PATH", "")
         environment["VIRTUAL_ENV"] = str(Path(python).parent.parent)
     else:
-        resolved_python = test_env.python_for(tree)
-        if resolved_python and not shutil.which("python", path=environment.get("PATH", "")):
-            shim_dir = test_env.ensure_python_shim(resolved_python)
-            if shim_dir:
-                environment["PATH"] = shim_dir + os.pathsep + environment.get("PATH", "")
+        path_value = environment.get("PATH", "")
+        if not shutil.which("python", path=path_value):
+            resolved_python = shutil.which("python3", path=path_value) or test_env.python_for(tree)
+            if resolved_python:
+                shim_dir = test_env.ensure_python_shim(resolved_python)
+                if shim_dir:
+                    environment["PATH"] = f"{shim_dir}{os.pathsep}{path_value}" if path_value else shim_dir
     return environment
 
 

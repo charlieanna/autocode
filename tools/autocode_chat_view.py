@@ -114,19 +114,10 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             ),
         }
     if resolver_reply:
-        blocks = []
-        for q in need.get("questions", []):
-            parts = []
-            if q.get("question"):
-                parts.append(q["question"])
-            if q.get("why"):
-                parts.append(q["why"])
-            options = q.get("options") or []
-            if options:
-                parts.append("\n".join(f"{i}. {opt}" for i, opt in enumerate(options, 1)))
-            if parts:
-                blocks.append("\n\n".join(parts))
-        question_text = "\n\n".join(blocks)
+        question_text = "\n\n".join(
+            "\n".join(filter(None, [q.get("question"), q.get("why"), *q.get("options", [])]))
+            for q in need.get("questions", [])
+        )
         # The recovery card owns the human explanation; raw causes and full
         # question/options remain available in Run details.
         if need.get("resolver_scope") == "operational_exhaustion":

@@ -43,6 +43,11 @@ except ImportError:
     import autocode_verification_expectations as expectations
     import autocode_verification_schedule as schedule
 
+
+class PlannedCheckFailure(ValueError):
+    """An approved plan check failed independent clean replay; a report repair cannot change it."""
+
+
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
 # method prose, left to the Validator. Live bugfix-trivial runs (Claude models, 2026-09-30) approved
 # "python3 -m unittest -v passes; Validator reads the diff" and "Run python3 -m unittest -v via capture and

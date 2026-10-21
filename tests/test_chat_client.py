@@ -552,6 +552,7 @@ class ConversationTests(unittest.TestCase):
     def test_a_brief_that_starts_with_a_dash_is_given_with_brief(self):
         started = mock.Mock(**{"converse.return_value": 0})
         with (
+            mock.patch.object(chat, "terminal_ui", return_value=None),
             mock.patch.object(chat, "run_mode", return_value=[]),
             mock.patch.object(chat, "start", return_value=started) as start,
         ):
