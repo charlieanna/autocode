@@ -1054,7 +1054,7 @@ def resolve_permission(state: RunState, question_id, text):
     answer_options.offered(q, text)
     event = operational_change.answer_event(state, request, q, text, token(state["goal_contract"]), s.now())
     state.setdefault("user_events", []).append(event)
-    finding_cause.resolve_named(state, (q.get("payload") or {}).get("finding_ids") or [], event)
+    finding_cause.resolve_answer(state, request, q, state.get(RESOLVER_REQUEST_KEY), event)
     state.setdefault("answers", {})[question_id] = event
     state["pending_questions"] = [row for row in state["pending_questions"] if row["id"] != question_id]
     state.pop("user_request", None)

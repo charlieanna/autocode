@@ -79,6 +79,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A permission answer now resolves the findings its published request names (#1783). The answer read finding ids
+  only from the question's `payload`, which no runner question ever carries, so a question that named blocking
+  findings closed none of them. It now reads the published request's `finding_ids` as well, which is where the
+  validation-only stop puts them, and still accepts the legacy question payload. The completion gate's
+  preservation requirement for a first project is unchanged (#1783).
 - The Planner's draft-example rule no longer contradicts the unapproved-wording allowance (#1691). It said "other
   criterion changes require a saved user basis", so a live GLM revision that fixed a fixture value at the Plan
   Reviewer's request declared it as an example correction, which the guard refuses for an input change (#1750), and
