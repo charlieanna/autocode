@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- Chat everywhere (#1731, step 2). In a terminal, `autocode-issue start` and `continue` open the run's chat when it
+  needs you (`--chat`/`--no-chat` to choose), and every waiting step they print starts with that chat command. A
+  `--goal-file` load says to review and approve it in chat. A project's `autocode runs` (and the terminal chat's
+  `/runs`) lists its autocode-issue worktrees' runs too.
 - `--skip-requirements` and `--skip-to-build` for an unattended worker (#1731, owner decisions 2026-10-21). The first
   answers each delegable Requirements question with its proposed default, recorded as delegated, and still runs the
   Planner and Plan Reviewer and waits for a person's plan approval. The second also approves the plan once the Plan

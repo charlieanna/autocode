@@ -1,5 +1,6 @@
 """Issue to pull request: autocode_github and the autocode-issue CLI. See docs/issues.md."""
 
+import argparse
 import contextlib
 import io
 import json
@@ -257,6 +258,42 @@ class NextStepsTests(unittest.TestCase):
                     f"  Once the cause is resolved: {command} --workspace /p --run-dir /p/.autocode/runs/run-1",
                     issue_cli.next_steps(self.RECORD, view)[-1],
                 )
+
+    def test_every_wait_for_the_person_offers_the_runs_chat_first(self):
+        # Chat everywhere (#1731): the conversation comes first; the one-shot commands stay for scripts.
+        chat = "  Talk it through in chat: autocode chat --workspace /p --run-dir /p/.autocode/runs/run-1"
+        for need in (
+            {"kind": "approve_plan", "token": "r1:abc"},
+            {"kind": "answer", "questions": [{"id": "Q1", "question": "Which?"}]},
+            {"kind": "review", "criteria": ["C1"], "token": "t"},
+            {"kind": "planning_budget", "reason": "spent"},
+        ):
+            with self.subTest(kind=need["kind"]):
+                steps = issue_cli.next_steps(self.RECORD, {"status": "X", "done": False, "needs": need})
+                self.assertEqual(chat, steps[1])
+
+    def test_a_terminal_waiting_run_continues_in_chat_and_reports_what_the_chat_left(self):
+        record = {**self.RECORD, "run_dir": "/p/.autocode/runs/run-1"}
+        waiting = {"status": "AWAITING_GOAL_APPROVAL", "done": False, "needs": {"kind": "approve_plan"}}
+        after = {"status": "TASK_COMPLETE", "done": True}
+        with (
+            patch.object(issue_cli.subprocess, "run") as run,
+            patch.object(issue_cli, "task_run") as task_run,
+        ):
+            task_run.return_value.status.return_value = after
+            self.assertEqual(after, issue_cli.converse(argparse.Namespace(chat=True), record, waiting))
+            self.assertEqual(
+                [*issue_cli.AUTOCODE, "chat", "--workspace", "/p", "--run-dir", "/p/.autocode/runs/run-1"],
+                run.call_args.args[0],
+            )
+            run.reset_mock()
+            for args, view in (
+                (argparse.Namespace(chat=False), waiting),  # --no-chat
+                (argparse.Namespace(chat=True), after),  # nothing to talk about
+                (argparse.Namespace(chat=True), {**waiting, "needs": {"kind": "continue"}}),
+            ):
+                self.assertEqual(view, issue_cli.converse(args, record, view))
+            run.assert_not_called()
 
     def test_plan_correction_omits_an_unavailable_feedback_command(self):
         for feedback in (None, "--feedback TEXT"):

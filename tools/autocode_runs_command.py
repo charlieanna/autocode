@@ -142,13 +142,24 @@ def row(workspace: Path, run_dir: Path, now: float) -> dict:
     }
 
 
+ISSUE_WORKTREES = Path(".autocode") / "issues"  # autocode_issue.STORE: one Git worktree per GitHub issue
+
+
+def _local(workspace: Path) -> list[tuple[Path, Path]]:
+    runs = Path(workspace) / ".autocode" / "runs"
+    if not runs.is_dir():
+        return []
+    return [(run_dir, Path(workspace)) for run_dir in sorted(p for p in runs.iterdir() if p.is_dir())]
+
+
 def _pairs(workspace: Path, all_workspaces: bool) -> list[tuple[Path, Path]]:
-    """(run directory, its workspace) for one project, or for every registered project."""
+    """(run directory, its workspace) for one project, or for every registered project.
+
+    A project's own runs include those of its autocode-issue worktrees, so its chat can open them (#1731)."""
     if not all_workspaces:
-        runs = Path(workspace) / ".autocode" / "runs"
-        if not runs.is_dir():
-            return []
-        return [(run_dir, Path(workspace)) for run_dir in sorted(p for p in runs.iterdir() if p.is_dir())]
+        issues = Path(workspace) / ISSUE_WORKTREES
+        worktrees = sorted(p for p in issues.iterdir() if p.is_dir()) if issues.is_dir() else []
+        return _local(workspace) + [pair for worktree in worktrees for pair in _local(worktree)]
     records = registry.listing()["runs"]
     return [
         (Path(record["run_dir"]), Path(record["workspace"]))
