@@ -2072,7 +2072,7 @@
 
 
 <h1 id="install-and-run">Install and run<a class="headerlink" href="#install-and-run" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/34869bbc168b88e9902b1da096228054fc2c600f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/ee44d5fafe6b389f1f5515e55b1f8bf284c8237c/README.md">← Back to README</a></p>
 <h2 id="ten-minute-quickstart">Ten-minute quickstart<a class="headerlink" href="#ten-minute-quickstart" title="Permanent link">&para;</a></h2>
 <p>You need macOS or Linux (Windows through WSL), Python 3.11 or newer, Git,
 <a href="https://pipx.pypa.io/">pipx</a>, and npm (Node.js) to install the engine.</p>
@@ -2205,6 +2205,11 @@ any project:</p>
 .venv/bin/pip install .
 .venv/bin/autocode &quot;Build a greeting CLI&quot; --workspace /path/to/project
 </code></pre>
+<p>A virtual environment's <code>bin</code> directory is on <code>PATH</code> only while the environment is
+activated (<code>source .venv/bin/activate</code>), and only in that shell. In a new shell, typing
+<code>autocode</code> answers <code>command not found</code>: activate again, call <code>.venv/bin/autocode</code>, add
+that <code>bin</code> directory to <code>PATH</code> in your shell profile, or use the <code>pipx</code> install above,
+which puts <code>autocode</code> on <code>PATH</code> for every shell.</p>
 <h3 id="sanity-check">Sanity check<a class="headerlink" href="#sanity-check" title="Permanent link">&para;</a></h3>
 <p>Confirm the install, then check the machine and your project before the first task:</p>
 <pre><code class="language-sh">autocode --version
@@ -2213,7 +2218,8 @@ autocode doctor --workspace /path/to/project
 <p><code>--version</code> prints the commit when run from a checkout and <code>commit unknown</code> from an
 installed package. <code>doctor</code> names anything missing (Python, psutil, Git, the default
 engine, a committed Git project) with the fix next to it, and exits 1 until the machine
-is ready. It checks the engine a new run would use: OpenCode, or the provider set as the
+is ready. Its <code>path</code> row warns, without failing, when a new shell would not find <code>autocode</code>
+on <code>PATH</code>, and names the directory to add or the <code>pipx</code> install. It checks the engine a new run would use: OpenCode, or the provider set as the
 default below (with no <code>--engine</code> and with <code>--engine opencode</code> alike), including that it
 offers every role's default model; <code>--engine codex</code> checks Codex instead.</p>
 <h3 id="shell-completion">Shell completion<a class="headerlink" href="#shell-completion" title="Permanent link">&para;</a></h3>
