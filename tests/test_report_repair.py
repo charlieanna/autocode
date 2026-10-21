@@ -475,6 +475,9 @@ class RepairTests(unittest.TestCase):
         archived = self.run / "archived-requirements-gather-01" / "events.jsonl"
         archived.parent.mkdir(parents=True)
         archived.write_text("{}\n")
+        # A pytest cache sorts ahead of README.md and holds its own README.md, which the citation check refuses.
+        (self.root / ".pytest_cache").mkdir()
+        (self.root / ".pytest_cache" / "README.md").write_text("pytest cache directory\n")
         self.state["settings"]["roles"]["requirements"] = {"model": "requirements-model"}
         self.state["next_stage"] = "requirements_gather"
         rejected = {
@@ -495,6 +498,7 @@ class RepairTests(unittest.TestCase):
 
         self.assertEqual(["README.md"], data["workspace_inventory"]["files"])
         self.assertNotIn(".autocode", json.dumps(data["workspace_inventory"]))
+        self.assertNotIn(".pytest_cache", json.dumps(data["workspace_inventory"]))
         self.assertIn("at least one existing workspace file", prompt)
         self.assertIn("Never cite .autocode/", prompt)
         self.assertIn("source_refs may be empty only when the inventory lists no file", prompt)

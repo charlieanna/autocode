@@ -1079,7 +1079,8 @@ def cited_file(root, path, field, ref):
 def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
     """Bounded filesystem inventory; works in repositories and ordinary directories."""
     root = Path(workspace)
-    ignored = {".git", ".autocode", ".venv", "venv", "node_modules", "__pycache__", ".next", "dist", "build", ".cache"}
+    # #1822: list no file cited_file refuses; a pytest cache sorted ahead of README.md and was offered as citable.
+    ignored = {".venv", "venv", "node_modules", ".next", "dist", "build", ".cache", *RUNNER_OWNED_PARTS}
     words = set(re.findall(r"[a-z]{3,}", task.lower()))
     candidates = []
     truncated = False

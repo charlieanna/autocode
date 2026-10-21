@@ -15,7 +15,8 @@ PR template asks for an entry here; a change without one is incomplete.
   behaviors or acceptance tests must cite at least one existing workspace file; an empty list is valid only while
   it asks clarifying questions, and runner-owned paths such as `.autocode/` are never citable. The Requirements
   stage prompt and the repair handoff share one rule, and a Requirements repair names the citable workspace files.
-  A greenfield repair had repeated only the validator error, then cited an archived `.autocode/` log.
+  A greenfield repair had repeated only the validator error, then cited an archived `.autocode/` log. The workspace
+  inventory no longer lists tool caches (`.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`) the citation check refuses.
 
 - The terminal chat's startup run picker now lists runs as `/runs` does (#1754): by their request's title instead
   of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
