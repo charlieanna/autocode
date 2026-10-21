@@ -92,6 +92,15 @@ class OpenCodeFixtureSchemaTests(unittest.TestCase):
         self.assertEqual(SOURCE_VERDICT_SCHEMA, report["schema"])
         self.assertEqual(prompt, report["prompt"])
 
+    def test_planning_relay_preserves_current_schema_without_execution_instructions(self):
+        packet = {"execution_engine": "opencode", "stage": "astra_challenge", "joint_planning": True}
+        prompt = self.rendered(packet, SOURCE_VERDICT_SCHEMA)
+        report = self.report(self.invoke(prompt))
+        self.assertEqual(SOURCE_VERDICT_SCHEMA, report["schema"])
+        self.assertEqual(prompt, report["prompt"])
+        self.assertIn("Planning report only.", prompt)
+        self.assertNotIn("A PASS report", prompt)
+
     def test_completion_repair_keeps_source_verdict_through_relay(self):
         shutil.copy2(TOOLS / "fake_codex.py", self.delegate)
         shutil.copy2(TOOLS / "goal_fixtures.py", self.root / "goal_fixtures.py")

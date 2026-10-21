@@ -74,7 +74,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "tools/prompts/fragments/provider-opencode/planning-output.md",
-        ("tests.test_schema_prompt_formatting", "tests.test_tool_handoff"),
+        ("tests.test_schema_prompt_formatting", "tests.test_opencode_fixture_schema", "tests.test_tool_handoff"),
     ),
     ("tools/prompts/fragments/autoplanner/brief-observation-review-rule.md", ("tests.test_brief_acceptance",)),
     ("tools/autocode_capture_bootstrap.cjs", ("tests.test_native_capture_ipc", "tests.test_native_capture")),

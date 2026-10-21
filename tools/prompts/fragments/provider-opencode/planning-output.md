@@ -1,5 +1,6 @@
 
-PLANNING OUTPUT CONTRACT
+OPENCODE OUTPUT CONTRACT
+Planning report only.
 Return exactly one JSON object matching the complete schema below in your final assistant
 response. The runner saves and validates it; do not write a report file. Planning reviews
 proposed behavior, not an implementation: do not execute tests or capture receipts and do
