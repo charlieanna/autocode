@@ -34,7 +34,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -66,11 +66,22 @@ except ImportError:
     import provider_conformance_transport as transport
 
 PROMPT = 'Do not read or edit files. Return only this JSON object: {"ok": true}.'
+# The probe proves access, not tool use (#1744): OpenCode and Kilo wrapped the one-line prompt in their coding
+# agent's system prompt and tool list, ~17-19k input tokens a call ($0.19 on GPT-6 Astra). This agent has no
+# tools and a one-line system prompt: ~200-600 input tokens.
+PROBE_AGENT = "autocode_access_probe"
+PROBE_SYSTEM = "Answer with exactly the JSON object you are asked for."
+CONFIG_VARIABLES = ("OPENCODE_CONFIG_CONTENT", "KILO_CONFIG_CONTENT")
 SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
 # Persistent until the operator changes money or login: a launch that ignores this
 # wastes real spend on stages that cannot complete. Everything else is transient.
 BLOCKING_STATUSES = ("PAUSED_BUDGET", "PAUSED_AUTH", "PAUSED_BILLING_ROUTE")
 TIMEOUT_SECONDS = 90
+# Roles probed only when a stage that runs them is next (#1744). The Resolver (and the per-task Planner on the
+# same route) is usually GPT-6 Astra, the costliest model, and runs only after a send-back; its probe cost about
+# $0.19 of a small task's $1.31. Its first stage still proves access before that stage's own spend.
+DEFERRED = {"astra": ("astra_plan", "astra_resolve"), "resolver": ("astra_resolve",)}
+DEFERRED_STAGES = frozenset(stage for stages in DEFERRED.values() for stage in stages)
 # Version 2 held one receipt set for the run's tool; it is still read (_saved_receipts).
 MARKER_VERSION = 3
 
@@ -163,6 +174,34 @@ def _classify(events_path: Path, *, withheld_env=()) -> tuple[str | None, str]:
     return status, message or status
 
 
+def bare(argv: list, env: dict) -> tuple[list, dict]:
+    """Run an OpenCode-family probe as ``PROBE_AGENT``: no tools, every permission denied, a one-line system prompt.
+
+    A launch that names no agent through an inline configuration (another tool) is left as it is."""
+    if "--agent" not in argv[:-1]:
+        return argv, env
+    for variable in CONFIG_VARIABLES:
+        if variable not in env:
+            continue
+        config = json.loads(env[variable])
+        agents = config.get("agent") if isinstance(config, dict) else None
+        if not isinstance(agents, dict):
+            return argv, env
+        chosen = agents.get(argv[argv.index("--agent") + 1])
+        definition: dict[str, Any] = {
+            "description": "AutoCode model access probe",
+            "mode": "primary",
+            "prompt": PROBE_SYSTEM,
+        }
+        definition.update(tools={"*": False}, permission={"*": "deny"})
+        if isinstance(chosen, dict) and chosen.get("model"):
+            definition["model"] = chosen["model"]
+        config["agent"] = {**agents, PROBE_AGENT: definition}
+        argv[argv.index("--agent") + 1] = PROBE_AGENT
+        return argv, {**env, variable: json.dumps(config)}
+    return argv, env
+
+
 def probe(
     adapter,
     model,
@@ -202,6 +241,7 @@ def probe(
             supervised=True,
             checkpoint=checkpoint,
             deadline=deadline,
+            prepare=bare,
         )
     except (processes.ProcessError, OSError) as error:
         raise support.Paused(
@@ -296,6 +336,15 @@ def _selection_groups(runner, selection, workspace, settings=None) -> list[tuple
     return groups
 
 
+def due(routes: dict, next_stage) -> dict:
+    """The routes to probe before ``next_stage``: every role but a deferred one whose stage is not next.
+
+    With no next stage known (a standalone caller), every route is due."""
+    if not next_stage:
+        return dict(routes)
+    return {role: route for role, route in routes.items() if next_stage in DEFERRED.get(role, (next_stage,))}
+
+
 def _selected_efforts(routes) -> dict:
     """model -> the reasoning level to probe it at: its first role's own level."""
     efforts: dict[str, str | None] = {}
@@ -359,6 +408,8 @@ def check(
                 else:
                     existing[1].update(same_level)
         groups = split
+    groups = [(facade, due(routes, state.get("next_stage")), identity) for facade, routes, identity in groups]
+    groups = [group for group in groups if group[1]]
     if not groups:
         return False
     # Standalone callers supply unknown routes; saved runs use their actual current

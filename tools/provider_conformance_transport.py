@@ -123,7 +123,9 @@ def execute(
     supervised=False,
     checkpoint=None,
     deadline=None,
+    prepare=None,
 ):
+    """``prepare(argv, env) -> (argv, env)`` adjusts a tool launch before it runs (the access probe's bare agent)."""
     directory.mkdir(parents=True)
     event_path, report_path = directory / "events.jsonl", directory / "report.json"
     schema_path, prompt_path = directory / "schema.json", directory / "prompt.txt"
@@ -166,6 +168,8 @@ def execute(
             env=child_env,
             **launch_kwargs,
         )
+    if prepare is not None and adapter is not None:
+        argv, child_env = prepare(list(argv), dict(child_env))
     prompt_path.write_text(prompt)
     executable = env_prep.resolve_executable(argv[0], child_env, cwd=workspace)
     if not executable:

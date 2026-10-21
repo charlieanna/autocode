@@ -34,6 +34,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The model-access probe costs a few hundred input tokens instead of ~18k (#1744). On OpenCode and Kilo it runs as a
+  bare agent with no tools and a one-line system prompt (Kilo 19,053 -> 627 input tokens, OpenCode 17,672 -> 218),
+  and the Resolver's own model is probed only before the first stage that runs it. On a small task the probes cost
+  $0.26 of $1.31, most of it on GPT-6 Astra.
 - The stuck-stage Investigator on OpenCode is GLM 5.3 whenever the stuck stage runs a GPT model, not only GPT-6 Sol:
   GPT models are one family, so GPT-6 Sol no longer diagnoses a stuck GPT-6 Luna Builder.
 - The automatic model switch after a quota, content-filter or output stop (#1426 step 9) leaves a model the

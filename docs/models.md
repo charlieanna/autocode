@@ -242,7 +242,10 @@ qualified route won, or it would check its own family's work).
 Before the first stage, the [model-access preflight](#when-a-model-is-not-in-your-plans)
 probes exactly the chosen routes that are still unproven, one tiny call each at the
 role's own reasoning level, within the run's cost cap — including built-in OpenCode
-routes, which saved-run probes never touched.
+routes, which saved-run probes never touched. On OpenCode and Kilo a probe runs as a bare
+agent with no tools and a one-line system prompt, a few hundred input tokens instead of the
+coding agent's ~18k. The Resolver's own model (usually GPT-6 Astra) is probed only before the
+first stage that runs it, since most runs never need a Resolver (#1744).
 
 ## Builder retry policy
 
