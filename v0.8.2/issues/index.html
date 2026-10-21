@@ -1,0 +1,2494 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/v0.8.2/issues/">
+      
+      
+        <link rel="prev" href="../interventions/">
+      
+      
+        <link rel="next" href="../verify/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>GitHub issues and PR review - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#github-issues-to-pull-requests" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GitHub issues and PR review
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#walkthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walkthrough
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reviewing-the-plan-in-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewing the plan in a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#label-triggered-action-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Label-triggered Action example
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Label-triggered Action example">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#human-approval-and-continuation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Human approval and continuation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persistence-duplicates-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistence, duplicates and recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#offline-ci-smoke" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offline CI smoke
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reviewing-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewing a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#walkthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Walkthrough
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reviewing-the-plan-in-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewing the plan in a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#label-triggered-action-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Label-triggered Action example
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Label-triggered Action example">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#human-approval-and-continuation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Human approval and continuation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#persistence-duplicates-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistence, duplicates and recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#offline-ci-smoke" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offline CI smoke
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reviewing-a-pull-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reviewing a pull request
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="github-issues-to-pull-requests">GitHub issues to pull requests<a class="headerlink" href="#github-issues-to-pull-requests" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/README.md">← Back to README</a></p>
+<p><code>autocode-issue</code> takes a GitHub issue, runs AutoCode on it in a branch of its
+own, and turns the finished run into a pull request whose body carries the
+run's evidence. It sits on top of the <a href="../task-run/">task-run interface</a> and
+changes nothing about how a run plans, builds or completes.</p>
+<p>It never makes a decision that belongs to you. Approving the plan, answering
+questions, accepting reviews and resuming pauses stay with you; the tool prints
+the exact command for each. It refuses to prepare the change's pull request from
+a run that has not completed. Nothing is pushed unless you pass <code>--open</code>. On a
+team, it can also put the plan in a pull request for review before anything is
+built (<a href="#reviewing-the-plan-in-a-pull-request">below</a>).</p>
+<h2 id="walkthrough">Walkthrough<a class="headerlink" href="#walkthrough" title="Permanent link">&para;</a></h2>
+<p>Run these from inside a clone of the repository whose issue you want resolved.
+Its dependencies must be installed there, and the <code>origin</code> remote must point
+at GitHub.</p>
+<pre><code class="language-sh">autocode-issue brief #812                      # the brief AutoCode would get; no side effects
+autocode-issue start #812 -- --engine codex --test-command &quot;uv run pytest&quot;
+autocode --show-goal --workspace WT --run-dir RUN
+autocode --approve-goal TOKEN --workspace WT --run-dir RUN
+autocode-issue continue #812                   # repeat after each answer or approval
+autocode-issue status #812                     # where it stands and the next command, at any time
+autocode-issue pr #812                         # commit the change and write the PR body; no push
+autocode-issue pr #812 --open                  # push the branch and open a draft pull request
+</code></pre>
+<p><code>start</code> and <code>status</code> print <code>WT</code>, <code>RUN</code> and <code>TOKEN</code> for you, with every command
+filled in.</p>
+<p><strong>In a terminal, <code>start</code> and <code>continue</code> open the run's chat</strong> (<code>autocode chat
+--workspace WT --run-dir RUN</code>) whenever the run needs you: answer its questions,
+give plan feedback and approve the plan there, as in any other chat. Leave the
+chat and the commands above still work. <code>--no-chat</code> keeps them alone (a script or
+CI), and <code>--chat</code> asks for the chat even when the output is not a terminal. The
+run also appears among the project's own chats (<code>autocode runs</code>, the terminal
+chat's <code>/runs</code>), under its worktree.</p>
+<ul>
+<li><strong>ISSUE</strong> can be a URL, <code>OWNER/REPO#N</code>, or <code>#N</code> for the repository behind
+  <code>--remote</code> (default <code>origin</code>).</li>
+<li><strong>AutoCode options</strong> go after <code>--</code> on <code>start</code>. That covers the engine, the
+  models, and <code>--test-command</code>. They are saved and reused by <code>continue</code>.
+  Without them, the run reads the project settings committed in
+  <code>.autocode/config.toml</code> or <code>[tool.autocode]</code> (<a href="../cli/#project-settings">CLI</a>).</li>
+<li><strong><code>--note TEXT</code></strong> adds your own guidance to the brief, for example "keep
+  the public API unchanged".</li>
+<li><strong><code>--issue-file FILE</code></strong> reads the issue from a JSON file in GitHub's issue
+  shape instead of the API. Use it offline, or to edit an issue before running
+  it.</li>
+</ul>
+<h2 id="what-it-does">What it does<a class="headerlink" href="#what-it-does" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>start</code></td>
+<td>Creates branch <code>autocode/issue-N-&lt;title&gt;</code> and a worktree for it at <code>.autocode/issues/OWNER-REPO-N/</code>, both from <code>--base</code> (default <code>HEAD</code>). Starts a task run in that worktree with the brief. Records the link in <code>.autocode/issues/OWNER-REPO-N.json</code>.</td>
+</tr>
+<tr>
+<td>brief</td>
+<td>The issue's title, URL, labels, description and up to 30 of its newest comments. The description and comments are quoted and marked as the reporter's words, not instructions. The brief adds no requirements of its own. AutoCode's requirements stage traces every requirement to the issue text or your <code>--note</code>.</td>
+</tr>
+<tr>
+<td><code>pr</code></td>
+<td>Refuses unless the run is complete and its canonical evidence report is current. Checks that report before staging or committing. Commits every change except <code>.autocode/</code> on the issue branch. Writes the PR body to <code>.autocode/issues/OWNER-REPO-N-pr.md</code>.</td>
+</tr>
+<tr>
+<td><code>pr --open</code></td>
+<td>Pushes the branch to <code>--remote</code> and opens a draft pull request against the branch that was current at <code>start</code> (override with <code>--base</code>). If <code>--remote</code> is a fork, the head is <code>FORK-OWNER:branch</code>. <code>--ready</code> opens it ready for review instead of as a draft.</td>
+</tr>
+<tr>
+<td><code>plan</code></td>
+<td>Refuses unless the run is waiting for its plan to be approved. Exports that plan as a plan file and commits it, as the only change, on branch <code>autocode/issue-N-&lt;title&gt;-plan</code> made from the run's base commit (after a merged plan pull request, on <code>-plan-2</code> from the base branch). Writes that pull request's body to <code>.autocode/issues/OWNER-REPO-N-plan-pr.md</code>. See <a href="#reviewing-the-plan-in-a-pull-request">Reviewing the plan in a pull request</a>.</td>
+</tr>
+<tr>
+<td><code>plan --open</code></td>
+<td>Pushes that branch and opens a draft pull request with the same base, fork and <code>--ready</code> rules as <code>pr --open</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>The PR body says <code>Resolves OWNER/REPO#N</code> and includes the run's exact canonical
+<code>evidence.md</code>, with the issue wrapper and diffstat. The paired <code>evidence.json</code>
+and <code>evidence.md</code> live in the run directory. They report what AutoCode recorded:</p>
+<ul>
+<li>the intended outcome</li>
+<li>each acceptance criterion with its result and evidence</li>
+<li>for bug fixes, the runner's fail-before/pass-after regression proof</li>
+<li>the review findings and their status</li>
+<li>for a build, bug fix or design, who approved the plan and each review, accepted completion,
+  edited the plan or resumed a pause, with the Git identity, host, command and any <code>--as</code> name recorded for each,
+  none of it verified (<a href="../execution/#who-approved">Who approved</a>). A report written before
+  AutoCode listed approvals has no such section, and neither does a pull request body built
+  from it, until AutoCode saves the completed run again; reading its status does not.</li>
+<li>the diffstat, the run and the base commit</li>
+</ul>
+<p>The report also records actual roles/models, durations, available usage and
+provider provenance. Missing usage stays unknown. A declaration such as
+<code>--evidence-provenance fake</code> or <code>live</code> describes the caller's setup; a model's
+name alone cannot establish live inference. The <a href="../task-run/">task-run interface</a>
+authenticates the saved pair against the current run and source before delivery.
+A missing, changed or stale pair must be repaired/revalidated in the owned run;
+preparing the PR does not silently regenerate evidence. A passed completion
+gate is evidence for review, not proof of correctness.</p>
+<h2 id="reviewing-the-plan-in-a-pull-request">Reviewing the plan in a pull request<a class="headerlink" href="#reviewing-the-plan-in-a-pull-request" title="Permanent link">&para;</a></h2>
+<p>On a team, what will be built is worth reviewing before AutoCode builds it. When
+<code>start</code> or <code>continue</code> stops with the plan waiting for approval, put it in a pull
+request instead of approving it at once:</p>
+<pre><code class="language-sh">autocode-issue plan #812                       # commit the plan as plans/issue-812.md on its own branch; no push
+autocode-issue plan #812 --open                # push that branch and open a draft pull request
+</code></pre>
+<ul>
+<li><strong>What it commits.</strong> The plan is exported as <code>autocode plan --export</code> writes
+  it, through the task-run interface. It is committed as one file on branch
+  <code>autocode/issue-N-&lt;title&gt;-plan</code>, made from the commit the run started from.
+  The commit is built without a checkout: your checkout, the issue's worktree
+  and the run do not change, and nothing is approved. <code>--path PATH</code> puts the file
+  elsewhere in the repository, as a path from its top level, never under
+  <code>.autocode/</code>.</li>
+<li><strong>The pull request.</strong> Its title is <code>Plan: TITLE (#N)</code>, and its body gives the
+  plan revision and the file's goal hash, says how to edit the file, and says
+  that merging approves nothing. The run's directory is named, not its path on
+  your machine. If the export masked credential-shaped text, the body says so:
+  the run refuses the file until those values are restored.</li>
+<li><strong>A changed plan.</strong> While the pull request is open, run <code>plan</code> again after the
+  run's plan changes, for example after <code>--feedback</code>. The new plan is committed on
+  top of the branch, so the same pull request shows the change. An unchanged plan
+  reuses the commit. It never replaces commits it did not make: if the branch
+  moved, it refuses, and if reviewers pushed edits to the pull request, the push
+  is refused. A branch deleted here holds nothing to replace, so <code>plan</code> makes it
+  again at its last plan commit. A merged plan pull request is never reused (see
+  below).</li>
+</ul>
+<p>Reviewers edit the file in the pull request as
+<a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>
+describes. Merging it approves nothing. Once <code>plan --open</code> has opened it,
+<code>status</code> prints its URL and the command that loads the merged file into the
+issue's run, to run once it is merged and pulled into your checkout; loading and
+approving stay with you:</p>
+<pre><code class="language-sh">autocode --goal-file /path/to/project/plans/issue-812.md --workspace WT --run-dir RUN
+autocode-issue continue #812                   # in joint planning the Plan Reviewer reviews the loaded plan first
+autocode --approve-goal TOKEN --workspace WT --run-dir RUN
+</code></pre>
+<p>The approval stop names the file and its goal hash. The merged file goes back
+into the run that drafted the plan; starting a new run from it is not available
+yet (<a href="../workflow/#a-teams-plan-review">A team's plan review</a>).</p>
+<p><code>autocode-issue</code> counts the pull request as merged once the base branch, here or
+as last fetched from the remote (<code>plan</code> fetches it first once it has committed a
+plan, with or without <code>--open</code>), holds a different file at its path than the plan
+branch started from, whatever the merge method, and whether or not the plan
+branch was deleted with it (<code>gh pr merge --delete-branch</code> deletes it here too).
+Until the run's plan moves past the one the merged pull request carried, <code>plan</code>
+refuses and pushes nothing, and <code>status</code> prints the <code>--goal-file</code> command. After
+that, for example once the Plan Reviewer revised the loaded plan, <code>status</code> stops
+printing it: loading the file again would replace the newer plan. To have the
+changed plan reviewed again, <code>plan</code> starts a new pull request, on branch
+<code>autocode/issue-N-&lt;title&gt;-plan-2</code> (then <code>-plan-3</code>) made from the base branch
+that holds the merged file, so it shows only what changed since.</p>
+<h2 id="credentials">Credentials<a class="headerlink" href="#credentials" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Token:</strong> reads <code>GITHUB_TOKEN</code>, or <code>GH_TOKEN</code> if that is unset.</li>
+<li><strong>Reading issues:</strong> a public issue needs no token. A private issue needs one
+  with read access.</li>
+<li><strong>Opening a pull request:</strong> needs a token with pull-request write access to
+  the issue's repository.</li>
+<li><strong>Pushing:</strong> uses your own git credentials for the remote.</li>
+<li><strong>GitHub Enterprise:</strong> set <code>AUTOCODE_GITHUB_API=https://HOST/api/v3</code>.</li>
+</ul>
+<h2 id="label-triggered-action-example">Label-triggered Action example<a class="headerlink" href="#label-triggered-action-example" title="Permanent link">&para;</a></h2>
+<p><a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/examples/github-issue/issue.yml">The example workflow</a> and
+<a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
+and public task-run interface. Applying the configured label starts a run and
+posts its current status with exact human commands. Applying it again
+reattaches to the same issue worktree and run, without advancing it or approving
+anything. After a person answers or approves on the runner, a manual workflow
+dispatch with the issue number continues it. A completed, authenticated run is
+pushed and opened as a draft PR; the Action never merges.</p>
+<p>This example requires a dedicated <strong>persistent Linux self-hosted runner</strong> with
+the <code>autocode-issues</code> runner label. Its project clone, AutoCode installation and
+provider configuration must be outside <code>GITHUB_WORKSPACE</code> and <code>RUNNER_TEMP</code>.
+The workflow's checkout is only the trusted default-branch handler code. It
+must never clean or replace the persistent project. GitHub-hosted ephemeral
+runners need a complete state-restoration design beyond this example; uploading
+one run directory as a cache does not preserve its Git worktree or ownership.</p>
+<p>Set up the runner once:</p>
+<ol>
+<li>Install AutoCode in a dedicated venv and configure a working provider as in
+   <a href="../providers/">providers.md</a>. Clone the target repository to an absolute
+   persistent path, keep its approved base branch current, and install its
+   test dependencies where issue worktrees can use them. Configure the Git
+   author identity and push credentials for its <code>origin</code> remote. For HTTPS,
+   <code>gh auth setup-git</code> can use the workflow's <code>GITHUB_TOKEN</code>; verify this under
+   the runner account. An SSH credential is another option.</li>
+<li>Copy the example workflow to <code>.github/workflows/autocode-issue.yml</code> and keep
+   <code>examples/github-issue/issue_action.py</code> available on the default branch. The
+   persistent venv must contain the compatible AutoCode version. For this
+   repository, the handler is already present; another repository must copy it.</li>
+<li>Configure repository Actions variables:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AUTOCODE_ISSUE_PROJECT</code></td>
+<td>Absolute persistent target clone, such as <code>/srv/autocode/widgets</code>.</td>
+</tr>
+<tr>
+<td><code>AUTOCODE_ISSUE_PYTHON</code></td>
+<td>Absolute venv interpreter, such as <code>/srv/autocode/venv/bin/python</code>.</td>
+</tr>
+<tr>
+<td><code>AUTOCODE_ISSUE_ACTORS</code></td>
+<td>Required JSON allowlist, such as <code>["maintainer-login"]</code>.</td>
+</tr>
+<tr>
+<td><code>AUTOCODE_ISSUE_LABEL</code></td>
+<td>Label to start/reattach, default <code>autocode</code>. Create that label.</td>
+</tr>
+<tr>
+<td><code>AUTOCODE_ISSUE_OPTIONS</code></td>
+<td>JSON argv list of provider/models/test options, such as <code>["--engine", "codex", "--test-command", "python -m unittest", "--evidence-provenance", "live"]</code>.</td>
+</tr>
+</tbody>
+</table>
+<ol>
+<li>Permit Actions to create pull requests in repository settings, and permit
+   the job's <code>contents: write</code>, <code>issues: write</code> and <code>pull-requests: write</code>
+   permissions. Configure provider credentials on the dedicated runner; do
+   not put credentials in the options variable. If a GitHub App token replaces
+   <code>GITHUB_TOKEN</code>, set <code>AUTOCODE_ISSUE_COMMENT_AUTHOR</code> to its actual bot login in
+   the step environment so duplicate recovery recognizes only its own comment.</li>
+</ol>
+<p>The allowlist is checked both before the job starts and by the handler. Before
+any issue work or comment/PR write, the handler also requires the triggering
+actor's current repository permission to be <code>write</code> or <code>admin</code>. It checks
+<code>GITHUB_TRIGGERING_ACTOR</code>, so a rerun by another person does not inherit the
+original person's authorization. GitHub maps maintain to write and triage to
+read in this API. Custom role names alone are not accepted as authorization.
+See <a href="https://docs.github.com/en/actions/reference/workflows-and-actions/variables">GitHub's actor variables</a>
+and <a href="https://docs.github.com/en/rest/collaborators/collaborators#get-repository-permissions-for-a-user">collaborator permission API</a>.</p>
+<p>Repository writers in that allowlist can start provider work, consume its
+budget and eventually push a draft branch. Use a dedicated runner whose
+credentials and repository access fit that trust boundary. Issue text is
+passed as quoted task data; event fields and issue text never enter a shell.
+The handler rejects saved approval, answer, delegation and resume actions in
+<code>AUTOCODE_ISSUE_OPTIONS</code>, including <code>--no-requirements</code>. Do not add automatic
+approval commands to the workflow.</p>
+<p>The handler saves <code>--no-adaptive-planning</code> itself: ordinary joint planning can
+otherwise allow a Plan Reviewer to approve automatically. Explicit
+<code>--adaptive-planning</code> is refused. An attachment created elsewhere without this
+opt-out is retained but refused; inspect its approval policy instead of
+silently changing it or treating an automated decision as human approval.</p>
+<h3 id="human-approval-and-continuation">Human approval and continuation<a class="headerlink" href="#human-approval-and-continuation" title="Permanent link">&para;</a></h3>
+<p>Apply the label to an open issue. The Action comment prints the exact
+<code>autocode --show-goal</code>, <code>autocode --approve-goal TOKEN</code>, workspace and run
+directory commands. Sign in to the persistent runner as its operator, use the
+configured venv's <code>autocode</code>, and read the displayed plan. Then execute the
+printed approval command for that exact token, or provide the requested
+answer/feedback/recovery action. Changed plans require their new token. The
+Action never infers approval from a label, comment or dispatch.</p>
+<p>Choose <strong>Run workflow</strong> for the copied workflow and enter the issue number.
+Dispatch before approval simply reports the same human stop. Repeat the human
+action and dispatch when another approval, question, review or operational
+pause occurs. A final dispatch opens a draft PR only when the ordinary
+completion gate and canonical evidence inspection pass. Its body embeds the
+exact retained <code>evidence.md</code>. Repeated dispatch after opening reuses the saved
+PR URL, without another provider run, push or PR.</p>
+<h3 id="persistence-duplicates-and-recovery">Persistence, duplicates and recovery<a class="headerlink" href="#persistence-duplicates-and-recovery" title="Permanent link">&para;</a></h3>
+<p>Keep the whole persistent clone and its Git objects/worktree registration,
+<code>.autocode/issues/OWNER-REPO-N/</code> worktree, corresponding version-1 issue
+attachment <code>.autocode/issues/OWNER-REPO-N.json</code>, the owned run's artifacts and
+the <code>.autocode/issue-action/</code> comment receipt. The attachment's <code>worktree</code>,
+<code>run_dir</code> and saved <code>options</code> are the supported link; the handler asks <code>TaskRun</code>
+for run facts and never reads child <code>state.json</code>. Paused runs remain on disk
+between workflow invocations and machine restarts.</p>
+<p>Per-issue Actions concurrency plus a local nonblocking lock prevents duplicate
+handlers from taking over a run. Duplicate labels only report it. One owned bot
+comment is updated; if GitHub accepted the comment before the local receipt was
+saved, the handler finds its marker and author rather than posting another.
+A partial initial launch, damaged attachment, unavailable GitHub permission
+check or mismatched comment receipt fails closed and retains the files. Inspect
+the saved attachment and use <code>autocode-issue status</code> and the public task-run
+commands to diagnose it; do not delete an existing run to make a retry succeed.
+GitHub accepting a PR just before its local URL is saved may need a human to
+reconcile that PR before retrying. The example does not promise transactions
+across GitHub and local storage.</p>
+<p>After review and merge/closure, an operator can remove this issue's worktree
+with <code>git worktree remove</code>, then its attachment, Action receipt and issue
+branch when they are no longer needed. Preserve evidence first if required.
+Do not delete another run's <code>.autocode</code> contents. No automatic cleanup runs
+while an issue is paused.</p>
+<h3 id="offline-ci-smoke">Offline CI smoke<a class="headerlink" href="#offline-ci-smoke" title="Permanent link">&para;</a></h3>
+<p><code>tests.test_issue_action</code> invokes this same handler against the existing fake
+greeting provider, a loopback HTTP GitHub stub and a local bare Git remote. It
+checks the initial approval stop, duplicate reattachment/comment recovery,
+refusal to infer approval on dispatch, explicit test-human approval,
+continuation to one draft PR, and its exact canonical Markdown. Negative
+controls cover unauthorized/rerun actors, wrong labels, concurrent ownership
+and saved approval bypasses. It uses no public GitHub mutation or paid models.
+The normal CI suite discovers it on every PR through <code>--all-fast</code> and on master.</p>
+<pre><code class="language-sh">.venv/bin/python -m unittest tests.test_issue_action -v
+</code></pre>
+<h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>One run per issue.</strong> A second <code>start</code> for the same issue is refused. Resume
+  its retained run first. Deliberately starting over requires preserving any
+  needed evidence, removing that issue's worktree (<code>git worktree remove</code>),
+  record and branch; the Action never does this automatically.</li>
+<li><strong>Dependencies are not copied into the worktree.</strong> A bug fix's regression
+  proof needs a test command that works there. Pass <code>--test-command</code>, or
+  install dependencies in the worktree first.</li>
+<li><strong>You still review and merge.</strong> The pull request is a draft by default.
+  "Complete" means AutoCode's completion gate passed. It does not mean the
+  change is safe to merge.</li>
+<li><strong>One issue at a time.</strong> Several issues can run at once, each in its own
+  worktree, but nothing schedules them. Each one still stops for your
+  approval.</li>
+</ul>
+<h2 id="reviewing-a-pull-request">Reviewing a pull request<a class="headerlink" href="#reviewing-a-pull-request" title="Permanent link">&para;</a></h2>
+<p><code>autocode review-pr</code> reviews an existing pull request without changing your local
+project or starting Requirements, planning, approval or building. The
+<code>autocode-issue review-pr</code> alias runs the same command.</p>
+<pre><code class="language-sh">autocode review-pr https://github.com/OWNER/REPO/pull/NUMBER -- \
+  --provider opencode --single-model zai-coding-plan/glm-5.3 --reasoning-effort high
+</code></pre>
+<p>Provider authentication must already work (<a href="../providers/">Providers</a>). The command
+reads the PR title/body as untrusted context, fetches its captured head from the
+base repository's pull ref, and creates a detached checkout under a new owned
+<code>.autocode/pull-reviews/</code> directory. <code>--out NEW_DIRECTORY</code> chooses another new
+output directory; existing outputs, parent traversal and symlink aliases are
+refused. The current project and other runs are never reused. Query/fragment
+anchors are accepted, but the URL's HTTPS hostname and port must match the
+configured GitHub API (<code>AUTOCODE_GITHUB_API</code> for Enterprise).</p>
+<p>The Code Reviewer reads the exact diff against the captured base's merge base,
+leaves findings and targeted tests under <code>review/</code>, and retains its normal
+obligation to demonstrate blocking behavior with a failing test or an explicit
+test limitation. Source changes outside the permitted review/run artifacts are
+refused. A report based on an additional scratch patch is refused: the proof
+must use the fetched head itself. If the workflow pauses, the command exits 1
+and names the retained run for inspection; it does not approve or repair it.</p>
+<p>Successful output includes the head SHA, findings, their evidence, and the
+authenticated canonical evidence report. <code>--json</code> prints these in one JSON result.
+<code>review-pr.json</code> retains the checkout/run identity, and <code>result.json</code> retains
+the successful result. Review canonical reports retain their <code>recorded</code> availability:
+review completion is not build delivery. The layer separately checks that the
+reviewed head/source and report bytes are unchanged, and refuses stale/invalid
+canonical bindings. New review reports expose the SHA-256 of the exact
+runner-written <code>review/findings.json</code> bytes through the existing public
+<code>workflow_result.artifact_sha256</code> slot. Legacy reviews keep an unknown hash
+and cannot be published through this command; start a new review instead.
+Findings are read from a stable regular file with a 4 MiB bound, without links,
+redirected parents, duplicate JSON keys or nonfinite numbers.</p>
+<pre><code class="language-sh">autocode review-pr https://github.com/OWNER/REPO/pull/NUMBER --post -- \
+  --provider opencode --single-model zai-coding-plan/glm-5.3 --reasoning-effort high
+</code></pre>
+<p><code>--post</code> requires <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> with permission to create PR
+reviews. It creates <strong>COMMENT only</strong>, with one comment per finding; the review
+summary includes the exact canonical evidence Markdown. That report has no
+Approvals section. Only build, bug-fix and design reports list who approved; a
+review never asks for an approval, so the post carries no approval record and
+no Git identity or host of anyone who resumed the review. Every finding must
+name a changed file and a positive line/span entirely present on the diff's
+new side. Removed files, unavailable/truncated GitHub patches, invalid spans
+and stale heads refuse the whole write. The command reauthenticates the local
+report/source and rereads the open PR's head immediately before POST. GitHub
+may still change after that read; the submitted review's <code>commit_id</code> remains
+the captured reviewed head. Repeating <code>--post</code> creates a separate review.
+GitHub posting tokens and Git authentication helper/header values are blanked
+at the TaskRun child boundary; normal provider configuration stays available.</p>
+<p>The companion <a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/examples/github-review/review.yml">pull request Action</a> uses
+trusted installed AutoCode/provider tooling on an explicitly configured runner.
+It reviews without posting by default, and keeps its result as a workflow
+artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/examples/github-review/README.md">its setup</a>; never install
+AutoCode or provider tooling from the PR with secrets available.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

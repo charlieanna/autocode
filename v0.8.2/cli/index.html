@@ -1,0 +1,4261 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Plan, approve, build and independently verify a coding task.">
+      
+      
+      
+        <link rel="canonical" href="https://charlieanna.github.io/autocode/v0.8.2/cli/">
+      
+      
+        <link rel="prev" href="../task-lanes/">
+      
+      
+        <link rel="next" href="../interventions/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Pauses and commands - AutoCode</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cli-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="AutoCode" class="md-header__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AutoCode
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Pauses and commands
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="AutoCode" class="md-nav__button md-logo" aria-label="AutoCode" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AutoCode
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/charlieanna/autocode" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    charlieanna/autocode
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Start
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Start
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native Windows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models and routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage names
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Run a task
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Run a task
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First task
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spec-first/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spec-first flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adaptive-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../continuous-planner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Continuous planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-preflight-v2/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Native prerequisites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pilot-inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pilot inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../figma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Figma
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../visual-captures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual captures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-lanes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel tasks and components
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review and approve
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Review and approve
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pauses and commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#entry-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry points
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#offline-demo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offline demo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supplying-a-brief" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supplying a brief
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#targeting-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Targeting a run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#understanding-a-stop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding a stop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-run-a-command-acts-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which run a command acts on
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#keeping-authorization-tokens-out-of-argv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping authorization tokens out of argv
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conversation-and-approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversation and approval
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Conversation and approval">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#waiting-or-finished" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Waiting or finished
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#replying-to-a-design-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Replying to a design review
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution and recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engine-provider-and-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engine, provider, and models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#project-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#project-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#advanced-run-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced run inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#figma-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Figma / UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development server
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subcommand-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subcommand options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terminal-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#unattended-callers-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unattended callers (agents)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Exit codes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#subcommand-exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subcommand exit codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-tool-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exact tool output
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#standalone-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../interventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub issues and PR review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verify an existing change
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../macos-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proof and evidence
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Proof and evidence
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Completion and evidence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../named-test-proof/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Named test proof
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protected-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protected tests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../exact-output/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exact output
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cost-reporting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost reporting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../failure-attribution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure attribution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-table/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reliability-campaign/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reliability campaign
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrate and contribute
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrate and contribute
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task-run API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VS Code extension
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-step/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inside your coding agent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../registry-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Registry API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provider-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Provider conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scenarios/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scenario harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compat-preparation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Preparation compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../arena/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Arena
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releasing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#entry-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry points
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#offline-demo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offline demo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common flags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common flags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supplying-a-brief" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supplying a brief
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#targeting-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Targeting a run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#understanding-a-stop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding a stop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-run-a-command-acts-on" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which run a command acts on
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#keeping-authorization-tokens-out-of-argv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keeping authorization tokens out of argv
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conversation-and-approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversation and approval
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Conversation and approval">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#waiting-or-finished" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Waiting or finished
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#replying-to-a-design-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Replying to a design review
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-and-recovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution and recovery
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engine-provider-and-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engine, provider, and models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#project-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#project-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#advanced-run-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Advanced run inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#figma-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Figma / UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development server
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subcommand-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subcommand options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terminal-chat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal chat
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#unattended-callers-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unattended callers (agents)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Exit codes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#subcommand-exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subcommand exit codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exact-tool-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exact tool output
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#standalone-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
+<p><a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/README.md">← Back to README</a></p>
+<p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
+shows the short command overview; <code>autocode --help-all</code> lists every run option,
+and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
+controls. Role/model selection is in <a href="../models/">Models</a>; provider setup is in
+<a href="../providers/">Providers</a>. Every command accepts <code>-h</code> / <code>--help</code>.</p>
+<h2 id="entry-points">Entry points<a class="headerlink" href="#entry-points" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>autocode "Your rough idea"</code></td>
+<td>The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint).</td>
+</tr>
+<tr>
+<td><code>replay RUN --into WORKSPACE/.autocode/runs/NAME</code></td>
+<td>Re-drive a saved run offline with recorded provider events and fresh verification checks; see <a href="../replay/">Replay</a>.</td>
+</tr>
+<tr>
+<td><code>replay RUN --export DIR</code></td>
+<td>Export a bounded recording; <code>--recorded-checks</code> on replay simulates historical checks without current completion evidence.</td>
+</tr>
+<tr>
+<td><code>autocode resume</code></td>
+<td>Continue the unfinished run of this project or task worktree (see <a href="#which-run-a-command-acts-on">Which run a command acts on</a>). Never starts a new task. On a paused or blocked run (<code>PAUSED_*</code>, <code>BLOCKED_*</code>, <code>*_REWORK_REQUIRED</code>, <code>RESOLVER_PENDING</code>) it also acknowledges the stop, as <code>--resume-paused</code> does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (<code>PAUSED_DESIGN_CONFLICT</code>) is only shown until you edit the design and pass <code>--resume-paused</code>. Its companions (<code>--retry-failed-stage</code>, <code>--grant-recovery N</code>, ...) need no <code>--resume-paused</code> after it. Plain <code>autocode</code> with no task, run from a script or with output redirected, relaunches a running run the same way but only shows a stop; in an interactive terminal it opens <code>autocode chat</code>.</td>
+</tr>
+<tr>
+<td><code>autocode status</code></td>
+<td>The same as <code>autocode --status</code>: read-only status of that run. Command words are recognized wherever they stand among the options; a task whose whole text is <code>resume</code>, <code>status</code> or <code>explain</code> goes after <code>--</code> (<code>autocode -- status</code>).</td>
+</tr>
+<tr>
+<td><code>autocode explain</code></td>
+<td>The same as <code>autocode --explain</code>: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes.</td>
+</tr>
+<tr>
+<td><code>autocode demo [--directory PATH]</code></td>
+<td>Watch an offline sample plan, demo approval, build, rejected evidence and completion acceptance with the bundled fake provider. No account or model spend. Creates a new temporary directory by default, keeps its run and evidence records for inspection, and refuses an existing <code>--directory</code>. See <a href="#offline-demo">Offline demo</a>.</td>
+</tr>
+<tr>
+<td><code>autocode verify</code></td>
+<td>Check an existing working-tree change, branch or patch against caller-supplied criteria; retain independent review, replay and external-change proof in the canonical evidence format. See <a href="../verify/">Standalone verification</a>.</td>
+</tr>
+<tr>
+<td><code>autocode chat [BRIEF] [--mode ID] [-- RUN_OPTIONS]</code></td>
+<td>Talk to a run in the terminal, the way the VS Code extension does: it prints the run's conversation, asks you only for what the <a href="../task-run/#status-view">status view</a> leaves to you (an answer, a plan approval, a reply) and runs exactly the command the view names. Plain <code>autocode</code> in an interactive terminal opens it too. With a brief it starts a new run in the project (<code>--in-place</code>, with the start flags of the <code>--mode</code> from <code>autocode modes list</code>, else its default). Without one it picks up the project's open run (or <code>--run-dir RUN</code>), lets you choose when several are open, and asks what you want done when none is. Leaving at a prompt changes nothing. While a stage works, Ctrl-C asks for the view's pause after the current step, a second Ctrl-C interrupts the step and a third stops AutoCode; the chat never exits while AutoCode still runs. A brief that starts with <code>-</code> goes in <code>--brief=TEXT</code>. Where the view names no action it can take, it prints the command to run yourself. Exits 0 when the run completes, 2 when it waits for you. See <a href="#terminal-chat">Terminal chat</a>.</td>
+</tr>
+<tr>
+<td><code>autocode conversation start\|attach\|read\|send\|refresh\|handoff</code></td>
+<td>Core Requirements conversation journal tied to one task run: queue human messages, explicitly refresh its draft and inspect the handoff. See <a href="../task-run/#core-requirements-conversations">Core Requirements conversations</a>.</td>
+</tr>
+<tr>
+<td><code>autocode ui</code></td>
+<td>Figma design (and optional <code>--build</code> handoff to implementation).</td>
+</tr>
+<tr>
+<td><code>autocode tasks</code></td>
+<td>Run a multi-lane task flow file; accepts <code>--json</code>.</td>
+</tr>
+<tr>
+<td><code>autocode components</code></td>
+<td>Build the components of an architecture record in parallel and combine them (see <a href="../task-lanes/#building-components-of-an-architecture-in-parallel">Task lanes</a>); with <code>--integrate TARGET --run-local</code>, also start the combined system with Docker Compose and run its smoke check (see <a href="../task-lanes/#running-the-combined-system-locally">Running the combined system locally</a>).</td>
+</tr>
+<tr>
+<td><code>autocode dashboard</code></td>
+<td>Local browser dashboard.</td>
+</tr>
+<tr>
+<td><code>autocode unattended</code></td>
+<td>Agent wrapper that refuses operator decisions and reports a stop (see <a href="#unattended-callers-agents">Unattended callers</a>).</td>
+</tr>
+<tr>
+<td><code>autocode issue brief\|start\|status\|continue\|plan\|pr</code></td>
+<td>Read a GitHub issue, work on it through the task-run interface, put the plan waiting for approval in a pull request as a plan file for review (<code>plan</code>), and prepare a pull request (see <a href="../issues/">GitHub issues</a>).</td>
+</tr>
+<tr>
+<td><code>autocode arena init\|ingest\|cases\|run\|report\|propose\|annotate\|compare</code></td>
+<td>Run independent benchmark cases, append evidence-backed failure investigations and compare candidate cohorts (see <a href="../arena/">Arena</a>).</td>
+</tr>
+<tr>
+<td><code>autocode checkpoint --workspace PATH --run-dir RUN --compare CHECKPOINT</code></td>
+<td>Compare retained code or restore it by the exact inspected token (<code>--working</code> shows what the Builder has changed so far, display only); accepts <code>--json</code> (see <a href="../task-run/#saved-code-checkpoints">Saved code checkpoints</a>).</td>
+</tr>
+<tr>
+<td><code>autocode merge [WORKTREE] [--workspace PATH] [--into BRANCH] [--json]</code></td>
+<td>Merge a delivered task worktree into its base branch (see <a href="../task-lanes/#when-a-task-finishes">Task lanes</a>).</td>
+</tr>
+<tr>
+<td><code>autocode capture --output FILE -- COMMAND</code></td>
+<td>Run a command with exact output retained for retrieval (see <a href="../exact-output/">Exact output</a>).</td>
+</tr>
+<tr>
+<td><code>autocode output read\|retrieve</code></td>
+<td>Read or retrieve exact retained file bytes (see <a href="../exact-output/">Exact output</a>).</td>
+</tr>
+<tr>
+<td><code>autocode visual-capture --config FILE</code> / <code>autocode visual-check --policy FILE</code></td>
+<td>Capture visual references or run a source-owned visual check (see <a href="../visual-captures/">Visual checks</a>).</td>
+</tr>
+<tr>
+<td><code>autocode compare-baseline</code></td>
+<td>Compare Vitest failure evidence (see <a href="../execution/#baseline-comparison">Execution</a>).</td>
+</tr>
+<tr>
+<td><code>autocode review-pr URL [--post] [--out NEW_DIRECTORY] [--json] -- PROVIDER_OPTIONS</code> / <code>autocode-issue review-pr</code></td>
+<td>Fetch the exact PR head into an owned checkout, run Code Reviewer only, and print authenticated findings/evidence. <code>--post</code> submits COMMENT only after every new-side anchor and the head are rechecked (see <a href="../issues/#reviewing-a-pull-request">Pull request reviews</a>).</td>
+</tr>
+<tr>
+<td><code>autocode review --workspace PATH [--run-dir RUN]</code></td>
+<td>Inspect pending human-review criteria and their recorded evidence, then approve, reject with a note, or skip. Reads decisions from terminal or piped input. <code>--show</code> and <code>--json</code> display without prompting; decisions never start a model. See <a href="../execution/#human-review-in-the-terminal">Human review</a>.</td>
+</tr>
+<tr>
+<td><code>autocode serve start\|stop\|status [--workspace PATH] [--run-dir RUN]</code></td>
+<td>Run the run's development server in the foreground from the project's saved <code>serve</code> command (<a href="#project-settings">Project settings</a>) on a free loopback port until Ctrl-C or <code>autocode serve stop</code>; <code>stop</code> ends it and waits (<code>--timeout</code>); <code>status</code> shows whether it is configured, running and its address (<code>--json</code>). See <a href="#development-server">Development server</a>.</td>
+</tr>
+<tr>
+<td><code>autocode forget [--workspace PATH] [--json]</code></td>
+<td>Clear only the learned project record; keep explicit configuration, saved runs and evidence. See <a href="../project-memory/">Project memory</a>.</td>
+</tr>
+<tr>
+<td><code>autocode clean-worktrees [--yes] [--json]</code></td>
+<td>List, then with <code>--yes</code> remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see <a href="../task-lanes/#when-a-task-finishes">Task lanes</a>).</td>
+</tr>
+<tr>
+<td><code>autocode prune-run RUN [--yes] [--json]</code></td>
+<td>List, then with <code>--yes</code> delete a run's settled evidence bytes: finished verification-copy trees (<code>tool-containment-*/scratch</code>) and settled job-source stores (<code>&lt;attempt&gt;.source/</code>). Manifests, receipts and hashes are retained, so what was there stays provable; <code>state.json</code> is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown.</td>
+</tr>
+<tr>
+<td><code>autocode bundle RUN [--out FILE] [--with-diff] [--json]</code></td>
+<td>Write one redacted archive of a run for a bug report (default <code>WORKSPACE/.autocode/bundles/RUN.tar.gz</code>): the replay recording <code>replay RUN --export</code> writes, so a maintainer can <a href="../replay/">replay</a> it; <code>state.json</code>, <code>activity.jsonl</code>, the stage reports, the check-replay receipts and the last 200 lines of each provider event stream; the resolved settings, <code>doctor --json</code> output and the version. Every file it writes passes the credential redaction exports use, plus the values of secret-named environment variables; a recording that redaction would still change is left out, and the manifest says why. No workspace source unless <code>--with-diff</code> adds the run's diff (against its base commit, else the uncommitted work). <code>manifest.json</code> lists each file's sha256; cite the printed manifest hash in a bug report or a <code>docs/bugs/</code> note instead of pasting logs. The run directory is only read.</td>
+</tr>
+<tr>
+<td><code>autocode --version</code></td>
+<td>Print the executing package version and its source commit when known. An installed package without a source checkout reports <code>commit unknown</code>; it does not borrow the workspace commit.</td>
+</tr>
+<tr>
+<td><code>autocode completion bash\|zsh\|fish</code></td>
+<td>Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (<code>output read</code>, <code>arena run</code>) and their options, or its argument's choices (<code>completion bash</code>). <code>capture</code>, <code>registry</code>, <code>intervention</code> and <code>dashboard</code> complete only <code>--help</code>. Load it with <code>source &lt;(autocode completion bash)</code> (zsh the same, after <code>compinit</code>; fish <code>autocode completion fish \| source</code>), or save it; see <a href="../install/#shell-completion">Shell completion</a>.</td>
+</tr>
+<tr>
+<td><code>autocode models [--provider NAME] [--workspace PATH] [--json] [--prices] [--selection]</code></td>
+<td>List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check every role's default route. Suggests a replacement for any default you cannot use; exits 1 when one is missing (see <a href="../models/#when-a-model-is-not-in-your-plans">Models</a>). <code>--prices</code> prints the dated price table instead, and the rate each default route is priced at, or "no rate" (never a zero price); it runs nothing and works offline. <code>--selection</code> reads the tool's own model and login listings (still no model calls) and prints what automatic selection would choose - the route per role with its price and reasoning level, why every other qualified model lost, and which chosen routes the access check would still probe; exits 1 with the account-terms stop when the connected accounts cannot field an independent checker (<a href="../models/#choosing-models-automatically">Choosing models automatically</a>).</td>
+</tr>
+<tr>
+<td><code>autocode doctor [--workspace PATH] [--engine opencode\|codex\|claude] [--json]</code></td>
+<td>Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: <code>--engine codex</code> is Codex; without <code>--engine</code>, the <code>engine</code> the project's files set (<a href="#project-settings">Project settings</a>) counts as that flag; otherwise (no engine, or <code>--engine opencode</code>) the provider <code>AUTOCODE_PROVIDER</code> or <code>default_provider</code> in <code>~/.config/autocode/config.toml</code> names, else OpenCode. That provider must answer and list every role's default model (<code>opencode models</code>, as <code>autocode models</code> checks). <code>AUTOCODE_PROVIDER=codex</code> names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names <code>--engine codex</code> as the single-login alternative. <code>--engine claude</code>, a project's <code>engine = "claude"</code>, or a <code>claude</code> default provider, checks Claude Code instead: <code>claude</code> on PATH and <code>claude auth status --json</code>, run in the agents' environment, reporting a Claude subscription login (<code>engine:claude</code>; an API key, Bedrock or Vertex is refused, by the same check a run makes: the agents' environment and the project's <code>.claude/settings.json</code>), its conformance row, and its routes; a user <code>claude.toml</code> it ignores is a warning. Doctor shows no Claude rows for other runs and never prints the account's email or organization. Lists the settings a new run takes from the project's files (<a href="#project-settings">Project settings</a>) and fails on a file a run would refuse. When a new run launches built-in OpenCode stages, names the kernel tool boundary they get on this machine (<code>containment</code>: macOS Seatbelt or Linux bubblewrap and its version, with OpenCode 1.18.33, by the check run setup makes; <code>--json</code> adds it as <code>containment</code> with <code>backend</code>, <code>backend_version</code> and <code>problem</code>, or <code>null</code> for a Codex, Claude Code or configured-provider run), as a warning that does not fail doctor when such a run would be refused without <code>--allow-uncontained-tools</code> (<a href="../execution/#native-tool-containment">Execution</a>). Runs without psutil and reports it missing. Never reads credentials.</td>
+</tr>
+<tr>
+<td><code>autocode registry location\|list\|import</code></td>
+<td>Registry API (see <a href="../registry-api/">Registry API</a>).</td>
+</tr>
+<tr>
+<td><code>autocode runs [--all] [--needs] [--json]</code></td>
+<td>Every run of this project (or, with <code>--all</code>, of every registered project) in one read-only table, each JSON row titled with the first line of its task (<code>title</code>): what each run's own status view says it needs, and the command that answers it. Needs-first order, then working, then settled, then runs whose checkpoint cannot be read; the row shows how long since the checkpoint was written. Nothing here starts, resumes or changes a run. Where a saved run's status alone cannot tell an uncertain attempt from one whose retained report only needs repair, the row points at <code>autocode --run-dir RUN --status</code> instead of offering a command that could set accepted work aside. It reads saved checkpoints, so unlike <code>autocode --run-dir RUN --status</code> it inspects no supervised process: a row says what the run last saved, not whether its provider is still alive. <code>registry list</code> is the pointer index with each pointer's availability; <code>runs</code> is what each run now wants from you.</td>
+</tr>
+<tr>
+<td><code>autocode events [--run-dir RUN] [--follow]</code></td>
+<td>One saved run's recorded events as a JSON-lines stream: how it got to where <code>--status</code> says it stands, one event per line, printed exactly as the run wrote it. These are the run's own records — its approvals, answers, contract and configuration changes, routing decisions and self-taken recoveries — not a provider's transcript. <code>--follow</code> keeps printing new events until the run ends the stream, and the status view contract is what ends it: a completed run exits 0, a run that needs a person exits 2 after naming that person's command on stderr, and <code>--timeout SECONDS</code> bounds the wait. Stdout is always JSON lines, so <code>--json</code> does not apply; the envelope is <a href="../schemas/run-event.schema.json">run-event.schema.json</a>, whose <code>kind</code> is an open vocabulary a consumer must tolerate. Read-only, and like <code>runs</code> it inspects no supervised process: a stage hung mid-flight keeps the stream open, so ask <code>autocode --run-dir RUN --status</code> whether it is alive.</td>
+</tr>
+<tr>
+<td><code>autocode plan --export PATH [--run-dir RUN] [--json]</code> / <code>autocode plan --check PATH [--json]</code> / <code>autocode plan --render PATH [--json]</code></td>
+<td>Write a saved run's current plan (shown for approval or approved) as a Markdown file to review in a pull request: a front matter holding the contract body exactly, its goal hash (the SHA-256 of the body) and the revision it came from, then the plan as text generated from it. Never the approval token; credential-shaped text is masked as in <code>bundle</code>, and the export then says the file's goal hash differs from the run's. <code>--check</code> reads such a file and prints its goal hash, and exits 2 when the file cannot be read or its text no longer matches its front matter. <code>--render</code> regenerates that text after the front matter was edited. Reads the checkpoint like <code>events</code>: no run lock, nothing recorded, nothing launched; only the named file is written. <code>--json</code> formats results or error endings as structured JSON. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
+</tr>
+<tr>
+<td><code>autocode wait [--run-dir RUN] [--timeout S]</code></td>
+<td>The blocking form of <code>autocode runs</code>: wait on one saved run until it reaches you, ends, or stops advancing on its own. Each second it rereads the checkpoint and, read-only, inspects whether a controller still owns the run — the one question a saved status cannot answer. The outcome names which ended the wait: <code>complete</code> (the run reported TASK_COMPLETE/COMPLETE; exit 0), <code>needs_you</code> (the status view names what you must do, and the command that answers it; exit 2), <code>controller_lost</code> (the saved status is still RUNNING but nothing owns the run, so it will not advance on its own; exit 2, pointing at <code>--status</code>), <code>stopped</code> (anything else; exit 2), or <code>timeout</code> when <code>--timeout SECONDS</code> elapses first (exit 2, reporting the last observed status and controller). <code>--json</code> prints the outcome as exactly one JSON object. Nothing here starts, resumes or changes a run.</td>
+</tr>
+<tr>
+<td><code>autocode intervention submit\|inspect</code></td>
+<td>Queued interventions (see <a href="../interventions/">Interventions</a>).</td>
+</tr>
+</tbody>
+</table>
+<p>When working on AutoCode itself, the launcher on <code>PATH</code> may use an older installed
+package. Run <code>autocode doctor --workspace /path/to/autocode --json</code> to compare its
+application payload with a verified AutoCode checkout. The <code>install-drift</code> warning
+names the executing path, the checkout commit and changed, missing or extra
+package files. Matching payloads do not warn even when an installed build's commit
+is unknown. Customer repositories are never treated as AutoCode provenance.</p>
+<p>To run the checkout directly from its root, use <code>python tools/autocode.py doctor</code>
+(or <code>python tools/autocode.py</code> with your ordinary task options). Doctor also prints
+a deliberately invoked reinstall command for the current interpreter. It never
+updates an installation or rewrites run state itself.</p>
+<p>The old console-script aliases remain for compatibility. The unit entry points
+<code>autopilot</code>, <code>autoplanner</code>, <code>autocode-build</code>, <code>autoreview</code>, <code>autoresolver</code>,
+<code>autocode-orchestrator</code> and <code>autocode-unattended</code> are internal entry points; use
+<code>autocode</code> and its public subcommands in new instructions. Internal stage and unit
+names keep their existing meaning.</p>
+<h2 id="offline-demo">Offline demo<a class="headerlink" href="#offline-demo" title="Permanent link">&para;</a></h2>
+<p>Run <code>autocode demo</code> after installation; Git and Python are enough. You do not need
+OpenCode, Codex or an account. The demo answers its sample requirements question
+and approves its displayed sample plan, then runs real CLI checks. It first shows
+a claimed passing check that AutoCode refuses when its independent rerun fails.
+The successful sample also stops at the completion gate until demo acceptance of
+the artifact is recorded. These automatic approvals apply only to the new demo
+project.</p>
+<p>The command prints the run directory, canonical evidence record and <code>demo.json</code>,
+and keeps every output inside its new directory. To choose where it goes, use
+<code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
+Remove that directory after inspection. Fake-provider evidence demonstrates the
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/RELIABILITY.md">real-model reliability results</a>.</p>
+<h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
+<h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--brief TEXT</code></td>
+<td>Start a new run with literal task text; <code>--brief -</code> reads UTF-8 bytes from stdin. Mutually exclusive with a positional task, <code>--brief-file</code>, saved-run options and <code>resume</code>.</td>
+</tr>
+<tr>
+<td><code>--brief-file PATH</code></td>
+<td>Start a new run with the file's exact UTF-8 task text, retaining line breaks and trailing whitespace. Mutually exclusive with a positional task, <code>--brief</code>, saved-run options and <code>resume</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Use <code>autocode --brief-file brief.txt</code> or pipe UTF-8 text into <code>autocode --brief -</code>
+to preserve backticks, <code>$()</code>, quotes and line breaks exactly. These inputs start
+a new run and cannot accompany a positional task, <code>resume</code> or <code>--run-dir</code>.
+An empty or invalid UTF-8 input is refused before creating a run.</p>
+<p><code>--brief TEXT</code> and the positional task remain available. The shell processes
+arguments before AutoCode receives them: use single quotes around literal shell
+syntax, for example <code>autocode 'Fix the `run()` function'</code>, or use a file or stdin
+when the brief contains embedded single quotes. AutoCode cannot recover text
+already changed by the caller's shell. The saved task and its UTF-8 SHA-256 appear
+as <code>view.task</code> and <code>view.task_sha256</code> in status JSON; compare them with the source
+brief before continuing.</p>
+<h3 id="targeting-a-run">Targeting a run<a class="headerlink" href="#targeting-a-run" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--workspace /path</code></td>
+<td>Committed Git workspace to work in. Defaults to the current directory. Without a task or <code>--run-dir</code>, where AutoCode looks for the run to act on.</td>
+</tr>
+<tr>
+<td><code>--run-dir /path</code></td>
+<td>Act on this saved run, from any directory. Without <code>--workspace</code>, the run's own checkout is used.</td>
+</tr>
+<tr>
+<td><code>--in-place</code></td>
+<td>Start a new task in the selected checkout instead of a fresh worktree. Uncommitted and untracked files there count as the code the task starts from (see <a href="../workflow/">Workflow</a>). Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see <a href="../task-lanes/#multiple-tasks-in-one-project">Task lanes</a>).</td>
+</tr>
+<tr>
+<td><code>--workflow build\|bugfix\|review\|design\|discuss</code></td>
+<td>Name the kind of job instead of having the recognizer read it from the request. Also accepted by a saved run whose recognizer has not run yet. A run whose job is already decided keeps it: start a new run to change it (see <a href="../workflow/">Workflow</a>).</td>
+</tr>
+<tr>
+<td><code>--status</code></td>
+<td>Read-only status, including <code>milestone_checkpoint</code>, <code>interventions</code>, <code>active_stage.activity</code>.</td>
+</tr>
+<tr>
+<td><code>--json</code></td>
+<td>Stdout carries exactly one JSON object unless the invocation ends with an error message other than a refused setting (below); everything else the invocation prints goes to stderr. A finished or paused run prints the same payload <code>--status</code> prints. A user action (an approval, answer, feedback, resolver response and the like) prints that payload plus <code>result</code>: <code>exit_code</code>, <code>saved</code>, <code>message</code> (the text a person would have read) and <code>error</code>, which is <code>{"code": "input_rejected", "message": …}</code> when the input was refused and null otherwise. A refusal before the run loads prints <code>{"result": …}</code> alone. Any other invocation that loaded the run and returned without printing the payload, such as one stopped by <code>--pause-after-stage</code> or a time or iteration limit, prints the saved run's payload plus <code>result</code>. A setting the run's configuration refuses as the run loads still ends with <code>autocode: …</code> on stderr, and also prints the saved run's payload plus <code>result</code> (<code>{"result": …}</code> alone for a new run refused before its first checkpoint), whose <code>error</code> is <code>input_rejected</code> with the refusal text. Such settings include <code>--single-model</code>, <code>--spec-first</code>, <code>--blind-tests</code>, <code>--utility-model</code>, <code>--builder-strong-model</code> or a different <code>--engine</code> on a saved run, <code>--single-model</code> with a per-role model flag, <code>--max-milestone-seconds</code> on a saved run without milestone checkpoints, and the tool-containment refusals: <code>--allow-uncontained-tools</code> on a run with no built-in OpenCode stage, or a built-in OpenCode run without it where the kernel tool boundary is unavailable. The refused setting is not saved, though a new run without <code>--in-place</code> may already have created its task worktree and branch, which <code>result.message</code> names. In a native visual run (a task with a <code>VISUAL_REVIEW_PROFILE=</code> directive) such a refusal is instead saved as a <code>PAUSED_INVALID_OUTPUT</code> pause and printed like any other pause, with <code>error</code> null. Any other invocation that ends with an error message (<code>autocode: …</code> or argparse's <code>usage:</code> text on stderr) prints nothing on stdout. A refusal reported in <code>result</code> also prints <code>{"error": …}</code> on its own line of stderr: its last line, except after a refused setting, where <code>autocode: …</code> follows. <a href="../schemas/status-view.schema.json">status-view.schema.json</a> describes the status payload. The lone <code>{"result": …}</code> does not validate against the schema's root; its <code>result</code> validates against the schema's <code>properties.result</code>. Exit codes are unchanged (<a href="#exit-codes">Exit codes</a>); a usage error still prints argparse's text. The read-only commands (<code>--status</code>, <code>--explain</code>, <code>--dry-run</code>, <code>doctor --json</code>, <code>registry</code>, <code>usage --json</code>) print their own output and are unaffected.</td>
+</tr>
+<tr>
+<td><code>--explain</code></td>
+<td>Read-only explanation of a saved run's stop and what the next command does. With an explicit task in a Git workspace, previews the initial explanation without creating a run. An explicit <code>--run-dir</code> cannot accompany a new task or new-run inputs.</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>Read-only preview; never emits an accepted handoff.</td>
+</tr>
+<tr>
+<td><code>--inspect-evidence</code></td>
+<td>With <code>--status</code>, inspect the current source and saved verification evidence without running checks.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="understanding-a-stop">Understanding a stop<a class="headerlink" href="#understanding-a-stop" title="Permanent link">&para;</a></h3>
+<p>The status view adds <code>pause_category</code>, its readable <code>pause_category_label</code>, and
+<code>next_command</code>. The category says whose action is needed; the exact <code>status</code> and
+<code>stop_reason</code> remain available as detail, together with the existing <code>needs</code> and
+recovery tokens.</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>your_decision</code> — Your decision</td>
+<td>Inspect and answer a question, approve a plan, or authorize a recovery or limit change.</td>
+</tr>
+<tr>
+<td><code>your_environment</code> — Your environment</td>
+<td>Repair the workspace, configuration, prerequisites or other local setup.</td>
+</tr>
+<tr>
+<td><code>model_or_provider</code> — Model or provider</td>
+<td>Inspect a model refusal, quota stop, provider failure or incomplete model output.</td>
+</tr>
+<tr>
+<td><code>autocode</code> — AutoCode</td>
+<td>Inspect an internal consistency, supervision or completion-proof stop.</td>
+</tr>
+</tbody>
+</table>
+<p>Rejected human actions and invalid configuration changes also print the current
+recovery summary and command. Answer a clarification with <code>--answer Q=TEXT</code> and
+the displayed private resolver token; <code>--resolver-response</code> is for an operational
+request. A rejected response does not turn a clarification into an operational
+pause or grant a retry.</p>
+<p>Use the offered <code>next_command</code> under the category. It is derived from the same
+current <code>needs</code> and actions as the existing recovery instructions; the category
+never approves, retries or changes a limit. <code>next_command</code> is <code>null</code> when the run has no executable next action.
+Resolve any stated prerequisite before running a command that resumes work.
+Replace <code>ANSWER</code>, <code>MODEL</code>, <code>N</code> or <code>GOAL_FILE</code> with your intended input; a displayed
+token uses its paired environment variable with the <code>-</code> selector. When recovery
+has two steps, <code>next_command</code> gives the first one; inspect status again after it.
+A missing issued token offers a noninteractive display, and a missing source
+identity offers inspection rather than an unbound retry. <code>autocode explain</code>
+describes the stop and the offered action. See the <a href="../task-run/#status-view">status view contract</a>.</p>
+<h3 id="which-run-a-command-acts-on">Which run a command acts on<a class="headerlink" href="#which-run-a-command-acts-on" title="Permanent link">&para;</a></h3>
+<p>A command with no task and no <code>--run-dir</code> acts on a saved run found from the
+<code>--workspace</code> directory: the run directory you are in; otherwise the runs of the task
+worktree you are in; otherwise the project's in-place runs and the runs of all its task
+worktrees. It names the run on stderr (<code>Using the saved run RUN (STATUS, ...)</code>) and goes on
+as if you had passed <code>--run-dir RUN</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Run it takes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>autocode</code>, <code>autocode resume</code>, <code>--resume-paused</code> and its <code>--retry-*</code> companions, <code>--unit</code></td>
+<td>The only unfinished run. A finished run (<code>TASK_COMPLETE</code>, or stopped) is never relaunched this way, and a run that <code>autocode tasks</code> drives is left to that command.</td>
+</tr>
+<tr>
+<td><code>--status</code>, <code>--explain</code>, <code>--dry-run</code>, <code>autocode status</code>, <code>autocode explain</code></td>
+<td>The only unfinished run; with none, the latest finished one.</td>
+</tr>
+<tr>
+<td><code>--show-goal</code>, <code>--answer</code>, <code>--approve-goal</code>, <code>--feedback</code> and the other user actions</td>
+<td>The only unfinished run, preferring one no task flow drives. These save the run, so they never pick a finished one.</td>
+</tr>
+<tr>
+<td><code>--follow-up</code></td>
+<td>The most recently completed run, preferring one no task flow drives. Refused when a run started after it finished has not finished: name the run with <code>--run-dir</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="keeping-authorization-tokens-out-of-argv">Keeping authorization tokens out of argv<a class="headerlink" href="#keeping-authorization-tokens-out-of-argv" title="Permanent link">&para;</a></h3>
+<p>These options accept <code>-</code> to read their paired environment variable:</p>
+<table>
+<thead>
+<tr>
+<th>Token option</th>
+<th>Environment variable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--resolver-token</code></td>
+<td><code>AUTOCODE_RESOLVER_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>--job-retry-token</code></td>
+<td><code>AUTOCODE_JOB_RETRY_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>--recover-job-report</code></td>
+<td><code>AUTOCODE_RECOVER_JOB_REPORT</code></td>
+</tr>
+<tr>
+<td><code>--approve-goal</code></td>
+<td><code>AUTOCODE_APPROVE_GOAL_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>--review-token</code></td>
+<td><code>AUTOCODE_REVIEW_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>--expected-goal-token</code></td>
+<td><code>AUTOCODE_EXPECTED_GOAL_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>--expected-recovery-token</code></td>
+<td><code>AUTOCODE_EXPECTED_RECOVERY_TOKEN</code></td>
+</tr>
+<tr>
+<td><code>checkpoint --expected-token</code></td>
+<td><code>AUTOCODE_CHECKPOINT_EXPECTED_TOKEN</code></td>
+</tr>
+</tbody>
+</table>
+<p>Prefer this on shared machines: Linux exposes <code>/proc/&lt;pid&gt;/cmdline</code> to every local user, while
+<code>/proc/&lt;pid&gt;/environ</code> is readable only by the owner, and a typed token also lands in shell
+history. The environment variable alone never authorizes anything — the flag must still be
+present. <code>TaskRun</code>, dashboard actions and the trial driver pass these tokens through
+each CLI child's environment. Their process arguments and saved command records contain
+<code>-</code>. Literal CLI tokens remain supported. The controller always removes all eight
+variables before launching a provider or test command, even if named in <code>AUTOCODE_PASS_ENV</code>.
+Programmatic command builders require full token option names; abbreviated token
+options are refused before recording or launch.</p>
+<p>With several unfinished runs the command changes nothing, exits 2 and lists them with the
+<code>--run-dir</code> command for each. With no run it says where it looked; with only finished
+runs, a bare <code>autocode</code> names the latest one instead of relaunching it. Inside a run
+directory whose <code>state.json</code> is missing or cannot be used, or one <code>autocode clean-worktrees</code>
+archived, it refuses rather than pick another run.
+A task, or a new-run option (<code>--in-place</code>, <code>--figma-file</code>, <code>--figma-manifest</code>,
+<code>--figma-review</code>, <code>--ui-run</code>, <code>--builder-strong-model</code>, <code>--conversation-handoff</code>, <code>--test-root</code>, <code>--package</code>), starts
+a new run instead; <code>autocode resume</code> never does.</p>
+<h3 id="conversation-and-approval">Conversation and approval<a class="headerlink" href="#conversation-and-approval" title="Permanent link">&para;</a></h3>
+<p><code>--status</code> keeps its JSON document on stdout and prints a short pending-question
+list and the current Resolver token on stderr. After a successful <code>--answer</code>,
+stderr shows the questions still open and their new token, or says there are no
+questions left to answer. Use that new token for the next answer; answering does
+not approve a plan or start a model.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--chat</code></td>
+<td>Interactive chat mode (default in a terminal).</td>
+</tr>
+<tr>
+<td><code>--no-chat</code></td>
+<td>One command per turn (default for non-interactive).</td>
+</tr>
+<tr>
+<td><code>--answer 'Q1=…'</code></td>
+<td>Answer a question the run is waiting on (repeatable; the status view's <code>needs.kind</code> is <code>answer</code>). Requires the current <code>--resolver-token</code> shown by Resolver. A finished run waits on none: the questions in its report take <code>--follow-up</code> (see <a href="#waiting-or-finished">Waiting or finished</a>).</td>
+</tr>
+<tr>
+<td><code>--answer route-sol=MODEL</code></td>
+<td>At a quota stop (<code>PAUSED_BUDGET</code>), a content-filter refusal (<code>PAUSED_CONTENT_FILTER</code>), or an authenticated output-limit stop (<code>PAUSED_OUTPUT_CAP</code>), name the model the stopped role continues on; the only operational question <code>--answer</code> takes. Requires the current <code>--resolver-token</code>. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as <code>--abandon-stage</code> does and records a <code>route_assignment</code>; continue with <code>--resume-paused</code>. The resume-flag form is <code>--abandon-stage ATTEMPT</code>, then <code>--resume-paused --sol-model MODEL</code>. A stopped workflow job (<code>needs.kind</code> <code>retry_job</code> with <code>needs.route</code>) takes <code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> instead: no resolver token, no <code>--abandon-stage</code>, no <code>--ROLE-model</code> flag; it issues a new job retry token, so continue with <code>--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN</code> (<a href="#waiting-or-finished">Waiting or finished</a>). See <a href="../models/#when-a-roles-quota-runs-out">Models</a>.</td>
+</tr>
+<tr>
+<td><code>--feedback '…'</code></td>
+<td>Send a correction; returns to discovery and requires fresh approval. With <code>--adaptive-planning</code>, feedback on a plan shown for approval goes to the Planner, which revises it. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop).</td>
+</tr>
+<tr>
+<td><code>--follow-up '…'</code></td>
+<td>Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (<code>TASK_COMPLETE</code>); any other run exits 2 unchanged. After a design review, the reply revises that review: the Architect keeps every concern under its id, keeps a settled one as resolved with what settled it, and adds the revision to <code>revisions</code> in <code>review/design-review.json</code> (<a href="#replying-to-a-design-review">Replying to a design review</a>). After a design turn, "Build it." builds that design as approved: it is checked against the code first (<code>check_design</code>). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval.</td>
+</tr>
+<tr>
+<td><code>--delegate Q1</code></td>
+<td>Accept a question's proposed default. Requires the current <code>--resolver-token</code> shown by Resolver.</td>
+</tr>
+<tr>
+<td><code>--delegate-all --review-token 'r3:&lt;hash&gt;'</code></td>
+<td>Delegate every pending question marked <code>delegable</code> with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval.</td>
+</tr>
+<tr>
+<td><code>--reject-assumption A1 --review-token 'r3:&lt;hash&gt;'</code></td>
+<td>Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval.</td>
+</tr>
+<tr>
+<td><code>--show-goal</code></td>
+<td>Display the current contract/revision. At the approval stop it also says what approving authorizes and what the token locks, and ends with a summary of the decision (outcome, permissions, criteria and how each is checked, what passing proves), the limits in effect and the exact approve command (<a href="../workflow/#conversation-and-approval">sample</a>).</td>
+</tr>
+<tr>
+<td><code>--approve-goal 'r3:&lt;hash&gt;'</code></td>
+<td>Approve the exact displayed revision.</td>
+</tr>
+<tr>
+<td><code>--edit-goal body.json</code></td>
+<td>Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop).</td>
+</tr>
+<tr>
+<td><code>--goal-file PATH</code></td>
+<td>Load a plan file (<code>autocode plan --export</code>, reviewed and edited in a pull request) into a saved run as its next draft revision, as <code>--edit-goal</code> loads a body; the plan then goes through ordinary approval (in joint planning the Plan Reviewer reviews it first). Refused with the run left as it was when the file cannot be read, its text no longer matches its front matter, it still holds text the export masked as credential-shaped, its runner records are not the run's, or a planner's draft of it would be sent back: a literal the request states that the plan drops (with the message the planner gets), a Go test the request names that no criterion proves by that name, <code>git status</code> in a check, or a command the shell cannot parse. The approval stop then names the file and its goal hash and says whether the plan to approve is still the plan loaded from it, and the completed run's evidence report (and the PR body built from it) cites the file, its goal hash and the approved plan's. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). It does not start a new run. See <a href="../workflow/#reviewing-a-plan-in-a-pull-request">Reviewing a plan in a pull request</a>.</td>
+</tr>
+<tr>
+<td><code>--approve-review C1 --review-token '…'</code></td>
+<td>Record a human-review decision for criterion <code>C1</code>.</td>
+</tr>
+<tr>
+<td><code>--as NAME</code></td>
+<td>With <code>--approve-goal</code>, <code>--approve-review</code>, <code>--accept-completion</code>, <code>--edit-goal</code>, <code>--goal-file</code> or a resume (<code>--resume-paused</code>, or <code>autocode resume</code> at a pause) on a shared machine: the name of the person approving, accepting completion, editing or resuming, saved beside the Git identity as their claim, never verified (<a href="../execution/#who-approved">Who approved</a>). With a resume it is saved only when the resume releases a pause; a resume that finds none, or that the pause keeps, ignores it. <code>--status</code>, the completion summary and, for a build, bug-fix or design run, the completed run's evidence report (and so the <code>autocode-issue pr</code> body) list it with the rest of the record. A project's <code>require-approver</code> checks the Git identity, never this name (<a href="../execution/#required-approver">Required approver</a>).</td>
+</tr>
+<tr>
+<td><code>--reject-review C1 --review-token '…' --review-note TEXT</code></td>
+<td>Reject the current reviewed artifact for criterion <code>C1</code>, retaining the nonempty note as feedback for a fresh plan and approval. Uses the same artifact freshness checks as approval.</td>
+</tr>
+<tr>
+<td><code>--investigator-model MODEL</code>, <code>--investigator-reasoning-effort LEVEL</code></td>
+<td>Pin the stuck-stage Investigator's model for this run (default, at high: Claude Opus 5.5 in <code>kilocode</code> runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A <code>provider/model</code> id runs it through OpenCode. See <a href="../workflow/#when-a-stage-stops-making-progress">Workflow</a>.</td>
+</tr>
+<tr>
+<td><code>--utility-model MODEL</code>, <code>--utility-reasoning-effort LEVEL</code></td>
+<td>New runs only: run the stages that only classify or reformat (today the Job recognizer, <code>recognize_workflow</code>) on a cheaper model. The route keeps the Plan Reviewer's engine, provider and reasoning effort and replaces only the model. Never used for a stage that writes code or judges evidence. Without it every stage keeps its own route. Refused on a saved run. See <a href="../models/#the-utility-route">Models</a>.</td>
+</tr>
+<tr>
+<td><code>--resolver-response provide_information --resolver-request ID --resolver-token '…'</code></td>
+<td>Answer a Resolver request with <code>--resolver-message TEXT</code>. A displayed criterion recommendation accepts the exact message <code>Accept recommended revision</code> to install an unapproved draft for normal plan review and fresh approval. Other blocker information remains held; operational-exhaustion information is re-evaluated once on resume. Request ID and current token are required. The response launches no provider and grants no approval or budget change (<a href="../execution/">Execution</a>).</td>
+</tr>
+<tr>
+<td><code>--close-finding ID --close-reason '…'</code></td>
+<td>Close an open reviewer finding as your own decision (repeatable), for example a duplicate of a problem you already settled. Records who closed it and why, and launches no agent. Closing every finding a validation-only stop asked about answers that stop, so the next <code>--resume-paused</code> continues.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="waiting-or-finished">Waiting or finished<a class="headerlink" href="#waiting-or-finished" title="Permanent link">&para;</a></h4>
+<p><code>--follow-up</code> continues only a finished run (<code>TASK_COMPLETE</code>). A waiting, paused or blocked run
+refuses it (exit 2, state unchanged): answer it (<code>--answer</code>/<code>--delegate</code> with <code>--resolver-token</code>),
+approve or correct it (<code>--approve-goal</code>/<code>--feedback</code>), or resume it. Jobs that report without
+waiting for a reply (design review, discussion, code review) complete with their questions or
+findings in their report; you reply to them with <code>--follow-up</code>. After a design turn, "Build it."
+builds that design as approved (checked against the code first, no requirements gathering or
+questions, plan approval still required). The build gets a plan of its own: the design turn's
+plan (which wrote no code), with whatever earlier turns agreed that it carried, and its open
+non-blocking findings are archived in the run, not revised; the design is now the requirements.
+After a design review instead, building the design it approved revises the plan in force. A follow-up builds as approved only the design its previous turn wrote, or the design a
+design review approved; any other document is planned from requirements as usual.</p>
+<table>
+<thead>
+<tr>
+<th>The run is</th>
+<th>Status view</th>
+<th>Say the next thing with</th>
+<th>Through <code>TaskRun</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>finished</td>
+<td><code>done</code> is true, <code>needs</code> is null</td>
+<td><code>--follow-up TEXT</code></td>
+<td><code>follow_up(text)</code></td>
+</tr>
+<tr>
+<td>waiting for you</td>
+<td><code>needs.kind</code> is <code>answer</code>, <code>approve_plan</code>, <code>review</code> or <code>planning_budget</code></td>
+<td><code>--answer</code>/<code>--delegate</code> with <code>--resolver-token</code>, <code>--approve-goal</code>, <code>--approve-review</code>, <code>--feedback</code></td>
+<td><code>answer</code>, <code>approve_plan</code>, <code>approve_review</code>, <code>feedback</code></td>
+</tr>
+<tr>
+<td>stopped</td>
+<td><code>needs.kind</code> is <code>resume</code></td>
+<td><code>autocode resume</code>, once the cause in <code>stop_reason</code> is resolved (<code>--resume-paused</code> after editing the design at <code>PAUSED_DESIGN_CONFLICT</code>)</td>
+<td><code>resume_paused()</code></td>
+</tr>
+<tr>
+<td>stopped in a workflow job (Reviewer, Architect, Analyst, Investigator)</td>
+<td><code>needs.kind</code> is <code>retry_job</code>, or <code>recover_source</code> for an attempt with no saved source identity</td>
+<td><code>--resume-paused --retry-failed-stage --job-retry-token TOKEN</code> after inspecting <code>needs.archive</code>; with <code>needs.route</code> (quota, a content-filter refusal or an authenticated output limit), first <code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> to run it on another model, then the retry with the new token; for <code>recover_source</code>, a new run (<a href="../task-run/#failed-workflow-jobs">Task-run interface</a>)</td>
+<td><code>retry_job(token)</code>; with <code>needs.route</code>, <code>assign_model(role, model)</code> first</td>
+</tr>
+<tr>
+<td>waiting on another run</td>
+<td><code>needs.kind</code> is <code>dependency</code></td>
+<td><code>--receive-dependency MANIFEST</code> once that run delivers</td>
+<td><code>receive_dependency(manifest)</code></td>
+</tr>
+</tbody>
+</table>
+<p>The wrong one is refused with exit 2 and the run left as it was. <code>--follow-up</code> on an unfinished
+run lists the alternatives (answer, approve or correct, resume). On a finished run, <code>--answer</code>,
+<code>--delegate</code> or <code>--delegate-all</code> says: "This run is finished and waits for no answer; reply to
+the questions in its report with --follow-up TEXT", and <code>--feedback</code>, <code>--edit-goal</code>, <code>--goal-file</code> or
+<code>--reject-assumption</code> says it would reopen the run without a new turn. Without <code>--run-dir</code>,
+<code>--follow-up</code> is also refused when a run started after the latest finished one has not finished:
+the message lists that run, and the command that continues the finished one anyway. Through
+<code>TaskRun</code> these raise <code>TaskRunError</code>.</p>
+<h4 id="replying-to-a-design-review">Replying to a design review<a class="headerlink" href="#replying-to-a-design-review" title="Permanent link">&para;</a></h4>
+<p>A design review never waits for its questions: the run completes with them in
+<code>review/design-review.json</code>, and you answer with <code>--follow-up</code> ("Ordering is per-domain."). The
+Architect is asked to keep a concern that is a problem only under one answer to its question
+advisory until you answer. A reply recognized as design makes the Architect revise the same
+review instead of writing a new one. It is asked to:</p>
+<ul>
+<li>keep every earlier concern under its id, open or resolved, and to drop or renumber none;</li>
+<li>keep a concern the reply settles with <code>status</code> <code>resolved</code> and a <code>resolution</code> saying what
+  settled it (an answer can also make a concern blocking), and to add a concern only for a
+  problem the reply exposes;</li>
+<li>drop the questions the reply answered and keep the others under their ids.</li>
+</ul>
+<p>The runner refuses a revision that leaves out an earlier concern id, uses an id twice, resolves
+a concern without a resolution or resolves one raised in that revision, or whose verdict is not
+<code>request_changes</code> exactly when an open concern is blocking. A reply that names a different
+design gets a fresh review (revision 1); a reply asking for a new design hands it to the build
+pipeline, as a first request would.</p>
+<p><code>revision</code> is the review's number, and <code>revisions</code> keeps one entry per review: the message that
+prompted it (<code>said</code>, null for the run's first review), its feedback receipt (<code>event_id</code>), the
+verdict, and the ids of its open blocking, open advisory and resolved concerns and of its
+questions. The report you reply to must be the one the Architect wrote: if
+<code>review/design-review.json</code> was edited since, <code>--follow-up</code> exits 2 with "changed since the
+Architect's review; restore it or start a new run".</p>
+<h3 id="execution-and-recovery">Execution and recovery<a class="headerlink" href="#execution-and-recovery" title="Permanent link">&para;</a></h3>
+<p><code>autocode resume</code> can replace <code>--resume-paused</code> alongside a recovery companion such
+as <code>--grant-recovery N</code>, <code>--retry-failed-stage</code>, or an explicit budget change. This
+also works when AutoResolver has published the operational pause as
+<code>WAITING_FOR_USER</code>, provided its saved request is still valid. Bare <code>resume</code>
+does not acknowledge that published request; ordinary questions and approvals
+still require their own actions. Recovery eligibility and token checks are unchanged.</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--resume-paused</code></td>
+<td>Acknowledge an operational pause and continue. Does not approve a draft, and does not restore a spent recovery allowance. <code>autocode resume</code> implies it at <code>PAUSED_*</code> (not <code>PAUSED_DESIGN_CONFLICT</code>), <code>BLOCKED_*</code>, <code>*_REWORK_REQUIRED</code> and <code>RESOLVER_PENDING</code>, never with a user action or <code>--resolver-response</code>; with a recovery companion, also at a verified operational pause published as <code>WAITING_FOR_USER</code>.</td>
+</tr>
+<tr>
+<td><code>--retry-failed-stage</code></td>
+<td>With <code>--resume-paused</code>, authorize one fresh attempt at the recorded repeated failure after inspecting its retained work; no approval or budget bypass.</td>
+</tr>
+<tr>
+<td><code>--diagnose-failed-stage</code></td>
+<td>With <code>--resume-paused</code>, request bounded read-only diagnosis of a recorded repeated Builder report failure. Alternative to <code>--retry-failed-stage</code>; not a permission or budget override.</td>
+</tr>
+<tr>
+<td><code>--grant-recovery N</code></td>
+<td>With <code>--resume-paused</code>, authorize N more automatic timeout recoveries for a run paused at <code>PAUSED_TIMEOUT_RECOVERY</code> after its cause was fixed. Audited as a <code>recovery_grant</code> user event; recovery history is retained.</td>
+</tr>
+<tr>
+<td><code>--skip-requirements</code></td>
+<td>New run, for an unattended worker: wherever Requirements would wait for your answers, each question that <code>--delegate-all</code> could delegate is answered with its proposed default and recorded as delegated (<code>source: skip_requirements</code>). The Planner and Plan Reviewer still run in full; a question with no safe default (cost, quota, permission, external side effect, the requested outcome) still waits for a person, and so does plan approval. A saved run keeps the choice it started with.</td>
+</tr>
+<tr>
+<td><code>--skip-to-build</code></td>
+<td>New run: <code>--skip-requirements</code>, and once the Plan Reviewer has finalized the plan, approve it and go on to the Orchestrator and building in the same invocation. The approval is recorded as yours, with this checkout's provenance, marked <code>source: skip_to_build</code> in <code>approvals</code> and <code>approved_contract.approval_source</code>; a run's <code>--require-approver</code> still applies. Needs joint planning. Without this flag AutoCode never approves its own plan.</td>
+</tr>
+<tr>
+<td><code>--plan-review-full</code></td>
+<td>Keep full-depth plan review for this run: the review allowance stays per planning cycle even for a small clear brief (see <a href="../execution/">Milestone checkpoints</a>).</td>
+</tr>
+<tr>
+<td><code>--planning-review-call-limit N</code></td>
+<td>At a reconciled planning-budget pause, save a total allowance for the current cycle. <code>0</code> disables the cap for this and future cycles while preserving usage history; it can also be saved at a requested pause or after abandoning a stopped stage. No model launch or approval; resume separately.</td>
+</tr>
+<tr>
+<td><code>--pause-after-stage</code></td>
+<td>Stop at the next saved boundary.</td>
+</tr>
+<tr>
+<td><code>--verbose</code> / <code>--no-verbose</code></td>
+<td>Stream each stage's live model activity (tools started and finished, new model text, one bounded line each) to stderr as <code>Role/model: …</code>. On by default; <code>--no-verbose</code> or <code>AUTOCODE_VERBOSE=0</code> turns it off. Not saved with the run: each command that runs stages reads it afresh. The full stream is always kept in the stage's <code>iterations/NNN/&lt;stage&gt;-NN.jsonl</code>.</td>
+</tr>
+<tr>
+<td><code>--retry-builder M2</code></td>
+<td>With <code>--resume-paused</code>, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member stopped by its provider's content filter or response output limit: answer its <code>route-terra</code> question; once that request was answered with information or left paused, <code>--retry-builder</code> asks the question again and launches nothing). Keeps failure history, model routes and verification gates; all workers must be stopped. A refused or output-limited member retry with settings saves nothing. A parallel member reruns on its saved Builder route, so a Builder model, provider or reasoning effort change with its retry is refused. A difference saved separately in the run's Builder settings also refuses the retry, naming both routes. Answer that member's open <code>route-terra</code> question to choose its model, or restore the run's Builder settings to the member's route separately before retrying.</td>
+</tr>
+<tr>
+<td><code>--abandon-stage '001/terra-01'</code></td>
+<td>Archive a stopped attempt, keep partial edits and logs.</td>
+</tr>
+<tr>
+<td><code>--retry-report ATTEMPT_ID</code></td>
+<td>With <code>--resume-paused</code>, request fresh Tester evidence after report repair or repeated-failure limits stop a rejected report, using the exact attempt ID status names; saved source and evidence pins must still match. After a source edit, <code>--resume-paused</code> validates the current source instead.</td>
+</tr>
+<tr>
+<td><code>--accept-transport-change</code></td>
+<td>Resume a transport-change pause after route checks.</td>
+</tr>
+<tr>
+<td><code>--accept-source-edit</code></td>
+<td>With <code>--resume-paused</code>, hand a paused repair the source edited while it was stopped. The resolution's source revision becomes the current snapshot, and a recovery packet bound to the replaced source stays on disk but is detached from the request. The approved contract, task, budget, proof and evidence pins stay. It refuses any other change, and source the Resolver wrote.</td>
+</tr>
+<tr>
+<td><code>--export-repair</code></td>
+<td>Write the dispatched bounded repair (a run paused with <code>resolution_request</code> + <code>current_task</code>) as <code>handoff/repair-spec.{json,md}</code> beside the run: affected paths, the repair instruction, the binding contract hash, the acceptance criteria and the runnable verification commands. Run state is untouched; the export is also the binding <code>--submit-repair</code> re-checks.</td>
+</tr>
+<tr>
+<td><code>--submit-repair DIR</code></td>
+<td>Adopt a completed external implementation delivered as a checkout of this repository at the dispatched base with only this repair applied. Re-runs the static gates and the regression proof (including the fail-on-base property), imports the changed files inside the repair's affected paths (rolling the workspace back on rejection), and on success advances the milestone and records the external provenance in <code>user_events</code>; rejection names the failing criterion.</td>
+</tr>
+<tr>
+<td><code>--max-parallel-builders N</code></td>
+<td>Concurrency limit for independent milestone Builders.</td>
+</tr>
+<tr>
+<td><code>--milestone-checkpoints</code> / <code>--request-milestone-checkpoints</code></td>
+<td>Enable milestone checkpoints (idle boundary / queued). A <code>--max-milestone-seconds N</code> given with either on a saved run is saved without being recorded as yours: AutoResolver may extend it once and a Builder climb is not projected against it, until a later resume sets <code>--max-milestone-seconds</code> again. See <a href="../execution/#budget-ownership-and-human-escalation">Budget ownership</a>.</td>
+</tr>
+<tr>
+<td><code>--max-milestone-seconds N</code></td>
+<td>Milestone active-time budget (default 5400; <code>0</code> disables). Checked before each writer launch, and, when you set it, before a climbed Builder attempt (its stronger attempt or a climb on its effort ladder) whose projected time, the last Builder attempt's duration, would take the milestone past <code>N</code>: that pause (<code>PAUSED_MILESTONE_BUDGET</code>) names the total, and <code>--resume-paused --max-milestone-seconds M</code> with <code>M</code> at least that total launches the attempt. With <code>--resume-paused</code> it also restarts the milestone's counted time, except under a progressive run's slice budget, which it also sets but whose count it does not restart. See <a href="../execution/#milestone-checkpoints-and-acceptance">Milestone checkpoints</a>.</td>
+</tr>
+<tr>
+<td><code>--max-milestone-replans N</code></td>
+<td>Changed-approach replan limit (default 1).</td>
+</tr>
+<tr>
+<td><code>--max-milestone-stalled-reviews N</code></td>
+<td>Reviews without progress before replanning (default 3; <code>0</code> disables).</td>
+</tr>
+<tr>
+<td><code>--max-findings-per-task N</code></td>
+<td>Cap open findings bundled into one REWORK task.</td>
+</tr>
+<tr>
+<td><code>--max-idle-seconds</code> / <code>--max-tool-seconds</code> / <code>--max-stage-seconds</code></td>
+<td>Watchdog limits (new-run defaults <code>300</code> / <code>1800</code> / <code>3600</code>; <code>0</code> disables).</td>
+</tr>
+<tr>
+<td><code>--max-seconds N</code></td>
+<td>Total active provider time for the run (new-run default <code>43200</code>, 12 hours; <code>0</code> disables). Checked at stage boundaries, and, when you set it, before an attempt on a stronger route (the Builder's stronger attempt or a role's climb on its effort ladder) whose projected time, the role's last attempt's duration, would take the run past <code>N</code>: that pause (<code>PAUSED_TIME_LIMIT</code>) names the total, and <code>--resume-paused --max-seconds M</code> with <code>M</code> at least that total launches the attempt. See <a href="../execution/#timeouts-and-watchdog">Timeouts and watchdog</a>.</td>
+</tr>
+<tr>
+<td><code>--max-cost-usd N</code></td>
+<td>A money cap in USD: the run pauses at the next stage boundary once its spend reaches <code>N</code> (no cap by default; <code>0</code> removes it), and before an attempt on a stronger route (the Builder's stronger attempt or a role's climb on its effort ladder) whose projected cost would take the spend past <code>N</code>. Spend is the provider's reported cost, else the stage's tokens at the dated price table (<code>autocode models --prices</code>); a stage on a model without a rate, or one whose provider recorded no token counts, is not counted and the cost line says so. The pause is yours to decide (<code>PAUSED_COST_LIMIT</code>): <code>--resume-paused --max-cost-usd M</code> with <code>M</code> above the spend (and at least the cap a stop before a stronger attempt names) continues, and AutoCode never raises the cap itself. See <a href="../execution/#money-cap">Money cap</a>.</td>
+</tr>
+<tr>
+<td><code>--no-progress-limit N</code></td>
+<td>Unchanged-batch limit (new-run default <code>3</code>; <code>0</code> disables the cap, never the 3-recovery ceiling). With <code>--resume-paused</code>, an N above the retained count, or <code>0</code>, acknowledges a <code>PAUSED_NO_PROGRESS</code> request, also when N is already saved; it never acknowledges another cause's pause. When the limit caused the pause, its advice names this flag and the retained count, not <code>--resolver-response</code>: information alone never acknowledges it.</td>
+</tr>
+<tr>
+<td><code>--max-iterations N</code></td>
+<td>Optional total iteration ceiling; new runs default to unlimited, and resumes retain their saved limit.</td>
+</tr>
+<tr>
+<td><code>--unlimited-iterations</code></td>
+<td>Remove only the iteration ceiling; other safety and usage limits remain.</td>
+</tr>
+<tr>
+<td><code>--legacy-iteration-ceiling N</code></td>
+<td>Compatibility form of the iteration ceiling, used only when <code>--max-iterations</code> is absent.</td>
+</tr>
+<tr>
+<td><code>--autoresolver-managed-limits</code></td>
+<td>Delegate finite CLI safety limits to bounded Resolver recovery; never changes billing or model routes.</td>
+</tr>
+<tr>
+<td><code>--test-command CMD</code></td>
+<td>The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with <code>--resume-paused</code> at a reconciled pause before the Tester or combined checkpoint; see <a href="../workflow/#bug-fixes">Bug fixes</a>.</td>
+</tr>
+<tr>
+<td><code>--test-report junit:PATH</code></td>
+<td>Use one fresh JUnit XML file at a workspace-relative path as named test evidence. Requires an explicit <code>--test-command</code>; when <code>--regression-command</code> is omitted, that suite also runs in the regression proof trees. Every invocation must write the same relative report path; old output is cleared and captured XML is hash-pinned. Saved corrections use the same reconciled pre-validation pause as <code>--test-command</code>. No directory/glob or TRX input. See <a href="../named-test-proof/#junit-xml-from-other-test-runners">JUnit proof setup</a>.</td>
+</tr>
+<tr>
+<td><code>--test-root components/api/</code></td>
+<td>New runs only: save a plain workspace-relative directory for automatic Python suite detection (pytest or unittest). Fixed at launch, not changeable on resume. Changes outside it remain <code>UNVERIFIED</code>, including with an explicit test command. This selects proof tests, not a general write boundary; identified generated component tasks also bind their declared plan ownership to this caller root. See <a href="../workflow/#scoped-python-proof">Scoped Python proof</a>.</td>
+</tr>
+<tr>
+<td><code>--package packages/api/</code></td>
+<td>New runs in a monorepo: the repository directory the task works in. Suite detection reads only that directory, and the detected suite, the derived regression command and the original-test replay run from it (<code>cd packages/api &amp;&amp; SUITE</code>); an explicit <code>--test-command</code> still runs from the repository root as given (write <code>cd packages/api &amp;&amp; …</code> to run it in the package), and the learned project-memory test command is not applied. Only the package's existing tests are retained as <a href="../protected-tests/">original test gates</a>. In a bug fix the Investigator is told the package and its suite, and a diagnosis that names files outside it is refused as invalid output. The package is the Builder's write scope: a change outside it, in any package run, is a blocking runner finding naming each path, checked before each Tester and Completion Reviewer dispatch and by <code>--accept-completion</code> after its own checks (a runner regression proof also leaves it <code>UNVERIFIED</code>); what it leaves out, such as an ignored file the plan does not name or the checkout's own nested repositories, is in the linked section. The directory must hold committed files (an <code>--in-place</code> run: files Git does not ignore). Fixed at launch; not with <code>--test-root</code>. Nothing limits the Builder's writes while it works. See <a href="../workflow/#monorepo-packages">Monorepo packages</a>.</td>
+</tr>
+<tr>
+<td><code>--base-patch PATH</code></td>
+<td>Bug fixes whose only regression test needs a hook or variable the fix adds: a patch that adds only that instrumentation to the original code, so the test can run and fail there. Pinned by hash, may not change test files, and its edits must occur at the corresponding original source locations in the final change; every proof that uses it asks the Tester and Completion Reviewer to check it changes no behavior. Set it when the run starts, or with <code>--resume-paused</code> at a stop before the Tester or a completion check.</td>
+</tr>
+<tr>
+<td><code>--regression-command CMD</code></td>
+<td>A command that runs the new or changed tests (default: derived). Multi-milestone features accumulate changed Python test files in supported literal pytest/unittest lists while retaining selectors and options; see <a href="../workflow/#bug-fixes">Bug fixes</a>. Saved corrections require the same pre-validation <code>--resume-paused</code> boundary as <code>--test-command</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>An execution permission question can offer explicit suite/tool/stage timeout
+changes. Select the exact displayed choice with the normal <code>--answer</code> action;
+the runner applies that choice's settings and records their old/new values.
+Declining changes no timeout. These decisions preserve the approved goal and
+elapsed run budget. Legacy prose-only consent changes no runner setting; see
+<a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
+stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
+<code>--max-milestone-seconds</code>) to only those members. Save these limits separately
+or beside the retry. Zero keeps its disabled meaning; old attempt deadlines,
+spent time and recovery allowances remain intact.</p>
+<h3 id="engine-provider-and-models">Engine, provider, and models<a class="headerlink" href="#engine-provider-and-models" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--engine opencode\|codex\|claude</code></td>
+<td>Engine for the run. OpenCode is the default; <code>claude</code> runs Claude Code, the <a href="../providers/#claude-code-provider">built-in claude provider</a> (the OpenCode engine's facade with <code>--provider claude</code>; another <code>--provider</code> is refused). Other tools join as providers (see <a href="../providers/">Providers</a>).</td>
+</tr>
+<tr>
+<td><code>--provider &lt;name&gt;</code></td>
+<td>External tool registered via TOML (see <a href="../providers/#add-a-tool">Providers</a>).</td>
+</tr>
+<tr>
+<td><code>--role-transport ROLE=PROVIDER</code></td>
+<td>New run with <code>--engine opencode --provider opencode</code>: select an external configured tool for one role; repeat for more roles and provide each selected role's explicit model flag. Other roles keep their saved routes. The tool binding is immutable after launch and cannot combine with <code>--single-model</code> or recorded replay. See <a href="../providers/#a-different-tool-for-one-role">Per-role tools</a>.</td>
+</tr>
+<tr>
+<td><code>--allow-uncontained-tools</code></td>
+<td>Built-in OpenCode runs only (including a Codex run whose <code>--investigator-model</code> is an OpenCode <code>provider/model</code>). Without it, a run is refused before any stage when the kernel tool boundary cannot exist here (it needs macOS <code>sandbox-exec</code> or Linux bubblewrap, and OpenCode 1.18.33). With it, the Builder, Validator and other non-planning stages run with OpenCode's own permission checks only, no kernel containment. Accepted on a new run or a resume (including a <code>PAUSED_TOOL_CONTAINMENT</code> run); saved with the run and recorded as a user event, so later resumes need not repeat it. The status view shows <code>tool_containment</code>. See <a href="../execution/#native-tool-containment">Execution</a>.</td>
+</tr>
+<tr>
+<td><code>--joint-planning</code></td>
+<td>Add joint Requirements / Plan Reviewer work.</td>
+</tr>
+<tr>
+<td><code>--adaptive-planning</code> / <code>--no-adaptive-planning</code></td>
+<td>New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. <code>--no-adaptive-planning</code> keeps the fixed sequence; <code>--adaptive-planning</code> insists. See <a href="../adaptive-planning/">Adaptive planning</a>.</td>
+</tr>
+<tr>
+<td><code>--spec-first</code> / <code>--no-spec-first</code></td>
+<td>Off by default. A new run with joint planning on the default flow stops after Requirements every time it produces a handoff: the question (<code>needs.kind</code> <code>answer</code>, id <code>requirements-review-…</code>) shows the outcome, behaviors, acceptance examples, constraints, what was left out and the assumptions. Answer <code>plan</code> to start the Planner, or say what to change and Requirements runs again with your answer. Adaptive planning never skips Requirements on such a run. After plan approval the Tester writes the acceptance tests before the Builder, which may not change them. A saved run keeps its choice. See <a href="../spec-first/">Spec-first runs</a>.</td>
+</tr>
+<tr>
+<td><code>--blind-tests</code> / <code>--no-blind-tests</code></td>
+<td>Off by default. Implies <code>--spec-first</code>. The Tester writes acceptance tests before the Builder starts, and the runner archives them in evidence and removes them from the workspace. The Builder gets no prompt note naming them and never sees the test code. Before review and completion, the runner executes them in a candidate scratch tree; any failure becomes a blocking runner finding. See <a href="../spec-first/#blind-tests-blind-tests">Blind tests</a>.</td>
+</tr>
+<tr>
+<td><code>--builder-strong-model MODEL</code></td>
+<td>New run: the model for the Builder's stronger attempt after its ordinary retry (default <code>openai/gpt-6-sol</code>, or <code>strong_model</code> under <code>[builder_retry]</code> in the provider config; see <a href="../models/#builder-retry-policy">Models</a>). Refused when it is the checker model or shares its GLM or MiMo family, and when the run's provider lists its models without it (or without the checker model a Tester or Completion Reviewer on its family would move to).</td>
+</tr>
+<tr>
+<td><code>--single-model MODEL</code></td>
+<td>New run: use one model for every role, including reviewers; explicitly relaxes cross-model verification for single-subscription accounts and implies joint planning.</td>
+</tr>
+<tr>
+<td><code>--auto-select</code> / <code>--no-auto-select</code></td>
+<td>New run: choose every role's model from the tool's connected accounts (#1426) - cheapest qualified route per role, checkers independent, the routes still unproven probed at their own reasoning level before the first stage. Per-role model flags, <code>--single-model</code> and role-provider flags still win; a saved run keeps the routes it started with; a selection that cannot field an independent checker refuses to start, in account terms. <code>--no-auto-select</code> is the explicit opt-out. Preview with <code>autocode models --selection</code>. Not yet the default: that flip waits on #1426 step 12's qualification. See <a href="../models/#choosing-models-automatically">Choosing models automatically</a>.</td>
+</tr>
+<tr>
+<td><code>--requirements-model</code>, <code>--glm-model</code>, <code>--plan-reviewer-model</code></td>
+<td>Planning-role model overrides (bare GPT names).</td>
+</tr>
+<tr>
+<td><code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-model</code>, <code>--completion-model</code></td>
+<td>Execution-role model overrides (<code>provider/model</code> IDs).</td>
+</tr>
+<tr>
+<td><code>--astra-provider</code>, <code>--terra-provider</code>, <code>--sol-provider</code>, <code>--completion-provider</code></td>
+<td>Per-role Codex provider override (Responses API); the saved engine stays the same.</td>
+</tr>
+<tr>
+<td><code>--reasoning-effort</code>, <code>--astra-reasoning-effort</code>, <code>--terra-reasoning-effort</code>, <code>--sol-reasoning-effort</code>, <code>--completion-reasoning-effort</code></td>
+<td>Shared or execution-role reasoning effort (<code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>).</td>
+</tr>
+<tr>
+<td><code>--glm-reasoning-effort</code>, <code>--requirements-reasoning-effort</code>, <code>--plan-reviewer-reasoning-effort</code></td>
+<td>Reasoning effort for the Planner, Requirements or Plan Reviewer.</td>
+</tr>
+<tr>
+<td><code>--resolver-model</code>, <code>--resolver-reasoning-effort</code></td>
+<td>Override the saved Resolver model or reasoning effort without changing its engine. OpenCode-engine runs only: a Codex-engine run, or a saved run without joint planning, ignores them, and its Resolver starts from the <code>astra</code> route (<code>--astra-model</code>). See <a href="../models/#default-models">Models</a>.</td>
+</tr>
+<tr>
+<td><code>--pin-model-role astra\|terra\|sol\|completion</code></td>
+<td>Keep the selected role model and reasoning effort instead of escalating automatically; repeat for multiple roles. Of these routes only <code>terra</code>, <code>sol</code> and <code>completion</code> have an effort ladder; the Resolver's own route climbs GPT-6 Astra and has no choice here. <code>astra</code> pins the route the Resolver's route is copied from, so on a new run it pins the Resolver too; once a run's Resolver route exists (a Resolver stage ran, or <code>--resolver-model</code> created it), no flag pins it.</td>
+</tr>
+<tr>
+<td><code>--migrate-only</code></td>
+<td>Run the opt-in legacy migration and stop (see <a href="../testing/#legacy-migration--opt-in-only">Testing</a>).</td>
+</tr>
+</tbody>
+</table>
+<p>Saved model changes (role model flags or answers to a stopped role's model question)
+print an advisory to stderr when a previously independent Requirements, Planner, or
+Builder producer/consumer route becomes the same model or GLM/MiMo family. Existing
+shared links and reasoning-only changes do not repeat it. The advisory describes
+selected routes for future work; saved artifacts retain their original authorship.
+It does not block the change or relax the mandatory verifier checks. Different GPT
+tiers remain distinct, as in those checks.</p>
+<h3 id="project-settings">Project settings<a class="headerlink" href="#project-settings" title="Permanent link">&para;</a></h3>
+<p>A team keeps the settings it would otherwise type on every new run in
+<code>.autocode/config.toml</code> in the workspace, or, in a Python project, under
+<code>[tool.autocode]</code> in <code>pyproject.toml</code> (<code>config.toml</code> wins a key both set). Commit
+the file like any other: the <code>.autocode/.gitignore</code> AutoCode creates leaves
+<code>config.toml</code> trackable. In a checkout whose <code>.autocode/.gitignore</code> AutoCode
+created before this, add the line <code>!/config.toml</code> to it, or <code>git add -f
+.autocode/config.toml</code>.</p>
+<pre><code class="language-toml">engine = &quot;opencode&quot;
+test-command = &quot;python -m pytest -q&quot;
+sol-model = &quot;openai/gpt-6-sol&quot;
+terra-reasoning-effort = &quot;high&quot;
+max-seconds = 7200
+</code></pre>
+<p>Each key is a flag's name without its leading dashes, and takes the values that
+flag takes; a switch takes <code>true</code> or <code>false</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Keys</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Engine</td>
+<td><code>engine</code></td>
+</tr>
+<tr>
+<td>Models</td>
+<td><code>single-model</code>, <code>astra-model</code>, <code>terra-model</code>, <code>sol-model</code>, <code>completion-model</code>, <code>glm-model</code>, <code>requirements-model</code>, <code>plan-reviewer-model</code>, <code>resolver-model</code>, <code>investigator-model</code>, <code>builder-strong-model</code></td>
+</tr>
+<tr>
+<td>Reasoning efforts</td>
+<td><code>reasoning-effort</code>, <code>astra-reasoning-effort</code>, <code>terra-reasoning-effort</code>, <code>sol-reasoning-effort</code>, <code>completion-reasoning-effort</code>, <code>glm-reasoning-effort</code>, <code>requirements-reasoning-effort</code>, <code>plan-reviewer-reasoning-effort</code>, <code>resolver-reasoning-effort</code>, <code>investigator-reasoning-effort</code></td>
+</tr>
+<tr>
+<td>Test command/report</td>
+<td><code>test-command</code>, <code>test-report</code></td>
+</tr>
+<tr>
+<td>Budgets</td>
+<td><code>max-iterations</code>, <code>unlimited-iterations</code>, <code>max-seconds</code>, <code>max-cost-usd</code>, <code>max-stage-seconds</code>, <code>max-idle-seconds</code>, <code>max-tool-seconds</code>, <code>no-progress-limit</code>, <code>max-milestone-seconds</code>, <code>max-milestone-replans</code>, <code>max-milestone-stalled-reviews</code>, <code>max-findings-per-task</code>, <code>max-parallel-builders</code></td>
+</tr>
+<tr>
+<td>Approvals (no flag)</td>
+<td><code>require-approver</code></td>
+</tr>
+<tr>
+<td>Development server (no flag)</td>
+<td><code>serve</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>require-approver</code> has no flag: one plain Git email address, or a list of
+them, allowed to approve the run's plan and reviews and to accept its completion, such as
+<code>require-approver = ["lead@example.com", "deputy@example.com"]</code>. A run started with it refuses
+a plan approval, an artifact acceptance or <code>--accept-completion</code> when
+<code>git -C WORKSPACE config --get user.email</code>, for the run's saved workspace in AutoCode's own
+environment, is not listed (compared without regard to case), before anything is approved, and
+stays at the same stop; an <code>--as</code> name never counts. Without it anyone may approve. No flag
+sets or overrides it. It guards against an approval under the wrong configured Git identity,
+not against someone who deliberately sets a listed address (Git's environment variables or a
+repository-local <code>user.email</code> change what is checked): it is not authentication. A replay
+never takes it, and <code>autocode components</code> child runs read it from their
+own worktree, so only a committed file reaches them
+(<a href="../execution/#required-approver">Required approver</a>).</p>
+<p><code>serve</code> has no flag either: the command that runs the project's development server, with
+<code>{port}</code> where the port goes. It is a string, or in <code>.autocode/config.toml</code> a table that also
+names the path that answers once the server is ready (<code>ready-path</code>, any answer below 400) and
+how long to wait for it (<code>ready-seconds</code>, 1 to 600, default 60); <code>pyproject.toml</code> takes only
+the string. A new run saves it with its settings, so an edit to the file, including one the
+Builder makes, never changes the command a run serves with. Every <code>{port}</code> is replaced with a
+free loopback port; any other text goes to the shell unchanged.</p>
+<pre><code class="language-toml">[serve]
+command = &quot;npm run dev -- --host 127.0.0.1 --port {port}&quot;
+ready-path = &quot;/&quot;
+ready-seconds = 90
+</code></pre>
+<p>A flag on the command line wins over the file, and over any file key it cannot be
+combined with: a typed <code>--single-model</code> drops the file's role models, a typed role
+model drops its <code>single-model</code>, and a typed iteration ceiling drops its
+<code>max-iterations</code> and <code>unlimited-iterations</code>. The file wins over the built-in
+default; no environment variable sets these keys. A setting from the file counts
+as typed, so a budget the team set is never extended as a runner default. A new
+run prints which settings it took from which file. Only a new run reads the file,
+including one started from a design handoff with <code>--ui-run</code> and no typed task:
+a saved run keeps the settings it started with, so changing the file never alters
+a run in progress.</p>
+<p><code>engine = "claude"</code> is allowed: it selects the built-in Claude Code provider, which runs AutoCode's
+fixed command line, as <code>engine = "codex"</code> does. A project cannot choose the provider (<code>provider</code>, or a role's <code>astra-provider</code>,
+<code>terra-provider</code>, <code>sol-provider</code>, <code>completion-provider</code>): it runs a command you
+installed, so it comes from <code>--provider</code>, <code>AUTOCODE_PROVIDER</code> or
+<code>default_provider</code> in <code>~/.config/autocode/config.toml</code>. Nor <code>task-preflight</code>, the
+operator's prerequisite manifest. A file that names either, an unknown key, or a
+value its flag would refuse stops a new run before it starts, naming the file and
+the key. <code>autocode doctor</code> lists each setting a new run would take and the file
+it came from, and fails on such a file.</p>
+<h3 id="project-memory">Project memory<a class="headerlink" href="#project-memory" title="Permanent link">&para;</a></h3>
+<p>Completed tasks save shareable learned project facts in <code>.autocode/project.json</code>.
+Its test command is a default below flags and both explicit project files
+(not in a <code>--package</code> run, which neither takes nor saves it);
+historical human conventions are Requirements context, never new acceptance
+criteria or approval. Saved runs retain their original snapshot.
+<code>autocode doctor</code> shows the record and setting sources. <code>autocode forget</code> clears
+only the learned file. See <a href="../project-memory/">Project memory</a> for provenance,
+sharing, the versioned schema and the two-run behavior.</p>
+<h3 id="advanced-run-inputs">Advanced run inputs<a class="headerlink" href="#advanced-run-inputs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--help-all</code></td>
+<td>Full run-option help, including advanced controls omitted from the short overview.</td>
+</tr>
+<tr>
+<td><code>--unit autoplanner\|autocode\|autoreview\|autoresolver</code></td>
+<td>Run one unit and stop before the next; omitting it runs the full controller.</td>
+</tr>
+<tr>
+<td><code>--conversation-handoff PATH</code></td>
+<td>Attach a validated conversation receipt to a new task; grants no approval.</td>
+</tr>
+<tr>
+<td><code>--conversation-session</code></td>
+<td>With a creation-only <code>--conversation-handoff</code>, initialize the core conversation before ordinary planning; cannot target a saved run and grants no approval.</td>
+</tr>
+<tr>
+<td><code>--conversation-request PATH</code></td>
+<td>On a saved run, apply the owned journal-sealed request for its exact <code>--feedback</code> or <code>--answer</code>. Retains the saved acknowledgement for idempotent delivery; grants no approval and starts no provider.</td>
+</tr>
+<tr>
+<td><code>--task-preflight PATH</code></td>
+<td>Prerequisite manifest for planning, building and validation; saved corrections require its reconciled pause and <code>--resume-paused</code>.</td>
+</tr>
+<tr>
+<td><code>--figma-manifest PATH</code>, <code>--figma-additional-file URL</code></td>
+<td>Complete immutable multi-file/frame/state references for a new Figma run; repeat additional file URLs as needed.</td>
+</tr>
+<tr>
+<td><code>--figma-approved-scope PATH</code></td>
+<td>External reviewed product-scope artifact bound to a complete version 2 inventory and its approved cases. Requires <code>--figma-approved-scope-sha256</code> with new-run <code>--figma-manifest</code> or stopped <code>--revise-figma-manifest</code>. Grants no plan approval; full original-source validation remains required (<a href="../figma/#externally-reviewed-product-scope-version-2-inventories">scope admission</a>).</td>
+</tr>
+<tr>
+<td><code>--figma-approved-scope-sha256 SHA256</code></td>
+<td>Trusted operator SHA256 of the exact <code>--figma-approved-scope</code> artifact; required with that option, never inferred from the design bundle.</td>
+</tr>
+<tr>
+<td><code>--revise-figma-manifest PATH</code>, <code>--expected-design-hash HASH</code>, <code>--design-change-reason TEXT</code></td>
+<td>At a stopped run, propose changed Figma references against the inspected hash, retaining history and requiring plan review.</td>
+</tr>
+<tr>
+<td><code>--revise-protected-tests PATH</code></td>
+<td>Explicit user revision of the original test inventory and command; requires a reconciled validation pause.</td>
+</tr>
+<tr>
+<td><code>--bind-dependency PATH</code>, <code>--receive-dependency PATH</code></td>
+<td>Register an authorized prerequisite or receive its verified delivery manifest; neither approves the plan.</td>
+</tr>
+<tr>
+<td><code>--resolver-message TEXT</code></td>
+<td>Corrective information accompanying an operational Resolver response.</td>
+</tr>
+<tr>
+<td><code>--reconcile-review CRITERION=ANSWER</code></td>
+<td>Bind an authenticated legacy acceptance to current validated evidence without granting a new approval.</td>
+</tr>
+<tr>
+<td><code>--accept-completion</code></td>
+<td>Accept completion only after the runner verifies every gate, when the model completion report cannot be produced. Records who accepted it, as an approval does (<a href="../execution/#who-approved">Who approved</a>), and a project's <code>require-approver</code> checks it (<a href="../execution/#required-approver">Required approver</a>).</td>
+</tr>
+<tr>
+<td><code>--evidence-provenance fake\|live\|unknown</code></td>
+<td>Disclose the run's model-evidence origin; saved with a new run.</td>
+</tr>
+<tr>
+<td><code>--context-soft-tokens N</code>, <code>--rotate-after-input-tokens N</code></td>
+<td>Context-compaction and checkpointed session-rotation thresholds; <code>0</code> disables rotation.</td>
+</tr>
+<tr>
+<td><code>--tool-output-mode raw\|conservative</code></td>
+<td>Display mode for AutoCode capture/file-read tools; saved across resume.</td>
+</tr>
+<tr>
+<td><code>--headroom off\|on</code></td>
+<td>Off by default; <code>on</code> refuses to run until compatibility has been verified.</td>
+</tr>
+<tr>
+<td><code>--planning-v2</code></td>
+<td>Opt in to transactional planning artifacts; keeps the existing role models and default planning flow.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="figma-ui">Figma / UI<a class="headerlink" href="#figma-ui" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--build</code></td>
+<td>Hand an accepted Figma result to the implementation runner.</td>
+</tr>
+<tr>
+<td><code>--figma-file &lt;url&gt;</code></td>
+<td>Refine or implement from a specific Figma file.</td>
+</tr>
+<tr>
+<td><code>--ui-run /path</code></td>
+<td>Import a completed design run.</td>
+</tr>
+<tr>
+<td><code>--figma-review human</code></td>
+<td>Require a human visual approval during implementation.</td>
+</tr>
+<tr>
+<td><code>--max-plan-reworks</code>, <code>--max-reworks</code></td>
+<td>Review-loop limits (<code>none</code>, <code>0</code>, or a number).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="development-server">Development server<a class="headerlink" href="#development-server" title="Permanent link">&para;</a></h2>
+<p><code>autocode serve start</code> runs the project's <code>serve</code> command for a saved run and
+keeps it in the foreground. AutoCode picks a free port on 127.0.0.1, puts it
+wherever the command says <code>{port}</code> and in <code>PORT</code>, sets <code>HOST=127.0.0.1</code>, and runs
+the command in the run's workspace with credentials removed from its
+environment, under the same process supervision as a test command. Once the
+server answers (any connection, or a status below 400 at <code>ready-path</code>) it prints
+<code>Serving http://127.0.0.1:PORT/</code>. Ctrl-C, closing the terminal or
+<code>autocode serve stop</code> from another terminal stops its whole process group; if
+the <code>autocode serve start</code> process dies, its supervisor ends the server. A run
+has at most one server; a second <code>start</code> is refused while one runs.</p>
+<p><code>start</code> follows the run's code. After each code-changing step the run applies
+(each new code checkpoint), it stops the server and starts it again, on the same
+port when that port can be bound again, so the address stays the same, and
+prints <code>Serving http://127.0.0.1:PORT/ again after a code change</code>. It reads the
+run's <code>state.json</code> for this and never writes it. A pause or the run's completion
+leaves the server running, so you can try the app while you answer a question,
+approve a plan or review the result; it stops only when you stop it.</p>
+<p>The server never starts, pauses or decides a stage. Its record is
+<code>dev-server.json</code> in the run directory, and each start keeps its output and
+supervision receipt under <code>dev-server/</code>. <code>autocode serve status</code> and
+<code>autocode --status</code> (<code>view.dev_server</code>) show <code>configured</code>, <code>status</code> (<code>off</code>,
+<code>starting</code>, <code>running</code>, <code>stopped</code>, <code>exited</code>, <code>failed</code>, or <code>lost</code> when the process
+that served it is gone), the <code>url</code> while it runs, the <code>command</code>, its <code>port</code>,
+times, <code>exit_code</code>, <code>reason</code>, <code>log</code>, <code>restarts</code> (how many code changes restarted
+it), <code>code_checkpoint</code> (the code checkpoint it serves) and <code>waiting</code>. A server
+that exits, or does not answer within <code>ready-seconds</code>, is recorded as <code>exited</code> or
+<code>failed</code> with its last output, which <code>start</code> prints; <code>start</code> then keeps waiting
+(<code>waiting</code> is true) and starts it again after the run's next code change, so a
+step that fixes a broken app brings the preview back. <code>autocode serve stop</code> or
+Ctrl-C ends the wait. Once the run has completed no step will change its code,
+so such a server ends <code>start</code> with exit status 1 instead.
+A run started before its project named <code>serve</code> has none: name it in
+<code>.autocode/config.toml</code> and start a new run.</p>
+<h2 id="subcommand-options">Subcommand options<a class="headerlink" href="#subcommand-options" title="Permanent link">&para;</a></h2>
+<p>These options belong to the command in the first column. A shared spelling can
+have a different scope: for example, <code>ui --run-dir</code> creates a new artifact
+directory, while the main run's <code>--run-dir</code> selects a saved run. Every command
+also accepts <code>-h</code> / <code>--help</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Flags</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>autocode connections</code></td>
+<td><code>--json</code>, <code>--provider</code></td>
+<td>List installed/registered backends, check local credentials without inference, delegate sign-in, or configure AutoCode’s direct connection with <code>setup</code>. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</td>
+</tr>
+<tr>
+<td><code>autocode modes</code></td>
+<td><code>--json</code></td>
+<td>List the run modes a client may offer for a new run: each mode's id, label, description and the start flags to pass. Launches nothing. See <a href="../task-run/#run-modes-for-clients">Run modes for clients</a>.</td>
+</tr>
+<tr>
+<td><code>autocode chat</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--mode</code>, <code>--brief</code>, <code>--line</code></td>
+<td>Project (the current directory by default); pick up this saved run instead of the project's only run; the run mode a new run starts with; the brief, for one that starts with <code>-</code> (<code>--brief=-TEXT</code>); the line-by-line prompts instead of the full-screen interface. New-run options follow <code>--</code>.</td>
+</tr>
+<tr>
+<td><code>autocode conversation</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--text</code>, <code>--title</code>, <code>--request-id</code>, <code>--expected-revision</code>, <code>--supersedes-request-id</code>, <code>--question-id</code>, <code>--resolver-token</code>, <code>--expected-plan-token</code>, <code>--timeout</code></td>
+<td>Select a conversation/run, queue a human message, explicitly refresh a revision or hand off its reviewed draft; creation provider/model/effort/budget options follow <code>--</code>. On <code>send</code>, <code>--supersedes-request-id</code> queues a correction only for a definitively rejected, unapplied human request, retaining its history; it cannot replace acknowledged input or active delivery. Sending does not advance the run. All commands print JSON.</td>
+</tr>
+<tr>
+<td><code>autocode verify</code></td>
+<td><code>--workspace</code>, <code>--base</code>, <code>--branch</code>, <code>--patch</code>, <code>--criteria</code>, <code>--criteria-file</code>, <code>--out</code>, <code>--record</code>, <code>--engine</code>, <code>--provider</code>, <code>--model</code>, <code>--reasoning-effort</code>, <code>--evidence-provenance</code>, <code>--suite-command</code>, <code>--check-timeout</code>, <code>--max-seconds</code>, <code>--max-stage-seconds</code>, <code>--json</code></td>
+<td>Verify an existing change against caller criteria, or read a retained verification and recheck freshness. See <a href="../verify/">Standalone verification</a>.</td>
+</tr>
+<tr>
+<td><code>autocode doctor</code></td>
+<td><code>--workspace</code>, <code>--engine</code>, <code>--json</code></td>
+<td>Project and engine to inspect; optionally print checks as JSON.</td>
+</tr>
+<tr>
+<td><code>autocode forget</code></td>
+<td><code>--workspace</code>, <code>--json</code></td>
+<td>Clear the selected project's learned record only; configuration and saved runs remain.</td>
+</tr>
+<tr>
+<td><code>autocode models</code></td>
+<td><code>--workspace</code>, <code>--provider</code>, <code>--json</code>, <code>--prices</code>, <code>--selection</code></td>
+<td>Project/provider model availability and default routes; optionally JSON; <code>--prices</code> shows the dated price table and each default route's rate; <code>--selection</code> shows what automatic selection would choose and why (#1426).</td>
+</tr>
+<tr>
+<td><code>autocode review-pr</code></td>
+<td><code>--out</code>, <code>--post</code>, <code>--json</code></td>
+<td>New owned review directory, optional COMMENT-only posting after full finding/head admission, and JSON findings/evidence; creation/provider options follow <code>--</code>.</td>
+</tr>
+<tr>
+<td><code>autocode review</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--show</code>, <code>--json</code></td>
+<td>Saved task workspace and run (otherwise the workspace's only run); text or JSON evidence without decisions. With neither display flag, ask approve/reject/skip for each pending criterion.</td>
+</tr>
+<tr>
+<td><code>autocode serve</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--timeout</code>, <code>--json</code></td>
+<td>Saved task workspace and run (otherwise the workspace's only run); with <code>stop</code>, seconds to wait for the server to end (default 15); with <code>status</code>, one JSON object.</td>
+</tr>
+<tr>
+<td><code>autocode clean-worktrees</code></td>
+<td><code>--workspace</code>, <code>--yes</code>, <code>--json</code></td>
+<td>Select the project; remove eligible completed worktrees only with <code>--yes</code>; optionally format output as JSON.</td>
+</tr>
+<tr>
+<td><code>autocode bundle</code></td>
+<td><code>--out</code>, <code>--with-diff</code>, <code>--json</code></td>
+<td>Where to write the archive; add the run's diff of the workspace source; print the archive path and manifest as JSON.</td>
+</tr>
+<tr>
+<td><code>autocode prune-run</code></td>
+<td><code>--yes</code>, <code>--json</code></td>
+<td>Delete the listed settled evidence bytes (manifests, receipts and hashes retained); without it the command only lists; optionally format output as JSON.</td>
+</tr>
+<tr>
+<td><code>autocode merge</code></td>
+<td><code>--workspace</code>, <code>--into</code>, <code>--json</code></td>
+<td>Select the project and target branch for a delivered task worktree; optionally format result as JSON.</td>
+</tr>
+<tr>
+<td><code>autocode checkpoint</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--compare</code>, <code>--restore</code>, <code>--working</code>, <code>--expected-token</code>, <code>--request-id</code>, <code>--json</code></td>
+<td>Compare or restore retained code; <code>--working</code> shows what the running Builder has changed so far (display only). Restore requires its exact inspected token; the request ID identifies the action.</td>
+</tr>
+<tr>
+<td><code>autocode replay</code></td>
+<td><code>--into</code>, <code>--export</code></td>
+<td>Create a replay at an exact fresh run directory in an isolated workspace, or export a bounded recording bundle. Exactly one target is required.</td>
+</tr>
+<tr>
+<td><code>autocode replay</code></td>
+<td><code>--recorded-checks</code>, <code>--json</code></td>
+<td>Simulate archived checks with <code>--into</code> without current completion or delivery proof; optionally print the result as JSON. Fresh checks are the default.</td>
+</tr>
+<tr>
+<td><code>autocode tasks</code></td>
+<td><code>--workspace</code>, <code>--max-parallel</code>, <code>--dry-run</code>, <code>--json</code></td>
+<td>Project, concurrent lanes and a read-only manifest preview.</td>
+</tr>
+<tr>
+<td><code>autocode runs</code></td>
+<td><code>--workspace</code>, <code>--all</code>, <code>--needs</code>, <code>--json</code></td>
+<td>Project whose runs to list; every registered project instead of one; only the runs waiting on a person; rows as JSON. Read-only: each row shows that run's own status and the command it accepts next.</td>
+</tr>
+<tr>
+<td><code>autocode events</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--follow</code>, <code>--timeout</code></td>
+<td>Project whose saved run to stream, and the run itself (otherwise the workspace's only run); keep printing new events until the run ends the stream; bound a follow to this many seconds.</td>
+</tr>
+<tr>
+<td><code>autocode plan</code></td>
+<td><code>--export</code>, <code>--check</code>, <code>--render</code>, <code>--workspace</code>, <code>--run-dir</code>, <code>--json</code></td>
+<td>Exactly one of: write the run's plan to this file, read a plan file and print its goal hash, regenerate a plan file's text from its front matter. With <code>--export</code>, the project whose saved run to export and the run itself (otherwise the workspace's only run). <code>--json</code> outputs structured JSON payloads.</td>
+</tr>
+<tr>
+<td><code>autocode wait</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--timeout</code>, <code>--json</code></td>
+<td>Project whose saved run to wait on, and the run itself (otherwise the workspace's only run); stop waiting after this many seconds; the outcome as one JSON object.</td>
+</tr>
+<tr>
+<td><code>autocode components</code></td>
+<td><code>--workspace</code>, <code>--engine</code>, <code>--provider</code>, <code>--joint-planning</code>, <code>--reasoning-effort</code></td>
+<td>Project and model routing for each component.</td>
+</tr>
+<tr>
+<td><code>autocode components</code></td>
+<td><code>--auto-approve</code></td>
+<td>Apply decisions the operator has already delegated; the flag itself supplies no delegation.</td>
+</tr>
+<tr>
+<td><code>autocode components</code></td>
+<td><code>--options</code>, <code>--max-advances</code>, <code>--timeout</code></td>
+<td>Shell-quoted child flags, maximum CLI advances per component (20) and per-component wall-clock budget.</td>
+</tr>
+<tr>
+<td><code>autocode components</code></td>
+<td><code>--integrate</code>, <code>--run-local</code>, <code>--health-timeout</code>, <code>--keep-running</code>, <code>--runtime-evidence-provenance</code></td>
+<td>Integration target, Compose smoke checks, readiness deadline, optional retained services and smoke-evidence origin (<code>fake</code>, <code>live</code>, <code>unknown</code>); see <a href="../task-lanes/#running-the-combined-system-locally">local integration</a>.</td>
+</tr>
+<tr>
+<td><code>autocode demo</code></td>
+<td><code>--directory</code></td>
+<td>Create a new directory for retained offline demo outputs; defaults to a fresh temporary directory. Existing directories are refused.</td>
+</tr>
+<tr>
+<td><code>autocode ui</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--figma-file</code>, <code>--from-plan-run</code></td>
+<td>Project, new artifact directory, design file and saved accepted UI plan.</td>
+</tr>
+<tr>
+<td><code>autocode ui</code></td>
+<td><code>--planner-model</code>, <code>--astra-model</code>, <code>--terra-model</code>, <code>--sol-model</code>, <code>--astra-reasoning-effort</code></td>
+<td>Requirements/Planner, Plan Reviewer, Builder and Tester model choices; review reasoning effort.</td>
+</tr>
+<tr>
+<td><code>autocode ui</code></td>
+<td><code>--max-plan-reworks</code>, <code>--max-reworks</code>, <code>--dry-run</code>, <code>--build</code>, <code>--no-chat</code></td>
+<td>Plan/design rework limits, preview, implementation handoff and noninteractive presentation.</td>
+</tr>
+<tr>
+<td><code>autocode compare-baseline</code></td>
+<td><code>--baseline-root</code>, <code>--candidate-root</code>, <code>--normalize-dependency-prefixes</code>, <code>--output</code></td>
+<td>Source roots, explicit dependency-prefix normalization and comparison-result output; see <a href="../execution/#baseline-comparison">baseline comparison</a>.</td>
+</tr>
+<tr>
+<td><code>autocode visual-capture</code></td>
+<td><code>--config</code>, <code>--timeout</code></td>
+<td>Capture configuration and command deadline (120 seconds).</td>
+</tr>
+<tr>
+<td><code>autocode visual-check</code></td>
+<td><code>--workspace</code>, <code>--policy</code>, <code>--policy-sha256</code>, <code>--output</code></td>
+<td>Project, source-owned policy and expected hash, and fresh check-output directory.</td>
+</tr>
+<tr>
+<td><code>autocode capture</code></td>
+<td><code>--output</code>, <code>--no-compress</code>, <code>--mode</code>, <code>--known-output-sha256</code></td>
+<td>Retained output, full display, <code>raw</code>/<code>conservative</code> display and verified unchanged-output reference; a command follows <code>--</code>.</td>
+</tr>
+<tr>
+<td><code>autocode output</code></td>
+<td><code>--store</code>, <code>--mode</code>, <code>--known-sha256</code>, <code>--raw</code>, <code>--start-line</code>, <code>--end-line</code></td>
+<td>Retained store, display mode, verified copy reference, raw retrieval and requested line range.</td>
+</tr>
+<tr>
+<td><code>autocode registry</code></td>
+<td><code>--max-depth</code>, <code>--directory-budget</code>, <code>--workspace</code>, <code>--run-dir</code>, <code>--json</code></td>
+<td>Bound imports or select a run; see <a href="../registry-api/">Registry API</a> for the operations using each option.</td>
+</tr>
+<tr>
+<td><code>autocode intervention</code></td>
+<td><code>--workspace</code>, <code>--run-dir</code>, <code>--request-id</code>, <code>--kind</code>, <code>--text</code>, <code>--json</code></td>
+<td>Select a run, identify a feedback/pause/stop request and supply text; optionally JSON.</td>
+</tr>
+<tr>
+<td><code>autocode issue</code></td>
+<td><code>--project</code>, <code>--remote</code>, <code>--issue-file</code>, <code>--note</code>, <code>--base</code>, <code>--pr-base</code>, <code>--open</code>, <code>--ready</code>, <code>--path</code>, <code>--chat</code>, <code>--no-chat</code></td>
+<td>Project and remote; optional offline issue and extra guidance; start/PR bases; explicit push/open and ready-for-review controls; with <code>plan</code>, where the plan file goes in the repository (default <code>plans/issue-N.md</code>). For <code>start</code> and <code>continue</code>, <code>--chat</code> enters terminal chat when input is needed (default with terminal stdin/stdout); <code>--no-chat</code> returns the status and next action instead. See <a href="../issues/">GitHub issues</a>.</td>
+</tr>
+<tr>
+<td><code>autocode arena</code></td>
+<td><code>--arena</code></td>
+<td>Arena store (default <code>.autocode/arena</code>).</td>
+</tr>
+<tr>
+<td><code>autocode arena</code></td>
+<td><code>--repository</code>, <code>--base</code>, <code>--issue</code>, <code>--issue-file</code>, <code>--note</code>, <code>--oracle</code>, <code>--reference</code>, <code>--check</code>, <code>--split</code></td>
+<td>Ingest a case with its pinned repository, request, oracle/reference, checks and development/regression/holdout split.</td>
+</tr>
+<tr>
+<td><code>autocode arena</code></td>
+<td><code>--cohort</code>, <code>--runner</code>, <code>--option</code>, <code>--fixture</code>, <code>--i-authorize-live-model-spend</code>, <code>--approve-benchmark-plans</code>, <code>--timeout</code>, <code>--oracle-timeout</code></td>
+<td>Run/report/propose controls: cohort, runner checkout, repeated child options, fake or explicitly authorized live run, plan approval and deadlines.</td>
+</tr>
+<tr>
+<td><code>autocode arena</code></td>
+<td><code>--baseline</code>, <code>--candidate</code></td>
+<td>Cohorts to compare.</td>
+</tr>
+<tr>
+<td><code>autocode arena</code></td>
+<td><code>--report</code>, <code>--reviewer</code></td>
+<td>Annotate a completed attempt from an attribution JSON report; an explicit independent reviewer is required to confirm a diagnosis.</td>
+</tr>
+<tr>
+<td><code>autocode unattended --analyze</code></td>
+<td><code>--analyze</code>, <code>--run-dir</code>, <code>--workspace</code>, <code>--out</code></td>
+<td>Read-only run analysis; optionally save its evidence report in <code>--out</code>.</td>
+</tr>
+<tr>
+<td><code>autocode dashboard</code></td>
+<td><code>--workspace</code>, <code>--watch-root</code>, <code>--watch-depth</code>, <code>--runner</code>, <code>--port</code>, <code>--provider</code></td>
+<td>Repeated projects and discovery roots, discovery depth (3), CLI runner, local port (8765) and provider for new runs.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="terminal-chat">Terminal chat<a class="headerlink" href="#terminal-chat" title="Permanent link">&para;</a></h2>
+<p><code>autocode chat</code> is the terminal client of the <a href="../task-run/">task-run interface</a>,
+beside the VS Code extension and the browser dashboard. It reads only
+<code>autocode --status</code>, <code>autocode runs --json</code> and <code>runs --all --json</code> (your chats, in this project and every registered one) and
+<code>autocode modes list --json</code> (a new run's mode), shows the conversation the view
+carries (<code>view.chat</code>), and acts
+only through the view's named actions: <code>next_command</code>, the <code>chat.input</code> message
+offer and the <code>pause</code> offer. The rules it reads them by are in
+<code>tools/autocode_client_actions.py</code>, the same ones the extension
+(<code>vscode-extension/src/core/next-command.ts</code>) and the headless conformance client
+follow, so a person gets the same choices in each:</p>
+<ul>
+<li><strong>Requirements</strong> asks in its own words; you reply in yours, and confirm the
+  understanding it summarizes with <code>y</code>. Before the plan is prepared the chat shows the
+  core's spend confirmation (<code>review.spend_confirmation</code>: what planning spends) and
+  asks <code>Prepare plan? [y/N]</code>; anything but yes sends nothing. A mode that can plan at
+  once (<code>quick</code>, whose <code>spend_confirmation</code> is <code>start</code>) asks <code>Start it? [y/N]</code> before
+  the run starts instead, as the VS Code extension does.</li>
+<li><strong>A question</strong> with options takes the option's number or your own answer; Enter
+  takes the proposed default when there is one.</li>
+<li><strong>The plan</strong> is shown from <code>displayed_plan</code> and approved with <code>y</code> only while its
+  token is still the one shown; anything else you type is sent as plan feedback.</li>
+<li><strong>A stop only you decide</strong> (a pause, a stopped job) says why and continues only
+  on your <code>y</code>; a Resolver request takes your reply.</li>
+<li><strong>When the run completes</strong> you can type a follow-up, or press Enter to finish.</li>
+</ul>
+<pre><code class="language-sh">autocode                            # in a terminal: pick up the open run, or ask what to do
+autocode chat &quot;Add a --verbose flag to greet.py&quot;
+autocode chat                       # the same as plain autocode in a terminal
+autocode chat --mode quick &quot;Fix the README typo&quot; -- --engine claude
+autocode chat --line                # the line-by-line prompts, even in a terminal
+</code></pre>
+<p>In a terminal the chat takes the whole screen: a wordmark splash, the conversation
+in a scrollable transcript with a colored label for each speaker
+(<code>PgUp</code>/<code>PgDn</code>), the current question or activity above a boxed composer, and a
+hint bar. The composer is labeled <strong>New chat</strong> when typing there starts a run and
+<strong>Reply</strong> when it answers the run (<code>Up</code>/<code>Down</code> for history, <code>Ctrl-W</code>/<code>Ctrl-U</code> to
+edit, <code>Enter</code> to send, <code>Ctrl-D</code> to leave). A paste stays in the composer as one
+reply, line breaks included, until you press <code>Enter</code>. A plan, a question or a stop is shown
+where it is asked, and <code>Ctrl-C</code> keeps its meaning: the first asks the run to pause
+after the current step, the second interrupts it. When the chat ends, its last words
+stay on the terminal: an error, where to pick the run up, or the command a stop
+leaves for you to run. <code>--line</code> keeps the plain
+prompts, and scripts get them automatically when there is no terminal.</p>
+<p>In a terminal at least 100 columns wide, a side panel shows the run beside the
+conversation once it has a plan: where it is and what it needs from you, the
+current step and its last few attempts (the view's <code>chat.progress</code>), what the
+running step is doing (the commands it runs, the files it edits and the tools it
+calls, from the view's <code>chat.activity</code>), each requirement and task with its state,
+open problems, and a log of how the run moved (a stage starting or finishing, an
+attempt finishing, a command run, a file edited, a task done, a requirement
+checked). The status row under the conversation names the newest command or edit,
+in any width. A command that exited 0 is shown as run, not as passing: only the
+requirement checks say what passed. Everything in it comes from the status views
+the chat already reads.</p>
+<p>While AutoCode works, a live log under the conversation shows what each running
+agent is thinking and doing as it happens: its reasoning (<code>∴</code>), its messages
+(<code>»</code>), the commands it runs (<code>$</code>), the files it edits (<code>±</code>) and the other tools it
+calls, each line led by the agent's name (<code>Builder · task M2</code>, <code>Plan Reviewer</code>).
+Parallel Builders each appear under their own name. It comes from the view's
+<code>chat.log</code>, is refreshed with each status read (every two seconds) and keeps the
+last 500 entries; the composer stays below it, so you can keep typing commands.
+It shows on its own in a terminal at least 24 rows tall once an agent is working.
+Reasoning is shown on one line with its newest words, and tool output is never
+shown. Like the activity rows it is display only: a thought is not a report and
+a command shown is not a passed check.</p>
+<p>Type <code>/</code> in the composer for commands, at a question or while AutoCode works. The
+menu narrows as you type; <code>Up</code>/<code>Down</code> choose, <code>Tab</code> completes and <code>Enter</code> runs the
+highlighted one:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/plan</code>, <code>/tasks</code>, <code>/log</code></td>
+<td>Show the requirements, the task list or the run's log in the conversation</td>
+</tr>
+<tr>
+<td><code>/details</code></td>
+<td>Why the run is where it is (the view's explanation)</td>
+</tr>
+<tr>
+<td><code>/diff</code></td>
+<td>List the saved code steps with the files each changed; <code>/diff N</code> shows the files and the diff changed since step N</td>
+</tr>
+<tr>
+<td><code>/undo N</code></td>
+<td>At a question: go back to saved step N. It shows what differs and asks first; yes makes a new run on a new branch, your branch and its later work stay as they are, and the chat carries on with the new run, which checks every requirement again</td>
+</tr>
+<tr>
+<td><code>/runs</code></td>
+<td>Your chats in every project, open and finished, grouped by project: this project first, then the others by their latest activity, newest chat first in each. Each shows its request, its state and when it last moved; a chat whose run was removed is left out and counted. Also at the first "What do you want done?"</td>
+</tr>
+<tr>
+<td><code>/open N</code></td>
+<td>At a question: open chat N from <code>/runs</code>. Its whole conversation is shown and you carry on there: a follow-up on a finished chat, or the decision it waits for. The chat you leave stays as it is</td>
+</tr>
+<tr>
+<td><code>/new</code></td>
+<td>At a question: start a new chat in a new tab (also <code>Ctrl-T</code>); an empty request keeps the current one</td>
+</tr>
+<tr>
+<td><code>/tab N</code></td>
+<td>At a question: switch to tab N (also <code>Ctrl-←</code>/<code>Ctrl-→</code> for the previous and next tab). Once a session has two chats, a tab bar under the header lists them with a mark for each: <code>●</code> working, <code>!</code> needs you, <code>✓</code> done</td>
+</tr>
+<tr>
+<td><code>/mode [ID]</code></td>
+<td>The modes the core lists (<code>autocode modes list</code>), and which one new chats start in; <code>/mode quick</code> changes it for new chats only</td>
+</tr>
+<tr>
+<td><code>/engine [NAME]</code></td>
+<td>The engine new chats run on: <code>opencode</code>, <code>codex</code> or <code>claude</code>, set as the VS Code extension's engine picker sets it</td>
+</tr>
+<tr>
+<td><code>/connect [NAME check\|login\|setup\|use]</code></td>
+<td>The backends <code>autocode connections list</code> reports, with their state. <code>check</code> runs the connection's own check; <code>login</code> and <code>setup</code> hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; <code>use</code> makes new chats use it. Only an action the connection offers is run</td>
+</tr>
+<tr>
+<td><code>/panel</code></td>
+<td>Show or hide the side panel</td>
+</tr>
+<tr>
+<td><code>/live [NAME\|thinking\|messages\|tools\|all\|off]</code></td>
+<td>Show or hide the live agent log. With a word it keeps only one agent (any part of its name, such as <code>M2</code> or <code>reviewer</code>) or one kind of entry; <code>all</code> shows everything again and <code>off</code> hides it. Where the terminal is too short for it, the newest entries are printed in the conversation</td>
+</tr>
+<tr>
+<td><code>/pause</code></td>
+<td>While AutoCode works: ask it to pause after the current step, as the first <code>Ctrl-C</code> does</td>
+</tr>
+<tr>
+<td><code>/help</code></td>
+<td>List the commands</td>
+</tr>
+<tr>
+<td><code>/quit</code></td>
+<td>At a question: leave the chat; the run stays as it is</td>
+</tr>
+</tbody>
+</table>
+<p>A command never answers the question that is waiting. To send a reply that starts
+with <code>/</code>, type <code>//</code>. <code>/diff</code> and <code>/undo</code> take only the <code>compare</code> and <code>restore</code>
+actions the status view names for a saved step (<a href="../task-run/#saved-code-checkpoints">Saved code
+checkpoints</a>); the view offers going back only
+at a pause it can restore from, and <code>/undo</code> says why when it cannot.</p>
+<p>The first screen says what a new chat starts with (<code>New chats: Full · OpenCode</code>). A
+choice made with <code>/mode</code>, <code>/engine</code> or <code>/connect … use</code> is kept for the project in
+<code>.autocode/chat-settings.json</code>; options after <code>--</code> on the command line take its place
+for that chat. While Requirements writes its reply, the reply grows on screen as it is
+written (the view's streaming message). The terminal rings its bell when AutoCode has
+worked and now needs you, and a chat you opened earlier in the session is checked while
+AutoCode works: when it starts to wait for you or finishes, the chat says so.</p>
+<p><code>autocode</code> in a project with earlier chats says how many there are. <code>Up</code>/<code>Down</code> recall
+your earlier requests and messages in this project, across chats: they are kept, the
+last 100, in the project's <code>.autocode/chat-history.jsonl</code> once a run has made that
+directory (a bare <code>y</code>, <code>n</code> or option number is not kept).</p>
+<p>The older inline chat (<code>--chat</code>, the default when <code>autocode "TASK"</code> runs in a
+terminal) still works and is being replaced by this client. Scripts that call plain
+<code>autocode</code> without a terminal are unchanged.</p>
+<h2 id="unattended-callers-agents">Unattended callers (agents)<a class="headerlink" href="#unattended-callers-agents" title="Permanent link">&para;</a></h2>
+<p><code>autocode unattended</code> (or the internal compatibility wrapper
+<code>autocode-unattended</code> / <code>scripts/autocode-unattended</code> from a checkout) runs AutoCode
+for another agent without letting that agent make the operator's decisions. It takes
+AutoCode's own arguments but refuses every decision or recovery flag (<code>--answer</code>,
+<code>--delegate*</code>, <code>--approve-*</code>, <code>--resume-paused</code>, <code>--retry-*</code>, <code>--feedback</code>, <code>--follow-up</code>,
+<code>--accept-completion</code>, <code>--close-finding</code>, <code>--close-reason</code>, <code>--resolver-response</code>, …, including
+abbreviations), the command word <code>resume</code> (on a paused or blocked run it stands for
+<code>--resume-paused</code>; a bare relaunch still continues a run that is not paused)
+and the <code>intervention</code>, <code>tasks</code>, <code>ui</code>, <code>registry</code>, <code>capture</code> and <code>compare-baseline</code>
+subcommands. It forces <code>--no-chat</code> with no stdin, and when AutoCode stops it prints
+<code>--status</code> and tells the caller to report and stop. Exit codes are AutoCode's.</p>
+<p>When a run completes, the wrapper prints the command to analyze it:
+<code>autocode unattended --analyze --run-dir RUN [--out DIR]</code>. That launches no stage; it
+reads the saved run and reports the outcome, each acceptance criterion with its
+recorded status and evidence, findings, stages (role, time, exit, tokens, report
+path), cost by role (model calls, seconds and tokens per role, with report-format
+repair calls counted separately), and the code changes against the task's base commit,
+including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
+<code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
+<p>To lock a Claude Code agent to it, launch the agent from a copy of
+<a href="https://github.com/charlieanna/autocode/blob/86fdb7920f46a935405840f78c8c3bff0ed3422b/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
+AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
+without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
+analyze the work read-only. Keep that directory outside the target workspace.</p>
+<h2 id="exit-codes">Exit codes<a class="headerlink" href="#exit-codes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Outcome</th>
+<th>When</th>
+<th>What <code>--json</code> prints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td><code>completed</code></td>
+<td>The task completed: <code>view.done</code> is true.</td>
+<td>The status payload; with <code>result</code> when the invocation also acted.</td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td><code>saved</code></td>
+<td>A user action (an approval, answer, review decision, feedback and the like) was saved.</td>
+<td>The status payload plus <code>result</code>, whose <code>saved</code> is true.</td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td><code>read</code></td>
+<td>A read printed what it read: <code>--status</code>, <code>runs</code>, or <code>events</code> without <code>--follow</code>.</td>
+<td>That output; <code>--status</code> prints the status payload.</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>stopped</code></td>
+<td>The run stopped short of completing: it waits on a person (a question, an approval, a review, a requested pause) or on its environment, a provider or AutoCode. <code>view.pause_category</code> says whose action it needs and <code>view.next_command</code> what answers it. <code>wait</code> also exits 2 for a stopped run, and for endings that are not stops (below).</td>
+<td>The status payload; with <code>result</code> unless the run printed the payload itself as it stopped. <code>wait --json</code> prints its own outcome object instead (below).</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>refused</code></td>
+<td>The input was refused and not saved. A new run refused for a setting may already have created its task worktree and branch (without <code>--in-place</code>).</td>
+<td>For a refused action on the loaded run, or a setting the run's configuration refuses (such as <code>--single-model</code> or <code>--spec-first</code> on a saved run, or <code>--allow-uncontained-tools</code> where it does not apply; the <code>--json</code> option above lists more), the status payload plus <code>result</code>, whose <code>error.code</code> is <code>input_rejected</code>; for a refusal before the run loads, or a setting refused before a new run's first checkpoint, that <code>result</code> alone. A refused setting still ends stderr with <code>autocode: …</code>. A native visual run saves a refused setting as a <code>PAUSED_INVALID_OUTPUT</code> pause instead (<code>stopped</code>, <code>error</code> null).</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>usage</code></td>
+<td>The arguments did not parse, or a later check of them ended with argparse's error.</td>
+<td>Nothing on stdout: argparse's usage text on stderr.</td>
+</tr>
+</tbody>
+</table>
+<p><code>autocode wait</code> only watches a run, and its <code>outcome</code> says why the wait ended. It exits 0
+for <code>complete</code>. It exits 2 for <code>needs_you</code> (the run waits on you) and <code>stopped</code> (the run
+stopped otherwise), and also for three endings that are not stops of the run:
+<code>controller_lost</code> (the saved status says RUNNING but nothing owns the run), <code>timeout</code>
+(<code>--timeout</code> elapsed first) and <code>unreadable</code> (the checkpoint could not be read). It also
+exits 2 when it cannot tell which run to wait on (none is saved, or several are and no
+<code>--run-dir</code> names one), with <code>autocode wait: …</code> on stderr and nothing on stdout. Otherwise
+<code>wait --json</code> prints that outcome object (<code>outcome</code>, <code>status</code>, <code>reason</code> and, when it has
+one, <code>next_command</code>), never the status payload.</p>
+<p><code>tests/test_json_contract.py</code> holds the CLI to this table on a fake run that stops only to
+wait on you (<code>view.pause_category</code> is <code>your_decision</code>): at a requested pause
+(<code>--pause-after-stage</code>), a question, the plan approval and a human review, then it
+completes. At each stop the test runs <code>--status</code>, a plain relaunch, the command
+<code>view.next_command</code> offers (resume, answer, approve the plan, approve the review), that
+command with stale tokens, <code>wait --json</code>, <code>runs --json</code>, <code>events</code> and a usage error. It
+validates each status payload the main command prints under <code>--json</code> or <code>--status</code> against
+<a href="../schemas/status-view.schema.json">status-view.schema.json</a>, and the lone <code>{"result": …}</code>
+against its <code>properties.result</code>. It validates each <code>events</code> line against
+<a href="../schemas/run-event.schema.json">run-event.schema.json</a>, and checks that <code>wait --json</code> and
+<code>runs --json</code>, which print their own shapes, report the same status and <code>next_command</code> as
+the status view. The fake run never stops for its environment, a provider or AutoCode.
+<code>tests/test_json_output.py</code> covers those: the iteration and time limits (AutoCode), and a saved
+auth or rate-limit pause (<code>your_environment</code> / <code>model_or_provider</code>) under <code>--status</code> and <code>--json</code>.</p>
+<p>Because 2 has several meanings, scripts should prefer <code>--json</code>: <code>view.done</code>, <code>view.needs</code>
+and <code>view.pause_category</code> say which outcome it was, and after an action <code>result.saved</code> and
+<code>result.error.code</code> say whether it was saved or refused. The exit codes stay 0 and 2 for
+compatibility.</p>
+<h3 id="subcommand-exit-codes">Subcommand exit codes<a class="headerlink" href="#subcommand-exit-codes" title="Permanent link">&para;</a></h3>
+<p>Subcommands exit 0 on success, 1 on a domain check or operational failure, and 2 when a run stopped short, input was rejected, or command arguments failed parsing. Under <code>--json</code>, results or error codes are reported in structured JSON.</p>
+<table>
+<thead>
+<tr>
+<th>Subcommand</th>
+<th>Exit code 0</th>
+<th>Exit code 1</th>
+<th>Exit code 2</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>autocode plan</code></td>
+<td>Plan exported, verified matching front matter (<code>--check</code>), or rendered (<code>--render</code>).</td>
+<td>—</td>
+<td>Stale plan text (<code>stale_plan_text</code>), missing plan error (<code>plan_error</code>), or usage error.</td>
+</tr>
+<tr>
+<td><code>autocode prune-run</code></td>
+<td>Settled evidence bytes pruned (<code>--yes</code>) or listed in dry run.</td>
+<td>—</td>
+<td>Active stage refusal (<code>stage_active</code>), or usage error.</td>
+</tr>
+<tr>
+<td><code>autocode merge</code></td>
+<td>Worktree branch fast-forward merged into base.</td>
+<td>Merge refused (branch not delivered or diverged).</td>
+<td>Ambiguous worktree argument, or usage error.</td>
+</tr>
+<tr>
+<td><code>autocode clean-worktrees</code></td>
+<td>Completed worktrees removed (<code>--yes</code>) or listed in dry run.</td>
+<td>Worktree removal failed with error.</td>
+<td>Usage error.</td>
+</tr>
+<tr>
+<td><code>autocode checkpoint</code></td>
+<td>Checkpoint inspected (<code>--compare</code>) or restored (<code>--restore</code>).</td>
+<td>—</td>
+<td>Checkpoint refused (<code>checkpoint_refused</code>), or usage error.</td>
+</tr>
+<tr>
+<td><code>autocode tasks</code></td>
+<td>Flow completed (<code>COMPLETE</code>) or dry-run validated.</td>
+<td>—</td>
+<td>Flow stopped (<code>PAUSED</code>, <code>WAITING</code>, <code>BLOCKED</code>, <code>FAILED</code>), or usage error.</td>
+</tr>
+<tr>
+<td><code>autocode wait</code></td>
+<td>Watched run completed (<code>view.done</code> is true).</td>
+<td>—</td>
+<td>Watched run stopped (<code>needs_you</code>, <code>stopped</code>), timeout, lost controller, or usage error.</td>
+</tr>
+<tr>
+<td><code>autocode doctor</code></td>
+<td>Environment, engines, tools and dependencies are ready.</td>
+<td>Check missing or not ready.</td>
+<td>Usage error.</td>
+</tr>
+<tr>
+<td><code>autocode models</code></td>
+<td>Models available and default routes verified.</td>
+<td>Missing required default model route.</td>
+<td>Usage error.</td>
+</tr>
+<tr>
+<td><code>autocode verify</code></td>
+<td>Verified criteria passed and evidence produced.</td>
+<td>Verification checks failed.</td>
+<td>Criteria invalid, run error, or usage error.</td>
+</tr>
+</tbody>
+</table>
+<p>See also: <a href="../install/">Install</a> · <a href="../workflow/">Workflow</a> · <a href="../execution/">Execution</a></p>
+<h2 id="exact-tool-output">Exact tool output<a class="headerlink" href="#exact-tool-output" title="Permanent link">&para;</a></h2>
+<p>Use <code>--tool-output-mode raw|conservative</code> for AutoCode capture/file-read display.
+<code>autocode output read FILE</code> returns exact sections with retained originals;
+<code>autocode output retrieve SHA256 --raw</code> recovers exact bytes. See
+<a href="../exact-output/">exact output transport</a> for options, recovery and measurement
+limits. Native provider tools keep their existing behavior.</p>
+<p>A failed read-only workflow job exposes an exact <code>retry_job</code> action in status.
+After inspecting the archived attempt, retry with <code>--resume-paused
+--retry-failed-stage --job-retry-token TOKEN</code> using its current
+<code>needs.job_retry_token</code>. Plain resume does not repeat the job. Unrestored source
+blocks retry until the exact original source is restored. The CLI verifies file
+bytes, modes and Git HEAD even when a capture artifact is missing; changed
+model/limits still invalidate the retry. An older attempt with no saved original
+identity exposes <code>recover_source</code> and an explanation instead of a retry action.
+Inspect its archive and current changes before starting a new run.</p>
+<p>A failed Builder classification can also offer <code>retry_job</code> for the Investigator
+at <code>PAUSED_BUILDER_CLASSIFICATION</code>. Inspect <code>needs.retained_evidence</code> and use the
+current <code>needs.job_retry_token</code> through <code>AUTOCODE_JOB_RETRY_TOKEN</code> with
+<code>--resume-paused --retry-failed-stage --job-retry-token -</code>. Run this retry
+separately from feedback, approval, source acceptance or abandonment. It starts
+one fresh read-only investigation of the same task, contract, source and failure;
+any queued Resolver proposal stays unassigned until the normal classification
+policy accepts the new diagnosis. Previous failures, repair counts, approvals,
+Builder allowances and time limits remain in force. Status offers <code>--edit-goal
+FILE</code> and requires fresh approval when a remaining failure or classification
+limit prevents retry.
+Older checkpoints that discarded the failed request also require a plan
+correction or a new run; plain resume cannot reconstruct the missing proposal.</p>
+<p>A job its provider's content filter refused (<code>PAUSED_CONTENT_FILTER</code>) or that ran
+out of quota (<code>PAUSED_BUDGET</code>) pauses the same way, and its stop names the cause
+and the model. The same model is likely to refuse again, so <code>needs.route</code> carries
+the job's model question. <code>--job-retry-token</code> is accepted without <code>--resume-paused
+--retry-failed-stage</code> only together with that answer:
+<code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code> checks the model the way a launch
+would, records a <code>route_assignment</code> and issues a new token for the new model. The
+old token stops working, and the exact retry with the new token is the only way on:
+<code>--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN</code>. After a refusal,
+until a model is named, the status view's <code>needs.action</code> is that answer and the
+recovery card offers no retry, since the exact retry would replay the refused model. The Architect,
+Analyst and Investigator have no <code>--ROLE-model</code> flag, so this answer is how they
+move. The answer changes only that model: given with a limit or another role's
+model, with or without its token, it is refused and nothing is saved. It issues a
+new token, so it is given on its own: next to <code>--resume-paused --retry-failed-stage</code>
+it is refused before anything is read or saved. At that stop <code>--abandon-stage</code> is
+refused, and a <code>--ROLE-model</code> flag for the stopped role is refused with this advice
+instead of being saved (saving it would make the retry stale); only a flag that
+puts back the model the retry is bound to is saved. The same flag is refused while
+the job's attempt is still uncertain, including with <code>--abandon-stage</code> in the same
+command: run <code>--abandon-stage ATTEMPT</code> alone, then answer with the token it shows.
+After a quota stop, the unchanged retry with the shown token also works once the
+quota resets. A stopped stuck-stage Investigator (<code>investigate_stuck</code>) accepts
+<code>route-stuck_investigator</code>: its answer saves both the preparation pin and the current
+route, then issues a new exact-retry token. Use that token for the retry. Changing
+<code>--investigator-model</code> alone at this stop is refused before saving settings.
+An older Investigator stop can expose the same question only when its retained
+attempt, launch configuration and original source establish that model. Other
+older job stops without a saved model question keep their exact retry.</p>
+<h2 id="standalone-verification">Standalone verification<a class="headerlink" href="#standalone-verification" title="Permanent link">&para;</a></h2>
+<p><code>autocode verify</code> accepts <code>--workspace</code>, <code>--base</code>, either <code>--branch</code> or <code>--patch</code>,
+and either <code>--criteria</code> or <code>--criteria-file</code>. Criteria are explicit JSON; they
+are never inferred. <code>--out</code> names a fresh output directory. <code>--record</code> reads an
+existing verification and checks freshness instead of running models or checks.
+Review controls are <code>--engine</code>, <code>--provider</code>, <code>--model</code>, <code>--reasoning-effort</code>,
+<code>--evidence-provenance</code>, <code>--max-seconds</code> and <code>--max-stage-seconds</code>.
+<code>--suite-command</code> selects the proof suite and <code>--check-timeout</code> bounds each runner
+command. <code>--json</code> emits the verdict and evidence metadata. See
+<a href="../verify/">Standalone verification</a> for the criteria format, proof modes and
+exit codes.</p>
+<p><code>autocode modes list</code> lists the run modes a client may offer for a new run (<code>--json</code> for the version-1 list). See <a href="../task-run/#run-modes-for-clients">Run modes for clients</a>.</p>
+<p><code>autocode connections list|check|login|setup</code> manages backend setup; list and check return status without inference, and login delegates to the backend in a terminal. See <a href="../task-run/#connections-for-clients">Connections for clients</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
