@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Planner that declares a rewording while leaving the protected criterion or list entry unchanged no longer
+  creates a human wording-choice question (#1791, #1793). Inconsistent change metadata now follows the existing
+  report-repair path. Genuine protected wording changes still require the person's decision.
+
 - A recovery novelty hold whose AutoResolver request is not yet published (`RESOLVER_PENDING`) now names the
   scoped retry, `--resume-paused --retry-failed-stage`, as its next command and recovery-card action (#1770). The
   status view offered a plain `--resume-paused`, which only held the run again, and the retry was named only in
