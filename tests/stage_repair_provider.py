@@ -169,7 +169,53 @@ def main():
     event_rows = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
     case = os.environ["STAGE_REPAIR_CASE"]
     row = {"stage": stage, "repair": repair, "error": data.get("error", ""), "output": str(output)}
-    if stage == "astra_finalize" and case == "repair-limit":
+    if (
+        case == "unchanged-rewording"
+        and not repair
+        and "contract" in value
+        and any(event.get("kind") == "goal_approval" for event in data.get("user_events", []))
+    ):
+        # This follow-up asks to preserve the delivery. The ordinary greeting
+        # fake regenerates its initial draft and drops the review's whitespace
+        # obligation; retain the approved body so that unrelated fixture fault
+        # cannot mask the intentionally overdeclared change below.
+        before = (data.get("goal_contract") or {}).get("body") or {}
+        after = value["contract"]
+        for key in (
+            "required_behaviors",
+            "scope_exclusions",
+            "constraints",
+            "important_failure_cases",
+            "permission_boundaries",
+        ):
+            after[key] = list(dict.fromkeys([*before.get(key, []), *after.get(key, [])]))
+        old = {item["id"]: item for item in before.get("acceptance_criteria", [])}
+        for item in after["acceptance_criteria"]:
+            if item["id"] in old:
+                for key in ("criterion", "verification_method", "human_review"):
+                    item[key] = copy.deepcopy(old[item["id"]].get(key, False))
+    if (
+        stage == "glm_revise"
+        and case == "unchanged-rewording"
+        and (repair or any(event.get("kind") == "goal_approval" for event in data.get("user_events", [])))
+    ):
+        if repair:
+            value = copy.deepcopy(data["rejected_report"]["content"])
+            value["contract_changes"] = []
+        else:
+            criterion = value["contract"]["acceptance_criteria"][0]
+            value["contract_changes"] = [
+                {
+                    "item": criterion["id"],
+                    "change": "reworded",
+                    "basis": "agent_proposed",
+                    "answer_id": "",
+                    "replacement": json.dumps(criterion),
+                    "example_correction": None,
+                }
+            ]
+        row["spurious_rewording"] = True
+    elif stage == "astra_finalize" and case == "repair-limit":
         # Distinct schema errors keep the consecutive-failure guard from ending
         # this run before its two report-only repair attempts are exhausted.
         value["contract"]["initial_task"] = initial_task(value["contract"])
