@@ -499,6 +499,9 @@ class ChatTUI:
             self._screen = curses.initscr()
             curses.noecho()
             curses.cbreak()
+            # Keep a typed or pasted CR as CR: in curses' default nl mode the terminal turns it into NL, so a
+            # pasted CRLF reached read_paste as two line breaks (#1758). Enter then arrives as "\r", taken as Enter.
+            curses.nonl()
             with contextlib.suppress(curses.error):
                 self._screen.keypad(True)
             with contextlib.suppress(curses.error):
@@ -536,6 +539,7 @@ class ChatTUI:
             with contextlib.suppress(curses.error):
                 curses.nocbreak()
                 curses.echo()
+                curses.nl()
                 curses.curs_set(1)
             with contextlib.suppress(curses.error):
                 curses.endwin()
