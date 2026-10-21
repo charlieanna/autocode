@@ -457,6 +457,7 @@ def run_module(module: str, verbosity: int, timeout: float | None = None) -> dic
     # as well; a -B flag on the suite controller alone does not reach them.
     environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     timed_out = False
+    returncode: int | None
     if timeout is None:
         completed = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True)
         returncode, stdout, stderr = completed.returncode, completed.stdout, completed.stderr
@@ -482,12 +483,19 @@ def _run_bounded(command: list[str], environment: dict, timeout: float) -> tuple
     Output goes to files, not pipes: a grandchild that outlives the module (a server a test started) keeps a
     pipe open, so reading one would wait for it after the module itself was ended."""
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        group = (
-            {"start_new_session": True}
-            if os.name == "posix"
-            else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-        )
-        process = subprocess.Popen(command, cwd=REPO_ROOT, env=environment, stdout=out, stderr=err, **group)
+        if sys.platform == "win32":
+            process = subprocess.Popen(
+                command,
+                cwd=REPO_ROOT,
+                env=environment,
+                stdout=out,
+                stderr=err,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+        else:
+            process = subprocess.Popen(
+                command, cwd=REPO_ROOT, env=environment, stdout=out, stderr=err, start_new_session=True
+            )
         try:
             returncode, timed_out = process.wait(timeout=timeout), False
         except subprocess.TimeoutExpired:
@@ -500,12 +508,12 @@ def _run_bounded(command: list[str], environment: dict, timeout: float) -> tuple
 
 def _end_tree(process: subprocess.Popen) -> None:
     """End a timed-out module and everything it started, then reap it."""
-    if os.name == "posix":
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
-    else:
+    if sys.platform == "win32":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
         process.kill()
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
     process.wait()
 
 
