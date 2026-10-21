@@ -47,6 +47,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- VS Code chat: while you read older messages, the Latest button now names the step running now
+  ("↓ Now: Tester working") and follows each status read, so a stage change is visible without being moved to the
+  bottom (#1711). It returns to "↓ Latest messages" when no step is running.
+
 - The Builder's working diff (`checkpoint --working`) offered during a same-chat follow-up no longer refuses with
   "Checkpoint identity or approved plan changed" once the follow-up's plan is approved (#1712). It still verifies the
   saved step's receipt, commit and run; restoring a step still requires the plan approved now.

@@ -1330,6 +1330,25 @@ test('requirements chat offers Continue when no step is running instead of think
   assert.ok(!launch.mock.calls[0].arguments[1].includes('--approve-goal'));
 });
 
+test('a reader scrolled up sees the running step change on the Latest button without being moved', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null,
+      messages: [{ id: 'a1', role: 'assistant', text: 'Builder working on the follow-up' }],
+      progress: ['Builder working · task M1'] } };
+  const ui = await openChat(t, value);
+  ui.type('Keep this draft');
+  const latest = () => ui.document.querySelector('#latest').textContent;
+  assert.equal(latest(), '↓ Now: Builder working · task M1');
+  const next = structuredClone(value);
+  next.chat.progress = ['Tester working'];
+  await ui.poll(next);
+  assert.equal(latest(), '↓ Now: Tester working', 'the transcript is unchanged, the current step is not');
+  assert.equal(ui.document.querySelector('#message').value, 'Keep this draft');
+  await ui.poll({ ...structuredClone(next), status: 'TASK_COMPLETE', done: true, needs: { kind: 'none' } });
+  assert.equal(latest(), '↓ Latest messages', 'no step is named once none is running');
+});
+
 test('requirements chat shows only Thinking while a step is running', async (t) => {
   const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
     liveness: { kind: 'supervised' }, chat: { phase: 'requirements', context: 'live', input: null,
