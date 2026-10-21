@@ -33,6 +33,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A cost cap, time limit or milestone budget changed at a novelty hold restated the stop reason with the old
+  "Stage costs: ..." sentence (#1728) and the budgets after it kept alongside the new ones, so every change
+  added another "Active time" sentence; the restated stop now carries one copy of each.
 - Saved-run replay accepts the Builder's recorded effort origin. #1727 began recording `effort_origins.terra`, and
   replay export refused every new recording ("Recording reviewer effort origin is invalid"), which turned
   `tests.test_saved_run_replay_cli` red on master. Replay validation now allows `plan_reviewer` and `terra`, each

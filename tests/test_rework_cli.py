@@ -459,7 +459,11 @@ class ReworkHoldCostCLI(unittest.TestCase):
         self.assertEqual("RESOLVER_PENDING", view["status"], view.get("stop_reason"))
         self.assertIn("No causal progress", view["stop_reason"])
         self.assertIn("; cap $5.00.", view["stop_reason"])
-        self.assertRegex(view["stop_reason"], r"; cap \$5\.00\. Active time: [\d,.]+ s of the [\d,]+ s limit\.")
+        # #1728 adds a "Stage costs:" sentence between the cap and the active time when a stage ran twice.
+        self.assertRegex(
+            view["stop_reason"],
+            r"; cap \$5\.00\.(?: Stage costs: .*?\.)? Active time: [\d,.]+ s of the [\d,]+ s limit\.",
+        )
         # The person reads the cap, changes it at the hold without --resume-paused and checks --status before
         # the one scoped retry: the stop the command prints and the status view state the cap the run has now.
         for given, cap, stated in (("20", 20.0, "; cap $20.00."), ("0", None, None)):

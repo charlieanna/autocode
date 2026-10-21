@@ -1517,10 +1517,12 @@ def hold_stop(state: RunState, reason):
     return reason + (f". {' '.join(stated)}" if stated else "")
 
 
-# The budgets hold_stop states after a hold's reason (#611): with a cap, `cost.line` ends "; cap $N.", then
-# autocode_time_left's active-time and milestone sentences.
+# The budgets hold_stop states after a hold's reason (#611): with a cap, `cost.line` ends "; cap $N." and,
+# when a stage ran more than once, a "Stage costs: ..." sentence whose only inner dots are in amounts
+# (#1728), then autocode_time_left's active-time and milestone sentences.
 _STATED_BUDGETS = re.compile(
     r"\.(?: (?:Cost: .*?; cap (?:under )?\$[\d,]+\.\d+\."
+    r"|Stage costs: (?:[^.\n]|\.\d)+\."
     r"|Active time: [\d,.]+ s of the [\d,.]+ s limit\."
     r"|Milestones? [^\n]*?: [\d,.]+ s of (?:its|their) [\d,.]+ s budget\.))+"
 )

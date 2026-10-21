@@ -712,6 +712,45 @@ class RecoveryPacketTests(unittest.TestCase):
                 recovery.restate_hold(self.state)
                 self.assertEqual(reason + stated + advice, self.state["stop_reason"])
 
+    def test_a_restated_hold_keeps_one_copy_of_the_stage_costs(self):
+        # #1728 ends the cost line with "Stage costs: ..." when a stage ran more than once. A settings change at
+        # the hold restates that whole line with the budgets after it, never keeping the old copies alongside
+        # the new (master's tests.test_rework_cli, 2026-10-21: three "Active time" sentences after two changes).
+        first = {"stage": "astra_resolve", "output": str(self.run / "diagnosis.json"), "started_at": "first"}
+        recovery.admit_dispatch(self.state, first, self.root, self.run)
+        self.state["stages"][0]["metrics"] = {"provider_cost_usd": 1.25}
+        self.state["stages"].append({**first, "metrics": {"provider_cost_usd": 0.5}})
+        self.state.update(next_stage="astra_resolve", active_seconds=1250)
+        self.state["settings"]["limits"] = {"max_cost_usd": 5, "max_seconds": 43200}
+        costs = " Stage costs: Orchestrator 2 attempts: $0.00; Builder 2 attempts: $0.03; Tester 2 attempts: at least $0.09 (1 unpriced)."
+
+        def line(view):
+            return f"Cost: $1.75 so far; cap {recovery.cost.usd(view['cap_usd'])}." + costs
+
+        with patch.object(recovery.cost, "line", side_effect=line):
+            again = {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}
+            with self.assertRaisesRegex(util.Paused, "Stage costs"):
+                recovery.admit_dispatch(self.state, again, self.root, self.run)
+            reason = self.state["resolution_request"]["novelty_hold"]["reason"]
+            advice = "AutoResolver could not resolve no_progress; no automatic operational recovery ran."
+            self.state["stop_reason"] += " " + advice
+            active = " Active time: 1,250 s of the {} s limit. "
+            for limits, stated in (
+                (
+                    {"max_cost_usd": 20, "max_seconds": 43200},
+                    ". Cost: $1.75 so far; cap $20.00." + costs + active.format("43,200"),
+                ),
+                (
+                    {"max_cost_usd": 20, "max_seconds": 7200},
+                    ". Cost: $1.75 so far; cap $20.00." + costs + active.format("7,200"),
+                ),
+                ({"max_seconds": 7200}, "." + active.format("7,200")),
+            ):
+                with self.subTest(limits=limits):
+                    self.state["settings"]["limits"] = limits
+                    recovery.restate_hold(self.state)
+                    self.assertEqual(reason + stated + advice, self.state["stop_reason"])
+
     def test_a_hold_states_what_is_left_of_the_time_limit_and_the_milestone_budget(self):
         # #611: after the spend, the stop states the run's active time against its time limit and the current
         # milestone's time against its budget. Neither is saved with the hold's reason, and a limit or budget
