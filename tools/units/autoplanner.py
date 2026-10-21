@@ -190,6 +190,27 @@ def repair_source_inventory(state: RunState, stage):
     return source_inventory(state) if stage in CITATION_STAGES else None
 
 
+# Stages that write criteria, which cite sentences by id; the reviewing stages only check coverage.
+SENTENCE_ID_STAGES = tuple(
+    stage
+    for stage in CITATION_STAGES
+    if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
+)
+
+
+def source_sentences(state: RunState, stage):
+    """The numbered sentences a drafting stage's criteria must cover, with the requirement rows each supports."""
+    if stage not in SENTENCE_ID_STAGES:
+        return []
+    return source_trace.sentence_rows(state, brief_obligations.sources(state), trace_rows(state, stage))
+
+
+def resolve_sentence_citations(state: RunState, contract):
+    """Turn a report's sentence-id citations into the verbatim quotes the rest of the runner checks."""
+    if isinstance(contract, dict):
+        source_trace.resolve_sentence_ids(contract, brief_obligations.sources(state))
+
+
 def record_uncited_sentences(state: RunState, contract):
     """Save the source sentences ``contract``'s criteria leave uncited, for the next stage's handoff (#1630)."""
     if isinstance(state.get("planning"), dict):
@@ -253,6 +274,7 @@ def trace_rows(state: RunState, stage):
 # a protected criterion) restarts planning after the answer, and the next review saw only the new draft:
 # 11 of 31 answer-driven re-drafts in live runs (2026-09-28..10-01) reviewed a whole plan again from scratch.
 REREVIEW_RULE = prompts.get("fragments/autoplanner/rereview-rule.md")
+SENTENCE_ID_RULE = prompts.get("fragments/autoplanner/source-sentence-ids-rule.md")
 UNCITED_REVIEW_RULE = prompts.get("fragments/autoplanner/uncited-sentences-review.md")
 UNCITED_REVISE_RULE = prompts.get("fragments/autoplanner/uncited-sentences-revise.md")
 
@@ -1145,6 +1167,9 @@ def context(state: RunState, stage, state_path):
     uncited = exchange.pop("uncited_sentences", None)  # carried once, as uncited_source_sentences
     if uncited and stage in ("astra_challenge", "glm_revise", "astra_finalize"):
         packet["uncited_source_sentences"] = uncited
+    sentences = source_sentences(state, stage)
+    if sentences:
+        packet["source_sentences"] = sentences
     if stage in CITATION_STAGES:
         # The model quotes these verbatim in criterion sources (#595); the fake
         # provider reads the same list to build its scripted citations. The full
@@ -1286,6 +1311,8 @@ def context(state: RunState, stage, state_path):
         design_rule += source_trace.rule(records) if records else ""
     if stage != "requirements_gather":
         design_rule += BRIEF_ACCEPTANCE_CARRY_RULE
+    if packet.get("source_sentences"):
+        design_rule += SENTENCE_ID_RULE
     if packet.get("uncited_source_sentences"):
         design_rule += UNCITED_REVISE_RULE if stage == "glm_revise" else UNCITED_REVIEW_RULE
     if packet.get("brief_declaration_inventory"):

@@ -383,6 +383,74 @@ class UncitedSentenceFlowTests(ObligationCase):
         self.apply("glm_revise", self.revise())
 
 
+class SentenceIdCitationFlowTests(ObligationCase):
+    """A report may cite whole sentences by id; the saved contract and every check see verbatim quotes (#1630)."""
+
+    SECOND = "The tool lives in greet.py."
+
+    def setUp(self):
+        super().setUp()
+        self.state["task"] = TASK + " " + self.SECOND
+        self.apply("requirements_gather", requirements())
+
+    def by_id(self, *numbers):
+        contract = plan()
+        contract["acceptance_criteria"][0]["sources"] = [
+            {"source_id": "task:0", "quote": f"task:0#{number}"} for number in numbers
+        ]
+        return contract
+
+    def packet(self, stage):
+        prompt, _ = planner.context(self.state, stage, Path("/tmp/state.json"))
+        return prompt, json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+
+    def test_drafting_stages_get_numbered_sentences_and_the_rule_but_reviews_do_not(self):
+        self.apply("astra_discovery", self.discovery(self.by_id(1, 2)))
+        for stage in ("astra_discovery", "glm_revise"):
+            with self.subTest(stage=stage):
+                prompt, packet = self.packet(stage)
+                self.assertEqual(["task:0#1", "task:0#2"], [row["id"] for row in packet["source_sentences"]])
+                self.assertEqual([TASK, self.SECOND], [row["text"] for row in packet["source_sentences"]])
+                self.assertEqual([["R1"], []], [row["requirement_ids"] for row in packet["source_sentences"]])
+                self.assertIn("SOURCE SENTENCE IDS", prompt)
+                self.assertIn(self.SECOND, packet["source_inventory"][0]["text"])  # the inventory stays whole
+        for stage in ("astra_challenge", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt, packet = self.packet(stage)
+                self.assertNotIn("source_sentences", packet)
+                self.assertNotIn("SOURCE SENTENCE IDS", prompt)
+
+    def test_ids_are_saved_as_the_verbatim_sentences(self):
+        self.apply("astra_discovery", self.discovery(self.by_id(1, 2)))
+        saved = self.state["goal_contract"]["body"]["acceptance_criteria"][0]["sources"]
+        self.assertEqual([TASK, self.SECOND], [row["quote"] for row in saved])
+        self.assertEqual([], self.state["planning"]["uncited_sentences"])
+
+    def test_a_mix_of_ids_and_verbatim_quotes_covers_the_brief(self):
+        contract = self.by_id(1)
+        contract["acceptance_criteria"][0]["sources"].append({"source_id": "task:0", "quote": self.SECOND})
+        self.apply("astra_discovery", self.discovery(contract))
+        self.assertEqual([], self.state["planning"]["uncited_sentences"])
+
+    def test_an_id_for_a_missing_sentence_is_refused_and_changes_nothing(self):
+        before = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, r"without quoting it verbatim \(no such sentence id\)"):
+            self.apply("astra_discovery", self.discovery(self.by_id(1, 7)))
+        self.assertEqual(before, self.state)
+
+    def test_a_revision_citing_by_id_satisfies_the_uncited_sentence_rule(self):
+        self.apply("astra_discovery", self.discovery(self.by_id(1)))
+        self.assertEqual([self.SECOND], [row["sentence"] for row in self.state["planning"]["uncited_sentences"]])
+        self.apply("astra_challenge", self.challenge())
+        revision = self.revise()
+        revision["contract"] = self.by_id(1)
+        with self.assertRaisesRegex(ValueError, "still leaves source sentences uncited"):
+            self.apply("glm_revise", revision)
+        revision["contract"] = self.by_id(1, 2)
+        self.apply("glm_revise", revision)
+        self.assertEqual([], self.state["planning"]["uncited_sentences"])
+
+
 class HumanDecisionTests(ObligationCase):
     def test_policy_rejection_blocks_a_real_discovery_contract_until_the_user_answers(self):
         oid = self.reject(category="cost")
