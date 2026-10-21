@@ -44,6 +44,26 @@ class KiloPolicyTests(unittest.TestCase):
             with self.subTest(flag=flag), self.assertRaisesRegex(ValueError, "fresh local"):
                 policy.restrict(["kilo", "run", flag], {}, Path("/unused"), role="glm")
 
+    def test_a_macos_checker_keeps_read_tools_and_kilos_shell_but_never_edits(self):
+        # #1766 (owner decision 2026-10-21): no kernel shell on macOS, so Kilo's own policy, edits denied.
+        rules = [{"permission": "*", "pattern": "*", "action": "allow"}]
+
+        def debug(argv, **_kwargs):
+            answer = {"default_agent": "code"} if argv[2:] == ["config"] else {"permission": rules}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(answer), "")
+
+        child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+        argv = [sys.executable, "run", "--model", "zai-coding-plan/glm-5.3"]
+        with patch.object(policy.subprocess, "run", side_effect=debug):
+            ran, env = policy.restrict(argv, child, Path.cwd(), role="sol", portable_shell=True)
+        (agent,) = json.loads(env["KILO_CONFIG_CONTENT"])["agent"].values()
+        allowed = {tool for tool, rule in agent["permission"].items() if rule == {"*": "allow"}}
+        self.assertEqual({*policy.READ_TOOLS, "bash"}, allowed)
+        self.assertEqual("deny", agent["permission"]["*"])
+        self.assertNotIn("edit", allowed)
+        with self.assertRaisesRegex(ValueError, "cannot accompany"):
+            policy.restrict(argv, child, Path.cwd(), role="sol", request={}, portable_shell=True)
+
     def test_malformed_or_absent_policy_refuses_before_launch(self):
         for rules in (None, [], [{"permission": "read"}], [{"permission": "*", "pattern": "*", "action": "maybe"}]):
             with self.subTest(rules=rules), self.assertRaises(ValueError):

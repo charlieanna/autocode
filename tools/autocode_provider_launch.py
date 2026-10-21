@@ -110,6 +110,11 @@ def prepare(
         from providers.kilocode import KiloProvider
     kilo_owner = type(native_role_isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
     kilo_readonly = type(adapter) is KiloProvider and not allow_write and not planning and not kilo_owner
+    # macOS has no kernel shell boundary (owner decision 2026-10-21, #1766; as #1195 for every provider there): a
+    # read-only Kilo checker gets Kilo's own policy instead, read tools and its shell with edits denied. A source
+    # write it still makes is put back after the stage (autocode_stray_writes), as for any read-only stage.
+    kilo_portable = kilo_readonly and sys.platform == "darwin"
+    kilo_readonly = kilo_readonly and not kilo_portable
     uncontained = containment_policy.accepted(settings)
     if native_image_preparation is not None:
         try:
@@ -192,6 +197,13 @@ def prepare(
         launch_kwargs["env"] = environment
         if type(adapter) is KiloProvider and not kilo_owner and planning_report_recovery:
             launch_kwargs["report_recovery"] = True
+        if kilo_portable and enforce_tool_boundary:
+            launch_kwargs["portable_shell"] = True
+            print(
+                f"{route_role}: Kilo checks run with Kilo's own permissions on macOS (no kernel sandbox there); "
+                "edits are denied and any source change is put back",
+                file=sys.stderr,
+            )
         if native_image_preparation is not None:
             launch_kwargs["image_preparation"] = native_image_preparation
         if engine == "opencode" and not getattr(adapter, "CONFIGURED", False):
@@ -311,6 +323,7 @@ def prepare(
         fresh_reason = "Kilo restricted stages require a fresh session without prior tool grants"
         worker["kilo_readonly_tools"] = True
         worker["planning_report_recovery"] = planning_report_recovery
+        worker["kilo_portable_shell"] = bool(kilo_portable and enforce_tool_boundary)
     if prior_session and session is None:
         worker["fresh_session_reason"] = (
             fresh_reason or "Native tool containment requires a newly bound provider session"
@@ -382,6 +395,8 @@ def stage_record(worker):
                 if worker.get("planning_report_recovery")
                 else "Kernel-constrained Kilo shell; other tools disabled"
                 if worker.get("tool_containment")
+                else "Kilo read tools and shell with edits denied; no kernel sandbox on macOS"
+                if worker.get("kilo_portable_shell")
                 else "Kilo read-tools-only permissions; no shell or OS sandbox",
                 "tool_containment": worker.get("tool_containment"),
             }

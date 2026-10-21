@@ -73,6 +73,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Kilo runs on macOS get past the Builder again (#1766). Since #1739 a read-only Kilo checker required Kilo 7.8.3's
+  Linux kernel shell, so the Tester was refused on every Mac. On macOS it now keeps Kilo's read tools and shell with
+  edits denied, a source change is put back after the stage, and the run says so; Linux keeps the kernel shell.
 - A report repair of an Analyst, Investigator, Designer or Design Reviewer report is now told what a `probe` is
   (#1769). The repair prompt carries the report schema, where a probe is only a string, and a model that guessed
   wrote its own event ID there; the runner handed it to the shell, got `exit 127` and rejected the whole report,

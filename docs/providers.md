@@ -46,6 +46,13 @@ The owner chose this macOS fallback in
 with strict refusal on 2026-10-14; the owner restored the fallback on
 2026-10-15, so local live qualification can run on macOS.
 
+The same holds for Kilo's read-only checkers (Tester, Completion Reviewer). On Linux they
+run a qualified Kilo 7.8.3 kernel shell (#1739). On macOS, which has no such shell, they
+keep Kilo's read tools and its own shell with edits denied, intersected with your Kilo
+permissions. Any source change a checker still makes is put back after the stage, and the
+run prints a one-line notice. Owner decision of 2026-10-21, in
+[#1766](https://github.com/charlieanna/autocode/issues/1766).
+
 Normal detached shell tools remain allowed: the independent keeper records a
 prospective session before permitting `setsid()`. Its receipt preserves that
 ownership through controller or keeper loss. Cleanup is verified only when the
