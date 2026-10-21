@@ -106,8 +106,9 @@ CLIENT_COMMANDS = ("/diff", "/undo", "/runs", "/open", "/new", "/tab", "/mode", 
 SWITCHING_COMMANDS = ("/open", "/new", "/tab")
 
 
-# What needs a run to act on: none of these does anything before the first chat is open.
-RUN_COMMANDS = ("/plan", "/tasks", "/log", "/details", "/live", "/diff", "/undo", "/new", "/tab", "/panel", "/pause")
+# What needs a run to act on: none of these does anything before the first chat is open. ``/new``
+# is not one: before a chat it says the person is already in a new chat (#1759).
+RUN_COMMANDS = ("/plan", "/tasks", "/log", "/details", "/live", "/diff", "/undo", "/tab", "/panel", "/pause")
 
 
 def commands(*, asking: bool, client: bool = True, run: bool = True) -> list[Command]:
@@ -116,7 +117,8 @@ def commands(*, asking: bool, client: bool = True, run: bool = True) -> list[Com
     only at a question: leaving while AutoCode works would leave it running unseen, and the view
     offers going back only at a pause; ``/open`` and ``/new`` too, as they leave this run. Without a
     client the client's commands are not offered, and before a chat is open (``run`` false) only those
-    that work without one: opening a chat, choosing what a new one starts with, help and leaving."""
+    that work without one: opening a chat, /new (which says this already is one), choosing what a new
+    one starts with, help and leaving."""
     hidden = {"/pause"} if asking else {"/quit", "/undo", *SWITCHING_COMMANDS}
     if not client:
         hidden.update(CLIENT_COMMANDS)

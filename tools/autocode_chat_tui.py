@@ -603,8 +603,10 @@ class ChatTUI:
 
     def _tab_key(self, step: str, asking: bool) -> str | None:
         """Ctrl-T opens a new chat, Ctrl-←/→ the next or previous tab; at a question only, as /new and
-        /tab, so a step is never left running unwatched."""
+        /tab, so a step is never left running unwatched. Before a chat Ctrl-T answers as /new does there."""
         name, argument = ("/new", "") if step == "new" else ("/tab", step)
+        if name == "/new" and asking and self._act is not None and not self._run_open:
+            return self._run(name, asking)
         if not asking or self._act is None or not self._run_open:
             why = "a chat is open" if not self._run_open else "AutoCode asks you something (or after /pause)"
             self._transcript.info(name, f"Tabs switch once {why}.")

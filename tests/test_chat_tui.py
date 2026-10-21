@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import autocode_chat_client as chat_client
 import autocode_chat_tui as tui
 
 
@@ -336,6 +337,25 @@ class TabBarTests(unittest.TestCase):
         self.assertIn("Tabs switch once AutoCode asks you something", ui._transcript.blocks[-1][1])
         ui._tab_key("next", asking=True)
         self.assertEqual([("/tab", "next")], acted)
+
+    def test_before_a_chat_ctrl_t_and_new_say_this_is_already_a_new_chat(self):
+        """#1759: both used to answer as if /new could not run here, though the client has the reply."""
+        for press in ("ctrl-t", "/new"):
+            with self.subTest(press):
+                ui = screen_ui()
+                ui.bind(chat_client.History(Path(tempfile.gettempdir())).slash, run=False)
+                if press == "ctrl-t":
+                    self.assertIsNone(ui._tab_key("new", asking=True))
+                else:
+                    ui._composer.text = "/new"
+                    self.assertIsNone(ui._enter(asking=True))
+                self.assertEqual(
+                    ("info", "/new\nThis is a new chat: type what you want done."), ui._transcript.blocks[-1]
+                )
+        ui = screen_ui()
+        ui.bind(lambda name, argument: "ok", run=False)
+        ui._tab_key("next", asking=True)
+        self.assertIn("Tabs switch once a chat is open", ui._transcript.blocks[-1][1])
 
 
 class AskTests(unittest.TestCase):
