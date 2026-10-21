@@ -148,6 +148,59 @@ def canonical_items(previous: dict, changes: list) -> list:
     return [dict(raw, item=canonical(raw.get("item"))) if isinstance(raw, dict) else raw for raw in changes]
 
 
+def _criterion_signature(row):
+    return (row["criterion"], test_cases.proof(row["verification_method"]), row.get("human_review", False))
+
+
+def _reject_unchanged_rewordings(previous, body, changes):
+    """A false change declaration is a report error, never a person's decision."""
+    old = {row["id"]: row for row in previous.get("acceptance_criteria", [])}
+    new = {row["id"]: row for row in body.get("acceptance_criteria", [])}
+    for row in changes:
+        if row["change"] != "reworded":
+            continue
+        item = row.get("item")
+        if item in old:
+            unchanged = item in new and _criterion_signature(old[item]) == _criterion_signature(new[item])
+        else:
+            owners = [key for key in PROTECTED_LISTS if item in previous.get(key, [])]
+            unchanged = bool(owners) and all(item in body.get(key, []) for key in owners)
+        if unchanged:
+            raise ValueError(
+                f"contract_changes names {item!r}, which was not changed in the protected contract; drop that row"
+            )
+
+
+def refusal_hint(previous: dict, body: dict, item, *, approved: bool) -> str:
+    """What to change when the guard refuses a criterion's revision, so the repair is one step (#1630).
+
+    The refusals themselves are right: a request quote may not be dropped while a draft nobody approved is
+    reworded, and a runner-checked ``test:``/``guard:`` proof may not become an unmarked command. They used to say
+    only that a user answer was missing, which sent two live revisions through report repair into a pause."""
+    old = next((row for row in previous.get("acceptance_criteria", []) if row.get("id") == item), None)
+    new = next((row for row in body.get("acceptance_criteria", []) if row.get("id") == item), None)
+    if not old or not new:
+        return ""
+    notes = []
+    kept = new.get("sources") or []
+    lost = [source for source in old.get("sources") or [] if source not in kept]
+    if old.get("criterion") != new.get("criterion") and not approved and lost:
+        notes.append(
+            f"{item} may be reworded in a plan nobody approved only while it still cites every request quote it "
+            "cited before; it no longer cites "
+            + "; ".join(f"[{source.get('source_id')}] {str(source.get('quote', ''))[:80]!r}" for source in lost)
+            + ". Keep those citations beside any new ones."
+        )
+    marked = lambda method: test_cases.proof(method) != str(method or "").strip()
+    if marked(old.get("verification_method")) and not marked(new.get("verification_method")):
+        notes.append(
+            f"{item}'s verification_method names a proof the runner checks ({str(old['verification_method'])[:60]!r}); "
+            "a revision cannot replace it with an unmarked command. Keep a test:/guard: name for what that test proves, "
+            "and put an aggregate suite run in its own criterion with an ordinary verification_method."
+        )
+    return " ".join(notes)
+
+
 def revision_guard(state: RunState, body, changes, origin):
     """A planner revision may not drop protected text or widen permissions on its own.
 
@@ -218,6 +271,7 @@ def revision_guard(state: RunState, body, changes, origin):
         if raw.get("item") in example_corrections:
             continue
         protected_changes.append(raw)
+    _reject_unchanged_rewordings(previous, body, protected_changes)
     unbacked = [raw for raw in protected_changes if not saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))]
     if unbacked:
         raw = unbacked[0]
@@ -238,7 +292,8 @@ def revision_guard(state: RunState, body, changes, origin):
             and all(row["approved"] and row["proposed"] for row in rewordings)
         ):
             raise rewording.ProtectedRewording(message, rewordings)  # the person is asked (#1691)
-        raise ValueError(message)
+        hint = refusal_hint(previous, body, raw.get("item"), approved=approved)
+        raise ValueError(f"{message}. {hint}" if hint else message)
     declared: dict = {}
     for raw in protected_changes:
         declared.setdefault(raw["item"], []).append(raw)
@@ -247,7 +302,16 @@ def revision_guard(state: RunState, body, changes, origin):
         rows = declared.get(item, [])
         match = next((row for row in rows if row["change"] == kind), None)
         if match is None:
-            raise ValueError(f"Planner revision drops or changes {item!r} without a user-backed contract change")
+            hint = refusal_hint(
+                previous,
+                body,
+                item,
+                approved=protected_history or previous_contract.get("approval_status") == "approved",
+            )
+            raise ValueError(
+                f"Planner revision drops or changes {item!r} without a user-backed contract change"
+                + (f". {hint}" if hint else "")
+            )
         rows.remove(match)
         if kind == "reworded":
             replacement = str(match.get("replacement", "")).strip()
@@ -288,13 +352,8 @@ def revision_guard(state: RunState, body, changes, origin):
             else row
             for row in comparable
         ]
-    signature = lambda row: (
-        row["criterion"],
-        test_cases.proof(row["verification_method"]),
-        row.get("human_review", False),
-    )
-    old_criteria = {row["id"]: signature(row) for row in comparable}
-    new_criteria = {cid: signature(row) for cid, row in new_rows.items()}
+    old_criteria = {row["id"]: _criterion_signature(row) for row in comparable}
+    new_criteria = {cid: _criterion_signature(row) for cid, row in new_rows.items()}
     for cid, text in old_criteria.items():
         if new_criteria.get(cid) == text:
             continue

@@ -579,6 +579,15 @@ def project(state: RunState, need=None):
                 attempt_id=need["retry_report_attempt"],
             )
         )
+    elif need.get("kind") == "resume" and need.get("retry_action") == " ".join(_args("retry_failed_stage", {}) or ()):
+        # A novelty hold whose request is not yet published re-holds on a plain resume (#1770).
+        actions.append(
+            _action(
+                "retry_failed_stage",
+                "Retry the held step once",
+                "Authorize exactly one more attempt of the held step; a plain resume would hold again. Saved attempts and evidence are kept; existing limits, approvals and verification gates still apply.",
+            )
+        )
     elif cause == "PAUSED_REPEATED_FAILURE" and not any(
         state.get(key)
         for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "pending_report_repair")

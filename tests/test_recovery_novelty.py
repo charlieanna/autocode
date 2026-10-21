@@ -2472,7 +2472,15 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         ]
         ordinary = driver.call("ordinary-resume", "--resume-paused")
         self.assertEqual(original + ["astra_resolve"], [row["stage"] for row in self.trace()])
-        authorized = driver.call("authorize-builder", "--resume-paused", "--retry-failed-stage")
+        # A plain resume only held again, so the public view must name the retry itself, and a
+        # client takes the card's own arguments rather than flags it derives (#1770, #730).
+        held = driver.view()
+        need = held["needs"]
+        self.assertEqual("--resume-paused --retry-failed-stage", need.get("retry_action"), need)
+        if need["kind"] == "resume":
+            self.assertIn("--retry-failed-stage", held["next_command"])
+        card = {row["id"]: row for row in held["recovery"]["actions"]}["retry_failed_stage"]
+        authorized = driver.call("authorize-builder", *card["args"])
         view = driver.until_stopped()
         self.assertTrue(
             view["done"],

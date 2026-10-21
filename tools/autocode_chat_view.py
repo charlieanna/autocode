@@ -27,6 +27,10 @@ except ImportError:
     import autocode_requirements_review as requirements_review
 
 
+# The id prefix of the Requirements question the chat is waiting on; the rest names the question.
+REQUIREMENTS_QUESTION = "requirements-question"
+
+
 def notice(public):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
@@ -76,7 +80,11 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         if not spoken:
             spoken = "\n\n".join(q.get("question", "") for q in need.get("questions", []))
         if spoken:
-            messages.append({"id": "requirements-question", "role": "assistant", "text": spoken})
+            # Each question is its own message: a client shows a message id once, so a shared id
+            # hid every Requirements question after the first (#1792).
+            asked = [q.get("id") for q in need.get("questions", [])]
+            key = hashlib.sha256(json.dumps([asked, spoken]).encode()).hexdigest()[:12]
+            messages.append({"id": f"{REQUIREMENTS_QUESTION}-{key}", "role": "assistant", "text": spoken})
     action = None
     # A completed stage record may remain as active_stage: use the public
     # checkpoint, never infer liveness from the presence of a retained attempt.

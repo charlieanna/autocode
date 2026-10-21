@@ -71,6 +71,72 @@ class GuardTests(unittest.TestCase):
             revision_guard(approved, after, removed, "glm_revise")
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
 
+    def test_unchanged_criterion_with_new_sources_is_invalid_metadata_not_a_user_decision(self):
+        for approved in (True, False):
+            with self.subTest(approved=approved):
+                current = contract(approval_status="approved" if approved else "draft")
+                state = {"goal_contract": current}
+                if not approved:
+                    state["contract_history"] = [contract(revision=1, approval_status="approved")]
+                after = copy.deepcopy(current["body"])
+                row = after["acceptance_criteria"][0]
+                row["sources"] = [{"source_id": "feedback:f1", "quote": "Keep the current output."}]
+                changes = [
+                    {
+                        "item": "AC2",
+                        "change": "reworded",
+                        "basis": "agent_proposed",
+                        "answer_id": "",
+                        "replacement": json.dumps(row),
+                    }
+                ]
+                with self.assertRaisesRegex(ValueError, "was not changed.*drop that row") as caught:
+                    revision_guard(state, after, changes, "glm_revise")
+                self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
+                self.assertEqual(APPROVED, after["acceptance_criteria"][0]["criterion"])
+
+    def test_unchanged_plain_text_declaration_is_also_an_invalid_report(self):
+        state = {"goal_contract": contract(approval_status="approved")}
+        after = copy.deepcopy(state["goal_contract"]["body"])
+        changes = [
+            {"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": APPROVED}
+        ]
+        with self.assertRaisesRegex(ValueError, "was not changed.*drop that row") as caught:
+            revision_guard(state, after, changes, "glm_revise")
+        self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
+
+    def test_unchanged_protected_list_entry_does_not_ask_for_a_rewording(self):
+        state = {"goal_contract": contract(approval_status="approved")}
+        after = copy.deepcopy(state["goal_contract"]["body"])
+        changes = [
+            {
+                "item": "Print one total line",
+                "change": "reworded",
+                "basis": "agent_proposed",
+                "answer_id": "",
+                "replacement": "Print one total line",
+            }
+        ]
+        with self.assertRaisesRegex(ValueError, "was not changed.*drop that row") as caught:
+            revision_guard(state, after, changes, "glm_revise")
+        self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
+
+    def test_mixed_real_and_spurious_changes_repair_the_report_before_any_question(self):
+        state = {"goal_contract": contract(approval_status="approved")}
+        after, changes = revised(state["goal_contract"]["body"])
+        changes.append(
+            {
+                "item": "Print one total line",
+                "change": "reworded",
+                "basis": "agent_proposed",
+                "answer_id": "",
+                "replacement": "Print one total line",
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "was not changed.*drop that row") as caught:
+            revision_guard(state, after, changes, "glm_revise")
+        self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
+
 
 class AskTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
