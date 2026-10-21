@@ -73,6 +73,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A spec-first run's `plan` reply to the Requirements review is no longer a source every plan must quote
+  (#1630). A Planner draft that cited every sentence of the brief failed the Plan Reviewer's source-trace seal
+  for leaving the single word `plan` uncited. The reply stays in the run's source log, and contracts that
+  already cite it still verify.
 - Kilo runs on macOS get past the Builder again (#1766). Since #1739 a read-only Kilo checker required Kilo 7.8.3's
   Linux kernel shell, so the Tester was refused on every Mac. On macOS it now keeps Kilo's read tools and shell with
   edits denied, a source change is put back after the stage, and the run says so; Linux keeps the kernel shell.
