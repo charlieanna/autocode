@@ -398,6 +398,32 @@ class RenderedPromptTests(unittest.TestCase):
                 self.assertIn("Follow the provider output contract for reporting.", text)
                 self.assertNotIn("return the report, the runner saves it", text)
 
+    def test_a_resumed_revision_is_told_the_rejection_it_resumes_from(self):
+        state = fixed_state()
+        error = "Changing a protected contract item 'AC9' needs a saved user answer or feedback event"
+        state["failure_history"] = {
+            "k": {
+                "identity": {"stage": "glm_revise", "artifact_hash": "fixed-revision", "error_class": "ValueError"},
+                "count": 2,
+                "attempts": ["1:glm_revise:/run/revise.json"],
+                "last_seen": "2026-10-21T00:00:00Z",
+                "last_error": error,
+                "stage_index": 0,
+            }
+        }
+        with (
+            patch.object(planner, "workspace_inventory", return_value={"files": ["greeting.py"]}),
+            patch.object(planner.artifacts, "verify_predecessor", return_value=None),
+        ):
+            prompt, _ = planner.context(state, "glm_revise", STATE_PATH)
+            instruction, raw = prompt.split("\nCURRENT HANDOFF DATA\n", 1)
+            self.assertEqual({"attempts": 2, "last_error": error}, json.loads(raw)["prior_rejection"])
+            self.assertIn("PRIOR REJECTION", instruction)
+            state["stages"].append({"stage": "glm_revise", "iteration": 1, "output": "/run/revise.json"})
+            later, _ = planner.context(state, "glm_revise", STATE_PATH)
+            self.assertNotIn("PRIOR REJECTION", later)
+            self.assertNotIn("prior_rejection", json.loads(later.split("\nCURRENT HANDOFF DATA\n", 1)[1]))
+
     def test_joint_planning_handoff_is_compact_and_preserves_exact_task_values(self):
         state = fixed_state()
         literal = 'Say "hello" to 世界.\nKeep the second line and \t tab.'

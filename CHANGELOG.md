@@ -18,6 +18,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A planning revision no longer loops between the reviewer's blocking concerns and a protected draft contract.
+  The Planner may correct or drop its own `agent_proposed` assumption without declaring a permission change, and an
+  unapproved criterion it may reword may correct its unmarked verification in the same revision; a runner-checked
+  proof still cannot become a plain command. Text saved from the person's answer, feedback or delegation stays
+  theirs: rewording or dropping it is refused and, even in an unapproved draft, becomes one question naming the
+  proposed text (or that the assumption is dropped) instead of a generic pause and report repair. A resumed stage
+  now carries the rejection it is resuming from in its handoff, and the planning prompts state the same allowances
+  the guard enforces instead of telling the Planner to ask the person about its own draft wording.
+
 - A complete Requirements handoff and its repair now agree on `source_refs` (#1822). A handoff that states
   behaviors or acceptance tests must cite at least one existing workspace file; an empty list is valid only while
   it asks clarifying questions, and runner-owned paths such as `.autocode/` are never citable. The Requirements
