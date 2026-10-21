@@ -782,34 +782,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../program/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Large projects
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -2388,10 +2360,10 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
-code outside the runner (the scenario harness, <code>autocode program</code>, the
+code outside the runner (the scenario harness, <code>autocode issue</code>, the
 <a href="../agent-step/">coding-agent skill and MCP server</a>, and the planned
 architecture and multi-component layer) to control a run. Such code must not import
 runner internals such as <code>autocode.py</code> or read <code>state.json</code> directly; that file has
@@ -2502,8 +2474,8 @@ and launches no Builder; adding <code>--test-root</code> on resume cannot repair
 launch-only setting. A valid older rootless run needs no root flag to edit its
 plan. The recovery card, progress line and issue/finder guidance distinguish
 these two cases without promising that an unchanged resume repairs either one.</p>
-<p>A caller that keeps each invocation's output, as <code>autocode program</code> keeps a
-workstream's <code>stdout.log</code>, <code>stderr.log</code> and exit code, reads it from the client:</p>
+<p>A caller that keeps each invocation's output, such as its <code>stdout.log</code>, <code>stderr.log</code>
+and exit code, reads it from the client:</p>
 <ul>
 <li><code>TaskRun.last_advance</code> is the <code>subprocess.CompletedProcess</code> of the latest call that
   starts or advances the run (start, advance, resume and retries), also when AutoCode
@@ -2801,7 +2773,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -2814,7 +2786,7 @@ table after the intended outcome, or as <code>None recorded</code> for a run wit
 (<a href="../execution/#who-approved">Who approved</a>). Review and discuss reports, which have no approval
 step, have no <code>approvals</code> field and no such section, even when the status view lists a resume.
 Neither do verification reports, nor reports written before AutoCode listed approvals, so
-older pairs still authenticate. A program or components report lists its child runs' approvals
+older pairs still authenticate. A components report lists its child runs' approvals
 (below). An older build, bug-fix or design report
 gains the section when AutoCode saves the completed run again; reading its status does not.
 A task report whose approved plan is in the status view also has <code>plan.goal_hash</code> and
@@ -2859,9 +2831,7 @@ cannot relabel their prior attempts live. The scenario harness declares fake,
 live or mixed according to the route it actually launches. Tests using a fixture
 must pass <code>--evidence-provenance fake</code>. Human plan approval remains a separate
 decision.</p>
-<p>Completed programs publish the pair beside their owned program state; their
-public <code>program run</code>/<code>program status</code> summaries expose <code>evidence_report</code> metadata.
-Completed component builds publish it beside <code>.autocode-components/manifest.json</code>;
+<p>Completed component builds publish it beside <code>.autocode-components/manifest.json</code>;
 the component CLI summary and <code>MultiComponentBuild.evidence_report()</code> expose it.
 Aggregate documents reference authenticated child <code>TaskRun.evidence_report()</code>
 documents and retain simulated runtime/deployment scope and unknown totals.
@@ -2873,10 +2843,10 @@ for later integration checks or runtime smoke.
 An aggregate also lists, under <code>approvals</code>, the approvals each child's own report lists
 (#722): child by child, in its <code>children</code> order, each row as that report has it plus <code>child</code>,
 the child's id. Its Markdown shows them as an Approvals table with a Child column, and says
-what it leaves out: a program agreement (<code>autocode program approve</code>) records no approver, a
-program does not list approvals of a plan run it was derived from (<code>autocode program derive</code>),
-and a components run does not list approvals of the architecture it was built from. Those runs'
-own reports list them. A child whose
+what it leaves out: a components run does not list approvals of the architecture it was built
+from. That run's own report lists them. A program report an older checkout wrote (before
+<code>autocode program</code> moved to the <code>archive/program</code> branch) also says that its agreement records
+no approver and that it does not list the approvals of the plan run it was derived from. A child whose
 report lists no approvals, because it was written before AutoCode listed them, is named in the
 aggregate's not-verified list rather than taken to have recorded none. When no child's report
 lists approvals, the aggregate has no <code>approvals</code> and no such section, as before.
@@ -2996,11 +2966,6 @@ TaskRun consume it. Cross-run coordinators use public child reports, never child
 <tr>
 <td>Plan feedback</td>
 <td><code>autocode --feedback TEXT</code></td>
-<td>0 saved, 2 rejected</td>
-</tr>
-<tr>
-<td>A program's correction of the displayed plan (<code>TaskRun.guide_plan(text, token)</code>)</td>
-<td><code>autocode --program-guidance TEXT --review-token -</code> (reads <code>AUTOCODE_REVIEW_TOKEN</code>); saved as the program's, never as user feedback</td>
 <td>0 saved, 2 rejected</td>
 </tr>
 <tr>
@@ -3310,7 +3275,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -3542,9 +3507,8 @@ normally the user's, but a small bug fix approved under the workflow policy the 
 agreed to (the short path for small fixes, off for now; see
 <a href="../workflow/#bug-fixes">Bug fixes</a>) shows it too, and the view does not say which.
 <code>displayed_plan</code> is what a person is asked to approve; <code>approved_contract</code> is what
-was approved. A coordinating layer such as
-<code>autocode program</code> reads a child run's approved criteria here (<code>program derive</code> and
-the inherited-requirement check), never from <code>state.json</code>. Like <code>displayed_plan</code>, it
+was approved. A coordinating layer reads a child run's approved criteria here, never
+from <code>state.json</code>. Like <code>displayed_plan</code>, it
 is neither execution permission nor completion proof.</p>
 <p><code>approvals</code> lists every plan and review approval, completion acceptance, goal edit and
 pause-releasing resume the run recorded, oldest first (#722): <code>kind</code> (<code>plan</code>, <code>review</code>,

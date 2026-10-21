@@ -782,34 +782,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../program/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Large projects
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -2078,7 +2050,7 @@
 
 
 <h1 id="github-issues-to-pull-requests">GitHub issues to pull requests<a class="headerlink" href="#github-issues-to-pull-requests" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/README.md">← Back to README</a></p>
 <p><code>autocode-issue</code> takes a GitHub issue, runs AutoCode on it in a branch of its
 own, and turns the finished run into a pull request whose body carries the
 run's evidence. It sits on top of the <a href="../task-run/">task-run interface</a> and
@@ -2104,6 +2076,13 @@ autocode-issue pr #812 --open                  # push the branch and open a draf
 </code></pre>
 <p><code>start</code> and <code>status</code> print <code>WT</code>, <code>RUN</code> and <code>TOKEN</code> for you, with every command
 filled in.</p>
+<p><strong>In a terminal, <code>start</code> and <code>continue</code> open the run's chat</strong> (<code>autocode chat
+--workspace WT --run-dir RUN</code>) whenever the run needs you: answer its questions,
+give plan feedback and approve the plan there, as in any other chat. Leave the
+chat and the commands above still work. <code>--no-chat</code> keeps them alone (a script or
+CI), and <code>--chat</code> asks for the chat even when the output is not a terminal. The
+run also appears among the project's own chats (<code>autocode runs</code>, the terminal
+chat's <code>/runs</code>), under its worktree.</p>
 <ul>
 <li><strong>ISSUE</strong> can be a URL, <code>OWNER/REPO#N</code>, or <code>#N</code> for the repository behind
   <code>--remote</code> (default <code>origin</code>).</li>
@@ -2240,8 +2219,8 @@ that holds the merged file, so it shows only what changed since.</p>
 <li><strong>GitHub Enterprise:</strong> set <code>AUTOCODE_GITHUB_API=https://HOST/api/v3</code>.</li>
 </ul>
 <h2 id="label-triggered-action-example">Label-triggered Action example<a class="headerlink" href="#label-triggered-action-example" title="Permanent link">&para;</a></h2>
-<p><a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/examples/github-issue/issue.yml">The example workflow</a> and
-<a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
+<p><a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/examples/github-issue/issue.yml">The example workflow</a> and
+<a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/examples/github-issue/issue_action.py">its handler</a> use the same issue CLI
 and public task-run interface. Applying the configured label starts a run and
 posts its current status with exact human commands. Applying it again
 reattaches to the same issue worktree and run, without advancing it or approving
@@ -2445,10 +2424,10 @@ may still change after that read; the submitted review's <code>commit_id</code> 
 the captured reviewed head. Repeating <code>--post</code> creates a separate review.
 GitHub posting tokens and Git authentication helper/header values are blanked
 at the TaskRun child boundary; normal provider configuration stays available.</p>
-<p>The companion <a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/examples/github-review/review.yml">pull request Action</a> uses
+<p>The companion <a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/examples/github-review/review.yml">pull request Action</a> uses
 trusted installed AutoCode/provider tooling on an explicitly configured runner.
 It reviews without posting by default, and keeps its result as a workflow
-artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/examples/github-review/README.md">its setup</a>; never install
+artifact. Follow <a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/examples/github-review/README.md">its setup</a>; never install
 AutoCode or provider tooling from the PR with secrets available.</p>
 
 

@@ -782,34 +782,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../program/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Large projects
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1934,12 +1906,12 @@
 
 
 <h1 id="task-type-scenarios">Task-type scenarios<a class="headerlink" href="#task-type-scenarios" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/README.md">← Back to README</a></p>
 <p>The runner must handle more than one kind of engineering request. This catalogue
 freezes one scenario per request type, each with an independent oracle that scores
 the delivered workspace. The oracle never reads the runner's own reports and never
 uses a candidate's green tests as the sole verdict. Runner honesty scenarios (crash, budget, lying
-Builder) live separately under <a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/test-scenarios/NOTES.md"><code>test-scenarios/</code></a>; the
+Builder) live separately under <a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/test-scenarios/NOTES.md"><code>test-scenarios/</code></a>; the
 complexity ladder they both serve is the <a href="../testing-plan/">progressive testing plan</a>.</p>
 <table>
 <thead>
@@ -1987,9 +1959,8 @@ complexity ladder they both serve is the <a href="../testing-plan/">progressive 
 unchanged. <code>python3 tools/live_trial.py --list</code> prints the whole registry.</p>
 <h2 id="where-the-pieces-are">Where the pieces are<a class="headerlink" href="#where-the-pieces-are" title="Permanent link">&para;</a></h2>
 <ul>
-<li><code>tools/task_scenarios.py</code>: seeds, briefs, oracles, and for <code>PROGRAM-01</code> a ready
-  program manifest (<code>program_manifest</code>) so the same scenario can run as one run with
-  parallel milestone Builders or as <a href="../program/"><code>autocode program</code></a>.</li>
+<li><code>tools/task_scenarios.py</code>: seeds, briefs and oracles. <code>PROGRAM-01</code> runs as one run
+  with parallel milestone Builders.</li>
 <li><code>tools/scenario_references.py</code>: a handwritten reference delivery per scenario. They
   are the oracle's positive control and a starting point for a scripted fixture
   provider; they are not model output.</li>
@@ -2009,7 +1980,7 @@ unchanged. <code>python3 tools/live_trial.py --list</code> prints the whole regi
 <pre><code class="language-sh">python3 -m unittest tests.test_scenario_oracles
 </code></pre>
 <p>Score a workspace you delivered by any route (a manual run, a dashboard run, a
-program's integration worktree). The report lands in the evidence bundle:</p>
+task worktree). The report lands in the evidence bundle:</p>
 <pre><code class="language-sh">python3 tools/live_trial.py BUGFIX-01 --score-only /path/to/delivered/workspace
 </code></pre>
 <p>Drive a scenario through the real CLI. The driver seeds the workspace, launches
@@ -2022,37 +1993,12 @@ python3 tools/live_trial.py LIVE-01 --profile fixture --workspace /tmp/trial
 # Authorized live trial of a task type.
 python3 tools/live_trial.py FEATURE-01 --profile glm53-mimo --workspace /tmp/trial \
   --i-authorize-live-model-spend
-
-# The large requirement as a program: each workstream is its own reviewed run.
-python3 tools/live_trial.py PROGRAM-01 --mode program --profile glm53-mimo \
-  --workspace /tmp/trial --i-authorize-live-model-spend
 </code></pre>
 <p>Exit codes and verdicts follow <a href="../testing/#live-trial-results">testing</a>:
 <code>PASS</code> (0), <code>HONEST_BLOCKER</code> (2, a recorded pause rather than delivered work),
 <code>FALSE_COMPLETE</code>/<code>FAIL</code>/<code>ERROR</code> (1). <code>--score-only</code> exits 2 for <code>DEFERRED</code>.</p>
-<p><code>--i-authorize-live-model-spend</code> never authorizes deployment. The driver's separate
-<code>--authorize-deployment</code> flag is required to schedule deployment workstreams;
-<code>PROGRAM-01</code> generates descriptors as ordinary code and does not need that flag.</p>
-<p>In program mode the first gate is the program agreement (<code>WAITING_AGREEMENT_APPROVAL</code>,
-see <a href="../program/">programs</a>). As with plans, only the offline fixture profile approves
-it; a live profile stops there, an <code>HONEST_BLOCKER</code>, until a person reads it with
-<code>autocode program show</code> and approves its exact token. The driver also stops at any other
-program-level pause (<code>PAUSED_INTEGRATION_CHECK</code>, <code>PAUSED_INHERITANCE</code>, ...), which the
-controller raises again before it advances any workstream, except
-<code>PAUSED_MERGE_CONFLICT</code>: a conflict holds only its own workstream, so the driver keeps
-serving the other workstreams' gates.</p>
-<p>The scenario harness has a program mode of its own, separate from <code>live_trial.py</code>: a
-catalog scenario with <code>category = "program"</code> is driven through <code>autocode program plan</code>,
-<code>derive</code>, <code>show</code>, <code>approve</code> and <code>run</code> passes, with real workstream runs. The
-<code>program-notes-cli</code> scenario covers the walking skeleton, two parallel workstreams, an
-accepted interface change request that re-checks the producer and its consumers, and
-the final check by journey; its broken variants are caught by the cumulative checks
-(<code>HONEST_BLOCKER</code>) and only by the hidden journey test (<code>FALSE_COMPLETE</code>):</p>
-<pre><code class="language-sh">.venv/bin/python scenarios/run.py run program-notes-cli --fake
-</code></pre>
-<p>Unlike <code>live_trial.py</code>, that driver approves the agreement and every workstream's plan
-under a live profile too, as its single-run driver approves the plans it is shown. See
-<a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/scenarios/README.md#programs">scenarios/README.md, Programs</a>.</p>
+<p><code>--i-authorize-live-model-spend</code> never authorizes deployment. <code>PROGRAM-01</code> generates
+descriptors as ordinary code, and nothing is deployed.</p>
 <h2 id="when-a-scenario-counts-as-reliably-passing">When a scenario counts as reliably passing<a class="headerlink" href="#when-a-scenario-counts-as-reliably-passing" title="Permanent link">&para;</a></h2>
 <p>The live qualification rule (#110, as practised): a rung passes only with
 <strong>3 fresh live PASS runs in a row on one profile, with zero <code>FALSE_COMPLETE</code></strong>,
@@ -2071,16 +2017,13 @@ comparison); <code>tests/test_catalogue_t12.py</code> records the remaining gap.
 <li>All five task types were attempted on 2026-09-26 with the <code>glm53-mimo</code> profile.
   None delivered a completed product within the recorded budgets: planning and
   report repair exhausted the attempts. The registry records <code>ERROR</code>, not PASS;
-  <a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/VALIDATION.md">VALIDATION.md</a> distinguishes external interruptions from enforced
+  <a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/VALIDATION.md">VALIDATION.md</a> distinguishes external interruptions from enforced
   deadlines, includes independent post-stop scores, and records source/driver identities.
   These bounded failures are not a ranking of the models or proof that the tasks
   cannot be solved. Offline controls still cover only references and selected defects.
   A later BUGFIX-01 retest with stable report-repair inputs reached the Builder but
   still exhausted its 1,200-second budget without delivery; its baseline remains ERROR.</li>
-<li>One case per task type is a capability example, not a general pass rate. Comparing
-  <code>PROGRAM-01</code> in run and program modes reuses the task and scorer, but program mode
-  additionally supplies a handwritten decomposition and has separate child budgets
-  and approvals. It is a workflow comparison, not an isolated measurement of parallelism.</li>
+<li>One case per task type is a capability example, not a general pass rate.</li>
 <li>The scripted fixture provider implements only the greeting scenario, so <code>--profile
   fixture</code> exercises the harness for <code>LIVE-01</code> only. Other scenarios need a live profile
   or <code>--score-only</code> on a delivered workspace.</li>
@@ -2097,13 +2040,7 @@ comparison); <code>tests/test_catalogue_t12.py</code> records the remaining gap.
   assertion quality or candidate-test coverage. Independent HTTP checks decide the
   sampled behavior even when the candidate tests are green no-ops.</li>
 <li><code>PROGRAM-01</code> checks compose service names, not image builds, networking or deployability.
-  Its <code>deploy</code> workstream is <code>kind: code</code> because it writes descriptors only; it still
-  forbids running Docker or reaching external systems. Integration depends on that
-  descriptor workstream so final verification includes its files. Nothing is deployed.
-  Its <code>contracts</code> workstream is the walking skeleton: the contracts plus every process
-  answering <code>/health</code> and the catalog listed through the gateway, verified by
-  <code>tests/test_skeleton.py</code> (the manifest's program check) before any other workstream
-  starts. The oracle does not score that file.</li>
+  Its brief asks for descriptors that are never executed in the task. Nothing is deployed.</li>
 <li>These oracles execute candidate Python locally; they are not a security sandbox.
   Subprocess deadlines and process-group cleanup bound ordinary hangs and clean up
   ordinary descendants, but do not contain hostile code or children that detach into
@@ -2113,7 +2050,7 @@ comparison); <code>tests/test_catalogue_t12.py</code> records the remaining gap.
   token. That is test automation, not a person's judgement; do not count a driven run
   as human acceptance where a criterion requires human review.</li>
 </ul>
-<p>See also: <a href="../program/">Program workstreams</a> · <a href="../testing-plan/">Testing plan</a> · <a href="../testing/">Testing</a></p>
+<p>See also: <a href="../testing-plan/">Testing plan</a> · <a href="../testing/">Testing</a></p>
 
 
 

@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://charlieanna.github.io/autocode/latest/cli/">
       
       
-        <link rel="prev" href="../program/">
+        <link rel="prev" href="../task-lanes/">
       
       
         <link rel="next" href="../interventions/">
@@ -782,34 +782,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../program/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Large projects
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1114,17 +1086,6 @@
     <span class="md-ellipsis">
       
         Advanced run inputs
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#programs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Programs
       
     </span>
   </a>
@@ -2313,17 +2274,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#programs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Programs
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#figma-ui" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2454,7 +2404,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2520,10 +2470,6 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 <tr>
 <td><code>autocode components</code></td>
 <td>Build the components of an architecture record in parallel and combine them (see <a href="../task-lanes/#building-components-of-an-architecture-in-parallel">Task lanes</a>); with <code>--integrate TARGET --run-local</code>, also start the combined system with Docker Compose and run its smoke check (see <a href="../task-lanes/#running-the-combined-system-locally">Running the combined system locally</a>).</td>
-</tr>
-<tr>
-<td><code>autocode program plan\|derive\|show\|approve\|run\|status\|request-change\|resolve-change</code></td>
-<td>Plan a large requirement, derive a workstream manifest from the approved plan, read and approve that manifest as the program agreement by exact token, run workstreams in parallel worktrees merged onto an integration branch, and raise or reject interface change requests (see <a href="../program/">Programs</a>).</td>
 </tr>
 <tr>
 <td><code>autocode dashboard</code></td>
@@ -2599,7 +2545,7 @@ controls. Role/model selection is in <a href="../models/">Models</a>; provider s
 </tr>
 <tr>
 <td><code>autocode completion bash\|zsh\|fish</code></td>
-<td>Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (<code>output read</code>, <code>arena run</code>, <code>program approve</code>) and their options, or its argument's choices (<code>completion bash</code>). <code>capture</code>, <code>registry</code>, <code>intervention</code> and <code>dashboard</code> complete only <code>--help</code>. Load it with <code>source &lt;(autocode completion bash)</code> (zsh the same, after <code>compinit</code>; fish <code>autocode completion fish \| source</code>), or save it; see <a href="../install/#shell-completion">Shell completion</a>.</td>
+<td>Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (<code>output read</code>, <code>arena run</code>) and their options, or its argument's choices (<code>completion bash</code>). <code>capture</code>, <code>registry</code>, <code>intervention</code> and <code>dashboard</code> complete only <code>--help</code>. Load it with <code>source &lt;(autocode completion bash)</code> (zsh the same, after <code>compinit</code>; fish <code>autocode completion fish \| source</code>), or save it; see <a href="../install/#shell-completion">Shell completion</a>.</td>
 </tr>
 <tr>
 <td><code>autocode models [--provider NAME] [--workspace PATH] [--json] [--prices] [--selection]</code></td>
@@ -2662,7 +2608,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -2803,7 +2749,7 @@ as if you had passed <code>--run-dir RUN</code>.</p>
 <tbody>
 <tr>
 <td><code>autocode</code>, <code>autocode resume</code>, <code>--resume-paused</code> and its <code>--retry-*</code> companions, <code>--unit</code></td>
-<td>The only unfinished run. A finished run (<code>TASK_COMPLETE</code>, or stopped) is never relaunched this way, and a run that <code>autocode program</code> or <code>autocode tasks</code> drives is left to that command.</td>
+<td>The only unfinished run. A finished run (<code>TASK_COMPLETE</code>, or stopped) is never relaunched this way, and a run that <code>autocode tasks</code> drives is left to that command.</td>
 </tr>
 <tr>
 <td><code>--status</code>, <code>--explain</code>, <code>--dry-run</code>, <code>autocode status</code>, <code>autocode explain</code></td>
@@ -2811,11 +2757,11 @@ as if you had passed <code>--run-dir RUN</code>.</p>
 </tr>
 <tr>
 <td><code>--show-goal</code>, <code>--answer</code>, <code>--approve-goal</code>, <code>--feedback</code> and the other user actions</td>
-<td>The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one.</td>
+<td>The only unfinished run, preferring one no task flow drives. These save the run, so they never pick a finished one.</td>
 </tr>
 <tr>
 <td><code>--follow-up</code></td>
-<td>The most recently completed run, preferring one no program or task flow drives. Refused when a run started after it finished has not finished: name the run with <code>--run-dir</code>.</td>
+<td>The most recently completed run, preferring one no task flow drives. Refused when a run started after it finished has not finished: name the run with <code>--run-dir</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -2861,10 +2807,6 @@ as if you had passed <code>--run-dir RUN</code>.</p>
 <td><code>checkpoint --expected-token</code></td>
 <td><code>AUTOCODE_CHECKPOINT_EXPECTED_TOKEN</code></td>
 </tr>
-<tr>
-<td><code>program approve --token</code></td>
-<td><code>AUTOCODE_PROGRAM_APPROVAL_TOKEN</code></td>
-</tr>
 </tbody>
 </table>
 <p>Prefer this on shared machines: Linux exposes <code>/proc/&lt;pid&gt;/cmdline</code> to every local user, while
@@ -2872,7 +2814,7 @@ as if you had passed <code>--run-dir RUN</code>.</p>
 history. The environment variable alone never authorizes anything — the flag must still be
 present. <code>TaskRun</code>, dashboard actions and the trial driver pass these tokens through
 each CLI child's environment. Their process arguments and saved command records contain
-<code>-</code>. Literal CLI tokens remain supported. The controller always removes all nine
+<code>-</code>. Literal CLI tokens remain supported. The controller always removes all eight
 variables before launching a provider or test command, even if named in <code>AUTOCODE_PASS_ENV</code>.
 Programmatic command builders require full token option names; abbreviated token
 options are refused before recording or launch.</p>
@@ -2933,10 +2875,6 @@ not approve a plan or start a model.</p>
 <tr>
 <td><code>--reject-assumption A1 --review-token 'r3:&lt;hash&gt;'</code></td>
 <td>Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval.</td>
-</tr>
-<tr>
-<td><code>--program-guidance '…' --review-token 'r3:&lt;hash&gt;'</code></td>
-<td>A program's correction of the exact displayed plan, such as "this plan drops inherited requirement C2" (<a href="../program/">Program</a>). Saved as the program's guidance, never as your feedback: it is no requirement the next plan must quote, no decision basis, and starts no clarification episode. Returns the run to requirements and requires fresh approval. Refused for a stale token or a plan not awaiting approval.</td>
 </tr>
 <tr>
 <td><code>--show-goal</code></td>
@@ -3240,7 +3178,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3404,7 +3342,7 @@ stays at the same stop; an <code>--as</code> name never counts. Without it anyon
 sets or overrides it. It guards against an approval under the wrong configured Git identity,
 not against someone who deliberately sets a listed address (Git's environment variables or a
 repository-local <code>user.email</code> change what is checked): it is not authentication. A replay
-never takes it, and <code>autocode program</code> and <code>autocode components</code> child runs read it from their
+never takes it, and <code>autocode components</code> child runs read it from their
 own worktree, so only a committed file reaches them
 (<a href="../execution/#required-approver">Required approver</a>).</p>
 <p><code>serve</code> has no flag either: the command that runs the project's development server, with
@@ -3538,76 +3476,6 @@ sharing, the versioned schema and the two-run behavior.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="programs">Programs<a class="headerlink" href="#programs" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Command or flag</th>
-<th>Meaning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>program plan BRIEF --workspace DIR</code></td>
-<td>Plan the request with the ordinary planning unit (<code>--unit autoplanner</code>, in place) and a program preamble. <code>--engine</code> and unrecognized flags go to that run.</td>
-</tr>
-<tr>
-<td><code>program derive --run-dir RUN --output program.json</code></td>
-<td>Write the manifest from the run's <code>approved_contract</code>; refuses unapproved plans. <code>--workspace</code> names the plan run's project, <code>--name</code> the program; without <code>--output</code> it prints the manifest.</td>
-</tr>
-<tr>
-<td><code>program show MANIFEST --workspace DIR</code></td>
-<td>Print the program agreement and the exact token (<code>a&lt;revision&gt;:&lt;digest&gt;</code>) that approves its pending revision, or the approved revision. Saves nothing.</td>
-</tr>
-<tr>
-<td><code>program approve MANIFEST --workspace DIR --token TOKEN</code></td>
-<td>Approve that agreement revision; refuses any other token. No workstream starts before the first approval, and every later revision is approved the same way.</td>
-</tr>
-<tr>
-<td><code>program run MANIFEST --max-parallel N</code></td>
-<td>Concurrent workstreams (default 2).</td>
-</tr>
-<tr>
-<td><code>program run MANIFEST --authorize-deployment</code></td>
-<td>Allow <code>deployment</code> workstreams to start or resume; their runs still need plan approval. Descriptor generation is ordinary <code>code</code>.</td>
-</tr>
-<tr>
-<td><code>program run MANIFEST --retry-workstream ID</code></td>
-<td>Explicitly retry a failed workstream in its existing worktree/checkpoint, without bypassing child gates. Repeat for multiple failed workstreams.</td>
-</tr>
-<tr>
-<td><code>program run MANIFEST --check-timeout S</code></td>
-<td>Seconds each cumulative check may take after a merge (default 900).</td>
-</tr>
-<tr>
-<td><code>program run MANIFEST --engine codex\|opencode</code></td>
-<td>Engine for the workstream runs it starts; a workstream's own <code>engine</code> wins.</td>
-</tr>
-<tr>
-<td><code>program run MANIFEST --dry-run</code></td>
-<td>Validate and preview without creating branches or worktrees.</td>
-</tr>
-<tr>
-<td><code>program status MANIFEST --workspace DIR</code></td>
-<td>The same summary as <code>run</code>, read from the saved state and each unfinished child's status view, without launching or saving anything.</td>
-</tr>
-<tr>
-<td><code>program request-change MANIFEST --workspace DIR --interface ID --by WORKSTREAM --reason TEXT [--proposal TEXT]</code></td>
-<td>Open a change request (<code>CR-N</code>) on a shared interface; its producer, its consumers and the final check (for an interface with no producer, every workstream) neither start, resume nor merge while it is open, and the program is not <code>COMPLETE</code> while any request is open.</td>
-</tr>
-<tr>
-<td><code>program resolve-change MANIFEST --workspace DIR --request CR-N --reject --reason TEXT</code></td>
-<td>Reject an open change request. Accepting one is an approved agreement revision that publishes the interface's next version.</td>
-</tr>
-</tbody>
-</table>
-<p>Every program command except <code>derive</code> takes <code>--workspace</code> (default: the current
-directory), the root of the project's Git checkout. Unrecognized <code>program run</code> flags
-(for example model overrides) are passed through, with <code>--workflow build</code>, to every
-workstream run that pass starts; a resumed run keeps its saved settings. <code>program run</code>
-exits 0 only when the program is <code>COMPLETE</code>.</p>
-<p>Program manifests support <code>code</code>, <code>integration</code>, and <code>deployment</code>. UI workstreams are
-deferred until the UI runner supports checkpoint recovery; use <code>autocode ui</code> separately.</p>
 <h3 id="figma-ui">Figma / UI<a class="headerlink" href="#figma-ui" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3843,46 +3711,6 @@ also accepts <code>-h</code> / <code>--help</code>.</p>
 <td>Plan/design rework limits, preview, implementation handoff and noninteractive presentation.</td>
 </tr>
 <tr>
-<td><code>autocode program</code></td>
-<td><code>--workspace</code></td>
-<td>Project for program commands; <code>derive</code> defaults to its plan run's project.</td>
-</tr>
-<tr>
-<td><code>autocode program plan</code></td>
-<td><code>--engine</code></td>
-<td>Engine for the ordinary planning run; additional run flags pass through.</td>
-</tr>
-<tr>
-<td><code>autocode program derive</code></td>
-<td><code>--run-dir</code>, <code>--output</code>, <code>--name</code></td>
-<td>Approved planning run, optional manifest output and program name.</td>
-</tr>
-<tr>
-<td><code>autocode program approve</code></td>
-<td><code>--token</code></td>
-<td>Exact displayed agreement token; <code>-</code> reads its paired environment variable.</td>
-</tr>
-<tr>
-<td><code>autocode program run</code></td>
-<td><code>--max-parallel</code>, <code>--authorize-deployment</code>, <code>--engine</code>, <code>--retry-workstream</code>, <code>--check-timeout</code>, <code>--dry-run</code></td>
-<td>Parallelism, deployment authorization, child engine, explicit retries, cumulative check deadline and preview; additional run flags pass through.</td>
-</tr>
-<tr>
-<td><code>autocode program status</code></td>
-<td><code>--max-parallel</code>, <code>--authorize-deployment</code>, <code>--engine</code>, <code>--retry-workstream</code>, <code>--check-timeout</code>, <code>--dry-run</code></td>
-<td>Accepted compatibility options; status remains read-only and starts no workstream.</td>
-</tr>
-<tr>
-<td><code>autocode program request-change</code></td>
-<td><code>--interface</code>, <code>--by</code>, <code>--reason</code>, <code>--proposal</code></td>
-<td>Interface, requesting workstream, reason and optional proposed change.</td>
-</tr>
-<tr>
-<td><code>autocode program resolve-change</code></td>
-<td><code>--request</code>, <code>--reject</code>, <code>--reason</code></td>
-<td>Reject the named change request with the recorded reason.</td>
-</tr>
-<tr>
 <td><code>autocode compare-baseline</code></td>
 <td><code>--baseline-root</code>, <code>--candidate-root</code>, <code>--normalize-dependency-prefixes</code>, <code>--output</code></td>
 <td>Source roots, explicit dependency-prefix normalization and comparison-result output; see <a href="../execution/#baseline-comparison">baseline comparison</a>.</td>
@@ -4115,7 +3943,7 @@ AutoCode's own arguments but refuses every decision or recovery flag (<code>--an
 <code>--accept-completion</code>, <code>--close-finding</code>, <code>--close-reason</code>, <code>--resolver-response</code>, …, including
 abbreviations), the command word <code>resume</code> (on a paused or blocked run it stands for
 <code>--resume-paused</code>; a bare relaunch still continues a run that is not paused)
-and the <code>intervention</code>, <code>tasks</code>, <code>ui</code>, <code>program</code>, <code>registry</code>, <code>capture</code> and <code>compare-baseline</code>
+and the <code>intervention</code>, <code>tasks</code>, <code>ui</code>, <code>registry</code>, <code>capture</code> and <code>compare-baseline</code>
 subcommands. It forces <code>--no-chat</code> with no stdin, and when AutoCode stops it prints
 <code>--status</code> and tells the caller to report and stop. Exit codes are AutoCode's.</p>
 <p>When a run completes, the wrapper prints the command to analyze it:
@@ -4127,7 +3955,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/5ee343561d25bca6933c2a52dd76cdfd5c6435a0/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/4807e1f6f56649b37e8abff01ff8e3a40f70b757/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
