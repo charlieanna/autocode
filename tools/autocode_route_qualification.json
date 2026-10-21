@@ -108,9 +108,9 @@
       {
         "model": "zai-coding-plan/glm-5.3",
         "routes": ["zai-coding-plan/glm-5.3", "zhipuai-coding-plan/glm-5.3", "kilo/z-ai/glm-5.3"],
-        "effort": "high",
+        "effort": "medium",
         "provenance": "qualified",
-        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py)."
+        "evidence": "Validated MiMo building work in the live glm53-mimo and glm-mimo-kilo profiles (scenarios/harness/profiles.py). Medium since 2026-10-21 (owner decision): on ladder-07 on Kilo the GLM Tester at medium took 242 s with 14.9k reasoning tokens against 269-468 s and 23.1k at high, and the run passed 8/8 with no send-back."
       }
     ],
     "completion": [

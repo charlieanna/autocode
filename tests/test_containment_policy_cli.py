@@ -70,7 +70,9 @@ class UncontainedToolsFlow(unittest.TestCase):
             self.assertIs(True, launched[stage]["uncontained_tools"], stage)
             self.assertIsNone(launched[stage]["tool_containment"])
             self.assertIn("--allow-uncontained-tools", launched[stage]["isolation"])
-        self.assertNotIn("uncontained_tools", launched["recognize_workflow"])  # planning is never contained
+        # Planning stages have the same shell (owner decision 2026-10-21), so the opt-out covers them too.
+        self.assertIs(True, launched["recognize_workflow"]["uncontained_tools"])
+        self.assertIsNone(launched["recognize_workflow"]["tool_containment"])
         self.assertEqual("uncontained_user_accepted", self.status_view(run)["tool_containment"])
 
     def test_a_saved_run_without_the_opt_out_is_refused_on_resume_until_the_user_accepts(self):
@@ -103,24 +105,27 @@ class UncontainedToolsFlow(unittest.TestCase):
         unqualified = self.entry
         self.entry = fixture_cli.entrypoint(self.cli, qualified_at_setup=True)
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
-        self.launch(["Build a greeting tool", "--no-chat"], 2)
-        run, _ = self.saved()
-        self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
-        self.launch(["--run-dir", str(run), "--no-chat"], 2)
-        self.launch(["--run-dir", str(run), "--approve-goal", self.saved()[1]["displayed_goal"]], 0)
-        paused = self.launch(["--run-dir", str(run), "--no-chat"], 2)
-        _, state = self.saved()
+        # Planning stages now use the same boundary (owner decision 2026-10-21), so the loss pauses the first
+        # stage, before any planning spend, rather than the Builder after an approved plan.
+        paused = self.launch(["Build a greeting tool", "--no-chat"], 2)
+        run, state = self.saved()
         self.assertEqual("PAUSED_TOOL_CONTAINMENT", state["status"], paused.stderr)
         self.assertIn("Native tool boundary was not established", paused.stdout + paused.stderr)
         self.assertIn(FLAG, paused.stdout + paused.stderr)
-        self.assertFalse(any(record["stage"] == "terra" for record in state["stages"]))
+        # Only the runner's model-access probes ran; no stage was launched.
+        self.assertEqual({"model_preflight"}, {record["stage"] for record in state["stages"]})
         self.assertEqual("contained", self.status_view(run)["tool_containment"])
         # Resumed where setup now sees the change: refused, unchanged, until the user accepts.
         self.entry = unqualified
         before = (run / "state.json").read_bytes()
         self.assert_refused(self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2))
         self.assertEqual(before, (run / "state.json").read_bytes(), "a refusal changes nothing")
-        self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", FLAG], 0)
+        # Accepting resumes planning where it paused, then the run plans, is approved and builds as usual.
+        self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", FLAG], 2)
+        self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
+        self.launch(["--run-dir", str(run), "--no-chat"], 2)
+        self.launch(["--run-dir", str(run), "--approve-goal", self.saved()[1]["displayed_goal"]], 0)
+        self.launch(["--run-dir", str(run), "--no-chat"], 0)
         _, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
         accepted = [event for event in state["user_events"] if event["kind"] == "uncontained_tools_accepted"]

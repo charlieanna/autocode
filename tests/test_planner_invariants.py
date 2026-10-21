@@ -391,6 +391,63 @@ class TraceTests(unittest.TestCase):
         autopilot.apply_planning(current, "astra_discovery", asked, {"output": "draft.json"})
         self.assertTrue(current["goal_contract"]["body"]["open_blocking_questions"])
 
+    def test_unrecorded_conflict_resolution_names_what_the_repair_may_resolve(self):
+        # #1823: the repair turn sees only the error, so it must say which
+        # conflicts are recorded, or that conflict_resolutions must be [].
+        requirements = [
+            {"id": "R1", "text": "Use Redis", "source_quote": "Use Redis."},
+            {"id": "R2", "text": "No extra infrastructure", "source_quote": "Actually no additional infrastructure."},
+        ]
+        report = {
+            "summary": "s",
+            "intended_outcome": "o",
+            "required_behaviors": ["Store sessions"],
+            "constraints": ["Use Redis.", "No additional infrastructure."],
+            "acceptance_tests": ["run"],
+            "source_refs": ["task"],
+            "proposed_assumptions": [],
+            "open_questions": [],
+            "ignored_statements": [],
+            "requirements": requirements,
+        }
+        draft = body()
+        draft["constraints"] = ["Use Redis.", "No additional infrastructure."]
+        payload = {
+            "contract": draft,
+            "summary": "plan",
+            "code_refs": [],
+            "alternatives": [],
+            "uncertainties": [],
+            "contract_changes": [],
+            "requirement_trace": [
+                {"requirement_id": "R1", "disposition": "covered", "evidence": draft["required_behaviors"][0]},
+                {"requirement_id": "R2", "disposition": "covered", "evidence": "C1"},
+            ],
+            "conflict_resolutions": [
+                {
+                    "requirement_ids": ["R1"],
+                    "basis": "user_answer",
+                    "answer_id": "Q1",
+                    "source_quote": "Use Redis",
+                    "resolution": "The answer keeps Redis",
+                }
+            ],
+        }
+        for conflicts, expected in (
+            ([], r"R1 is not one, and no requirement conflict is recorded .*conflict_resolutions must be \[\]"),
+            (
+                [{"requirement_ids": ["R2", "R1"], "description": "Redis contradicts"}],
+                r"Recorded conflicts: \[R1, R2\]",
+            ),
+        ):
+            with self.subTest(conflicts=conflicts):
+                current = state("Use Redis. Actually no additional infrastructure.")
+                autopilot.apply_planning(
+                    current, "requirements_gather", dict(report, conflicts=conflicts), {"output": "req.json"}
+                )
+                with self.assertRaisesRegex(ValueError, expected):
+                    autopilot.apply_planning(current, "astra_discovery", payload, {"output": "draft.json"})
+
 
 class PlanEvidenceTests(unittest.TestCase):
     def test_existing_source_must_be_cited_and_overlap_needs_an_edge(self):

@@ -70,7 +70,8 @@ def prepare(
     ``settings`` are the run's saved settings. Their --allow-uncontained-tools opt-out (#413),
     never an environment variable or model choice, launches without the kernel tool boundary:
     ``tool_commands`` (a list, or a callable returning one) is then not computed, and a
-    non-planning OpenCode worker carries ``uncontained_tools`` for its stage record (stage_record).
+    built-in OpenCode worker, a Planner's included, carries ``uncontained_tools`` for its stage record
+    (stage_record). A planning stage gets the same shell as a read-only checker; its report recovery gets no tools.
     Explicit native role isolation always requires its kernel tool boundary; the
     saved uncontained-tools opt-out cannot weaken that owner.
     """
@@ -109,7 +110,12 @@ def prepare(
     except ImportError:
         from providers.kilocode import KiloProvider
     kilo_owner = type(native_role_isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
-    kilo_readonly = type(adapter) is KiloProvider and not allow_write and not planning and not kilo_owner
+    # A planning stage gets the same shell as a read-only checker (owner decision 2026-10-21): Planners compute the
+    # exact literals the example rule asks for instead of working them out by hand. Report recovery keeps no tools.
+    planner_shell = planning and not planning_report_recovery and not allow_write
+    kilo_readonly = (
+        type(adapter) is KiloProvider and not allow_write and (not planning or planner_shell) and not kilo_owner
+    )
     # macOS has no kernel shell boundary (owner decision 2026-10-21, #1766; as #1195 for every provider there): a
     # read-only Kilo checker gets Kilo's own policy instead, read tools and its shell with edits denied. A source
     # write it still makes is put back after the stage (autocode_stray_writes), as for any read-only stage.
@@ -173,7 +179,7 @@ def prepare(
         containment = None
         if (
             enforce_tool_boundary
-            and (not planning or native_role_isolation is not None)
+            and (not planning or planner_shell or native_role_isolation is not None)
             and (not getattr(adapter, "CONFIGURED", False) or kilo_owner or kilo_readonly)
         ):
             session = None
@@ -188,13 +194,17 @@ def prepare(
                 "read_roots": [str(path) for path in sorted(roots)],
                 "protected_paths": [str(Path(run_dir).resolve()), str(runtime)],
             }
-            if planning and type(native_role_isolation) is native_isolation.NativeRoleIsolation:
-                # Its readonly planning shell coordinates through the handoff, not private run
+            if planning and not kilo_owner:
+                # A readonly planning shell coordinates through the handoff, not private run
                 # state: no run's state, events or receipts are readable, only this run's
-                # planning/ artifacts (#1250).
+                # planning/ artifacts (#1250). Native Kilo isolation keeps its own profile.
                 containment["private_run"] = str(Path(run_dir).resolve())
         launch_kwargs = {"containment": containment} if containment else {}
         launch_kwargs["env"] = environment
+        if planner_shell and uncontained and not getattr(adapter, "CONFIGURED", False):
+            # The person accepted uncontained tools (#413): the planner's shell runs under OpenCode's own
+            # permissions with edits denied, like every other stage of this run.
+            launch_kwargs["planning_shell"] = True
         if type(adapter) is KiloProvider and not kilo_owner and planning_report_recovery:
             launch_kwargs["report_recovery"] = True
         if kilo_portable and enforce_tool_boundary:
@@ -249,7 +259,7 @@ def prepare(
                 else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; readonly Kilo cannot waive this boundary"
                 if kilo_readonly
                 else ". Restore the qualified setup, or resume with --allow-uncontained-tools to run "
-                "this run's non-planning stages with OpenCode's own permission checks only"
+                "this run's stages with OpenCode's own permission checks only"
             )
             raise util.Paused(
                 "PAUSED_TOOL_CONTAINMENT", "Native tool boundary was not established: " + str(error) + recovery
@@ -328,7 +338,7 @@ def prepare(
         worker["fresh_session_reason"] = (
             fresh_reason or "Native tool containment requires a newly bound provider session"
         )
-    if uncontained and engine == "opencode" and not planning and not worker["configured"]:
+    if uncontained and engine == "opencode" and (not planning or planner_shell) and not worker["configured"]:
         worker["uncontained_tools"] = True
     if environment.get("AUTOCODE_TOOL_CONTAINMENT"):
         worker["tool_containment"] = json.loads(environment["AUTOCODE_TOOL_CONTAINMENT"])
@@ -452,6 +462,7 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
     # copy of thousands of SDK member hashes. Full CODE-owned launch records
     # and verification keep the original inventory; no task input is omitted.
     data["tool_containment"] = native_locators.boundary_value(policy)
+    compact = data.get("joint_planning") is True  # a planning handoff stays compact, as rendered (#1635)
     instruction = prompts.get("fragments/provider-launch/containment-prompt.md")
     if policy.get("private_reads"):
         instruction += prompts.get("fragments/provider-launch/containment-prompt-run-store.md")
@@ -470,7 +481,12 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
             if regression_proof_current
             else prompts.get("fragments/provider-launch/containment-prompt-07.md")
         )
-    return before + instruction + marker + json.dumps(data, indent=2)
+    return (
+        before
+        + instruction
+        + marker
+        + (json.dumps(data, separators=(",", ":")) if compact else json.dumps(data, indent=2))
+    )
 
 
 def verify_containment(
