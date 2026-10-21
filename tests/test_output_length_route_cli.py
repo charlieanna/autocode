@@ -45,10 +45,14 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         original_goal = view["approved_contract"]
         original_usage = view["usage"]
         original_state = (run.run_dir / "state.json").read_bytes()
+        # Automatic selection built on GPT-6 Luna, whose truncated attempt moved to GPT-6 Sol on its own
+        # (#1426 step 9); Sol's truncated attempt had no permitted alternative left, GLM being the
+        # Tester's and Completion Reviewer's model, so the run asked (#1729).
+        self.assertEqual("openai/gpt-6-sol", route["stopped_model"])
         for model, message in (
             (route["stopped_model"], "already uses"),
             ("gpt-6-luna", "provider/model"),
-            ("openai/gpt-6-sol", "Cross-model"),
+            ("zai-coding-plan/glm-5.3", "Cross-model"),
         ):
             with self.subTest(model=model):
                 with self.assertRaises(TaskRunError) as rejected:
@@ -59,10 +63,14 @@ class OutputLengthRouteCliTests(unittest.TestCase):
         answered = run.assign_model("terra", "openai/gpt-6-luna")
         self.assertFalse(answered["done"])
         self.assertEqual("output_limit", route["cause"])
-        [assignment] = answered["route_assignments"]
+        switched, assignment = answered["route_assignments"]
         self.assertEqual(
-            (route["stopped_model"], "openai/gpt-6-luna", "PAUSED_OUTPUT_CAP"),
-            tuple(assignment[k] for k in ("from", "to", "pause_status")),
+            ("runner", "openai/gpt-6-luna", route["stopped_model"], "PAUSED_OUTPUT_CAP"),
+            tuple(switched[k] for k in ("actor", "from", "to", "pause_status")),
+        )
+        self.assertEqual(
+            ("user_cli", route["stopped_model"], "openai/gpt-6-luna", "PAUSED_OUTPUT_CAP"),
+            tuple(assignment[k] for k in ("actor", "from", "to", "pause_status")),
         )
         event_path = Path(assignment["events"])
         self.assertEqual(original_events, event_path.read_bytes())
