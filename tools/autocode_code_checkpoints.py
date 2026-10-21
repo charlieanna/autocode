@@ -414,6 +414,9 @@ def update(state: RunState, run_dir):
 
 
 def blocked_reason(state: RunState):
+    if state.get("status") == "TASK_COMPLETE":
+        # Nothing runs, so "pause first" would be advice the person cannot follow (#1643).
+        return "A finished run cannot go back to a saved step. Its steps can still be compared; ask for a follow-up to change the code."
     if state.get("status") not in ("PAUSED_REQUESTED", "PAUSED_INTERVENTION"):
         return "Pause after the current step before restoring a checkpoint."
     if not approved(state):
