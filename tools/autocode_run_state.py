@@ -452,6 +452,8 @@ class RunState(TypedDict, total=False):
     events: Any
     evidence_locations: Any
     execution_checkpoints: Any
+    # Retry writers retain audit records; Resolver retries may include exact resolver_route_change
+    # before/after provenance, read only by recovery binding normalization (never spending credit).
     failure_retry_authorizations: Any
     figma_file: Any
     final_audit_request: Any

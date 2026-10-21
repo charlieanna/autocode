@@ -919,6 +919,34 @@ class ExplicitRoleTransportTests(unittest.TestCase):
         ):
             return self.cli.main()
 
+    def test_saved_resolver_override_changes_only_its_model_and_effort(self):
+        import copy
+
+        self.assertEqual(0, self.cli_configure(self.args()))
+        prior = copy.deepcopy(self.observed[-1])
+        self.assertEqual(
+            0,
+            self.cli_configure(
+                [
+                    "--workspace",
+                    str(self.workspace),
+                    "--resolver-model",
+                    "zai-coding-plan/glm-5.3",
+                    "--resolver-reasoning-effort",
+                    "medium",
+                    "--no-chat",
+                ],
+                saved=prior,
+            ),
+        )
+        selected = self.observed[-1]
+        self.assertEqual("zai-coding-plan/glm-5.3", selected["roles"]["resolver"]["model"])
+        self.assertEqual("medium", selected["roles"]["resolver"]["reasoning_effort"])
+        for role in prior["roles"]:
+            if role != "resolver":
+                self.assertEqual(prior["roles"][role], selected["roles"][role])
+        self.assertEqual(prior["limits"], selected["limits"])
+
     def test_public_cli_changes_only_the_explicit_claude_role(self):
         import copy
 
