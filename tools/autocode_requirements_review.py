@@ -47,19 +47,6 @@ def enabled(state: RunState) -> bool:
     return bool((state.get("settings") or {}).get(SETTING))
 
 
-def approval_source(record) -> bool:
-    """A human-source record that is only this review's go-ahead (``plan``), not requirement text.
-
-    The answer stays in the run's source log; it is never an obligation a criterion must quote (#1630).
-    """
-    return (
-        isinstance(record, dict)
-        and record.get("kind") == "user_answer"
-        and str(record.get("id") or "").startswith("answer:" + PREFIX)
-        and str(record.get("text") or "").strip().lower() == APPROVE
-    )
-
-
 def add_argument(parser) -> None:
     parser.add_argument(
         "--spec-first",

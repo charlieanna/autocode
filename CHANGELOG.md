@@ -46,6 +46,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Replies that only steer a question the runner wrote are no longer sources every plan must quote (#1630):
+  `plan` to the Requirements review, and `Accept the new wording` or `Keep the approved wording` on a rewording
+  question. They are registered once, by the runner's own question ids, in `autocode_control_replies`; a correction
+  typed to the same question, or any answer to a model-written question, is still a source. The reply stays in the
+  source log and ledger, and contracts that already quote it keep verifying.
 - The runner now names the brief sentences a Planner draft's criteria leave uncited (#1630). The next stage's
   handoff lists them as `uncited_source_sentences`, the Plan Reviewer must raise each or place it out of scope, and
   a revision that leaves one uncited which the review did not excuse is refused before any reviewer call. A first
