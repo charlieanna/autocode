@@ -391,6 +391,8 @@ def apply(runner, args, parser, state: RunState, state_path, run_dir, workspace,
         print(rendered)
         if args.goal_file:
             print(goal_file.summary(state, args.goal_file))
+            # Chat everywhere (#1731): the loaded plan is reviewed, discussed and approved in the run's conversation.
+            print(f"Review it and approve it in chat: autocode chat --workspace {workspace} --run-dir {run_dir}")
         if args.answer:
             view = runner.run_view.view(state, run_dir=run_dir, workspace=workspace)
             print(answer_output.summary(view, after_answer=True), file=sys.stderr)

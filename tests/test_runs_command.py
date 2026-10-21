@@ -92,6 +92,26 @@ class FleetRowsTests(unittest.TestCase):
         self.assertIn("working (1)", text)
 
 
+class IssueWorktreeRunsTests(unittest.TestCase):
+    """Chat everywhere (#1731): a project's chat lists the runs of its autocode-issue worktrees too."""
+
+    def test_an_issue_worktrees_run_is_one_of_the_projects_runs_in_its_own_workspace(self):
+        root = project(local={"status": "RUNNING"})
+        worktree = root / runs.ISSUE_WORKTREES / "acme-widgets-7"
+        run_dir = worktree / ".autocode" / "runs" / "issue-run"
+        run_dir.mkdir(parents=True)
+        (worktree / ".git").write_text("gitdir: elsewhere\n")
+        saved = {"version": 3, "workspace": str(worktree), "task": "Resolve GitHub issue", "status": "RUNNING"}
+        (run_dir / "state.json").write_text(json.dumps(saved))
+        listed = {Path(row["run_dir"]).name: Path(row["workspace"]) for row in runs.rows(root)}
+        self.assertEqual({"local": root, "issue-run": worktree}, listed)
+
+    def test_the_issue_store_is_the_one_autocode_issue_writes(self):
+        import autocode_issue
+
+        self.assertEqual(autocode_issue.STORE, runs.ISSUE_WORKTREES)
+
+
 class StatusViewProjectionTests(unittest.TestCase):
     """The fleet row is the status view's own need and command, so it cannot name a refused one."""
 
