@@ -47,6 +47,121 @@ def revised(body, answer_id=""):
     ]
 
 
+def concern(cid="C2", text="AC2 claims the whole suite passes but names one test as proof.", *, blocking=True):
+    return {
+        "id": cid,
+        "concern": text,
+        "evidence_refs": ["tests/test_report.py"],
+        "requested_change": "Keep a named test for what it proves and put the suite run in its own criterion.",
+        "acceptance_test": "Every proof names what it proves.",
+        "blocking": blocking,
+    }
+
+
+def reviewed_draft(*concerns):
+    state = {"goal_contract": contract(approval_status="draft", approval_event=None)}
+    state["planning"] = {"reports": {"astra_challenge": {"report": {"concerns": list(concerns)}}}}
+    return state
+
+
+class ReviewBackedChangeTests(unittest.TestCase):
+    """A refused change the Plan Reviewer asked for, in a plan nobody approved, is the person's question (#1630)."""
+
+    def downgrade(self, state):
+        body = state["goal_contract"]["body"]
+        body["acceptance_criteria"][0]["verification_method"] = "test: test_ac2_report_total"
+        after = copy.deepcopy(body)
+        after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover"
+        return after
+
+    def test_an_undeclared_proof_change_a_blocking_concern_asked_for_asks_the_person(self):
+        state = reviewed_draft(concern())
+        after = self.downgrade(state)
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, [], "glm_revise")
+        self.assertEqual(
+            [
+                {
+                    "item": "AC2",
+                    "approved": APPROVED,
+                    "proposed": APPROVED,
+                    "approved_proof": "test: test_ac2_report_total",
+                    "proposed_proof": "Run python3 -m unittest discover",
+                    "concern": "C2",
+                }
+            ],
+            caught.exception.rewordings,
+        )
+        self.assertIn("as the Plan Reviewer asked", str(caught.exception))
+
+    def test_a_declared_rewording_that_drops_a_quote_asks_when_a_concern_asked_for_it(self):
+        state = reviewed_draft(concern(text="AC2 pins a space count the request never states."))
+        body = state["goal_contract"]["body"]
+        body["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": "one total line"}]
+        after, changes = revised(body)
+        after["acceptance_criteria"][0]["sources"] = []
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, changes, "glm_revise")
+        self.assertEqual(
+            ("AC2", "C2", APPROVED, PROPOSED),
+            tuple(caught.exception.rewordings[0][k] for k in ("item", "concern", "approved", "proposed")),
+        )
+
+    def test_without_a_blocking_concern_naming_the_criterion_it_stays_a_repair(self):
+        for state in (
+            reviewed_draft(),
+            reviewed_draft(concern(blocking=False)),
+            reviewed_draft(concern(text="AC12 and AC20 need examples.")),
+            reviewed_draft(concern(text="The milestone graph has a cycle.")),
+        ):
+            with self.subTest(concerns=state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]):
+                after = self.downgrade(state)
+                with self.assertRaises(ValueError) as caught:
+                    revision_guard(state, after, [], "glm_revise")
+                self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
+                self.assertIn("Keep a test:/guard: name", str(caught.exception))
+
+    def test_the_question_names_the_concern_and_both_proofs_and_round_trips(self):
+        state = reviewed_draft(concern())
+        after = self.downgrade(state)
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, [], "glm_revise")
+        queued = {}
+
+        def queue(target, scope, origin, **kwargs):
+            queued.update(scope=scope, origin=origin, **kwargs)
+
+        self.assertTrue(
+            rewording.ask(state, {"stage": "glm_revise", "output": "/run/revise.json"}, caught.exception, queue)
+        )
+        text = queued["questions"][0]["question"]
+        self.assertIn("asked by the Plan Reviewer's blocking concern C2", text)
+        self.assertIn('AC2 approved proof: "test: test_ac2_report_total"', text)
+        self.assertIn('AC2 proposed proof: "Run python3 -m unittest discover"', text)
+        self.assertIn("traced to your request", text)
+        self.assertEqual([rewording.ACCEPT, rewording.KEEP], queued["questions"][0]["options"])
+        proposal = {"scope": "clarification", "questions": queued["questions"], "evidence": queued["evidence"]}
+        self.assertTrue(rewording.accepts(state, proposal))
+
+    def test_the_accepted_answer_lets_the_next_revision_make_the_change(self):
+        state = reviewed_draft(concern())
+        after = self.downgrade(state)
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, [], "glm_revise")
+        question = rewording.question(state, caught.exception.rewordings)
+        state["answers"] = {question["id"]: {"kind": "answer", "actor": "user_cli", "text": rewording.ACCEPT}}
+        changes = [
+            {
+                "item": "AC2",
+                "change": "reworded",
+                "basis": "user_answer",
+                "answer_id": question["id"],
+                "replacement": APPROVED,
+            }
+        ]
+        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+
 class GuardTests(unittest.TestCase):
     def test_an_approved_criterion_reworded_without_an_answer_names_the_rewording(self):
         state = {"goal_contract": contract(approval_status="approved", approval_event={"kind": "goal_approval"})}

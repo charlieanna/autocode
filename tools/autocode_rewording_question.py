@@ -51,17 +51,34 @@ def approved_text(body: dict, item) -> str | None:
 
 
 def question(state: RunState, rewordings: list[dict]) -> dict:
-    lines = ["The Planner wants to change wording you approved:"]
+    """The person's question. A row names a criterion's ``approved`` and ``proposed`` text; it may add the proofs
+    (``approved_proof``/``proposed_proof``) when those differ, and the blocking review ``concern`` that asked for
+    the change in a plan nobody approved (#1630)."""
+    reviewed = any(row.get("concern") for row in rewordings)
+    lines = [
+        "The Plan Reviewer asked the Planner to change text traced to your request:"
+        if reviewed
+        else "The Planner wants to change wording you approved:"
+    ]
     for row in rewordings:
+        if row.get("concern"):
+            lines.append(f"{row['item']}: asked by the Plan Reviewer's blocking concern {row['concern']}")
         lines += [
             f"{row['item']} approved: {json.dumps(row['approved'])}",
             f"{row['item']} proposed: {json.dumps(row['proposed'])}",
         ]
+        if row.get("approved_proof") != row.get("proposed_proof"):
+            lines += [
+                f"{row['item']} approved proof: {json.dumps(row.get('approved_proof') or '')}",
+                f"{row['item']} proposed proof: {json.dumps(row.get('proposed_proof') or '')}",
+            ]
     lines.append(f"Reply '{ACCEPT}' to let the next plan use it, or '{KEEP}'.")
     return {
         "id": PREFIX + util.digest({"token": contract_token(state), "rewordings": rewordings})[:12],
         "question": "\n".join(lines),
-        "why": "A plan you approved changes only with your answer.",
+        "why": "Text traced to your request changes only with your answer."
+        if reviewed
+        else "A plan you approved changes only with your answer.",
         "options": [ACCEPT, KEEP],
         "proposed_default": KEEP,
     }

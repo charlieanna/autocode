@@ -171,6 +171,50 @@ def _reject_unchanged_rewordings(previous, body, changes):
             )
 
 
+def reviewer_backed(state: RunState, item) -> str | None:
+    """The id of the saved first review's blocking concern that names criterion ``item``, else None.
+
+    When the Plan Reviewer asked for a change the guard refuses, neither model may make it and neither can
+    settle it: the person decides. Asking at once replaces the report repairs a live revision spent on the
+    refusal (#1630). Only a blocking concern of the review the revision answers counts, and only one naming
+    the criterion id as a whole token."""
+    if not isinstance(item, str) or not item:
+        return None
+    reports = (state.get("planning") or {}).get("reports") or {}
+    pattern = re.compile(r"(?<![\w-])" + re.escape(item) + r"(?![\w-])")
+    for stage in ("astra_challenge", "plan_review"):
+        report = (reports.get(stage) or {}).get("report") or {}
+        for concern in report.get("concerns") or []:
+            if not isinstance(concern, dict) or not concern.get("blocking") or not concern.get("id"):
+                continue
+            if pattern.search(" ".join(str(concern.get(key) or "") for key in ("concern", "requested_change"))):
+                return str(concern["id"])
+    return None
+
+
+def _review_question(state: RunState, previous: dict, body: dict, items, message: str):
+    """Raise the person's question for refused criterion changes a blocking concern asked for, if every one was."""
+    rows = []
+    for item in items:
+        concern = reviewer_backed(state, item)
+        old = next((row for row in previous.get("acceptance_criteria", []) if row.get("id") == item), None)
+        new = next((row for row in body.get("acceptance_criteria", []) if row.get("id") == item), None)
+        if concern is None or old is None or new is None:
+            return
+        rows.append(
+            {
+                "item": item,
+                "approved": old.get("criterion"),
+                "proposed": new.get("criterion"),
+                "approved_proof": str(old.get("verification_method") or ""),
+                "proposed_proof": str(new.get("verification_method") or ""),
+                "concern": concern,
+            }
+        )
+    if rows:
+        raise rewording.ProtectedRewording(message, rows)
+
+
 def refusal_hint(previous: dict, body: dict, item, *, approved: bool) -> str:
     """What to change when the guard refuses a criterion's revision, so the repair is one step (#1630).
 
@@ -292,6 +336,8 @@ def revision_guard(state: RunState, body, changes, origin):
             and all(row["approved"] and row["proposed"] for row in rewordings)
         ):
             raise rewording.ProtectedRewording(message, rewordings)  # the person is asked (#1691)
+        if not approved:
+            _review_question(state, previous, body, [row["item"] for row in unbacked], message)  # (#1630)
         hint = refusal_hint(previous, body, raw.get("item"), approved=approved)
         raise ValueError(f"{message}. {hint}" if hint else message)
     declared: dict = {}
@@ -302,6 +348,14 @@ def revision_guard(state: RunState, body, changes, origin):
         rows = declared.get(item, [])
         match = next((row for row in rows if row["change"] == kind), None)
         if match is None:
+            if not (protected_history or previous_contract.get("approval_status") == "approved"):
+                _review_question(
+                    state,
+                    previous,
+                    body,
+                    [item],
+                    f"Planner revision changes {item!r} as the Plan Reviewer asked, without a user-backed contract change",
+                )
             hint = refusal_hint(
                 previous,
                 body,

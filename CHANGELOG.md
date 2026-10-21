@@ -15,6 +15,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the whole run list on the terminal (#1755). Before any conversation, only what the chat said after its last
   question, such as `Nothing started.`, stays behind.
 
+- A criterion change the Plan Reviewer asked for, which the runner refuses without the person's say, is now the
+  person's question at once instead of a report repair (#1630). In a plan nobody approved, when a blocking concern of
+  the saved review names the criterion, the refusal becomes the existing rewording question (#1691), naming the
+  concern and, when it changed, the proof; `Accept the new wording` lets the next revision cite the answer, `Keep the
+  approved wording` sends the Planner back with the refusal's hint. Two live revisions had spent two repairs each on
+  this before the Planner asked the same question itself.
 - The terminal chat's banner, `/engine` and `/connect` now agree on what new chats use when the user config sets
   `default_provider` (#1756). The banner named the default connection by its id, `/engine` marked OpenCode current
   and `/connect` marked nothing. All three now read one rule (`autocode_chat_setup.backend`): the banner shows the
