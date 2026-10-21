@@ -16,6 +16,17 @@ PR template asks for an entry here; a change without one is incomplete.
   repository, which has its own git dir; the runner now names its own excludes file through the provider's
   environment (`core.excludesFile`), for Kilo as well as OpenCode, and the read-only guard and the exclusions
   share one predicate. The user's global ignore rules are kept. `docs/bugs/native-snapshot-excludes.md`.
+- A criterion change the Plan Reviewer asked for, which the runner refuses without the person's say, is now the
+  person's question at once instead of a report repair (#1630). In a plan nobody approved, when a blocking concern of
+  the saved review names the criterion, the refusal becomes the existing rewording question (#1691), naming the
+  concern and, when it changed, the proof; `Accept the new wording` lets the next revision cite the answer, `Keep the
+  approved wording` sends the Planner back with the refusal's hint. Two live revisions had spent two repairs each on
+  this before the Planner asked the same question itself.
+- The terminal chat's banner, `/engine` and `/connect` now agree on what new chats use when the user config sets
+  `default_provider` (#1756). The banner named the default connection by its id, `/engine` marked OpenCode current
+  and `/connect` marked nothing. All three now read one rule (`autocode_chat_setup.backend`): the banner shows the
+  connection's label, `/connect` marks it, and `/engine` says new chats use that connection.
+
 - Switching tabs in the terminal chat (`/tab`, Ctrl-←/→) no longer draws the chat switched to as working when it is
   waiting for the person or done (#1757). The tab kept no state until its status was read again; it now keeps the
   state last read for it.
@@ -71,6 +82,10 @@ PR template asks for an entry here; a change without one is incomplete.
   `pyproject.toml`, a lockfile or `LICENSE`) is now accepted when no nonempty file in the base is code or a test
   path, and the proof records that the base has no source to preserve; a base that holds source still needs
   passing-test evidence, and other non-empty files still need preservation.
+
+- Concern-only Plan Reviewers now receive contract-authoring policies as rules to audit,
+  with instructions to report concerns rather than return or edit contract fields their
+  report schema forbids (#1808). Contract-author prompts and the approval/validation gates are unchanged.
 
 ## [0.8.2] — 2026-10-21
 
