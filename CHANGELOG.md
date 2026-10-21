@@ -22,6 +22,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - The stuck-stage Investigator on OpenCode is GLM 5.3 whenever the stuck stage runs a GPT model, not only GPT-6 Sol:
   GPT models are one family, so GPT-6 Sol no longer diagnoses a stuck GPT-6 Luna Builder.
+- The automatic model switch after a quota, content-filter or output stop (#1426 step 9) leaves a model the
+  person pinned with `--<role>-model` alone: that stop asks for the next model, as every stop did before the
+  switch existed. Automatic selection's own choices still move within the run's permitted set.
 - Automatic model selection prefers GPT-6 Luna at medium effort as Builder (owner decision, 2026-10-21; high cost
   twice the time and money on the measured task), then GPT-6 Sol, then MiMo v2.6 Flash
   (provisional), then Claude Opus 5.5 (provisional), then the cheapest of GLM 5.3, MiMo v2.6 Pro and DeepSeek (owner
@@ -44,6 +47,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- On a Codex run, where every model is a GPT model, the model-route advisory reports two roles that a saved
+  change made share one model (`gpt-5.6-terra / gpt-5.6-terra`) instead of staying silent because the GPT
+  family was already shared. Sharing is read as verifier independence reads it: one model on an engine that
+  reaches one vendor, a family elsewhere.
+- A cost cap, time limit or milestone budget changed at a novelty hold restated the stop reason with the old
+  "Stage costs: ..." sentence (#1728) and the budgets after it kept alongside the new ones, so every change
+  added another "Active time" sentence; the restated stop now carries one copy of each.
 - Saved-run replay accepts the Builder's recorded effort origin. #1727 began recording `effort_origins.terra`, and
   replay export refused every new recording ("Recording reviewer effort origin is invalid"), which turned
   `tests.test_saved_run_replay_cli` red on master. Replay validation now allows `plan_reviewer` and `terra`, each

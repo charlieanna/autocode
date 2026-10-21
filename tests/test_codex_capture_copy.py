@@ -193,6 +193,18 @@ class CodexCaptureWorkflowTests(unittest.TestCase):
         self.assertFalse((self.workspace / "other_1.sqlite3").exists())
 
 
+# A configured provider runs on OpenCode's transport, where every GPT tier is one family (#1729) and
+# only the Codex engine lets GPT models check each other. Its fixture models are named after the jobs.
+CONFIGURED_ROLES = (
+    ("astra", "fixture-astra"),
+    ("terra", "fixture-terra"),
+    ("sol", "fixture-sol"),
+    ("completion", "fixture-astra"),
+    ("glm", "fixture-sol"),
+    ("plan_reviewer", "fixture-astra"),
+)
+
+
 class ConfiguredCaptureWorkflowTests(CodexCaptureWorkflowTests):
     """The same public behavior through the real report-file command adapter."""
 
@@ -200,7 +212,7 @@ class ConfiguredCaptureWorkflowTests(CodexCaptureWorkflowTests):
         super().setUp()
         config = Path(self.env["XDG_CONFIG_HOME"]) / "autocode/providers/offline.toml"
         config.parent.mkdir(parents=True)
-        models = ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol"]
+        models = sorted({model for _role, model in CONFIGURED_ROLES})
         command = [sys.executable, str(self.root / "bin/codex"), "-o", "{report}"]
         config.write_text(
             'name="offline"\nprompt="stdin"\noutput="report_file"\ncommand='
@@ -208,17 +220,14 @@ class ConfiguredCaptureWorkflowTests(CodexCaptureWorkflowTests):
             + "\nmodels="
             + json.dumps(models)
             + "\n[roles]\n"
-            + "\n".join(
-                f'{role}={{ model="{model}", effort="medium" }}'
-                for role, model in (
-                    ("astra", "gpt-6-astra"),
-                    ("terra", "gpt-5.6-terra"),
-                    ("sol", "gpt-5.6-sol"),
-                    ("completion", "gpt-6-astra"),
-                    ("glm", "gpt-5.6-sol"),
-                    ("plan_reviewer", "gpt-6-astra"),
-                )
-            )
+            + "\n".join(f'{role}={{ model="{model}", effort="medium" }}' for role, model in CONFIGURED_ROLES)
             + "\n"
         )
-        self.options = ("--provider", "offline", *OPTIONS[2:])
+        flags = [part for role, model in CONFIGURED_ROLES for part in (f"--{role.replace('_', '-')}-model", model)]
+        self.options = (
+            "--provider",
+            "offline",
+            "--joint-planning",
+            *flags,
+            *OPTIONS[OPTIONS.index("--max-idle-seconds") :],
+        )

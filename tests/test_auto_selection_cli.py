@@ -80,7 +80,9 @@ data = json.loads(prompt.split""",
         self.assertEqual("approve_plan", before["needs"]["kind"], before)
         routes = before["routes"]
         self.assertEqual("auto_selected", routes["terra"]["origin"])
-        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", routes["terra"]["model"])
+        # No Luna in this catalogue, so the Builder is GPT-6 Sol (#1729). The fixture advertises
+        # no reasoning levels ({"variants": {}}), so the table's medium is vetoed: the model's own default.
+        self.assertEqual("openai/gpt-6-sol", routes["terra"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", routes["sol"]["model"])
         self.assertIsNone(routes["terra"]["reasoning_effort"])
         self.assertTrue(self.operations("probe"))

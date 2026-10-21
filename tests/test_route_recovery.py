@@ -1,4 +1,9 @@
-"""The quota auto-switch recovery (#1426 step 9): switch, don't ask, inside the permitted set."""
+"""The quota auto-switch recovery (#1426 step 9): switch, don't ask, inside the permitted set.
+
+With GLM, MiMo and the ChatGPT login connected, selection builds on GPT-6 Sol and checks with GLM
+(#1729). A stopped Sol Builder moves to MiMo on its own. A stopped GLM Tester has nowhere to go,
+because its only other candidate, Sol, is the Builder's family, so that pause stands as before.
+"""
 
 import json
 import sys
@@ -53,11 +58,12 @@ class RouteRecoveryTests(unittest.TestCase):
             write_json=lambda path, value: path.write_text(json.dumps(value)),
         )
 
-    def state(self, error=QUOTA, *, role="sol"):
+    def state(self, error=QUOTA, *, role="terra"):
         events = self.root / "validator-01.jsonl"
         events.write_text(json.dumps({"type": "thread.started", "thread_id": "t"}) + "\n" + json.dumps(error) + "\n")
         result = selector.select(selector.PIPELINE_ROLES, accounts())
         result["candidates"] = selector.permitted_set(accounts())
+        self.assertEqual((SOL, GLM, GLM), tuple(result["routes"][r]["model"] for r in ("terra", "sol", "completion")))
         return {
             "status": "RUNNING",
             "settings": {
@@ -79,23 +85,23 @@ class RouteRecoveryTests(unittest.TestCase):
             },
         }
 
-    def test_a_dead_tester_switches_on_its_own_and_the_pause_never_happens(self):
+    def test_a_dead_builder_switches_on_its_own_and_the_pause_never_happens(self):
         state = self.state()
         error = support.Paused("PAUSED_BUDGET", "quota")
         self.assertTrue(route_recovery.recover(self.runtime, state, self.root, self.root, error))
-        self.assertEqual(SOL, state["settings"]["roles"]["sol"]["model"])
-        self.assertNotIn("sol", state.get("sessions") or {})
+        self.assertEqual(MIMO, state["settings"]["roles"]["terra"]["model"])
+        self.assertNotIn("terra", state.get("sessions") or {})
         (record,) = [row for row in state["user_events"] if row["kind"] == "route_assignment"]
         self.assertEqual("runner", record["actor"])
-        self.assertEqual(GLM, record["from"])
-        self.assertEqual(SOL, record["to"])
-        self.assertEqual("quota_assigned", state["settings"]["route_selection"]["routes"]["sol"]["origin"])
+        self.assertEqual(SOL, record["from"])
+        self.assertEqual(MIMO, record["to"])
+        self.assertEqual("quota_assigned", state["settings"]["route_selection"]["routes"]["terra"]["origin"])
 
     def test_replacement_checks_actual_routes_after_catalogue_substitution(self):
         state = self.state()
-        # The saved selection still names MiMo, but the actual Builder now uses
-        # Sol. Moving the stopped GLM Tester to Sol would grade its own work.
-        state["settings"]["roles"]["terra"]["model"] = SOL
+        # The saved selection still names GLM as Tester, but the actual Tester now uses
+        # MiMo. Moving the stopped Sol Builder to MiMo would have it grade its own work.
+        state["settings"]["roles"]["sol"]["model"] = MIMO
         before = json.dumps(state, sort_keys=True)
         self.assertFalse(
             route_recovery.recover(self.runtime, state, self.root, self.root, support.Paused("PAUSED_BUDGET", "quota"))
@@ -114,9 +120,10 @@ class RouteRecoveryTests(unittest.TestCase):
         saved = json.loads((self.root / "state.json").read_text())
         self.assertNotIn("active_stage", saved)
         self.assertEqual("RUNNING", saved["status"])
-        saved["active_stage"] = {**attempt, "iteration": 2, "command": ["opencode", "--model", SOL]}
+        saved["active_stage"] = {**attempt, "iteration": 2, "command": ["opencode", "--model", MIMO]}
+        # GLM is the checkers' model and Astra never builds: nothing permitted remains.
         self.assertFalse(route_recovery.recover(self.runtime, saved, self.root, self.root, error))
-        self.assertEqual(SOL, saved["settings"]["roles"]["sol"]["model"])
+        self.assertEqual(MIMO, saved["settings"]["roles"]["terra"]["model"])
         self.runtime.abandon_stage.assert_called_once()
 
     def test_real_abandonment_retains_evidence_and_accounts_before_retry(self):
@@ -124,7 +131,6 @@ class RouteRecoveryTests(unittest.TestCase):
         import autocode_stage_recovery as stage_recovery
 
         state = self.state()
-        state["active_stage"]["stage"] = "sol"
         state["active_stage"]["duration_seconds"] = 7
         before = self.root / "validator-01.before.json"
         before.write_text(json.dumps({"revision": "before", "files": {}}))
@@ -152,7 +158,7 @@ class RouteRecoveryTests(unittest.TestCase):
         self.assertTrue(Path(saved["stages"][-1]["events"]).is_file())
         self.assertEqual(["partial.txt"], saved["stages"][-1]["changed_files"])
         self.assertEqual("runner", saved["user_events"][-1]["actor"])
-        self.assertEqual("sol", saved["next_stage"])
+        self.assertEqual("terra", saved["next_stage"])
 
     def test_a_live_attempt_cannot_change_the_route(self):
         state = self.state()
@@ -163,11 +169,22 @@ class RouteRecoveryTests(unittest.TestCase):
         self.assertEqual(before, json.dumps(state, sort_keys=True))
 
     def test_when_nothing_remains_the_pause_stands(self):
-        state = self.state(role="terra")  # the Builder died; only a clashing model remains
+        state = self.state(role="sol")  # the Tester died; its only other candidate is the Builder's family
         error = support.Paused("PAUSED_BUDGET", "quota")
         self.assertFalse(route_recovery.recover(self.runtime, state, self.root, self.root, error))
-        self.assertEqual(MIMO, state["settings"]["roles"]["terra"]["model"])
+        self.assertEqual(GLM, state["settings"]["roles"]["sol"]["model"])
         self.assertNotIn("user_events", state)
+
+    def test_a_pinned_model_keeps_today_s_question(self):
+        # --terra-model named this Builder: the person's choice is not the selector's to replace.
+        state = self.state()
+        state["settings"]["route_selection"]["routes"]["terra"]["origin"] = selector.role_route.USER_EXPLICIT
+        before = json.dumps(state, sort_keys=True)
+        self.assertFalse(
+            route_recovery.recover(self.runtime, state, self.root, self.root, support.Paused("PAUSED_BUDGET", "quota"))
+        )
+        self.assertEqual(before, json.dumps(state, sort_keys=True))
+        self.runtime.abandon_stage.assert_not_called()
 
     def test_a_run_without_a_permitted_set_keeps_today_s_question(self):
         state = self.state()
@@ -177,7 +194,6 @@ class RouteRecoveryTests(unittest.TestCase):
         )
 
     def test_other_stops_and_native_runs_are_not_this_recovery_s_business(self):
-        state = self.state()
         capacity = {"type": "error", "error": {"message": "Selected model is at capacity"}}
         state = self.state(error=capacity)
         self.assertFalse(

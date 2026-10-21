@@ -85,6 +85,19 @@ class RouteAdvisoryTests(unittest.TestCase):
         self.assertFalse(identity.shared_family("openai/custom-model", "custom-model"))
         self.assertFalse(identity.shared_family("", ""))
 
+    def test_a_codex_run_reports_one_shared_gpt_model_not_the_gpt_family(self):
+        # Codex reaches only GPT models, so the independence rule counts one model there, not the family.
+        before = settings(requirements="gpt-5.6-sol", glm="gpt-5.6-sol", astra="gpt-5.6-sol", terra="gpt-5.6-terra")
+        before["engine"] = "codex"
+        after = copy.deepcopy(before)
+        after["roles"]["astra"]["model"] = "gpt-5.6-terra"
+        [message] = advisory.warnings(before, after)
+        self.assertIn("Planner -> Builder", message)
+        self.assertIn("gpt-5.6-terra / gpt-5.6-terra", message)
+        # On any other engine every GPT model is one family: the link was shared already, nothing is new.
+        del before["engine"], after["engine"]
+        self.assertEqual([], advisory.warnings(before, after))
+
     def test_single_model_opt_in_retains_advisory_for_a_new_link(self):
         before = settings(glm="glm-5.3", terra="mimo-v2.6-pro")
         before["single_model_mode"] = True
