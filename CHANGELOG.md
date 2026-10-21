@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat shows every Requirements question, not only the first (#1792). Every question shared one chat
+  message id, and the client shows an id once, so a second question stayed hidden behind a bare `You:` prompt and
+  the person's reply answered a question they never saw. Each question now has its own message id; the chat prints
+  the question its prompt waits on, waits while Requirements is still working on a reply, and repeats the question
+  instead of a bare prompt when a reply has not been taken up.
+
 - A recovery novelty hold whose AutoResolver request is not yet published (`RESOLVER_PENDING`) now names the
   scoped retry, `--resume-paused --retry-failed-stage`, as its next command and recovery-card action (#1770). The
   status view offered a plain `--resume-paused`, which only held the run again, and the retry was named only in
