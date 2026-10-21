@@ -47,6 +47,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The Builder's working diff (`checkpoint --working`) offered during a same-chat follow-up no longer refuses with
+  "Checkpoint identity or approved plan changed" once the follow-up's plan is approved (#1712). It still verifies the
+  saved step's receipt, commit and run; restoring a step still requires the plan approved now.
+
 - On a Codex run, where every model is a GPT model, the model-route advisory reports two roles that a saved
   change made share one model (`gpt-5.6-terra / gpt-5.6-terra`) instead of staying silent because the GPT
   family was already shared. Sharing is read as verifier independence reads it: one model on an engine that
