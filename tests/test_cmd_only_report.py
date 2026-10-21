@@ -133,6 +133,20 @@ class CorrectionRouteTests(unittest.TestCase):
         opencode = self.pending(engine="opencode", planning=False)
         self.assertEqual("reviewer-session", format_correction.session_for(self.state, opencode))
 
+    def test_kilo_restricted_corrections_need_the_full_report_handoff(self):
+        for error, planning in ((cmd_only.ERROR, True), (format_correction.FORMAT_ERROR, False)):
+            for binding in ("recorded", "role", "default"):
+                with self.subTest(error=error, binding=binding):
+                    route = {**self.route, "engine": "opencode"}
+                    self.state["settings"]["provider"] = "kilocode" if binding == "default" else "opencode"
+                    route["provider"] = "kilocode" if binding == "role" else None
+                    self.state["settings"]["roles"]["plan_reviewer"] = route
+                    pending = self.pending(error=error, engine="opencode", planning=planning, launch_route=route)
+                    if binding == "recorded":
+                        pending["original"]["provider"] = "kilocode"
+                    self.assertIsNone(self.correct(pending, "plan_reviewer"))
+                    self.assertNotIn("correction_attempted", pending)
+
     def test_the_correction_is_targeted_and_runs_nothing(self):
         prompt = format_correction.prompt(cmd_only.ERROR)
         self.assertEqual(cmd_only.CORRECTION, prompt)
