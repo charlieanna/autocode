@@ -785,6 +785,19 @@ class StreamAndNoticeTests(unittest.TestCase):
         client.show({"chat": {"messages": [{"id": "m2", "role": "assistant", "text": "Done."}]}})
         self.assertEqual(2.0, client.pace(2.0), "the finished message ends streaming")
 
+    def test_an_unchanged_notice_is_said_once_while_the_progress_line_changes(self):
+        client = ScriptedChat({})
+        for line in ("Requirements working", "Plan Reviewer working", "Tester working"):
+            client.show({"chat": {"notice": "Working on your request…"}, "progress": {"line": line}})
+        self.assertEqual(1, client.text().count("Working on your request…"))
+
+    def test_a_notice_that_returns_after_a_break_is_said_again(self):
+        client = ScriptedChat({})
+        client.show({"chat": {"notice": "Working on your request…"}})
+        client.show({})
+        client.show({"chat": {"notice": "Working on your request…"}})
+        self.assertEqual(2, client.text().count("Working on your request…"))
+
     def test_the_wait_a_notice_tells_apart(self):
         self.assertEqual(("done",), chat.wait_identity({"done": True}))
         self.assertIsNone(chat.wait_identity({"needs": {"kind": "continue"}}))
