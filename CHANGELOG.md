@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The status view's `cost.breakdown.unpriced` says why each finished unpriced stage has no cost (#1713):
+  no token counts recorded, no model identified, or no rate for its model, naming the models without a rate.
+  The counts are stages, never a guessed amount, and the known spend and cap are unchanged.
+
 - `--skip-requirements` and `--skip-to-build` for an unattended worker (#1731, owner decisions 2026-10-21). The first
   answers each delegable Requirements question with its proposed default, recorded as delegated, and still runs the
   Planner and Plan Reviewer and waits for a person's plan approval. The second also approves the plan once the Plan
