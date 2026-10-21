@@ -1881,12 +1881,15 @@ from pathlib import Path
 
 name = Path(sys.argv[0]).name
 log = Path('__LOG__')
-models = (['fixture-claude'] if name == 'kilocode' else
+models = (['fixture-claude'] if name in ('fixture_command', 'kilocode') else
           ['zai-coding-plan/glm-5.3-flash', 'zai-coding-plan/glm-5.3',
            'xiaomi-token-plan-sgp/mimo-v2.6-pro'])
 def record(value):
     with log.open('a') as stream:
         stream.write(json.dumps({'tool': name, **value}) + '\n')
+if sys.argv[1:2] == ['debug']:
+    print('This transport fixture is not a native Kilo policy runtime', file=sys.stderr)
+    raise SystemExit(2)
 if sys.argv[1:] == ['--version']:
     print('1.16.0')
     raise SystemExit(0)
@@ -2000,18 +2003,18 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         script = _MIXED_TRANSPORT_FIXTURE.replace("__LOG__", str(self.log)).replace(
             "__FIXTURE__", str(HERE / "live_fixture_provider.py")
         )
-        for name in ("opencode", "kilocode"):
+        for name in ("opencode", "fixture_command"):
             executable = binary / name
             executable.write_text(script)
             executable.chmod(0o755)
         config_dir = self.root / "config" / "autocode" / "providers"
         config_dir.mkdir(parents=True)
-        self.config = config_dir / "kilocode.toml"
+        self.config = config_dir / "fixture_command.toml"
         self.config.write_text(
-            'name = "kilocode"\ncommand = ["kilocode", "run", "--model", "{model}", "--effort", "{effort}", '
+            'name = "fixture_command"\ncommand = ["fixture_command", "run", "--model", "{model}", "--effort", "{effort}", '
             '"--report", "{report}"]\nprompt = "stdin"\noutput = "opencode_events"\n'
-            'resume = ["--session", "{session}"]\nmodels_command = ["kilocode", "models"]\n'
-            'version_command = ["kilocode", "--version"]\n[roles]\n'
+            'resume = ["--session", "{session}"]\nmodels_command = ["fixture_command", "models"]\n'
+            'version_command = ["fixture_command", "--version"]\n[roles]\n'
             + "\n".join(
                 f'{role} = {{ model = "fixture-claude", effort = "high" }}'
                 for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
@@ -2076,7 +2079,9 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             "--allow-uncontained-tools",
         )
         self.start_options = tuple(
-            value for role in ("astra", "sol", "completion") for value in ("--role-transport", role + "=kilocode")
+            value
+            for role in ("astra", "sol", "completion")
+            for value in ("--role-transport", role + "=fixture_command")
         )
 
     def operations(self, kind=None):
@@ -2120,8 +2125,8 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             "astra_discovery": ("opencode", "zai-coding-plan/glm-5.3"),
             "astra_challenge": ("opencode", "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
             "terra": ("opencode", "zai-coding-plan/glm-5.3"),
-            "sol": ("kilocode", "fixture-claude"),
-            "astra_review": ("kilocode", "fixture-claude"),
+            "sol": ("fixture_command", "fixture-claude"),
+            "astra_review": ("fixture_command", "fixture-claude"),
         }
         for stage, wanted in expected.items():
             actual = [row for row in launches if row["stage"] == stage]
@@ -2129,7 +2134,7 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
             self.assertTrue(all((row["tool"], row["model"]) == wanted for row in actual), actual)
         readers = [row for row in launches if row["stage"] == "astra_review"]
         self.assertEqual(2, len(readers), readers)
-        self.assertEqual("kilocode", readers[0]["tool"])
+        self.assertEqual("fixture_command", readers[0]["tool"])
         self.assertIsNone(readers[0]["resume_session"])
         self.assertEqual(readers[0]["session"], readers[1]["resume_session"])
         self.assertEqual(readers[0]["session"], readers[1]["session"])
@@ -2137,13 +2142,34 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.assertNotIn(readers[0]["session"], {row["session"] for row in launches if row["tool"] == "opencode"})
         catalogues = self.operations("models")
         self.assertTrue(any(row["tool"] == "opencode" for row in catalogues))
-        self.assertTrue(any(row["tool"] == "kilocode" for row in catalogues))
+        self.assertTrue(any(row["tool"] == "fixture_command" for row in catalogues))
         self.assertTrue(all("fixture-claude" not in row["models"] for row in catalogues if row["tool"] == "opencode"))
         evidence = attached.evidence_report()["document"]
         stages = {row["stage"]: row for row in evidence["attempts"] if not row["runner_owned"]}
         self.assertEqual("fixture-claude", stages["sol"]["model"])
         self.assertEqual(0, stages["sol"]["exit_code"])
         self.assertEqual("TASK_COMPLETE", taskrun.TaskRun.attach(self.workspace, env=self.env).status()["status"])
+
+    def test_unqualified_kilo_reader_refuses_before_provider_launch(self):
+        # A generic command fixture must not impersonate Kilo's native policy
+        # handshake. Genuine Kilo execution is covered in test_kilocode_policy.
+        executable = self.root / "bin" / "kilocode"
+        executable.write_text((self.root / "bin" / "fixture_command").read_text())
+        executable.chmod(0o755)
+        (self.config.parent / "kilocode.toml").write_text(
+            self.config.read_text().replace("fixture_command", "kilocode")
+        )
+        self.start_options = tuple(
+            value for role in ("astra", "sol", "completion") for value in ("--role-transport", role + "=kilocode")
+        )
+        run = self.start()
+        before = run.status()
+        self.assertEqual("approve_plan", before["needs"]["kind"])
+        run.approve_plan(before["needs"]["token"])
+        held = run.advance_until_input()
+        self.assertEqual("PAUSED_TOOL_CONTAINMENT", held["status"])
+        self.assertIn("Kilo readonly policy could not be resolved", held["needs"]["reason"])
+        self.assertFalse([row for row in self.operations("launch") if row["tool"] == "kilocode"])
 
     def test_saved_override_and_selected_identity_drift_refuse_before_any_launch(self):
         run = self.start()
