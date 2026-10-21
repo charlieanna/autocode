@@ -63,6 +63,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Planner's change that declares an example correction (a stdout count fixed by a receipt) is judged by the
+  example rules alone again. #1691 let a Planner reword its own unapproved criterion, and that allowance also
+  passed a receipt that changed the example's input as well as its output, so a plan could reach approval with
+  a new input. The same change declared as a plain rewording is still the Planner's own to correct.
+
 - VS Code chat: while you read older messages, the Latest button now names the step running now
   ("↓ Now: Tester working") and follows each status read, so a stage change is visible without being moved to the
   bottom (#1711). It returns to "↓ Latest messages" when no step is running.
