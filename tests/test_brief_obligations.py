@@ -604,6 +604,40 @@ class BriefObligationsTests(unittest.TestCase):
         self.assertEqual("astra_challenge", state["goal_contract"]["body"]["brief_acceptance"]["review"]["stage"])
         self.assertEqual(goals.token(state["goal_contract"]), state["planning"]["final_token"])
 
+    def test_adaptive_challenge_that_cannot_approve_the_draft_sends_it_to_the_planner(self):
+        # #1630: a non-blocking review of a draft citing only part of the brief was rejected as invalid
+        # Plan Reviewer output; report repair cannot change the Planner's contract, so the run paused.
+        state = self.state(task="Fix the bug in todo.py. " + TASK, adaptive=True)
+        lifecycle.install_draft(state, self.contract_body(initial=True), origin="glm_draft")
+        state.setdefault("planning", {"astra_calls": 0, "reports": {}, "final_token": None})
+        draft = copy.deepcopy(state["goal_contract"])
+        report = {
+            "summary": "Reviewed",
+            "concerns": [
+                {
+                    "id": "astra-1",
+                    "concern": "No criterion quotes 'Fix the bug in todo.py.'",
+                    "requested_change": "Cite that sentence",
+                    "acceptance_test": "Every brief sentence is cited",
+                    "evidence_refs": ["todo.py"],
+                    "blocking": False,
+                }
+            ],
+            "brief_observations": [self.proposal(brief.inventory(state)[0])],
+            "brief_observation_changes": [],
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
+        }
+        autopilot.apply_planning(
+            state, "astra_challenge", report, self.reviewer_record(state, report, stage="astra_challenge")
+        )
+        self.assertEqual("glm_revise", state["next_stage"])
+        self.assertEqual(draft, state["goal_contract"])
+        self.assertIsNone(state["planning"]["final_token"])
+        adaptive = state["planning"]["adaptive"]
+        self.assertIsNone(adaptive["approved_at"])
+        self.assertIn("'Fix the bug in todo.py.'", adaptive["approval_refused"])
+        self.assertIn("planning.adaptive.approval_refused", autoplanner.adaptive.prompt_rule(state, "glm_revise"))
+
     def test_nonjoint_generation_preserves_a_parseable_handoff_json_suffix(self):
         state = self.state(task="Build greeting")
         state["settings"]["joint_planning"] = False

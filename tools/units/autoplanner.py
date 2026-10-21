@@ -1429,18 +1429,34 @@ def after_challenge(state: RunState, value, record):
     except ImportError:
         import autocode_goal_lifecycle as lifecycle
     # The same path a final review takes: install the approved body and queue the user's approval.
-    body = brief_obligations.reviewed_body(
-        state,
-        contract["body"],
-        value.get("brief_observations") or [],
-        record,
-        changes=value.get("brief_observation_changes") or [],
-        trace=value.get("source_trace"),
-    )
-    body = risk_obligations.reviewed_body(
-        state, body, value.get("risk_observations") or [], record, changes=value.get("risk_observation_changes") or []
-    )
-    lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
+    saved = copy.deepcopy(state)
+    try:
+        body = brief_obligations.reviewed_body(
+            state,
+            contract["body"],
+            value.get("brief_observations") or [],
+            record,
+            changes=value.get("brief_observation_changes") or [],
+            trace=value.get("source_trace"),
+        )
+        body = risk_obligations.reviewed_body(
+            state,
+            body,
+            value.get("risk_observations") or [],
+            record,
+            changes=value.get("risk_observation_changes") or [],
+        )
+        lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
+    except ValueError as error:
+        # The draft cannot go to the user as it stands, for example a brief sentence no criterion
+        # cites. The Planner owns the contract: rejecting this review sent it to report repair,
+        # which cannot change the contract, and the run paused with no plan (#1630). Revise
+        # instead, as every first review leads to outside adaptive planning.
+        state.clear()
+        state.update(saved)
+        state["planning"]["adaptive"]["approval_refused"] = str(error)
+        state["next_stage"] = "glm_revise"
+        return
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(
         approved_at=f"astra_challenge#{planning['adaptive']['challenges']}", final_stage="astra_challenge"
