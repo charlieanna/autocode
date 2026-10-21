@@ -22,7 +22,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - The stuck-stage Investigator on OpenCode is GLM 5.3 whenever the stuck stage runs a GPT model, not only GPT-6 Sol:
   GPT models are one family, so GPT-6 Sol no longer diagnoses a stuck GPT-6 Luna Builder.
-- Automatic model selection prefers GPT-6 Luna at high effort as Builder, then GPT-6 Sol, then MiMo v2.6 Flash
+- Automatic model selection prefers GPT-6 Luna at medium effort as Builder (owner decision, 2026-10-21; high cost
+  twice the time and money on the measured task), then GPT-6 Sol, then MiMo v2.6 Flash
   (provisional), then Claude Opus 5.5 (provisional), then the cheapest of GLM 5.3, MiMo v2.6 Pro and DeepSeek (owner
   decision, 2026-10-20, for pay-per-use companies). On ladder-07 on Kilo the task passed 9/9 with each: Luna medium
   16.3 min for $1.05, Sol 16.4 min for $1.14, Luna high 34.6 min for $2.58 after one Tester send-back, and MiMo

@@ -128,11 +128,11 @@ class SelectionTests(unittest.TestCase):
         both = selector.select(("requirements", "glm", "terra", "plan_reviewer"), [*coding_plans(), opus])
         self.assertEqual(SOL, both["routes"]["plan_reviewer"]["model"], "GPT-6 Sol first, even beside Claude")
 
-    def test_gpt6_luna_builds_at_high_and_no_gpt_model_checks_it(self):
+    def test_gpt6_luna_builds_at_medium_and_no_gpt_model_checks_it(self):
         luna = candidate(LUNA, tool="opencode", account="ChatGPT login", billing="subscription")
         routes = selector.select(ALL_ROLES, [*coding_plans(), luna])["routes"]
         self.assertEqual(LUNA, routes["terra"]["model"])
-        self.assertEqual("high", routes["terra"]["reasoning_effort"])
+        self.assertEqual("medium", routes["terra"]["reasoning_effort"])
         # All GPT models are one family (owner, 2026-10-20): GLM checks Luna's build, never GPT-6 Sol.
         self.assertEqual(GLM, routes["sol"]["model"])
         self.assertEqual(GLM, routes["completion"]["model"])
