@@ -523,7 +523,9 @@ class ChatClient:
             # Under a notice already said, a new progress line is the only news: say it, not silence.
             if progress.get("line") and (streaming_text or not notice or notice == self.last_notice):
                 self.say(f"  · {progress['line']}")
-        self.last_notice = notice
+        # A brief clear between stages is not a new state: say an identical notice once per turn (#1807).
+        if notice:
+            self.last_notice = notice
 
     # ---- the conversation ------------------------------------------------------------------
 

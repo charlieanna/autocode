@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A running chat no longer says `Working on your request…` twice in a row when the status view's notice
+  briefly clears between stages (#1807). The terminal chat says an identical notice once per turn and still
+  shows the progress lines underneath; a different notice, such as a pause, is still said.
+
 - Before a chat is open, the full-screen terminal chat's `/new` and Ctrl-T now say `This is a new chat: type what
   you want done.` (#1759). `/new` answered `/new is not available right now` and Ctrl-T `Tabs switch once a chat is
   open`, though the client already had the right reply; `/new` is now offered in the `/` menu there too.

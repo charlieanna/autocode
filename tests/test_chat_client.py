@@ -826,12 +826,20 @@ class StreamAndNoticeTests(unittest.TestCase):
         self.assertIn("· Plan Reviewer working", client.text())
         self.assertIn("· Tester working", client.text())
 
-    def test_a_notice_that_returns_after_a_break_is_said_again(self):
+    def test_a_notice_that_returns_after_a_transient_gap_is_not_said_again(self):
+        client = ScriptedChat({})
+        client.show({"chat": {"notice": "Working on your request…"}, "progress": {"line": "Requirements working"}})
+        client.show({"progress": {"line": "Next: Requirements"}})
+        client.show({"chat": {"notice": "Working on your request…"}, "progress": {"line": "Requirements working"}})
+        self.assertEqual(1, client.text().count("Working on your request…"))
+        self.assertIn("· Next: Requirements", client.text())
+        self.assertIn("· Requirements working", client.text())
+
+    def test_a_different_notice_after_a_gap_is_still_said(self):
         client = ScriptedChat({})
         client.show({"chat": {"notice": "Working on your request…"}})
-        client.show({})
-        client.show({"chat": {"notice": "Working on your request…"}})
-        self.assertEqual(2, client.text().count("Working on your request…"))
+        client.show({"chat": {"notice": "Paused as you asked. Your work so far is saved; resume when you’re ready."}})
+        self.assertEqual(1, client.text().count("Paused as you asked"))
 
     def test_the_wait_a_notice_tells_apart(self):
         self.assertEqual(("done",), chat.wait_identity({"done": True}))
