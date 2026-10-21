@@ -3,8 +3,7 @@
 A table rather than one ``if`` per subcommand in autocode.py, which is at its
 recorded size limit (tests/test_architecture.py). Each module named here has a
 ``cli(argv) -> int`` and, unless it is in WITHOUT_PARSER, a ``parser()`` that returns
-the parser its cli() reads (program's holds the parser each of its commands reads);
-`autocode completion` completes the command's options from it.
+the parser its cli() reads; `autocode completion` completes the command's options from it.
 """
 
 from __future__ import annotations
@@ -49,7 +48,6 @@ SUBCOMMANDS = {
     "wait": "autocode_wait_command",
     "components": "autocode_components",
     "ui": "autocode_ui",
-    "program": "autocode_program",
     "compare-baseline": "autocode_baseline",
     "visual-check": "autocode_visual_check",
     "doctor": "autocode_doctor",
@@ -67,7 +65,7 @@ SUBCOMMANDS = {
 ENTRY_FUNCTIONS = {"issue": "main", "arena": "main", "dashboard": "main"}
 SYS_ARGV_COMMANDS = frozenset({"dashboard", "unattended"})
 # No parser() to read: the dashboard reads sys.argv itself; unattended passes run arguments through to
-# the main parser. Program dispatches its commands by hand; its parser() gathers theirs.
+# the main parser.
 WITHOUT_PARSER = frozenset({"dashboard", "unattended"})
 DISTRIBUTION = "autocode-supervisor"
 
@@ -115,16 +113,13 @@ def command_names() -> tuple[str, ...]:
 def public_command_paths() -> tuple[tuple[str, ...], ...]:
     """Actual parser entry routes for documentation coverage; nested argparse parsers recurse themselves.
 
-    Program dispatches manually, so its routes come from the same map its CLI uses.
     Unattended's normal arguments pass through to the main parser; --analyze has
     its own parser. Version has no parser and is displayed by command_names().
     """
-    module = importlib.import_module(f"{__package__}.autocode_program" if __package__ else "autocode_program")
     roots = sorted(set(SUBCOMMANDS) | set(BUILTIN_COMMANDS))
     return (
         (),
         *((name,) for name in roots),
-        *(("program", name) for name in module.COMMANDS),
         ("unattended", "--analyze"),
     )
 

@@ -74,19 +74,6 @@ class RegistryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "BUGFIX-01"):
             live_scenarios.scenario("NOPE-00")
 
-    def test_program_manifest_matches_the_program_brief(self):
-        import autocode_program
-
-        spec = live_scenarios.scenario("PROGRAM-01")
-        manifest = spec["program_manifest"]
-        self.assertEqual(spec["task"], manifest["brief"])
-        kinds = {row["id"]: row["kind"] for row in manifest["workstreams"]}
-        self.assertEqual("code", kinds["deploy"])
-        self.assertEqual("integration", kinds["integration"])
-        self.assertIn("No deployment is executed", manifest["shared"]["constraints"])
-        self.assertIn("external system", next(row["brief"] for row in manifest["workstreams"] if row["id"] == "deploy"))
-        autocode_program.validate_manifest(manifest)
-
 
 class OracleProcessTest(unittest.TestCase):
     def test_timeout_kills_child_service_and_bounds_wait(self):

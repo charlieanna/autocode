@@ -397,8 +397,11 @@ class PolicyTests(unittest.TestCase):
         # Each entry is bound here to the modules that make it, so a store renamed there fails this
         # test instead of leaving the new directory readable to a native planning shell. Only
         # autocode_issue names its store as a constant; the others build the path inline, so their
-        # code is read for it.
+        # code is read for it. A store no module makes any longer stays denied, since older runs may
+        # have left it: `autocode program` (archived on branch archive/program) made .autocode/programs.
         import autocode_issue
+
+        retired = {"programs"}
 
         owners = {
             "archive": ("autocode_worktrees",),  # clean-worktrees keeps a removed task worktree's runs
@@ -409,15 +412,14 @@ class PolicyTests(unittest.TestCase):
             "conversation-starts": ("autocode_conversation_session",),
             "investigation": ("autocode_investigation_workspace",),
             "issues": ("autocode_issue",),
-            "programs": ("autocode_program",),
             "pull-reviews": ("autocode_review_pr",),
             "registry": ("autocode_registry",),
             "replay": ("autocode_replay_cli", "autocode_replay_checks"),
             "task-flows": ("autocode_tasks",),
             "verification": ("autocode_verify_task",),
-            "worktrees": ("autocode_workspaces", "autocode_checkpoint_cli", "autocode_program"),
+            "worktrees": ("autocode_workspaces", "autocode_checkpoint_cli"),
         }
-        self.assertEqual(sorted(owners), sorted(containment.PRIVATE_STORES))
+        self.assertEqual(sorted({*owners, *retired}), sorted(containment.PRIVATE_STORES))
         self.assertEqual(Path(".autocode", "issues"), autocode_issue.STORE)
         for name, modules in owners.items():
             for module in modules:

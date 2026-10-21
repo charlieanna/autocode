@@ -22,9 +22,8 @@ unchanged. `python3 tools/live_trial.py --list` prints the whole registry.
 
 ## Where the pieces are
 
-- `tools/task_scenarios.py`: seeds, briefs, oracles, and for `PROGRAM-01` a ready
-  program manifest (`program_manifest`) so the same scenario can run as one run with
-  parallel milestone Builders or as [`autocode program`](program.md).
+- `tools/task_scenarios.py`: seeds, briefs and oracles. `PROGRAM-01` runs as one run
+  with parallel milestone Builders.
 - `tools/scenario_references.py`: a handwritten reference delivery per scenario. They
   are the oracle's positive control and a starting point for a scripted fixture
   provider; they are not model output.
@@ -48,7 +47,7 @@ python3 -m unittest tests.test_scenario_oracles
 ```
 
 Score a workspace you delivered by any route (a manual run, a dashboard run, a
-program's integration worktree). The report lands in the evidence bundle:
+task worktree). The report lands in the evidence bundle:
 
 ```sh
 python3 tools/live_trial.py BUGFIX-01 --score-only /path/to/delivered/workspace
@@ -66,44 +65,14 @@ python3 tools/live_trial.py LIVE-01 --profile fixture --workspace /tmp/trial
 # Authorized live trial of a task type.
 python3 tools/live_trial.py FEATURE-01 --profile glm53-mimo --workspace /tmp/trial \
   --i-authorize-live-model-spend
-
-# The large requirement as a program: each workstream is its own reviewed run.
-python3 tools/live_trial.py PROGRAM-01 --mode program --profile glm53-mimo \
-  --workspace /tmp/trial --i-authorize-live-model-spend
 ```
 
 Exit codes and verdicts follow [testing](testing.md#live-trial-results):
 `PASS` (0), `HONEST_BLOCKER` (2, a recorded pause rather than delivered work),
 `FALSE_COMPLETE`/`FAIL`/`ERROR` (1). `--score-only` exits 2 for `DEFERRED`.
 
-`--i-authorize-live-model-spend` never authorizes deployment. The driver's separate
-`--authorize-deployment` flag is required to schedule deployment workstreams;
-`PROGRAM-01` generates descriptors as ordinary code and does not need that flag.
-
-In program mode the first gate is the program agreement (`WAITING_AGREEMENT_APPROVAL`,
-see [programs](program.md)). As with plans, only the offline fixture profile approves
-it; a live profile stops there, an `HONEST_BLOCKER`, until a person reads it with
-`autocode program show` and approves its exact token. The driver also stops at any other
-program-level pause (`PAUSED_INTEGRATION_CHECK`, `PAUSED_INHERITANCE`, ...), which the
-controller raises again before it advances any workstream, except
-`PAUSED_MERGE_CONFLICT`: a conflict holds only its own workstream, so the driver keeps
-serving the other workstreams' gates.
-
-The scenario harness has a program mode of its own, separate from `live_trial.py`: a
-catalog scenario with `category = "program"` is driven through `autocode program plan`,
-`derive`, `show`, `approve` and `run` passes, with real workstream runs. The
-`program-notes-cli` scenario covers the walking skeleton, two parallel workstreams, an
-accepted interface change request that re-checks the producer and its consumers, and
-the final check by journey; its broken variants are caught by the cumulative checks
-(`HONEST_BLOCKER`) and only by the hidden journey test (`FALSE_COMPLETE`):
-
-```sh
-.venv/bin/python scenarios/run.py run program-notes-cli --fake
-```
-
-Unlike `live_trial.py`, that driver approves the agreement and every workstream's plan
-under a live profile too, as its single-run driver approves the plans it is shown. See
-[scenarios/README.md, Programs](../scenarios/README.md#programs).
+`--i-authorize-live-model-spend` never authorizes deployment. `PROGRAM-01` generates
+descriptors as ordinary code, and nothing is deployed.
 
 ## When a scenario counts as reliably passing
 
@@ -132,10 +101,7 @@ comparison); `tests/test_catalogue_t12.py` records the remaining gap.
   cannot be solved. Offline controls still cover only references and selected defects.
   A later BUGFIX-01 retest with stable report-repair inputs reached the Builder but
   still exhausted its 1,200-second budget without delivery; its baseline remains ERROR.
-- One case per task type is a capability example, not a general pass rate. Comparing
-  `PROGRAM-01` in run and program modes reuses the task and scorer, but program mode
-  additionally supplies a handwritten decomposition and has separate child budgets
-  and approvals. It is a workflow comparison, not an isolated measurement of parallelism.
+- One case per task type is a capability example, not a general pass rate.
 - The scripted fixture provider implements only the greeting scenario, so `--profile
   fixture` exercises the harness for `LIVE-01` only. Other scenarios need a live profile
   or `--score-only` on a delivered workspace.
@@ -152,13 +118,7 @@ comparison); `tests/test_catalogue_t12.py` records the remaining gap.
   assertion quality or candidate-test coverage. Independent HTTP checks decide the
   sampled behavior even when the candidate tests are green no-ops.
 - `PROGRAM-01` checks compose service names, not image builds, networking or deployability.
-  Its `deploy` workstream is `kind: code` because it writes descriptors only; it still
-  forbids running Docker or reaching external systems. Integration depends on that
-  descriptor workstream so final verification includes its files. Nothing is deployed.
-  Its `contracts` workstream is the walking skeleton: the contracts plus every process
-  answering `/health` and the catalog listed through the gateway, verified by
-  `tests/test_skeleton.py` (the manifest's program check) before any other workstream
-  starts. The oracle does not score that file.
+  Its brief asks for descriptors that are never executed in the task. Nothing is deployed.
 - These oracles execute candidate Python locally; they are not a security sandbox.
   Subprocess deadlines and process-group cleanup bound ordinary hangs and clean up
   ordinary descendants, but do not contain hostile code or children that detach into
@@ -168,4 +128,4 @@ comparison); `tests/test_catalogue_t12.py` records the remaining gap.
   token. That is test automation, not a person's judgement; do not count a driven run
   as human acceptance where a criterion requires human review.
 
-See also: [Program workstreams](program.md) · [Testing plan](testing-plan.md) · [Testing](testing.md)
+See also: [Testing plan](testing-plan.md) · [Testing](testing.md)

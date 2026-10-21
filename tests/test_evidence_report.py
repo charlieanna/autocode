@@ -1551,17 +1551,26 @@ class EvidenceFileTests(unittest.TestCase):
 
         parent = aggregate.publish(
             self.root,
-            kind="program",
-            identity="p",
+            kind="components",
+            identity="c",
             status="COMPLETE",
-            child_runs=[("M1", PublicChild())],
+            child_runs=[("api", PublicChild())],
             source_revision="a" * 64,
         )
         run = {
             "report_expected": True,
             "provider_evidence": "fake",
-            "program": {"status": "COMPLETE", "state_file": str(self.root / "state.json"), "evidence_report": parent},
-            "children": {"M1": [{"status": "TASK_COMPLETE", "run_dir": str(child_root), "evidence_report": child}]},
+            "components": {
+                "exit_code": 0,
+                "evidence_report": parent,
+                "components": {
+                    "api": {
+                        "workspace": str(self.root / "api"),
+                        "run_dir": str(child_root),
+                        "view": {"status": "TASK_COMPLETE", "evidence_report": child},
+                    }
+                },
+            },
         }
         self.assertEqual(2, len(evidence_reports.checks(run)))
         self.assertTrue(all(row.ok for row in evidence_reports.checks(run)))

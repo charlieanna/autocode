@@ -101,7 +101,7 @@ class CliDocumentationTests(unittest.TestCase):
         cls.parsers = {path: capture_parser(path) for path in cls.paths}
         # The unattended overview describes a pass-through wrapper; its ordinary
         # accepted run flags come from the main parser, its analysis flags have
-        # their own registered path. Program's manual overview has child paths.
+        # their own registered path.
         if ("unattended",) in cls.parsers and cls.parsers[("unattended",)] is None:
             cls.parsers[("unattended",)] = autocode_args.build_parser(None, autocode_configure.DEFAULT_ROLE_MODELS)
         cls.scopes = documented_options(REFERENCE.read_text())

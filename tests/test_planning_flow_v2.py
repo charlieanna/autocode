@@ -743,9 +743,9 @@ class V2PlanningCycleTests(unittest.TestCase):
         self.admit(state, summary="Admitted after the upgrade")
         self.assertNotIn("planning_history", state)
         self.assertEqual((2, ["answer:Q1"]), (state["planning"]["astra_calls"], state["planning"]["inputs"]))
-        state.setdefault("program_guidance", []).append({"id": "guidance-1", "text": "Keep R1"})
-        self.admit(state, summary="Requirements after the program's guidance")
+        state["answers"]["Q2"] = {"kind": "answer", "text": "After the upgrade"}
+        self.admit(state, summary="Requirements after a new answer")
         self.assertEqual(2, state["planning_history"][-1]["astra_calls"])
         self.assertEqual(
-            (0, ["answer:Q1", "guidance:guidance-1"]), (state["planning"]["astra_calls"], state["planning"]["inputs"])
+            (0, ["answer:Q1", "answer:Q2"]), (state["planning"]["astra_calls"], state["planning"]["inputs"])
         )

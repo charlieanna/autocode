@@ -12,7 +12,7 @@ Where it looks, from the start directory (``--workspace``, by default the curren
    (once finished, only for --status, --dry-run and --follow-up). A parallel Builder's run (its state records ``parent_run``) stands for its parent. A run
    directory whose state cannot be used (or one ``autocode clean-worktrees`` archived) is
    refused, never swapped for another run.
-2. Otherwise the nearest enclosing Git checkout. A task or program worktree (one with a
+2. Otherwise the nearest enclosing Git checkout. A task worktree (one with a
    valid ``.autocode/task-workspace.json``): its own runs. A project: its in-place runs
    and the runs of each task worktree under ``.autocode/worktrees``.
 3. Outside any Git checkout: the task projects ``autocode`` bootstrapped in
@@ -20,12 +20,12 @@ Where it looks, from the start directory (``--workspace``, by default the curren
 
 Only ``<checkout>/.autocode/runs/<id>/state.json`` is read, one level deep, never through
 a symlink, and only when that state names the checkout as its workspace (what the run
-registry requires). Builder worker, UI, archived, program and task-flow records live
+registry requires). Builder worker, UI, archived and task-flow records live
 elsewhere and are never candidates.
 
 choose() says which run each kind of invocation takes. A bare ``autocode`` never takes a
-finished run (relaunching one rechecks and redelivers it) or a run that ``autocode
-program`` or ``autocode tasks`` drives; those are listed with the command that names them.
+finished run (relaunching one rechecks and redelivers it) or a run that ``autocode tasks``
+drives; those are listed with the command that names them.
 checkout_of() gives an explicit --run-dir its own checkout, resume_acknowledges() says at which
 saved statuses a bare ``autocode resume`` stands for --resume-paused, and continue_hint() the
 line printed after a user action saved on a run.
@@ -62,11 +62,7 @@ from pathlib import Path
 # take the run lock and save the run, so unlike read they never fall back to a finished run.
 ACTIONS = ("advance", "read", "follow_up", "act")
 COMPLETE = "TASK_COMPLETE"
-# autocode_program.PLAN_PREAMBLE starts with this (tests/test_run_finder.py checks it). The
-# program's plan run is started with --unit autoplanner, which is not saved, so relaunching
-# it with a plain autocode would start building in the project checkout.
-PROGRAM_PLAN_PREFIX = "PROGRAM PLANNING. "
-OWNER_COMMAND = {"program": "autocode program", "task flow": "autocode tasks"}
+OWNER_COMMAND = {"task flow": "autocode tasks"}
 LIST_LIMIT = 15
 TASK_WIDTH = 72
 
@@ -86,8 +82,7 @@ class Candidate:
     created: float  # POSIX seconds: created_at, else the run directory's name, else 0
     completed: float  # completed_at, else created
     stopped: bool  # an applied durable stop: terminal (autocode_stop)
-    owner: str | None  # None, "program" or "task flow": the command that drives the run
-    program_plan: bool = False  # the in-place plan run of ``autocode program plan``
+    owner: str | None  # None or "task flow": the command that drives the run
     reason: str = ""  # why choose() took it; empty in a listing
 
     @property
@@ -137,10 +132,10 @@ def checkout_of(run_dir) -> Path | None:
 def choose(start, action: str, flags: str = "", unit: str | None = None) -> Candidate:
     """The run an invocation of kind ``action`` (see ACTIONS) started in ``start`` means.
 
-    follow_up: the most recently completed run, preferring one no program or task flow drives;
-    refused when an unfinished run no program or task flow drives was started after it finished.
+    follow_up: the most recently completed run, preferring one no task flow drives;
+    refused when an unfinished run no task flow drives was started after it finished.
     read: the only unfinished run, or with none the latest finished one.
-    advance, act: the only unfinished run no program or task flow drives; with none, an act
+    advance, act: the only unfinished run no task flow drives; with none, an act
     takes the only driven one, while advance refuses it and names the command that drives it.
     Several runs, none, or only finished ones for advance and act raise RunNotFound.
     Inside a run directory: that run, except that advance and act refuse it once finished,
@@ -187,9 +182,7 @@ def choose(start, action: str, flags: str = "", unit: str | None = None) -> Cand
     if len(free) == 1:
         return dataclasses.replace(
             free[0],
-            reason="the only unfinished run"
-            if len(unfinished) == 1
-            else "the only unfinished run no program or task flow drives",
+            reason="the only unfinished run" if len(unfinished) == 1 else "the only unfinished run no task flow drives",
         )
     if not free and len(unfinished) == 1:
         if action == "act":
@@ -228,11 +221,6 @@ def continue_hint(run_dir, state: RunState, unit: str | None = None) -> str:
     run_dir = Path(run_dir).resolve()
     workspace = state.get("workspace")
     run = _candidate(run_dir, Path(workspace) if isinstance(workspace, str) else run_dir, state, {})
-    if run.program_plan:
-        return (
-            f"Continue planning with: {_command(run, '--unit autoplanner')}; once the plan is approved: "
-            f"autocode program derive --run-dir {shlex.quote(str(run_dir))} --output program.json"
-        )
     if run.finished:
         hint = f"It has finished ({run.status}); show it with: {_command(run, '--status')}"
         return hint + (f'; continue it with: {_command(run, "--follow-up")} "TEXT"' if run.complete else "")
@@ -348,7 +336,7 @@ def _archived(run_dir: Path) -> bool:
 
 
 def _worktree_metadata(tree: Path) -> dict | None:
-    """The task/program worktree metadata of ``tree`` when it plainly describes ``tree``.
+    """The task worktree metadata of ``tree`` when it plainly describes ``tree``.
 
     The cheap half of autocode_workspaces.metadata(): no Git calls and never raises.
     """
@@ -441,39 +429,37 @@ def _candidate(run_dir: Path, workspace: Path, state: RunState, owners) -> Candi
     task = state.get("task")
     if not isinstance(task, str):
         task = ""
-    plan = task.startswith(PROGRAM_PLAN_PREFIX)
     created = _moment(state.get("created_at")) or _moment_from_name(run_dir.name) or 0.0
     receipts = state.get("applied_interventions")
-    owner = _owner(run_dir, workspace, owners) or ("program" if plan else None)
+    owner = _owner(run_dir, workspace, owners)
     return Candidate(
         run_dir=run_dir,
         workspace=workspace,
         status=str(state.get("status") or "UNKNOWN"),
-        task=_first_line(task.split("\nREQUEST:\n", 1)[-1] if plan else task),
+        task=_first_line(task),
         created=created,
         completed=_moment(state.get("completed_at")) or created,
         stopped=isinstance(receipts, list)
         and any(isinstance(receipt, dict) and receipt.get("kind") == "stop" for receipt in receipts),
         owner=owner,
-        program_plan=plan,
     )
 
 
 def _owner(run_dir: Path, workspace: Path, owners) -> str | None:
-    """ "program" or "task flow" when that command recorded this run or its worktree."""
+    """ "task flow" when ``autocode tasks`` recorded this run or its worktree."""
     data = _worktree_metadata(workspace)
     project = Path(data["project_workspace"]).resolve() if data else workspace
     if project not in owners:
         owners[project] = _owned_paths(project)
     owned = owners[project]
-    # Programs and task flows record their project too; only a worktree of its own is owned.
+    # Task flows record their project too; only a worktree of its own is owned.
     return owned.get(run_dir) or (owned.get(workspace) if workspace != project else None)
 
 
 def _owned_paths(project: Path) -> dict[Path, str]:
-    """Every absolute path a program or task flow under ``project`` recorded, by owner."""
+    """Every absolute path a task flow under ``project`` recorded, by owner."""
     owned: dict[Path, str] = {}
-    for owner, folder in (("task flow", "task-flows"), ("program", "programs")):
+    for owner, folder in (("task flow", "task-flows"),):
         base = project / ".autocode" / folder
         try:
             if base.is_symlink() or not base.is_dir():
@@ -549,9 +535,6 @@ def _command(run: Candidate, flags: str = "") -> str:
 
 def _listed_flags(run: Candidate, flags: str, unit: str | None, action: str) -> str:
     """The user's unit and flags, as a listed command repeats them after ``--run-dir RUN``."""
-    if action == "advance" and run.program_plan:
-        # Relaunched without its unit, a program's plan run would build in the project checkout.
-        unit = "autoplanner"
     return " ".join(part for part in (f"--unit {unit}" if unit else "", flags) if part)
 
 
@@ -622,11 +605,6 @@ def _ambiguous_message(search: _Search, unfinished: list[Candidate], flags: str,
         *_entries(unfinished, [_listed_flags(run, flags, unit, action) for run in unfinished]),
         "Inside a task worktree, the same command without --run-dir chooses that worktree's run.",
     ]
-    if action == "advance" and any(run.program_plan for run in unfinished[:LIST_LIMIT]):
-        lines.append(
-            "A run `autocode program` plans continues with --unit autoplanner; once its plan is "
-            "approved, derive the program with autocode program derive (docs/program.md)."
-        )
     if finished:
         lines.append(f"Not listed: {finished} finished run{'s' if finished != 1 else ''}.")
     return "\n".join(lines)
@@ -652,22 +630,14 @@ def _finished_message(search: _Search, latest: Candidate, *, here: bool, action:
 
 
 def _owned_message(search: _Search, run: Candidate) -> str:
-    if run.program_plan:
-        hint = (
-            "It plans a program: answer and approve it with the usual flags (autocode --status shows what "
-            f"it needs), continue its planning with {_command(run, '--unit autoplanner')}, then derive "
-            "the program with autocode program derive (docs/program.md)."
-        )
-    else:
-        rerun = "autocode program run MANIFEST" if run.owner == "program" else "autocode tasks MANIFEST"
-        hint = (
-            f"Rerun {rerun} to advance it. Its questions and approvals take the usual flags here "
-            "(autocode --status shows what it needs); to relaunch it yourself, name it with --run-dir."
-        )
+    hint = (
+        "Rerun autocode tasks MANIFEST to advance it. Its questions and approvals take the usual flags here "
+        "(autocode --status shows what it needs); to relaunch it yourself, name it with --run-dir."
+    )
     return "\n".join(
         [
             f"The only unfinished AutoCode run in {search.where} is driven by "
-            f"`{OWNER_COMMAND.get(run.owner or '') or OWNER_COMMAND['program']}`; a bare autocode does not advance it:",
+            f"`{OWNER_COMMAND['task flow']}`; a bare autocode does not advance it:",
             _entry(run, "--status"),
             hint,
         ]

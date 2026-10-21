@@ -24,13 +24,11 @@ except ImportError:
 
 def planning_inputs(state: RunState):
     """What may renew a v2 planning cycle, as sorted IDs: the user's answers and brief feedback (corrections,
-    queued interventions and follow-ups) and a program's plan guidance. Model output adds none of them."""
+    queued interventions and follow-ups). Model output adds none of them."""
     feedback = [row for row in state.get("brief_feedback") or [] if isinstance(row, dict) and row.get("id")]
-    guidance = [row for row in state.get("program_guidance") or [] if isinstance(row, dict) and row.get("id")]
     return sorted(
         ["answer:" + str(key) for key in state.get("answers") or {}]
         + ["feedback:" + str(row["id"]) for row in feedback]
-        + ["guidance:" + str(row["id"]) for row in guidance]
     )
 
 
@@ -84,7 +82,7 @@ def admit_requirements(state: RunState, previous_token):
     """The planning record for the v2 Requirements handoff just accepted (#1252); ``previous_token`` is the
     requirements_artifact_token it replaced.
 
-    A changed handoff after new input (planning_inputs: an answer, feedback, a follow-up or program guidance)
+    A changed handoff after new input (planning_inputs: an answer, feedback or a follow-up)
     begins a new cycle, as each Planner draft does on the legacy flow: corrective feedback on a reviewed plan
     otherwise left the new plan's first review refused for the old cycle's charges. The same handoff admitted
     again, or a different one with no new input (a retried or repaired report), keeps the cycle and its spent

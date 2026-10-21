@@ -49,6 +49,14 @@ PR template asks for an entry here; a change without one is incomplete.
   entries may carry a `preference` that orders a role's models before billing and price. The Completion
   Reviewer, the final gate, likewise prefers GPT-6 Sol when connected, with GLM 5.3 as its fallback.
 
+### Removed
+
+- `autocode program` and `autocode --program-guidance` are gone from master, so every task follows one flow:
+  Requirements, a plan you approve, Builders, Tester and review, in one run. A large task gets more milestones in
+  that run, not separate workstream runs. The program code, its tests, its guide and its two scenarios are kept
+  unchanged on the `archive/program` branch (master at 5ee3435) to bring back if a real project needs them.
+  Clean-up still keeps worktrees an older program owns, and agents are still denied `.autocode/programs`.
+
 ### Fixed
 
 - VS Code chat: while you read older messages, the Latest button now names the step running now

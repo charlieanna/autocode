@@ -27,19 +27,7 @@ def complete(view):
 
 def nodes(run):
     expected = run.get("provider_evidence")
-    if "program" in run:
-        summary = run["program"]
-        if complete(summary):
-            yield "program", Path(summary["state_file"]).parent, summary.get("evidence_report"), "program", expected
-        plan = run.get("plan") or {}
-        view = plan.get("view") or {}
-        if complete(view):
-            yield "program plan", Path(plan["run_dir"]), view.get("evidence_report"), "task", expected
-        for identity, children in (run.get("children") or {}).items():
-            for child in children:
-                if complete(child):
-                    yield identity, Path(child["run_dir"]), child.get("evidence_report"), "task", expected
-    elif "components" in run:
+    if "components" in run:
         summary = run["components"]
         children = summary.get("components") or {}
         if summary.get("exit_code") == 0 and children:

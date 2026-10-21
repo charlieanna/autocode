@@ -204,8 +204,7 @@ offers every role's default model; `--engine codex` checks Codex instead.
 
 `autocode completion bash|zsh|fish` prints a completion script read from the CLI's own
 parsers: the commands, every option of the main command and of each subcommand, with
-their choices, a subcommand's own commands (`autocode output read`, `autocode program
-approve`), and file names after an option that takes a path. Load it in the current shell,
+their choices, a subcommand's own commands (`autocode output read`), and file names after an option that takes a path. Load it in the current shell,
 or save it where your shell reads completions:
 
 ```sh
