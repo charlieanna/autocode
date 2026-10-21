@@ -408,6 +408,14 @@ class ProjectedRowActions(CodeCheckpoints):
         [row] = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)["rows"]
         self.assertEqual(["compare"], [action["id"] for action in row["actions"]])
 
+    def test_a_finished_run_names_compare_only_and_says_why_without_asking_for_a_pause(self):
+        # #1643: on a finished run the reason told the person to pause, though nothing was running.
+        self.state["status"] = "TASK_COMPLETE"
+        projected = checkpoints.project(self.state, run_dir=self.run, workspace=self.workspace)
+        self.assertEqual(["compare"], [action["id"] for action in projected["rows"][0]["actions"]])
+        self.assertIn("finished run", projected["blocked_reason"])
+        self.assertNotIn("Pause", projected["blocked_reason"])
+
     def test_a_row_without_verified_source_names_no_actions(self):
         self.state["code_checkpoints"][0].update(available=False, reason="storage failed")
         [row] = checkpoints.project(self.state)["rows"]

@@ -18,6 +18,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- On a finished run, a saved step's `restore` is no longer explained as "Pause after the current step": nothing is running, so the status view's `code_checkpoints.blocked_reason` now says a finished run cannot go back to a saved step, that its steps can still be compared, and that a follow-up changes the code. The terminal chat's `/undo` shows that text (#1643).
 - A small-brief run no longer stops before the final review of a revision that answered the Plan Reviewer's blocking
   concerns (#1815). Under the two-call total (#1564) a live `--skip-to-build` run spent both calls on challenges, the
   Planner revised, and the run waited for a person with nothing left but that review. The runner now allows that one
