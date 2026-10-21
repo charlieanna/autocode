@@ -799,6 +799,44 @@ def apply_review_depth_policy(state: RunState):
     apply_reviewer_effort_tier(state)
 
 
+def renew_for_revision(state: RunState, stage, limit) -> bool:
+    """One more review of a revision that answered blocking concerns, once per run (#1815).
+
+    Under the small-brief total (#1564) a live worker run spent its two calls on two challenges that both had
+    blocking concerns; the Planner revised, and nothing was left to review the revision, so the run stopped for
+    a person when the next step was simply the final review. A limit the person chose (a flag or config.toml)
+    is never raised here."""
+    planning = state.get("planning") or {}
+    reports = planning.get("reports") or {}
+    concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
+    if (
+        stage != "astra_finalize"
+        or state.get("next_stage") != stage
+        or not planning.get("review_depth_reduced")
+        or planning.get("revision_review_renewals")
+        or planning.get("review_call_limit_origin") == "user_explicit"
+        or (state.get("settings") or {}).get("planning_review_call_limit_origin")
+        or not adaptive.blocking(concerns)
+        or "glm_revise" not in reports
+    ):
+        return False
+    planning.update(
+        review_call_limit=limit + 1,
+        review_call_limit_origin="runner_default",
+        revision_review_renewals=1,
+        revision_review_renewal={
+            "stage": stage,
+            "challenge_output": reports["astra_challenge"].get("output"),
+            "revision_output": reports["glm_revise"].get("output"),
+            "blocking_ids": [str(concern.get("id")) for concern in adaptive.blocking(concerns)],
+            "from": limit,
+            "to": limit + 1,
+            "at": s.now(),
+        },
+    )
+    return True
+
+
 def review_call_limit(state: RunState):
     limit = cast(dict, state.get("planning", {})).get(
         "review_call_limit", state.get("settings", {}).get("planning_review_call_limit", 2)
@@ -897,6 +935,15 @@ def charge(state: RunState, stage, record=None, workspace=None):
     apply_review_depth_policy(state)
     refund_unreported(state, planning)
     limit = review_call_limit(state)
+    if (
+        limit
+        and planning["astra_calls"] >= limit
+        and not planning.get("recovery_review_grants")
+        and renew_for_revision(state, stage, limit)
+    ):
+        limit = review_call_limit(state)
+        if record is not None:
+            record["planning_revision_renewal"] = True
     if limit and planning["astra_calls"] >= limit:
         if planning.get("recovery_review_grants"):
             try:
@@ -928,7 +975,8 @@ def charge(state: RunState, stage, record=None, workspace=None):
             f"{planning['astra_calls']}/{limit} plan-review calls used. "
             "AutoResolver could not authorize another safe operational call. "
             "Retained requirements and review evidence are unchanged; no approval is implied. "
-            "User feedback is needed only if the plan or requirements must change.",
+            "Allow more reviews with --resume-paused --planning-review-call-limit N (more than the calls used), "
+            "or give the Planner direction with --feedback TEXT.",
         )
     planning["astra_calls"] += 1
     if record is not None:
