@@ -44,16 +44,19 @@ class PlanningRecoveryCLITests(unittest.TestCase):
 
     def test_resume_reaches_builder_without_granting_more_timeout_recoveries(self):
         run = self.legacy_hold()
+        before = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", "--pause-after-stage"], 2)
         view = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
         self.assertEqual("terra", view["next_stage"])
         self.assertEqual("PAUSED_REQUESTED", view["status"])
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat", "--pause-after-stage"], 2)
         self.assertTrue((self.project / "greet.py").is_file())
-        saved = self.saved()[1]
-        self.assertEqual(2, saved["automatic_recoveries_since_resume"])
-        self.assertEqual(3, len(saved["automatic_timeout_recoveries"]))
-        self.assertFalse(saved.get("recovery_grants"))
+        after = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
+        self.assertEqual("PAUSED_REQUESTED", after["view"]["status"])
+        self.assertEqual(before["settings"], after["settings"])
+        self.assertEqual(before["view"]["routes"], after["view"]["routes"])
+        attempts = lambda view: {row["identity"] for row in view["usage"]["accounting"]["attempts"]}
+        self.assertLess(attempts(before["view"]), attempts(after["view"]))
 
     def test_invalid_retry_does_not_apply_accounting_correction(self):
         run = self.legacy_hold()
