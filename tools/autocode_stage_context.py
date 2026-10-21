@@ -262,7 +262,8 @@ def context_packet(state: RunState, stage, state_path):
             records = brief_obligations.sources(state)
             if records:
                 base["source_inventory"] = [
-                    {"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in records
+                    {"id": row["id"], "kind": row["kind"], "text": row["text"]}
+                    for row in source_trace.quotable(records)
                 ]
                 # Full brief once in source_inventory; do not also paste it under task (#1337).
                 base["task"] = brief_obligations.handoff_task(base["task"], base["source_inventory"])

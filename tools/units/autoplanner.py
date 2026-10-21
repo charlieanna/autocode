@@ -179,7 +179,10 @@ CITATION_STAGES = (
 
 def source_inventory(state: RunState):
     """The handoff list models quote in criterion sources (#595); shared by prepare and report repair."""
-    return [{"id": row["id"], "kind": row["kind"], "text": row["text"]} for row in brief_obligations.sources(state)]
+    return [
+        {"id": row["id"], "kind": row["kind"], "text": row["text"]}
+        for row in source_trace.quotable(brief_obligations.sources(state))
+    ]
 
 
 def repair_source_inventory(state: RunState, stage):

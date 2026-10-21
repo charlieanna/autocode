@@ -349,6 +349,38 @@ class SealTests(unittest.TestCase):
     def draft(self):
         return body([criterion("C1", TASK + " never no", [TASK])])
 
+    def answer(self, text, question_id="requirements-review-0123abcd"):
+        event = {"kind": "answer", "actor": "user_cli", "question_id": question_id, "text": text}
+        source_log.save_answer(self.state, question_id, event)
+        self.state.setdefault("user_events", []).append(event)
+
+    def test_a_requirements_review_go_ahead_is_not_an_obligation_to_quote(self):
+        # #1630: a live GLM-5.3 draft cited every brief sentence but not the review's "plan" reply,
+        # and the Plan Reviewer's seal refused it as untraced.
+        self.answer("plan")
+        records = obligations.sources(self.state)
+        self.assertIn("answer:requirements-review-0123abcd", [row["id"] for row in records])
+        report = {"source_trace": {"out_of_scope": [], "negation_waivers": []}}
+        sealed = trace.reviewed(self.state, self.draft(), report["source_trace"], self.record(report), records)
+        trace.verify(self.state, sealed, records, ready=True)
+        self.assertEqual(["task:0"], [row["id"] for row in trace.quotable(records)])
+        self.assertNotIn("requirements-review", trace.rule(records))
+        # A contract sealed while the reply was still quoted keeps verifying.
+        cited = self.draft()
+        cited["acceptance_criteria"][0]["sources"].append(
+            {"source_id": "answer:requirements-review-0123abcd", "quote": "plan"}
+        )
+        sealed = trace.reviewed(self.state, cited, report["source_trace"], self.record(report), records)
+        trace.verify(self.state, sealed, records, ready=True)
+
+    def test_a_requirements_review_correction_must_still_be_traced(self):
+        self.answer("Also reject negative row counts.")
+        records = obligations.sources(self.state)
+        self.assertEqual(records, trace.quotable(records))
+        report = {"source_trace": {"out_of_scope": [], "negation_waivers": []}}
+        with self.assertRaisesRegex(ValueError, "neither cited nor out of scope: 'Also reject negative row counts.'"):
+            trace.reviewed(self.state, self.draft(), report["source_trace"], self.record(report), records)
+
     def test_the_seal_round_trips_through_verify(self):
         report = {"source_trace": {"out_of_scope": [], "negation_waivers": []}}
         sealed = trace.reviewed(
