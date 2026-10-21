@@ -849,6 +849,15 @@ class UnapprovedRewordingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
             revision_guard(state, after, changes, "glm_revise")
 
+    def test_a_user_backed_rewording_keeps_its_declaration_with_a_matching_proof(self):
+        # #1764: the person backed this rewording, so it is a declared change and not the Planner's own
+        # wording to wave through. Correcting the criterion's proof with it must not lose the declaration.
+        state, after, changes = self.inputs()
+        changes[0].update(basis="user_answer", answer_id="A1")
+        after["acceptance_criteria"][0]["verification_method"] += " | head -20"
+        state["answers"] = {"A1": {"kind": "answer", "text": "compare only the first two rows"}}
+        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
     def test_once_approved_every_rewording_needs_the_person(self):
         for fields, history in (
             ({"approval_status": "approved"}, []),
