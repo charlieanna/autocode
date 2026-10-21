@@ -34,6 +34,10 @@ stages other than planning get on this machine, by the check run setup makes
 macOS Seatbelt or Linux bubblewrap and its version, then OpenCode exactly 1.18.33. Without
 both, such a run is refused at setup unless it is started with --allow-uncontained-tools, so
 the check warns; it never fails doctor. ``opencode --version`` runs once per doctor.
+
+The ``path`` check (#1761) warns, without failing doctor, when ``autocode`` is not on PATH, so
+a new shell would answer ``command not found``, and names the virtual environment's ``bin``
+directory to add or the ``pipx`` install that puts it there.
 """
 
 from __future__ import annotations
@@ -46,6 +50,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import sysconfig
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -534,6 +539,32 @@ def shared_host_check(passwd_lines=None, uid=None) -> Check:
     )
 
 
+def path_check(which=shutil.which, scripts: str | None = None, environ=None) -> Check:
+    """#1761: whether typing ``autocode`` in a new shell finds this install. A virtual environment's
+    ``bin`` is on PATH only while it is activated, so ``.venv/bin/autocode doctor`` and a later shell
+    can disagree; name the directory to put on PATH, or the pipx install that does it once."""
+    environ = os.environ if environ is None else environ
+    scripts = scripts if scripts is not None else sysconfig.get_path("scripts")
+    found = which("autocode")
+    if found is None:
+        installed = Path(scripts) / "autocode"
+        pipx = "pipx install --editable /path/to/autocode puts it on PATH once"
+        fix = pipx
+        if installed.exists():
+            activate = shlex.join(["source", str(Path(scripts) / "activate")])
+            fix = f'{activate} in each new shell, or add export PATH="{scripts}:$PATH" to your shell profile; or {pipx}'
+        return Check("path", WARN, "autocode is not on PATH: a new shell answers `command not found`", fix)
+    venv = environ.get("VIRTUAL_ENV")
+    if venv and Path(found).resolve().parent == (Path(venv) / "bin").resolve():
+        return Check(
+            "path",
+            OK,
+            f"{found}, through the activated virtual environment {venv}; a new shell finds it only after "
+            f"{shlex.join(['source', str(Path(venv) / 'bin' / 'activate')])} (pipx install --editable puts it on PATH for good)",
+        )
+    return Check("path", OK, found)
+
+
 def runner_check(commit_source=None) -> Check:
     """#980: report the autocode code that would execute runs from this machine."""
     identity = util.runner_identity(commit_source)
@@ -720,6 +751,7 @@ def all_checks(
         *workspace_check(workspace, runner),
         *local_compose_checks(which, runner),
         shared_host_check(),
+        path_check(which),
         runner_check(),
         install_drift_check(workspace=workspace),
         storage_check(workspace),

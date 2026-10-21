@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Typing `autocode` in a new shell after the README's virtual-environment install answered `command not found`
+  (#1761). The README and install guide now say the activation lasts for one shell and name the lasting fixes
+  (`pipx install --editable .` or the venv's `bin` on `PATH`), and `autocode doctor` has a `path` row that warns,
+  without failing, when `autocode` is not on `PATH` and names the directory to add.
 - The terminal chat shows every Requirements question, not only the first (#1792). Every question shared one chat
   message id, and the client shows an id once, so a second question stayed hidden behind a bare `You:` prompt and
   the person's reply answered a question they never saw. Each question now has its own message id; the chat prints

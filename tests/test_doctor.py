@@ -776,6 +776,51 @@ class SharedHostCheckTests(unittest.TestCase):
         shutil.rmtree(folder, ignore_errors=True)
 
 
+class PathCheckTests(unittest.TestCase):
+    """#1761: a venv install works through .venv/bin/autocode while a new shell says command not found."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="doctor-path-")
+        self.addCleanup(directory.cleanup)
+        self.bin = Path(directory.name) / "venv" / "bin"
+        self.bin.mkdir(parents=True)
+        (self.bin / "autocode").write_text("#!/bin/sh\n")
+
+    def test_an_install_off_path_warns_and_names_its_directory(self):
+        check = doctor.path_check(which=on_path(), scripts=str(self.bin), environ={})
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertIn("command not found", check.detail)
+        self.assertIn(f'export PATH="{self.bin}:$PATH"', check.fix)
+        self.assertIn(f"source {self.bin / 'activate'}", check.fix)
+        self.assertIn("pipx install --editable", check.fix)
+
+    def test_without_a_script_to_point_at_the_fix_is_pipx(self):
+        check = doctor.path_check(which=on_path(), scripts=str(self.bin.parent / "elsewhere"), environ={})
+        self.assertEqual(doctor.WARN, check.status)
+        self.assertNotIn("export PATH", check.fix)
+        self.assertIn("pipx install --editable", check.fix)
+
+    def test_on_path_only_through_an_activated_venv_says_a_new_shell_needs_it_again(self):
+        found = str(self.bin / "autocode")
+        check = doctor.path_check(
+            which=lambda name: found, scripts=str(self.bin), environ={"VIRTUAL_ENV": str(self.bin.parent)}
+        )
+        self.assertEqual(doctor.OK, check.status)
+        self.assertIn("a new shell finds it only after", check.detail)
+
+    def test_on_path_for_good_is_ok(self):
+        check = doctor.path_check(which=on_path("autocode"), scripts=str(self.bin), environ={})
+        self.assertEqual(doctor.Check("path", doctor.OK, "/bin/autocode"), check)
+
+    def test_a_missing_path_entry_never_fails_doctor(self):
+        workspace = Path(tempfile.mkdtemp(prefix="doctor-path-ws-"))
+        self.addCleanup(shutil.rmtree, workspace, True)
+        checks = doctor.all_checks(workspace, which=on_path(), runner=fake_runner({}))
+        row = next(check for check in checks if check.name == "path")
+        self.assertEqual(doctor.WARN, row.status)
+        self.assertEqual(doctor.passed(checks), doctor.passed([c for c in checks if c.name != "path"]))
+
+
 class InstallDriftCheckTests(unittest.TestCase):
     """#972: a separately-installed copy that diverges must warn; the healthy
     linked/editable and single-copy configurations must never warn."""
