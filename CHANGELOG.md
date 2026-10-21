@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-10-21
+
 ### Added
 
 - A live agent log in the full-screen terminal chat (owner decision 2026-10-21). While AutoCode works, a pane under
@@ -78,6 +80,11 @@ PR template asks for an entry here; a change without one is incomplete.
   findings closed none of them. It now reads the published request's `finding_ids` as well, which is where the
   validation-only stop puts them, and still accepts the legacy question payload. The completion gate's
   preservation requirement for a first project is unchanged (#1783).
+- The Planner's draft-example rule no longer contradicts the unapproved-wording allowance (#1691). It said "other
+  criterion changes require a saved user basis", so a live GLM revision that fixed a fixture value at the Plan
+  Reviewer's request declared it as an example correction, which the guard refuses for an input change (#1750), and
+  spent a 143 s report repair. The rule now says an example correction is only for a stdout result, and that a
+  never-approved criterion the Planner wrote may be reworded as a plain agent-proposed change.
 - A spec-first run's `plan` reply to the Requirements review is no longer a source every plan must quote
   (#1630). A Planner draft that cited every sentence of the brief failed the Plan Reviewer's source-trace seal
   for leaving the single word `plan` uncited. The reply stays in the run's source log, and contracts that
