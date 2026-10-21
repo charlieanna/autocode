@@ -16,6 +16,12 @@ PR template asks for an entry here; a change without one is incomplete.
   the person's reply answered a question they never saw. Each question now has its own message id; the chat prints
   the question its prompt waits on, waits while Requirements is still working on a reply, and repeats the question
   instead of a bare prompt when a reply has not been taken up.
+- The terminal chat says a running run's notice (`Working on your request…`) once per state instead of repeating it
+  every time the progress line changes, and says it again after it clears and returns (#1798).
+
+- A Planner that declares a rewording while leaving the protected criterion or list entry unchanged no longer
+  creates a human wording-choice question (#1791, #1793). Inconsistent change metadata now follows the existing
+  report-repair path. Genuine protected wording changes still require the person's decision.
 
 - A recovery novelty hold whose AutoResolver request is not yet published (`RESOLVER_PENDING`) now names the
   scoped retry, `--resume-paused --retry-failed-stage`, as its next command and recovery-card action (#1770). The

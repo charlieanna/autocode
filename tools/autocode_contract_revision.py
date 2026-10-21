@@ -148,6 +148,29 @@ def canonical_items(previous: dict, changes: list) -> list:
     return [dict(raw, item=canonical(raw.get("item"))) if isinstance(raw, dict) else raw for raw in changes]
 
 
+def _criterion_signature(row):
+    return (row["criterion"], test_cases.proof(row["verification_method"]), row.get("human_review", False))
+
+
+def _reject_unchanged_rewordings(previous, body, changes):
+    """A false change declaration is a report error, never a person's decision."""
+    old = {row["id"]: row for row in previous.get("acceptance_criteria", [])}
+    new = {row["id"]: row for row in body.get("acceptance_criteria", [])}
+    for row in changes:
+        if row["change"] != "reworded":
+            continue
+        item = row.get("item")
+        if item in old:
+            unchanged = item in new and _criterion_signature(old[item]) == _criterion_signature(new[item])
+        else:
+            owners = [key for key in PROTECTED_LISTS if item in previous.get(key, [])]
+            unchanged = bool(owners) and all(item in body.get(key, []) for key in owners)
+        if unchanged:
+            raise ValueError(
+                f"contract_changes names {item!r}, which was not changed in the protected contract; drop that row"
+            )
+
+
 def revision_guard(state: RunState, body, changes, origin):
     """A planner revision may not drop protected text or widen permissions on its own.
 
@@ -218,6 +241,7 @@ def revision_guard(state: RunState, body, changes, origin):
         if raw.get("item") in example_corrections:
             continue
         protected_changes.append(raw)
+    _reject_unchanged_rewordings(previous, body, protected_changes)
     unbacked = [raw for raw in protected_changes if not saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))]
     if unbacked:
         raw = unbacked[0]
@@ -288,13 +312,8 @@ def revision_guard(state: RunState, body, changes, origin):
             else row
             for row in comparable
         ]
-    signature = lambda row: (
-        row["criterion"],
-        test_cases.proof(row["verification_method"]),
-        row.get("human_review", False),
-    )
-    old_criteria = {row["id"]: signature(row) for row in comparable}
-    new_criteria = {cid: signature(row) for cid, row in new_rows.items()}
+    old_criteria = {row["id"]: _criterion_signature(row) for row in comparable}
+    new_criteria = {cid: _criterion_signature(row) for cid, row in new_rows.items()}
     for cid, text in old_criteria.items():
         if new_criteria.get(cid) == text:
             continue

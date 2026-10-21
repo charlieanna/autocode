@@ -265,6 +265,7 @@ class ChatClient:
         self._replied_context: str | None = None  # the chat context the last sent reply answered
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
+        self.last_notice: str | None = None  # the notice said last, so a progress change does not repeat it
         self._live_text: str | None = None  # the streaming reply from the last show(), for the poll pace
         self._live_quiet = 0  # reads since the streaming reply last changed
         self.restore_requests: dict[str, str] = {}  # one stable id per step, so a retried restore reconciles
@@ -513,13 +514,15 @@ class ChatClient:
             self._stream(streaming_text)
         self.started = True
         progress = view.get("progress") or {}
-        line = (chat.get("notice"), progress.get("line"))
+        notice = chat.get("notice")
+        line = (notice, progress.get("line"))
         if line != self.last_line:
             self.last_line = line
-            if chat.get("notice"):
-                self.say(f"\n{chat['notice']}")
-            if progress.get("line") and (streaming_text or not chat.get("notice")):
+            if notice and notice != self.last_notice:
+                self.say(f"\n{notice}")
+            if progress.get("line") and (streaming_text or not notice):
                 self.say(f"  · {progress['line']}")
+        self.last_notice = notice
 
     # ---- the conversation ------------------------------------------------------------------
 
@@ -528,7 +531,7 @@ class ChatClient:
         self.others[str(self.run_dir)] = (self.workspace, self.identity)
         self.others.pop(str(run_dir), None)
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
-        self.seen, self.said, self.started, self.last_line = set(), set(), False, ()
+        self.seen, self.said, self.started, self.last_line, self.last_notice = set(), set(), False, (), None
         self.identity = None
         if str(self.run_dir) not in self.tab_order:
             self.tab_order.append(str(self.run_dir))

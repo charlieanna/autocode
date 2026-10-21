@@ -263,6 +263,40 @@ class StageRepairCLI(unittest.TestCase):
         concerns = state["planning"]["reports"]["astra_challenge"]["report"]["concerns"]
         self.assertEqual([row["id"] for row in concerns], [row["concern_id"] for row in final["decisions"]])
 
+    def test_unchanged_rewording_metadata_repairs_without_a_human_question(self):
+        from autocode_taskrun import TaskRun
+
+        fixture = self.fixture_for("unchanged-rewording")
+        _, _, first, _ = self.plan(fixture)
+        run = TaskRun.attach(fixture.project, command=fixture.entry, env=fixture.env, cwd=fixture.root)
+        self.assertIsNotNone(run)
+        old_token = first["displayed_plan"]["token"]
+        run.show_goal()
+        run.approve_plan(old_token)
+        finished = run.advance_until_input()
+        self.assertEqual("TASK_COMPLETE", finished["status"], finished.get("stop_reason"))
+        original_source = (fixture.project / "greet.py").read_bytes()
+        trace_path = fixture.root / "stage-repair-trace.jsonl"
+        first_calls = len(trace_path.read_text().splitlines())
+        run.follow_up("Keep the greeting and its exact output unchanged.")
+        current = run.advance_until_input()
+        needs = current.get("needs") or {}
+        if needs.get("kind") == "planning_budget" or needs.get("pause_origin") == "PAUSED_PLANNING_BUDGET":
+            # A separate fake planning cycle retains its prior charges. Authorize
+            # its two review calls through the published exhausted checkpoint.
+            fixture.launch(["--run-dir", str(run.run_dir), "--planning-review-call-limit", "4"], 0)
+            current = run.resume_paused()
+
+        self.assertEqual("approve_plan", current["needs"]["kind"], current.get("stop_reason"))
+        self.assertNotEqual(old_token, current["displayed_plan"]["token"])
+        self.assertFalse(current["done"])
+        self.assertEqual(original_source, (fixture.project / "greet.py").read_bytes())
+        trace = [json.loads(line) for line in trace_path.read_text().splitlines()][first_calls:]
+        self.assertFalse(any(row["stage"] == "terra" for row in trace), "The next plan is still unapproved")
+        attempts = [row for row in trace if row.get("spurious_rewording")]
+        self.assertEqual([False, True], [row["repair"] for row in attempts], trace)
+        self.assertIn("was not changed", attempts[1]["error"])
+
     def test_exhausted_report_repair_allowance_buys_no_third_provider_call(self):
         fixture = self.fixture_for("repair-limit")
         run, _, view, trace = self.plan(fixture)
