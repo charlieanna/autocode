@@ -229,9 +229,9 @@ def prepare(
             except ImportError:
                 import autocode_tool_containment as tool_containment
             recovery = (
-                # It names a private .autocode store and what clears the stop; the setup is not the cause (#1250).
+                # These errors name their own remedy; reinstalling the sandbox does not clear a policy refusal.
                 ""
-                if isinstance(error, tool_containment.STORE_ERRORS)
+                if isinstance(error, (*tool_containment.STORE_ERRORS, tool_containment.NativePermissionDenied))
                 else ". Restore the qualified native setup; native role isolation requires its kernel tool boundary"
                 if native_role_isolation is not None
                 else ". Restore qualified Kilo 7.8.3 and its kernel shell setup; readonly Kilo cannot waive this boundary"

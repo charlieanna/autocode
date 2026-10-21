@@ -181,6 +181,8 @@ class PlanningArtifactTests(unittest.TestCase):
                         self.assertEqual("", rules)
                     else:
                         self.assertIn(planning.REVISION_CONFLICT_RULE, rules)
+                        self.assertIn("source_inventory", rules)
+                        self.assertIn("Do not invent source IDs", rules)
                         self.assertEqual("progressive_proposal" in names, "its empty form (version 0" in rules)
                         self.assertEqual(
                             "progressive_proposal" in names, "must not also appear in outstanding_criteria" in rules

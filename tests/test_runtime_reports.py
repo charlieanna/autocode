@@ -219,11 +219,37 @@ class RuntimeReportTests(unittest.TestCase):
             opencode.final_report(self.log)
         self.assertEqual(json.loads(report), opencode.final_report(self.log, recover_wrapped=True))
 
+    def test_report_only_recovery_accepts_one_redundant_closing_brace_without_rewriting_evidence(self):
+        # Two live MiMo repairs ended a complete report with one extra brace (#1747).
+        report = {"summary": "Complete repair", "contract": {"scope": ["todo.py"]}}
+        text = json.dumps(report) + "}"
+        self.final_message([text])
+        before = self.log.read_bytes()
+        response = self.run / "response.txt"
+        with self.assertRaises(RuntimeError):
+            opencode.final_report(self.log)
+        self.assertEqual(report, opencode.final_report(self.log, recover_wrapped=True, response_path=response))
+        self.assertEqual(text, response.read_text())
+        self.assertEqual(before, self.log.read_bytes())
+        # Parsing supplies no missing schema fields or authority.
+        with self.assertRaises(ValueError):
+            support.validate_schema(report, {"type": "object", "required": ["decisions"]})
+        self.rows[-1]["part"]["reason"] = "length"
+        self.save()
+        with self.assertRaisesRegex(RuntimeError, "no successful terminal"):
+            opencode.final_report(self.log, recover_wrapped=True)
+
     def test_report_only_recovery_rejects_conflicting_or_trailing_content(self):
         for message in (
             "Receipt." + '{"status":"PASS"}' + '{"status":"FAIL"}',
             "Receipt." + '{"status":"PASS"}' + "changed my mind",
             "Receipt." + '{"status":"PASS"}' * 3,
+            '{"status":"PASS"}}}',
+            '{"status":"PASS"}]',
+            '{"status":"PASS"}} changed my mind',
+            '{"status":"PASS"}{"status":"PASS"}}',
+            '{"rows":[{"id":"R1"}]',
+            '{"status":"PASS"},"other":"FAIL"}',
         ):
             self.final_message([message])
             with self.subTest(message=message[:35]), self.assertRaises(RuntimeError):
