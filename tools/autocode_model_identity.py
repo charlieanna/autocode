@@ -26,7 +26,10 @@ def identity(model):
 
 
 def family(model):
-    """GLM, MiMo and Claude each share a family; GPT tiers and other model IDs stay distinct."""
+    """GLM, MiMo, Claude and OpenAI's GPT models each share a family; other model IDs stay distinct.
+
+    GPT tiers joined on 2026-10-20 (owner decision): Luna, Sol and Astra share training and judging
+    biases like any other family, so one never checks another's work outside a GPT-only engine."""
     if not isinstance(model, str) or not model:
         return ""
     name = identity(model).rsplit("/", 1)[-1]
@@ -36,6 +39,8 @@ def family(model):
         return "mimo"
     if name.startswith("claude-"):
         return "claude"
+    if identity(model).startswith("gpt-"):
+        return "openai"  # OpenAI's own spellings and gateways in front of it; another provider's gpt-* stays distinct
     return model
 
 
@@ -46,4 +51,4 @@ def shared_family(left, right):
     left_id, right_id = identity(left), identity(right)
     if left_id and left_id == right_id:
         return True
-    return family(left) in ("glm", "mimo", "claude") and family(left) == family(right)
+    return family(left) in ("glm", "mimo", "claude", "openai") and family(left) == family(right)

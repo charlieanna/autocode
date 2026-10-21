@@ -28,7 +28,11 @@ class VerifierIndependenceTests(unittest.TestCase):
         self.assertEqual("identical model openai/gpt-6-sol", independence.clash("openai/gpt-6-sol", "gpt-6-sol"))
         self.assertEqual(f"same family glm ({GLM} / {GLM_OLDER})", independence.clash(GLM, GLM_OLDER))
         self.assertIsNone(independence.clash(GLM, MIMO))
-        self.assertIsNone(independence.clash("openai/gpt-6-sol", "openai/gpt-6-luna"))
+        self.assertEqual(
+            "same family openai (openai/gpt-6-sol / openai/gpt-6-luna)",
+            independence.clash("openai/gpt-6-sol", "openai/gpt-6-luna"),
+        )
+        self.assertIsNone(independence.clash("openai/gpt-6-sol", "openai/gpt-6-luna", vendor_engine=True))
 
     def test_violations_name_every_pair_in_order(self):
         problems = independence.violations(
@@ -68,13 +72,12 @@ class VerifierIndependenceTests(unittest.TestCase):
             independence.violations(settings(terra=gateway, sol="anthropic/claude-opus-5.5")),
         )
         self.assertIsNone(independence.clash(gateway, GLM))
-        self.assertIsNone(independence.clash("openai/gpt-6-sol", "openai/gpt-6-luna"))
         self.assertFalse(independence.shares("custom/gpt-6-sol", "gpt-6-sol"))
         # A gateway in front of the OpenAI login is that GPT tier, in either spelling.
         routed = "kilo/openai/gpt-6-sol"
         self.assertEqual(f"identical model {routed}", independence.clash(routed, "openai/gpt-6-sol"))
         self.assertTrue(independence.shares(routed, "gpt-6-sol"))
-        self.assertFalse(independence.shares(routed, "openai/gpt-6-luna"))
+        self.assertTrue(independence.shares(routed, "openai/gpt-6-luna"), "another GPT tier is the same family")
         # The Kilo Gateway's MiMo route and the Xiaomi Token Plan's are one family, not one spelling.
         self.assertEqual(
             f"same family mimo (kilo/xiaomi/mimo-v2.6-pro / {MIMO})",

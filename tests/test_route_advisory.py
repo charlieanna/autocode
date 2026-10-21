@@ -78,9 +78,9 @@ class RouteAdvisoryTests(unittest.TestCase):
         self.assertEqual([], advisory.warnings({}, selected))
         self.assertEqual([], advisory.warnings(settings(glm="glm-5.3"), settings(glm="mimo-v2.6-pro")))
 
-    def test_exact_gpt_aliases_match_but_different_tiers_do_not(self):
+    def test_gpt_aliases_and_tiers_share_the_openai_family_but_other_prefixes_do_not(self):
         self.assertTrue(identity.shared_family("gpt-6-sol", "openai/gpt-6-sol"))
-        self.assertFalse(identity.shared_family("gpt-6-sol", "openai/gpt-6-astra"))
+        self.assertTrue(identity.shared_family("gpt-6-sol", "openai/gpt-6-astra"))
         self.assertFalse(identity.shared_family("custom/gpt-6-sol", "gpt-6-sol"))
         self.assertFalse(identity.shared_family("openai/custom-model", "custom-model"))
         self.assertFalse(identity.shared_family("", ""))

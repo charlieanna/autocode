@@ -161,8 +161,9 @@ class AdviseTest(unittest.TestCase):
 
     def test_a_producer_never_takes_the_model_that_checks_it(self):
         advice = mc.advise(routes(), ["openai/gpt-6-sol", "openai/gpt-6-astra", "zai/glm-5.3"], openai_auth="oauth")
-        self.assertEqual("openai/gpt-6-astra", advice["suggestions"]["terra"]["model"])
-        self.assertEqual("openai/gpt-6-astra", advice["suggestions"]["glm"]["model"])
+        # The Tester runs GPT-6 Sol, so no GPT tier may build: GLM does (GPT tiers are one family, 2026-10-20).
+        self.assertEqual("zai/glm-5.3", advice["suggestions"]["terra"]["model"])
+        self.assertEqual("zai/glm-5.3", advice["suggestions"]["glm"]["model"])  # the Plan Reviewer is a GPT tier
 
     def test_resolver_tier_can_be_suggested_for_other_roles(self):
         advice = mc.advise(routes(), ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra"], openai_auth="oauth")
@@ -450,7 +451,7 @@ class SelectionViewTest(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertIn("Automatic selection on kilocode", text)
         self.assertIn("Kilo Gateway (oauth, pay per token)", text)
-        self.assertIn("Builder: kilo/deepseek/deepseek-v4.1-flash", text)
+        self.assertIn("Builder: kilo/openai/gpt-6-sol", text)  # Luna is not connected here: Sol is next
         # An unconnected qualified model says so in account terms.
         self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", text)
         self.assertIn("not connected", text)
@@ -495,4 +496,4 @@ class SelectionViewTest(unittest.TestCase):
         self.assertEqual(0, code)
         payload = jsonlib.loads(out.getvalue())
         self.assertEqual("kilocode", payload["tool"])
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", payload["routes"]["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", payload["routes"]["terra"]["model"])

@@ -607,7 +607,7 @@ def render_selection(result: dict, found: dict) -> str:
             if clash:
                 lines.append(f"  not chosen: {candidate['model']} — {clash}")
             else:
-                lines.append(f"  not chosen: {candidate['model']} — a cheaper qualified route won")
+                lines.append(f"  not chosen: {candidate['model']} — a preferred or cheaper qualified route won")
     if result["probe"]:
         lines.append("")
         lines.append(

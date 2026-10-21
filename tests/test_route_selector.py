@@ -17,6 +17,8 @@ ASTRA = "openai/gpt-6-astra"
 ASTRA_KILO = "kilo/openai/gpt-6-astra"
 DEEPSEEK = "kilo/deepseek/deepseek-v4.1-flash"
 OPUS = "anthropic/claude-opus-5-5"
+LUNA = "openai/gpt-6-luna"
+FLASH = "xiaomi-token-plan-sgp/mimo-v2.6-flash"
 ALL_ROLES = ("requirements", "glm", "terra", "plan_reviewer", "sol", "completion", "astra")
 
 
@@ -125,6 +127,24 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(OPUS, result["routes"]["plan_reviewer"]["model"])
         both = selector.select(("requirements", "glm", "terra", "plan_reviewer"), [*coding_plans(), opus])
         self.assertEqual(SOL, both["routes"]["plan_reviewer"]["model"], "GPT-6 Sol first, even beside Claude")
+
+    def test_gpt6_luna_builds_at_high_and_no_gpt_model_checks_it(self):
+        luna = candidate(LUNA, tool="opencode", account="ChatGPT login", billing="subscription")
+        routes = selector.select(ALL_ROLES, [*coding_plans(), luna])["routes"]
+        self.assertEqual(LUNA, routes["terra"]["model"])
+        self.assertEqual("high", routes["terra"]["reasoning_effort"])
+        # All GPT models are one family (owner, 2026-10-20): GLM checks Luna's build, never GPT-6 Sol.
+        self.assertEqual(GLM, routes["sol"]["model"])
+        self.assertEqual(GLM, routes["completion"]["model"])
+
+    def test_mimo_flash_builds_when_only_a_gpt_model_could_check_an_openai_build(self):
+        account = {"tool": "opencode", "account": "ChatGPT login", "billing": "subscription"}
+        flash = candidate(FLASH, tool="opencode", account="Xiaomi Token Plan (Singapore)", billing="subscription")
+        rows = [candidate(LUNA, **account), candidate(SOL, **account), flash]
+        routes = selector.select(("terra", "sol", "completion"), rows)["routes"]
+        self.assertEqual(FLASH, routes["terra"]["model"])
+        self.assertEqual(SOL, routes["sol"]["model"])
+        self.assertEqual(SOL, routes["completion"]["model"])
 
     def test_claude_builds_when_gpt6_sol_is_not_connected(self):
         opus = candidate(OPUS, tool="opencode", account="Anthropic", billing="pay per token")

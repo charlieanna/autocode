@@ -205,21 +205,25 @@ The rules the choice keeps:
   login is connected, then Claude Opus, and MiMo is not used for review (owner decision,
   2026-10-20: MiMo spent 32-45k reasoning tokens and up to 15 minutes per plan review).
   With neither connected, the run stops before any work and offers those two logins.
-  The Builder likewise prefers GPT-6 Sol, then Claude Opus, then the cheapest of GLM 5.3,
-  MiMo and DeepSeek (owner decision, 2026-10-20: on ladder-07 a GPT-6 Sol Builder took
-  66 s against MiMo's 404-474 s and the whole task 16 min against 34-46 min, for about
-  $0.10 more). Because a checker never grades its own family, a Sol Builder is checked by
-  GLM as Tester and Completion Reviewer; the Completion Reviewer prefers GPT-6 Sol only
-  when Sol did not build. Requirements, Planner and Tester stay on the cheapest qualified
-  models.
+  The Builder likewise prefers GPT-6 Luna at high effort, then GPT-6 Sol, then MiMo v2.6
+  Flash, then Claude Opus, then the cheapest of GLM 5.3, MiMo v2.6 Pro and DeepSeek (owner
+  decision, 2026-10-20: on ladder-07 a Luna Builder took 36-66 s and a Sol Builder 66 s
+  against MiMo v2.6 Pro's 404-474 s, and the whole task 16-35 min against 34-46 min). A
+  small task's first Builder attempt still runs at low effort (`autocode_light_builder`).
+  Because a checker never grades its own family, an OpenAI Builder is checked by GLM as
+  Tester and Completion Reviewer; when only GPT models could check an OpenAI build, MiMo
+  Flash builds instead. The Completion Reviewer prefers GPT-6 Sol only when no GPT model
+  built. Requirements, Planner and Tester stay on the cheapest qualified models.
 - **Independence is never lowered quietly.** Every producer and checker pair stays on
   different model families (`tools/autocode_verifier_independence.py`); when the
   connected accounts cannot provide that, the run stops before any work and says what
   is missing in account terms ("connect a second model family"), never by suggesting
-  `--single-model`. GLM, MiMo and Claude are each one family, so no Claude model checks
-  another Claude model's work on Kilo, OpenCode or a custom provider. The built-in Claude
-  Code engine reaches only Claude models, so there different Claude models check each
-  other (for example Sonnet's work is reviewed by Opus); a model never checks itself.
+  `--single-model`. GLM, MiMo, Claude and OpenAI's GPT models are each one family, so no
+  Claude model checks another Claude model's work, and no GPT model another GPT model's
+  (Luna's build is never tested by Sol), on Kilo, OpenCode or a custom provider (owner
+  decision, 2026-10-20). The built-in Claude Code and Codex engines reach only their own
+  vendor's models, so there different models of that vendor check each other (for example
+  Sonnet's work is reviewed by Opus); a model never checks itself.
 - **No invented reasoning levels.** A route gets a reasoning level only when the model
   advertises it; otherwise the model uses its own default.
 - **Explicit choices win.** `--<role>-model`, `--provider`, `--role-transport` and
@@ -231,8 +235,8 @@ accounts you allow to one route per role, or a stop that names what is missing. 
 chosen route is recorded with its origin (`auto_selected`) in the route record the
 status view shows. `autocode models --selection` shows the whole reasoning: the
 logins the tool reports, the route chosen for each role with its cost, and why every
-other qualified model lost (not connected on any login, a cheaper qualified route
-won, or it would check its own family's work).
+other qualified model lost (not connected on any login, a preferred or cheaper
+qualified route won, or it would check its own family's work).
 
 Before the first stage, the [model-access preflight](#when-a-model-is-not-in-your-plans)
 probes exactly the chosen routes that are still unproven, one tiny call each at the
