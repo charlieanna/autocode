@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Switching tabs in the terminal chat (`/tab`, Ctrl-←/→) no longer draws the chat switched to as working when it is
+  waiting for the person or done (#1757). The tab kept no state until its status was read again; it now keeps the
+  state last read for it.
+
 - A running chat no longer says `Working on your request…` twice in a row when the status view's notice
   briefly clears between stages (#1807). The terminal chat says an identical notice once per turn and still
   shows the progress lines underneath; a different notice, such as a pause, is still said, and the notice is

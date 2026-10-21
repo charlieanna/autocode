@@ -535,10 +535,12 @@ class ChatClient:
     def talk_to(self, workspace: Path, run_dir: Path) -> None:
         """Carry on with another run: its whole conversation is shown afresh. The chat left is watched."""
         self.others[str(self.run_dir)] = (self.workspace, self.identity)
-        self.others.pop(str(run_dir), None)
+        known = self.others.pop(str(run_dir), None)
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.seen, self.said, self.started, self.last_line, self.last_notice = set(), set(), False, (), None
-        self.identity = None
+        # A tab keeps the state last read for it until status() reads it again, so the tabs drawn below never
+        # show a chat that waits for the person as working (#1757); a chat not seen before has none yet.
+        self.identity = known[1] if known else None
         if str(self.run_dir) not in self.tab_order:
             self.tab_order.append(str(self.run_dir))
         if self.switched is not None:
