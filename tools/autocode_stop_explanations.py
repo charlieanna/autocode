@@ -76,6 +76,11 @@ TABLE: dict[str, tuple[str, str]] = {
         "A command needs permission a person has not granted.",
         "--resume-paused or a permission answer grants it; nothing runs until then.",
     ),
+    "PAUSED_PERMISSION_LOOP": (
+        "Repeated permission answers did not change the source, contract or validation evidence.",
+        "Inspect and repair the saved blocker, then use --feedback to explain the correction or new scope. "
+        "Plain resume cannot launch another model call.",
+    ),
     "PAUSED_PERMISSION_RECONCILIATION": (
         "Saved permissions do not match what the run needs.",
         "--resume-paused re-checks; a person may need to grant access.",

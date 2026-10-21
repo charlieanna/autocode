@@ -1,0 +1,109 @@
+"""Intersect ordinary Kilo stages with the operator's effective tool permissions.
+
+Only model-free native debug commands resolve policy. Read-only verification uses
+our qualified kernel shell; planning has only read tools. Unknown tools stay denied.
+"""
+
+import json
+import re
+import shutil
+import subprocess
+import uuid
+
+try:
+    from .. import autocode_tool_containment as containment
+except ImportError:
+    import autocode_tool_containment as containment
+
+READ_TOOLS = ("read", "glob", "grep", "list")
+
+
+def intersect(rules, tools):
+    """Restrict an ordered effective native policy without turning a deny/ask into allow."""
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("Kilo readonly launch requires effective native permission rules")
+    result = {"*": "deny"}
+    for tool in tools:
+        patterns = {}
+        for row in rules:
+            if (
+                not isinstance(row, dict)
+                or any(not isinstance(row.get(key), str) for key in ("permission", "pattern", "action"))
+                or row["action"] not in ("allow", "ask", "deny")
+            ):
+                raise ValueError("Kilo returned an unsupported native permission rule")
+            pattern = re.escape(row["permission"]).replace(r"\*", ".*").replace(r"\?", ".")
+            if re.fullmatch(pattern, tool):
+                patterns.pop(row["pattern"], None)
+                # --auto grants asks. A restricted stage must not expand an
+                # operator ask to execution merely because it is headless.
+                patterns[row["pattern"]] = "deny" if row["action"] == "ask" else row["action"]
+        result[tool] = patterns or {"*": "deny"}
+    result["external_directory"] = "deny"
+    return result
+
+
+def restrict(argv, child, workspace, *, role, request=None):
+    # A remote server or inherited session could apply different tool grants.
+    if any(arg in ("--attach", "--continue", "-c") or arg.startswith("--attach=") for arg in argv):
+        raise ValueError("Restricted Kilo stages require a fresh local provider, not attach/continue")
+    argv = list(argv)
+    for option in ("--agent", "--session", "--model"):
+        for index, argument in enumerate(argv):
+            if argument.startswith(option + "="):
+                argv[index : index + 1] = [option, argument[len(option) + 1 :]]
+                break
+        if argv.count(option) > 1 or option in argv and argv.index(option) + 1 >= len(argv):
+            raise ValueError("Restricted Kilo launch has an ambiguous " + option)
+    executable = shutil.which(argv[0], path=child.get("PATH", ""))
+    if not executable:
+        raise RuntimeError("Kilo readonly launch cannot find the configured executable")
+
+    def debug(*args):
+        result = subprocess.run(
+            [executable, "debug", *args], cwd=workspace, env=child, capture_output=True, text=True, timeout=30
+        )
+        if result.returncode:
+            raise RuntimeError("Kilo readonly policy could not be resolved before launch")
+        value = json.loads(result.stdout)
+        if not isinstance(value, dict):
+            raise ValueError("Kilo debug policy must be a JSON object")
+        return value
+
+    if "--agent" in argv:
+        selected = argv[argv.index("--agent") + 1]
+    else:
+        selected = debug("config").get("default_agent") or "code"
+    original = debug("agent", selected)
+    permitted = ("bash",) if request is not None else READ_TOOLS
+    policy = intersect(original.get("permission"), permitted)
+    config = json.loads(child["KILO_CONFIG_CONTENT"])
+    agents = config.get("agent", {})
+    if not isinstance(agents, dict):
+        raise ValueError("Kilo inline agents must be an object")
+    name = "autocode_" + role + "_" + uuid.uuid4().hex
+    config["agent"] = {
+        **agents,
+        name: {
+            "description": "AutoCode restricted " + role,
+            "mode": "primary",
+            "permission": policy,
+            "model": argv[argv.index("--model") + 1],
+        },
+    }
+    child["KILO_CONFIG_CONTENT"] = json.dumps(config)
+    argv = list(argv)
+    if "--agent" in argv:
+        index = argv.index("--agent")
+        del argv[index : index + 2]
+    argv += ["--agent", name]
+    # Session permissions can override an agent's restrictions. Never reuse a
+    # previous unrestricted session across this boundary.
+    if "--session" in argv:
+        index = argv.index("--session")
+        del argv[index : index + 2]
+    if request is not None:
+        child, _ = containment.configure(
+            argv, child, workspace, allow_write=False, request=request, transport="kilocode"
+        )
+    return argv, child

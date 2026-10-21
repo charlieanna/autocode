@@ -457,6 +457,59 @@ class BriefAcceptanceTests(unittest.TestCase):
                 self.assertEqual(1, code)
                 self.assertIn("original brief format", observation["reason"])
 
+    def test_saved_sweep_id_expectation_is_checked_in_id_fields_not_text(self):
+        rows = [{"placeholder": "TEXT", "step": 0, "argument": 1}, {"placeholder": "ID", "step": 1, "argument": 1}]
+        proposal_value = {
+            **proposal(self.sources, "buy milk"),
+            "steps": [{"argv": ["add", "buy milk"]}, {"argv": ["complete", "1"]}, {"argv": ["list"]}],
+            "observe_step": 2,
+            "bindings": rows,
+            "expect": rows,
+            "absent": [],
+        }
+        manifest = brief.bind(self.sources, [proposal_value])
+        observed = manifest["observations"][0]
+        for output, passed in (
+            (b"1 buy milk [done]\n", True),
+            (b"2 buy milk [done]\n", False),
+            (b"1 buy milk done\n", False),
+            (b"1 other [done]\n", False),
+            (b"1 buy milk [done]\n1 buy milk [done]\n", False),
+            (b"1 buy milk [done]\n2 buy milk [done]\n", False),
+        ):
+            with self.subTest(output=output):
+                reason = brief.output_reason(
+                    output,
+                    observed["pattern"],
+                    brief.line_pattern(observed),
+                    brief.required_values(observed),
+                    brief.absent_values(observed),
+                    True,
+                    fields=brief.field_patterns(observed),
+                    id_fields=brief.field_patterns(observed, ids=True),
+                    required_ids=brief.id_values(observed, "expect"),
+                    absent_ids=brief.id_values(observed, "absent"),
+                )
+                code, actual, _ = self.run_candidate(printing(output), manifest=manifest)
+                self.assertEqual(passed, not reason, reason)
+                self.assertEqual(0 if passed else 1, code, actual)
+                self.assertEqual(reason, actual["reason"])
+
+    def test_absent_id_does_not_reject_equal_text_and_cannot_be_hidden_by_different_text(self):
+        records = sources(TASK + " `todo.py remove ID` removes the item and exits 0.")
+        value = {
+            **proposal(records, "1"),
+            "steps": [{"argv": ["add", "1"]}, {"argv": ["remove", "1"]}, {"argv": ["list"]}],
+            "observe_step": 2,
+            "expect": [{"placeholder": "TEXT", "step": 0, "argument": 1}],
+            "absent": [{"placeholder": "ID", "step": 1, "argument": 1}],
+        }
+        manifest = brief.bind(records, [value])
+        for output, code in ((b"2 1 [open]\n", 0), (b"1 1 [open]\n", 1)):
+            with self.subTest(output=output):
+                actual, report, _ = self.run_candidate(printing(output), records=records, manifest=manifest)
+                self.assertEqual(code, actual, report)
+
     def test_live_multi_item_listing_of_a_correct_product_passes_and_its_mutant_fails(self):
         manifest = brief.bind(self.sources, [listing_proposal(self.sources)])
         # The pattern both live runs sealed: the bound item, not the whole listing.

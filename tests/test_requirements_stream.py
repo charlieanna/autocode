@@ -48,7 +48,12 @@ await delta('text',' would you like?","constraints":["private constraint"]}');
             schema = Path(directory) / "schema.json"
             schema.write_text(json.dumps({"properties": {"assistant_reply": {"type": "string"}}}))
             inherited = {"KILO_CONFIG_CONTENT": json.dumps({"plugin": ["file:///existing.mjs"], "model": "retained"})}
-            with patch.object(provider, "_preflight_environment", return_value=inherited.copy()):
+            with (
+                patch.object(provider, "_preflight_environment", return_value=inherited.copy()),
+                patch.object(
+                    kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *a, **kw: (argv, child)
+                ),
+            ):
                 _, env, _ = provider.launch(
                     "requirements", Path(directory), Path(directory), None, "plan/glm", "medium", False, schema=schema
                 )
@@ -57,7 +62,12 @@ await delta('text',' would you like?","constraints":["private constraint"]}');
             self.assertEqual("file:///existing.mjs", config["plugin"][0])
             self.assertTrue(config["plugin"][1].endswith("opencode_activity.mjs"))
             self.assertTrue(config["plugin"][2].endswith("requirements_stream.mjs"))
-            with patch.object(provider, "_preflight_environment", return_value=inherited.copy()):
+            with (
+                patch.object(provider, "_preflight_environment", return_value=inherited.copy()),
+                patch.object(
+                    kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *a, **kw: (argv, child)
+                ),
+            ):
                 _, env, _ = provider.launch(
                     "sol", Path(directory), Path(directory), None, "plan/glm", "medium", False, schema=schema
                 )

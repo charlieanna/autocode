@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 try:
+    from . import autocode_permission_progress as permission_progress
     from . import autocode_roles as roles
     from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_permission_progress as permission_progress
     import autocode_roles as roles
     import autocode_source_scope as source_scope
 
@@ -447,6 +449,16 @@ def evaluate(state: RunState):
     if action != "escalate":
         state.setdefault("resolver", {})["human_disposition"] = {"action": action, "reason": reason}
         return action
+    if proposal["scope"] == "permission":
+        hold = permission_progress.exhausted(state.get("resolver") or {}, binding)
+        if hold:
+            state.pop(PRIVATE, None)
+            state.pop(PUBLIC, None)
+            state.pop("user_request", None)
+            state["pending_questions"] = []
+            state.setdefault("resolver", {})["human_disposition"] = {"action": "hold", **hold}
+            run_status.pause(state, permission_progress.STATUS, hold["reason"])
+            return "permission_loop"
     identity = {
         "version": VERSION,
         "issuer": "resolver",
@@ -467,6 +479,13 @@ def evaluate(state: RunState):
         return "consumed"
     _publish(state, identity)
     return action
+
+
+def permission_hold(state: RunState):
+    """An unchanged permission-loop pause cannot be bypassed with plain resume."""
+    if state.get("status") != permission_progress.STATUS:
+        return None
+    return permission_progress.exhausted(state.get("resolver") or {}, _binding(state))
 
 
 def _publish(state: RunState, identity):

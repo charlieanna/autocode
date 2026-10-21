@@ -1666,3 +1666,17 @@ switches too. `--auto-select` requires selection to
 succeed instead of falling back when discovery or an independent checker is unavailable.
 See [automatic model selection](models.md#choosing-models-automatically) for discovery,
 reasoning levels, bounded preflight, recovery and the read-only selection preview.
+
+### Repeated permission handoffs
+
+`PAUSED_PERMISSION_LOOP` stops a fourth permission handoff after three authenticated
+material decisions at the same task, contract, source and validation result. Changed
+wording, report paths, elapsed time, budget settings and previous answers do not renew
+that allowance. This is a conservative bound on unchanged work, not a semantic claim
+that every question has identical wording or intent. Actual source, contract or
+validation progress admits new decisions; corrective `--feedback` can establish a new
+scope. No prior permission or completion gate is silently bypassed.
+
+The public `needs` includes `permission_decisions`, `permission_decision_limit`, the
+saved blocker reason, and a named feedback action. Plain resume remains held without
+another provider call. All earlier requests, answers and usage remain retained.

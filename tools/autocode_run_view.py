@@ -1012,6 +1012,15 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                 "questions": [{field: asked.get(field) for field in QUESTION_FIELDS}],
                 "route": _route(asked),
             }
+    if status == "PAUSED_PERMISSION_LOOP":
+        disposition = (state.get("resolver") or {}).get("human_disposition") or {}
+        return {
+            "kind": "resume",
+            "reason": state.get("stop_reason"),
+            "action": "--feedback 'WHAT CHANGED'",
+            "permission_decisions": disposition.get("count"),
+            "permission_decision_limit": disposition.get("limit"),
+        }
     if status == "PAUSED_PLANNING_BUDGET":
         need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).

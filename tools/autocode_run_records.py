@@ -216,6 +216,8 @@ def normalize_human_boundary(state: RunState, run_dir):
     if state.get("next_stage") == "astra_resolve" and state.get("resolution_request"):
         return
     disposition = resolver_human.evaluate(state)
+    if disposition == "permission_loop":
+        return
     if disposition == "escalate":
         milestones.release_obsolete_gate_request(state, resolver_human.current(state))
         return

@@ -183,8 +183,16 @@ set the attempt aside with `--abandon-stage`, and `--resume-paused`. Model and p
 limits still apply. Automatic report repair remains bounded to the existing read-only
 Tester and Completion Reviewer stages; Builder and Requirements never retry
 an output-limit stop automatically. Ambiguous or interrupted output remains uncertain.
-The cap-setting rules are in `tools/autocode_output_cap.py`; they do not alter configured
-command providers' environment or token limits.
+The cap-setting rules are in `tools/autocode_output_cap.py`. They also apply to the
+ordinary `kilocode` facade; other configured command providers remain unchanged.
+The recorded value is the requested setting, not proof of the provider's effective cap.
+
+Ordinary Kilo planning uses a fresh read-tools-only agent. Read-only verification uses
+Kilo 7.8.3's qualified kernel-constrained shell, with a writable verification copy and
+source writes denied. Every other native tool is disabled there. Effective operator
+denies are retained; headless asks are denied rather than auto-approved. Restricted
+stages start fresh sessions so previous session grants cannot override their policy.
+Builder permissions and the separate native-isolation route keep their existing contract.
 
 For an isolated native run paused before plan approval, an OpenCode authentication
 failure can also be set aside explicitly with the displayed `--abandon-stage`

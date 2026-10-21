@@ -36,7 +36,12 @@ class KiloProgressTests(unittest.TestCase):
             "UNCHANGED_SENTINEL": "retained",
         }
         original = copy.deepcopy(inherited)
-        with patch.object(self.provider, "_preflight_environment", return_value=inherited.copy()):
+        with (
+            patch.object(self.provider, "_preflight_environment", return_value=inherited.copy()),
+            patch.object(
+                kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *args, **kwargs: (argv, child)
+            ),
+        ):
             result = self.provider.launch(
                 role,
                 self.root,
@@ -51,7 +56,7 @@ class KiloProgressTests(unittest.TestCase):
         self.assertEqual(original, inherited, "The caller environment must remain unchanged")
         return result
 
-    def test_ordinary_roles_register_the_real_activity_hook_without_changing_launch_authority(self):
+    def test_ordinary_roles_register_the_real_activity_hook_at_the_policy_boundary(self):
         config = {
             "plugin": ["file:///existing.mjs"],
             "permission": {"read": "deny", "bash": "deny"},
