@@ -164,6 +164,10 @@ CONTRACT_FIELDS_RULE = prompts.get("fragments/autoplanner/contract-fields-rule.m
 # handoff listed R1..Rn, buried in requirements_handoff. The stages that must trace them get the
 # IDs as a short list (requirement_trace_rows) and this rule; the runner's check is unchanged.
 REQUIREMENT_TRACE_RULE = prompts.get("fragments/autoplanner/requirement-trace-rule.md")
+# #1822: a greenfield Requirements handoff stated behaviors but cited nothing, though README.md existed.
+# The validator required a citation and neither the stage prompt nor the repair handoff said so; the
+# repair then cited an archived .autocode/ log. Both prompts now carry this one rule.
+SOURCE_REFS_RULE = prompts.get("fragments/autoplanner/source-refs-rule.md")
 TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
 # Stages that draft or review contract criteria cite and check source traces (#595).
 CITATION_STAGES = (
@@ -190,6 +194,20 @@ def source_inventory(state: RunState):
 def repair_source_inventory(state: RunState, stage):
     """Citation stages keep source_inventory on report-repair handoffs (#595 / #1201)."""
     return source_inventory(state) if stage in CITATION_STAGES else None
+
+
+def repair_citation_context(state: RunState, stage, workspace):
+    """The handoff's citation context: source sentences, plus the citable files a Requirements repair may name.
+
+    The Requirements handoff check requires a complete report to cite an existing workspace file (#1822);
+    the repair previously repeated only its error, and a greenfield repair then cited an archived
+    .autocode/ log. workspace_inventory names the files the runner will accept, and SOURCE_REFS_RULE
+    states the same rule the stage prompt carries."""
+    context = {"source_inventory": repair_source_inventory(state, stage)}
+    if stage == "requirements_gather":
+        context["workspace_inventory"] = workspace_inventory(workspace, state.get("task", ""))
+        context["source_refs_rule"] = SOURCE_REFS_RULE
+    return context
 
 
 # Stages that write criteria, which cite sentences by id; the reviewing stages only check coverage.
@@ -1304,6 +1322,8 @@ def context(state: RunState, stage, state_path):
     design_rule += task_authority.instruction(test_cases.current_diagnosis(state))
     if turn:
         design_rule += prompts.get("fragments/autoplanner/context-02.md")
+    if stage == "requirements_gather":
+        design_rule += SOURCE_REFS_RULE
     if stage != "requirements_gather":
         design_rule += author_rules["example_criteria"]
         # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.

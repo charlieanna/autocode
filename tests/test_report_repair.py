@@ -467,6 +467,38 @@ class RepairTests(unittest.TestCase):
         )
         self.assertIn("current Builder task and approved contract are inherited obligations", prompt)
 
+    def test_requirements_source_ref_repair_names_the_citable_workspace_files(self):
+        # #1822: a greenfield repo held only README.md. The complete handoff cited nothing, the repair
+        # handoff repeated only the validator error, the first repair cited an archived .autocode/ log,
+        # and the second returned empty again. The repair must name the files and the rule.
+        (self.root / "README.md").write_text("Note sync.\n")
+        archived = self.run / "archived-requirements-gather-01" / "events.jsonl"
+        archived.parent.mkdir(parents=True)
+        archived.write_text("{}\n")
+        self.state["settings"]["roles"]["requirements"] = {"model": "requirements-model"}
+        self.state["next_stage"] = "requirements_gather"
+        rejected = {
+            "summary": "Sync the notes folder.",
+            "required_behaviors": ["Keep every note"],
+            "acceptance_tests": ["A deleted note is not restored"],
+            "source_refs": [],
+        }
+        self.queue(
+            stage="requirements_gather",
+            role="requirements",
+            error=ValueError("Report must cite existing source in source_refs"),
+            report=json.dumps(rejected),
+        )
+
+        prompt = self.repair_request()["prompt"]
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+
+        self.assertEqual(["README.md"], data["workspace_inventory"]["files"])
+        self.assertNotIn(".autocode", json.dumps(data["workspace_inventory"]))
+        self.assertIn("at least one existing workspace file", prompt)
+        self.assertIn("Never cite .autocode/", prompt)
+        self.assertIn("source_refs may be empty only when the inventory lists no file", prompt)
+
     def test_planner_repair_receives_the_requirements_its_trace_must_cover(self):
         # Without the rows a repair of a trace with a missing requirement_id guessed "R1" (2026-10-02).
         self.state["requirements_handoff"] = {
