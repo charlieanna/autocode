@@ -9,7 +9,6 @@ from pathlib import Path
 import autocode_builder_policy as builder_policy
 import autocode_configure as configure
 import autocode_prices as prices
-import autocode_stuck_job as stuck_job
 import autocode_usage as usage
 from harness import driver, profiles
 from providers import claude, opencode
@@ -25,7 +24,7 @@ def _flag_models(argv):
 def default_profile_models():
     """Every model a default route, default profile or fake catalog run is recorded under."""
     models = {*opencode.DEFAULT_MODELS.values(), *configure.DEFAULT_ROLE_MODELS.values()}
-    models |= {builder_policy.DEFAULTS["strong_model"], builder_policy.DEFAULTS["checker_model"], stuck_job.CLAUDE}
+    models |= {builder_policy.DEFAULTS["strong_model"], builder_policy.DEFAULTS["checker_model"]}
     kilo = tomllib.loads((ROOT / "tools/providers/configs/kilocode.toml").read_text())
     models |= {route["model"] for route in kilo["roles"].values()}
     models |= {*claude.DEFAULT_MODELS.values(), *claude.LISTED_MODELS, *claude.BUILDER_RETRY.values()}
