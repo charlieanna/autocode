@@ -59,14 +59,24 @@ class CrossModelTest(unittest.TestCase):
                     self.assertEqual("PAUSED_CROSS_MODEL", ctx.exception.status)
                     self.assertIn(label + ": identical model", str(ctx.exception))
 
-    def test_different_gpt_tiers_remain_independent_across_alias_spellings(self):
+    def test_different_gpt_tiers_share_the_openai_family_across_alias_spellings(self):
+        # Owner decision 2026-10-20: GPT tiers share training and judging biases like any family.
         for builder, checker in (
             ("gpt-6-sol", "openai/gpt-6-astra"),
             ("openai/gpt-6-sol", "gpt-5.6-sol"),
             ("gpt-6-luna", "openai/gpt-6-sol"),
         ):
             with self.subTest(builder=builder, checker=checker):
-                dispatch.enforce_cross_model_verification(roles(terra=builder, sol=checker))
+                with self.assertRaises(support.Paused) as ctx:
+                    dispatch.enforce_cross_model_verification(roles(terra=builder, sol=checker))
+                self.assertIn("same family openai", str(ctx.exception))
+
+    def test_a_gpt_only_engine_lets_different_tiers_check_each_other(self):
+        # Codex reaches only GPT models, as the Claude Code engine reaches only Claude: there only one model
+        # checking itself is refused.
+        state = roles(terra="gpt-6-sol", sol="gpt-6-astra")
+        state["settings"]["engine"] = "codex"
+        dispatch.enforce_cross_model_verification(state)
 
     def test_other_provider_prefixes_are_not_openai_aliases(self):
         dispatch.enforce_cross_model_verification(roles(terra="custom/gpt-6-sol", sol="gpt-6-sol"))

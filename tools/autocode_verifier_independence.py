@@ -3,7 +3,7 @@
 Pure domain logic over route dicts; imports only autocode_model_identity and the screen
 names in autocode_roles. A verifier never runs the model that produced the work it judges:
 one model is always a clash, however its route is spelled (a gateway in front of its vendor,
-or the native Codex and OpenCode spellings of one GPT tier), and GLM, MiMo and Claude are
+or the native Codex and OpenCode spellings of one GPT tier), and GLM, MiMo, Claude and OpenAI's GPT models are
 families, so GLM checks MiMo work and MiMo checks GLM work (user 2026-09-26), and no Claude model
 checks another's. The built-in Claude Code engine reaches only Claude models, so a run on it keeps
 Claude checking Claude, never one model checking itself (``same_vendor_engine``).
@@ -52,7 +52,7 @@ def shares(producer_model, verifier_model, *, vendor_engine=False):
     """
     if not model_identity.shared_family(producer_model, verifier_model):
         return False
-    if vendor_engine and model_identity.family(producer_model) == "claude":
+    if vendor_engine and model_identity.family(producer_model) in ("claude", "openai"):
         return model_identity.identity(producer_model) == model_identity.identity(verifier_model)
     return True
 
@@ -83,8 +83,9 @@ def clash(producer_model, verifier_model, *, vendor_engine=False):
 
 
 def same_vendor_engine(settings):
-    """Whether the run's engine can reach only one vendor's models: the built-in Claude Code provider."""
-    return (settings or {}).get("provider") == "claude"
+    """Whether the run's engine can reach only one vendor's models: the built-in Claude Code provider or Codex."""
+    settings = settings or {}
+    return settings.get("provider") == "claude" or settings.get("engine") == "codex"
 
 
 def clashes(settings):

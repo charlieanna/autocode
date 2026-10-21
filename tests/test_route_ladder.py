@@ -207,9 +207,10 @@ class ServeTests(unittest.TestCase):
         settings = route_ladder.serve(self.settings(terra="openai/gpt-6-luna"), offered)
         self.assertIsNone(settings["builder_retry"]["strong_model"])
         self.assertEqual("zai-coding-plan/glm-5.3", settings["builder_retry"]["not_offered"])
-        # Checkers on another model stay where they are, so the checker model is never launched.
+        # A GPT-6 Astra attempt is checked by GPT-6 Sol, the same OpenAI family, so it too must move the
+        # checkers to GLM; without GLM offered there is no stronger attempt (GPT tiers are one family, 2026-10-20).
         kept = self.settings(terra="openai/gpt-6-luna", strong="openai/gpt-6-astra")
-        self.assertEqual("openai/gpt-6-astra", route_ladder.serve(kept, offered)["builder_retry"]["strong_model"])
+        self.assertIsNone(route_ladder.serve(kept, offered)["builder_retry"]["strong_model"])
 
     def test_a_builder_that_can_never_escalate_keeps_its_policy(self):
         """A pinned or custom-provider Builder pauses instead of escalating, so no rung of its attempt launches."""

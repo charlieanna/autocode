@@ -116,7 +116,7 @@ class KiloDiscoveryTests(unittest.TestCase):
             ("requirements", "glm", "terra", "plan_reviewer", "sol", "completion", "astra"), found["candidates"]
         )["routes"]
         self.assertIsNotNone(routes)
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", routes["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", routes["terra"]["model"])  # the preferred Builder the gateway serves
         self.assertEqual("kilo/z-ai/glm-5.3", routes["requirements"]["model"])
         self.assertEqual("kilo/openai/gpt-6-sol", routes["plan_reviewer"]["model"])
         self.assertEqual("kilo/openai/gpt-6-astra", routes["astra"]["model"])
@@ -124,9 +124,10 @@ class KiloDiscoveryTests(unittest.TestCase):
     def test_a_subscription_plan_beats_the_cheaper_gateway_for_the_builder(self):
         with mock.patch.object(command.env_prep, "preflight_run", kilo_listing()):
             found = discovery.discover(self.provider)
-        routes = selector.select(("terra",), found["candidates"])["routes"]
-        # DeepSeek Flash is cheaper per token, but GLM on the Z.AI Coding Plan bills a
-        # subscription the owner already pays for, and subscription always wins.
+        # Among Builders of one preference (GPT models aside): DeepSeek Flash is cheaper per token, but GLM on
+        # the Z.AI Coding Plan bills a subscription the owner already pays for, and subscription always wins.
+        candidates = [row for row in found["candidates"] if "gpt-" not in row["model"]]
+        routes = selector.select(("terra",), candidates)["routes"]
         self.assertEqual("zai-coding-plan/glm-5.3", routes["terra"]["model"])
 
 
@@ -267,12 +268,12 @@ class AutoSelectConfigureTests(unittest.TestCase):
     def test_the_selection_becomes_the_runs_routes_and_origins(self):
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=True))
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["roles"]["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])  # Luna is not connected
         self.assertEqual("kilo/z-ai/glm-5.3", settings["roles"]["glm"]["model"])
         self.assertEqual("kilo/openai/gpt-6-astra", settings["roles"]["astra"]["model"])
         self.assertEqual("auto_selected", settings["route_origins"]["terra"])
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["routes"]["terra"]["model"])
-        self.assertIn("kilo/deepseek/deepseek-v4.1-flash", settings["route_selection"]["probe"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["route_selection"]["routes"]["terra"]["model"])
+        self.assertIn("kilo/openai/gpt-6-sol", settings["route_selection"]["probe"])
 
     def test_explicit_effort_survives_selection_and_matches_the_probe(self):
         for role in ("terra", "sol", "astra", "completion", "requirements", "glm", "plan_reviewer"):
@@ -340,7 +341,7 @@ class AutoSelectConfigureTests(unittest.TestCase):
         self.assertNotIn("route_selection", settings)
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()):
             settings = self.configure(self.args(auto_select=None))  # the soft default
-        self.assertEqual("kilo/deepseek/deepseek-v4.1-flash", settings["roles"]["terra"]["model"])
+        self.assertEqual("kilo/openai/gpt-6-sol", settings["roles"]["terra"]["model"])
         self.assertEqual("auto_selected", settings["route_origins"]["terra"])
         with mock.patch.object(discovery, "discover", return_value=self.gateway_found()) as probe:
             settings = self.configure(self.args(auto_select=False))  # the explicit opt-out

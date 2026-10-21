@@ -1404,7 +1404,20 @@ class JointFlow(unittest.TestCase):
     def test_openai_api_connection_reaches_the_requirements_question(self):
         self.prepare()
         self.env["AUTOCODE_FIXTURE_OPENAI_AUTH"] = "api"
-        result = self.launch(["Build a greeting tool", "--no-chat", "--terra-model", "openai/gpt-5.6-terra"], 2)
+        # An OpenAI Builder needs checkers from another family (GPT tiers are one family, 2026-10-20).
+        result = self.launch(
+            [
+                "Build a greeting tool",
+                "--no-chat",
+                "--terra-model",
+                "openai/gpt-5.6-terra",
+                "--sol-model",
+                "zai-coding-plan/glm-5.3",
+                "--completion-model",
+                "zai-coding-plan/glm-5.3",
+            ],
+            2,
+        )
         self.assertIn("Should the greeting be a CLI or web endpoint?", result.stdout)
         self.assertNotIn("PAUSED_BILLING_ROUTE", result.stdout + result.stderr)
 
