@@ -1562,6 +1562,18 @@ class RepairTests(unittest.TestCase):
         )
         self.assertEqual("", runner.jobs.repair_rules("terra"))
 
+    def test_a_probing_job_repair_keeps_its_own_rules_and_the_probe_definition(self):
+        # Live run 2026-10-21: the Analyst repair wrote "probe": "event:prt_…" because the repair prompt
+        # carries the report schema, where a probe is only a string, and no stage prompt to define it (#1769).
+        for stage in ("answer_question", "investigate_bug", "review_design", "check_design"):
+            with self.subTest(stage=stage):
+                rules = runner.jobs.repair_rules(stage)
+                self.assertIn("A probe is a shell command run from the repository root", rules)
+                self.assertIn("is not a citation", rules)
+        # The Designer keeps its own repair rules beside it, and a build-pipeline stage keeps none.
+        self.assertIn("Keep every concern id from previous_review", runner.jobs.repair_rules("review_design"))
+        self.assertEqual("", runner.jobs.repair_rules("terra"))
+
     def test_a_validator_pass_without_checks_gets_a_report_repair(self):
         # Live run 2026-09-29: the Validator ran its check but returned "checks": [], and the run paused.
         with self.assertRaisesRegex(ValueError, "lacks successful executed checks"):

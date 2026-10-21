@@ -61,6 +61,62 @@ def feature_state(project, criteria, milestones=1):
     }
 
 
+class ProbeRowTests(unittest.TestCase):
+    """A probe is run by the runner, so a citation in that field is refused before the shell sees it (#1769)."""
+
+    ROW = {
+        "claim": "The report prints one row per project.",
+        "example": "Given two projects, when the report runs, then two rows print.",
+        "source": "report.py",
+    }
+
+    def runner(self, exit_code=0):
+        calls = []
+
+        def run(command):
+            calls.append(command)
+            return {"exit_code": exit_code, "tail": "" if not exit_code else "boom"}
+
+        return calls, run
+
+    def rows(self, probe):
+        return [dict(self.ROW, probe=probe)]
+
+    def test_a_command_probe_is_run_and_its_receipt_shown(self):
+        command = 'python3 -c "from report import rows; assert rows"'
+        calls, run = self.runner()
+        self.assertEqual(
+            [{"claim": self.ROW["claim"], "probe": command, "exit_code": 0, "tail": ""}],
+            test_cases.run_probes(self.rows(command), run),
+        )
+        self.assertEqual([command], calls)
+
+    def test_a_probe_that_does_not_exit_zero_names_its_row(self):
+        _, run = self.runner(exit_code=1)
+        with self.assertRaisesRegex(ValueError, "probes did not exit 0"):
+            test_cases.run_probes(self.rows("python3 -c 'assert False'"), run)
+
+    def test_a_reference_in_the_probe_field_is_refused_without_running_it(self):
+        # Live run 2026-10-21: an Analyst repair answered the schema's bare `probe` string with its own
+        # event ID, the shell failed it with exit 127 and the whole report was rejected over that.
+        for reference in ("event:prt_15d4fe55f001J4zgq8FQBqVKqD", "tool:call_7"):
+            with self.subTest(reference=reference):
+                calls, run = self.runner()
+                with self.assertRaisesRegex(ValueError, "is a reference, not a command"):
+                    test_cases.run_probes(self.rows(reference), run)
+                self.assertEqual([], calls)
+
+    def test_a_command_naming_a_colon_still_runs(self):
+        calls, run = self.runner()
+        test_cases.run_probes(self.rows('python3 -c "import sys; print(sys.version)"'), run)
+        self.assertEqual(1, len(calls))
+
+    def test_a_claim_shown_by_its_source_alone_probes_nothing(self):
+        calls, run = self.runner()
+        self.assertEqual([], test_cases.run_probes(self.rows(""), run))
+        self.assertEqual([], calls)
+
+
 class CurrentDiagnosisTests(unittest.TestCase):
     def state(self):
         return {

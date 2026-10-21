@@ -69,6 +69,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A report repair of an Analyst, Investigator, Designer or Design Reviewer report is now told what a `probe` is
+  (#1769). The repair prompt carries the report schema, where a probe is only a string, and a model that guessed
+  wrote its own event ID there; the runner handed it to the shell, got `exit 127` and rejected the whole report,
+  costing a paid call for an error the model could not read back as a rule. A probe that is a reference rather
+  than a command is now refused with the rule itself, before anything is run.
+
 - A Planner revision that rewords its own unapproved criterion and the way that criterion is verified, backed by
   a saved user answer, is accepted (#1764). The #1691 allowance for the Planner's own wording also swallowed the
   declared change, so the guard refused a correction you had already authorized and the next repair put the
