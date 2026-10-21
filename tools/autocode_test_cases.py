@@ -319,6 +319,10 @@ def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> di
     return matched
 
 
+# A probe that is a bare `scheme:reference`: an event or tool ID rather than a command (#1769).
+CITATION_PROBE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\S+$")
+
+
 def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "claim") -> list[dict]:
     """Run every row's ``probe`` (``run_probe(command)``, a scratch run); each must exit 0.
 
@@ -332,6 +336,14 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
         probe = str(row.get("probe") or "").strip()
         if not probe:
             continue
+        if CITATION_PROBE.match(probe):
+            # A report-repair prompt states the schema, where a probe is just a string, and a model that
+            # guesses writes its own event ID there. Running that costs a full repair call over a shell
+            # error the model cannot read back as a rule (#1769).
+            raise ValueError(
+                f"{probe!r} is a reference, not a command: for a {what}, give the shell command that "
+                f"exits 0 exactly when it holds, run from the repository root."
+            )
         if not str(row.get("example") or "").strip():
             raise ValueError(f"A probed {what} needs its example in plain English: {row.get(key)!r}")
         run = run_probe(probe)
