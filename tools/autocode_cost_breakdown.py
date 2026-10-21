@@ -70,9 +70,19 @@ def summary(rows, state: RunState):
         group["job"] = roles.screen_name(stage, naming)
         if stage.endswith("_report_repair"):
             group["job"] += " (report repair)"
+    unpriced = [row for row in rows if row["basis"] == "unknown"]
     return {
         "by_stage": by_stage,
         "by_process_outcome": _group(rows, "process_outcome"),
+        # Why each unpriced stage has no cost (#1713); a count, never a guessed amount.
+        "unpriced": {
+            "usage_missing": sum(row["unpriced_reason"] == "usage_missing" for row in unpriced),
+            "model_unknown": sum(row["unpriced_reason"] == "model_unknown" for row in unpriced),
+            "rate_unavailable": sum(row["unpriced_reason"] == "rate_unavailable" for row in unpriced),
+            "models_without_rate": sorted(
+                {row["model"] for row in unpriced if row["unpriced_reason"] == "rate_unavailable"}
+            ),
+        },
         "basis": "Finished stage ledger only; excludes inherited spend and active attempts. "
         "Groupings overlap: do not add them together. Process completion is not acceptance; "
         "repetition is not evidence of waste.",

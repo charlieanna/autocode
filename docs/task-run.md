@@ -973,7 +973,11 @@ so its `estimated` can differ from `cost.estimated_usd`.
 Each row has `stages`, `spent_usd`, `reported_usd`, `estimated_usd`, `unpriced_stages`,
 `partial_stages`, `failed_stages`, `interrupted_stages` and `complete`; stage rows
 also name the `stage` and routing-aware `job`. The two groupings overlap and must
-not be added together. Each grouping plus `inherited_usd` reconciles with the known
+not be added together. `cost.breakdown.unpriced` says why the finished unpriced stages have no
+cost (#1713): `usage_missing` (no input or output token count recorded), `model_unknown` (counts
+but no model identified) and `rate_unavailable` (counts, but the price table has no rate for the
+model), with those models in `models_without_rate`. They are counts of stages, never an amount.
+Each grouping plus `inherited_usd` reconciles with the known
 run total, subject to six-decimal rounding. Inherited spend has no stage attribution.
 Active attempts and unaccounted workers are excluded, just as in the money-cap
 ledger; the overall `cost.complete` remains false while they run. Unknown cost is

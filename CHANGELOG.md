@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The status view's `cost.breakdown.unpriced` says why each finished unpriced stage has no cost (#1713):
+  no token counts recorded, no model identified, or no rate for its model, naming the models without a rate.
+  The counts are stages, never a guessed amount, and the known spend and cap are unchanged.
+
 - Chat everywhere (#1731, step 2). In a terminal, `autocode-issue start` and `continue` open the run's chat when it
   needs you (`--chat`/`--no-chat` to choose), and every waiting step they print starts with that chat command. A
   `--goal-file` load says to review and approve it in chat. A project's `autocode runs` (and the terminal chat's
