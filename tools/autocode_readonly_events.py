@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -159,23 +160,39 @@ def prepare_opencode_snapshots(workspace, *, record=None, env=None, excludes=Non
         env.update(excludes)  # the entries launch_excludes computed for this launch (#1630)
 
 
-def _global_ignore(workspace, env):
-    """The user's global ignore file as git would find it in ``env``: core.excludesFile, else the XDG default."""
-    try:
-        configured = subprocess.run(
-            ["git", "config", "--get", "core.excludesFile"],
-            cwd=workspace,
-            env={key: env[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME") if key in env},
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        configured = ""
+EXCLUDES_FILE = re.compile(r"^\s*excludesfile\s*=\s*(?P<value>.*?)\s*$", re.IGNORECASE)
+
+
+def _global_ignore(env):
+    """The user's global ignore file as git would find it in ``env``, read from git's own config files.
+
+    core.excludesFile in $XDG_CONFIG_HOME/git/config, then ~/.gitconfig (a later file wins, as in git), else the
+    XDG default git/ignore. Files only: launch preparation runs before the handoff-size and boundary refusals, which
+    promise that nothing is started, so it must not spawn git (#1630). A config line is read only in a [core]
+    section; a quoted value is unquoted and ~ expanded. Includes and conditional includes are not followed."""
     home = Path(env.get("HOME") or Path.home())
-    config = env.get("XDG_CONFIG_HOME")
-    candidates = [Path(configured).expanduser()] if configured else []
-    candidates.append((Path(config) if config else home / ".config") / "git" / "ignore")
+    config_home = Path(env["XDG_CONFIG_HOME"]) if env.get("XDG_CONFIG_HOME") else home / ".config"
+    configured = None
+    for path in (config_home / "git" / "config", home / ".gitconfig"):
+        try:
+            lines = path.read_text(errors="surrogateescape").splitlines()
+        except OSError:
+            continue
+        section = ""
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("["):
+                section = stripped.strip("[]").split()[0].lower() if stripped.strip("[]").strip() else ""
+                continue
+            found = EXCLUDES_FILE.match(line) if section == "core" else None
+            if found:
+                configured = found["value"].strip().strip('"')
+    candidates = (
+        [Path(configured.replace("~", str(home), 1) if configured.startswith("~") else configured)]
+        if configured
+        else []
+    )
+    candidates.append(config_home / "git" / "ignore")
     return next((path for path in candidates if path.is_file()), None)
 
 
@@ -191,7 +208,7 @@ def snapshot_excludes(workspace, env):
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "snapshot-excludes"
     lines = []
-    user_rules = _global_ignore(workspace, env)
+    user_rules = _global_ignore(env)
     if user_rules is not None:
         lines += user_rules.read_text(errors="surrogateescape").splitlines()
     lines += [rule for rule in native_snapshots.EXCLUDES if rule not in lines]
