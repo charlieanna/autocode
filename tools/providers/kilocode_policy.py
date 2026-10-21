@@ -43,7 +43,11 @@ def intersect(rules, tools):
     return result
 
 
-def restrict(argv, child, workspace, *, role, request=None, report_recovery=False):
+def restrict(argv, child, workspace, *, role, request=None, report_recovery=False, portable_shell=False):
+    """``portable_shell``: a read-only checker on a host without the kernel shell (macOS, #1766) keeps the read
+    tools and Kilo's own shell, intersected with the operator's policy; edits stay denied."""
+    if portable_shell and (request is not None or report_recovery):
+        raise ValueError("A portable Kilo shell replaces the kernel boundary; it cannot accompany one")
     # A remote server or inherited session could apply different tool grants.
     if any(arg in ("--attach", "--continue", "-c") or arg.startswith("--attach=") for arg in argv):
         raise ValueError("Restricted Kilo stages require a fresh local provider, not attach/continue")
@@ -77,7 +81,15 @@ def restrict(argv, child, workspace, *, role, request=None, report_recovery=Fals
     original = debug("agent", selected)
     if report_recovery and request is not None:
         raise ValueError("Report recovery cannot grant a verification shell")
-    permitted = () if report_recovery else ("bash",) if request is not None else READ_TOOLS
+    permitted = (
+        ()
+        if report_recovery
+        else ("bash",)
+        if request is not None
+        else (*READ_TOOLS, "bash")
+        if portable_shell
+        else READ_TOOLS
+    )
     policy = intersect(original.get("permission"), permitted)
     config = json.loads(child["KILO_CONFIG_CONTENT"])
     agents = config.get("agent", {})

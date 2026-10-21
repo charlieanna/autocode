@@ -36,6 +36,7 @@ class KiloProvider(command.CommandProvider):
         isolation=None,
         image_preparation=None,
         report_recovery=False,
+        portable_shell=False,
     ):
         if report_recovery and (allow_write or not planning or isolation is not None):
             raise ValueError("Kilo report recovery requires ordinary read-only planning")
@@ -79,6 +80,7 @@ class KiloProvider(command.CommandProvider):
                     role=role,
                     request=containment,
                     report_recovery=report_recovery,
+                    portable_shell=portable_shell and not planning,
                 )
             return argv, child, saved
         try:

@@ -73,6 +73,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Kilo runs on macOS get past the Builder again (#1766). Since #1739 a read-only Kilo checker required Kilo 7.8.3's
+  Linux kernel shell, so the Tester was refused on every Mac. On macOS it now keeps Kilo's read tools and shell with
+  edits denied, a source change is put back after the stage, and the run says so; Linux keeps the kernel shell.
 - An adaptive plan the Plan Reviewer approved, but the runner could not install (for example a brief sentence no
   criterion cites), now goes back to the Planner to revise, as outside adaptive planning, with the reason in
   `planning.adaptive.approval_refused` (#1630). The review used to be rejected as invalid output; report repair
