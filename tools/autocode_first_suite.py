@@ -33,6 +33,75 @@ def contains_go_project(paths) -> bool:
     return False
 
 
+# Project, dependency and license manifests: data naming tools and versions,
+# not behavior a suite runs. A first project can commit them before any source
+# exists (#1783).
+MANIFESTS = frozenset(
+    {
+        "pyproject.toml",
+        "setup.cfg",
+        "Pipfile",
+        "Pipfile.lock",
+        "poetry.lock",
+        "uv.lock",
+        "pdm.lock",
+        "package.json",
+        "package-lock.json",
+        "npm-shrinkwrap.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "go.mod",
+        "go.sum",
+        "Cargo.toml",
+        "Cargo.lock",
+        "pom.xml",
+        "gradle.properties",
+        "Gemfile.lock",
+        "composer.json",
+        "composer.lock",
+        "pubspec.yaml",
+        "pubspec.lock",
+        "LICENSE",
+        "LICENCE",
+        "COPYING",
+        "NOTICE",
+        "MANIFEST.in",
+        ".python-version",
+        ".nvmrc",
+        ".node-version",
+    }
+)
+# C#, F# and Visual Basic project and solution files are XML or text manifests.
+MANIFEST_SUFFIXES = (".csproj", ".fsproj", ".vbproj", ".sln")
+
+
+def manifest(path) -> bool:
+    """A project, dependency or license manifest: data, not source the suite runs."""
+    name = PurePosixPath(str(path)).name
+    return (
+        name in MANIFESTS
+        or (name.startswith("requirements") and name.endswith((".txt", ".in")))
+        or name.endswith(MANIFEST_SUFFIXES)
+    )
+
+
+def inert_base_file(path, size, *, separate, source) -> bool:
+    """True when a pinned base entry holds no behavior a suite could run.
+
+    README.md is always accepted. In a separate checkout (the candidate cannot
+    have hidden ignored code) a .gitignore, a Markdown document and an empty
+    file are accepted. So is a manifest, but only when no nonempty file in the
+    base is code or a test path: a first project's manifest holds no behavior
+    to preserve (#1783).
+    """
+    if path == "README.md":
+        return True
+    if not separate:
+        return False
+    name = PurePosixPath(str(path))
+    return name.name == ".gitignore" or name.suffix == ".md" or size == 0 or (not source and manifest(path))
+
+
 def absent_base_suite(base_receipt, candidate_receipt, *, document_only):
     """A new suite may not exist on base; the candidate must actually run it.
 

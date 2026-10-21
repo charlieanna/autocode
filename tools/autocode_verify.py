@@ -213,8 +213,10 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     """True when the base the proof runs holds no behavior: every entry of the
     pinned tree is a regular non-executable blob that is the root README.md or,
     when the candidate cannot have hidden ignored code (below), a Markdown
-    document (``.md``), a .gitignore or an empty file; and make_tree copies no
-    git-ignored code into the proof trees (``generated_sources`` of
+    document (``.md``), a .gitignore, an empty file, or, if no nonempty file in
+    the base is code or a test path, a project, dependency or license manifest
+    (``first_suite.manifest``: a first project, #1783); and
+    make_tree copies no git-ignored code into the proof trees (``generated_sources`` of
     ``dependencies_from`` is empty, and so is the launch inventory of an
     in-place run, ``ignored_inputs``: autocode_launch_inputs.Supply).
 
@@ -222,7 +224,9 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     behavior. Keep this positive inventory deliberately narrow: other non-empty
     files, executable files (even empty ones), links and submodules need
     preservation. A .gitignore and an empty file cannot hold behavior to
-    preserve. An ignore rule (.gitignore, .git/info/exclude) keeps code out of
+    preserve. A manifest names tools and versions, not behavior, and only
+    counts when no nonempty file is code or a test path, so a base that holds
+    source still needs passing-test evidence. An ignore rule (.gitignore, .git/info/exclude) keeps code out of
     the pinned tree but not out of the proof: copy_generated_sources puts
     ignored code that sits next to tracked files into the base and candidate
     trees, so any such file counts as existing behavior, whatever made it.
@@ -259,21 +263,15 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     separate = independent is not False and (
         launch_bound or (bool(dependencies_from) and Path(dependencies_from).resolve() != Path(workspace).resolve())
     )
-    for entry in _git(workspace, "ls-tree", "-r", "-l", "-z", base).split("\0"):
-        if not entry:
-            continue
-        metadata, separator, path = entry.partition("\t")
-        fields = metadata.split()  # mode, type, object, size ("-" for a submodule)
-        if not separator or len(fields) != 4 or fields[:2] != ["100644", "blob"]:
-            return False
-        name = PurePosixPath(path)
-        if not (
-            path == "README.md"
-            or (separate and (name.name == ".gitignore" or name.suffix == ".md" or fields[3] == "0"))
-        ):
-            return False
+    regular = project_inventory.regular_entries(_git(workspace, "ls-tree", "-r", "-l", "-z", base))
+    if regular is None:
+        return False
     launched = ignored_inputs.generated if ignored_inputs is not None else {}
-    return not generated_sources(dependencies_from) and not launched
+    # With no code or test file in the base, the suite had nothing to run, so a
+    # manifest holds no behavior to preserve (#1783).
+    source = any(size and (is_code_path(path) or is_test_path(path)) for path, size in regular)
+    accepted = [first_suite.inert_base_file(path, size, separate=separate, source=source) for path, size in regular]
+    return not generated_sources(dependencies_from) and not launched and all(accepted)
 
 
 def _no_go_project(workspace, base, copied) -> bool:
@@ -3203,6 +3201,8 @@ def _judge_suite(
         and candidate["passed"]
         and not candidate["failed"]
     )
+    if empty_base:
+        notes.append("The pinned base has no executable source, so its empty suite has no behavior to preserve")
     if absent_go:
         notes.append(
             "The pinned base has no Go project, so this suite has no existing behavior to preserve; "
