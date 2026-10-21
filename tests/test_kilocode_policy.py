@@ -4,10 +4,13 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_output_cap as output_cap
 import autocode_provider_launch as launch
 from providers import kilocode_policy as policy
 
@@ -81,6 +84,73 @@ class NativeKiloPolicyTests(unittest.TestCase):
             text=True,
             timeout=40,
         )
+
+    def test_native_requests_use_the_kilo_output_cap_and_operator_precedence(self):
+        requests = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_POST(self):
+                requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                for delta, finish in (({"role": "assistant", "content": "Fixture complete"}, None), ({}, "stop")):
+                    row = {
+                        "id": "local-cap",
+                        "object": "chat.completion.chunk",
+                        "created": 1,
+                        "model": "check",
+                        "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+                    }
+                    self.wfile.write(("data: " + json.dumps(row) + "\n\n").encode())
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        env = self.configured()
+        config = json.loads(env["KILO_CONFIG_CONTENT"])
+        config["small_model"] = "localfixture/check"
+        config["provider"]["localfixture"]["options"]["baseURL"] = f"http://127.0.0.1:{server.server_port}/v1"
+        config["provider"]["localfixture"]["models"]["check"]["limit"] = {"context": 262144, "output": 128000}
+        env["KILO_CONFIG_CONTENT"] = json.dumps(config)
+        for overrides, expected in (
+            ({}, 64000),
+            ({output_cap.VARIABLE: "48000"}, 48000),
+            ({output_cap.VARIABLE: "48000", output_cap.KILO_VARIABLE: "56000"}, 56000),
+            ({output_cap.KILO_VARIABLE: "invalid"}, 64000),
+        ):
+            with self.subTest(overrides=overrides):
+                requests.clear()
+                argv, child, _ = self.provider.launch(
+                    "terra",
+                    self.workspace,
+                    self.root,
+                    None,
+                    "localfixture/check",
+                    "medium",
+                    True,
+                    env={**env, **overrides},
+                )
+                result = subprocess.run(
+                    argv,
+                    input="Say fixture complete.",
+                    env=child,
+                    cwd=self.workspace,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertTrue(requests, result.stdout)
+                self.assertTrue(all(row.get("max_tokens") == expected for row in requests), requests)
 
     def test_planning_blocks_real_write_shell_background_and_preserves_read_denial(self):
         for permissions, read_allowed in (({"*": "allow"}, True), ({"*": "allow", "read": "deny"}, False)):
