@@ -132,6 +132,46 @@ class BlockerNeedTests(unittest.TestCase):
         self.state["uncertain_artifacts"] = ["iterations/002/builder-01.json"]
         self.assertNotIn("retry_failed_stage", self.card_actions())
 
+    def hold_before_publication(self):
+        """The #1770 live hold: the novelty hold is queued, but no request is published yet."""
+        self.contract()
+        self.state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve")
+        self.state["resolution_request"] = {"novelty_hold": {"stage": "astra_resolve", "incident_id": "incident"}}
+        human.queue(
+            self.state,
+            "operational_exhaustion",
+            {"stage": "astra_resolve", "pause_status": "PAUSED_NO_PROGRESS"},
+            request=self.request(),
+            evidence={"resolver_receipt_id": "op-receipt"},
+        )
+        self.assertEqual("RESOLVER_PENDING", self.state["status"])
+        self.assertIsNone(human.current(self.state))
+
+    def test_an_unpublished_novelty_hold_names_the_scoped_retry_not_a_plain_resume(self):
+        # The view used to offer --resume-paused here, which only re-held the run (#1770).
+        self.hold_before_publication()
+        view = run_view.view(self.state)
+        need = view["needs"]
+        self.assertEqual("resume", need["kind"])
+        self.assertEqual(recovery_limits.SCOPED_RETRY, need["action"])
+        self.assertEqual(recovery_limits.SCOPED_RETRY, need["retry_action"])
+        self.assertIn("--retry-failed-stage", view["next_command"])
+        retry = {row["id"]: row for row in view["recovery"]["actions"]}["retry_failed_stage"]
+        self.assertEqual(["--resume-paused", "--retry-failed-stage"], retry["args"])
+        self.assertIn("one more attempt", retry["effect"])
+
+    def test_no_scoped_retry_for_an_unpublished_hold_that_cannot_admit_it(self):
+        self.hold_before_publication()
+        self.state["uncertain_artifacts"] = ["iterations/002/resolver-02.json"]
+        self.assertNotIn("retry_action", self.needs())
+        self.hold_before_publication()
+        self.state[human.PRIVATE]["scope"] = "blocker"  # a different pending decision
+        self.assertNotIn("retry_action", self.needs())
+        self.assertNotIn("retry_failed_stage", self.card_actions())
+        self.hold_before_publication()
+        self.state["resolution_request"] = {}  # no novelty hold to retry
+        self.assertNotIn("retry_action", self.needs())
+
     def test_a_requirements_question_keeps_its_answer_path(self):
         self.queue_question()
         self.assertEqual("escalate", human.evaluate(self.state))

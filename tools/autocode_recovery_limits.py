@@ -138,10 +138,44 @@ def held_request(state: RunState, stage) -> dict:
 
 
 def scoped_retry(state: RunState) -> str | None:
-    """``SCOPED_RETRY`` while a novelty hold on the next stage waits for one, with nothing to reconcile first."""
+    """``SCOPED_RETRY`` while a novelty hold on the next stage waits for one, with nothing to reconcile first.
+
+    Mirrors the saved-state checks of ``autocode_resolver_recovery.authorize_retry``, so the view names
+    the retry only where the CLI would admit it: the hold's own status, and no other pending decision.
+    The CLI still rechecks the source, settings and scope binding when the retry is given (#1770).
+    """
     if not held_request(state, state.get("next_stage")).get("novelty_hold"):
         return None
-    return None if any(state.get(key) for key in UNSETTLED) else SCOPED_RETRY
+    if any(state.get(key) for key in UNSETTLED):
+        return None
+    if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
+        return None
+    # autocode_goals.RESOLVER_PROPOSAL_KEY / RESOLVER_REQUEST_KEY; this policy imports no contract module.
+    pending = state.get("resolver_human_proposal")
+    if pending and (
+        pending.get("scope") != "operational_exhaustion"
+        or (pending.get("origin") or {}).get("pause_status") != "PAUSED_NO_PROGRESS"
+        or (pending.get("origin") or {}).get("stage") != state.get("next_stage")
+    ):
+        return None
+    public = state.get("resolver_human_request") or {}
+    escalations = (state.get("resolver") or {}).get("human_escalations") or {}
+    entry = escalations.get(public.get("request_id")) if isinstance(public, dict) else None
+    if not (isinstance(entry, dict) and entry.get("status") == "pending"):
+        entry = None
+    if entry and (
+        public.get("scope") != "operational_exhaustion"
+        or ((entry.get("identity") or {}).get("proposal") or {}).get("origin", {}).get("pause_status")
+        != "PAUSED_NO_PROGRESS"
+    ):
+        return None
+    if not (pending or entry) and (
+        state.get("status") != "PAUSED_NO_PROGRESS"
+        or state.get("pending_questions")
+        or (state.get("user_request") or {}).get("kind") not in (None, "none")
+    ):
+        return None
+    return SCOPED_RETRY
 
 
 def _no_progress_reasons(state: RunState, cause):

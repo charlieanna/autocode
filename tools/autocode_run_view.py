@@ -832,7 +832,10 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      corrective information, the control it requires,
                                                      view.information_review; at a parallel Builder
                                                      member's quota or content-filter stop answered
-                                                     without a model, --resume-paused --retry-builder M)
+                                                     without a model, --resume-paused --retry-builder M;
+                                                     a recovery novelty hold, also before its request is
+                                                     published: --resume-paused --retry-failed-stage,
+                                                     named again as `retry_action`)
     retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
@@ -1075,6 +1078,12 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             # review cannot release this bound either, so this command comes first (#486).
             need["action"] = "--resume-paused --no-progress-limit N"
             need["no_progress_batches"] = state.get("no_progress_batches", 0)
+        # A recovery novelty hold before its request is published (RESOLVER_PENDING) re-holds on a
+        # plain resume; its one admissible continuation is the explicit scoped retry (#1770).
+        retry = recovery_limits.scoped_retry(state)
+        if retry:
+            need["retry_action"] = retry
+            need.setdefault("action", retry)
         # A parallel member's model stop whose request a person answered continues only by its own
         # control (#541): --resume-paused --retry-builder M.
         member = member_stop.action(state) if "action" not in need else None

@@ -694,7 +694,10 @@ offers `accept_source_edit` with `["--resume-paused", "--accept-source-edit"]`,
 the same command `needs.action` names. At a recovery novelty hold, where `needs`
 is the AutoResolver request with a `retry_action`, the card also offers
 `retry_failed_stage` with `["--resume-paused", "--retry-failed-stage"]`: the
-one explicit retry of the held step. A client runs
+one explicit retry of the held step. Before that request is published
+(`RESOLVER_PENDING`), a plain resume would only hold again, so `needs` is a
+`resume` whose `action` and `retry_action` both name that retry, and the card
+offers the same `retry_failed_stage` (#1770). A client runs
 `autocode --run-dir RUN --expected-recovery-token TOKEN ARGS...` and never
 derives flags from the action's `kind`, so a new action needs no client change.
 Inspection, feedback, decision and conversation actions have no `args`: they
@@ -1333,7 +1336,7 @@ run is waiting for:
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
 | `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal or an authenticated output limit | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or `--resume-paused --retry-failed-stage` (also as `retry_action`) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `dependency` | a bound producer run's delivery (see [Dependencies between existing runs](#dependencies-between-existing-runs)) | `reason`, `producer_run`, `producer_workspace` | `autocode wait --run-dir <producer_run> --workspace <producer_workspace>`: returns when the producer needs a person or ends. Nothing to answer on this run: the dependency worker (`python tools/autocode_dependencies.py ... --watch`) calls `--receive-dependency MANIFEST` (`TaskRun.receive_dependency`) when the producer's verified delivery is ready |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
