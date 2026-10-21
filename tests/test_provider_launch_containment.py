@@ -60,11 +60,72 @@ class LaunchContainment(unittest.TestCase):
         self.assertIn(str(self.options["run_dir"]), kwargs["containment"]["protected_paths"])
         self.assertNotIn(str(Path.home()), kwargs["containment"]["read_roots"])
 
-    def test_planning_and_command_preview_do_not_create_a_shell_boundary(self):
-        for changes in ({"planning": True}, {"enforce_tool_boundary": False}):
+    def test_command_preview_and_planning_report_recovery_do_not_create_a_shell_boundary(self):
+        for changes in (
+            {"enforce_tool_boundary": False},
+            {"planning": True, "planning_report_recovery": True},
+            {"planning": True, "enforce_tool_boundary": False},
+        ):
             with self.subTest(changes=changes):
                 launch.prepare(**{**self.options, **changes})
                 self.assertNotIn("containment", self.adapter.launch.call_args.kwargs)
+                self.assertNotIn("planning_shell", self.adapter.launch.call_args.kwargs)
+
+    def test_a_planner_gets_the_checkers_contained_shell_without_run_state(self):
+        # Owner decision 2026-10-21: every Planner has a shell. On OpenCode it is the kernel-contained one the
+        # read-only checkers use, and like native planning (#1250) it cannot read the run's private state.
+        _, _, _, worker = launch.prepare(**{**self.options, "planning": True, "role": "glm", "route_role": "glm"})
+        request = self.adapter.launch.call_args.kwargs["containment"]
+        self.assertEqual(str(self.options["run_dir"].resolve()), request["private_run"])
+        self.assertIn(str(self.options["run_dir"]), request["protected_paths"])
+        self.assertEqual([], request["tool_commands"])
+        self.assertEqual(self.policy, worker["tool_containment"])
+        self.assertTrue(self.adapter.launch.call_args.kwargs["planning"])
+
+    def test_a_kilo_planner_gets_the_kilo_checkers_shell_on_each_platform(self):
+        from providers.kilocode import KiloProvider
+
+        kilo = object.__new__(KiloProvider)
+        kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
+        options = {**self.options, "adapter": kilo, "planning": True, "role": "glm", "route_role": "glm"}
+        with mock.patch.object(launch.sys, "platform", "linux"):
+            _, _, _, worker = launch.prepare(**options)
+        request = kilo.launch.call_args.kwargs["containment"]
+        self.assertEqual(str(self.options["run_dir"].resolve()), request["private_run"])
+        self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
+        self.assertTrue(worker["kilo_readonly_tools"])
+        with mock.patch.object(launch.sys, "platform", "darwin"):
+            _, _, _, worker = launch.prepare(**options)
+        self.assertNotIn("containment", kilo.launch.call_args.kwargs)
+        self.assertIs(True, kilo.launch.call_args.kwargs["portable_shell"])
+        self.assertTrue(worker["kilo_portable_shell"])
+        self.assertEqual(
+            "Kilo read tools and shell with edits denied; no kernel sandbox on macOS",
+            launch.stage_record(worker)["isolation"],
+        )
+        # Report recovery keeps every tool off, on either platform.
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform), mock.patch.object(launch.sys, "platform", platform):
+                _, _, _, worker = launch.prepare(**{**options, "planning_report_recovery": True})
+                self.assertNotIn("containment", kilo.launch.call_args.kwargs)
+                self.assertNotIn("portable_shell", kilo.launch.call_args.kwargs)
+                self.assertIn("all tools disabled", launch.stage_record(worker)["isolation"])
+
+    def test_a_planning_handoff_stays_compact_under_containment(self):
+        packet = {"stage": "astra_discovery", "joint_planning": True, "task": "x"}
+        text = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps(packet, separators=(",", ":"))
+        updated = launch.containment_prompt(text, {"tool_containment": self.policy})
+        handoff = updated.split("\nCURRENT HANDOFF DATA\n", 1)[1]
+        self.assertNotIn("\n", handoff)
+        self.assertEqual({**packet, "tool_containment": self.policy}, json.loads(handoff))
+        execution = "Instructions\nCURRENT HANDOFF DATA\n" + json.dumps({"stage": "sol"})
+        self.assertIn(
+            "\n", launch.containment_prompt(execution, {"tool_containment": self.policy}).split("DATA\n", 1)[1]
+        )
+
+    def test_a_writing_planner_never_gets_a_shell_boundary(self):
+        launch.prepare(**{**self.options, "planning": True, "allow_write": True, "sandbox": "workspace-write"})
+        self.assertNotIn("containment", self.adapter.launch.call_args.kwargs)
 
     def test_fresh_contained_session_does_not_change_the_event_protocol(self):
         _, _, _, worker = launch.prepare(**{**self.options, "session": "previous-session"})
@@ -92,7 +153,7 @@ class LaunchContainment(unittest.TestCase):
         for configured, changes, settings in (
             (True, {}, None),
             (True, {"allow_write": True}, None),
-            (False, {"planning": True}, None),
+            (False, {"planning": True, "planning_report_recovery": True}, None),  # report-only: no tools
             (False, {"enforce_tool_boundary": False}, None),
             (False, {"allow_write": True}, None),
             (False, {}, {"allow_uncontained_tools": True}),
@@ -155,7 +216,10 @@ class LaunchContainment(unittest.TestCase):
         _, _, _, planner = launch.prepare(
             **{**self.options, "planning": True}, settings={"allow_uncontained_tools": True}
         )
-        self.assertNotIn("uncontained_tools", launch.stage_record(planner))  # planning is never contained
+        # A planner's shell follows the same opt-out: OpenCode's own permissions, said on its stage record.
+        self.assertNotIn("containment", self.adapter.launch.call_args.kwargs)
+        self.assertIs(True, self.adapter.launch.call_args.kwargs["planning_shell"])
+        self.assertIs(True, launch.stage_record(planner)["uncontained_tools"])
 
     def test_without_the_saved_opt_out_the_stage_stays_contained(self):
         for settings in (None, {}, {"allow_uncontained_tools": "true"}, {"allow_uncontained_tools": 1}):

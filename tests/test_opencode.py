@@ -424,6 +424,37 @@ class OpenCodeTests(unittest.TestCase):
                 autopilot=autopilot,
             )
 
+    def test_a_planning_agent_is_read_only_and_its_shell_comes_only_from_the_launch(self):
+        # Owner decision 2026-10-21: every Planner has a shell, granted where the launch provides one; the adapter
+        # on its own keeps the read-tools-only agent, so no caller gets a shell by default.
+        def permission(**kwargs):
+            with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": "{}"}):
+                _, env, _ = oc.launch(
+                    "glm", Path("/workspace"), Path("/run"), None, "test/model", None, False, planning=True, **kwargs
+                )
+            agents = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"]
+            return next(value["permission"] for name, value in agents.items() if name.startswith("autocode_glm_plan_"))
+
+        plain = permission()
+        self.assertEqual(("allow", "deny", "deny"), (plain["read"], plain["bash"], plain["edit"]))
+        uncontained = permission(planning_shell=True)  # the person accepted uncontained tools (#413)
+        self.assertEqual(("allow", "allow", "deny"), (uncontained["read"], uncontained["bash"], uncontained["edit"]))
+        self.assertEqual("deny", uncontained["*"])
+        self.assertEqual("deny", uncontained["external_directory"])
+        captured = {}
+
+        def configure(command, child, workspace, **kwargs):
+            config = json.loads(child["OPENCODE_CONFIG_CONTENT"])
+            captured.update(next(v for k, v in config["agent"].items() if k.startswith("autocode_glm_plan_")))
+            return child, {"shell": "/contained/bash"}
+
+        with patch.object(oc.tool_containment, "configure", side_effect=configure):
+            permission(containment={"source_paths": [], "tool_commands": [], "read_roots": [], "protected_paths": []})
+        # The kernel boundary narrows this to its own bash (autocode_tool_containment.shell_permissions), which
+        # needs a bash rule to narrow; the read-tools-only agent would deny the conformance probe.
+        self.assertNotEqual("deny", captured["permission"].get("bash", "allow"))
+        self.assertEqual("deny", captured["permission"]["edit"])
+
     def test_inline_role_denies_and_patterns_survive_launch(self):
         for policy in (
             "deny",

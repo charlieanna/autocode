@@ -428,6 +428,7 @@ def launch(
     sandbox=None,
     env=None,
     containment=None,
+    planning_shell=False,
     opencode_version=None,
     isolation=None,
     image_preparation=None,
@@ -472,9 +473,10 @@ def launch(
     permissions = {"task": "deny", "question": "deny", "plan_enter": "deny", "plan_exit": "deny"}
     if not allow_write:
         permissions["edit"] = "deny"
-    if planning and isolation is None:
-        # An explicit read-tools-only planning agent: no shell, delegation, MCP,
-        # plugins' tools or edit escape hatch. The runner persists its report.
+    if planning and isolation is None and containment is None:
+        # An explicit read-tools-only planning agent: no delegation, MCP, plugins' tools or edit escape hatch.
+        # Its shell is the kernel-contained one (containment, which narrows the agent to bash itself) or, when the
+        # person accepted uncontained tools, OpenCode's own (planning_shell). The runner persists its report.
         permissions = {
             "*": "deny",
             "read": "allow",
@@ -482,7 +484,7 @@ def launch(
             "grep": "allow",
             "list": "allow",
             "edit": "deny",
-            "bash": "deny",
+            "bash": "allow" if planning_shell else "deny",
             "task": "deny",
             "question": "deny",
             "external_directory": "deny",

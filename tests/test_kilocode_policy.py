@@ -249,7 +249,13 @@ class NativeKiloPolicyTests(unittest.TestCase):
                     attempted = self.debug(argv, child, "read", {"filePath": str(self.workspace / "fixture.txt")})
                     self.assertNotEqual(0, attempted.returncode, attempted.stdout)
                 else:
-                    self.assertTrue({"read", "glob", "grep"}.issubset(names), names)
+                    # Every Planner has a shell (owner decision 2026-10-21): the kernel shell does its reading
+                    # where it exists; on macOS Kilo's own shell sits beside the read tools (#1766).
+                    self.assertIn("bash", names)
+                    if worker.get("tool_containment"):
+                        self.assertEqual({"bash"}, names)
+                    else:
+                        self.assertTrue({"read", "glob", "grep"}.issubset(names), names)
                 self.assertNotIn("--session", argv)
                 self.assertEqual("localfixture/check", worker["model"])
                 self.assertIn(report.replace('"', '\\"'), result.stdout)

@@ -1,7 +1,8 @@
 """Intersect ordinary Kilo stages with the operator's effective tool permissions.
 
 Only model-free native debug commands resolve policy. Read-only verification uses
-our qualified kernel shell; planning has only read tools. Unknown tools stay denied.
+our qualified kernel shell, and so does planning (owner decision 2026-10-21); planning
+report recovery has no tools. Unknown tools stay denied.
 """
 
 import json

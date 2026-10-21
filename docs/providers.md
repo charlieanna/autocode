@@ -200,9 +200,11 @@ native default and the chosen operator override. This proves request constructio
 not that every remote provider honors it. Other configured providers and the
 separate native-isolation path retain their existing cap behavior.
 
-Ordinary Kilo planning uses a fresh read-tools-only agent. Read-only verification uses
-Kilo 7.8.3's qualified kernel-constrained shell, with a writable verification copy and
-source writes denied. Every other native tool is disabled there. Effective operator
+Ordinary Kilo planning and read-only verification both use Kilo 7.8.3's qualified
+kernel-constrained shell on Linux, with a writable verification copy and source writes
+denied; a planning shell also cannot read the run's private state. On macOS, which has no
+kernel shell for Kilo, both keep Kilo's read tools and its own shell with edits denied, and a
+source write is put back after the stage. Planning report recovery has no tools. Every other native tool is disabled there. Effective operator
 denies are retained; headless asks are denied rather than auto-approved. Restricted
 stages start fresh sessions so previous session grants cannot override their policy.
 Builder permissions and the separate native-isolation route keep their existing contract.

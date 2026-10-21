@@ -1446,7 +1446,10 @@ cannot be guaranteed resolvable; automatic recovery is bounded rather than infin
 ## Native tool containment
 
 The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
-Built-in OpenCode execution launches in this checkout additionally require a
+Every Planner has a shell (owner decision 2026-10-21) so it can compute the values its examples state:
+Codex's read-only sandbox, Claude Code's `Bash`, and on OpenCode and Kilo the same contained shell the
+read-only checkers get, which also cannot read the run's private state. A planning report recovery has no tools.
+Built-in OpenCode launches in this checkout, planning included, additionally require a
 qualified kernel shell boundary on OpenCode 1.18.33: macOS Seatbelt
 (`/usr/bin/sandbox-exec`) or, on Linux, bubblewrap (`/usr/bin/bwrap`, see
 [below](#linux-bubblewrap-boundary)). Each launch uses a
@@ -1481,8 +1484,8 @@ ways on:
 
 - Use the qualified setup.
 - Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,
-  Validator, Completion Reviewer, Resolver, Investigator and workflow-job stages
-  then launch with OpenCode's own permission checks and the workspace snapshot
+  Validator, Completion Reviewer, Resolver, Investigator, workflow-job and planning stages
+  (the Planner's shell keeps edits denied) then launch with OpenCode's own permission checks and the workspace snapshot
   checks only, with no kernel containment and no boundary prompt. The choice is
   saved with the run (it is not repeated on later resumes) and recorded as an
   `uncontained_tools_accepted` user event with the time and reason. Each such stage record says
