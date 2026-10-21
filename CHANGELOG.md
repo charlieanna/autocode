@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Before a chat is open, the full-screen terminal chat's `/new` and Ctrl-T now say `This is a new chat: type what
+  you want done.` (#1759). `/new` answered `/new is not available right now` and Ctrl-T `Tabs switch once a chat is
+  open`, though the client already had the right reply; `/new` is now offered in the `/` menu there too.
+
 - Typing `autocode` in a new shell after the README's virtual-environment install answered `command not found`
   (#1761). The README and install guide now say the activation lasts for one shell and name the lasting fixes
   (`pipx install --editable .` or the venv's `bin` on `PATH`), and `autocode doctor` has a `path` row that warns,
