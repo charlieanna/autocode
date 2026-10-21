@@ -524,8 +524,11 @@ class ChatClient:
             if progress.get("line") and (streaming_text or not notice or notice == self.last_notice):
                 self.say(f"  · {progress['line']}")
         # A brief clear between stages is not a new state: say an identical notice once per turn (#1807).
+        # A run that waits for the person ends the turn, so the notice is said again once it carries on.
         if notice:
             self.last_notice = notice
+        elif view.get("done") or (view.get("needs") or {}).get("kind") != "continue":
+            self.last_notice = None
 
     # ---- the conversation ------------------------------------------------------------------
 
