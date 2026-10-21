@@ -94,6 +94,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("tools/prompts/fragments/milestone-replan/", ("tests.test_milestone_policy", "tests.test_milestone_replan")),
     ("tools/prompts/fragments/autoplanner/", ("tests.test_autoplanner_review", "tests.test_planning_stages")),
     (
+        "tools/prompts/fragments/autoplanner/concern-only-contract-audit.md",
+        ("tests.test_planning_report_policy", "tests.test_stage_repair_cli"),
+    ),
+    (
         "tools/prompts/fragments/autoplanner/obligation-",
         ("tests.test_planning", "tests.test_autoplanner_step3", "tests.test_reviewer_effort_cli"),
     ),
@@ -119,6 +123,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/autocode_planning_report_policy.py", "tools/units/autoplanner.py"),
+        ("tests.test_stage_repair_cli",),
+    ),
     (
         ("tools/autocode_job_failure.py", "tools/autocode_job_route.py", "tools/autocode_quota_route.py"),
         ("tests.test_investigator_route",),

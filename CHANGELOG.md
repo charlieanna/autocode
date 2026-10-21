@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Concern-only Plan Reviewers now receive contract-authoring policies as rules to audit,
+  with instructions to report concerns rather than return or edit contract fields their
+  report schema forbids (#1808). Contract-author prompts and the approval/validation gates are unchanged.
+
 - Before a chat is open, the full-screen terminal chat's `/new` and Ctrl-T now say `This is a new chat: type what
   you want done.` (#1759). `/new` answered `/new is not available right now` and Ctrl-T `Tabs switch once a chat is
   open`, though the client already had the right reply; `/new` is now offered in the `/` menu there too.
