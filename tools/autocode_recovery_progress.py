@@ -1,4 +1,4 @@
-"""Correct pre-build planning recoveries miscounted as implementation batches."""
+"""Reconcile obsolete recovery holds against retained saved progress."""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ def planning_only_count(state: RunState):
 
 
 def reconcile(state: RunState, *, issued, approved, supersede, now):
-    """One explicit resume may withdraw only a verified, false pre-build hold.
+    """One explicit resume may withdraw a hold disproved by retained progress.
 
     The caller verifies the current request under the run lock. Unknown history,
     any implementation attempt and stale requests retain their existing hold.
@@ -104,7 +104,7 @@ def reconcile(state: RunState, *, issued, approved, supersede, now):
                 "reason": reason,
             }
         )
-        state.update(status="RUNNING", phase=state.get("phase") or "READY_TO_EXECUTE")
+        state.update({"status": "RUNNING", "phase": state.get("phase") or "READY_TO_EXECUTE"})
         state.pop("stop_reason", None)
         return True
     entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(issued["request_id"], {})
