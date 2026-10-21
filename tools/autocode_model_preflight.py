@@ -34,7 +34,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .autocode_run_state import RunState
@@ -188,7 +188,11 @@ def bare(argv: list, env: dict) -> tuple[list, dict]:
         if not isinstance(agents, dict):
             return argv, env
         chosen = agents.get(argv[argv.index("--agent") + 1])
-        definition = {"description": "AutoCode model access probe", "mode": "primary", "prompt": PROBE_SYSTEM}
+        definition: dict[str, Any] = {
+            "description": "AutoCode model access probe",
+            "mode": "primary",
+            "prompt": PROBE_SYSTEM,
+        }
         definition.update(tools={"*": False}, permission={"*": "deny"})
         if isinstance(chosen, dict) and chosen.get("model"):
             definition["model"] = chosen["model"]
