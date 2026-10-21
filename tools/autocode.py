@@ -1301,7 +1301,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                 ),
                 "protected_contract": protected_contract,
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
-                "source_inventory": planning.repair_source_inventory(state, original["stage"]),
+                **planning.repair_citation_context(state, original["stage"], workspace),
                 "report_identity": {
                     "contract_hash": (state.get("goal_contract") or {}).get("hash"),
                     "contract_revision": (state.get("goal_contract") or {}).get("revision"),

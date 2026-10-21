@@ -66,6 +66,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
     ("tools/prompts/fragments/report-repair-context/requirements-corrections.md", ("tests.test_report_repair",)),
     (
+        "tools/prompts/fragments/autoplanner/source-refs-rule.md",
+        ("tests.test_report_repair", "tests.test_requirements_chat"),
+    ),
+    (
         "tools/prompts/fragments/report-repair-context/evidence-probe.md",
         ("tests.test_report_repair", "tests.test_test_cases"),
     ),
