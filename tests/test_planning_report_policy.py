@@ -43,7 +43,9 @@ class PlanningReportPolicyTests(unittest.TestCase):
                 self.assertIn("Audit every rule in contract_author_rules", instruction)
                 self.assertIn("blocking concern", instruction)
                 self.assertIn("do not return or edit a contract", instruction)
-                self.assertIn("observation changes, source_trace or obligation_decisions defined by that schema", instruction)
+                self.assertIn(
+                    "observation changes, source_trace or obligation_decisions defined by that schema", instruction
+                )
 
     def test_contract_authors_keep_their_existing_commands(self):
         for stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"):
