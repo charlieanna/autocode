@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat says a running run's notice (`Working on your request…`) once per state instead of repeating it
+  every time the progress line changes, and says it again after it clears and returns (#1798).
+
 - A Planner that declares a rewording while leaving the protected criterion or list entry unchanged no longer
   creates a human wording-choice question (#1791, #1793). Inconsistent change metadata now follows the existing
   report-repair path. Genuine protected wording changes still require the person's decision.
