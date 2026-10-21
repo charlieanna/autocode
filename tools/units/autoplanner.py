@@ -190,6 +190,40 @@ def repair_source_inventory(state: RunState, stage):
     return source_inventory(state) if stage in CITATION_STAGES else None
 
 
+def record_uncited_sentences(state: RunState, contract):
+    """Save the source sentences ``contract``'s criteria leave uncited, for the next stage's handoff (#1630)."""
+    if isinstance(state.get("planning"), dict):
+        state["planning"]["uncited_sentences"] = source_trace.uncited_sentences(
+            state, contract, brief_obligations.sources(state)
+        )
+
+
+def check_revision_coverage(state: RunState, contract):
+    """A revision may not re-leave a sentence the last draft left uncited and its review did not excuse.
+
+    The handoff already named those sentences to the Plan Reviewer, who excuses one only through out_of_scope.
+    Refusing here costs no reviewer call; a first draft is never refused, since only the reviewer can say a
+    sentence is out of scope (#595)."""
+    planning = state.get("planning") or {}
+    previous = planning.get("uncited_sentences") or []
+    if not previous:
+        return
+    review = ((planning.get("reports") or {}).get("astra_challenge") or {}).get("report") or {}
+    left = source_trace.unexcused_repeats(
+        state,
+        contract,
+        brief_obligations.sources(state),
+        previous,
+        (review.get("source_trace") or {}).get("out_of_scope"),
+    )
+    if left:
+        raise ValueError(
+            "The revision still leaves source sentences uncited that the Plan Reviewer did not place out of scope: "
+            + "; ".join(f"[{row['source_id']}] {row['sentence'][:100]!r}" for row in left)
+            + ". Cite each in a criterion's sources."
+        )
+
+
 def traces_coverage(contract):
     """Whether a planner report's covered trace rows must cite this contract's criteria or behaviors.
 
@@ -219,6 +253,8 @@ def trace_rows(state: RunState, stage):
 # a protected criterion) restarts planning after the answer, and the next review saw only the new draft:
 # 11 of 31 answer-driven re-drafts in live runs (2026-09-28..10-01) reviewed a whole plan again from scratch.
 REREVIEW_RULE = prompts.get("fragments/autoplanner/rereview-rule.md")
+UNCITED_REVIEW_RULE = prompts.get("fragments/autoplanner/uncited-sentences-review.md")
+UNCITED_REVISE_RULE = prompts.get("fragments/autoplanner/uncited-sentences-revise.md")
 
 
 def previous_review(state: RunState):
@@ -1106,6 +1142,9 @@ def context(state: RunState, stage, state_path):
     if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         packet["brief_declaration_inventory"] = brief_obligations.inventory(state)
         packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
+    uncited = exchange.pop("uncited_sentences", None)  # carried once, as uncited_source_sentences
+    if uncited and stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+        packet["uncited_source_sentences"] = uncited
     if stage in CITATION_STAGES:
         # The model quotes these verbatim in criterion sources (#595); the fake
         # provider reads the same list to build its scripted citations. The full
@@ -1247,6 +1286,8 @@ def context(state: RunState, stage, state_path):
         design_rule += source_trace.rule(records) if records else ""
     if stage != "requirements_gather":
         design_rule += BRIEF_ACCEPTANCE_CARRY_RULE
+    if packet.get("uncited_source_sentences"):
+        design_rule += UNCITED_REVISE_RULE if stage == "glm_revise" else UNCITED_REVIEW_RULE
     if packet.get("brief_declaration_inventory"):
         design_rule += BRIEF_OBSERVATION_REVIEW_RULE
     if packet.get("risk_declaration_inventory"):

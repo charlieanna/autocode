@@ -1317,6 +1317,7 @@ reason. Both are `null` whenever `workflow` is.
 | `review_limit` | The plan-review call allowance set at the first review (`0` is unlimited); a large plan gets one more call. A later `--planning-review-call-limit` changes the allowance in force, not this record |
 | `challenges` | How many first-style reviews the Plan Reviewer has made |
 | `approved_early` | `true` when the Plan Reviewer approved the Planner's draft at a first-style review, with no revision or final review |
+| `uncited_sentences` | How many source sentences the latest Planner draft's criteria leave uncited, counted by the runner; `0` when none or unknown |
 
 The Plan Reviewer still reviews every build plan and you still approve it; these
 fields only report the decisions.

@@ -308,6 +308,7 @@ def view(state: RunState) -> dict:
     workflow = mapping(state.get("workflow"))
     record = mapping(mapping(state.get("planning")).get("adaptive"))
     limit, challenges = record.get("review_limit"), record.get("challenges")
+    uncited = mapping(state.get("planning")).get("uncited_sentences")
     return {
         "adaptive": bool(mapping(state.get("settings")).get(SETTING)),
         "clarity": workflow.get("clarity") if workflow.get("clarity") in CLARITY else None,
@@ -319,4 +320,5 @@ def view(state: RunState) -> dict:
         "review_limit": limit if type(limit) is int else None,
         "challenges": challenges if type(challenges) is int else 0,
         "approved_early": bool(record.get("approved_at")),
+        "uncited_sentences": len(uncited) if isinstance(uncited, list) else 0,
     }

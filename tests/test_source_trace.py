@@ -344,6 +344,82 @@ class ReadyGateTests(unittest.TestCase):
             self.ready(draft, out)
 
 
+class UncitedSentenceTests(unittest.TestCase):
+    """The sentences a draft leaves uncited, which the runner names before any review (#1630)."""
+
+    FIRST = "Build a batch CLI."
+    SECOND = "`cli run FILE` processes up to 5000 rows and exits 0."
+    THIRD = "Do not build a web UI."
+    TEXT = " ".join((FIRST, SECOND, THIRD))
+
+    def setUp(self):
+        self.state = make_state(self.TEXT)
+        self.records = obligations.sources(self.state)
+
+    def uncited(self, *quotes):
+        draft = body([criterion("C1", "A criterion", list(quotes))] if quotes else [])
+        return [row["sentence"] for row in trace.uncited_sentences(self.state, draft, self.records)]
+
+    def test_a_contract_that_cites_nothing_predates_the_trace(self):
+        self.assertEqual([], self.uncited())
+        self.assertEqual(
+            [], [r for r in trace.uncited_sentences(self.state, body([criterion("C1", "A", [])]), self.records)]
+        )
+
+    def test_lists_exactly_the_sentences_no_criterion_cites(self):
+        self.assertEqual([self.THIRD], self.uncited(self.FIRST, self.SECOND))
+        self.assertEqual([], self.uncited(self.FIRST, self.SECOND, self.THIRD))
+
+    def test_a_span_inside_a_sentence_counts_as_citing_it(self):
+        self.assertEqual([self.FIRST, self.THIRD], self.uncited("`cli run FILE` processes up to 5000 rows"))
+
+    def test_rows_name_their_source(self):
+        draft = body([criterion("C1", "A criterion", [self.FIRST])])
+        rows = trace.uncited_sentences(self.state, draft, self.records)
+        self.assertEqual({"task:0"}, {row["source_id"] for row in rows})
+        self.assertEqual(set(), {key for row in rows for key in row} - {"source_id", "sentence"})
+
+    def test_a_requirements_review_go_ahead_is_never_listed(self):
+        event = {"kind": "answer", "actor": "user_cli", "question_id": "requirements-review-0123abcd", "text": "plan"}
+        source_log.save_answer(self.state, "requirements-review-0123abcd", event)
+        self.state.setdefault("user_events", []).append(event)
+        records = obligations.sources(self.state)
+        self.assertIn("answer:requirements-review-0123abcd", [row["id"] for row in records])
+        draft = body([criterion("C1", "A criterion", [self.TEXT])])
+        self.assertEqual([], trace.uncited_sentences(self.state, draft, records))
+
+    def test_a_correction_the_draft_ignores_is_listed(self):
+        event = {"kind": "answer", "actor": "user_cli", "question_id": "Q1", "text": "Also reject empty files."}
+        source_log.save_answer(self.state, "Q1", event)
+        self.state.setdefault("user_events", []).append(event)
+        records = obligations.sources(self.state)
+        draft = body([criterion("C1", "A criterion", [self.TEXT])])
+        rows = trace.uncited_sentences(self.state, draft, records)
+        self.assertEqual([("answer:Q1", "Also reject empty files.")], [(r["source_id"], r["sentence"]) for r in rows])
+
+    def test_only_unexcused_repeats_are_refused(self):
+        previous = [{"source_id": "task:0", "sentence": self.SECOND}, {"source_id": "task:0", "sentence": self.THIRD}]
+        draft = body([criterion("C1", "A criterion", [self.FIRST])])
+
+        def repeats(out_of_scope):
+            return [
+                row["sentence"]
+                for row in trace.unexcused_repeats(self.state, draft, self.records, previous, out_of_scope)
+            ]
+
+        self.assertEqual([self.SECOND, self.THIRD], repeats([]))
+        self.assertEqual([self.SECOND, self.THIRD], repeats(None))
+        excuse = {"source_id": "task:0", "quote": self.THIRD, "reason": "Deferred"}
+        self.assertEqual([self.SECOND], repeats([excuse]))
+        # An excuse names its own source: the same words from another source do not excuse this one.
+        self.assertEqual([self.SECOND, self.THIRD], repeats([{**excuse, "source_id": "answer:other"}]))
+        # A sentence the earlier draft did not leave uncited is not a repeat, however uncited it is now.
+        self.assertEqual(
+            [self.SECOND],
+            [r["sentence"] for r in trace.unexcused_repeats(self.state, draft, self.records, previous[:1], [])],
+        )
+
+
 class SealTests(unittest.TestCase):
     def setUp(self):
         scratch = tempfile.TemporaryDirectory()

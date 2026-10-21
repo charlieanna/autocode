@@ -34,6 +34,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The runner now names the brief sentences a Planner draft's criteria leave uncited (#1630). The next stage's
+  handoff lists them as `uncited_source_sentences`, the Plan Reviewer must raise each or place it out of scope, and
+  a revision that leaves one uncited which the review did not excuse is refused before any reviewer call. A first
+  draft is never refused. The status view's `planning_depth.uncited_sentences` shows the count.
 - The model-access probe costs a few hundred input tokens instead of ~18k (#1744). On OpenCode and Kilo it runs as a
   bare agent with no tools and a one-line system prompt (Kilo 19,053 -> 627 input tokens, OpenCode 17,672 -> 218),
   and the Resolver's own model is probed only before the first stage that runs it. On a small task the probes cost

@@ -3,6 +3,7 @@ their remediation, Plan Reviewer decisions bound to the reviewed record, and the
 discovery, finalize and approval gates."""
 
 import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -303,6 +304,83 @@ class RemediationTransitionTests(ObligationCase):
         goals.answer(self.state, oid, "Keep the CLI; reject empty names")
         self.assertEqual("resolved", self.obligation(oid)["status"])
         self.assertEqual("answer:" + oid, self.obligation(oid)["resolved_by"])
+
+
+class UncitedSentenceFlowTests(ObligationCase):
+    """The runner names the brief sentences a draft leaves uncited, and a revision may not re-leave them (#1630)."""
+
+    SECOND = "The tool lives in greet.py."
+
+    def setUp(self):
+        super().setUp()
+        self.state["task"] = TASK + " " + self.SECOND
+        self.apply("requirements_gather", requirements())
+
+    def cited(self, *quotes, contract=None):
+        contract = contract or plan()
+        contract["acceptance_criteria"][0]["sources"] = [{"source_id": "task:0", "quote": quote} for quote in quotes]
+        return contract
+
+    def uncited(self):
+        return [row["sentence"] for row in self.state["planning"]["uncited_sentences"]]
+
+    def test_a_draft_that_cites_part_of_the_brief_names_the_rest_in_the_next_handoffs(self):
+        self.apply("astra_discovery", self.discovery(self.cited(TASK)))
+        self.assertEqual([self.SECOND], self.uncited())
+        for stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt, _ = planner.context(self.state, stage, Path("/tmp/state.json"))
+                packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual([{"source_id": "task:0", "sentence": self.SECOND}], packet["uncited_source_sentences"])
+                self.assertNotIn("uncited_sentences", packet["planning"])
+                self.assertIn("UNCITED SOURCE SENTENCES", prompt)
+        revise, _ = planner.context(self.state, "glm_revise", Path("/tmp/state.json"))
+        self.assertIn("refused before review", revise)
+        review, _ = planner.context(self.state, "astra_challenge", Path("/tmp/state.json"))
+        self.assertNotIn("refused before review", review)
+
+    def test_a_draft_that_cites_everything_adds_nothing_to_the_handoff(self):
+        self.apply("astra_discovery", self.discovery(self.cited(TASK, self.SECOND)))
+        self.assertEqual([], self.uncited())
+        prompt, _ = planner.context(self.state, "astra_challenge", Path("/tmp/state.json"))
+        self.assertNotIn("uncited_source_sentences", prompt)
+        self.assertNotIn("UNCITED SOURCE SENTENCES", prompt)
+
+    def test_a_first_draft_is_never_refused_for_an_uncited_sentence(self):
+        self.apply("astra_discovery", self.discovery(self.cited(TASK)))
+        self.assertEqual("astra_challenge", self.state["next_stage"])
+
+    def test_a_revision_that_leaves_the_sentence_uncited_is_refused_before_review(self):
+        self.apply("astra_discovery", self.discovery(self.cited(TASK)))
+        self.apply("astra_challenge", self.challenge())
+        revision = self.revise()
+        revision["contract"] = self.cited(TASK)
+        before = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, "still leaves source sentences uncited.*The tool lives in greet.py"):
+            self.apply("glm_revise", revision)
+        self.assertEqual(before, self.state)
+        revision["contract"] = self.cited(TASK, self.SECOND)
+        self.apply("glm_revise", revision)
+        self.assertEqual([], self.uncited())
+
+    def test_a_sentence_the_review_placed_out_of_scope_may_stay_uncited(self):
+        self.apply("astra_discovery", self.discovery(self.cited(TASK)))
+        review = self.challenge()
+        review["source_trace"] = {
+            "out_of_scope": [{"source_id": "task:0", "quote": self.SECOND, "reason": "Deferred"}],
+            "negation_waivers": [],
+        }
+        self.apply("astra_challenge", review)
+        revision = self.revise()
+        revision["contract"] = self.cited(TASK)
+        self.apply("glm_revise", revision)
+        self.assertEqual([self.SECOND], self.uncited())
+
+    def test_a_contract_that_cites_nothing_is_never_listed_or_refused(self):
+        self.apply("astra_discovery", self.discovery())
+        self.assertEqual([], self.uncited())
+        self.apply("astra_challenge", self.challenge())
+        self.apply("glm_revise", self.revise())
 
 
 class HumanDecisionTests(ObligationCase):
