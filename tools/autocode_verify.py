@@ -771,6 +771,12 @@ def test_environment(tree, env=None):
         # They must inherit the same dependencies as the parent test process.
         environment["PATH"] = str(Path(python).parent) + os.pathsep + environment.get("PATH", "")
         environment["VIRTUAL_ENV"] = str(Path(python).parent.parent)
+    else:
+        resolved_python = test_env.python_for(tree)
+        if resolved_python and not shutil.which("python", path=environment.get("PATH", "")):
+            shim_dir = test_env.ensure_python_shim(resolved_python)
+            if shim_dir:
+                environment["PATH"] = shim_dir + os.pathsep + environment.get("PATH", "")
     return environment
 
 

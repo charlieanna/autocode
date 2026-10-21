@@ -17,6 +17,7 @@ import contextlib
 import curses
 import json
 import locale
+import os
 import re
 import signal
 import subprocess
@@ -514,11 +515,17 @@ class ChatTUI:
 
     def set_context(self, workspace: Path, run_dir: Path | None = None) -> None:
         if self._history_file is None:
-            self._history_file = Path(workspace) / ".autocode" / HISTORY_FILE
-            self._composer.history = read_history(self._history_file)
-        self._context = Path(workspace).name
+            self._history_file = (
+                Path(workspace) / ".autocode" / HISTORY_FILE
+                if isinstance(workspace, (str, Path, os.PathLike))
+                else None
+            )
+            if self._history_file is not None:
+                self._composer.history = read_history(self._history_file)
+        self._context = Path(workspace).name if isinstance(workspace, (str, Path, os.PathLike)) else str(workspace)
         if run_dir is not None:
-            self._context += f" · {Path(run_dir).name}"
+            run_name = Path(run_dir).name if isinstance(run_dir, (str, Path, os.PathLike)) else str(run_dir)
+            self._context += f" · {run_name}"
         self._draw()
 
     def close(self) -> None:

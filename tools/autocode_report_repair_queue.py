@@ -52,6 +52,8 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
     eligible = (
         isinstance(error, (ValueError, KeyError, RuntimeError))
         and not isinstance(error, (util.Paused, stray_writes.StrayWrites))
+        and type(error).__name__ != "PlannedCheckFailure"
+        and "A Validator report cannot change it" not in str(error)
         and record.get("exit_code") == 0
         and record.get("source_revision")
         and not record.get("timed_out")

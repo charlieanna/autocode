@@ -8,10 +8,12 @@ Python uses it to find that environment's site-packages.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 try:
@@ -75,3 +77,30 @@ def python_for_test_command(project, command):
     if candidate.is_file() and os.access(candidate, os.X_OK):
         return str(candidate)
     return None
+
+
+def ensure_python_shim(python_path: str) -> str | None:
+    """A directory on PATH providing a 'python' (and 'python3') launcher for python_path."""
+    if not python_path:
+        return None
+    try:
+        digest = hashlib.sha256(str(python_path).encode("utf-8")).hexdigest()[:16]
+        shim_dir = Path(tempfile.gettempdir()) / "autocode-python-shims" / digest
+        shim_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("python", "python3"):
+            shim = shim_dir / name
+            if not shim.exists() and not shim.is_symlink():
+                tmp = shim_dir / f".tmp_{name}_{os.getpid()}"
+                try:
+                    tmp.symlink_to(python_path)
+                    tmp.replace(shim)
+                except OSError:
+                    if not shim.exists() and not shim.is_symlink():
+                        try:
+                            shim.symlink_to(python_path)
+                        except OSError:
+                            pass
+        return str(shim_dir)
+    except OSError:
+        return None
+

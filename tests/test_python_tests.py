@@ -1,4 +1,5 @@
 import shlex
+import shutil
 import sys
 import tempfile
 import unittest
@@ -191,3 +192,25 @@ class UnittestResultParserTests(unittest.TestCase):
         self.assertEqual([], results["failed"])
         self.assertEqual([], results["skipped"])
         self.assertFalse(results["complete"])
+
+    def test_ensure_python_shim_creates_symlinks(self):
+        shim_dir = test_environment.ensure_python_shim(sys.executable)
+        self.assertIsNotNone(shim_dir)
+        shim_path = Path(shim_dir)
+        self.assertTrue((shim_path / "python").is_symlink() or (shim_path / "python").is_file())
+        self.assertTrue((shim_path / "python3").is_symlink() or (shim_path / "python3").is_file())
+        self.assertEqual(Path(sys.executable).resolve(), (shim_path / "python").resolve())
+
+    def test_test_environment_injects_shim_when_bare_python_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "empty_proj"
+            project.mkdir()
+            # Environment without python on PATH
+            base_env = {"PATH": "/usr/bin:/bin"}
+            env = verify.test_environment(project, env=base_env)
+            self.assertIn("PATH", env)
+            # Should have injected a shim directory containing python
+            python_which = shutil.which("python", path=env["PATH"])
+            self.assertIsNotNone(python_which)
+            self.assertEqual(Path(sys.executable).resolve(), Path(python_which).resolve())
+

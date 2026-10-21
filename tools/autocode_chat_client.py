@@ -832,10 +832,16 @@ class ChatClient:
 
     def resolver_reply(self, view: dict) -> bool:
         context = (view.get("chat") or {}).get("context") or ""
-        reply = self.ask("\nYour reply (Enter to leave it for now): ")
+        need = view.get("needs") or {}
+        questions = need.get("questions") or []
+        options = questions[0].get("options") if questions and isinstance(questions[0], dict) else []
+        hint = f"1-{len(options)}" if options else ""
+        reply = self.ask(f"\nYour reply{f' ({hint})' if hint else ''} (Enter to leave it for now): ")
         if not reply:
             self.say(f"Nothing sent. The run is paused; pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
+        if options and reply.isdigit() and 1 <= int(reply) <= len(options):
+            reply = options[int(reply) - 1]
         self.take(actions.message(self.status(), reply, context, self.workspace, self.run_dir))
         return True
 
