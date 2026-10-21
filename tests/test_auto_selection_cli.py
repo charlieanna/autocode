@@ -80,9 +80,10 @@ data = json.loads(prompt.split""",
         self.assertEqual("approve_plan", before["needs"]["kind"], before)
         routes = before["routes"]
         self.assertEqual("auto_selected", routes["terra"]["origin"])
-        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", routes["terra"]["model"])
+        # No Luna in this catalogue, so the Builder is GPT-6 Sol at the table's medium effort (#1729, #1732).
+        self.assertEqual("openai/gpt-6-sol", routes["terra"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", routes["sol"]["model"])
-        self.assertIsNone(routes["terra"]["reasoning_effort"])
+        self.assertEqual("medium", routes["terra"]["reasoning_effort"])
         self.assertTrue(self.operations("probe"))
         # Changing the local catalogue cannot reselect a saved run.
         listings = sum(row.get("metadata", False) for row in self.operations("models"))

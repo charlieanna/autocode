@@ -7,7 +7,9 @@ model remains, which is the pause that has always stood (#184). Only a run that
 saved its permitted set (``--auto-select``, ``route_selection.candidates``) can do
 this: every other run keeps today's question. Native runs and workflow jobs keep
 asking too — a retained native attempt grants no automatic recovery, and a job's
-retry is bound to its exact token (#463).
+retry is bound to its exact token (#463). So does a role whose model the person pinned
+(``--<role>-model``, origin ``user_explicit`` in the saved selection): the switch is for
+the selector's own choices, never for a model a person named.
 
 The move is the same recorded ``route_assignment`` a person's answer applies
 (``autocode_quota_route.assign``), via ``runner``, so the route record reads it as
@@ -53,6 +55,8 @@ def recover(runtime, state: RunState, run_dir, workspace, error) -> bool:
     role = stopped.get("role")
     if role not in quota_route.ROLES:
         return False
+    if ((selection.get("routes") or {}).get(role) or {}).get("origin") == route_selector.role_route.USER_EXPLICIT:
+        return False  # the person pinned this role's model; it is theirs to change, so the pause asks
     route = ((state.get("settings") or {}).get("roles") or {}).get(role) or {}
     dead = stopped.get("model") or route.get("model")
     if not dead:

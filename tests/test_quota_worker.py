@@ -333,7 +333,10 @@ class ParallelQuotaTests(unittest.TestCase):
     def paused(self, marker="AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", error=QUOTA, members="M1"):
         self.fixture(marker, error, members)
         result = self.launch(
-            ["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"], 2, answers="yes\n"
+            # Fixed routes: the batch's Builder is GLM, whatever automatic selection prefers (#1729 put Luna first).
+            ["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat", "--no-auto-select"],
+            2,
+            answers="yes\n",
         )
         self.assertTrue(list((self.project / ".autocode/runs").glob("*/state.json")), result.stdout + result.stderr)
         run, state = self.saved()

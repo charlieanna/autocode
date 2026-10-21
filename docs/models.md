@@ -183,7 +183,8 @@ tools cannot report variants, the recorded qualification level is used. Prefligh
 proves each distinct model/effort on its actual tool within the run's time/cost cap;
 receipts survive resume. Recovery checks independence against the current saved routes, including explicit
 assignments and catalogue substitutions. It stays within the saved connected accounts, and
-exhaustion asks for intervention. A stuck-run Investigator reuses an independent saved
+exhaustion asks for intervention. A model a flag pinned (`--terra-model`, and the other per-role
+flags) is never switched on its own: its stop asks, as before automatic selection. A stuck-run Investigator reuses an independent saved
 reviewer route and its supported level; it cannot silently use a fixed paid-gateway
 default. Explicit `--investigator-model` remains an override. A newly connected account
 is never silently added.

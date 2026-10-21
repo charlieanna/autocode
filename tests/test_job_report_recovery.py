@@ -84,12 +84,14 @@ class InvestigatorReportRecoveryTests(JobHarness):
         config_root = private / "config"
         config = config_root / "autocode/providers/offline.toml"
         config.parent.mkdir(parents=True)
+        # Named after the jobs, not GPT tiers: on a configured provider every GPT model is one family
+        # (#1729), and a Builder and Tester of one family would stop the run before any launch.
         config.write_text(
             'name = "offline"\ncommand = '
             + json.dumps([sys.executable, str(provider), "{report}"])
-            + '\nmodels = ["gpt-6-astra", "gpt-6-terra", "gpt-6-sol", "gpt-6-glm"]\n[roles]\n'
+            + '\nmodels = ["fixture-astra", "fixture-terra", "fixture-sol", "fixture-glm"]\n[roles]\n'
             + "\n".join(
-                f'{role} = {{ model = "gpt-6-{role if role in ("astra", "terra", "glm") else "sol"}", effort = "high" }}'
+                f'{role} = {{ model = "fixture-{role if role in ("astra", "terra", "glm") else "sol"}", effort = "high" }}'
                 for role in ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
             )
             + "\n"
