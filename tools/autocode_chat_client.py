@@ -519,7 +519,8 @@ class ChatClient:
             self.last_line = line
             if notice and notice != self.last_notice:
                 self.say(f"\n{notice}")
-            if progress.get("line") and (streaming_text or not notice):
+            # Under a notice already said, a new progress line is the only news: say it, not silence.
+            if progress.get("line") and (streaming_text or not notice or notice == self.last_notice):
                 self.say(f"  · {progress['line']}")
         self.last_notice = notice
 

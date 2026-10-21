@@ -790,6 +790,9 @@ class StreamAndNoticeTests(unittest.TestCase):
         for line in ("Requirements working", "Plan Reviewer working", "Tester working"):
             client.show({"chat": {"notice": "Working on your request…"}, "progress": {"line": line}})
         self.assertEqual(1, client.text().count("Working on your request…"))
+        self.assertNotIn("Requirements working", client.text(), "the notice stands for the first stage")
+        self.assertIn("· Plan Reviewer working", client.text())
+        self.assertIn("· Tester working", client.text())
 
     def test_a_notice_that_returns_after_a_break_is_said_again(self):
         client = ScriptedChat({})
