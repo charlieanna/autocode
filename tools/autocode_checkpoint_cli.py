@@ -71,7 +71,7 @@ def target(workspace, run_dir):
     return workspace, run_dir, state
 
 
-def receipt(state: RunState, run_dir, ident):
+def receipt(state: RunState, run_dir, ident, *, current_plan=True):
     row = next((row for row in state.get("code_checkpoints", []) if row.get("id") == ident), None)
     if not row or not row.get("available"):
         raise ValueError("This step has no restorable source checkpoint; historical metadata cannot reconstruct files")
@@ -79,11 +79,12 @@ def receipt(state: RunState, run_dir, ident):
     if util.file_hash(path) != row["receipt_sha256"]:
         raise ValueError("The saved code checkpoint receipt changed")
     saved = util.read(path)
+    # A restore must match the approved plan now; a display of a prior turn's step need not (#1712).
     if (
         saved["id"] != ident
         or saved["commit"] != row["commit"]
         or saved["run_dir"] != str(run_dir)
-        or saved["contract_hash"] != (state.get("goal_contract") or {}).get("hash")
+        or (current_plan and saved["contract_hash"] != (state.get("goal_contract") or {}).get("hash"))
     ):
         raise ValueError("Checkpoint identity or approved plan changed")
     if checkpoints.tree_files(state["workspace"], saved["commit"]) != checkpoints.content_files(saved["source"]):
@@ -165,7 +166,7 @@ def working(state: RunState, run_dir):
     source = source_scope.snapshot(workspace, state)
     after = checkpoints.content_files(source)
     if saved:
-        base = receipt(state, run_dir, saved[-1]["id"])
+        base = receipt(state, run_dir, saved[-1]["id"], current_plan=False)
         commit, before = base["commit"], checkpoints.content_files(base["source"])
         changed = util.changed_paths(base["source"], source)
         since = saved[-1]["id"]

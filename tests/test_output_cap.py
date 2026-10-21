@@ -167,16 +167,16 @@ class KiloCapTests(unittest.TestCase):
 
         config = Path(__file__).resolve().parents[1] / "tools/providers/configs/kilocode.toml"
         adapter = KiloProvider(tomllib.loads(config.read_text()), config)
-        for value, tokens, who in (
-            (None, 64000, "autocode"),
-            ("48000", 48000, "operator"),
-            ("0", 64000, "autocode"),
-            ("bad", 64000, "autocode"),
+        for overrides, tokens, who in (
+            ({}, 64000, "autocode"),
+            ({VARIABLE: "48000"}, 48000, "operator"),
+            ({output_cap.KILO_VARIABLE: "56000", VARIABLE: "48000"}, 56000, "operator"),
+            ({output_cap.KILO_VARIABLE: "bad", VARIABLE: "48000"}, 48000, "operator"),
+            ({VARIABLE: "0"}, 64000, "autocode"),
+            ({output_cap.KILO_VARIABLE: "bad"}, 64000, "autocode"),
         ):
-            env = {"PATH": "/usr/bin"}
-            if value is not None:
-                env[VARIABLE] = value
-            with self.subTest(value=value), patch.dict(os.environ, env, clear=True):
+            env = {"PATH": "/usr/bin", **overrides}
+            with self.subTest(overrides=overrides), patch.dict(os.environ, env, clear=True):
                 _, child, _, worker = provider_launch.prepare(
                     engine="opencode",
                     adapter=adapter,
@@ -198,10 +198,18 @@ class KiloCapTests(unittest.TestCase):
                     provider=None,
                     enforce_tool_boundary=False,
                 )
-            self.assertEqual(str(tokens), child[VARIABLE])
-            self.assertEqual({"tokens": tokens, "set_by": who}, worker["output_token_cap"])
+            self.assertEqual(str(tokens), child[output_cap.KILO_VARIABLE])
+            self.assertEqual(
+                {"tokens": tokens, "set_by": who, "variable": output_cap.KILO_VARIABLE}, worker["output_token_cap"]
+            )
             record = provider_launch.stage_record(worker)
             self.assertEqual(worker["output_token_cap"], record["output_token_cap"])
+            self.assertIn(
+                output_cap.KILO_VARIABLE,
+                output_cap.explain(
+                    "OpenCode exhausted its output token limit (finish reason: length)", record["output_token_cap"]
+                ),
+            )
             self.assertIn(
                 str(tokens),
                 output_cap.explain(
