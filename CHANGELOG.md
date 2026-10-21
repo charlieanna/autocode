@@ -34,6 +34,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The model-access probe costs a few hundred input tokens instead of ~18k (#1744). On OpenCode and Kilo it runs as a
+  bare agent with no tools and a one-line system prompt (Kilo 19,053 -> 627 input tokens, OpenCode 17,672 -> 218),
+  and the Resolver's own model is probed only before the first stage that runs it. On a small task the probes cost
+  $0.26 of $1.31, most of it on GPT-6 Astra.
 - The stuck-stage Investigator on OpenCode is GLM 5.3 whenever the stuck stage runs a GPT model, not only GPT-6 Sol:
   GPT models are one family, so GPT-6 Sol no longer diagnoses a stuck GPT-6 Luna Builder.
 - The automatic model switch after a quota, content-filter or output stop (#1426 step 9) leaves a model the
@@ -75,6 +79,13 @@ PR template asks for an entry here; a change without one is incomplete.
   costing a paid call for an error the model could not read back as a rule. A probe that is a reference rather
   than a command is now refused with the rule itself, before anything is run.
 
+- An adaptive plan the Plan Reviewer approved, but the runner could not install (for example a brief sentence no
+  criterion cites), now goes back to the Planner to revise, as outside adaptive planning, with the reason in
+  `planning.adaptive.approval_refused` (#1630). The review used to be rejected as invalid output; report repair
+  cannot change the Planner's contract, so the run paused with no plan. Successful adaptive reviews retain
+  their report in the current planning record so the runner can publish the plan for approval. `autocode capture`
+  run from the Investigator's scratch copy also accepts the project's own `.autocode/evidence/...` path its instructions name,
+  instead of refusing it and costing model turns.
 - A Planner revision that rewords its own unapproved criterion and the way that criterion is verified, backed by
   a saved user answer, is accepted (#1764). The #1691 allowance for the Planner's own wording also swallowed the
   declared change, so the guard refused a correction you had already authorized and the next repair put the

@@ -92,3 +92,45 @@ No provider retry was performed for this change. The separate qualification
 session retains ownership of its live trial and its approved routes and limits.
 Issue #1630 stays open for actual latency/report-delivery qualification; this
 input-size reduction alone does not prove the reported stall fixed.
+
+## Live reproduction on current master (2026-10-21)
+
+A fresh two-file priority-queue repository with an 841-character reprioritization brief was run on
+`2bda9561b` through Kilo 7.8.12 with direct provider logins (no Kilo Gateway): Requirements and Planner
+on `xiaomi-token-plan-sgp/mimo-v2.6-flash` (medium), Plan Reviewer and Investigator on
+`zai-coding-plan/glm-5.3` (high), a 900-second stage deadline and `--no-chat`. The recognizer chose
+the bug-fix workflow.
+
+| Stage | Seconds | Result |
+| --- | ---: | --- |
+| Job recognizer | 12.6 | bugfix |
+| Investigator | 331.7 | reproduced; about 57 s were refused `capture` calls |
+| Requirements (`astra_discovery`) | 193.3 | complete report, 63,513-byte input |
+| Plan Reviewer (`astra_challenge`) | 171.2 | rejected: `$.concerns[0]: missing id` |
+| Report repair 1 | 24.9 | rejected: concern IDs must be nonempty and unique |
+| Report repair 2 | 22.4 | rejected: the contract does not cite the brief's first sentence |
+
+The run paused `PAUSED_INVALID_OUTPUT` after 830 seconds with no reviewable plan, the symptom this issue
+reports, though here Requirements itself finished. One attempt does not establish whether the historical
+Requirements timeout recurs.
+
+**Plan Reviewer output rejected for the Planner's contract.** The Planner's criteria cited only part of
+the brief; discovery drafts are not held to full sentence coverage. The Reviewer raised that as its only,
+non-blocking concern, so adaptive planning tried to approve the draft from the first review, and sealing
+the source trace failed. The exception rejected the review as invalid output. Report repair cannot change
+the Planner's contract, so both repairs were spent and the run paused. An approval the runner cannot
+install now sends the draft to the Planner to revise, which is what every first review does outside
+adaptive planning; the reason is saved in `planning.adaptive.approval_refused` and the revise prompt
+names it. Failed approval attempts restore the state saved before them.
+
+**Investigator `capture` path.** The Investigator works in `.autocode/investigation/bug-*` while the shared
+provider rule tells it to save receipts with `--output .autocode/evidence/...` and to copy the handoff
+`workspace` for absolute paths. `capture` accepted only `<cwd>/.autocode`, so the absolute project path
+was refused four times before the model guessed a path relative to the scratch copy. From an investigation
+scratch copy, `capture` now also accepts the owning project's `.autocode`; it accepts nothing further up,
+so a task worktree still cannot write into its outer project's `.autocode`.
+
+Within the 193-second Requirements stage, tools took about 7 seconds and one model step took about
+173 seconds to write a 4,497-token report. The 55,383 bytes of planner instructions were unchanged here;
+their largest parts are the example-criteria (7.3 KB), contract-reference (5.1 KB), progressive (4.0 KB),
+evidence-facts (3.9 KB) and bug-diagnosis (2.9 KB) rules.

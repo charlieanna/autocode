@@ -578,7 +578,8 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
             raise ValueError("Final plan needs an initial_task so approval does not spend another Plan Reviewer call")
         _bind_plan(state, value, stage, record)
         planning["final_token"] = goals.token(state["goal_contract"])
-    reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
+    # Adaptive approval can replace the planning record with its validated candidate.
+    state["planning"]["reports"][stage] = {"report": copy.deepcopy(value), "output": record["output"]}
     state["discovery_summary"] = value["summary"]
 
 
