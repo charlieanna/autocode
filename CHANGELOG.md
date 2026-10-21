@@ -50,7 +50,7 @@ PR template asks for an entry here; a change without one is incomplete.
 - `autocode program` and `autocode --program-guidance` are gone from master, so every task follows one flow:
   Requirements, a plan you approve, Builders, Tester and review, in one run. A large task gets more milestones in
   that run, not separate workstream runs. The program code, its tests, its guide and its two scenarios are kept
-  unchanged on the `archive/program` branch (master at e23e814) to bring back if a real project needs them.
+  unchanged on the `archive/program` branch (master at 5ee3435) to bring back if a real project needs them.
   Clean-up still keeps worktrees an older program owns, and agents are still denied `.autocode/programs`.
 
 ### Fixed
