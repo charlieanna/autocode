@@ -142,6 +142,7 @@ class StatusView(unittest.TestCase):
         "review_limit": None,
         "challenges": 0,
         "approved_early": False,
+        "uncited_sentences": 0,
     }
 
     def test_a_fixed_sequence_run_shows_no_decisions(self):
@@ -178,6 +179,7 @@ class StatusView(unittest.TestCase):
                 "review_limit": 2,
                 "challenges": 1,
                 "approved_early": True,
+                "uncited_sentences": 0,
             },
             shown,
         )

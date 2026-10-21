@@ -321,6 +321,45 @@ def _turn_scoped(state: RunState, records):
     return quotable(records[ids.index(marker) :] if marker in ids else records)
 
 
+def uncited_sentences(state: RunState, body, records):
+    """The source sentences no criterion of ``body`` cites yet, as ``[{"source_id", "sentence"}]``.
+
+    The same sentence test the seal runs (``_coverage_errors``), asked of a draft with no out_of_scope. Only the
+    Plan Reviewer can excuse a sentence, so a first draft's list is information, not a refusal (#1630)."""
+    criteria = body.get("acceptance_criteria") or []
+    if not any(row.get("sources") for row in criteria):
+        return []  # a contract that cites nothing predates the trace, as in check_ready
+    rows = []
+    for record in _turn_scoped(state, records):
+        quotes = [
+            citation["quote"]
+            for row in criteria
+            for citation in row.get("sources") or []
+            if isinstance(citation, dict) and citation.get("source_id") == record["id"]
+        ]
+        rows += [
+            {"source_id": record["id"], "sentence": sentence}
+            for sentence in cues.sentences(record["text"])
+            if not _covered(sentence, quotes, spans=True)
+        ]
+    return rows
+
+
+def unexcused_repeats(state: RunState, body, records, previous, out_of_scope):
+    """Sentences ``body`` leaves uncited that ``previous`` (an earlier draft's list) also left and that the
+    reviewer's ``out_of_scope`` entries do not excuse."""
+    excused = [entry for entry in out_of_scope or [] if isinstance(entry, dict)]
+    return [
+        row
+        for row in uncited_sentences(state, body, records)
+        if row in previous
+        and not any(
+            entry.get("source_id") == row["source_id"] and _covered(row["sentence"], [str(entry.get("quote", ""))])
+            for entry in excused
+        )
+    ]
+
+
 def check_ready(body, records, wrapper, *, coverage_records=None):
     """The approval/completion gate for a body carrying the source-trace seal.
 

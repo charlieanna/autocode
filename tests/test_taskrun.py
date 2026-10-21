@@ -699,6 +699,7 @@ class TaskRunTests(unittest.TestCase):
                         "review_limit": 2,
                         "challenges": 1,
                         "approved_early": True,
+                        "uncited_sentences": 0,
                     },
                     {key: value for key, value in depth.items() if key != "size_signals"},
                 )

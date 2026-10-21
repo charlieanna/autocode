@@ -536,6 +536,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
     if stage == "astra_discovery":
         clarification.check_handoff_questions(state, value)
         _bind_plan(state, value, "glm_draft", record)
+        planning_unit.record_uncited_sentences(state, value["contract"])
         if human.internal_questions(state) or value["contract"]["open_blocking_questions"]:
             state["discovery_summary"] = value["summary"]
             return
@@ -555,7 +556,9 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
         value = {**value, "responses": planning_unit._coverage(value["responses"], concerns)}
         if any(not r["evidence_refs"] for r in value["responses"]):
             raise ValueError("Planner responses must cite investigated evidence")
+        planning_unit.check_revision_coverage(state, value["contract"])
         _bind_plan(state, value, stage, record)
+        planning_unit.record_uncited_sentences(state, value["contract"])
         if human.internal_questions(state) or value["contract"]["open_blocking_questions"]:
             reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
             state["discovery_summary"] = value["summary"]
