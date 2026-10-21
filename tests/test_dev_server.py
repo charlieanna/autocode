@@ -387,6 +387,11 @@ class ServeCliTests(Workspace):
         self.assertIn("  SyntaxError: the app is broken", shown)
         self.assertIn("Waiting for the run's next code change; stop it with Ctrl-C or: autocode serve stop", shown)
 
+    # The test stops the server the way a terminal's Ctrl-C does, with SIGINT to the one child. On Windows,
+    # Popen.send_signal takes only SIGTERM, CTRL_C_EVENT and CTRL_BREAK_EVENT (a console event reaches the
+    # whole process group), so the case cannot run there; the native advisory job stalled in it, waiting for
+    # the server's first line, until run_suite ended the module after 600 s (#1681).
+    @unittest.skipIf(sys.platform == "win32", "a foreground Ctrl-C is sent as SIGINT, which Windows cannot send")
     def test_ctrl_c_stops_a_foreground_server(self):
         self.save_state({"serve": self.saved()})
         start = ["serve", "start", "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)]
