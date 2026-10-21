@@ -566,6 +566,7 @@ def run_role(
                 "source_revision": cast(dict[str, Any], native_before)["revision"],
             }
             native_environment["AUTOCODE_CAPTURE_CONTEXT"] = json.dumps(native_capture)
+    snapshot_env = readonly_events.launch_excludes(workspace, engine, adapter, native_environment, dry_run=dry_run)
     command, child_environment, overrides, worker_context = provider_launch.prepare(
         engine=engine,
         adapter=adapter,
@@ -739,8 +740,9 @@ def run_role(
         ExitStack() as provider_guard,
     ):
         try:
-            if engine == "opencode" and not configured_tool:
-                readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
+            readonly_events.prepare_opencode_snapshots(
+                workspace, record=record, env=child_options["env"], excludes=snapshot_env
+            )
             before = native_before or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
             job_source.prepare_capture_context(
                 record, before, output, child_options, native_context=native_capture, protected=native is not None

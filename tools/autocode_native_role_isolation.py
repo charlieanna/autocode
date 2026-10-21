@@ -27,9 +27,11 @@ if TYPE_CHECKING:
 # Public facade used by provider launch and native ownership checks.
 try:
     from . import autocode_native_locators as native_locators
+    from . import autocode_opencode_snapshots as native_snapshots
     from .autocode_kilo_isolation import KiloRoleIsolation as KiloRoleIsolation
 except ImportError:
     import autocode_native_locators as native_locators
+    import autocode_opencode_snapshots as native_snapshots
     from autocode_kilo_isolation import KiloRoleIsolation as KiloRoleIsolation
 
 try:
@@ -370,7 +372,10 @@ class NativeRoleIsolation:
         target = _path(self._run, self._run / ("native-role-" + uuid.uuid4().hex))
         target.mkdir(mode=0o700)
         pins = {}
-        child = {key: environment[key] for key in ENVIRONMENT if key in environment}
+        child = {
+            **{key: environment[key] for key in ENVIRONMENT if key in environment},
+            **native_snapshots.git_config_env(environment),  # the snapshot excludes file (#1630)
+        }
         for key, folder in DIRECTORIES.items():
             path = target / folder
             path.mkdir(mode=0o700)

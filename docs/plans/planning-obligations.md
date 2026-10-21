@@ -179,13 +179,8 @@ opened as a draft until its measurement is in the body.
   two repairs). Fix: a change whose declared `concern_id` names an unresolved blocking
   concern of the saved `astra_challenge` report, and whose item is the one that concern
   names, counts as backed by that review. One test each way.
-- **Snapshot exclusions missing on Kilo.** `autocode.py` writes the `__pycache__/` and
-  `*.pyc` exclusions (`readonly_events.prepare_opencode_snapshots`) only when
-  `engine == "opencode" and not configured_tool`, while `assert_unchanged_review` guards
-  every read-only stage's report. On a Kilo run the worktree's `info/exclude` is the Git
-  default, so an Investigator that runs `unittest` in the workspace trips the guard
-  (two runs on 2026-10-21, `PAUSED_STALE_VALIDATION`). Fix: install the exclusions for
-  every launch the guard applies to. Test: a Kilo-configured launch writes them.
+- **Snapshot exclusions never reached the snapshot repository.** Fixed; the cause was wider than
+  the Kilo gap first described: `docs/bugs/native-snapshot-excludes.md`.
 - **GLM-5.3 low omits `proposed_assumptions[].text`** in every Requirements report
   (one 24 s repair each run). A model slip against a schema it is shown; not a runner
   change. Noted for the routing docs.
