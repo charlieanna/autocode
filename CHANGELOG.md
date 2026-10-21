@@ -9,6 +9,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Changed
+
+- Automatic model selection runs a GLM 5.3 Tester at medium effort, not high (owner decision, 2026-10-21). On
+  ladder-07 on Kilo the Tester at medium took 242 s with 14.9k reasoning tokens, against 269-468 s and 23.1k at high
+  in the day's earlier runs, and the task passed 8/8 with no send-back. A GPT-6 Sol Tester and the fixed default
+  routes keep high; `--sol-reasoning-effort` still sets either.
+
 ### Fixed
 
 - The terminal chat's startup run picker now lists runs as `/runs` does (#1754): by their request's title instead
