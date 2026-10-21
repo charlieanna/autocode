@@ -205,7 +205,7 @@ The rules the choice keeps:
   login is connected, then Claude Opus, and MiMo is not used for review (owner decision,
   2026-10-20: MiMo spent 32-45k reasoning tokens and up to 15 minutes per plan review).
   With neither connected, the run stops before any work and offers those two logins.
-  The Builder likewise prefers GPT-6 Luna at high effort, then GPT-6 Sol, then MiMo v2.6
+  The Builder likewise prefers GPT-6 Luna at medium effort (owner decision, 2026-10-21), then GPT-6 Sol, then MiMo v2.6
   Flash, then Claude Opus, then the cheapest of GLM 5.3, MiMo v2.6 Pro and DeepSeek (owner
   decision, 2026-10-20: on ladder-07 a Luna Builder took 36-66 s and a Sol Builder 66 s
   against MiMo v2.6 Pro's 404-474 s, and the whole task 16-35 min against 34-46 min). A
