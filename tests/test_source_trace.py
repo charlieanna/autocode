@@ -62,6 +62,19 @@ class CitationSyntaxTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "without quoting it verbatim"):
             trace.check_citations(draft, obligations.sources(state))
 
+    def test_a_quote_across_a_hard_wrapped_line_is_verbatim(self):
+        # #1777: every live GLM Requirements report on a hard-wrapped brief quoted "False,\noffset" as "False, offset".
+        wrapped = "Extend query(records, *, descending=False,\noffset=0, limit=None). Existing calls return\nall rows."
+        state = make_state(wrapped)
+        quote = "Extend query(records, *, descending=False, offset=0, limit=None)."
+        trace.check_citations(body([criterion("C1", "keeps the signature", [quote])]), obligations.sources(state))
+        for changed in (
+            "Extend query(records, *, descending=True, offset=0, limit=None).",
+            "descending=False,offset=0",
+        ):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "without quoting it verbatim"):
+                trace.check_citations(body([criterion("C1", "x", [changed])]), obligations.sources(state))
+
     def test_an_empty_citation_array_is_a_draft_only_state(self):
         state = make_state()
         draft = body([criterion("C1", TASK, [])])

@@ -54,6 +54,7 @@ _ROUTE_STOPS = {
     "content_filter": quota_route.REFUSAL_STATUS,
     "quota": quota_route.QUOTA_STATUS,
     "output_limit": quota_route.OUTPUT_STATUS,
+    "provider_auth": quota_route.AUTH_STATUS,
 }
 
 
@@ -158,7 +159,7 @@ def _reason(runtime, record, error):
             + (f" ({message})" if message else "")
         )
     auth = provider_auth.reason(path)
-    if auth:
+    if auth and getattr(error, "status", None) != "PAUSED_UNCERTAIN_STAGE":
         return "provider_auth", f"{role}: {auth}"
     return "exit", f"{role}: provider exited {record.get('exit_code')} without a terminal report; {error or ''}"
 
@@ -172,6 +173,8 @@ def _route_reason(failure):
         if failure.get("pause_status") == quota_route.REFUSAL_STATUS
         else f"the response output limit was exhausted on {route.get('stopped_model')}"
         if failure.get("pause_status") == quota_route.OUTPUT_STATUS
+        else f"provider authentication failed on {route.get('stopped_model')}"
+        if quota_route.job_stop_status(failure) == quota_route.AUTH_STATUS
         else f"the provider reported its quota used up on {route.get('stopped_model')}"
     )
     return (
@@ -329,7 +332,7 @@ def recover(runtime, state: RunState, run_dir, workspace, error=None, *, abandon
 
 def authorize(runtime, state: RunState, run_dir, workspace, token):
     failure = state.get("job_failure") or {}
-    if state.get("status") not in PAUSES or not failure:
+    if not quota_route.job_pause_current(state):
         raise ValueError("Exact job retry requires a paused failed workflow job")
     if not token or token != failure.get("job_retry_token"):
         raise ValueError("Job retry token does not match the current failed attempt")
@@ -377,8 +380,8 @@ def reroute(runtime, state: RunState, run_dir, workspace, assignment):
     """
     failure = state.get("job_failure") or {}
     route = failure.get("route") or {}
-    if state.get("status") not in PAUSES or not route:
-        raise ValueError("Only a workflow job stopped on quota or a content-filter refusal takes another model")
+    if not quota_route.job_pause_current(state) or not route:
+        raise ValueError("Only a workflow job stopped on its model or authentication takes another model")
     role = route.get("route_role")
     if assignment.get("role") != role or assignment.get("attempt_id") != failure.get("attempt_id"):
         raise ValueError(
@@ -413,6 +416,10 @@ def reroute(runtime, state: RunState, run_dir, workspace, assignment):
     )
     state.pop("job_retry_authorization", None)
     failure["reason"] = state["stop_reason"] = _route_reason(failure)
+    if state.get("status") in quota_route.JOB_PREFLIGHT_PAUSES:
+        run_status.pause(
+            state, "PAUSED_JOB_FAILURE", failure["reason"], next_stage=failure["stage"], pending_questions=[]
+        )
     return failure["job_retry_token"]
 
 

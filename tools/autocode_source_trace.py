@@ -98,6 +98,13 @@ def reviewer_evidence(record):
     return not events.is_symlink() and events.is_file() and not output.is_symlink() and output.is_file()
 
 
+def quoted(quote, text) -> bool:
+    """Whether ``quote`` appears in ``text`` word for word; runs of whitespace match each other (#1777).
+
+    A hard-wrapped brief puts line breaks inside its sentences, and a model quoting the sentence writes a space."""
+    return " ".join(str(quote).split()) in " ".join(str(text).split())
+
+
 def check_citations(body, records):
     """Every criterion citation names a live source and quotes it exactly."""
     by_id = {row["id"]: row for row in records}
@@ -115,7 +122,7 @@ def check_citations(body, records):
                 raise ValueError(f"Criterion {row.get('id')} sources hold only source_id and quote")
             source = by_id.get(citation.get("source_id"))
             quote = str(citation.get("quote", "")).strip()
-            if source is None or not quote or quote not in source["text"]:
+            if source is None or not quote or not quoted(quote, source["text"]):
                 raise ValueError(
                     f"Criterion {row.get('id')} cites {citation.get('source_id')} without quoting it verbatim"
                 )
@@ -157,7 +164,7 @@ def _normalize_entries(value, label, records, *, negation=False):
             raise ValueError(f"source_trace {label} entries hold only source_id, quote and reason")
         source = by_id.get(entry.get("source_id"))
         quote = str(entry.get("quote", "")).strip()
-        if source is None or not quote or quote not in source["text"]:
+        if source is None or not quote or not quoted(quote, source["text"]):
             raise ValueError(f"source_trace {label} cites {entry.get('source_id')} without quoting it verbatim")
         if not str(entry.get("reason", "")).strip():
             raise ValueError(f"source_trace {label} entry for {entry['source_id']} needs a reason")
