@@ -2538,7 +2538,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/2f60abc16a55fe49f5860ee707477870235da065/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/03fbcc5b45540da2cec7dd8838e743839f2bda18/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2894,17 +2894,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/2f60abc16a55fe49f5860ee707477870235da065/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/03fbcc5b45540da2cec7dd8838e743839f2bda18/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/2f60abc16a55fe49f5860ee707477870235da065/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/03fbcc5b45540da2cec7dd8838e743839f2bda18/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/2f60abc16a55fe49f5860ee707477870235da065/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/03fbcc5b45540da2cec7dd8838e743839f2bda18/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3168,7 +3168,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/2f60abc16a55fe49f5860ee707477870235da065/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/03fbcc5b45540da2cec7dd8838e743839f2bda18/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
@@ -3502,17 +3502,26 @@ Builder stage also counts as an unchanged implementation batch; recoveries of
 planning and review stages do not, and unchanged batches never spend the recovery
 ceiling below. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including the Plan Reviewer and Tester.
-A successful stage resets the consecutive-timeout counter. A separate ceiling of
-three automatic recoveries covers timeouts and provider-capacity failures. External-directory
+A valid saved provider stage resets both the consecutive-timeout counter and the
+three-recovery failure streak (#1820). Failed, rejected, interrupted and runner-only
+reports do not renew the streak. Timeouts, startup failures and recoverable network
+failures still have their bounded recovery paths. External-directory
 denials have their own accounting instead: a denial retry never consumes the
 timeout-recovery budget, repeats of the same denied operation hold after one
 workspace-only retry, and distinct denials hold at their own ceiling of three
-recoveries without an accepted stage. Accepted
-intermediate reports and milestone-budget extensions do not reset these ceilings.
-Inspect the saved cause and adjust limits as needed; explicit <code>--resume-paused</code>
-acknowledges <code>PAUSED_TIMEOUT_RECOVERY</code> and resets recovery counters while retaining
-history. Setting <code>--no-progress-limit 0</code> disables the unchanged-batch limit, but
-never disables the three-recovery safety ceiling.
+recoveries without an accepted stage. Milestone-budget extensions do not renew
+recovery. A valid saved stage preserves every failed attempt, token, cost and time
+record; it does not extend any run limit, change a route or approve a plan.
+Three recovery failures without a valid saved stage still stop. A grant remains
+available after inspecting an actually exhausted streak; ordinary resume never
+grants more attempts to an unchanged failure.</p>
+<p>Older runs may already be held by the former run-wide counter even after successful
+stages. When the retained recovery/grant ledger balances and proves intervening
+success, status offers ordinary Resume. The core rechecks that request under its
+lock, corrects only the streak and retains a correction receipt, without a slot
+grant. Inconsistent or incomplete history stays held. Every other admission gate,
+including explicit time/cost limits, unchanged-failure holds and plan approval,
+still applies. Setting <code>--no-progress-limit 0</code> never disables the streak bound.
 A run held at <code>PAUSED_NO_PROGRESS</code> keeps its count. <code>--resume-paused
 --no-progress-limit N</code> acknowledges that pause when N is above the count, or <code>0</code>;
 an N at or below the count holds without launching the Builder. Information alone
