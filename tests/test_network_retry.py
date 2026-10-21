@@ -36,6 +36,23 @@ def failure(**data):
     }
 
 
+def generic_network_failure():
+    """The archived #1797 row: isRetryable, empty errno facts, a generic connection loss."""
+    return {
+        "type": "error",
+        "timestamp": 1792607931467,
+        "sessionID": "ses_ea03f73b9ffe17xYxX2pRT17JX",
+        "error": {
+            "name": "APIError",
+            "data": {
+                "message": "Network connection failed",
+                "isRetryable": True,
+                "metadata": {"code": "", "syscall": "", "message": "network connection was lost"},
+            },
+        },
+    }
+
+
 class NetworkDiagnosticTests(unittest.TestCase):
     def test_explicit_network_code_or_http_status(self):
         for code in retry.NETWORK_CODES:
@@ -95,6 +112,27 @@ class NetworkDiagnosticTests(unittest.TestCase):
             with self.subTest(row=row):
                 self.assertIsNone(retry.retryable_error(json.dumps(row)))
 
+    def test_a_generic_network_loss_with_empty_errno_facts_classifies(self):
+        # Live row from #1797: OpenCode set isRetryable, wrote empty code/syscall
+        # strings and named the loss only in the messages.
+        self.assertEqual("network", retry.retryable_error(json.dumps(generic_network_failure())))
+
+    def test_a_generic_network_message_still_needs_the_retryable_flag_and_a_network_cause(self):
+        row = generic_network_failure()
+        data = row["error"]["data"]
+
+        def changed(**fields):
+            return json.dumps({**row, "error": {"name": "APIError", "data": {**data, **fields}}})
+
+        for value in (False, None, 1, "true"):
+            with self.subTest(isRetryable=value):
+                self.assertIsNone(retry.retryable_error(changed(isRetryable=value)))
+        for message in ("Connection reset by server", "Quota exhausted", "429 rate limit exceeded"):
+            with self.subTest(message=message):
+                self.assertIsNone(retry.retryable_error(changed(message=message, metadata={"code": "", "syscall": ""})))
+        with self.subTest(code="ENOTFOUND"):
+            self.assertIsNone(retry.retryable_error(changed(metadata={"code": "ENOTFOUND", "syscall": ""})))
+
     def test_partial_turn_tools_text_unknown_rows_and_duplicate_keys_refuse(self):
         raw = json.dumps(failure())
         for kind in ("step_start", "step_finish", "text", "tool_use", "turn.completed", "usage", "unknown"):
@@ -115,8 +153,9 @@ class NetworkDiagnosticTests(unittest.TestCase):
                 self.assertIsNone(retry.retryable_error(stream))
 
 
-def cut_short_stream(*extra):
+def cut_short_stream(*extra, error=None):
     """The #1717 shape: progress, read-only tools and text, then a retryable reset, Kilo's echo and flushed text."""
+    error = failure() if error is None else error
     rows = [
         {"type": "step_start", "part": {"type": "step-start"}},
         {"type": "autocode_progress", "detail": "native provider stream advanced"},
@@ -124,16 +163,23 @@ def cut_short_stream(*extra):
         {"type": "step_finish", "part": {"type": "step-finish", "reason": "tool-calls"}},
         {"type": "step_start", "part": {"type": "step-start"}},
         {"type": "reasoning", "part": {"type": "reasoning", "text": "thinking"}},
-        failure(),
+        error,
     ]
-    lines = [json.dumps(row) for row in rows[:-1]] + ["\x1b[91m\x1b[1mError: \x1b[0mConnection reset by server"]
-    lines += [json.dumps(rows[-1]), json.dumps({"type": "text", "part": {"type": "text", "text": '{"contract": {'}})]
+    lines = [json.dumps(row) for row in rows[:-1]] + [
+        f"\x1b[91m\x1b[1mError: \x1b[0m{error['error']['data']['message']}"
+    ]
+    lines += [json.dumps(error), json.dumps({"type": "text", "part": {"type": "text", "text": '{"contract": {'}})]
     return ("\n".join(lines + [json.dumps(row) for row in extra]) + "\n").encode()
 
 
 class ReadOnlyPartialStreamTests(unittest.TestCase):
     def test_a_stream_cut_short_by_a_retryable_reset_classifies(self):
         self.assertEqual("ECONNRESET", retry.read_only_partial_error(cut_short_stream()))
+
+    def test_a_stream_cut_short_by_the_generic_network_loss_classifies(self):
+        # The archived #1797 discovery stream: five completed reads, then the generic row.
+        stream = cut_short_stream(error=generic_network_failure())
+        self.assertEqual("network", retry.read_only_partial_error(stream))
 
     def test_a_finished_turn_a_running_tool_an_unknown_row_or_a_second_error_does_not(self):
         for extra in (

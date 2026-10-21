@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A provider connection that OpenCode marks retryable now gets its one no-effect retry even when it names the loss
+  only generically (`Network connection failed`, with empty `code`/`syscall` and no HTTP status) instead of stopping
+  as `PAUSED_PROVIDER_UNCERTAIN` (#1797). The provider's own retryable flag, a read-only stage, an unchanged
+  workspace and no written files are still required; empty errno fields no longer hide the flag.
 - A refused revision of a criterion now says what to change (#1630). Rewording a criterion in a plan nobody approved
   names the request quotes it dropped, and replacing a `test:`/`guard:` proof with an unmarked command says to keep a
   named test and put an aggregate run in its own criterion. Both refusals were right, but said only that a user answer
