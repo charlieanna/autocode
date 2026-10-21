@@ -11,9 +11,11 @@ import compileall
 import contextlib
 import io
 import json
+import re
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -433,6 +435,47 @@ class ScenarioModulesTests(unittest.TestCase):
         self.assertEqual(["scenarios.test_fast.T.a", "scenarios.test_fast.T.b", "scenarios.test_harness.H.h"], ran)
         self.assertIn("Left out 1 scenario module(s)", printed.getvalue())
         self.assertIn("scenarios.test_slow", printed.getvalue())
+
+
+class ModuleTimeoutTests(unittest.TestCase):
+    """#1681: a hung module, and a server it started, end at --module-timeout instead of holding the run."""
+
+    def test_a_hung_module_and_its_child_are_ended_and_reported_with_what_they_printed(self):
+        with tempfile.TemporaryDirectory(prefix="suite-timeout-") as directory:
+            root = Path(directory)
+            (root / "test_hangs.py").write_text(
+                "import subprocess, sys, time, unittest\n"
+                "class Hangs(unittest.TestCase):\n"
+                "    def test_server(self):\n"
+                "        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+                "        print('child', child.pid, flush=True)\n"
+                "        time.sleep(120)\n"
+            )
+            started = time.monotonic()
+            with mock.patch.object(run_suite, "REPO_ROOT", root):
+                result = run_suite.run_module("test_hangs", 1, timeout=2)
+            self.assertLess(time.monotonic() - started, 30, "a child holding the module's output cannot hold the run")
+        self.assertEqual((False, True), (result["ok"], result["timed_out"]))
+        self.assertIn("still running after 2s", result["output"])
+        child = int(re.search(r"^child (\d+)$", result["output"], re.MULTILINE).group(1))
+        stat = Path(f"/proc/{child}/stat")
+        if stat.parent.parent.is_dir():  # Linux: ended means gone, or a zombie no reaper has collected yet
+            self.assertTrue(not stat.exists() or stat.read_text().rpartition(")")[2].split()[0] == "Z")
+
+    def test_a_timed_out_module_is_a_named_failure_in_its_row_and_the_summary(self):
+        def run_module(module, _verbosity, timeout):
+            self.assertEqual(5, timeout)
+            hung = module == "tests.test_b"
+            return {"module": module, "ok": not hung, "timed_out": hung, "seconds": 0.0, "tests": 1, "output": module}
+
+        with mock.patch.object(run_suite, "run_module", run_module), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(run_suite.run_parallel(["tests.test_a", "tests.test_b"], 2, 1, timeout=5))
+        lines = out.getvalue().splitlines()
+        self.assertIn("FAIL    0.0s  tests.test_b (1 tests, timed out)", lines)
+        self.assertIn(
+            "Ran 2 tests in 2 modules, 2 at a time, in 0s: 1 module(s) FAILED: tests.test_b (1 timed out: tests.test_b)",
+            lines,
+        )
 
 
 class ModuleEnvironmentTests(unittest.TestCase):

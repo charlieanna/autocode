@@ -440,7 +440,9 @@ jobs:
         continue-on-error: true
         timeout-minutes: 45
         # Every fast module: --changed against HEAD selects nothing extra, --all-fast adds the rest.
-        run: .venv/Scripts/python tools/run_suite.py --verbosity 2 --changed HEAD --all-fast
+        # A module still running after 10 minutes is ended and named as timed out (#1681), so one
+        # hung module cannot run into the step limit and hide which one it was.
+        run: .venv/Scripts/python tools/run_suite.py --verbosity 2 --changed HEAD --all-fast --module-timeout 600
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           PYTHONUTF8: "1"
