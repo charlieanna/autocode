@@ -840,6 +840,47 @@ class UnapprovedRewordingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
             revision_guard(state, after, changes, "glm_revise")
 
+    def test_a_refused_rewording_names_the_quotes_it_dropped(self):
+        # #1630: a live revision dropped one of AC7's request quotes while rewording it, and the refusal only said
+        # a user answer was missing, so two report repairs were spent before the run paused.
+        state, after, changes = self.inputs()
+        after["acceptance_criteria"][0]["sources"] = []
+        with self.assertRaisesRegex(
+            ValueError, r"needs a saved user answer.*still cites every request quote.*Keep"
+        ) as raised:
+            revision_guard(state, after, changes, "glm_revise")
+        self.assertIn(str(self.QUOTE["quote"])[:40], str(raised.exception))
+
+    def test_an_approved_contract_gets_no_citation_hint_because_the_person_decides(self):
+        state, after, changes = self.inputs(approval_status="approved")
+        after["acceptance_criteria"][0]["sources"] = []
+        with self.assertRaises(ValueError) as raised:
+            revision_guard(state, after, changes, "glm_revise")
+        self.assertNotIn("nobody approved", str(raised.exception))
+
+    def test_a_refused_proof_downgrade_says_to_keep_the_named_test(self):
+        # #1630: a revision turned AC6's `test:` proof into the aggregate suite command.
+        state, after, _ = self.inputs()
+        state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = (
+            "test: test_ac2_report_filters"
+        )
+        after["acceptance_criteria"][0]["criterion"] = self.WRONG
+        after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover"
+        with self.assertRaisesRegex(
+            ValueError,
+            r"AC2.*without a user-backed contract change\. AC2's verification_method names a proof.*own criterion",
+        ):
+            revision_guard(state, after, [], "glm_revise")
+
+    def test_a_refusal_with_nothing_to_explain_is_unchanged(self):
+        state, after, _ = self.inputs()
+        after["acceptance_criteria"][0]["human_review"] = True
+        state["goal_contract"]["body"]["acceptance_criteria"][0]["human_review"] = False
+        state["goal_contract"]["approval_event"] = {"kind": "goal_approval"}
+        with self.assertRaises(ValueError) as raised:
+            revision_guard(state, after, [], "glm_revise")
+        self.assertNotIn(". AC2", str(raised.exception).split("contract change", 1)[-1])
+
     def test_a_declared_example_correction_is_not_a_plain_rewording(self):
         # The receipt claims a count correction the example guard does not accept (no blocking concern
         # backs it, and the criterion's text changed beyond the literal): the allowance for a Planner's own

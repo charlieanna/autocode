@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A refused revision of a criterion now says what to change (#1630). Rewording a criterion in a plan nobody approved
+  names the request quotes it dropped, and replacing a `test:`/`guard:` proof with an unmarked command says to keep a
+  named test and put an aggregate run in its own criterion. Both refusals were right, but said only that a user answer
+  was missing, so two live revisions spent two report repairs each and then paused. No refusal is loosened.
 - A Planner that declares a rewording while leaving the protected criterion or list entry unchanged no longer
   creates a human wording-choice question (#1791, #1793). Inconsistent change metadata now follows the existing
   report-repair path. Genuine protected wording changes still require the person's decision.
