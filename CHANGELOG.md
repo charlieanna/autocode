@@ -11,10 +11,6 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
-- Concern-only Plan Reviewers now receive contract-authoring policies as rules to audit,
-  with instructions to report concerns rather than return or edit contract fields their
-  report schema forbids (#1808). Contract-author prompts and the approval/validation gates are unchanged.
-
 - A multi-line bracketed paste into the full-screen terminal chat no longer doubles each line break (#1758). The
   terminal turned the pasted CR of each CRLF into NL before the chat read it; the chat now keeps CR as typed
   (`curses.nonl()`) while it is open and restores the terminal's setting when it closes.
@@ -64,6 +60,10 @@ PR template asks for an entry here; a change without one is incomplete.
   passing-test evidence, and other non-empty files still need preservation.
 
 ## [0.8.2] — 2026-10-21
+
+- Concern-only Plan Reviewers now receive contract-authoring policies as rules to audit,
+  with instructions to report concerns rather than return or edit contract fields their
+  report schema forbids (#1808). Contract-author prompts and the approval/validation gates are unchanged.
 
 ### Added
 
