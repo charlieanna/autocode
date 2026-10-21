@@ -12,9 +12,6 @@
 
 A scenario.toml may also declare a ``[hybrid]`` route (harness/hybrid.py): the stages a hybrid run scripts with
 the fake provider and its fault while every other stage runs live.
-
-A ``program`` scenario (category "program") is driven through ``autocode program`` by harness/program_driver.py
-instead of as one run; its ``[program]`` table holds what the person does along the way (README, "Programs").
 """
 
 from __future__ import annotations
@@ -25,13 +22,10 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .project import overlay_paths
-
 CATALOG = Path(__file__).resolve().parent.parent / "catalog"
 # The kind of engineering job. The first eight change or create code; the next
 # four are read-only jobs whose deliverable is a report (README, "Workflows");
-# a conversation moves one run between several of them, turn by turn; a program
-# splits one request into workstreams, each its own run (README, "Programs").
+# a conversation moves one run between several of them, turn by turn.
 CATEGORIES = (
     "bugfix",
     "feature",
@@ -46,7 +40,6 @@ CATEGORIES = (
     "discuss",
     "investigate",
     "conversation",
-    "program",
     "components",
     "conformance",
 )
@@ -62,7 +55,6 @@ KEYS = {
     "run",
     "turn",
     "hybrid",
-    "program",
     "brief_from",
     "components",
     "setup",
@@ -83,16 +75,10 @@ FAKE_KEYS = {
     "plan_review_call_limit",
 }
 # [fake] acknowledge is served by the single-run driver (harness/driver.py); these categories drive runs otherwise.
-ACKNOWLEDGE_UNSERVED = ("program", "components", "conformance")
+ACKNOWLEDGE_UNSERVED = ("components", "conformance")
 # [hybrid] scripted: stages whose every call the fake provider answers in a hybrid run; first_attempt: stages
 # whose first call it answers (later attempts, such as a repair Builder, are live).
 HYBRID_KEYS = {"scripted", "first_attempt"}
-# [program] max_parallel: `program run --max-parallel`; revise: the person's own edits, merged into the derived
-# manifest before they first approve it (tables merge, anything else replaces); change: [[program.change]] steps.
-PROGRAM_KEYS = {"max_parallel", "revise", "change", "revision"}
-# A change request the person raises once ``after`` ("merged:<workstream>") holds, then decides: reject it with a
-# resolution, or accept it by publishing the interface anew (publish holds the new fields, version included).
-CHANGE_KEYS = {"after", "interface", "by", "reason", "decide", "resolution", "publish"}
 # [conformance] (category "conformance" only): what the person does while a stage runs, at the moment
 # the status view shows it (harness/conformance.py). Each names the stage code name the scripted
 # provider holds and the job name the view shows for it.
@@ -157,12 +143,6 @@ class Scenario:
     # [hybrid]: the stages a hybrid run (run --hybrid) scripts; empty when the scenario declares no route.
     hybrid_scripted: tuple[str, ...] = ()
     hybrid_first_attempt: tuple[str, ...] = ()
-    # [program] (category "program" only): the program run's parallelism, the person's edits to the derived
-    # manifest, and the change requests they raise and decide.
-    program_max_parallel: int = 2
-    program_revise: dict = field(default_factory=dict)
-    program_changes: tuple[dict, ...] = ()
-    program_revisions: tuple[dict, ...] = ()
     components_architecture: str = ""
     # [conformance] (category "conformance" only): the person's own moments, run by harness/conformance.py.
     conformance: dict = field(default_factory=dict)
@@ -316,7 +296,6 @@ def load(scenario_id: str) -> Scenario:
         brief.startswith(say) for say in says
     ):
         raise ValueError(f"{scenario_id}: no turn's message may begin another's or the brief")
-    program = _program(scenario_id, meta, fake, root)
     conformance = _conformance(scenario_id, meta)
     return Scenario(
         id=scenario_id,
@@ -344,10 +323,6 @@ def load(scenario_id: str) -> Scenario:
         fake_acknowledge=acknowledge,
         hybrid_scripted=tuple(hybrid.get("scripted", ())),
         hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
-        program_max_parallel=program.get("max_parallel", 2),
-        program_revise=program.get("revise", {}),
-        program_changes=tuple(program.get("change", ())),
-        program_revisions=tuple(program.get("revision", ())),
         components_architecture=architecture,
         conformance=conformance,
         npm_setup=setup.get("npm", False),
@@ -397,83 +372,6 @@ def _conformance(scenario_id: str, meta: dict) -> dict:
         ):
             raise ValueError(f"{scenario_id}: [conformance] {name} needs nonempty {sorted(required)}")
     return table
-
-
-def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
-    """The validated [program] table ({} for any other category).
-
-    The scripted model plans a program from [fake] milestones and each workstream delivers its milestone's
-    paths, so the paths must be disjoint. A run that changes nothing stops for want of progress, so the
-    reference and every broken overlay must be complete: every milestone path, and a file no milestone owns
-    (the integration workstream's own delivery)."""
-    program = meta.get("program", {})
-    if meta["category"] != "program":
-        if program:
-            raise ValueError(f'{scenario_id}: a [program] table needs category = "program"')
-        return {}
-    unknown = set(program) - PROGRAM_KEYS
-    if unknown:
-        raise ValueError(f"{scenario_id}/scenario.toml: unknown [program] keys {sorted(unknown)}")
-    if type(program.get("max_parallel", 2)) is not int or program.get("max_parallel", 2) < 1:
-        raise ValueError(f"{scenario_id}: [program] max_parallel is a positive integer")
-    if not isinstance(program.get("revise", {}), dict):
-        raise ValueError(f"{scenario_id}: [program] revise is a table merged into the derived manifest")
-    milestones = fake.get("milestones") or []
-    ids = [row.get("id") for row in milestones]
-    owned = [path for row in milestones for path in row.get("paths", [])]
-    if not milestones or len(owned) != len(set(owned)):
-        raise ValueError(f"{scenario_id}: a program scenario needs [fake] milestones whose paths are disjoint")
-    broken = root / "broken"
-    overlays = [root / "reference", *(sorted(broken.iterdir()) if broken.is_dir() else ())]
-    for overlay in (path for path in overlays if path.is_dir()):
-        name, files = overlay.relative_to(root).as_posix(), set(overlay_paths(overlay))
-        missing = sorted(set(owned) - files)
-        if missing:
-            raise ValueError(f"{scenario_id}: {name}/ is not a complete overlay: it lacks milestone paths {missing}")
-        if not files - set(owned):
-            raise ValueError(
-                f"{scenario_id}: {name}/ needs a file no milestone owns, which the integration workstream delivers"
-            )
-    for number, step in enumerate(program.get("change", []), start=1):
-        where = f"{scenario_id}: [[program.change]] {number}"
-        if not isinstance(step, dict) or set(step) - CHANGE_KEYS:
-            raise ValueError(f"{where} takes only {sorted(CHANGE_KEYS)}")
-        after = str(step.get("after", ""))
-        if not after.startswith("merged:") or after.removeprefix("merged:") not in ids:
-            raise ValueError(f'{where}: after is "merged:<milestone id>", one of {ids}')
-        if not all(isinstance(step.get(key), str) and step[key].strip() for key in ("interface", "by", "reason")):
-            raise ValueError(f"{where} needs a nonempty interface, by and reason")
-        if step["by"] not in ids:
-            raise ValueError(f"{where}: by names the workstream that found the problem, one of {ids}")
-        if step.get("decide") == "reject":
-            if not (isinstance(step.get("resolution"), str) and step["resolution"].strip()) or "publish" in step:
-                raise ValueError(f"{where}: a rejection needs a resolution and publishes nothing")
-        elif step.get("decide") == "accept":
-            publish = step.get("publish")
-            if (
-                not isinstance(publish, dict)
-                or type(publish.get("version")) is not int
-                or publish["version"] < 2
-                or "resolution" in step
-            ):
-                raise ValueError(f"{where}: an acceptance publishes the interface anew: publish = {{version = N, ...}}")
-        else:
-            raise ValueError(f'{where}: decide is "accept" or "reject"')
-    for number, step in enumerate(program.get("revision", []), start=1):
-        if (
-            not isinstance(step, dict)
-            or set(step) != {"after", "workstream", "brief"}
-            or not isinstance(step["after"], str)
-            or not step["after"].startswith("merged:")
-            or step["after"].removeprefix("merged:") not in ids
-            or step["workstream"] not in ids
-            or not isinstance(step["brief"], str)
-            or not step["brief"].strip()
-        ):
-            raise ValueError(
-                f"{scenario_id}: [[program.revision]] {number} needs after=merged:ID, workstream=ID and brief"
-            )
-    return program
 
 
 def load_all() -> list[Scenario]:

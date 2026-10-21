@@ -408,8 +408,8 @@ before a PASS is accepted, the runner requires its own current execution of each
   claim: a check that needs a server or other setup starts and stops it itself,
   for example with a script in the repository.
 - **What is refused.** A check that runs `git status` is refused before anything
-  runs: it reads the working tree's state, not the product, and a program re-runs
-  checks after the work is committed and merged, where it lists nothing
+  runs: it reads the working tree's state, not the product, and once the work is
+  committed and merged it lists nothing
   ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)). So a new plan
   that names `git status` is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
@@ -700,19 +700,16 @@ says it was not recorded, a workflow-policy approval says no person made it, and
 approver identity is recorded as given; it also counts any records saved without a recorded
 approver. Because `autocode-issue pr` wraps that `evidence.md` exactly
 ([Issues](issues.md#what-it-does)), the pull request body lists the approvals too. A completed
-program's or components run's report lists its child runs' approvals, each with the child it
-came from, in the same way; the program agreement (`autocode program approve`) records no
-approver and is not among them, and neither are the approvals of a plan run the program was
-derived from ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
+components run's report lists its child runs' approvals, each with the child it came from, in
+the same way ([Canonical completion evidence](task-run.md#canonical-completion-evidence)).
 
 The scenario harness checks this record from outside on each task run a scenario completes,
-including a program's or a components run's own task runs (a program's plan run once its plan
-is approved). It reads `approvals` from that run's final `--status --json`, and each row a
+including a components run's own task runs. It reads `approvals` from that run's final `--status --json`, and each row a
 person made must name the scenario's person, the host and a command of option names only. Each
 plan and review approval the harness gave a run must also be listed among that run's own rows,
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
-In a program or components scenario each such gate names the task run it was given to, so an
-approval listed only in another workstream's run fails
+In a components scenario each such gate names the task run it was given to, so an
+approval listed only in another component's run fails
 ([scenarios/README.md](../scenarios/README.md)).
 
 #### Required approver
@@ -765,11 +762,9 @@ Not covered:
   replay re-applies the recorded run's own plan and review decisions through `TaskRun`, with
   no person approving, and keeps the recording's settings; checking those decisions against
   whoever runs the replay would refuse every replay a listed approver did not run.
-- `autocode program` and `autocode components`. Each child run reads `require-approver` from
-  its own Git worktree, checked out at a commit, so only a committed `.autocode/config.toml`
-  (or `pyproject.toml`) reaches it: an uncommitted change to the file in the project checkout
-  does not. `autocode program approve`, which approves the program's agreement, is never
-  checked.
+- `autocode components`. Each child run reads `require-approver` from its own Git worktree,
+  checked out at a commit, so only a committed `.autocode/config.toml` (or `pyproject.toml`)
+  reaches it: an uncommitted change to the file in the project checkout does not.
 
 ## Timeouts and watchdog
 
@@ -1527,10 +1522,11 @@ task worktrees), `arena` (`autocode arena` attempts and their runs), `builders`
 archives), `conversation-handoffs` (requirements conversation handoffs),
 `conversation-starts` (conversation start markers), `investigation` (bug
 investigation workspaces), `issues` (`autocode issue` worktrees and their runs),
-`programs`, `pull-reviews` (`autocode review-pr` checkouts and their runs),
+`programs` (state an `autocode program` left; that command is archived on the
+`archive/program` branch), `pull-reviews` (`autocode review-pr` checkouts and their runs),
 `registry` (the run registry), `replay` (replay recordings), `task-flows`,
-`verification` (`autocode verify` checkouts and reports) and `worktrees` (task and
-program worktrees). The list is not every place a run can be kept: a run kept
+`verification` (`autocode verify` checkouts and reports) and `worktrees` (task
+worktrees, and any an archived program made). The list is not every place a run can be kept: a run kept
 elsewhere in the workspace (an `--out` or `--arena` directory outside these
 stores, or another `.autocode` directory) is not denied. Each store that exists
 when the launch is prepared is denied. The launch creates none of them: the only

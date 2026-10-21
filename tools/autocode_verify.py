@@ -2278,7 +2278,7 @@ def verify(
     ``preserve_only`` is coverage of behavior the product already implements: the diff may
     be test files alone, and each new test must pass on the base and on the candidate. It
     may also change no test at all, when the tests the cases name already exist; the diff may
-    then be empty (a validation-only re-check of a merged workstream). The suite runs on the
+    then be empty (a validation-only re-check). The suite runs on the
     candidate (_suite_guards).
 
     ``guards`` are the exact test names the plan's guards give. A guard may name a test the

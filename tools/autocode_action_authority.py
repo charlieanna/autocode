@@ -153,7 +153,6 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             args.reject_review,
             args.reconcile_review,
             args.feedback is not None,
-            args.program_guidance is not None,
             args.follow_up is not None,
             args.show_goal,
             args.accept_completion,

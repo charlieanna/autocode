@@ -14,7 +14,6 @@ from unittest.mock import patch
 
 import autocode
 import autocode_args
-import autocode_program
 import autocode_subcommands as commands
 import autocode_unattended as unattended
 
@@ -127,11 +126,10 @@ class CliSurfaceTests(unittest.TestCase):
         self.assertIsNone(unattended.refused(["--run-dir", "saved", "--status"]))
         self.assertIsNone(unattended.refused(["Build it", "--no-chat"]))
 
-    def test_public_inventory_uses_actual_program_dispatch_and_explicit_internal_flags(self):
+    def test_public_inventory_uses_actual_dispatch_and_explicit_internal_flags(self):
         paths = commands.public_command_paths()
         self.assertEqual(len(paths), len(set(paths)))
         self.assertIn((), paths)
-        self.assertEqual(set(autocode_program.COMMANDS), {p[1] for p in paths if len(p) == 2 and p[0] == "program"})
         self.assertEqual(
             set(commands.SUBCOMMANDS) | set(commands.BUILTIN_COMMANDS), {p[0] for p in paths if len(p) == 1}
         )

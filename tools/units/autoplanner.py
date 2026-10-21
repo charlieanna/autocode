@@ -33,7 +33,6 @@ try:
     from .. import autocode_goals as goals
     from .. import autocode_native_test_names as native_test_names
     from .. import autocode_planning_artifacts as artifacts
-    from .. import autocode_program_guidance as program_guidance
     from .. import autocode_progressive_state as progressive
     from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_risk_obligations as risk_obligations
@@ -60,7 +59,6 @@ except ImportError:
     import autocode_goals as goals
     import autocode_native_test_names as native_test_names
     import autocode_planning_artifacts as artifacts
-    import autocode_program_guidance as program_guidance
     import autocode_progressive_state as progressive
     import autocode_requirement_cues as requirement_cues
     import autocode_risk_obligations as risk_obligations
@@ -112,9 +110,6 @@ BUG_DIAGNOSIS_RULE = prompts.get("fragments/autoplanner/bug-diagnosis-rule.md")
 # A follow-up that acts on an earlier review in the same run (autocode_follow_up) is planned
 # from the review's findings; requirements gathering is skipped.
 REVIEW_FINDINGS_RULE = prompts.get("fragments/autoplanner/review-findings-rule.md")
-# A program that rejected a draft for dropping an inherited requirement says what to keep (#866); that
-# guidance is the program's, never a requirement source or a user decision (autocode_program_guidance).
-PROGRAM_GUIDANCE_RULE = prompts.get("fragments/autoplanner/program-guidance-rule.md")
 # Features get the bug-fix proof too: the plan states testable criteria as concrete
 # examples marked "test:", and the runner proves each one at its milestone (autocode_test_cases).
 # A test: criterion must be new behavior: a live parallel-diamond plan made "the contract package is
@@ -1160,9 +1155,6 @@ def context(state: RunState, stage, state_path):
     findings = follow_up.review_findings(state)
     if findings:
         packet["review_findings"] = findings
-    guidance = program_guidance.current(state)
-    if guidance:
-        packet["program_guidance"] = guidance
     if stage == "requirements_gather":
         packet["previous_requirements_handoff"] = state.get("requirements_handoff")
     if stage in ("requirements_gather", "astra_discovery"):
@@ -1224,7 +1216,6 @@ def context(state: RunState, stage, state_path):
         BUG_DIAGNOSIS_RULE if diagnosis else ""
     )
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
-    design_rule += PROGRAM_GUIDANCE_RULE if guidance else ""
     design_rule += task_authority.instruction(test_cases.current_diagnosis(state))
     if turn:
         design_rule += prompts.get("fragments/autoplanner/context-02.md")

@@ -25,7 +25,6 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` | Run a multi-lane task flow file; accepts `--json`. |
 | `autocode components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
-| `autocode program plan\|derive\|show\|approve\|run\|status\|request-change\|resolve-change` | Plan a large requirement, derive a workstream manifest from the approved plan, read and approve that manifest as the program agreement by exact token, run workstreams in parallel worktrees merged onto an integration branch, and raise or reject interface change requests (see [Programs](program.md)). |
 | `autocode dashboard` | Local browser dashboard. |
 | `autocode unattended` | Agent wrapper that refuses operator decisions and reports a stop (see [Unattended callers](#unattended-callers-agents)). |
 | `autocode issue brief\|start\|status\|continue\|plan\|pr` | Read a GitHub issue, work on it through the task-run interface, put the plan waiting for approval in a pull request as a plan file for review (`plan`), and prepare a pull request (see [GitHub issues](issues.md)). |
@@ -44,7 +43,7 @@ controls. Role/model selection is in [Models](models.md); provider setup is in
 | `autocode prune-run RUN [--yes] [--json]` | List, then with `--yes` delete a run's settled evidence bytes: finished verification-copy trees (`tool-containment-*/scratch`) and settled job-source stores (`<attempt>.source/`). Manifests, receipts and hashes are retained, so what was there stays provable; `state.json` is never modified. Anything still named at file level by state, owned by a live stage or a pending failure recovery, or the newest of its kind is kept with the reason shown. |
 | `autocode bundle RUN [--out FILE] [--with-diff] [--json]` | Write one redacted archive of a run for a bug report (default `WORKSPACE/.autocode/bundles/RUN.tar.gz`): the replay recording `replay RUN --export` writes, so a maintainer can [replay](replay.md) it; `state.json`, `activity.jsonl`, the stage reports, the check-replay receipts and the last 200 lines of each provider event stream; the resolved settings, `doctor --json` output and the version. Every file it writes passes the credential redaction exports use, plus the values of secret-named environment variables; a recording that redaction would still change is left out, and the manifest says why. No workspace source unless `--with-diff` adds the run's diff (against its base commit, else the uncommitted work). `manifest.json` lists each file's sha256; cite the printed manifest hash in a bug report or a `docs/bugs/` note instead of pasting logs. The run directory is only read. |
 | `autocode --version` | Print the executing package version and its source commit when known. An installed package without a source checkout reports `commit unknown`; it does not borrow the workspace commit. |
-| `autocode completion bash\|zsh\|fish` | Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (`output read`, `arena run`, `program approve`) and their options, or its argument's choices (`completion bash`). `capture`, `registry`, `intervention` and `dashboard` complete only `--help`. Load it with `source <(autocode completion bash)` (zsh the same, after `compinit`; fish `autocode completion fish \| source`), or save it; see [Shell completion](install.md#shell-completion). |
+| `autocode completion bash\|zsh\|fish` | Print a shell completion script read from the CLI's parsers: the commands, every public option of the main command with its choices, and file names after an option that takes a path. A subcommand completes from the parser it reads: its options, its commands (`output read`, `arena run`) and their options, or its argument's choices (`completion bash`). `capture`, `registry`, `intervention` and `dashboard` complete only `--help`. Load it with `source <(autocode completion bash)` (zsh the same, after `compinit`; fish `autocode completion fish \| source`), or save it; see [Shell completion](install.md#shell-completion). |
 | `autocode models [--provider NAME] [--workspace PATH] [--json] [--prices] [--selection]` | List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check every role's default route. Suggests a replacement for any default you cannot use; exits 1 when one is missing (see [Models](models.md#when-a-model-is-not-in-your-plans)). `--prices` prints the dated price table instead, and the rate each default route is priced at, or "no rate" (never a zero price); it runs nothing and works offline. `--selection` reads the tool's own model and login listings (still no model calls) and prints what automatic selection would choose - the route per role with its price and reasoning level, why every other qualified model lost, and which chosen routes the access check would still probe; exits 1 with the account-terms stop when the connected accounts cannot field an independent checker ([Choosing models automatically](models.md#choosing-models-automatically)). |
 | `autocode doctor [--workspace PATH] [--engine opencode\|codex\|claude] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in), that the workspace is a Git repository with a commit, and the projected run storage (workspace size x its measured ~3x copy growth: worktrees, verification copies, attempt snapshots) against free disk space — a doomed filesystem is a ✖, a tight one a warning with the numbers. Prints the fix for anything missing; exits 1 when not ready. Passes only when the engine a new run uses is ready, resolved as a run resolves it: `--engine codex` is Codex; without `--engine`, the `engine` the project's files set ([Project settings](#project-settings)) counts as that flag; otherwise (no engine, or `--engine opencode`) the provider `AUTOCODE_PROVIDER` or `default_provider` in `~/.config/autocode/config.toml` names, else OpenCode. That provider must answer and list every role's default model (`opencode models`, as `autocode models` checks). `AUTOCODE_PROVIDER=codex` names a provider config, not the Codex engine. A ready Codex alone does not pass; doctor names `--engine codex` as the single-login alternative. `--engine claude`, a project's `engine = "claude"`, or a `claude` default provider, checks Claude Code instead: `claude` on PATH and `claude auth status --json`, run in the agents' environment, reporting a Claude subscription login (`engine:claude`; an API key, Bedrock or Vertex is refused, by the same check a run makes: the agents' environment and the project's `.claude/settings.json`), its conformance row, and its routes; a user `claude.toml` it ignores is a warning. Doctor shows no Claude rows for other runs and never prints the account's email or organization. Lists the settings a new run takes from the project's files ([Project settings](#project-settings)) and fails on a file a run would refuse. When a new run launches built-in OpenCode stages, names the kernel tool boundary they get on this machine (`containment`: macOS Seatbelt or Linux bubblewrap and its version, with OpenCode 1.18.33, by the check run setup makes; `--json` adds it as `containment` with `backend`, `backend_version` and `problem`, or `null` for a Codex, Claude Code or configured-provider run), as a warning that does not fail doctor when such a run would be refused without `--allow-uncontained-tools` ([Execution](execution.md#native-tool-containment)). Runs without psutil and reports it missing. Never reads credentials. |
 | `autocode registry location\|list\|import` | Registry API (see [Registry API](registry-api.md)). |
@@ -165,10 +164,10 @@ as if you had passed `--run-dir RUN`.
 
 | Command | Run it takes |
 | --- | --- |
-| `autocode`, `autocode resume`, `--resume-paused` and its `--retry-*` companions, `--unit` | The only unfinished run. A finished run (`TASK_COMPLETE`, or stopped) is never relaunched this way, and a run that `autocode program` or `autocode tasks` drives is left to that command. |
+| `autocode`, `autocode resume`, `--resume-paused` and its `--retry-*` companions, `--unit` | The only unfinished run. A finished run (`TASK_COMPLETE`, or stopped) is never relaunched this way, and a run that `autocode tasks` drives is left to that command. |
 | `--status`, `--explain`, `--dry-run`, `autocode status`, `autocode explain` | The only unfinished run; with none, the latest finished one. |
-| `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one. |
-| `--follow-up` | The most recently completed run, preferring one no program or task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
+| `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no task flow drives. These save the run, so they never pick a finished one. |
+| `--follow-up` | The most recently completed run, preferring one no task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
 
 ### Keeping authorization tokens out of argv
 
@@ -184,14 +183,13 @@ These options accept `-` to read their paired environment variable:
 | `--expected-goal-token` | `AUTOCODE_EXPECTED_GOAL_TOKEN` |
 | `--expected-recovery-token` | `AUTOCODE_EXPECTED_RECOVERY_TOKEN` |
 | `checkpoint --expected-token` | `AUTOCODE_CHECKPOINT_EXPECTED_TOKEN` |
-| `program approve --token` | `AUTOCODE_PROGRAM_APPROVAL_TOKEN` |
 
 Prefer this on shared machines: Linux exposes `/proc/<pid>/cmdline` to every local user, while
 `/proc/<pid>/environ` is readable only by the owner, and a typed token also lands in shell
 history. The environment variable alone never authorizes anything — the flag must still be
 present. `TaskRun`, dashboard actions and the trial driver pass these tokens through
 each CLI child's environment. Their process arguments and saved command records contain
-`-`. Literal CLI tokens remain supported. The controller always removes all nine
+`-`. Literal CLI tokens remain supported. The controller always removes all eight
 variables before launching a provider or test command, even if named in `AUTOCODE_PASS_ENV`.
 Programmatic command builders require full token option names; abbreviated token
 options are refused before recording or launch.
@@ -224,7 +222,6 @@ not approve a plan or start a model.
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
 | `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
-| `--program-guidance '…' --review-token 'r3:<hash>'` | A program's correction of the exact displayed plan, such as "this plan drops inherited requirement C2" ([Program](program.md)). Saved as the program's guidance, never as your feedback: it is no requirement the next plan must quote, no decision basis, and starts no clarification episode. Returns the run to requirements and requires fresh approval. Refused for a stale token or a plan not awaiting approval. |
 | `--show-goal` | Display the current contract/revision. At the approval stop it also says what approving authorizes and what the token locks, and ends with a summary of the decision (outcome, permissions, criteria and how each is checked, what passing proves), the limits in effect and the exact approve command ([sample](workflow.md#conversation-and-approval)). |
 | `--approve-goal 'r3:<hash>'` | Approve the exact displayed revision. |
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. Refused at an operational pause unless it offers feedback (an exhausted plan-review budget, a validation-only stop). |
@@ -428,7 +425,7 @@ stays at the same stop; an `--as` name never counts. Without it anyone may appro
 sets or overrides it. It guards against an approval under the wrong configured Git identity,
 not against someone who deliberately sets a listed address (Git's environment variables or a
 repository-local `user.email` change what is checked): it is not authentication. A replay
-never takes it, and `autocode program` and `autocode components` child runs read it from their
+never takes it, and `autocode components` child runs read it from their
 own worktree, so only a committed file reaches them
 ([Required approver](execution.md#required-approver)).
 
@@ -503,33 +500,6 @@ sharing, the versioned schema and the two-run behavior.
 | `--tool-output-mode raw\|conservative` | Display mode for AutoCode capture/file-read tools; saved across resume. |
 | `--headroom off\|on` | Off by default; `on` refuses to run until compatibility has been verified. |
 | `--planning-v2` | Opt in to transactional planning artifacts; keeps the existing role models and default planning flow. |
-
-### Programs
-
-| Command or flag | Meaning |
-| --- | --- |
-| `program plan BRIEF --workspace DIR` | Plan the request with the ordinary planning unit (`--unit autoplanner`, in place) and a program preamble. `--engine` and unrecognized flags go to that run. |
-| `program derive --run-dir RUN --output program.json` | Write the manifest from the run's `approved_contract`; refuses unapproved plans. `--workspace` names the plan run's project, `--name` the program; without `--output` it prints the manifest. |
-| `program show MANIFEST --workspace DIR` | Print the program agreement and the exact token (`a<revision>:<digest>`) that approves its pending revision, or the approved revision. Saves nothing. |
-| `program approve MANIFEST --workspace DIR --token TOKEN` | Approve that agreement revision; refuses any other token. No workstream starts before the first approval, and every later revision is approved the same way. |
-| `program run MANIFEST --max-parallel N` | Concurrent workstreams (default 2). |
-| `program run MANIFEST --authorize-deployment` | Allow `deployment` workstreams to start or resume; their runs still need plan approval. Descriptor generation is ordinary `code`. |
-| `program run MANIFEST --retry-workstream ID` | Explicitly retry a failed workstream in its existing worktree/checkpoint, without bypassing child gates. Repeat for multiple failed workstreams. |
-| `program run MANIFEST --check-timeout S` | Seconds each cumulative check may take after a merge (default 900). |
-| `program run MANIFEST --engine codex\|opencode` | Engine for the workstream runs it starts; a workstream's own `engine` wins. |
-| `program run MANIFEST --dry-run` | Validate and preview without creating branches or worktrees. |
-| `program status MANIFEST --workspace DIR` | The same summary as `run`, read from the saved state and each unfinished child's status view, without launching or saving anything. |
-| `program request-change MANIFEST --workspace DIR --interface ID --by WORKSTREAM --reason TEXT [--proposal TEXT]` | Open a change request (`CR-N`) on a shared interface; its producer, its consumers and the final check (for an interface with no producer, every workstream) neither start, resume nor merge while it is open, and the program is not `COMPLETE` while any request is open. |
-| `program resolve-change MANIFEST --workspace DIR --request CR-N --reject --reason TEXT` | Reject an open change request. Accepting one is an approved agreement revision that publishes the interface's next version. |
-
-Every program command except `derive` takes `--workspace` (default: the current
-directory), the root of the project's Git checkout. Unrecognized `program run` flags
-(for example model overrides) are passed through, with `--workflow build`, to every
-workstream run that pass starts; a resumed run keeps its saved settings. `program run`
-exits 0 only when the program is `COMPLETE`.
-
-Program manifests support `code`, `integration`, and `deployment`. UI workstreams are
-deferred until the UI runner supports checkpoint recovery; use `autocode ui` separately.
 
 ### Figma / UI
 
@@ -619,14 +589,6 @@ also accepts `-h` / `--help`.
 | `autocode ui` | `--workspace`, `--run-dir`, `--figma-file`, `--from-plan-run` | Project, new artifact directory, design file and saved accepted UI plan. |
 | `autocode ui` | `--planner-model`, `--astra-model`, `--terra-model`, `--sol-model`, `--astra-reasoning-effort` | Requirements/Planner, Plan Reviewer, Builder and Tester model choices; review reasoning effort. |
 | `autocode ui` | `--max-plan-reworks`, `--max-reworks`, `--dry-run`, `--build`, `--no-chat` | Plan/design rework limits, preview, implementation handoff and noninteractive presentation. |
-| `autocode program` | `--workspace` | Project for program commands; `derive` defaults to its plan run's project. |
-| `autocode program plan` | `--engine` | Engine for the ordinary planning run; additional run flags pass through. |
-| `autocode program derive` | `--run-dir`, `--output`, `--name` | Approved planning run, optional manifest output and program name. |
-| `autocode program approve` | `--token` | Exact displayed agreement token; `-` reads its paired environment variable. |
-| `autocode program run` | `--max-parallel`, `--authorize-deployment`, `--engine`, `--retry-workstream`, `--check-timeout`, `--dry-run` | Parallelism, deployment authorization, child engine, explicit retries, cumulative check deadline and preview; additional run flags pass through. |
-| `autocode program status` | `--max-parallel`, `--authorize-deployment`, `--engine`, `--retry-workstream`, `--check-timeout`, `--dry-run` | Accepted compatibility options; status remains read-only and starts no workstream. |
-| `autocode program request-change` | `--interface`, `--by`, `--reason`, `--proposal` | Interface, requesting workstream, reason and optional proposed change. |
-| `autocode program resolve-change` | `--request`, `--reject`, `--reason` | Reject the named change request with the recorded reason. |
 | `autocode compare-baseline` | `--baseline-root`, `--candidate-root`, `--normalize-dependency-prefixes`, `--output` | Source roots, explicit dependency-prefix normalization and comparison-result output; see [baseline comparison](execution.md#baseline-comparison). |
 | `autocode visual-capture` | `--config`, `--timeout` | Capture configuration and command deadline (120 seconds). |
 | `autocode visual-check` | `--workspace`, `--policy`, `--policy-sha256`, `--output` | Project, source-owned policy and expected hash, and fresh check-output directory. |
@@ -758,7 +720,7 @@ AutoCode's own arguments but refuses every decision or recovery flag (`--answer`
 `--accept-completion`, `--close-finding`, `--close-reason`, `--resolver-response`, …, including
 abbreviations), the command word `resume` (on a paused or blocked run it stands for
 `--resume-paused`; a bare relaunch still continues a run that is not paused)
-and the `intervention`, `tasks`, `ui`, `program`, `registry`, `capture` and `compare-baseline`
+and the `intervention`, `tasks`, `ui`, `registry`, `capture` and `compare-baseline`
 subcommands. It forces `--no-chat` with no stdin, and when AutoCode stops it prints
 `--status` and tells the caller to report and stop. Exit codes are AutoCode's.
 

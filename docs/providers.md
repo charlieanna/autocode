@@ -203,7 +203,7 @@ the runner's environment minus variables that look like credentials: a name word
 such as `TOKEN`, `SECRET`, `PASSWORD`, `KEY` or `AUTH` (`GITHUB_TOKEN`,
 `AWS_SECRET_ACCESS_KEY`, `SSH_AUTH_SOCK`, `OPENAI_API_KEY`), or a URL value with
 an embedded password. Proxy variables and AutoCode's ordinary `AUTOCODE_*` settings are
-kept. The nine [controller token variables](cli.md#keeping-authorization-tokens-out-of-argv)
+kept. The eight [controller token variables](cli.md#keeping-authorization-tokens-out-of-argv)
 are always withheld, including when named in `AUTOCODE_PASS_ENV`. Token counts are kept:
 a `TOKEN` word followed by `MAX`, `LIMIT`, `COUNT` or
 `BUDGET`, or after `MAX`, holding a whole number
@@ -500,7 +500,7 @@ its next stage; resume it with `--accept-transport-change`.
 **Limits.** No kernel tool containment (Claude Code's permission flags and the workspace snapshot
 checks apply); no verified visual evidence; no `--task-preflight`; no hybrid split by stage; no replay
 of recorded Claude runs; no Investigator report adoption; `autocode models` lists nothing for the bare
-ids. `program`, `components` and `verify` take `--provider claude` rather than `--engine claude`;
+ids. `components` and `verify` take `--provider claude` rather than `--engine claude`;
 `tasks` has neither and runs its lanes on Claude Code through `AUTOCODE_PROVIDER=claude`,
 `default_provider = "claude"` or the project's `engine = "claude"`. Claude Code loads `CLAUDE.md` files of the workspace and its ancestors, so keep a
 scenario's `--out` outside this repository. In a root cloud container, prefix runs with

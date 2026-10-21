@@ -695,24 +695,6 @@ class TaskRunTests(unittest.TestCase):
                 self.assertEqual(requirements_ran, "requirements_gather" in stages, stages)
                 self.assertNotIn("astra_finalize", stages, "approved at the first review")
 
-    def test_program_guidance_sends_the_displayed_plan_back_without_becoming_the_users_input(self):
-        # #866: a program's correction of the displayed plan re-plans the run. Saved as user feedback,
-        # its sentences became requirements the next plan had to quote; as the program's, they never are.
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
-        view = run.status()
-        self.assertEqual("approve_plan", view["needs"]["kind"], view)
-        token = view["needs"]["token"]
-        text = "Keep every inherited requirement. Copy their text from the brief; do not weaken or paraphrase it."
-        with self.assertRaisesRegex(taskrun.TaskRunError, "program guidance exited"):
-            run.guide_plan(text, "not-the-displayed-token")
-        self.assertEqual("RUNNING", run.guide_plan(text, token)["status"])
-        with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
-            run.approve_plan(token)  # the corrected plan is no longer the one shown
-        view = run.advance_until_input()
-        self.assertEqual("approve_plan", view["needs"]["kind"], view)
-        self.assertNotEqual(token, view["needs"]["token"])
-        run.approve_plan(view["needs"]["token"])
-
     def test_start_approve_and_complete(self):
         before = self.footprint()
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
@@ -905,11 +887,10 @@ class TaskRunTests(unittest.TestCase):
     def assert_no_project_level_files(self, before, run, view, *, delivered=()):
         """#22: a normal single job creates no project-level files.
 
-        Programs, task flows and component builds coordinate several runs of one project and keep
-        their records at the project level: .autocode/programs (`autocode program`),
-        .autocode/task-flows (`autocode tasks MANIFEST`) and .autocode-components (`autocode
-        components ARCH`), with worktrees on branches of their own (autocode/program-<key>/...,
-        components/<id>-<hex>). A single job adds .autocode, its learned project record, and the
+        Task flows and component builds coordinate several runs of one project and keep their
+        records at the project level: .autocode/task-flows (`autocode tasks MANIFEST`) and
+        .autocode-components (`autocode components ARCH`), with worktrees on branches of their own
+        (components/<id>-<hex>). A single job adds .autocode, its learned project record, and the
         files it ``delivered`` to the project; launched without --in-place, also its task worktree
         and that worktree's branch.
         """

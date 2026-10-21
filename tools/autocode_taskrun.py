@@ -638,17 +638,6 @@ class TaskRun:
     def feedback(self, text: str) -> dict:
         return self._act("feedback", "--feedback", text)
 
-    def guide_plan(self, text: str, token: str) -> dict:
-        """A program's correction of the displayed plan ``token``: saved as the program's, never as user feedback."""
-        return self._act(
-            "program guidance",
-            "--program-guidance",
-            text,
-            "--review-token",
-            "-",
-            secret_env={"AUTOCODE_REVIEW_TOKEN": token},
-        )
-
     def follow_up(self, text: str) -> dict:
         """Say the next thing to a finished run; continue it afterwards."""
         return self._act("follow-up", "--follow-up", text)

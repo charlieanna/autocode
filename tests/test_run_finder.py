@@ -19,7 +19,6 @@ from unittest.mock import patch
 import autocode
 import autocode_args
 import autocode_opencode as opencode
-import autocode_program
 import autocode_run_finder as finder
 import autocode_subcommands
 import autocode_workspaces as w
@@ -92,15 +91,15 @@ class Fixture(unittest.TestCase):
         tree = self.worktree(task)
         return tree, self.run_in(tree, task=task, project_workspace=str(self.project), **extra)
 
-    def owned_by_program(self, tree, run):
-        """Record ``tree`` and ``run`` as a workstream of an ``autocode program``."""
-        state = self.project / ".autocode" / "programs" / f"p{self.hour}" / "state.json"
+    def owned_by_task_flow(self, tree, run):
+        """Record ``tree`` and ``run`` as a lane of an ``autocode tasks`` flow."""
+        state = self.project / ".autocode" / "task-flows" / f"k{self.hour}" / "state.json"
         state.parent.mkdir(parents=True)
         state.write_text(
             json.dumps(
                 {
                     "project_workspace": str(self.project),
-                    "workstreams": {"api": {"workspace": str(tree), "run_dir": str(run)}},
+                    "lanes": {"a": {"workspace": str(tree), "run_dir": str(run)}},
                 }
             )
         )
@@ -268,7 +267,7 @@ class WhereRunsAreFound(Fixture):
             json.dumps({"target": "figma", "workspace": str(self.project), "status": "RUNNING", "task": "Design"})
         )
         self.run_in(self.project / ".autocode" / "archive" / "old-tree")
-        for folder in ("programs/p1", "task-flows/k1"):
+        for folder in ("task-flows/k1",):
             checkpoint = self.project / ".autocode" / folder
             checkpoint.mkdir(parents=True)
             (checkpoint / "state.json").write_text(
@@ -391,10 +390,10 @@ class WhichRunIsChosen(Fixture):
         self.assertIn(f"autocode --run-dir {waiting} --status", message)
         self.assertIn(f'autocode --run-dir {done} --follow-up "TEXT"', message)
 
-    def test_follow_up_prefers_a_run_no_program_drives_even_when_one_completed_later(self):
+    def test_follow_up_prefers_a_run_no_task_flow_drives_even_when_one_completed_later(self):
         mine = self.run_in(self.project, status="TASK_COMPLETE", completed_at="2026-10-04T02:00:00+00:00")
-        tree, program_run = self.worktree_run(status="TASK_COMPLETE", completed_at="2026-10-04T09:00:00+00:00")
-        self.owned_by_program(tree, program_run)
+        tree, lane_run = self.worktree_run(status="TASK_COMPLETE", completed_at="2026-10-04T09:00:00+00:00")
+        self.owned_by_task_flow(tree, lane_run)
         self.assertEqual(mine, finder.choose(self.project, "follow_up").run_dir)
 
     def test_follow_up_without_a_completed_run_points_at_the_unfinished_ones(self):
@@ -403,32 +402,12 @@ class WhichRunIsChosen(Fixture):
         self.assertIn("--follow-up continues a finished run", message)
         self.assertIn(f"autocode --run-dir {run} --status", message)
 
-    def test_program_and_task_flow_runs_are_listed_but_never_advanced_by_a_bare_command(self):
-        program_tree, program_run = self.worktree_run("Program workstream")
-        meta = program_tree / ".autocode" / "task-workspace.json"
+    def test_task_flow_runs_are_listed_but_never_advanced_by_a_bare_command(self):
+        lane_tree, lane_run = self.worktree_run("Lane task")
+        meta = lane_tree / ".autocode" / "task-workspace.json"
         meta.write_text(
             json.dumps({key: value for key, value in json.loads(meta.read_text()).items() if key != "kind"})
         )
-        state = self.project / ".autocode" / "programs" / "p1" / "state.json"
-        state.parent.mkdir(parents=True)
-        state.write_text(
-            json.dumps(
-                {
-                    "project_workspace": str(self.project),
-                    "workstreams": {"api": {"workspace": str(program_tree), "run_dir": str(program_run)}},
-                }
-            )
-        )
-        chosen = finder.choose(self.project, "read")
-        self.assertEqual((program_run, "program"), (chosen.run_dir, chosen.owner))
-        self.assertEqual(program_run, finder.choose(self.project, "act").run_dir)
-        message = self.refused(self.project, "advance")
-        self.assertIn("is driven by `autocode program`; a bare autocode does not advance it", message)
-        self.assertIn("autocode program run MANIFEST", message)
-        self.assertIn(f"autocode --run-dir {program_run} --status", message)
-        self.assertIn("driven by", self.refused(program_tree, "advance"), "also from inside its worktree")
-
-        lane_tree, lane_run = self.worktree_run("Lane task")
         flow = self.project / ".autocode" / "task-flows" / "k1" / "state.json"
         flow.parent.mkdir(parents=True)
         flow.write_text(
@@ -439,58 +418,26 @@ class WhichRunIsChosen(Fixture):
                 }
             )
         )
+        chosen = finder.choose(self.project, "read")
+        self.assertEqual((lane_run, "task flow"), (chosen.run_dir, chosen.owner))
+        self.assertEqual(lane_run, finder.choose(self.project, "act").run_dir)
         message = self.refused(self.project, "advance")
-        self.assertIn("2 unfinished AutoCode runs", message)
-        self.assertIn("driven by `autocode program`", message)
-        self.assertIn("driven by `autocode tasks`", message)
+        self.assertIn("is driven by `autocode tasks`; a bare autocode does not advance it", message)
+        self.assertIn("autocode tasks MANIFEST", message)
+        self.assertIn(f"autocode --run-dir {lane_run} --status", message)
+        self.assertIn("driven by", self.refused(lane_tree, "advance"), "also from inside its worktree")
 
         mine = self.worktree_run("My own task")[1]
         chosen = finder.choose(self.project, "advance")
         self.assertEqual(mine, chosen.run_dir)
-        self.assertEqual("the only unfinished run no program or task flow drives", chosen.reason)
-        self.assertIn("3 unfinished AutoCode runs", self.refused(self.project, "read"))
-
-    def test_a_program_plan_run_is_not_relaunched_in_the_project_checkout(self):
-        self.assertTrue(autocode_program.PLAN_PREAMBLE.startswith(finder.PROGRAM_PLAN_PREFIX))
-        plan = self.run_in(self.project, task=autocode_program.PLAN_PREAMBLE + "Build an order system")
-        (found,) = finder.candidates(self.project)
-        self.assertEqual(("program", True, "Build an order system"), (found.owner, found.program_plan, found.task))
-        message = self.refused(self.project, "advance")
-        self.assertIn(f"autocode --run-dir {plan} --unit autoplanner", message)
-        self.assertIn("autocode program derive", message)
-        self.assertEqual(plan, finder.choose(self.project, "act").run_dir)
-
-    def test_a_listed_program_plan_run_keeps_its_planning_unit(self):
-        plan = self.run_in(self.project, task=autocode_program.PLAN_PREAMBLE + "Build an order system")
-        runs = [self.worktree_run(task)[1] for task in ("One", "Two")]
-        for flags, unit in (("", None), ("--no-chat", None), ("--no-chat", "autocode")):
-            with self.subTest(flags=flags, unit=unit):
-                lines = [line.strip() for line in self.refused(self.project, "advance", flags, unit).splitlines()]
-                own = " ".join(part for part in ("--unit autoplanner", flags) if part)
-                self.assertIn(f"autocode --run-dir {plan} {own}", lines)
-                self.assertNotIn(f"autocode --run-dir {plan} {flags}".strip(), lines, "never a plain relaunch")
-                for run in runs:
-                    expected = " ".join(part for part in (f"--unit {unit}" if unit else "", flags) if part)
-                    self.assertIn(f"autocode --run-dir {run} {expected}".strip(), lines)
-                self.assertTrue(any("derive the program with autocode program derive" in line for line in lines))
-        lines = self.refused(self.project, "read", "--status").splitlines()
-        self.assertIn(f"autocode --run-dir {plan} --status", [line.strip() for line in lines], "reading is safe")
-        for argv in ([], ["--no-chat"], ["resume"]):
-            with self.subTest(argv=argv):
-                message = self.parse_error(*argv)
-                self.assertIn(f"autocode --run-dir {plan} --unit autoplanner", message)
-                self.assertNotIn(f"autocode --run-dir {plan}\n", message)
+        self.assertEqual("the only unfinished run no task flow drives", chosen.reason)
+        self.assertIn("2 unfinished AutoCode runs", self.refused(self.project, "read"))
 
     def test_the_line_after_a_user_action_says_how_to_go_on_with_that_run(self):
-        plan_task = autocode_program.PLAN_PREAMBLE + "Build an order system"
-        plan = self.run_in(self.project, task=plan_task)
-        hint = finder.continue_hint(plan, json.loads((plan / "state.json").read_text()))
-        self.assertIn(f"Continue planning with: autocode --run-dir {plan} --unit autoplanner", hint)
-        self.assertIn(f"autocode program derive --run-dir {plan} --output program.json", hint)
-        tree, program_run = self.worktree_run("Program workstream")
-        self.owned_by_program(tree, program_run)
-        hint = finder.continue_hint(program_run, json.loads((program_run / "state.json").read_text()))
-        self.assertIn("`autocode program` drives it", hint)
+        tree, lane_run = self.worktree_run("Lane task")
+        self.owned_by_task_flow(tree, lane_run)
+        hint = finder.continue_hint(lane_run, json.loads((lane_run / "state.json").read_text()))
+        self.assertIn("`autocode tasks` drives it", hint)
         self.assertNotIn("plain autocode", hint)
         mine = self.worktree_run("Mine")[1]
         state = json.loads((mine / "state.json").read_text())
@@ -748,10 +695,10 @@ class CommandLine(Fixture):
         self.assertFalse(notice.startswith(("autocode:", "Input rejected:", "Run: ")))
 
     def test_each_action_flag_takes_its_own_rule(self):
-        program_tree, program_run = self.worktree_run("Program workstream")
-        state = self.project / ".autocode" / "programs" / "p1" / "state.json"
+        lane_tree, lane_run = self.worktree_run("Lane task")
+        state = self.project / ".autocode" / "task-flows" / "k1" / "state.json"
         state.parent.mkdir(parents=True)
-        state.write_text(json.dumps({"workstreams": {"api": {"workspace": str(program_tree)}}}))
+        state.write_text(json.dumps({"lanes": {"a": {"workspace": str(lane_tree)}}}))
         complete = self.run_in(self.project, status="TASK_COMPLETE")
         for argv in (
             ["--status"],
@@ -766,7 +713,7 @@ class CommandLine(Fixture):
             ["--resolver-response", "leave_paused", "--resolver-request", "R", "--resolver-token", "T"],
         ):
             with self.subTest(argv=argv):
-                self.assertEqual(program_run, self.parse(*argv)[0].run_dir)
+                self.assertEqual(lane_run, self.parse(*argv)[0].run_dir)
         self.assertEqual(complete, self.parse("--follow-up", "Fix them")[0].run_dir)
         for argv in (
             [],
@@ -776,7 +723,7 @@ class CommandLine(Fixture):
             ["--resume-paused", "--retry-failed-stage"],
         ):
             with self.subTest(argv=argv):
-                self.assertIn("driven by `autocode program`", self.parse_error(*argv))
+                self.assertIn("driven by `autocode tasks`", self.parse_error(*argv))
         self.assertIn("Choose one action per invocation", self.parse_error("--status", "--approve-goal", "r1:x"))
 
     def test_only_read_actions_fall_back_to_a_finished_run(self):
@@ -787,8 +734,8 @@ class CommandLine(Fixture):
         for argv in (["--show-goal"], ["--answer", "Q1=x"], ["--migrate-only"]):
             with self.subTest(argv=argv):
                 self.assertIn("No unfinished AutoCode run", self.parse_error(*argv))
-        tree, program_run = self.worktree_run("Program workstream")
-        self.owned_by_program(tree, program_run)
+        tree, lane_run = self.worktree_run("Lane task")
+        self.owned_by_task_flow(tree, lane_run)
         mine = self.worktree_run("Mine")[1]
         for flag in ("--status", "--explain", "--dry-run"):
             with self.subTest(flag=flag):
@@ -1096,15 +1043,6 @@ class InProcessCli(Fixture):
         self.assertEqual(state, (run / "state.json").read_bytes())
         self.assertEqual(before, tree_snapshot(self.project))
         self.assertIn("nothing to resume", self.main()[2], "and a bare autocode still refuses it")
-
-    def test_a_user_action_on_a_program_plan_run_says_to_continue_with_the_planning_unit(self):
-        plan = self.run_in(self.project, task=autocode_program.PLAN_PREAMBLE + "Build an order system")
-        code, out, err = self.main("--show-goal")
-        self.assertEqual(0, code, err)
-        self.assertIn(f"Using the saved run {plan}", err)
-        self.assertIn(f"Continue planning with: autocode --run-dir {plan} --unit autoplanner", out)
-        self.assertIn(f"autocode program derive --run-dir {plan} --output program.json", out)
-        self.assertNotIn("plain autocode", out)
 
     def test_an_ambiguous_bare_command_exits_2_and_changes_nothing(self):
         self.worktree_run("One")

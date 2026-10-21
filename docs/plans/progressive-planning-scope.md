@@ -6,9 +6,11 @@ one feature: #23 says to design it alongside #22. Two versions exist:
 
 - **Single-run progressive planning**, merged in #204: one continuing run delivers the
   product in slices under one approved contract.
-- **The multi-run program agreement**: `autocode program` ([Programs](../program.md)),
-  where each workstream is its own run, on branch `claude/elegant-planck-ynb2dq` (no
-  pull request yet).
+- **The multi-run program agreement**: `autocode program`, where each workstream is
+  its own run. It was merged to master, then moved off it on 2026-10-21 so that master
+  keeps one flow for every task. It is kept, unchanged, on the `archive/program` branch
+  (master at e23e814), including its guide `docs/program.md`. The program files,
+  tests and scenarios this record cites below exist only on that branch.
 
 Neither issue is done. Still owed: #16's done tests, a real project that needs this,
 and a live run that reaches the program code (AGENTS.md: until then a pull request is a

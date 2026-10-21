@@ -17,10 +17,7 @@ TOKEN_ENV_VARS = {
     "expected_recovery_token": "AUTOCODE_EXPECTED_RECOVERY_TOKEN",
 }
 CHECKPOINT_TOKEN_ENV_VARS = {"expected_token": "AUTOCODE_CHECKPOINT_EXPECTED_TOKEN"}
-PROGRAM_TOKEN_ENV_VARS = {"token": "AUTOCODE_PROGRAM_APPROVAL_TOKEN"}
-CONTROL_TOKEN_ENV_VARS = frozenset(
-    (*TOKEN_ENV_VARS.values(), *CHECKPOINT_TOKEN_ENV_VARS.values(), *PROGRAM_TOKEN_ENV_VARS.values())
-)
+CONTROL_TOKEN_ENV_VARS = frozenset((*TOKEN_ENV_VARS.values(), *CHECKPOINT_TOKEN_ENV_VARS.values()))
 
 
 def resolve_placeholders(args, parser, environ: Mapping[str, str], *, fields=TOKEN_ENV_VARS) -> None:
@@ -54,12 +51,8 @@ def private_command(command: Sequence[str], *, argument_offset: int = 0) -> tupl
     """
     result = list(command)
     arguments = result[argument_offset:]
-    if arguments[:2] == ["program", "approve"]:
-        fields = PROGRAM_TOKEN_ENV_VARS
-    elif arguments[:1] == ["checkpoint"]:
+    if arguments[:1] == ["checkpoint"]:
         fields = CHECKPOINT_TOKEN_ENV_VARS
-    elif arguments[:1] == ["program"]:
-        fields = {}
     else:
         fields = TOKEN_ENV_VARS
     flags = {"--" + attribute.replace("_", "-"): variable for attribute, variable in fields.items()}

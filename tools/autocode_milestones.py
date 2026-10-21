@@ -427,7 +427,7 @@ def before_assignment(state: RunState, decision, current, *, visual_proof=None):
         return
     spec = decision["next_task"]
     # A validate task writes nothing: assign_task gives it its milestone's paths, so it may have none
-    # when its milestone owns none, as a program's final check does (#615).
+    # when its milestone owns none, as a final check may (#615).
     if not spec["milestone_id"].strip() or not (decision.get("affected_paths") or spec["kind"] == "validate"):
         raise ValueError(
             "Milestone tasks require a named milestone and explicit affected paths: an implement "

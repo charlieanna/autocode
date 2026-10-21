@@ -247,7 +247,7 @@ class CatalogPlanExportTests(unittest.TestCase):
 
     def round_trip(self, name: str, base: Path) -> str:
         scenario = catalog.load(name)
-        if scenario.category in ("components", "program", "conformance") or not scenario.fake_check:
+        if scenario.category in ("components", "conformance") or not scenario.fake_check:
             return "no plan approval"
         if scenario.fake_live_calls or scenario.missing_tools():
             return "no plan approval"
