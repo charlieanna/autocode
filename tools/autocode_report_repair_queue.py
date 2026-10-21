@@ -24,10 +24,12 @@ try:
     from . import autocode_receipt_repair_context as receipt_repair_context
     from . import autocode_stray_writes as stray_writes
     from . import autocode_util as util
+    from . import autocode_verification_plan as verification_plan
 except ImportError:
     import autocode_receipt_repair_context as receipt_repair_context
     import autocode_stray_writes as stray_writes
     import autocode_util as util
+    import autocode_verification_plan as verification_plan
 
 
 class ReportRepairQueued(Exception):
@@ -51,7 +53,7 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
     """
     eligible = (
         isinstance(error, (ValueError, KeyError, RuntimeError))
-        and not isinstance(error, (util.Paused, stray_writes.StrayWrites))
+        and not isinstance(error, (util.Paused, stray_writes.StrayWrites, verification_plan.PlannedCheckFailure))
         and record.get("exit_code") == 0
         and record.get("source_revision")
         and not record.get("timed_out")
