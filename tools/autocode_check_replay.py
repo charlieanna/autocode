@@ -83,6 +83,7 @@ LifecycleFailure = risk_evidence.LifecycleFailure
 class PlannedCheckFailure(ValueError):
     """An approved plan check failed independent clean replay; a report repair cannot change it."""
 
+
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
 # exiting 1 inside a PASS report, which the runner refuses (parallel-diamond, 2026-09-29).
 VALIDATOR_NOTE = (
@@ -397,11 +398,7 @@ def replay(
             )
             + f"from the repository root in a clean copy of the current source it {what}"
             + (f"; its output ended: {row['tail'].strip()[-300:]}" if row["tail"].strip() else "")
-            + (
-                f". Replay summary: {out / 'replay.json'}. "
-                if planned
-                else f". Receipt: {out / 'replay.json'}. "
-            )
+            + (f". Replay summary: {out / 'replay.json'}. " if planned else f". Receipt: {out / 'replay.json'}. ")
             + (
                 "A Validator report cannot change it: if the command must fail, the plan's author (the Resolver, for "
                 "a repair task) must reword that step. " + verification_plan.EXPECTED_FAILURE_RULE

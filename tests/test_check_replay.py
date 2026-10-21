@@ -127,9 +127,7 @@ class ReplayTests(unittest.TestCase):
         repair_state = {"settings": {"report_repair": {"max_attempts": 2}}}
         valid_record = {"exit_code": 0, "source_revision": "rev1"}
         self.assertFalse(
-            report_repair_queue.queue(
-                repair_state, valid_record, rejected.exception, completed=lambda: True
-            )
+            report_repair_queue.queue(repair_state, valid_record, rejected.exception, completed=lambda: True)
         )
 
         # A failing check the Validator reported keeps its own message.
@@ -145,9 +143,7 @@ class ReplayTests(unittest.TestCase):
         self.assertIn("was reported as exit 0", str(reported.exception))
         self.assertNotIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, str(reported.exception))
         self.assertTrue(
-            report_repair_queue.queue(
-                repair_state, valid_record, reported.exception, completed=lambda: True
-            )
+            report_repair_queue.queue(repair_state, valid_record, reported.exception, completed=lambda: True)
         )
 
     def test_an_unrelated_success_does_not_replace_the_approved_command(self):

@@ -8,6 +8,7 @@ Python uses it to find that environment's site-packages.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import shutil
@@ -96,11 +97,8 @@ def ensure_python_shim(python_path: str) -> str | None:
                     tmp.replace(shim)
                 except OSError:
                     if not shim.exists() and not shim.is_symlink():
-                        try:
+                        with contextlib.suppress(OSError):
                             shim.symlink_to(python_path)
-                        except OSError:
-                            pass
         return str(shim_dir)
     except OSError:
         return None
-

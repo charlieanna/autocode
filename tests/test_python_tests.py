@@ -213,4 +213,3 @@ class UnittestResultParserTests(unittest.TestCase):
             python_which = shutil.which("python", path=env["PATH"])
             self.assertIsNotNone(python_which)
             self.assertEqual(Path(sys.executable).resolve(), Path(python_which).resolve())
-
