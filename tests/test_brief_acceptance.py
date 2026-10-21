@@ -143,6 +143,37 @@ class BriefAcceptanceTests(unittest.TestCase):
         self.proposal = proposal(self.sources)
         self.manifest = brief.bind(self.sources, [self.proposal])
 
+    def test_documented_reviewer_example_compiles_and_rejects_wrong_listing(self):
+        # The stalled live reviewer repeatedly searched for this undocumented format.
+        from autocode_prompts import get
+
+        rule = get("fragments/autoplanner/brief-observation-review-rule.md")
+        examples = [json.loads(line) for line in rule.splitlines() if line.startswith('{"declaration_id"')]
+        self.assertEqual(1, len(examples), "Reviewers need a self-contained valid format example")
+        example = examples[0]
+        example["declaration_id"] = brief.inventory(self.sources)[0]["id"]
+        manifest = brief.bind(self.sources, [example])
+        observation = manifest["observations"][0]
+        for output, expected in (
+            (b"ticket-z buy milk [open]\n", True),
+            (b"ticket-z other item [open]\n", False),
+            (b"ticket-z buy milk open\n", False),
+        ):
+            with self.subTest(output=output):
+                reason = brief.output_reason(
+                    output,
+                    observation["pattern"],
+                    brief.line_pattern(observation),
+                    brief.required_values(observation),
+                    brief.absent_values(observation),
+                    True,
+                    fields=brief.field_patterns(observation),
+                    id_fields=brief.field_patterns(observation, ids=True),
+                    required_ids=brief.id_values(observation, "expect"),
+                    absent_ids=brief.id_values(observation, "absent"),
+                )
+                self.assertEqual(expected, not reason, reason)
+
     def test_exact_original_quote_literal_and_source_hash_bind_inventory(self):
         declaration = brief.inventory(self.sources)[0]
         self.assertEqual("ID TEXT [open|done]", declaration["literal"])

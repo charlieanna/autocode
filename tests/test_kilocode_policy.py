@@ -152,6 +152,88 @@ class NativeKiloPolicyTests(unittest.TestCase):
                 self.assertTrue(requests, result.stdout)
                 self.assertTrue(all(row.get("max_tokens") == expected for row in requests), requests)
 
+    def test_report_recovery_removes_tools_from_actual_native_model_request(self):
+        requests = []
+        report = '{"summary":"Evidence insufficient; return a concern","concerns":[]}'
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_POST(self):
+                requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                for delta, finish in (({"role": "assistant", "content": report}, None), ({}, "stop")):
+                    row = {
+                        "id": "local-review",
+                        "object": "chat.completion.chunk",
+                        "created": 1,
+                        "model": "check",
+                        "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+                    }
+                    self.wfile.write(("data: " + json.dumps(row) + "\n\n").encode())
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        env = self.configured()
+        config = json.loads(env["KILO_CONFIG_CONTENT"])
+        config["provider"]["localfixture"]["options"]["baseURL"] = f"http://127.0.0.1:{server.server_port}/v1"
+        env["KILO_CONFIG_CONTENT"] = json.dumps(config)
+        for recovering in (False, True):
+            with self.subTest(recovering=recovering), patch.dict(os.environ, env, clear=True):
+                requests.clear()
+                argv, child, _, worker = launch.prepare(
+                    engine="opencode",
+                    adapter=self.provider,
+                    role="astra",
+                    route_role="plan_reviewer",
+                    workspace=self.workspace,
+                    run_dir=self.root,
+                    session="old-session",
+                    model="localfixture/check",
+                    effort="medium",
+                    allow_write=False,
+                    planning=True,
+                    report=None,
+                    schema=None,
+                    prompt_file=None,
+                    sandbox="read-only",
+                    transport_args=[],
+                    chatgpt=False,
+                    provider=None,
+                    settings={},
+                    planning_report_recovery=recovering,
+                )
+                result = subprocess.run(
+                    argv,
+                    input="Return the supplied JSON report.",
+                    env=child,
+                    cwd=self.workspace,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertTrue(requests, result.stdout)
+                names = {tool["function"]["name"] for row in requests for tool in row.get("tools", [])}
+                if recovering:
+                    self.assertEqual(set(), names, "Recovery must not advertise exploratory tools")
+                    self.assertIn("all tools disabled", launch.stage_record(worker)["isolation"])
+                    attempted = self.debug(argv, child, "read", {"filePath": str(self.workspace / "fixture.txt")})
+                    self.assertNotEqual(0, attempted.returncode, attempted.stdout)
+                else:
+                    self.assertTrue({"read", "glob", "grep"}.issubset(names), names)
+                self.assertNotIn("--session", argv)
+                self.assertEqual("localfixture/check", worker["model"])
+                self.assertIn(report.replace('"', '\\"'), result.stdout)
+
     def test_planning_blocks_real_write_shell_background_and_preserves_read_denial(self):
         for permissions, read_allowed in (({"*": "allow"}, True), ({"*": "allow", "read": "deny"}, False)):
             argv, child, _ = self.provider.launch(

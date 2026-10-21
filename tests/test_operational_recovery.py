@@ -420,6 +420,37 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.assertIn("do not repeat exploratory tools", prompt)
         self.assertIn("exact final plan still requires human approval", prompt)
 
+    def test_recovery_preserves_full_prior_report_and_reaches_launch_policy(self):
+        evidence = {
+            "summary": "important evidence " * 80,
+            "code_refs": [f"module{i}.py" for i in range(8)],
+            "contract": {"prior": "exact draft"},
+        }
+        self.state["planning"]["reports"]["astra_discovery"]["report"] = copy.deepcopy(evidence)
+        self.state["recovery_context"] = {"stage": "astra_challenge", "next_stage": "astra_challenge"}
+        prompt, _ = planning.context(self.state, "astra_challenge", self.run / "state.json")
+        packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(evidence, packet["planning"]["reports"]["astra_discovery"]["report"])
+        self.assertTrue(packet["resolver_remediation"]["report_only"])
+        with (
+            patch.object(runner.processes, "preflight"),
+            patch.object(runner.provider_launch, "prepare", side_effect=RuntimeError("captured launch")) as prepare,
+            self.assertRaisesRegex(RuntimeError, "captured launch"),
+        ):
+            runner.run_role(
+                role="astra",
+                prompt=prompt,
+                sandbox="read-only",
+                workspace=self.root,
+                run_dir=self.run,
+                state=self.state,
+                schema=self.run / "schema.json",
+                model=self.state["settings"]["roles"]["astra"]["model"],
+                allow_write=False,
+                dry_run=False,
+            )
+        self.assertTrue(prepare.call_args.kwargs["planning_report_recovery"])
+
     def test_saved_grant_cannot_be_rebound_to_changed_route(self):
         self.boundary()
         self.state["settings"]["roles"]["astra"]["model"] = "different"
