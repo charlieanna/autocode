@@ -409,6 +409,47 @@ class GoalTests(unittest.TestCase):
         self.assertNotIn("user_request", self.state)
         self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
 
+    def test_permission_answer_resolves_the_findings_its_published_request_names(self):
+        # #1783: the ids sit on the published request, and no producer writes a
+        # question payload, so the answer must not look only at the question.
+        self.approve()
+        self.state["findings_ledger"] = [
+            {
+                "id": "F-a",
+                "status": "open",
+                "blocking": True,
+                "evidence": "iterations/001/sol-01.json",
+                "finding": "regression proof unverified",
+            },
+            {
+                "id": "F-b",
+                "status": "open",
+                "blocking": True,
+                "evidence": "iterations/001/astra-01.json",
+                "finding": "the base suite has no passing-test evidence",
+            },
+        ]
+        choice = "Accept completion with the regression gate recorded as an agreed limitation"
+        request = {
+            "kind": "permission",
+            "decision_needed": "How should the runner-side regression gate be resolved?",
+            "impact": "The completion review cannot finish while both findings stay open",
+            "options": [choice, "Decline and stay paused"],
+            "proposed_delta": "No contract, product, acceptance-criterion, implementation-scope change.",
+            "finding_ids": ["F-a", "F-b"],
+        }
+        lifecycle.wait_for_user(self.state, copy.deepcopy(request))
+        lifecycle.human.evaluate(self.state)
+        question = self.state["pending_questions"][0]
+        self.assertNotIn("payload", question)
+        g.resolve_permission(self.state, question["id"], choice)
+        cited = "permission_answer:" + question["id"]
+        self.assertEqual(["resolved", "resolved"], [row["status"] for row in self.state["findings_ledger"]])
+        self.assertEqual([cited, cited], [row["resolved_in"] for row in self.state["findings_ledger"]])
+        self.assertTrue(all(choice in row["resolution_evidence"] for row in self.state["findings_ledger"]))
+        self.assertEqual("permission_answer", self.state["answers"][question["id"]]["kind"])
+        self.assertEqual("RUNNING", self.state["status"])
+
     def test_is_operational_response_classifies_permission_and_scoped_blocker_only(self):
         # kind="permission" is always operational, regardless of proposed_delta.
         self.assertTrue(g.is_operational_response({"kind": "permission", "proposed_delta": ""}))

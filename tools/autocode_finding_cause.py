@@ -1,8 +1,8 @@
 """Root-cause identity behind finding resolution inheritance (issue #300).
 
 A finding the user settles in a permission answer naming it (``resolve_named``,
-from a question's ``payload.finding_ids``; no question the runner asks carries
-one today) settles its duplicates: open blocking rows sharing its cause -- the
+from the published request's ``finding_ids``, or a question's
+``payload.finding_ids``) settles its duplicates: open blocking rows sharing its cause -- the
 evidence path where it was seen, the reporter's failure signature, and the
 normalized finding text -- are marked resolved by inheritance from the settled
 row's id, recording which finding's resolution closed them. The identity of a
@@ -117,3 +117,14 @@ def resolve_named(state: RunState, finding_ids, event):
         closed.append(fid)
         closed.extend(inherit_resolution(rows, fid, resolved_in=cited, evidence=evidence, at=at))
     return closed
+
+
+def resolve_answer(state: RunState, request, question, published, event):
+    """Resolve the findings a permission answer names on its published request or legacy question payload.
+
+    No runner question carries a payload (#1783); the request carries the ids.
+    """
+    ids = list((question.get("payload") or {}).get("finding_ids") or [])
+    for source in (request, (published or {}).get("request") or {}):
+        ids += [ident for ident in (source or {}).get("finding_ids") or [] if ident not in ids]
+    return resolve_named(state, ids, event)

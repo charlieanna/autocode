@@ -73,6 +73,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A permission answer now resolves the findings its published request names (#1783). The answer read finding ids
+  only from the question's `payload`, which no runner question ever carries, so a question that named blocking
+  findings closed none of them. It now reads the published request's `finding_ids` as well, which is where the
+  validation-only stop puts them, and still accepts the legacy question payload. The completion gate's
+  preservation requirement for a first project is unchanged (#1783).
 - A spec-first run's `plan` reply to the Requirements review is no longer a source every plan must quote
   (#1630). A Planner draft that cited every sentence of the brief failed the Plan Reviewer's source-trace seal
   for leaving the single word `plan` uncited. The reply stays in the run's source log, and contracts that
