@@ -661,6 +661,7 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             for name, row, routed in (
                 ("quota", {"type": "error", "error": {"message": "subscription usage limit reached"}}, "quota"),
+                ("auth", {"type": "error", "error": {"statusCode": 401}}, "provider_auth"),
                 (
                     "filter",
                     {"type": "turn.failed", "error": {"code": "content_filter", "message": "x"}},

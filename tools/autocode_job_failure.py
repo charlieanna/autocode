@@ -159,7 +159,7 @@ def _reason(runtime, record, error):
             + (f" ({message})" if message else "")
         )
     auth = provider_auth.reason(path)
-    if auth:
+    if auth and getattr(error, "status", None) != "PAUSED_UNCERTAIN_STAGE":
         return "provider_auth", f"{role}: {auth}"
     return "exit", f"{role}: provider exited {record.get('exit_code')} without a terminal report; {error or ''}"
 
