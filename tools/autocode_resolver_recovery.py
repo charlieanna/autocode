@@ -1282,7 +1282,7 @@ def authorize_retry(runner, state: RunState, run_dir, workspace, *, previous_set
     if not held:
         return None
     if any(state.get(key) for key in recovery_limits.UNSETTLED):
-        raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
+        raise ValueError(recovery_limits.UNSETTLED_REFUSAL)
     packet = load_packet(request["recovery_packet"], run_dir)
     revision = _source_revision(state, held.get("stage"), request["recovery_packet"], packet, workspace)
     route_change = retry_route.change(state, previous_settings)
@@ -1304,30 +1304,13 @@ def authorize_retry(runner, state: RunState, run_dir, workspace, *, previous_set
         }
     if not _holds(held.get("binding"), checked, revision) or held.get("scope") != _scope(state):
         raise ValueError("Scoped recovery retry is stale; source, settings or approved scope changed")
-    if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
-        raise ValueError("Scoped recovery retry requires its no-progress hold")
+    # The saved-state admission rule is shared with the status view, which names this retry only
+    # where it holds (#1770). A route change is checked against the request under the old settings.
     public = runner.resolver_human.current({**state, "settings": previous_settings} if route_change else state)
-    if public:
-        entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(public["request_id"], {})
-        if (
-            public.get("scope") != "operational_exhaustion"
-            or entry.get("identity", {}).get("proposal", {}).get("origin", {}).get("pause_status")
-            != "PAUSED_NO_PROGRESS"
-        ):
-            raise ValueError("A different human decision cannot grant a recovery retry")
+    refusal = recovery_limits.scoped_retry_refusal(state, public)
+    if refusal:
+        raise ValueError(refusal)
     pending = cast(dict, state).get(runner.resolver_human.PRIVATE)
-    if pending and (
-        pending.get("scope") != "operational_exhaustion"
-        or pending.get("origin", {}).get("pause_status") != "PAUSED_NO_PROGRESS"
-        or pending.get("origin", {}).get("stage") != state.get("next_stage")
-    ):
-        raise ValueError("A different pending decision cannot grant a recovery retry")
-    if not (public or pending) and (
-        state.get("status") != "PAUSED_NO_PROGRESS"
-        or state.get("pending_questions")
-        or (state.get("user_request") or {}).get("kind") not in (None, "none")
-    ):
-        raise ValueError("A different pending decision cannot grant a recovery retry")
     grant = {
         "actor": "user_cli",
         "at": util.now(),
