@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A read-only stage that compiles Python in the workspace no longer pauses the run as a source edit (#1630).
+  The exclusions AutoCode wrote to the project's `.git/info/exclude` never reached a provider's snapshot
+  repository, which has its own git dir; the runner now names its own excludes file through the provider's
+  environment (`core.excludesFile`), for Kilo as well as OpenCode, and the read-only guard and the exclusions
+  share one predicate. The user's global ignore rules are kept. `docs/bugs/native-snapshot-excludes.md`.
 - Before a chat is open, the full-screen terminal chat's `/new` and Ctrl-T now say `This is a new chat: type what
   you want done.` (#1759). `/new` answered `/new is not available right now` and Ctrl-T `Tabs switch once a chat is
   open`, though the client already had the right reply; `/new` is now offered in the `/` menu there too.

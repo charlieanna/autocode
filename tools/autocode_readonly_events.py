@@ -9,26 +9,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
 try:
+    from . import autocode_agent_env as agent_env
     from . import autocode_opencode_snapshots as native_snapshots
     from . import autocode_review_job as review_job
     from . import autocode_stage_access as stage_access
     from .autocode_util import Paused, digest
 except ImportError:
+    import autocode_agent_env as agent_env
     import autocode_opencode_snapshots as native_snapshots
     import autocode_review_job as review_job
     import autocode_stage_access as stage_access
     from autocode_util import Paused, digest
 
 
+records_native_snapshots = native_snapshots.records_native_snapshots  # the launch site and the guard share it
+
+
 def assert_unchanged_review(record, *, workspace=None):
     """Refuse a read-only native OpenCode report after any recorded source drift."""
     if (
-        record.get("engine") != "opencode"
-        or record.get("output_mode", "opencode_events") != "opencode_events"
+        not records_native_snapshots(record.get("engine"), record.get("output_mode", "opencode_events"))
         or (record.get("role") == "terra" and not record.get("report_only"))
         or (record.get("stage") in stage_access.WRITING_JOBS and not record.get("report_only"))
     ):
@@ -99,12 +104,34 @@ def _protected_paths(record):
         return None
 
 
-def prepare_opencode_snapshots(workspace, *, record=None, env=None):
-    """Keep native Git snapshots aligned with the runner's runtime exclusions.
+def launch_excludes(workspace, engine, adapter, environment=None, *, dry_run=False):
+    """The snapshot excludes environment for a launch, or {} when it records no native snapshots.
+
+    Decided by the same predicate as the guard, from the engine and the adapter's output mode, before the
+    provider environment is built: an isolated launch's base ``environment`` gains the entries in place, so its
+    allowlist (which passes the GIT_CONFIG_* set through whole) carries them; a plain launch merges the returned
+    entries at prepare_opencode_snapshots."""
+    if dry_run or not records_native_snapshots(engine, getattr(adapter, "OUTPUT", "opencode_events")):
+        return {}
+    base = environment if environment is not None else agent_env.scrubbed(os.environ)
+    entries = snapshot_excludes(workspace, base)
+    if environment is not None:
+        environment.update(entries)
+    return entries
+
+
+def prepare_opencode_snapshots(workspace, *, record=None, env=None, excludes=None):
+    """Keep the project's own Git view aligned with the runner's runtime exclusions.
 
     Append only local Git exclusions, preserving existing user rules and source
     files. This runs before provider admission, including for a Git worktree.
+    The provider's snapshot repository does not read this file (it has its own
+    git dir): snapshot_excludes supplies what that repository reads.
     """
+    if record is not None and not records_native_snapshots(
+        record.get("engine"), record.get("output_mode", "opencode_events")
+    ):
+        return  # Codex and report_file tools record no native snapshots; nothing to align.
     # Written only here, before provider admission; the native-tree reader uses
     # this stage-record metadata on immediate parsing and saved-report recovery.
     if record is not None and record.get("stage") == review_job.STAGE and not record.get("report_only"):
@@ -118,11 +145,7 @@ def prepare_opencode_snapshots(workspace, *, record=None, env=None):
         ).strip()
         path = Path(name)
         existing = path.read_text(errors="surrogateescape") if path.is_file() else ""
-        missing = [
-            rule
-            for rule in ("/.autocode/", "/.autocode-ui/", "__pycache__/", "*.pyc")
-            if rule not in existing.splitlines()
-        ]
+        missing = [rule for rule in native_snapshots.EXCLUDES if rule not in existing.splitlines()]
         if missing:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", errors="surrogateescape") as sink:
@@ -132,3 +155,49 @@ def prepare_opencode_snapshots(workspace, *, record=None, env=None):
             "PAUSED_OPENCODE_SNAPSHOT",
             "Cannot align native OpenCode snapshots with runtime exclusions; no provider was launched",
         ) from error
+    if excludes and env is not None:
+        env.update(excludes)  # the entries launch_excludes computed for this launch (#1630)
+
+
+def _global_ignore(workspace, env):
+    """The user's global ignore file as git would find it in ``env``: core.excludesFile, else the XDG default."""
+    try:
+        configured = subprocess.run(
+            ["git", "config", "--get", "core.excludesFile"],
+            cwd=workspace,
+            env={key: env[key] for key in ("PATH", "HOME", "XDG_CONFIG_HOME") if key in env},
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        configured = ""
+    home = Path(env.get("HOME") or Path.home())
+    config = env.get("XDG_CONFIG_HOME")
+    candidates = [Path(configured).expanduser()] if configured else []
+    candidates.append((Path(config) if config else home / ".config") / "git" / "ignore")
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def snapshot_excludes(workspace, env):
+    """Write the excludes file a provider's snapshot repository reads, and return the environment that names it.
+
+    The snapshot repository is a separate git dir with core.worktree set, so it never reads the project's
+    info/exclude written above; until now a read-only stage that compiled Python in the workspace changed its own
+    snapshot and was paused as a source edit (#1630). core.excludesFile replaces git's default global ignore, so
+    the user's rules come first. The file lives under .autocode, which ignores itself.
+    """
+    directory = Path(workspace).resolve() / ".autocode"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "snapshot-excludes"
+    lines = []
+    user_rules = _global_ignore(workspace, env)
+    if user_rules is not None:
+        lines += user_rules.read_text(errors="surrogateescape").splitlines()
+    lines += [rule for rule in native_snapshots.EXCLUDES if rule not in lines]
+    content = "".join(line + "\n" for line in lines)
+    if not path.is_file() or path.read_text(errors="surrogateescape") != content:
+        staging = path.with_name(path.name + ".tmp")
+        staging.write_text(content, errors="surrogateescape")
+        staging.replace(path)
+    return native_snapshots.excludes_env(path, env)

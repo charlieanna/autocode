@@ -2,6 +2,8 @@
 
 import importlib
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -266,6 +268,124 @@ class SnapshotIgnoreTests(unittest.TestCase):
         ):
             with self.assertRaises(support.Paused):
                 self.prepare()
+
+    def snapshot_repository(self):
+        """A provider's snapshot repository: its own git dir, core.worktree on the project (autocode_opencode_snapshots)."""
+        snap = self.root.parent / (self.root.name + "-snapshot")
+        subprocess.run(["git", "init", "-q", "--bare", str(snap)], check=True)
+        subprocess.run(["git", f"--git-dir={snap}", "config", "core.bare", "false"], check=True)
+        subprocess.run(["git", f"--git-dir={snap}", "config", "core.worktree", str(self.root)], check=True)
+        self.addCleanup(shutil.rmtree, snap, True)
+        return snap
+
+    def ignored(self, snap, path, env=None):
+        base = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.root / "home")}
+        result = subprocess.run(
+            ["git", f"--git-dir={snap}", "check-ignore", "-q", path], cwd=self.root, env={**base, **(env or {})}
+        )
+        return result.returncode == 0
+
+    def test_the_snapshot_repository_reads_the_runner_excludes_only_through_the_environment(self):
+        # #1630: a Kilo Investigator ran unittest in the workspace; the bytecode it left changed Kilo's
+        # snapshot and the read-only guard paused the run. The project's info/exclude never reached that repository.
+        for path in ("pkg/__pycache__/a.cpython-314.pyc", "pkg/a.pyc", ".autocode/evidence/x.json", "pkg/a.py"):
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text("x")
+        self.prepare()
+        snap = self.snapshot_repository()
+        self.assertFalse(self.ignored(snap, "pkg/__pycache__/a.cpython-314.pyc"), "info/exclude is the project's")
+        policy = importlib.import_module("autocode_readonly_events")
+        env = policy.snapshot_excludes(self.root, {"HOME": str(self.root / "home")})
+        self.assertEqual(
+            {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.excludesFile"},
+            {key: value for key, value in env.items() if key != "GIT_CONFIG_VALUE_0"},
+        )
+        self.assertEqual(str(self.root.resolve() / ".autocode/snapshot-excludes"), env["GIT_CONFIG_VALUE_0"])
+        for path in ("pkg/__pycache__/a.cpython-314.pyc", "pkg/a.pyc", ".autocode/evidence/x.json"):
+            with self.subTest(path=path):
+                self.assertTrue(self.ignored(snap, path, env))
+        self.assertFalse(self.ignored(snap, "pkg/a.py", env))
+
+    def test_the_users_global_ignore_rules_come_first_and_the_file_is_stable(self):
+        home = self.root / "home"
+        (home / ".config/git").mkdir(parents=True)
+        (home / ".config/git/ignore").write_text("*.log\n")
+        policy = importlib.import_module("autocode_readonly_events")
+        env = policy.snapshot_excludes(self.root, {"HOME": str(home)})
+        path = Path(env["GIT_CONFIG_VALUE_0"])
+        self.assertEqual(
+            ["*.log", "/.autocode/", "/.autocode-ui/", "__pycache__/", "*.pyc"], path.read_text().splitlines()
+        )
+        snap = self.snapshot_repository()
+        (self.root / "debug.log").write_text("x")
+        self.assertTrue(self.ignored(snap, "debug.log", env))
+        before = path.stat().st_mtime_ns
+        self.assertEqual(env, policy.snapshot_excludes(self.root, {"HOME": str(home)}))
+        self.assertEqual(before, path.stat().st_mtime_ns, "an unchanged file is not rewritten")
+
+    def test_excludes_env_appends_to_a_git_config_set_the_environment_keeps(self):
+        policy = importlib.import_module("autocode_readonly_events")
+        kept = {
+            "GIT_CONFIG_COUNT": "2",
+            "GIT_CONFIG_KEY_0": "credential.interactive",
+            "GIT_CONFIG_VALUE_0": "false",
+            "GIT_CONFIG_KEY_1": "core.excludesFile",
+            "GIT_CONFIG_VALUE_1": "/elsewhere/ignore",
+        }
+        env = policy.snapshot_excludes(self.root, {**kept, "HOME": str(self.root / "home")})
+        self.assertEqual(
+            {"GIT_CONFIG_COUNT": "3", "GIT_CONFIG_KEY_2": "core.excludesFile"},
+            {k: env[k] for k in ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_2")},
+        )
+        snapshots = importlib.import_module("autocode_opencode_snapshots")
+        self.assertEqual(
+            {**kept, **env}, snapshots.git_config_env({**kept, **env, "HOME": "x", "GIT_CONFIG_KEY_9": "stray"})
+        )
+        self.assertEqual({}, snapshots.git_config_env({"GIT_CONFIG_KEY_0": "orphan", "GIT_CONFIG_COUNT": "zero"}))
+
+    def test_one_predicate_decides_the_guard_and_the_exclusions(self):
+        snapshots = importlib.import_module("autocode_opencode_snapshots")
+        policy = importlib.import_module("autocode_readonly_events")
+        self.assertIs(policy.records_native_snapshots, snapshots.records_native_snapshots)
+        self.assertTrue(snapshots.records_native_snapshots("opencode", "opencode_events"))  # OpenCode, Kilo
+        self.assertTrue(snapshots.records_native_snapshots("opencode", None))  # a record saved before output_mode
+        self.assertFalse(snapshots.records_native_snapshots("opencode", "report_file"))
+        self.assertFalse(snapshots.records_native_snapshots("codex", "codex_events"))
+        self.assertFalse(snapshots.records_native_snapshots(None, "opencode_events"))
+
+    def test_launch_excludes_follows_the_predicate_and_fills_an_isolated_environment(self):
+        policy = importlib.import_module("autocode_readonly_events")
+
+        class Adapter:
+            def __init__(self, output):
+                self.OUTPUT = output
+
+        home = {"HOME": str(self.root / "home")}
+        self.assertEqual({}, policy.launch_excludes(self.root, "codex", Adapter("codex_events"), dict(home)))
+        self.assertEqual({}, policy.launch_excludes(self.root, "opencode", Adapter("report_file"), dict(home)))
+        self.assertEqual(
+            {}, policy.launch_excludes(self.root, "opencode", Adapter("opencode_events"), None, dry_run=True)
+        )
+        isolated = dict(home)
+        entries = policy.launch_excludes(self.root, "opencode", Adapter("opencode_events"), isolated)
+        self.assertEqual("core.excludesFile", entries["GIT_CONFIG_KEY_0"])
+        self.assertEqual({**home, **entries}, isolated, "an isolated launch's base environment gains the entries")
+        self.assertTrue(Path(entries["GIT_CONFIG_VALUE_0"]).is_file())
+
+    def test_prepare_aligns_a_kilo_record_and_leaves_a_report_file_tool_alone(self):
+        policy = importlib.import_module("autocode_readonly_events")
+        kilo = {"engine": "opencode", "output_mode": "opencode_events", "stage": "investigate_bug", "command": ["kilo"]}
+        env = {"HOME": str(self.root / "home")}
+        excludes = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.excludesFile", "GIT_CONFIG_VALUE_0": "/x"}
+        policy.prepare_opencode_snapshots(self.root, record=kilo, env=env, excludes=excludes)
+        self.assertIn("__pycache__/", self.excludes.read_text().splitlines())
+        self.assertEqual("/x", env["GIT_CONFIG_VALUE_0"])
+        self.excludes.unlink()
+        env = {"HOME": str(self.root / "home")}
+        tool = {**kilo, "output_mode": "report_file"}
+        policy.prepare_opencode_snapshots(self.root, record=tool, env=env, excludes=excludes)
+        self.assertFalse(self.excludes.exists())
+        self.assertNotIn("GIT_CONFIG_COUNT", env)
 
     def test_prepares_a_linked_git_worktree(self):
         subprocess.run(
