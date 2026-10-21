@@ -295,6 +295,16 @@ set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`
 default_provider = "kilocode"
 ```
 
+A Kilo provider needs the Kilo CLI on PATH. On Linux, install the pinned release;
+a launch there refuses any other version, because its restricted read-only and
+planning stages need that release's kernel shell. macOS has no kernel shell, so its
+checkers use Kilo's own shell with edits denied and any Kilo release launches:
+
+```sh
+npm install -g @kilocode/cli@7.8.3
+kilo auth list
+```
+
 A saved run keeps the provider it started with, and `--engine codex` runs still
 use Codex. `autocode doctor` then checks the default provider instead of OpenCode.
 `AUTOCODE_PROVIDER=codex` does not select the Codex engine: it names a provider config

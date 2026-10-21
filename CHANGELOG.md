@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat's startup run picker now lists runs as `/runs` does (#1754): by their request's title instead
+  of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
+  run in both. A finished run in between leaves a gap (`Pick one (1, 3), …`).
+
 - A read-only stage that compiles Python in the workspace no longer pauses the run as a source edit (#1630).
   The exclusions AutoCode wrote to the project's `.git/info/exclude` never reached a provider's snapshot
   repository, which has its own git dir; the runner now names its own excludes file through the provider's
@@ -30,6 +34,12 @@ PR template asks for an entry here; a change without one is incomplete.
   `default_provider` (#1756). The banner named the default connection by its id, `/engine` marked OpenCode current
   and `/connect` marked nothing. All three now read one rule (`autocode_chat_setup.backend`): the banner shows the
   connection's label, `/connect` marks it, and `/engine` says new chats use that connection.
+
+- A Linux `kilocode` launch now refuses a Kilo other than the qualified 7.8.3 before any spend (#1739). Restricted
+  read-only and planning stages already refused another release, but only when containment ran, after the run had
+  started; the version is now checked at the same point a launch would reach the model. macOS keeps any Kilo release:
+  it has no kernel shell, so its checkers use Kilo's own read tools and shell with edits denied (#1766), and a pin
+  there only refused a newer install for no benefit.
 
 - Switching tabs in the terminal chat (`/tab`, Ctrl-←/→) no longer draws the chat switched to as working when it is
   waiting for the person or done (#1757). The tab kept no state until its status was read again; it now keeps the

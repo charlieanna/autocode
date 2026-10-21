@@ -12,12 +12,36 @@ from unittest.mock import patch
 
 import autocode_output_cap as output_cap
 import autocode_provider_launch as launch
+from providers import kilocode
 from providers import kilocode_policy as policy
 
 from tests import test_kilo_progress as progress_tests
 
 
 class KiloPolicyTests(unittest.TestCase):
+    def test_the_qualified_kilo_release_is_the_only_one_a_linux_launch_accepts(self):
+        for version in ("7.8.3", "7.8.3-issue1063-source"):
+            with self.subTest(version=version):
+                kilocode.check_version(version, platform="linux")
+        for version in ("7.8.12", "7.8.2", "kilo 7.8.3", "", None):
+            with (
+                self.subTest(version=version),
+                self.assertRaisesRegex(RuntimeError, "no provider request was launched"),
+            ):
+                kilocode.check_version(version, platform="linux")
+
+    def test_macos_keeps_any_kilo_because_its_checkers_use_kilos_own_shell(self):
+        kilocode.check_version("7.8.12", platform="darwin")
+
+    def test_a_launch_settings_read_refuses_an_unqualified_kilo_on_linux(self):
+        provider = kilocode.load("kilocode")
+        with (
+            patch.object(kilocode.command.CommandProvider, "local_settings", return_value={"version": "7.8.12"}),
+            patch.object(kilocode.sys, "platform", "linux"),
+            self.assertRaisesRegex(RuntimeError, "requires Kilo 7.8.3 \\(found 7.8.12\\)"),
+        ):
+            provider.local_settings()
+
     def test_intersection_preserves_ordered_operator_denies_and_blocks_unknown_tools(self):
         rules = [
             {"permission": "*", "pattern": "*", "action": "allow"},
