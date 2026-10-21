@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A multi-line bracketed paste into the full-screen terminal chat no longer doubles each line break (#1758). The
+  terminal turned the pasted CR of each CRLF into NL before the chat read it; the chat now keeps CR as typed
+  (`curses.nonl()`) while it is open and restores the terminal's setting when it closes.
+
 - Before a chat is open, the full-screen terminal chat's `/new` and Ctrl-T now say `This is a new chat: type what
   you want done.` (#1759). `/new` answered `/new is not available right now` and Ctrl-T `Tabs switch once a chat is
   open`, though the client already had the right reply; `/new` is now offered in the `/` menu there too.
