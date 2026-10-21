@@ -10,16 +10,29 @@ from pathlib import Path
 
 try:
     from . import autocode_capped_output as capped
+    from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_output_filter as filters
     from . import autocode_output_store as store
     from .autocode_output import representation
     from .autocode_util import atomic_json
 except ImportError:
     import autocode_capped_output as capped
+    import autocode_investigation_workspace as investigation_workspace
     import autocode_output_filter as filters
     import autocode_output_store as store
     from autocode_output import representation
     from autocode_util import atomic_json
+
+
+def evidence_roots(cwd: Path) -> list[Path]:
+    """Where a receipt may be written: this directory's .autocode, and its project's own.
+
+    The Investigator works in a scratch copy inside the project's .autocode, while its
+    instructions place receipts under the project workspace. Refusing that path cost
+    repeated model turns (#1630), so the owning project's .autocode is accepted there.
+    """
+    owner = investigation_workspace.owning_runner_dir(cwd)
+    return [cwd / ".autocode", *([owner] if owner else [])]
 
 
 def cli(argv=None, *, formatter=filters.compact_output):
@@ -50,7 +63,7 @@ def cli(argv=None, *, formatter=filters.compact_output):
         ):
             parser.error("invalid runner capture context")
     path = args.output.resolve()
-    if not path.is_relative_to(Path.cwd().resolve() / ".autocode"):
+    if not any(path.is_relative_to(root) for root in evidence_roots(Path.cwd().resolve())):
         parser.error("evidence output must be under this project's .autocode directory")
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = path.with_suffix(".log")

@@ -22,6 +22,15 @@ def scratch_root(workspace):
     return root
 
 
+def owning_runner_dir(path):
+    """The workspace .autocode whose investigation scratch copy contains path, or None."""
+    path = Path(path)
+    for copy in (path, *path.parents):
+        if (copy.parent.parent.name, copy.parent.name) == (".autocode", "investigation"):
+            return copy.parent.parent
+    return None
+
+
 def ignored_entries(workspace, directory, names, *, reuse_virtualenvs=False, inventory=None):
     """Exclude metadata and reject links that could expose state or the original source."""
     workspace = Path(workspace).resolve()

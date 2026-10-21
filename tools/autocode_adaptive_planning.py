@@ -90,6 +90,8 @@ RERUN_RULE = prompts.get("fragments/adaptive-planning/rerun-rule.md")
 FEEDBACK_TRACE_RULE = prompts.get("fragments/adaptive-planning/feedback-trace-rule.md")
 
 FEEDBACK_REVIEW_RULE = prompts.get("fragments/adaptive-planning/feedback-review-rule.md")
+# A review approved the draft, but the runner could not install it (autoplanner.after_challenge, #1630).
+APPROVAL_REFUSED_RULE = prompts.get("fragments/adaptive-planning/approval-refused-rule.md")
 FEEDBACK = "revises_plan"
 
 
@@ -168,7 +170,8 @@ def prompt_rule(state: RunState, stage: str) -> str:
             + (RERUN_RULE if can_rerun(state) else "")
         )
     if stage == "glm_revise":
-        return PLANNER_RULE + (FEEDBACK_TRACE_RULE if feedback else "")
+        refused = ((state.get("planning") or {}).get("adaptive") or {}).get("approval_refused")
+        return PLANNER_RULE + (FEEDBACK_TRACE_RULE if feedback else "") + (APPROVAL_REFUSED_RULE if refused else "")
     if stage == "astra_challenge":
         return REVIEW_RULE + (FEEDBACK_REVIEW_RULE if feedback else "")
     if stage == "astra_finalize":

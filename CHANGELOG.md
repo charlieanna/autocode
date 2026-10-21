@@ -69,6 +69,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- An adaptive plan the Plan Reviewer approved, but the runner could not install (for example a brief sentence no
+  criterion cites), now goes back to the Planner to revise, as outside adaptive planning, with the reason in
+  `planning.adaptive.approval_refused` (#1630). The review used to be rejected as invalid output; report repair
+  cannot change the Planner's contract, so the run paused with no plan. Successful adaptive reviews retain
+  their report in the current planning record so the runner can publish the plan for approval. `autocode capture`
+  run from the Investigator's scratch copy also accepts the project's own `.autocode/evidence/...` path its instructions name,
+  instead of refusing it and costing model turns.
 - A Planner revision that rewords its own unapproved criterion and the way that criterion is verified, backed by
   a saved user answer, is accepted (#1764). The #1691 allowance for the Planner's own wording also swallowed the
   declared change, so the guard refused a correction you had already authorized and the next repair put the
