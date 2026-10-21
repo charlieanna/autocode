@@ -289,17 +289,12 @@ the progressive testing plan.
 The driver also registers the [task-type scenarios](scenarios.md) (bug fix,
 feature, architecture, multi-service program, design-reference UI). Their oracles
 have offline positive and targeted negative controls in `tests/test_scenario_oracles.py`; `--score-only PATH` scores a
-workspace delivered by any route, and `--mode program` drives a scenario through
-[`autocode program`](program.md). Every task-type baseline is `NOT_RUN` until a live
+workspace delivered by any route. Each scenario runs as one task run; `PROGRAM-01` asks one
+run to build the whole multi-service system. Every task-type baseline is `NOT_RUN` until a live
 result is recorded.
 
-In program mode, `--i-authorize-live-model-spend` authorizes model calls only.
-`--authorize-deployment` is a separate opt-in for deployment workstreams and is never
-added automatically. `PROGRAM-01` needs no deployment authorization: generating its
-descriptors is ordinary code work, and no deployment is performed.
-
 `--timeout` is a single wall-clock budget shared by all CLI invocations in the
-runner-driving phase, including program child gates. Independent oracle scoring and
+runner-driving phase. Independent oracle scoring and
 bounded process cleanup are separate. On deadline the harness stops the CLI and its
 provider descendants, then records `ERROR` and scores whatever was delivered; it
 does not rewrite a still-`RUNNING` checkpoint into a successful or paused run.

@@ -111,9 +111,6 @@ STATUS_WRITERS = frozenset(
         "autocode_planning_clarification",
         "autocode_planning_cycle",
         "autocode_preflight_unittest",
-        "autocode_program",
-        "autocode_program_children",
-        "autocode_program_guidance",
         "autocode_recovery_inputs",
         "autocode_recovery_progress",
         "autocode_repair_handoff",
@@ -379,14 +376,10 @@ def _atomic_state_json_lines(source: str) -> list[int]:
 
 
 def direct_state_json_writers() -> set[str]:
-    """Modules that write a literal state.json with atomic_json instead of the status owner.
-
-    autocode_program's state.json is the cross-run program document, not run
-    state, so it is named here rather than routed through autocode_status.
-    """
+    """Modules that write a literal state.json with atomic_json instead of the status owner."""
     writers = set()
     for name, path in source_modules().items():
-        if name in ("autocode_status", "autocode_program"):
+        if name == "autocode_status":
             continue
         if _atomic_state_json_lines(path.read_text(encoding="utf-8")):
             writers.add(name)

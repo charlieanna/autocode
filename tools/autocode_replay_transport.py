@@ -364,7 +364,7 @@ def fixture_stream():
                     raise recording.RecordingError("Fixture report is not runner-owned")
                 relative = path.relative_to(root)
                 parts = relative.parts
-                # Serial, worker and program task runs share stage_base's suffix.
+                # Serial and worker task runs share stage_base's suffix.
                 # Accept only the existing nested iteration/report layout, never
                 # arbitrary JSON below a fixture's runner storage.
                 if (

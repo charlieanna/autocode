@@ -106,11 +106,11 @@ Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
 every oracle check, CLI calls, answers given on the user's behalf, each with its
 `source` (`person` for a scenario's own `[fake] answers`, `proposed_default`,
 `approval`), the gates the harness passed for the person (`approvals`: the plan,
-each human-review criterion, more planning review calls, a program agreement,
+each human-review criterion, more planning review calls,
 and `auto_approve` for each call of a components run launched with
 `--auto-approve`, inside which the product answers its own gates, and
-`acknowledge` for a budget pause the scenario's person continued; in a program
-or components scenario, each gate given to one of its task runs also names that
+`acknowledge` for a budget pause the scenario's person continued; in a
+components scenario, each gate given to one of its task runs also names that
 run's `run_dir`), wall time,
 stages with a per-stage count and time breakdown, report-repair rounds, model
 time and tokens, `cost` (the final status view's `cost` block, #721: estimated,
@@ -124,13 +124,11 @@ plan the harness exported before approving it, below), and the delivered
 
 Besides the scenario's own oracle, three checks use AutoCode's public commands and
 status, and each appears in `checks`. `canonical evidence: RUN` authenticates the `evidence.json`
-and `evidence.md` pair of each task run that completed, and of a program or
-components run that completed as a whole. `approval provenance: RUN` (#722) reads
+and `evidence.md` pair of each task run that completed, and of a components
+run that completed as a whole. `approval provenance: RUN` (#722) reads
 `approvals` in the final `--status --json` view of each task run that completed:
-the scenario's one run, each completed workstream run of a program and its plan
-run once the plan is approved (the program is derived from that plan and never
-relaunches the run, so it does not complete), or a components run's architecture
-run and each completed component. A program or components run as a whole has no
+the scenario's one run, or a components run's architecture run and each
+completed component. A components run as a whole has no
 `approvals` of its own and gets no such check. It requires:
 
 - each row a person made to name the scenario's person, `Scenario Person
@@ -145,11 +143,11 @@ run and each completed component. A program or components run as a whole has no
   alike) to be listed among that run's own rows: a plan row with the plan's
   token and a review row with the criterion. Each budget pause the scenario's
   person acknowledged (`[fake] acknowledge`) must be listed too, as a `resume`
-  row whose `pause_status` names that pause. The task runs of a program or
+  row whose `pause_status` names that pause. The task runs of a
   components scenario share one `approvals` list, so there each gate the harness
   gave one of them also names that run's `run_dir`, and it is matched to that
-  run's rows only: a plan approval listed only in another workstream's run fails,
-  as `approval provenance: T` with `the harness approved plan r2:..., which no
+  run's rows only: a plan approval listed only in another component's run fails,
+  as `approval provenance: web` with `the harness approved plan r2:..., which no
   plan row lists`. The `auto_approve` rows of a components run name no run: under
   `--auto-approve` the product approves its components itself, so they are
   checked for provenance only. A passing check ends by naming the gates it
@@ -158,8 +156,7 @@ run and each completed component. A program or components run as a whole has no
 
 `plan round trip` (#720) checks that a plan file reproduces its plan's goal hash
 ([Reviewing a plan in a pull request](../docs/workflow.md#reviewing-a-plan-in-a-pull-request)).
-At each plan approval a run reaches (the scenario's one run, a program's plan run
-and each workstream run, a components run's architecture run, and the
+At each plan approval a run reaches (the scenario's one run, a components run's architecture run, and the
 [conformance](#conformance) client's run alike), the harness first exports the
 plan with `autocode plan --export plan-files/NN.md --json`, then reads the file
 back with `autocode plan --check FILE --json`. That is the reader
@@ -185,10 +182,10 @@ them, but the time budget bounds them. A run that reaches no plan approval gets 
 such check.
 
 Like any oracle check, a failed one makes the verdict `FALSE_COMPLETE` when
-AutoCode reported the scenario complete (for a program or components scenario,
-the whole program or components run). When it stopped instead, as a program can
-after a workstream run completed, the failure keeps the verdict from `PASS`: it
-is `HONEST_BLOCKER`.
+AutoCode reported the scenario complete (for a components scenario, the whole
+components run). When it stopped instead, as a components run can after one of
+its task runs completed, the failure keeps the verdict from `PASS`: it is
+`HONEST_BLOCKER`.
 
 Each completed scenario and plain-agent baseline also starts with a
 `failure_attribution` record: empty `evidence_refs`, and `null` for
@@ -712,176 +709,6 @@ is not materialized, listed or copied, and the solution's
 `review/design-review.json` is the report the runner wrote in a fake run, for
 `check`. `design-review-with-answers` is the example.
 
-## Programs
-
-A request too large for one run is a program (issues #22 and #23, `autocode
-program`, docs/program.md): one approved plan becomes an agreement, each
-milestone a workstream run in its own Git worktree, merged onto one integration
-branch. A scenario with `category = "program"` is driven that way by
-`harness/program_driver.py`, through the CLI only:
-
-1. `autocode program plan BRIEF --workspace PROJECT FLAGS` starts an ordinary
-   planning run (`--unit autoplanner`). The driver answers its questions and
-   approves its plan, then stops: the approved plan run is never relaunched.
-2. `program derive --run-dir RUN --output program.json --name ID` writes the
-   manifest. `[program] revise` is laid over it: the person's own edit before
-   approving (tables merge, anything else replaces), such as an interface with
-   a producer and consumers, or the journeys' names.
-3. `program show` prints the agreement (saved as `agreement.txt`), and `program
-   approve --token TOKEN` approves the exact token it displayed.
-4. `program run program.json --workspace PROJECT --max-parallel N FLAGS`, again
-   and again. Every pass carries the full child flags: they configure only the
-   workstream runs that pass starts. After each pass the driver approves a new
-   agreement revision (by the token `program show` displays, once), raises a
-   `[[program.change]]` request whose `after = "merged:<id>"` has come, decides
-   it once the program holds for it, and serves each waiting workstream's gate
-   from that run's own status view: plan approval, a question with its proposed
-   default, human review, planning budget. A pass whose rows still have a run at
-   `RUNNING` (the program's own feedback reached it) is followed by another; a
-   pass that changes nothing twice is an `ERROR`.
-
-The driver never relaunches, resumes or follows up a workstream's run (the
-program advances each run once per pass), never answers a question only a
-person may answer, never authorizes deployment and never retries a failed
-workstream: the program is judged where it stopped. Under a live profile it
-still approves the agreement and every workstream's plan, as the single-run
-driver approves the plans it is shown; `tools/live_trial.py`, by contrast,
-stops a live program for a person at the agreement and at every plan, and stops
-any program at its first program-level `PAUSED_*` status, without rerunning it
-or serving a child's gate.
-
-**Workstream ids.** `[program] revise` and `[[program.change]]` name
-workstreams by their `[fake] milestones` ids, which the scripted planner keeps.
-A live planner names its milestones itself, so after `program derive` the
-driver maps each id the scenario names to the derived workstream whose `owns`
-cover every path of that milestone the brief names (the store's producer is
-whoever owns `notes/store.py`). A path only the reference solution has, such
-as its `notes/cli.py` dispatcher, cannot rule a live plan out. Of several such
-workstreams, the one owning the most of the milestone's paths stands for it,
-then the most specific owner. The driver renames the interface producers and
-consumers, `by` and `after = "merged:<id>"` accordingly (`result.json`
-`program.workstream_ids`). When the live plan's split does not line up with
-the scenario's (those paths owned by no single workstream, a tie, or two
-milestones landing on one workstream), the driver stops before approving
-anything and the run is `ERROR`.
-
-```toml
-[program]
-max_parallel = 2                               # program run --max-parallel (default 2)
-
-[program.revise.shared]                        # merged into the derived manifest before the first approval
-interfaces = [{ id = "store", summary = "...", paths = ["notes/store.py"], version = 1, producer = "S", consumers = ["T", "U"] }]
-
-[[program.change]]                             # optional, repeatable
-after = "merged:S"                             # raised once workstream S has merged
-interface = "store"
-by = "T"                                       # the workstream that found the problem
-reason = "..."
-decide = "accept"                              # publish the interface anew; the driver approves that revision
-publish = { version = 2, summary = "..." }     # or decide = "reject" with resolution = "..." (resolve-change --reject)
-```
-
-**Where the product lives.** The program merges onto its integration branch,
-never the project's own branch, so the oracle judges the integration worktree
-(`result.json` `product`); in `check` mode it gets the seed with an overlay, as
-always. `oracle.changed_since_seed` compares a worktree with the seed commit,
-since `git status` is clean where the product was committed.
-`oracle.program_checks(run, scenario)` judges how the program went from the
-run record: the program holding, approved and with nothing pending, the
-agreement revision whose token the person was last shown, every workstream a
-merged run with its own approved plan, the walking skeleton verified first and
-nothing else started before that, every merge re-running the checks of all
-merged before it (a workstream with a run retired since the last passing
-verification, by an accepted change say, takes its checks out of that set until
-it merges again), each journey verified by the integration workstream and named
-in the program's `final_check` with the name `[program] revise` gives it (else
-derive's `J1 Main user journey`), and each scripted change request accepted or
-rejected. For an acceptance, the
-producer and every consumer are merged under the latest agreement revision;
-each of them whose first run started before the change was accepted has a run
-retired since then, and no other workstream has a run retired after it. The run
-record holds the program's final summary (`program status`), its verifications,
-every workstream run (retired ones too) with its stages, the plan run in a
-single run's shape (`plan`), the agreement tokens, interfaces and changes, the
-scenario's workstream ids mapped to the derived ones, and every model stage of
-the plan and workstream runs, which `[run] requires_stages` counts.
-
-**Verdicts.** `COMPLETE` is judged like a completed run (`PASS` or
-`FALSE_COMPLETE`); `PAUSED_*` stops (an integration check, the skeleton
-unverified, a conflict, ownership, an interface change, inheritance, a journey
-unverified) and the program-only stops `WAITING`, `WAITING_AGREEMENT_APPROVAL`,
-`WAITING_CHANGE_REQUEST` and `AUTHORIZATION_REQUIRED` are `HONEST_BLOCKER`;
-`BLOCKED` (a workstream run failed) and `RUNNING` are `ERROR`. A program that
-did not complete names each unmerged workstream's status and its run's status
-and progress. A program that passes without raising a scripted change request
-(its moment never came) is `NOT_EXERCISED`. Any other verdict stands, with the
-request that was never raised added to its summary: a regression that stops the
-program before the skeleton merges is still a failure. Single runs are judged
-as before (`verdict.judge_program` is used for programs only). `compare`,
-`build-compare` and `--hybrid` skip program scenarios.
-
-**The scripted model.** Child runs inherit the fake on `PATH`. The fake reads a
-workstream's brief (`PROGRAM WORKSTREAM <id> (<kind>)`, and the ids on its
-`Inherited requirements` line) and plans that workstream alone: a code
-workstream its own `[fake] milestones` row with no dependencies, under the ids
-it inherits; the integration workstream every requirement and journey it
-inherits, verified by `[fake] check`, delivering the solution files no milestone
-owns. A code workstream whose files already match the solution (a re-check after
-an agreement revision) plans a validate-only task, and marks its criteria
-`guard:` with a test the workstream already has, as a live Planner did, so the
-runner's regression proof runs on an unchanged source. An implementation re-check may
-also leave source unchanged when exact accepted-source snapshots and approval/check
-receipts match. It still invokes a fresh Builder and independent review: previous
-acceptance is candidate provenance, never completion credit. `program-adaptive-learning`
-scripts this implementation re-check path after an approved revision.
-The integration workstream marks each inherited id `guard:` as its brief asks, naming a
-merged workstream's test (or its own journey test) when the solution has one, else the
-scenario check, so its proof runs against the integration head and matches guards in files
-it leaves alone.
-The fake remembers each worktree's workstream beside its configuration, never
-in the worktree, for report repairs, whose packets carry no task.
-`tests/test_program.py` (`ScenarioFakeBriefTests`) runs the fake on real
-`compose_brief` output, so a brief reworded out from under it fails there.
-`catalog.load` requires a program scenario's milestone paths to be disjoint,
-and its reference and every `broken/<name>/` to be a complete overlay: every
-milestone path, and a file no milestone owns (the integration workstream's
-delivery). A run that changes nothing stops for want of progress. The program
-ignores Python bytecode caches when it checks a workstream's paths. Keep the seed to a
-README.md: the first workstream's regression proof treats only a README-only project as
-new, so a scaffold (a `.gitignore`, an empty `tests/__init__.py`) stops the walking
-skeleton (docs/bugs/2026-10-06-regression-proof-scaffold-base.md).
-
-```sh
-$PY scenarios/run.py run program-notes-cli --fake
-$PY scenarios/run.py run program-notes-cli --fake --fake-solution broken/search-shadows-list   # expected HONEST_BLOCKER
-$PY scenarios/run.py run program-notes-cli --fake --fake-solution broken/case-sensitive-search # expected FALSE_COMPLETE
-```
-
-A fake program run takes about 30 s and some 20 CLI calls (plan, derive, show,
-approve, about eight `program run` passes, a change request, a revision and a
-plan approval per workstream run), roughly four times a typical fake scenario.
-A live run spends about one run per workstream run, the plan included.
-
-## Adaptive learning
-
-`program-adaptive-learning` exercises a walking skeleton, learning-engine and backend
-workstreams, exact shared hint-rule inheritance, an accepted interface change and
-an unchanged-source implementation re-check. Its named journey is read -> hint ->
-answer -> progress -> next. Hint-assisted correctness earns one point without
-mastery; independent correctness earns two and advances the lesson. Reading again
-must not clear a pending hint. The oracle checks SQLite outcomes across a writer
-process exit and a separate reader process, not merely reopening an in-memory object.
-These simulated outcomes do not prove that real students learn better.
-
-```sh
-$PY scenarios/run.py run program-adaptive-learning --fake
-$PY examples/adaptive-learning/run.py
-$PY examples/adaptive-learning/run.py --database .scenario-runs/learning-progress.sqlite
-```
-
-The examples run the catalog reference implementations, not AutoCode or a live
-qualification. None of these commands or catalog entries asserts a current pass.
-
 ## Components and local Compose
 
 `category = "components"` drives an architecture run, commits its design in the
@@ -1060,8 +887,6 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `review-then-fix` | conversation | Review `pr-184.patch`, then "Fix them." in the same run: the PR lands with both regressions fixed and a test that catches each (the oracle swaps back one unfixed file at a time), the advisory finding is left alone, and the fix turn asks no requirements questions. |
 | `design-review-with-answers` | conversation | Issue #185: a design review asks which ordering consumers need, and each reply revises the same review in the same run. Before any answer ordering is a question, not a blocker; after "Ordering is per-domain." it is blocking (a transfer moves a domain to another registry, splitting its events across `registry_id` partitions); after "Per-registry is fine." that concern is resolved under the same id. The migration gap stays blocking, the unowned DLQ is advisory, nothing is renumbered or invented, and each turn runs only the Architect and changes only the review. The oracle reads the report's `revisions` trail and each turn's kept report. |
 | `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then an explicit design request settling caller-configurable TTL (3600-second default), injectable clock, expiry at elapsed time >= TTL including equality, no stale fallback and propagated upstream errors, then exactly "Build it.". The design writes only `docs/design/`; the build writes only `app/` and `tests/`, preserving the decision note, approved design and root README. Socket-free fixtures use controlled `urllib.request.urlopen` responses and pipes/file barriers, not loopback servers or socket-backed managers. The build checks the approved design first (`check_design`); the oracle judges its prescribed public modules/signatures, strict clock boundary and cross-process shared cache. The design and build turns each have their plan approved. |
-| `program-notes-cli` | program | Issues #22 and #23 through `autocode program`: plan, derive, show, approve, run. Each workstream is an ordinary build run in its own worktree, linked to the agreement. The walking skeleton S (add and list) is merged and verified first; search (T) and export (U) run in parallel, each merge re-running the cumulative checks; the integration workstream delivers the journey test and verifies the journey `capture-and-find` by name. Once S merges, T raises a change request on the store interface; the person publishes version 2 and approves that revision, so S, T and U lose their approval and are planned, approved and checked again (S's re-check only validates). `broken/search-shadows-list` breaks the skeleton's journey and is undone by the cumulative checks (`PAUSED_INTEGRATION_CHECK`); `broken/case-sensitive-search` completes and only the hidden journey test catches it. See [Programs](#programs). |
-| `program-adaptive-learning` | program | Differential hint-assisted versus independent correctness in engine and SQLite backend, cross-process persistence, sticky hints, named simulated journeys, interface reapproval and unchanged-source implementation re-check with fresh review. Does not establish real learning efficacy. See [Adaptive learning](#adaptive-learning). |
 | `local-compose-two-services` | components | Architecture -> independent component TaskRuns -> integration -> local runtime smoke, with an independent fresh-key HTTP oracle and cleanup. Fake transport is the default for `--fake`; real Docker is explicit `--local-docker`. See [Components and local Compose](#components-and-local-compose). |
 | `conformance-lifecycle` | conformance | Issue #1012: a headless client completes a whole run taking only the actions the status view names, through Plan Reviewer findings and a revision, approval, a failed Tester check and its rework, Ctrl-C during the rework and resume, feedback at the next safe boundary, completion and a follow-up question. See [Conformance](#conformance). |
 
@@ -1183,8 +1008,6 @@ catalog/<id>/
                           the run completes, since a follow-up continues only a finished run)
                     [fake] turn_paths = [["docs/"], ["app/"]] (a conversation: which solution paths each
                           turn delivers, the brief first; one list per turn)
-                    [program] max_parallel, revise, [[program.change]] (category "program" only: driven
-                          through `autocode program`; see "Programs")
   reference/.fake-turns/<turn>/<stage>.json
                     a conversation's scripted report for one stage in one turn (0 = the brief);
                     never part of the project

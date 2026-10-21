@@ -34,6 +34,14 @@ autocode-issue pr #812 --open                  # push the branch and open a draf
 `start` and `status` print `WT`, `RUN` and `TOKEN` for you, with every command
 filled in.
 
+**In a terminal, `start` and `continue` open the run's chat** (`autocode chat
+--workspace WT --run-dir RUN`) whenever the run needs you: answer its questions,
+give plan feedback and approve the plan there, as in any other chat. Leave the
+chat and the commands above still work. `--no-chat` keeps them alone (a script or
+CI), and `--chat` asks for the chat even when the output is not a terminal. The
+run also appears among the project's own chats (`autocode runs`, the terminal
+chat's `/runs`), under its worktree.
+
 - **ISSUE** can be a URL, `OWNER/REPO#N`, or `#N` for the repository behind
   `--remote` (default `origin`).
 - **AutoCode options** go after `--` on `start`. That covers the engine, the

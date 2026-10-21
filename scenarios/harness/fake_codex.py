@@ -21,10 +21,6 @@ A hybrid run (harness/hybrid.py) runs it through a config-registered tool instea
 as ``codex``; AutoCode's prompt then asks for capture receipts, and the fake runs its
 check through the handoff's capture_command and cites the receipt (receipt_mode).
 
-In a program (scenarios/README.md, "Programs") every workstream is a run whose task is
-the program's workstream brief. The fake reads that brief as a model would and plans the
-workstream alone (``workstream``): a code workstream its own milestone, an integration
-workstream every requirement and journey it inherits, each under the inherited ids.
 Citation stages may set ``task`` to ``see source_inventory id …`` (#1337); the fake
 resolves that pointer before parsing the brief.
 """
@@ -60,15 +56,6 @@ RENEWED_OUTCOME = "Retain durable lesson answers and expose a browsable lesson c
 SCOPED_NOTE = "# Scoped consent: lesson note"
 SCOPED_DENIAL = "No. Do not add the optional note anywhere. Deliver the original goal using the offline fallback."
 SCOPED_CONDITION = "Yes, append only '# Scoped consent: lesson note' to lessons.py. Do not add this note to progress.py or any other file."
-# The program's workstream brief (autocode_program.compose_brief): its first line, and the line naming the
-# requirement ids the workstream's plan must keep. tests/test_program.py checks the fake still reads them.
-WORKSTREAM_HEADER = re.compile(r"PROGRAM WORKSTREAM (\S+) \((\w+)\) of program ")
-INHERITED = re.compile(
-    r"^Inherited requirements: keep each as an acceptance criterion of your plan with exactly "
-    r"this id \(([^)]*)\)",
-    re.M,
-)
-WORKSTREAM: dict | None = None  # the program workstream this call serves (workstream()), set in main()
 # Citation-stage handoffs keep the full brief once in source_inventory (#1337); task is a pointer.
 INVENTORY_TASK = re.compile(r"^see source_inventory id (\S+)$")
 SCOPED_REQUEST = {
@@ -154,61 +141,8 @@ def permission_changes() -> list[dict]:
     ]
 
 
-def workstream() -> dict | None:
-    """The program workstream this call serves, {id, kind, inherited, task}, or None outside a program.
-
-    A report repair's packet has no task: it serves the workstream last seen in this worktree. That is
-    kept beside the configuration, never in the worktree (the program would count it as a delivered
-    file), one file per worktree because parallel workstreams call the fake at the same time."""
-    seen = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name(
-        "fake-workstream-" + hashlib.sha256(str(Path.cwd()).encode()).hexdigest()[:12] + ".json"
-    )
-    task = resolved_task()
-    if not task:
-        return json.loads(seen.read_text()) if seen.is_file() else None
-    head = WORKSTREAM_HEADER.match(task)
-    if not head:
-        return None
-    inherited = INHERITED.search(task)
-    row = {
-        "id": head.group(1),
-        "kind": head.group(2),
-        "task": task,
-        "inherited": [cid.strip() for cid in inherited.group(1).split(",") if cid.strip()] if inherited else [],
-    }
-    seen.write_text(json.dumps(row))
-    return row
-
-
-def conforms(path: str) -> bool:
-    """Whether the worktree already holds the solution's version of ``path``."""
-    here = Path.cwd() / path
-    return here.is_file() and here.read_bytes() == (Path(CONFIG["reference"]) / path).read_bytes()
-
-
-def workstream_scope(row: dict) -> tuple[list[dict], str, list[str]]:
-    """(milestones, check, paths) for one workstream: a code workstream plans only its own [fake] milestones
-    row, with no dependencies (the program merged them first) and the ids it inherits as its criteria, and
-    only validates when its files already match the solution (a re-check, milestone_task); the integration
-    workstream delivers the solution files no workstream merged, verified by the scenario's check, so a
-    program scenario's solution needs one (catalog.load)."""
-    if row["kind"] != "code":
-        return [], CONFIG["check"], [path for path in ALL_PATHS if not conforms(path)]
-    own = next((item for item in CONFIG.get("milestones") or [] if item["id"] == row["id"]), None)
-    if own is None:
-        raise SystemExit(f"fake_codex: program workstream {row['id']} has no [fake] milestones row")
-    return (
-        [{**own, "depends_on": [], "criteria": row["inherited"] or [criterion_id(own["id"])]}],
-        own["verify"],
-        list(own["paths"]),
-    )
-
-
 def request() -> str:
-    """The request this turn serves: the brief, or the newest follow-up without the earlier turns it quotes.
-    A program workstream's request is its own brief."""
-    if WORKSTREAM:
-        return WORKSTREAM["task"]
+    """The request this turn serves: the brief, or the newest follow-up without the earlier turns it quotes."""
     task = resolved_task()
     if not CONFIG.get("turns") or not task:
         return CONFIG["brief"]
@@ -598,17 +532,14 @@ def milestone_row(milestone_id: str) -> dict:
 
 
 def criterion_ids(milestone_id: str) -> list[str]:
-    """The criteria a milestone's plan names: C_<id>, or the ids a program workstream inherits."""
-    return list(milestone_row(milestone_id).get("criteria") or [criterion_id(milestone_id)])
+    """The criteria a milestone's plan names: C_<id>."""
+    return [criterion_id(milestone_id)]
 
 
 def milestone_task(milestone_id: str) -> dict:
     row = milestone_row(milestone_id)
-    # A program workstream re-checked after an agreement revision may find its files already right.
-    rechecked = WORKSTREAM is not None and all(conforms(path) for path in row["paths"])
-    forced = CONFIG.get("fault") == "program_recheck_implement" and WORKSTREAM and WORKSTREAM["id"] == "S"
     return {
-        "kind": "validate" if rechecked and not forced else "implement",
+        "kind": "implement",
         "milestone_id": milestone_id,
         "objective": row["objective"],
         "affected_paths": list(row["paths"]),
@@ -666,35 +597,6 @@ def edit_acceptance_tests_once() -> None:
     for rel in PATHS:
         if Path(rel).name.startswith("test_") and rel.endswith(".py") and (Path.cwd() / rel).is_file():
             (Path.cwd() / rel).write_text("import unittest\n")
-
-
-def first_test(paths: list[str]) -> str | None:
-    """The first test function in the solution's version of the Python test files among ``paths``."""
-    for path in paths:
-        source = Path(CONFIG["reference"]) / path
-        if Path(path).name.startswith("test_") and path.endswith(".py") and source.is_file():
-            found = re.search(r"^\s+def (test_\w+)\(", source.read_text(), re.M)
-            if found:
-                return found.group(1)
-    return None
-
-
-def verification_method(row: dict) -> str:
-    """A milestone's check; a re-checked workstream whose files already conform guards its criteria with a
-    test it already has, as a live Planner marked a skeleton's re-check (2026-10-06), so the runner's
-    regression proof runs on an unchanged source."""
-    test = first_test(row["paths"]) if WORKSTREAM and all(conforms(path) for path in row["paths"]) else None
-    return "guard: " + test if test else row["verify"]
-
-
-def integration_method(cid: str) -> str:
-    """The final check's mark for an inherited id, as its brief asks: the merged product already delivers it,
-    so it is a guard naming a test a merged workstream has (C_<id>), or the journey test the final check adds
-    without changing the product; the runner's regression proof then runs against the integration head."""
-    rows = {criterion_id(row["id"]): row for row in CONFIG.get("milestones") or []}
-    owned = [path for path in ALL_PATHS if not any(path in row["paths"] for row in rows.values())]
-    test = first_test(rows[cid]["paths"] if cid in rows else owned)
-    return "guard: " + test if test else CHECK
 
 
 def done_milestones(data: dict) -> set:
@@ -819,7 +721,7 @@ def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
 
     event_id = "check-" + (
         uuid.uuid5(uuid.NAMESPACE_URL, command).hex[:24]
-        if PROGRESSIVE or WORKSTREAM
+        if PROGRESSIVE
         else re.sub(r"[^a-z0-9]+", "-", command.lower()).strip("-")[:24]
     )
     proc = subprocess.run(shlex.split(command), cwd=Path.cwd(), capture_output=True, text=True, timeout=600)
@@ -916,30 +818,6 @@ def scripted_fault(name: str) -> dict:
     return runpy.run_path(str(scenario_dir().parents[1] / "harness" / name))
 
 
-def inherit_program(body):
-    """Script a Planner quoting the exact inherited definitions, not a weaker same-id substitute."""
-    task = WORKSTREAM["task"]
-    criteria = {}
-    for cid, text in re.findall(r"^- ([A-Za-z0-9._-]+): (.+)$", task, re.M):
-        if cid in WORKSTREAM["inherited"]:
-            human = "human_review: true" in text
-            text = re.sub(r"\s+\((?:verify:|human_review:).*$", "", text)
-            criteria[cid] = {"criterion": text, "human_review": human}
-    for row in body["acceptance_criteria"]:
-        if row["id"] in criteria:
-            row.update(criteria[row["id"]])
-    found = re.search(r"Approved parent contract .*?\n```json\n(.*?)\n```", task, re.S)
-    parent = json.loads(found.group(1)) if found else {}
-    for key, label in (("constraints", "Shared constraints"), ("permission_boundaries", "Permission boundaries")):
-        found = re.search(re.escape(label) + r":\n((?:- .*\n)+)", task)
-        shared = [line[2:] for line in found.group(1).splitlines()] if found else []
-        body[key] = list(dict.fromkeys(body[key] + list(parent.get(key) or []) + shared))
-    body["scope_exclusions"] = list(
-        dict.fromkeys(body["scope_exclusions"] + list(parent.get("scope_exclusions") or []))
-    )
-    return body
-
-
 def cite_sources(body: dict) -> dict:
     """Trace every criterion to the run's human sources, quoting each whole (#595),
     as the runner's source-trace gate requires of a real Planner."""
@@ -967,7 +845,7 @@ def contract(final: bool = False) -> dict:
             body.pop(field, None)
         if final:
             body["initial_task"] = progressive_task()
-        return cite_sources(inherit_program(body) if WORKSTREAM else body)
+        return cite_sources(body)
     body = {
         "intended_outcome": outcome(),
         "intended_user": "The person who made the request",
@@ -1024,7 +902,7 @@ def contract(final: bool = False) -> dict:
             {
                 "id": cid,
                 "criterion": row["objective"],
-                "verification_method": verification_method(row),
+                "verification_method": row["verify"],
                 "human_review": False,
             }
             for row in MILESTONES
@@ -1050,7 +928,7 @@ def contract(final: bool = False) -> dict:
                     "validation_plan",
                 )
             }
-        return cite_sources(inherit_program(body) if WORKSTREAM else body)
+        return cite_sources(body)
     if CONFIG.get("criteria"):
         # A draft the runner corrected (a spec-first case it saw already pass, now guard:) keeps that label,
         # as a Planner revising the current draft would.
@@ -1087,20 +965,6 @@ def contract(final: bool = False) -> dict:
         rows = scripted_fault(FAULT_PROVIDERS[CONFIG["fault"]])["criteria"](scenario_dir() / "reference")
         body["acceptance_criteria"] = rows
         body["milestones"][0]["acceptance_criteria"] = [row["id"] for row in rows]
-    if WORKSTREAM and WORKSTREAM["kind"] != "code":
-        # The integration workstream keeps every requirement and journey it inherits, by id; the
-        # scenario's check is the merged product's whole check.
-        ids = WORKSTREAM["inherited"] or ["C1"]
-        body["acceptance_criteria"] = [
-            {
-                "id": cid,
-                "criterion": f"{cid} holds on the merged product",
-                "verification_method": integration_method(cid),
-                "human_review": False,
-            }
-            for cid in ids
-        ]
-        body["milestones"][0]["acceptance_criteria"] = ids
     if (DATA.get("bug_diagnosis") or {}).get("root_cause"):
         body["task_kind"] = "bugfix"  # planned from a bug diagnosis
     if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
@@ -1142,7 +1006,7 @@ def contract(final: bool = False) -> dict:
             )
         if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
             body["initial_task"] = progressive_task()
-    return cite_sources(inherit_program(body) if WORKSTREAM else body)
+    return cite_sources(body)
 
 
 _EMITTER = None
@@ -1268,10 +1132,7 @@ def recognize(brief: str, follow_up: dict | None = None) -> dict:
     def has(*patterns):
         return any(re.search(pattern, text) for pattern in patterns)
 
-    if WORKSTREAM_HEADER.match(brief):
-        # A program workstream builds; its brief's "satisfy human review" is not a request for a review.
-        kind, signal = "build", "a program workstream brief"
-    elif (follow_up or {}).get("previous_workflow") == "review" and has(r"\bfix\b", r"\bland\b", r"\bapply\b"):
+    if (follow_up or {}).get("previous_workflow") == "review" and has(r"\bfix\b", r"\bland\b", r"\bapply\b"):
         kind, signal = "build", "follow-up: act on the review's findings"
     elif ((follow_up or {}).get("previous_design") or {}).get("mode") == "review" and not has(
         r"\bbuild\b", r"\bimplement\b"
@@ -2305,8 +2166,8 @@ def report_for(stage: str, data: dict) -> dict:
             "untested_behavior": [],
             "recommended_checks": [row["verify"]],
         }
-    if stage == "terra" and (CONFIG.get("turn_paths") or WORKSTREAM):
-        # Deliver this turn's (or this workstream's) files only, and only those the runner assigned.
+    if stage == "terra" and CONFIG.get("turn_paths"):
+        # Deliver this turn's files only, and only those the runner assigned.
         assigned = tuple((data.get("current_task") or {}).get("affected_paths") or PATHS)
         for rel in (path for path in PATHS if path.startswith(assigned)):
             destination = Path.cwd() / rel
@@ -2868,12 +2729,9 @@ def _main() -> int:
         return 0
     remembered.parent.mkdir(exist_ok=True)
     remembered.write_text(prompt)
-    global DATA, PATHS, WORKSTREAM, MILESTONES, CHECK
+    global DATA, PATHS
     data = DATA = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     PATHS = turn_paths()
-    WORKSTREAM = workstream()
-    if WORKSTREAM:
-        MILESTONES, CHECK, PATHS = workstream_scope(WORKSTREAM)
     original = data.get("original") or {}
     stage = data.get("stage") or original.get("stage") or ""
     if data.get("report_repair"):

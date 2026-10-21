@@ -38,14 +38,14 @@ try:
     from . import autocode_issue_plan as issue_plan
     from . import autocode_run_finder as run_finder
     from . import autocode_util as util
-    from .autocode_taskrun import TaskRun, TaskRunError
+    from .autocode_taskrun import AUTOCODE, TaskRun, TaskRunError
 except ImportError:
     import autocode_github as github
     import autocode_issue_delivery as delivery
     import autocode_issue_plan as issue_plan
     import autocode_run_finder as run_finder
     import autocode_util as util
-    from autocode_taskrun import TaskRun, TaskRunError
+    from autocode_taskrun import AUTOCODE, TaskRun, TaskRunError
 
 MAX_BODY = 20_000  # characters of the issue description put in the brief
 MAX_COMMENT = 4_000  # characters per comment
@@ -279,9 +279,12 @@ def next_steps(record: dict, view: dict) -> list[str]:
     if not isinstance(need, dict):
         raise ValueError("Incomplete run view has no needs record")
     kind = need["kind"]
+    # Chat everywhere (#1731): the same conversation as any other run; the commands below stay for scripts.
+    chat = f"  Talk it through in chat: autocode chat {where}"
     if kind == "approve_plan":
         steps = [
             "AutoCode is waiting for you to approve its plan.",
+            chat,
             f"  Read the plan:  autocode --show-goal {where}",
             f"  Approve it:     autocode --approve-goal {need['token']} {where}",
             f"  Or revise it:   autocode --feedback 'WHAT TO CHANGE' {where}",
@@ -301,7 +304,7 @@ def next_steps(record: dict, view: dict) -> list[str]:
                 steps.append(f"  Once that pull request is merged here: {load}")
         return steps + [f"  Then:           autocode-issue continue {ref}"]
     if kind == "answer":
-        lines = ["AutoCode has questions for you:"]
+        lines = ["AutoCode has questions for you:", chat]
         for question in need["questions"]:
             lines.append(f"  [{question['id']}] {question['question']}")
             if question.get("options"):
@@ -315,6 +318,7 @@ def next_steps(record: dict, view: dict) -> list[str]:
     if kind == "review":
         return [
             f"AutoCode needs you to accept criteria {', '.join(need['criteria'])}: {need.get('question') or ''}",
+            chat,
             *[
                 f"  autocode --approve-review {criterion} --review-token {need['token']} {where}"
                 for criterion in need["criteria"]
@@ -324,6 +328,7 @@ def next_steps(record: dict, view: dict) -> list[str]:
     if kind == "planning_budget":
         return [
             f"Planning used its review budget: {need.get('reason')}",
+            chat,
             f"  Give direction:  autocode --feedback TEXT {where}",
             f"  Or allow more:   autocode --planning-review-call-limit N {where}",
             f"  Then:            autocode-issue continue {ref}",
@@ -446,7 +451,7 @@ def cmd_start(args) -> int:
         raise
     record["run_dir"] = str(run.run_dir)
     save(project, record)
-    sys.stdout.write(report(record, run.advance_until_input()))
+    sys.stdout.write(report(record, converse(args, record, run.advance_until_input())))
     return 0
 
 
@@ -464,8 +469,27 @@ def cmd_continue(args) -> int:
     view = run.status()
     if not view["done"] and view["needs"]["kind"] == "continue":
         view = run.advance_until_input()
-    sys.stdout.write(report(record, view))
+    sys.stdout.write(report(record, converse(args, record, view)))
     return 0
+
+
+def chatting(args) -> bool:
+    """--chat / --no-chat, else on when both ends are a terminal (as autocode's own --chat default)."""
+    chat = getattr(args, "chat", None)
+    return chat if chat is not None else sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def converse(args, record: dict, view: dict) -> dict:
+    """Chat everywhere (#1731): a run waiting for the person continues in `autocode chat`, here in the terminal.
+
+    autocode-issue stays a client of the task-run interface: it starts the chat client as an argument array
+    with this terminal's input and output, decides nothing itself, and reads the run's status afterwards.
+    """
+    if view.get("done") or (view.get("needs") or {}).get("kind") in (None, "continue") or not chatting(args):
+        return view
+    sys.stdout.flush()
+    subprocess.run([*AUTOCODE, "chat", "--workspace", record["worktree"], "--run-dir", record["run_dir"]], check=False)
+    return task_run(record).status()
 
 
 def cmd_plan(args) -> int:
@@ -685,6 +709,13 @@ def parser() -> argparse.ArgumentParser:
             sub.add_argument("--pr-base", help="branch the PR will target (default: the current branch)")
     command("status", cmd_status, "show where the run stands and what to do next")
     command("continue", cmd_continue, "relaunch the run until it needs input again")
+    for name in ("start", "continue"):
+        commands.choices[name].add_argument(
+            "--chat",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help="when the run needs you, talk it through in `autocode chat` here (default: on in a terminal)",
+        )
     for name, handler, help_text in (
         ("plan", cmd_plan, "put the plan waiting for approval in a pull request as a plan file"),
         ("pr", cmd_pr, "commit the finished change and prepare or open the pull request"),

@@ -192,7 +192,8 @@ def _registered(project):
 
 
 def _program_owned(project):
-    """Worktree paths any program under ``project`` recorded (autocode_program owns those)."""
+    """Worktree paths any program under ``project`` recorded. ``autocode program`` is archived on branch
+    archive/program; a program an older checkout ran still owns its worktrees, so clean-up keeps them."""
     owned = set()
     for state in (project / ".autocode" / "programs").glob("*/state.json"):
         try:

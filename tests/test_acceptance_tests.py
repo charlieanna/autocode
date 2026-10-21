@@ -363,7 +363,6 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
             args = SimpleNamespace(
                 accept_completion=True,
                 feedback=None,
-                program_guidance=None,
                 edit_goal=None,
                 goal_file=None,
                 answer=[],

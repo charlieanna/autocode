@@ -3,9 +3,7 @@
 AutoCode records who made each plan and review approval, completion acceptance, goal
 edit and pause-releasing resume, and `--status --json` lists them under ``approvals``
 (docs/task-run.md, "Status view"). For every completed task run the harness drove,
-including a program's workstream runs and a components run's architecture and component
-runs, and a program's plan run once its plan is approved (the program is derived from it and
-never relaunches it, so it does not complete), each row a person made (``actor``
+including a components run's architecture and component runs, each row a person made (``actor``
 ``user_cli``) must carry the provenance of the person at the terminal: the Git identity every
 scenario project configures for them (``project.PERSON_NAME``, ``project.PERSON_EMAIL``),
 this machine's host name, and the command as ``autocode`` with option names only (and the
@@ -15,7 +13,7 @@ no person and must carry no provenance. Each plan approval (by token) and review
 records too), and each budget pause the scenario's person acknowledged (``[fake]
 acknowledge``, by the pause status its ``resume`` row names), must be listed among that run's
 own rows, so a view that lists nothing cannot pass for a run that was approved or resumed. A
-program or components scenario keeps one list for all its task runs, and each gate the harness
+components scenario keeps one list for all its task runs, and each gate the harness
 gave one of them names that run's ``run_dir`` (``driver.attribute``): it is matched to that
 run's rows, never to another's.
 
@@ -39,22 +37,13 @@ MATCHED = ("approve_plan", "review", "acknowledge")  # the gates matched to a ro
 def views(run):
     """(identity, status view, gates the harness gave that run) for each completed run in ``run``.
 
-    In a program or components scenario the gates are those that name the run's ``run_dir``."""
+    In a components scenario the gates are those that name the run's ``run_dir``."""
     gates = run.get("approvals") or ()
 
     def given(run_dir):
         return [gate for gate in gates if run_dir and gate.get("run_dir") == str(run_dir)]
 
-    if "program" in run:
-        plan = run.get("plan") or {}
-        view = plan.get("view") or {}
-        if complete(view) or view.get("approved_contract"):  # the program is derived from it, never relaunched
-            yield "program plan", view, given(plan.get("run_dir"))
-        for identity, children in (run.get("children") or {}).items():
-            for child in children:  # each child is its status view merged with where it ran
-                if complete(child):
-                    yield identity, child, given(child.get("run_dir"))
-    elif "components" in run:
+    if "components" in run:
         view = run.get("architecture_view") or {}
         if complete(view):
             yield "architecture", view, given(run.get("architecture_run_dir"))

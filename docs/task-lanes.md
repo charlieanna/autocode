@@ -143,12 +143,6 @@ example, an earlier integration was committed and then edited), a new target
 would differ the same way, so the message says to rebuild the component:
 remove its worktree `.autocode-components/<id>` and run the command again.
 
-When the work is one requirement that must be split, built in parallel and
-combined, use a [program](program.md) instead of lanes: workstreams declare
-dependencies and ownership, dependents branch from the merged results of their
-prerequisites, and completed workstreams are merged onto one integration branch
-with conflicts paused for you.
-
 ### Declaring how a component runs
 
 A row of `components.json` may carry an optional `runtime` block saying how that
@@ -423,7 +417,7 @@ commit it started from, with the delivered changes still in its files, so the
 completion evidence (pinned to the worktree's HEAD) stays current and you can still
 inspect or run the result there. Later work in the same worktree, such as a rework
 after feedback, is committed on top at its next completion. Runs started with
-`--in-place`, program workstreams and components are never committed this way.
+`--in-place` and components are never committed this way.
 
 Review and merge the branch like any other, for example `git merge autocode/<task>-<id>`
 from your checkout. Then remove finished worktrees:
@@ -437,7 +431,8 @@ A worktree is removed only when every run in it is `TASK_COMPLETE`, its source i
 exactly what its branch holds, and no runner holds its lock. Its `.autocode/`
 records (run state, logs, evidence) are copied to `.autocode/archive/<worktree>/`
 first; the branch is kept. Anything else is listed with the reason it is kept.
-Worktrees recorded by an `autocode program` are left to that command. The
+Worktrees an `autocode program` recorded are kept: that command is archived on the
+`archive/program` branch, and clean-up leaves what an older checkout's program owns. The
 dashboard and registry show a removed worktree's runs as `workspace_missing`.
 
 Resume from the project while the task is its only unfinished run, or from inside the

@@ -70,7 +70,9 @@ CONTROL_NAME = re.compile("tool-containment-[0-9a-f]{32}")
 # worktrees. A native planning shell reads none of those that exist when its launch is prepared
 # (private_run_reads()). Not every .autocode directory is listed: other launches' control directories
 # and the rest stay readable. The modules that make these directories own their names;
-# tests/test_tool_containment.py binds each entry to them.
+# tests/test_tool_containment.py binds each entry to them. Program state and program worktrees
+# come from the retired `autocode program` (archived on branch archive/program); they stay denied
+# because older runs may have left them.
 PRIVATE_STORES = (
     "archive",
     "arena",

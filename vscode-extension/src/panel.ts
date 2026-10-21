@@ -1300,6 +1300,7 @@ function renderChat(data) {
       item.appendChild(body); messages.appendChild(item);
     });
   }
+  updateLatestCue(data.state);
   if (data.state) render(data.state);
   else {
     app.textContent = '';
@@ -1328,6 +1329,16 @@ function renderChat(data) {
       thread.scrollTop = remembered;
     }
   }
+}
+
+/** A reader scrolled up keeps their place; the Latest button names the step running now (#1711). */
+function updateLatestCue(state) {
+  const latest = document.getElementById('latest');
+  if (!latest) return;
+  const running = state && !state.done && state.needKind === 'continue' && state.working && state.chat
+    && Array.isArray(state.chat.progress) ? state.chat.progress.find((line) => typeof line === 'string' && line) : '';
+  const text = running ? '↓ Now: ' + running : '↓ Latest messages';
+  if (latest.textContent !== text) latest.textContent = text;
 }
 
 function renderTelemetry(info) {

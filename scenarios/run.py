@@ -64,7 +64,6 @@ from harness.driver import (  # noqa: E402
     split_by_turn,
     workspace_files,
 )
-from harness.program_driver import ProgramDriver  # noqa: E402
 from harness.project import materialize  # noqa: E402
 
 
@@ -254,8 +253,6 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         skip.append("--fake-fault scripts the fake provider: it needs --fake")
     if (args.fake or split) and not solution.is_dir():
         skip.append(f"no {args.fake_solution}/ solution for the fake to apply")
-    if split and scenario.category == "program":
-        skip.append("a program runs every workstream through `autocode program`; it has no hybrid route")
     if split and scenario.category == "components":
         skip.append("a components scenario has separate architecture and component runs; no hybrid route")
     if split and not skip:
@@ -293,8 +290,6 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     env = {**env, **(extra_env or {})}
     if scenario.category == "components":
         return run_components(scenario, args, out, result, project, flags, env)
-    if scenario.category == "program":
-        return run_program(scenario, args, out, result, project, flags, env)
     options = {}
     if scenario.category == "conformance":
         scripted = args.fake and not split
@@ -454,108 +449,6 @@ def run_components(scenario, args, out, result, project, flags, env):
         metrics={**stage_metrics, "architecture": architecture_metrics},
         checks=[dataclasses.asdict(check) for check in oracle.checks],
         oracle_error=oracle.error,
-    )
-    return finish(out, result, outcome, text)
-
-
-def run_program(scenario, args, out: Path, result: dict, project: Path, flags: list[str], env: dict) -> dict:
-    """A program scenario (scenarios/README.md, "Programs"): driven through `autocode program` and judged on
-    the program's product, its integration worktree, with the program's own stops (verdict.judge_program)."""
-    driver = ProgramDriver(
-        scenario,
-        project,
-        out,
-        flags,
-        env,
-        autocode=args.autocode or default_autocode(),
-        max_steps=args.max_steps or scenario.max_steps,
-        timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
-        explicit_answers=scenario.fake_answers if args.fake else (),
-        round_trip_plans=True,
-    )
-    drive_error = ""
-    started = time.monotonic()
-    try:
-        driver.drive()
-    except DriveError as error:
-        drive_error = str(error)
-    wall_seconds = round(time.monotonic() - started, 1)
-    summary = driver.finish()
-    record = driver.record()
-    product = driver.product()
-    oracle = verdict.evaluate(scenario, product, record)
-    diagnosis = verdict.diagnose(scenario, product, record)
-    unexercised = (
-        (diagnosis.get("reason") or "not exercised")
-        if diagnosis and diagnosis.get("verdict") == verdict.NOT_EXERCISED
-        else ""
-    )
-    status = record["status"]
-    # Until the agreement exists the plan run is all there is, and it is judged as a run.
-    outcome, text = (
-        verdict.judge_program(status, oracle, scenario.expected, summary)
-        if summary
-        else verdict.judge(status, oracle, scenario.expected)
-    )
-    outcome, text = verdict.change_not_reached(outcome, text, record["changes"])
-    outcome, text = verdict.exercised(outcome, text, scenario.requires_stages, record["model_stages"], unexercised)
-    if drive_error:
-        outcome, text = verdict.ERROR, f"harness stopped: {drive_error}; oracle {oracle.summary}"
-    rows = summary.get("workstreams") or []
-    result.update(
-        runner_status=status,
-        product=str(product),
-        run_dir=str(driver.plan.run_dir or ""),
-        harness_error=drive_error,
-        oracle_passed=oracle.passed,
-        cli_calls=len(driver.steps),
-        answers=driver.answers,
-        approvals=approvals_of(driver),
-        metrics=record["metrics"],
-        resolutions=[],
-        wall_seconds=wall_seconds,
-        cli_seconds=round(sum(step["seconds"] for step in driver.steps), 1),
-        workflow=record["plan"]["view"].get("workflow"),
-        expected=scenario.expected,
-        checks=[dataclasses.asdict(check) for check in oracle.checks],
-        oracle_error=oracle.error,
-        diagnosis=diagnosis,
-        program={
-            "agreement": summary.get("agreement"),
-            "tokens": record["agreement"],
-            "workstream_ids": record["workstream_ids"],
-            "integration_branch": summary.get("integration_branch"),
-            "skeleton": summary.get("skeleton"),
-            "journeys": summary.get("journeys"),
-            "change_requests": summary.get("change_requests"),
-            "changes": record["changes"],
-            "verifications": record["verifications"],
-            "workstreams": [
-                {
-                    key: row.get(key)
-                    for key in (
-                        "id",
-                        "kind",
-                        "status",
-                        "run_status",
-                        "run_dir",
-                        "verified_checks",
-                        "merged_under",
-                        "retired_runs",
-                        "blocked_reason",
-                    )
-                }
-                for row in rows
-            ],
-            "runs": {
-                wid: [
-                    {key: run[key] for key in ("run_dir", "retired", "status", "workflow")}
-                    | {"model_stages": len(run["model_stages"])}
-                    for run in runs
-                ]
-                for wid, runs in record["children"].items()
-            },
-        },
     )
     return finish(out, result, outcome, text)
 
@@ -781,8 +674,8 @@ def cmd_build_compare(args) -> int:
         _, out = evidence_directory(args.out, f"build-compare-{'fake' if args.fake else args.profile}")
         scenarios = []
         for scenario in selected(args.ids):
-            if scenario.category in ("program", "components"):
-                # Fixed and adaptive planning compare one run's plan; a program plans once and runs many.
+            if scenario.category == "components":
+                # Fixed and adaptive planning compare one run's plan; a components run plans once and runs many.
                 print(f"{scenario.id}: skipped (a {scenario.category} scenario; build-compare compares single runs)")
             else:
                 scenarios.append(scenario)
@@ -811,7 +704,7 @@ def cmd_compare(args) -> int:
     rows = []
     for scenario in selected(args.ids):
         solution = scenario.dir / args.fake_baseline_solution
-        if scenario.category in ("program", "components"):
+        if scenario.category == "components":
             rows.append(
                 {
                     "scenario": scenario.id,

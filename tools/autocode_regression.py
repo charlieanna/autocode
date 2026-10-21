@@ -24,7 +24,7 @@ and must not have passed without it (verify's ``new_behavior``). A milestone
 whose due criteria are all ``guard:`` (behavior the product already implements)
 is coverage: the diff may be test files alone, and each test must pass on the
 base and on the candidate (verify's ``preserve_only``). It may also change no
-test when those tests already exist, and be empty, as in a program's
+test when those tests already exist, and be empty, as in a
 validation-only re-check: each must then pass on base and on the candidate, and
 none of its variants may fail. A saved permission
 answer that grants a test-only regression-proof exception for the current
@@ -839,7 +839,7 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
     ``suite_passing`` is the whole suite's tests that passed on base and on the
     candidate, in files the change leaves alone (untouched): a preserve case that
     names its test exactly (a plan's guard: test_x) may be proven by one, as a
-    program's final check proves what the merged workstreams delivered. A case
+    final check proves what earlier milestones delivered. A case
     matched by its id alone (a diagnosis's T4) never is: another fix's test_t4_...
     is not its test. ``failing`` is the suite's failures on the candidate: a failing
     variant (another parameter set, a Go subtest, another class running the same

@@ -81,7 +81,7 @@ class RefusalTests(unittest.TestCase):
     def test_operator_subcommands_are_refused(self):
         self.assertIn("intervention", unattended.refused(["intervention", "submit"]))
         self.assertIn("review", unattended.refused(["review", "--run-dir", "r"]))
-        self.assertIn("program", unattended.refused(["program", "run"]))
+        self.assertIn("tasks", unattended.refused(["tasks", "manifest.toml"]))
 
     def test_run_and_status_arguments_are_allowed(self):
         for argv in (

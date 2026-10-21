@@ -100,8 +100,7 @@ def creating(project):
 
     Two tasks started at the same moment each run `git worktree add` on the same repository, and git
     does not guarantee that is safe (ref and worktree-metadata locks): one can fail, and the CLI then
-    exits 2 without a run. autocode_program takes this lock too, so a program run and a task run started
-    together in one project cannot collide (#1123).
+    exits 2 without a run.
     """
     # Beside .autocode/worktrees, not in it: everything in there is read as a worktree.
     with (keep_out_of_git(project) / "worktree-create.lock").open("a+") as handle:
@@ -147,7 +146,7 @@ def create(project, task):
     with creating(project):
         git(project, "worktree", "add", "-b", branch, str(workspace), base)
     # kind 'task': this worktree and its branch belong to one task (autocode_worktrees
-    # delivers to and cleans up only these; programs write this file without a kind).
+    # delivers to and cleans up only these; worktrees an archived `autocode program` made have no kind).
     data = {
         "version": 1,
         "kind": "task",

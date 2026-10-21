@@ -10,11 +10,10 @@ import autocode_control_tokens as tokens
 
 
 class ControlTokenTests(unittest.TestCase):
-    def test_all_nine_transport_and_resolve_without_mutating_the_command(self):
+    def test_all_eight_transport_and_resolve_without_mutating_the_command(self):
         cases = [
             ([], tokens.TOKEN_ENV_VARS),
             (["checkpoint"], tokens.CHECKPOINT_TOKEN_ENV_VARS),
-            (["program", "approve"], tokens.PROGRAM_TOKEN_ENV_VARS),
         ]
         for prefix, fields in cases:
             for attribute, variable in fields.items():
@@ -30,7 +29,7 @@ class ControlTokenTests(unittest.TestCase):
                         tokens.resolve_placeholders(args, argparse.ArgumentParser(), private, fields=fields)
                         self.assertEqual("exact-token", getattr(args, attribute))
 
-    def test_all_nine_are_withheld_even_when_explicitly_passed(self):
+    def test_all_eight_are_withheld_even_when_explicitly_passed(self):
         names = {
             "AUTOCODE_RESOLVER_TOKEN",
             "AUTOCODE_JOB_RETRY_TOKEN",
@@ -40,7 +39,6 @@ class ControlTokenTests(unittest.TestCase):
             "AUTOCODE_EXPECTED_GOAL_TOKEN",
             "AUTOCODE_EXPECTED_RECOVERY_TOKEN",
             "AUTOCODE_CHECKPOINT_EXPECTED_TOKEN",
-            "AUTOCODE_PROGRAM_APPROVAL_TOKEN",
         }
         env = {name: "inert-canary" for name in names}
         env.update({"AUTOCODE_PASS_ENV": ",".join(names), "AUTOCODE_CAPTURE_CONTEXT": "{}", "PATH": "/bin"})
@@ -72,8 +70,7 @@ class ControlTokenTests(unittest.TestCase):
 
     def test_only_actual_subcommands_use_generic_token_options(self):
         for cmd in (
-            ["program", "run", "--token", "text"],
-            ["--feedback", "program", "--token", "text"],
+            ["--feedback", "checkpoint", "--token", "text"],
             ["--feedback", "checkpoint", "--expected-token", "text"],
             ["Document --token text"],
             ["--", "--approve-goal", "task-text"],
@@ -105,7 +102,6 @@ class ControlTokenTests(unittest.TestCase):
             ["--approve-goa", "private-value"],
             ["--expected-recovery-t=private-value"],
             ["checkpoint", "--expected-t", "private-value"],
-            ["program", "approve", "--tok", "private-value"],
         ):
             with self.subTest(cmd=cmd), self.assertRaises(ValueError) as caught:
                 tokens.private_command(cmd)

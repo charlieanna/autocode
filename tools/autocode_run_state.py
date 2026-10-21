@@ -54,7 +54,6 @@ KEYS: frozenset[str] = frozenset(
         "active_stage_workers",
         "affected_paths",
         "agent_request",
-        "agreement",
         "alive",
         "answer",
         "answers",
@@ -69,7 +68,6 @@ KEYS: frozenset[str] = frozenset(
         "builder_retries",
         "builder_retry_decisions",
         "builder_retry_key",
-        "change_requests",
         "changed_files",
         "checked",
         "checkpoint_continuation",
@@ -135,8 +133,6 @@ KEYS: frozenset[str] = frozenset(
         "inherited_spend",
         "input",
         "intake_input_hash",
-        "integration",
-        "interfaces",
         "intervention_ack_pending",
         "interaction_timing",
         "intervention_capability",
@@ -203,7 +199,6 @@ KEYS: frozenset[str] = frozenset(
         "progress_checkpoint",
         "progress_messages",
         "progress_sequence",
-        "program_guidance",
         "progressive",
         "project_memory",
         "project_worked_in_place",
@@ -234,13 +229,11 @@ KEYS: frozenset[str] = frozenset(
         "resolver_human_proposal",
         "resolver_human_request",
         "retained_candidate_handoffs",
-        "retired_integrations",
         "review",
         "run_dir",
         "session_rotations",
         "sessions",
         "settings",
-        "skeleton",
         "source_log",
         "source_revision",
         "source_snapshot",
@@ -276,7 +269,6 @@ KEYS: frozenset[str] = frozenset(
         "visual_acceptance_receipts",
         "workflow",
         "workspace",
-        "workstreams",
     }
 )
 
@@ -367,7 +359,6 @@ class RunState(TypedDict, total=False):
     # the initial task; goals/follow_up append at the answer/feedback ledger
     # boundaries; autocode_brief_obligations.sources reads it (legacy runs: positional).
     source_log: list
-    program_guidance: list  # a program's corrections of the displayed plan (autocode_program_guidance writes, units.autoplanner reads)
     last_decision: dict | None  # the latest plan decision
     contract_history: list  # prior contract revisions; chat_history reads plans matched to approval receipts
     # Who resumed the run out of each pause (#722): {at, pause_status, provenance}, appended by
@@ -379,14 +370,12 @@ class RunState(TypedDict, total=False):
 
     # --- orchestration / progressive ---
     orchestration_batch: dict | None  # a parallel Builder batch
-    workstreams: list  # a program workstreams
     parent_run: str | None  # the parent of a child run
     progressive: dict | None  # progressive-planning record
     milestone_progress: dict  # per-milestone progress (autocode_milestones)
 
     # --- others (see KEYS for the full set) ---
     workflow: dict  # workflows.begin/apply/pin write the recognition record; absent before recognition
-    integration: dict | None  # program integration state
     turns: list  # follow_up writes; chat_history reads previous.chat_response for retained completed-turn text
     replay_result: dict | None  # replay_checks owns archival obligation/result; view reads it, never current proof
     regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
@@ -410,7 +399,6 @@ class RunState(TypedDict, total=False):
     active_stage_workers: Any
     affected_paths: Any
     agent_request: Any
-    agreement: Any
     alive: Any
     answer: Any
     applied_interventions: Any
@@ -421,7 +409,6 @@ class RunState(TypedDict, total=False):
     builder_failure_hold: Any
     builder_retry_decisions: Any
     builder_retry_key: Any
-    change_requests: Any
     changed_files: Any
     checked: Any
     checkpoint_continuation: Any
@@ -476,7 +463,6 @@ class RunState(TypedDict, total=False):
     implementation_handoffs: Any
     input: Any
     intake_input_hash: Any
-    interfaces: Any
     intervention_ack_pending: Any
     intervention_capability: Any
     investigation: Any
@@ -549,10 +535,8 @@ class RunState(TypedDict, total=False):
     resolver_human_proposal: Any  # a Resolver proposal awaiting a human; goals writes, dependency pops
     resolver_human_request: Any
     retained_candidate_handoffs: Any
-    retired_integrations: Any
     review: Any
     session_rotations: Any
-    skeleton: Any
     source_revision: Any
     git_delivery: Any  # controller-owned commit + receipt pin; completion gate reads it
     source_snapshot: Any

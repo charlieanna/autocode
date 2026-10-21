@@ -38,11 +38,10 @@ def validate(args, parser):
         or args.reconcile_review
         or args.delegate_all
         or args.reject_assumption
-        or args.program_guidance is not None
     ):
         parser.error(
-            "--review-token requires --approve-review, --reject-review, --reconcile-review, --delegate-all, "
-            "--reject-assumption or --program-guidance"
+            "--review-token requires --approve-review, --reject-review, --reconcile-review, --delegate-all "
+            "or --reject-assumption"
         )
     if args.reconcile_review and not args.review_token:
         parser.error("--reconcile-review requires --review-token")

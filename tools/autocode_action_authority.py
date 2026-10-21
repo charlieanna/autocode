@@ -153,7 +153,6 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
             args.reject_review,
             args.reconcile_review,
             args.feedback is not None,
-            args.program_guidance is not None,
             args.follow_up is not None,
             args.show_goal,
             args.accept_completion,
@@ -167,7 +166,6 @@ def settle(runner, args, parser, state: RunState, state_path, run_dir, workspace
         and not args.edit_goal
         and not args.goal_file
         and args.follow_up is None
-        and args.program_guidance is None
         and (hold := resolver_human.permission_hold(state))
     ):
         print(f"{state['status']}: {hold['reason']}")

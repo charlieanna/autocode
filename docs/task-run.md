@@ -4,7 +4,7 @@
 
 How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
-code outside the runner (the scenario harness, `autocode program`, the
+code outside the runner (the scenario harness, `autocode issue`, the
 [coding-agent skill and MCP server](agent-step.md), and the planned
 architecture and multi-component layer) to control a run. Such code must not import
 runner internals such as `autocode.py` or read `state.json` directly; that file has
@@ -134,8 +134,8 @@ launch-only setting. A valid older rootless run needs no root flag to edit its
 plan. The recovery card, progress line and issue/finder guidance distinguish
 these two cases without promising that an unchanged resume repairs either one.
 
-A caller that keeps each invocation's output, as `autocode program` keeps a
-workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
+A caller that keeps each invocation's output, such as its `stdout.log`, `stderr.log`
+and exit code, reads it from the client:
 
 - `TaskRun.last_advance` is the `subprocess.CompletedProcess` of the latest call that
   starts or advances the run (start, advance, resume and retries), also when AutoCode
@@ -461,7 +461,7 @@ table after the intended outcome, or as `None recorded` for a run with none
 ([Who approved](execution.md#who-approved)). Review and discuss reports, which have no approval
 step, have no `approvals` field and no such section, even when the status view lists a resume.
 Neither do verification reports, nor reports written before AutoCode listed approvals, so
-older pairs still authenticate. A program or components report lists its child runs' approvals
+older pairs still authenticate. A components report lists its child runs' approvals
 (below). An older build, bug-fix or design report
 gains the section when AutoCode saves the completed run again; reading its status does not.
 A task report whose approved plan is in the status view also has `plan.goal_hash` and
@@ -511,8 +511,6 @@ live or mixed according to the route it actually launches. Tests using a fixture
 must pass `--evidence-provenance fake`. Human plan approval remains a separate
 decision.
 
-Completed programs publish the pair beside their owned program state; their
-public `program run`/`program status` summaries expose `evidence_report` metadata.
 Completed component builds publish it beside `.autocode-components/manifest.json`;
 the component CLI summary and `MultiComponentBuild.evidence_report()` expose it.
 Aggregate documents reference authenticated child `TaskRun.evidence_report()`
@@ -525,10 +523,10 @@ for later integration checks or runtime smoke.
 An aggregate also lists, under `approvals`, the approvals each child's own report lists
 (#722): child by child, in its `children` order, each row as that report has it plus `child`,
 the child's id. Its Markdown shows them as an Approvals table with a Child column, and says
-what it leaves out: a program agreement (`autocode program approve`) records no approver, a
-program does not list approvals of a plan run it was derived from (`autocode program derive`),
-and a components run does not list approvals of the architecture it was built from. Those runs'
-own reports list them. A child whose
+what it leaves out: a components run does not list approvals of the architecture it was built
+from. That run's own report lists them. A program report an older checkout wrote (before
+`autocode program` moved to the `archive/program` branch) also says that its agreement records
+no approver and that it does not list the approvals of the plan run it was derived from. A child whose
 report lists no approvals, because it was written before AutoCode listed them, is named in the
 aggregate's not-verified list rather than taken to have recorded none. When no child's report
 lists approvals, the aggregate has no `approvals` and no such section, as before.
@@ -579,7 +577,6 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Reject a review (`TaskRun.reject_review(criterion, token, note)`) | `autocode --reject-review CRITERION --review-token TOKEN --review-note TEXT` | 0 saved as feedback for revision, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
-| A program's correction of the displayed plan (`TaskRun.guide_plan(text, token)`) | `autocode --program-guidance TEXT --review-token -` (reads `AUTOCODE_REVIEW_TOKEN`); saved as the program's, never as user feedback | 0 saved, 2 rejected |
 | Follow up a finished run | `autocode --follow-up TEXT` | 0 saved, 2 rejected |
 
 Answers and approvals never launch a model; continue afterwards. A follow-up
@@ -1162,9 +1159,8 @@ normally the user's, but a small bug fix approved under the workflow policy the 
 agreed to (the short path for small fixes, off for now; see
 [Bug fixes](workflow.md#bug-fixes)) shows it too, and the view does not say which.
 `displayed_plan` is what a person is asked to approve; `approved_contract` is what
-was approved. A coordinating layer such as
-`autocode program` reads a child run's approved criteria here (`program derive` and
-the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
+was approved. A coordinating layer reads a child run's approved criteria here, never
+from `state.json`. Like `displayed_plan`, it
 is neither execution permission nor completion proof.
 
 `approvals` lists every plan and review approval, completion acceptance, goal edit and

@@ -36,7 +36,6 @@ autocode-ui = "autocode_cli.autocode_ui:cli"
 autocode-tasks = "autocode_cli.autocode_tasks:cli"
 autocode-components = "autocode_cli.autocode_components:cli"
 autocode-unattended = "autocode_cli.autocode_unattended:cli"
-autocode-program = "autocode_cli.autocode_program:cli"
 autocode-issue = "autocode_cli.autocode_issue:cli"
 autocode-arena = "autocode_cli.autocode_arena:cli"
 
@@ -45,7 +44,7 @@ public-entry-points = ["autocode"]
 internal-entry-points = [
     "autopilot", "autocode-orchestrator", "autoplanner", "autocode-build", "autoreview",
     "autoresolver", "autocode-dashboard", "autocode-ui", "autocode-tasks",
-    "autocode-components", "autocode-unattended", "autocode-program", "autocode-issue",
+    "autocode-components", "autocode-unattended", "autocode-issue",
     "autocode-arena",
 ]
 

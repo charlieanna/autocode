@@ -3,14 +3,14 @@
 A plan's `test: test_c1_example` criterion requires that named test to pass with
 the change and not before it. A `guard:` criterion must pass before and after.
 When every criterion the proof covers is a `guard:` and the change adds or edits no test
-(it may change nothing, as a validation-only re-check of a merged program workstream does),
+(it may change nothing, as a validation-only re-check does),
 the guards rest on tests the project already has: the proof runs the suite on the base and
 the candidate, and each guard's named test must pass on both. A `test:` criterion still needs
 a change, unless the person granted the test-only regression-proof exception.
 
 A guard that names its test exactly (`guard: test_c4_adds`) may name a test the project
-already has in a file the change leaves alone, as a program's final check does for the
-criteria the merged workstreams proved. The targeted run covers only the changed test files,
+already has in a file the change leaves alone, as a final check does for the
+criteria earlier milestones proved. The targeted run covers only the changed test files,
 so the whole suite also runs on the original code with the change's test files (its tests,
 fixtures and goldens), and such a guard is matched against the tests that pass there and on
 the candidate, with these limits:

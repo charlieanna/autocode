@@ -15,6 +15,10 @@ PR template asks for an entry here; a change without one is incomplete.
   no token counts recorded, no model identified, or no rate for its model, naming the models without a rate.
   The counts are stages, never a guessed amount, and the known spend and cap are unchanged.
 
+- Chat everywhere (#1731, step 2). In a terminal, `autocode-issue start` and `continue` open the run's chat when it
+  needs you (`--chat`/`--no-chat` to choose), and every waiting step they print starts with that chat command. A
+  `--goal-file` load says to review and approve it in chat. A project's `autocode runs` (and the terminal chat's
+  `/runs`) lists its autocode-issue worktrees' runs too.
 - `--skip-requirements` and `--skip-to-build` for an unattended worker (#1731, owner decisions 2026-10-21). The first
   answers each delegable Requirements question with its proposed default, recorded as delegated, and still runs the
   Planner and Plan Reviewer and waits for a person's plan approval. The second also approves the plan once the Plan
@@ -49,7 +53,19 @@ PR template asks for an entry here; a change without one is incomplete.
   entries may carry a `preference` that orders a role's models before billing and price. The Completion
   Reviewer, the final gate, likewise prefers GPT-6 Sol when connected, with GLM 5.3 as its fallback.
 
+### Removed
+
+- `autocode program` and `autocode --program-guidance` are gone from master, so every task follows one flow:
+  Requirements, a plan you approve, Builders, Tester and review, in one run. A large task gets more milestones in
+  that run, not separate workstream runs. The program code, its tests, its guide and its two scenarios are kept
+  unchanged on the `archive/program` branch (master at 5ee3435) to bring back if a real project needs them.
+  Clean-up still keeps worktrees an older program owns, and agents are still denied `.autocode/programs`.
+
 ### Fixed
+
+- VS Code chat: while you read older messages, the Latest button now names the step running now
+  ("↓ Now: Tester working") and follows each status read, so a stage change is visible without being moved to the
+  bottom (#1711). It returns to "↓ Latest messages" when no step is running.
 
 - The Builder's working diff (`checkpoint --working`) offered during a same-chat follow-up no longer refuses with
   "Checkpoint identity or approved plan changed" once the follow-up's plan is approved (#1712). It still verifies the

@@ -71,7 +71,6 @@ OPERATOR_FLAGS = (
 OPERATOR_SUBCOMMANDS = (
     "tasks",
     "ui",
-    "program",
     "compare-baseline",
     "capture",
     "registry",
