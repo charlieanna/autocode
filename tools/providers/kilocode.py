@@ -7,7 +7,12 @@ Native support is not a configuration flag and cannot fall back to that path.
 import json
 from pathlib import Path
 
-from . import command
+from . import command, kilocode_policy
+
+try:
+    from .. import autocode_output_cap as output_cap
+except ImportError:
+    import autocode_output_cap as output_cap
 
 
 class KiloProvider(command.CommandProvider):
@@ -32,7 +37,7 @@ class KiloProvider(command.CommandProvider):
         image_preparation=None,
     ):
         if isolation is None:
-            if containment is not None or image_preparation is not None:
+            if image_preparation is not None or containment is not None and (allow_write or planning):
                 raise ValueError("Kilo native launch requires its original concrete isolation owner")
             argv, child, saved = super().launch(
                 role,
@@ -49,6 +54,7 @@ class KiloProvider(command.CommandProvider):
                 sandbox=sandbox,
                 env=env,
             )
+            output_cap.apply(child)
             # Kilo's JSON CLI withholds text/reasoning until a block completes.
             # Forward real native deltas through the same bounded activity hook
             # as OpenCode; this grants neither tool proof nor completion credit.
@@ -62,6 +68,14 @@ class KiloProvider(command.CommandProvider):
                 hook = Path(__file__).with_name("requirements_stream.mjs").resolve().as_uri()
                 config["plugin"] = [p for p in config["plugin"] if p != hook] + [hook]
             child["KILO_CONFIG_CONTENT"] = json.dumps(config)
+            if planning or not allow_write:
+                argv, child = kilocode_policy.restrict(
+                    argv,
+                    child,
+                    workspace,
+                    role=role,
+                    request=containment,
+                )
             return argv, child, saved
         try:
             from .. import autocode_native_role_isolation as native

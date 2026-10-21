@@ -763,6 +763,20 @@ else:
                 "affected_paths": ["greet.py"],
             },
         }
+if stage == "astra_review" and os.environ.get("AUTOCODE_FIXTURE_PERMISSION_LOOP"):
+    number = len(data.get("saved_answers") or {})
+    result.update(
+        status="BLOCKED",
+        blocker="The unchanged evaluator needs a separate maintainer correction",
+        user_request={
+            "kind": "permission",
+            "discovered": "No source or validation progress",
+            "impact": "The unchanged evaluator still blocks completion",
+            "decision_needed": f"No new consent needed; execute the authorized correction (request {number})",
+            "options": ["Execute the correction", "Leave paused"],
+            "proposed_delta": f"Keep the plan unchanged; maintainer delivery remains absent ({number})",
+        },
+    )
 if os.environ.get("AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE") == stage:
     result.pop("summary", None)
 if stage == "terra" and (data.get("workflow") or {}).get("mode") == "glm_final_audit_v2":

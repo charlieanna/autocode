@@ -1146,7 +1146,16 @@ def shell_permissions(rules):
     return {"*": "deny", "bash": bash, "external_directory": "deny"}
 
 
-def configure(command, environment, workspace, *, allow_write, request, retain_launch_identity=False):
+def configure(
+    command,
+    environment,
+    workspace,
+    *,
+    allow_write,
+    request,
+    retain_launch_identity=False,
+    transport="opencode",
+):
     """Constrain one launch and prove its *actual* native bash path before dispatch.
 
     Only model-free debug commands run here. No approval is auto-granted: an
@@ -1155,6 +1164,12 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     A readonly request's ``private_run`` (prepare()) is proven through the actual
     native bash too, and that proof is retained in conformance.json.
     """
+    if transport not in ("opencode", "kilocode"):
+        raise ValueError("Unsupported tool containment transport")
+    if transport == "kilocode" and (allow_write or retain_launch_identity):
+        raise ValueError("Ordinary Kilo containment supports readonly stages only")
+    supported_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
+    config_variable = "KILO_CONFIG_CONTENT" if transport == "kilocode" else "OPENCODE_CONFIG_CONTENT"
     if type(retain_launch_identity) is not bool:
         raise ValueError("Native launch observation option must be an explicit boolean")
     if backend() is None:
@@ -1192,16 +1207,14 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     version = subprocess.run(
         [executable, "--version"], env=environment, cwd=workspace, capture_output=True, text=True, timeout=15
     )
-    if version.returncode or version.stdout.strip() != SUPPORTED_VERSION:
-        raise RuntimeError(
-            "Strict native tool containment supports only conformance-tested OpenCode " + SUPPORTED_VERSION
-        )
+    if version.returncode or version.stdout.strip() != supported_version:
+        raise RuntimeError("Strict native tool containment requires qualified " + transport + " " + supported_version)
     agent = command[command.index("--agent") + 1]
     child = dict(environment)
-    config = json.loads(child["OPENCODE_CONFIG_CONTENT"])
+    config = json.loads(child[config_variable])
     definition = config["agent"][agent]
     definition["model"] = command[command.index("--model") + 1]
-    child["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+    child[config_variable] = json.dumps(config)
     prefix = [executable, "debug", "agent", agent]
 
     def debug(args=()):
@@ -1242,7 +1255,7 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
     definition["permission"] = permissions
     definition.pop("tools", None)
     child["SHELL"] = boundary["shell"]
-    child["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+    child[config_variable] = json.dumps(config)
     actual = debug()
     if not isinstance(actual, dict):
         raise RuntimeError("Native tool conformance returned an unsupported agent object")
@@ -1485,12 +1498,14 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
             "exit": result["metadata"]["exit"],
             "output": result.get("output") if isinstance(result.get("output"), str) else None,
             "native_receipt": native_receipt,
-            "native_version": SUPPORTED_VERSION,
+            "native_version": supported_version,
             "backend": target.get("backend"),
             "backend_version": target.get("backend_version"),
             "profile_sha256": hashlib.sha256(Path(target["profile"]).read_bytes()).hexdigest(),
             "shell_sha256": hashlib.sha256(Path(target["shell"]).read_bytes()).hexdigest(),
         }
+        if transport == "kilocode":
+            proof["transport"] = transport
         if "private_reads" in target:
             proof["private_reads"] = private_proof
         if retain_launch_identity:
@@ -1504,10 +1519,12 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
                 "conformance": str(proof_path),
                 "profile_sha256": proof["profile_sha256"],
                 "shell_sha256": proof["shell_sha256"],
-                "native_version": SUPPORTED_VERSION,
+                "native_version": supported_version,
                 "conformance_sha256": hashlib.sha256(proof_path.read_bytes()).hexdigest(),
             }
         )
+        if transport == "kilocode":
+            target["transport"] = transport
         verify(target)
         return target
 
@@ -1534,7 +1551,7 @@ def configure(command, environment, workspace, *, allow_write, request, retain_l
             raise RuntimeError("Native writer target differs from the initial exact kind map")
         config["shell"] = boundary["shell"]
         child["SHELL"] = boundary["shell"]
-        child["OPENCODE_CONFIG_CONTENT"] = json.dumps(config)
+        child[config_variable] = json.dumps(config)
         # A changed target shell needs its own final bounded native observation.
         # Reusing readonly conformance would not describe the actual launch.
         actual = debug()
@@ -1679,7 +1696,16 @@ def verify(boundary):
         raise RuntimeError("Missing or unsupported native tool containment manifest")
     # A manifest written before #709 names no backend; only Seatbelt existed then.
     host = backend()
-    if host is None or boundary.get("backend", SEATBELT) != host or boundary.get("native_version") != SUPPORTED_VERSION:
+    transport = boundary.get("transport", "opencode")
+    expected_version = "7.8.3" if transport == "kilocode" else SUPPORTED_VERSION
+    if (
+        transport not in ("opencode", "kilocode")
+        or transport == "kilocode"
+        and boundary.get("allow_write") is not False
+        or host is None
+        or boundary.get("backend", SEATBELT) != host
+        or boundary.get("native_version") != expected_version
+    ):
         raise RuntimeError("Native tool containment platform or transport is unsupported")
     try:
         workspace = _path(boundary["workspace"])
@@ -1709,6 +1735,10 @@ def verify(boundary):
                 raise ValueError("Containment authority bytes changed")
     except (KeyError, OSError, ValueError) as error:
         raise RuntimeError("Native tool containment authority changed; no provider launched") from error
+    if transport == "kilocode":
+        proof = json.loads(Path(boundary["conformance"]).read_text())
+        if proof.get("transport") != transport or proof.get("native_version") != expected_version:
+            raise RuntimeError("Kilo kernel conformance does not match the recorded transport")
     if "write_paths" in boundary:
         try:
             footprint = writer_footprint(workspace, boundary["write_paths"])
