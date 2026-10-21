@@ -6,6 +6,7 @@ Native support is not a configuration flag and cannot fall back to that path.
 
 import json
 import re
+import sys
 from pathlib import Path
 
 from . import command, kilocode_policy
@@ -15,14 +16,17 @@ try:
 except ImportError:
     import autocode_output_cap as output_cap
 
-# The qualified Kilo release. Restricted stages already refuse another version
-# (autocode_tool_containment); this is the same pin at the point a launch would
-# otherwise reach the model, so a wrong install stops before any spend.
+# The qualified Kilo release. On Linux, restricted stages already refuse another
+# version (autocode_tool_containment's kernel shell); this is the same pin at the
+# point a launch would otherwise reach the model, so a wrong install stops before
+# any spend. macOS checkers use Kilo's own shell instead (#1766), so it has no pin.
 RELEASE_VERSION = "7.8.3"
 
 
-def check_version(version):
-    """Refuse a Kilo other than the qualified release; no provider request is launched."""
+def check_version(version, platform=None):
+    """Refuse a Kilo other than the qualified release where containment needs it; no request is launched."""
+    if (platform or sys.platform) == "darwin":
+        return
     match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:[-+][\w.-]+)?", (version or "").strip())
     if not match or ".".join(match.groups()) != RELEASE_VERSION:
         raise RuntimeError(

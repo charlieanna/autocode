@@ -295,9 +295,10 @@ set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`
 default_provider = "kilocode"
 ```
 
-A Kilo provider needs the qualified Kilo CLI on PATH. Install the pinned release;
-a launch refuses any other version, because its restricted read-only and planning
-stages need that release's kernel shell:
+A Kilo provider needs the Kilo CLI on PATH. On Linux, install the pinned release;
+a launch there refuses any other version, because its restricted read-only and
+planning stages need that release's kernel shell. macOS has no kernel shell, so its
+checkers use Kilo's own shell with edits denied and any Kilo release launches:
 
 ```sh
 npm install -g @kilocode/cli@7.8.3
