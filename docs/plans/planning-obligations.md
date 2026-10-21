@@ -98,26 +98,24 @@ adaptive seal failure becomes a targeted revise instead of a refused approval.
 ## Step 2: control replies are never sources
 
 **Today.** `autocode_source_log.save_answer` logs every `user_cli` answer with text as a
-`user_answer` source. #1780 drops one of them by id prefix in `source_trace.quotable`.
-Any other runner-written question whose answer is a go-ahead or an option choice still
-becomes a sentence the plan must quote.
+`user_answer` source. #1780 dropped one of them by id prefix and text in
+`source_trace.quotable`. The rewording question (#1691, ids `rewording-…`) has the same
+shape: `Accept the new wording` and `Keep the approved wording` are button labels, and each
+was a sentence the plan had to quote.
 
-**Change.** The runner marks the questions it writes. `goals.QUESTION` gains an optional
-`origin` ("runner" or absent); `autocode_requirements_review.review_question` sets it,
-as does any future runner-written go-ahead (plan chat acknowledgements, checkpoint and
-permission questions already stay out of the log). `save_answer` logs an answer to a
-runner-written question with kind `user_control` instead of `user_answer`.
-`brief_obligations.sources` keeps the record (so answers stay in the ledger and decision
-provenance can still cite them with `basis=user_answer`) and `source_trace.quotable`
-drops every `user_control` record, replacing the id-prefix test. A model-written
-question's answer stays a full source whatever its text: "postgres" to "which
-database?" is a requirement.
+**Change.** `tools/autocode_control_replies.py` holds one registry, keyed by the runner's own
+question-id prefix, of the exact replies that only steer that question. `quotable` drops a
+record that matches it. The answer stays in the log and the ledger, so decision provenance
+can still cite it with `basis=user_answer`, and contracts that already quote it keep
+verifying. A correction typed to the same question, and any answer to a model-written
+question, stay full sources.
 
-**Tests.** In `tests/test_source_trace.py`: an answer to a question with
-`origin="runner"` is logged as `user_control`, is not in `quotable`, and a contract that
-already cites it (saved before this change) still verifies. An answer to a model
-question with the same text ("plan") is still quotable. `tests/test_requirements_review.py`:
-the review question carries the origin.
+**Why not an `origin` marker on the question.** An earlier draft of this plan marked runner
+questions with a field and logged their answers as a new `user_control` kind. A field on
+`goals.QUESTION` is reachable by a model, which could then mark its own question's answers
+as non-sources and remove them from source tracing. A runner-owned registry has no such
+path and changes no log format, so saved runs and inventory hashes are untouched.
+Implemented in #1789.
 
 ## Step 3: pre-split sentences and pre-mapped rows in the handoff
 
@@ -165,7 +163,7 @@ record are refused; a mixed draft (ids and quotes) passes coverage. `tests/test_
 | Step | Files | Size | Depends on |
 | --- | --- | --- | --- |
 | 1 | `units/autoplanner`, `autopilot._bind_plan`, two prompt fragments, `autocode_run_view` | small | nothing |
-| 2 | `autocode_goals`, `autocode_source_log`, `autocode_requirements_review`, `autocode_source_trace` | small | nothing; supersedes #1780's prefix test |
+| 2 | `autocode_control_replies` (new), `autocode_source_trace`, `autocode_requirements_review` | small | nothing; replaces #1780's prefix test |
 | 3 | `autocode_source_trace`, `units/autoplanner`, `autocode_stage_context`, two prompt fragments, golden renders | medium, with a measurement gate | 1 and 2 |
 
 Steps 1 and 2 are independent and each is one pull request. Step 3 is one pull request
