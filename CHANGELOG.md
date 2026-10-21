@@ -16,6 +16,10 @@ PR template asks for an entry here; a change without one is incomplete.
   repository, which has its own git dir; the runner now names its own excludes file through the provider's
   environment (`core.excludesFile`), for Kilo as well as OpenCode, and the read-only guard and the exclusions
   share one predicate. The user's global ignore rules are kept. `docs/bugs/native-snapshot-excludes.md`.
+- Leaving the full-screen terminal chat at its first question (Ctrl-D or `/quit` at the run picker) no longer leaves
+  the whole run list on the terminal (#1755). Before any conversation, only what the chat said after its last
+  question, such as `Nothing started.`, stays behind.
+
 - A criterion change the Plan Reviewer asked for, which the runner refuses without the person's say, is now the
   person's question at once instead of a report repair (#1630). In a plan nobody approved, when a blocking concern of
   the saved review names the criterion, the refusal becomes the existing rewording question (#1691), naming the

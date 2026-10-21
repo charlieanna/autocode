@@ -215,6 +215,7 @@ class Transcript:
     blocks: list[tuple[str, str]] = field(default_factory=list)
     activity: str = ""
     live: str = ""  # an assistant reply still being written (the view's streaming message), shown last
+    asked: int = 0  # how many blocks there were when the last question was put to the person
 
     def add(self, text: str) -> bool:
         """Add a spoken block; a progress line updates the status row instead."""
@@ -241,14 +242,16 @@ class Transcript:
 
         Those are the blocks after the last conversation message (a hand-off's reason and
         the command to run, where to pick the run up, Done.); the last block when there are none.
+        Before any conversation, what the client listed for its last question (the runs to pick
+        from) is not among them, only what it said after (#1755).
         """
-        tail: list[str] = []
-        said = [(role, text) for role, text in self.blocks if role != "info"]
-        for role, text in reversed(said):
+        said = [(index, role, text) for index, (role, text) in enumerate(self.blocks) if role != "info"]
+        tail: list[tuple[int, str]] = []
+        for index, role, text in reversed(said):
             if role in ("user", "assistant"):
-                break
-            tail.insert(0, text)
-        return tail or [text for _, text in said[-1:]]
+                return [text for _, text in tail] or [text]
+            tail.insert(0, (index, text))
+        return [text for index, text in tail if index >= self.asked]
 
     def lines(self, width: int) -> list[tuple[str, str]]:
         """The transcript as ``(style, text)`` rows, labels over indented bodies."""
@@ -691,6 +694,7 @@ class ChatTUI:
                 with contextlib.suppress(curses.error):
                     curses.beep()  # AutoCode worked and now needs you: the terminal's own alert
             self._transcript.live = ""
+            self._transcript.asked = len(self._transcript.blocks)
             self._prompt = " ".join(prompt.split())
             self._asking = True
             self._launched = False
