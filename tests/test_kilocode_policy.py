@@ -279,6 +279,33 @@ class NativeKiloPolicyTests(unittest.TestCase):
         )
         run = self.workspace / ".autocode/runs/check"
         run.mkdir(parents=True)
+        with patch.dict(
+            os.environ, self.configured({"*": "allow", "bash": {"*": "deny", "echo *": "allow"}}), clear=True
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Native tool permissions deny") as refused:
+                launch.prepare(
+                    engine="opencode",
+                    adapter=self.provider,
+                    role="sol",
+                    route_role="sol",
+                    workspace=self.workspace,
+                    run_dir=run,
+                    session=None,
+                    model="localfixture/check",
+                    effort="medium",
+                    allow_write=False,
+                    planning=False,
+                    report=None,
+                    schema=None,
+                    prompt_file=None,
+                    sandbox="workspace-write",
+                    transport_args=[],
+                    chatgpt=False,
+                    provider=None,
+                    source_paths=["fixture.txt"],
+                )
+            self.assertNotIn("Restore qualified", str(refused.exception))
+            self.assertNotIn("allow-uncontained-tools", str(refused.exception))
         with patch.dict(os.environ, self.configured(), clear=True):
             argv, child, _, worker = launch.prepare(
                 engine="opencode",

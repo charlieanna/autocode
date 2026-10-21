@@ -1082,6 +1082,31 @@ class KernelReceiptTests(unittest.TestCase):
             "tools": {"bash": True, "read": False},
         }
 
+    def test_native_permission_refusal_names_policy_without_exposing_provider_stderr(self):
+        denial = "The user has specified a rule which prevents you from using this specific tool call."
+        for diagnostic, expected in (
+            (denial + " private-config-secret", "Native tool permissions deny"),
+            ("unrelated failure private-config-secret", "conformance failed"),
+        ):
+            with (
+                self.subTest(diagnostic=diagnostic[:20]),
+                patch.object(containment.sys, "platform", "darwin"),
+                patch.object(containment.shutil, "which", return_value="/owned/opencode"),
+                patch.object(
+                    containment.subprocess,
+                    "run",
+                    side_effect=[
+                        SimpleNamespace(returncode=0, stdout=containment.SUPPORTED_VERSION, stderr=""),
+                        SimpleNamespace(returncode=1, stdout="", stderr=diagnostic),
+                    ],
+                ),
+                patch.object(containment, "prepare") as prepare,
+            ):
+                with self.assertRaisesRegex(RuntimeError, expected) as error:
+                    containment.configure(self.command, self.environment, self.workspace, allow_write=False, request={})
+                self.assertNotIn("private-config-secret", str(error.exception))
+                prepare.assert_not_called()
+
     def configure(self, change=lambda response: response, *, scratch=True, sentinel=True, request=None, private=None):
         import autocode_toolchain
 

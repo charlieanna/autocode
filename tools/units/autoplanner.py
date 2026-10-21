@@ -955,6 +955,7 @@ def repair_rules(stage, schema):
         return ""
     return (
         REVISION_CONFLICT_RULE
+        + prompts.get("fragments/autoplanner/repair-citations.md")
         + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
         + (progressive_policy(stage) if "progressive_proposal" in fields else "")
     )

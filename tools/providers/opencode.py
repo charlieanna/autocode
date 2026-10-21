@@ -635,7 +635,9 @@ def _trailing_report(final, *, copies=1):
     and was repaired at full cost). Accept any prose lead without a code fence as long
     as the message ENDS with one complete JSON object, so a fragment quoted inside an
     explanation or a second object is never taken for the report. Report-only repairs
-    (``copies=2``) also accept the same object repeated twice. Every recovered report is
+    (``copies=2``) also accept the same object repeated twice, or one complete
+    object followed by exactly one redundant closing brace. No content is invented
+    or selected between conflicting reports. Every recovered report is
     still validated against the stage's schema by the runner."""
     start = final.find("{")
     if start < 0 or "```" in final[:start]:
@@ -652,6 +654,10 @@ def _trailing_report(final, *, copies=1):
             return None
         reports.append(report)
         remaining = remaining[end:].strip()
+        if copies == 2 and len(reports) == 1 and remaining == "}":
+            # A completed report-only MiMo repair repeated its final delimiter (#1747).
+            # The complete object is unambiguous; raw response/event bytes stay retained.
+            remaining = ""
     if remaining or not reports or any(report != reports[0] for report in reports[1:]):
         return None
     return reports[0]

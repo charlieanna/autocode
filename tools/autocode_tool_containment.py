@@ -92,6 +92,10 @@ PRIVATE_STORES = (
 )
 
 
+class NativePermissionDenied(RuntimeError):
+    """Effective provider policy denied a model-free proof; no permission is widened."""
+
+
 class UnusableStore(ValueError):
     """A PRIVATE_STORES path that a planning boundary cannot deny as it stands (#1250).
 
@@ -1222,6 +1226,14 @@ def configure(
     def debug(args=()):
         result = subprocess.run([*prefix, *args], cwd=workspace, env=child, capture_output=True, text=True, timeout=60)
         if result.returncode:
+            if "The user has specified a rule which prevents you from using this specific tool call" in result.stderr:
+                # Native diagnostics can include private config/rules. Classify the known
+                # refusal without copying stderr, changing grants, or blaming the sandbox.
+                raise NativePermissionDenied(
+                    "Native tool permissions deny the model-free conformance probe. "
+                    "Review the provider's effective shell permissions; ask/deny rules remain enforced. "
+                    "No provider launched"
+                )
             raise RuntimeError(
                 "Strict native tool conformance failed before provider launch (exit " + str(result.returncode) + ")"
             )
