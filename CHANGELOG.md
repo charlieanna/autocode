@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Typing `autocode` in a new shell after the README's virtual-environment install answered `command not found`
+  (#1761). The README and install guide now say the activation lasts for one shell and name the lasting fixes
+  (`pipx install --editable .` or the venv's `bin` on `PATH`), and `autocode doctor` has a `path` row that warns,
+  without failing, when `autocode` is not on `PATH` and names the directory to add.
 - A provider connection that OpenCode marks retryable now gets its one no-effect retry even when it names the loss
   only generically (`Network connection failed`, with empty `code`/`syscall` and no HTTP status) instead of stopping
   as `PAUSED_PROVIDER_UNCERTAIN` (#1797). The provider's own retryable flag, a read-only stage, an unchanged

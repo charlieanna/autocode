@@ -184,6 +184,12 @@ python3 -m venv .venv
 .venv/bin/autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
+A virtual environment's `bin` directory is on `PATH` only while the environment is
+activated (`source .venv/bin/activate`), and only in that shell. In a new shell, typing
+`autocode` answers `command not found`: activate again, call `.venv/bin/autocode`, add
+that `bin` directory to `PATH` in your shell profile, or use the `pipx` install above,
+which puts `autocode` on `PATH` for every shell.
+
 ### Sanity check
 
 Confirm the install, then check the machine and your project before the first task:
@@ -196,7 +202,8 @@ autocode doctor --workspace /path/to/project
 `--version` prints the commit when run from a checkout and `commit unknown` from an
 installed package. `doctor` names anything missing (Python, psutil, Git, the default
 engine, a committed Git project) with the fix next to it, and exits 1 until the machine
-is ready. It checks the engine a new run would use: OpenCode, or the provider set as the
+is ready. Its `path` row warns, without failing, when a new shell would not find `autocode`
+on `PATH`, and names the directory to add or the `pipx` install. It checks the engine a new run would use: OpenCode, or the provider set as the
 default below (with no `--engine` and with `--engine opencode` alike), including that it
 offers every role's default model; `--engine codex` checks Codex instead.
 

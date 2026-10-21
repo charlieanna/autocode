@@ -29,6 +29,12 @@ autocode doctor --workspace /path/to/project
 autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
+`source .venv/bin/activate` puts `autocode` on `PATH` for that shell only; a new
+shell answers `command not found` until you activate it again. To type `autocode`
+from any shell, install it once with `pipx install --editable .` (or add the
+venv's `bin` directory to `PATH` in your shell profile). `autocode doctor` warns
+when `autocode` is not on `PATH`.
+
 On WSL, run these commands in the Linux terminal with Linux Python. An existing
 Windows-created `.venv` cannot be reused there; see the
 [WSL checkout and environment notes](docs/install.md#windows-through-wsl).
