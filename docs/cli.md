@@ -667,6 +667,18 @@ in any width. A command that exited 0 is shown as run, not as passing: only the
 requirement checks say what passed. Everything in it comes from the status views
 the chat already reads.
 
+While AutoCode works, a live log under the conversation shows what each running
+agent is thinking and doing as it happens: its reasoning (`∴`), its messages
+(`»`), the commands it runs (`$`), the files it edits (`±`) and the other tools it
+calls, each line led by the agent's name (`Builder · task M2`, `Plan Reviewer`).
+Parallel Builders each appear under their own name. It comes from the view's
+`chat.log`, is refreshed with each status read (every two seconds) and keeps the
+last 500 entries; the composer stays below it, so you can keep typing commands.
+It shows on its own in a terminal at least 24 rows tall once an agent is working.
+Reasoning is shown on one line with its newest words, and tool output is never
+shown. Like the activity rows it is display only: a thought is not a report and
+a command shown is not a passed check.
+
 Type `/` in the composer for commands, at a question or while AutoCode works. The
 menu narrows as you type; `Up`/`Down` choose, `Tab` completes and `Enter` runs the
 highlighted one:
@@ -685,6 +697,7 @@ highlighted one:
 | `/engine [NAME]` | The engine new chats run on: `opencode`, `codex` or `claude`, set as the VS Code extension's engine picker sets it |
 | `/connect [NAME check\|login\|setup\|use]` | The backends `autocode connections list` reports, with their state. `check` runs the connection's own check; `login` and `setup` hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; `use` makes new chats use it. Only an action the connection offers is run |
 | `/panel` | Show or hide the side panel |
+| `/live [NAME\|thinking\|messages\|tools\|all\|off]` | Show or hide the live agent log. With a word it keeps only one agent (any part of its name, such as `M2` or `reviewer`) or one kind of entry; `all` shows everything again and `off` hides it. Where the terminal is too short for it, the newest entries are printed in the conversation |
 | `/pause` | While AutoCode works: ask it to pause after the current step, as the first `Ctrl-C` does |
 | `/help` | List the commands |
 | `/quit` | At a question: leave the chat; the run stays as it is |

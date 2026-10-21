@@ -66,7 +66,7 @@ def _edit(paths: list[str], verbs: list[str]) -> dict:
     return {"kind": "edit", "text": _line(named + more, 2 * TEXT_LIMIT), "paths": shown}
 
 
-def _item(row: dict, workspace) -> tuple[str, dict] | None:
+def item_event(row: dict, workspace) -> tuple[str, dict] | None:
     """A Codex-style item (``item.started``, ``item.updated`` or ``item.completed``) as an event."""
     item = row.get("item")
     if not isinstance(item, dict) or not isinstance(item.get("id"), (str, int)):
@@ -89,7 +89,7 @@ def _item(row: dict, workspace) -> tuple[str, dict] | None:
     return None
 
 
-def _part(row: dict, workspace) -> tuple[str, dict] | None:
+def part_event(row: dict, workspace) -> tuple[str, dict] | None:
     """An OpenCode or Kilo ``tool_use`` row as an event."""
     part = row.get("part")
     if row.get("type") != "tool_use" or not isinstance(part, dict) or not isinstance(part.get("id"), str):
@@ -114,8 +114,8 @@ def _part(row: dict, workspace) -> tuple[str, dict] | None:
     return part["id"], {"kind": "tool", "text": text, "status": outcome}
 
 
-def read(path: Path, workspace=None) -> list[dict]:
-    """The newest events in an attempt's event file, oldest first; a repeated item is one event."""
+def rows(path: Path) -> list[dict]:
+    """The JSON object rows in the tail of an event file, oldest first; an unreadable file has none."""
     try:
         with path.open("rb") as source:
             size = source.seek(0, 2)
@@ -124,15 +124,22 @@ def read(path: Path, workspace=None) -> list[dict]:
         lines = raw[1:] if size > READ_BYTES else raw  # the first line of a tail may be cut
     except OSError:
         return []
-    events: dict[str, dict] = {}
+    found = []
     for line in lines:
         try:
             row = json.loads(line)
         except ValueError:
             continue
-        if not isinstance(row, dict):
-            continue
-        found = _item(row, workspace) if isinstance(row.get("item"), dict) else _part(row, workspace)
+        if isinstance(row, dict):
+            found.append(row)
+    return found
+
+
+def read(path: Path, workspace=None) -> list[dict]:
+    """The newest events in an attempt's event file, oldest first; a repeated item is one event."""
+    events: dict[str, dict] = {}
+    for row in rows(path):
+        found = item_event(row, workspace) if isinstance(row.get("item"), dict) else part_event(row, workspace)
         if found is None:
             continue
         key, event = found

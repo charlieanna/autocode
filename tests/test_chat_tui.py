@@ -505,5 +505,94 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(("世界", 4), tui.window("你好世界", 4, 5))
 
 
+class LivePaneTests(unittest.TestCase):
+    """The live log under the conversation, drawn while the composer still takes typing."""
+
+    VIEW = {
+        "chat": {
+            "log": [
+                {"id": "a:r1", "agent": "Builder · task M1", "kind": "thinking", "text": "Read greet.py first"},
+                {
+                    "id": "b:c1",
+                    "agent": "Builder · task M2",
+                    "kind": "command",
+                    "text": "pytest -q",
+                    "status": "failed",
+                },
+            ]
+        }
+    }
+
+    def drawn(self, ui, rows=30, cols=120):
+        ui._screen.getmaxyx.return_value = (rows, cols)
+        puts = []
+        ui._put = lambda row, col, text, attr=0: puts.append((row, col, text))
+        ui._draw()
+        return puts
+
+    def test_the_pane_shows_each_agent_above_the_composer(self):
+        ui = screen_ui()
+        ui.observe(self.VIEW)
+        puts = self.drawn(ui)
+        layout = ui._layout(30, 120)
+        self.assertIsNotNone(layout.live_start)
+        self.assertLess(layout.body_end, layout.panel_end)
+        self.assertLess(layout.panel_end, layout.box_top, "the composer stays below the pane")
+        texts = [text for row, _, text in puts if layout.live_start <= row < layout.panel_end]
+        self.assertTrue(any("LIVE · all agents" in text for text in texts))
+        self.assertIn("Builder · task M1", texts)
+        self.assertTrue(any("Read greet.py first" in text for text in texts))
+        self.assertTrue(any("pytest -q" in text for text in texts))
+
+    def test_typing_while_autocode_works_keeps_the_pane(self):
+        ui = screen_ui(*"/pl")
+        ui.observe(self.VIEW)
+        self.assertIsNone(ui.wait(0.3))
+        self.assertEqual("/pl", ui._composer.text)
+        self.assertIsNotNone(ui._layout(30, 120).live_start)
+
+    def test_without_agent_work_or_on_a_short_terminal_there_is_no_pane(self):
+        ui = screen_ui()
+        self.assertIsNone(ui._layout(30, 120).live_start)
+        ui.observe(self.VIEW)
+        self.assertIsNone(ui._layout(20, 120).live_start)
+
+    def test_live_hides_shows_and_filters_the_pane(self):
+        ui = screen_ui()
+        ui.observe(self.VIEW)
+        ui._run("/live", False)
+        self.assertIsNone(ui._layout(30, 120).live_start)
+        ui._run("/live", False, "M2")
+        self.assertIsNotNone(ui._layout(30, 120).live_start)
+        self.assertEqual(["Builder · task M2"], [entry["agent"] for entry in ui._live.shown()])
+        ui._run("/live", False, "all")
+        self.assertEqual(2, len(ui._live.shown()))
+        ui._run("/live", False, "off")
+        self.assertIsNone(ui._layout(30, 120).live_start)
+
+    def test_where_the_pane_does_not_fit_live_prints_the_log_in_the_conversation(self):
+        ui = screen_ui()
+        ui._screen.getmaxyx.return_value = (14, 120)
+        ui.observe(self.VIEW)
+        ui._run("/live", False, "all")
+        [(role, text)] = ui._transcript.blocks[-1:]
+        self.assertEqual("info", role)
+        self.assertIn("Builder · task M1 ∴ Read greet.py first", text)
+
+    def test_long_entries_wrap_under_their_agent_and_never_carry_escapes(self):
+        ui = screen_ui()
+        ui.observe({"chat": {"log": [{"id": "a", "agent": "Builder", "kind": "message", "text": "word \x1b[2J" * 20}]}})
+        rows = ui.live_rows(40)
+        self.assertEqual("Builder", rows[0][0][0])
+        self.assertTrue(all(text.startswith("  ") for row in rows[1:] for text, _ in row))
+        self.assertFalse(any("\x1b" in text for row in rows for text, _ in row))
+
+    def test_opening_another_chat_starts_its_log_afresh(self):
+        ui = screen_ui()
+        ui.observe(self.VIEW)
+        ui.switch(Path("/p"), Path("/p/.autocode/runs/r2"))
+        self.assertEqual({}, ui._live.entries)
+
+
 if __name__ == "__main__":
     unittest.main()

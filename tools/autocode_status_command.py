@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 try:
     from . import autocode_answer_output as answer_output
     from . import autocode_chat_activity as chat_activity
+    from . import autocode_chat_log as chat_log
     from . import autocode_chat_progress as chat_progress
     from . import autocode_cost as cost
     from . import autocode_escalation_view as escalation_view
@@ -16,6 +17,7 @@ try:
 except ImportError:
     import autocode_answer_output as answer_output
     import autocode_chat_activity as chat_activity
+    import autocode_chat_log as chat_log
     import autocode_chat_progress as chat_progress
     import autocode_cost as cost
     import autocode_escalation_view as escalation_view
@@ -32,6 +34,7 @@ try:
     from . import autocode_dev_server as dev_server
     from . import autocode_interventions as interventions
     from . import autocode_job_report_recovery as job_report_recovery
+    from . import autocode_liveness as liveness_policy
     from . import autocode_pause_offer as pause_offer
     from . import autocode_progress_view as progress_view
     from . import autocode_stop_explanations as stop_explanations
@@ -43,6 +46,7 @@ except ImportError:
     import autocode_dev_server as dev_server
     import autocode_interventions as interventions
     import autocode_job_report_recovery as job_report_recovery
+    import autocode_liveness as liveness_policy
     import autocode_pause_offer as pause_offer
     import autocode_progress_view as progress_view
     import autocode_stop_explanations as stop_explanations
@@ -240,6 +244,16 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         state, public_view, run_dir, finished=bool(active_finished), stopped=bool(next_action)
     ):
         public_view["chat"]["activity"] = activity
+
+    def supervised(attempt: dict) -> bool:
+        saved = attempt.get("supervision")
+        observed = runner.supervision.observe(saved) if saved else None
+        return liveness_policy.classify(saved, observed)["kind"] == "supervised"
+
+    if log := chat_log.project(
+        state, public_view, run_dir, supervised=supervised, finished=bool(active_finished), stopped=bool(next_action)
+    ):
+        public_view["chat"]["log"] = log
     if public_view.get("progressive") and completion_current is not None:
         public_view["progressive"]["current_whole_product_proof"] = {
             "verified": completion_current is True,
