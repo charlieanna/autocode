@@ -2360,7 +2360,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/0a5fd02b92d6babb3b8b09a2f58ce3c3acd76db4/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/d7aff0ee54820bda635a0cbb8454534d28b33c91/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2788,7 +2788,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/0a5fd02b92d6babb3b8b09a2f58ce3c3acd76db4/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/d7aff0ee54820bda635a0cbb8454534d28b33c91/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3087,6 +3087,14 @@ one explicit retry of the held step. A client runs
 derives flags from the action's <code>kind</code>, so a new action needs no client change.
 Inspection, feedback, decision and conversation actions have no <code>args</code>: they
 open a view or ask the person for input instead of running a command.</p>
+<p>An operator changing the Resolver's model at its no-progress hold supplies
+<code>--resolver-model MODEL</code> (and optionally <code>--resolver-reasoning-effort EFFORT</code>)
+together with <code>--resume-paused --retry-failed-stage</code>. This records the exact
+Resolver route change alongside one invocation-local retry. The original incident,
+usage and spent allowances remain intact; changing another role, engine, source,
+contract or scope is refused. A model change alone cannot authorize a call, and a
+rejected combined change saves no settings. Clients continue to use only named
+view actions; this operator control does not add a client-side route override.</p>
 <h2 id="inspecting-current-verification">Inspecting current verification<a class="headerlink" href="#inspecting-current-verification" title="Permanent link">&para;</a></h2>
 <p><code>autocode --run-dir RUN --status --inspect-evidence</code> performs a read-only source
 and evidence inspection. The additive <code>view.verification</code> field lists every
@@ -3290,7 +3298,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/0a5fd02b92d6babb3b8b09a2f58ce3c3acd76db4/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/d7aff0ee54820bda635a0cbb8454534d28b33c91/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
