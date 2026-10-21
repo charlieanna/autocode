@@ -404,7 +404,7 @@ class RunState(TypedDict, total=False):
     applied_interventions: Any
     automatic_capacity_recoveries: Any
     automatic_permission_recoveries: Any
-    automatic_recoveries_since_resume: int  # recovery_accounting spends/grants; recovery_limits reads
+    automatic_recoveries_since_resume: int  # legacy name: recovery_accounting tracks failures since valid saved stage
     automatic_timeout_recoveries: list[dict]  # stage_recovery appends; recovery_accounting reads legacy spend
     builder_failure_hold: Any
     builder_retry_decisions: Any

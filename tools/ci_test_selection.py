@@ -144,6 +144,15 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("tools/autocode_cost", "tools/autocode_usage.py"), ("tests.test_cost_cap",)),
     (("tools/autocode_handoff_dedup.py",), ("tests.test_handoff_dedup",)),
     (
+        (
+            "tools/autocode_recovery_accounting.py",
+            "tools/autocode_recovery_streak.py",
+            "tools/autocode_recovery_progress.py",
+            "tools/autocode_run_view.py",
+        ),
+        ("tests.test_routine_recovery_cli", "tests.test_recovery_advice_conformance"),
+    ),
+    (
         ("tools/units/autoplanner.py", "tools/autocode_configure.py", "tools/autocode_role_route.py"),
         ("tests.test_reviewer_effort_cli",),
     ),
