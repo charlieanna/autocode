@@ -254,6 +254,59 @@ class StageLogTests(unittest.TestCase):
         self.assertEqual([], log.lines)
 
 
+class LiveLogTests(unittest.TestCase):
+    """The live log keeps what each agent did across views; the view holds only the newest entries."""
+
+    @staticmethod
+    def view(*entries):
+        return {"chat": {"log": [dict(zip(("id", "agent", "kind", "text"), entry, strict=True)) for entry in entries]}}
+
+    def test_entries_are_kept_across_views_and_a_growing_thought_is_updated_in_place(self):
+        live = panel.LiveLog()
+        self.assertTrue(live.observe(self.view(("a:r1", "Builder", "thinking", "Look at"))))
+        self.assertTrue(
+            live.observe(
+                self.view(("a:r1", "Builder", "thinking", "Look at greet.py"), ("a:c1", "Builder", "command", "ls"))
+            )
+        )
+        self.assertFalse(live.observe(self.view(("a:c1", "Builder", "command", "ls"))), "nothing new")
+        self.assertEqual(["Look at greet.py", "ls"], [entry["text"] for entry in live.shown()])
+
+    def test_malformed_rows_are_ignored(self):
+        live = panel.LiveLog()
+        live.observe({"chat": {"log": [{"id": "x", "agent": "Builder", "kind": "secret", "text": "t"}, "row", None]}})
+        self.assertEqual({}, live.entries)
+
+    def test_the_filter_keeps_one_agent_or_one_kind(self):
+        live = panel.LiveLog()
+        live.observe(
+            self.view(
+                ("a:r1", "Builder · task M1", "thinking", "one"),
+                ("b:c1", "Builder · task M2", "command", "two"),
+                ("c:m1", "Plan Reviewer", "message", "three"),
+            )
+        )
+        self.assertEqual(["Builder · task M1", "Builder · task M2", "Plan Reviewer"], live.agents())
+        live.filter = "m2"
+        self.assertEqual(["two"], [entry["text"] for entry in live.shown()])
+        live.filter = "thinking"
+        self.assertEqual(["one"], [entry["text"] for entry in live.shown()])
+        live.filter = "tools"
+        self.assertEqual(["two"], [entry["text"] for entry in live.shown()])
+        self.assertEqual("LIVE · tools", live.title())
+
+    def test_only_the_newest_entries_are_kept(self):
+        live = panel.LiveLog()
+        for number in range(panel.LIVE_LIMIT + 5):
+            live.observe(self.view((f"a:{number}", "Builder", "message", str(number))))
+        self.assertEqual(panel.LIVE_LIMIT, len(live.entries))
+        self.assertEqual(str(panel.LIVE_LIMIT + 4), live.shown()[-1]["text"])
+
+    def test_live_is_offered_once_a_chat_is_open(self):
+        self.assertIn("/live", [command.name for command in panel.commands(asking=False)])
+        self.assertNotIn("/live", [command.name for command in panel.commands(asking=True, run=False)])
+
+
 if __name__ == "__main__":
     unittest.main()
 

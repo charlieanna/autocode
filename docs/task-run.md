@@ -204,6 +204,22 @@ and a paused run have none, and the field is then omitted. Codex-style items
 (also what the built-in Claude provider writes) and OpenCode or Kilo tool parts
 are read; other event shapes show nothing. Older cores may omit the field.
 
+While a supervised step or parallel Builder works, optional `log` is the
+terminal chat's live agent log (owner decision 2026-10-21): an array of display
+entries `{id, agent, kind, text}` from each working attempt's own provider event
+file, oldest first per attempt, at most 40 per attempt and 8 parallel Builders.
+`agent` is the job's screen name, with the task for a Builder
+(`Builder · task M2`); `id` stays the same across reads so a client can keep
+entries beyond the newest and update a growing one in place. `kind` is
+`thinking` (model reasoning), `message` (model prose), or one of `activity`'s
+`command`, `edit` and `tool` with the same `status` and `paths`. Unlike
+`activity`, reasoning and message prose are copied: collapsed to one line,
+credential-shaped text redacted, and cut to the newest 400 characters. Tool
+output is never copied. Each parallel Builder's attempt must itself be confirmed
+as supervised, and only a file inside that attempt's run directory is read. The
+entries are display only, never a report, proof, approval or authority to retry.
+The field is omitted when nothing is working. Older cores may omit the field.
+
 During spec-first Requirements chat, `phase: "requirements"` lets clients show
 the conversation without the empty task dashboard. An assistant message may
 have `streaming: true`; its text is provisional display content from the active

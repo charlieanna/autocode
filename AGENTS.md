@@ -75,7 +75,9 @@ and `/connect` (owner decision 2026-10-19) read `modes list --json` and
 `connections list --json` and take only a connection's named `actions[].next_command`;
 an interactive `login` or `setup` runs on the terminal while the full-screen chat
 steps aside. A choice for new chats is kept in the project's
-`.autocode/chat-settings.json`.
+`.autocode/chat-settings.json`. Its live agent log (`/live`, owner decision 2026-10-21) draws
+only from the status view's `chat.log`, which, unlike `chat.activity`, carries the running agents'
+reasoning and messages as bounded, redacted display text.
 
 A further new client, or growth beyond that contract, needs the owner's decision again.
 

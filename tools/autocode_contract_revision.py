@@ -192,7 +192,16 @@ def revision_guard(state: RunState, body, changes, origin):
     # only the stdout literal moved, so the unapproved-wording allowance (#1691) must not pass one that
     # also changes an input. Declared as a plain rewording, the same text is the Planner's own to correct.
     receipted = {raw.get("item") for raw in changes if isinstance(raw, dict) and raw.get("example_correction")}
-    example_corrections |= unapproved_rewordings(previous_contract, previous, body, protected_history) - receipted
+    # A row the person backed stays a declared change: the allowance for the Planner's own unapproved
+    # wording must not swallow the receipt that authorizes it (#1764).
+    user_backed = {
+        raw.get("item")
+        for raw in changes
+        if isinstance(raw, dict) and saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))
+    }
+    example_corrections |= (
+        unapproved_rewordings(previous_contract, previous, body, protected_history) - receipted - user_backed
+    )
     protected_changes = []
     for raw in changes:
         if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
