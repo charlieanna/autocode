@@ -43,6 +43,7 @@ try:
     from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
+    from . import autocode_skip_requirements as skip_requirements
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_worktrees as worktrees
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
     import autocode_run_records as records
+    import autocode_skip_requirements as skip_requirements
     import autocode_stop as stop
     import autocode_support as support
     import autocode_worktrees as worktrees
@@ -205,6 +207,8 @@ def admit(runner, args, parser, state: RunState, state_path, run_dir, workspace,
     if state["status"] == "TASK_COMPLETE":
         print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
         return 0
+    if skip_requirements.settle(runner, state, run_dir, native=getattr(runner, "native_calls", None)):
+        runner.write_json(state_path, state)  # a resumed worker's run answers and approves as it started (#1731)
     if state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
         if args.chat:
             if not runner.chat_checkpoint(state, run_dir):

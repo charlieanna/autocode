@@ -9,8 +9,8 @@ a missing fact the runner already has.
 
 So before the runner pauses with one of ``STATUSES``, ``drive`` sends the run to
 ``STAGE``: a read-only Investigator on a different model from the stuck stage's (``route``:
-Claude Opus 5.5 in kilocode runs, otherwise GPT-6 Sol, or GLM 5.3 / Luna when the stuck stage runs
-on Sol) reads the task, the run's saved state and the
+Claude Opus 5.5 in kilocode runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on a GPT
+model, or on native Codex Luna when it runs on Sol) reads the task, the run's saved state and the
 stuck stage's attempts, and returns a diagnosis plus either guidance for one more
 attempt or the question only the user can answer. Then:
 
@@ -273,7 +273,7 @@ def route(roles: dict, stuck_model: str, provider: str | None = None) -> dict:
     """The Investigator's default route (user 2026-09-28: no Astra; Claude where the run can reach it).
 
     kilocode runs: Claude Opus 5.5 via the Kilo Gateway. OpenCode runs: GPT-6 Sol, or GLM 5.3 when
-    the stuck stage runs on Sol. Native Codex runs (GPT only): GPT-6 Sol, or Luna when the stuck
+    the stuck stage runs on any GPT model (one family). Native Codex runs (GPT only): GPT-6 Sol, or Luna when the stuck
     stage runs on Sol. A custom provider keeps its reviewer model. Always high effort, on the Plan
     Reviewer's engine and provider; --investigator-model overrides all of this (pinned_route)."""
     base = dict(roles.get("plan_reviewer") or roles.get("astra") or {})
@@ -281,7 +281,8 @@ def route(roles: dict, stuck_model: str, provider: str | None = None) -> dict:
     if provider == "kilocode" and CLAUDE not in stuck_model:
         choice = CLAUDE
     elif provider == "kilocode" or model.startswith(("openai/", "zai-coding-plan/", "kilo/")):
-        choice = "zai-coding-plan/glm-5.3" if "gpt-6-sol" in stuck_model else "openai/gpt-6-sol"
+        # All GPT models are one family (2026-10-20): a stuck Luna or Sol stage gets GLM's view.
+        choice = "zai-coding-plan/glm-5.3" if "gpt-" in stuck_model else "openai/gpt-6-sol"
     elif model.startswith("gpt-"):
         choice = "gpt-6-luna" if "gpt-6-sol" in stuck_model else "gpt-6-sol"
     else:

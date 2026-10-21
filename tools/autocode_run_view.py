@@ -383,6 +383,8 @@ def approved_contract(state: RunState) -> dict | None:
             "token": contract_identity.token(contract),
             "task_id": contract.get("task_id"),
             "approved_at": (contract.get("approval_event") or {}).get("at"),
+            # "skip_to_build" when the person chose approval when starting the run, else "person" (#1731)
+            "approval_source": (contract.get("approval_event") or {}).get("source") or "person",
             "body": deepcopy(contract["body"]),
             "goal_hash": plan_file.goal_hash(contract["body"]),
         }

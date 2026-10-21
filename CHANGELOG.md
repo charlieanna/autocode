@@ -9,8 +9,19 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- `--skip-requirements` and `--skip-to-build` for an unattended worker (#1731, owner decisions 2026-10-21). The first
+  answers each delegable Requirements question with its proposed default, recorded as delegated, and still runs the
+  Planner and Plan Reviewer and waits for a person's plan approval. The second also approves the plan once the Plan
+  Reviewer has finalized it and goes on to build; the approval is recorded as the person's choice, marked
+  `source: skip_to_build` in the status view. A question with no safe default always waits for a person, and without
+  `--skip-to-build` AutoCode never approves its own plan.
+
 ### Changed
 
+- The stuck-stage Investigator on OpenCode is GLM 5.3 whenever the stuck stage runs a GPT model, not only GPT-6 Sol:
+  GPT models are one family, so GPT-6 Sol no longer diagnoses a stuck GPT-6 Luna Builder.
 - Automatic model selection prefers GPT-6 Luna at high effort as Builder, then GPT-6 Sol, then MiMo v2.6 Flash
   (provisional), then Claude Opus 5.5 (provisional), then the cheapest of GLM 5.3, MiMo v2.6 Pro and DeepSeek (owner
   decision, 2026-10-20, for pay-per-use companies). On ladder-07 on Kilo the task passed 9/9 with each: Luna medium

@@ -33,6 +33,7 @@ try:
     from . import autocode_review_args as review_args
     from . import autocode_role_transport as role_transport
     from . import autocode_run_finder as run_finder
+    from . import autocode_skip_requirements as skip_requirements
     from . import autocode_subcommands as subcommands
     from . import autocode_task_input as task_input
     from . import autocode_utility_route as utility_route
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_review_args as review_args
     import autocode_role_transport as role_transport
     import autocode_run_finder as run_finder
+    import autocode_skip_requirements as skip_requirements
     import autocode_subcommands as subcommands
     import autocode_task_input as task_input
     import autocode_utility_route as utility_route
@@ -517,6 +519,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         metavar="N",
         help="With --resume-paused, authorize N more automatic timeout recoveries for a run paused at PAUSED_TIMEOUT_RECOVERY; the recovery history stays intact",
     )
+    skip_requirements.add_arguments(parser)
     parser.add_argument(
         "--plan-review-full",
         action="store_true",

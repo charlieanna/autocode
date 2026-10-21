@@ -1133,7 +1133,8 @@ or completion proof; the existing CLI approval checks remain authoritative.
 
 `approved_contract` is the plan in force: the contract that was approved, for as long
 as that approval holds. It has `revision`, `hash`, `token` (the `r<revision>:<hash>`
-that was approved), `task_id`, `approved_at` and `body`, the full approved contract
+that was approved), `task_id`, `approved_at`, `approval_source` (`skip_to_build` when the
+person chose on starting the run to approve the reviewed plan, otherwise `person`) and `body`, the full approved contract
 body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
 end-to-end flow, technical approach, milestones and the rest) copied as saved. It also has
 `goal_hash`, the SHA-256 of that body (what `autocode plan --check FILE` prints for a file
@@ -1169,7 +1170,8 @@ person, `workflow_policy` for a small bug fix approved under the workflow policy
 `contract_token` (the plan token approved, or the draft an edit installed; null for a review,
 a completion acceptance or a resume), `criterion` (the accepted criterion, null otherwise),
 `pause_status` (the pause a resume took the run out of, such as `PAUSED_TIME_LIMIT`, or the
-one a pause intervention interrupted; null otherwise) and `provenance`: `git_user_name`,
+one a pause intervention interrupted; null otherwise), `source` (`skip_to_build` for a plan
+approved because the run was started with `--skip-to-build`; null otherwise) and `provenance`: `git_user_name`,
 `git_user_email`, `host`, `command` (`autocode`, the `resume` command word when typed, and
 the invocation's option names, never their values) and `claimed_as` (the `--as` name, or
 null). None of it is verified ([Who approved](execution.md#who-approved)). `provenance` is
