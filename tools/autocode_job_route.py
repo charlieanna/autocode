@@ -111,7 +111,7 @@ def _cause(failure, state: RunState, classify) -> str | None:
     provider exit. Such an ``exit`` is classified from its archived events with ``classify``
     (autocode_support.failure_status), the way the stop itself was; without them the cause is unknown.
     """
-    cause = failure.get("pause_status") or _CAUSE.get(failure.get("kind"))
+    cause = quota_route.job_stop_status(failure) or _CAUSE.get(failure.get("kind"))
     if cause:
         return cause
     if failure.get("kind") != "exit":
@@ -145,12 +145,12 @@ def _no_route(failure, state: RunState, classify=None) -> str:
     if cause is None:
         return (
             f"The stopped {job} takes no other model: only a job stopped on quota, a content-filter "
-            f"refusal or an output limit does, and this stop saved no model question; inspect its saved reason and retry it "
+            f"refusal, output limit or provider authentication does, and this stop saved no model question; inspect its saved reason and retry it "
             f"with {_RETRY}"
         )
-    if cause not in quota_route.STATUSES:
+    if cause not in quota_route.JOB_STATUSES:
         return (
-            f"The stopped {job} did not stop on quota, a content-filter refusal or an output limit, so it takes no other "
+            f"The stopped {job} did not stop on quota, a content-filter refusal, output limit or provider authentication, so it takes no other "
             f"model; inspect it and retry it with {_RETRY}"
         )
     stopped = (
@@ -158,6 +158,8 @@ def _no_route(failure, state: RunState, classify=None) -> str:
         if cause == quota_route.REFUSAL_STATUS
         else "exhausted its response output limit"
         if cause == quota_route.OUTPUT_STATUS
+        else "failed provider authentication"
+        if cause == quota_route.AUTH_STATUS
         else "stopped on quota"
     )
     if "pause_status" not in failure:
@@ -171,6 +173,8 @@ def _no_route(failure, state: RunState, classify=None) -> str:
         if cause == quota_route.QUOTA_STATUS
         else "only its exact retry applies, on the same model, which may exhaust its output limit again: "
         if cause == quota_route.OUTPUT_STATUS
+        else "after repairing provider authentication, retry it unchanged with "
+        if cause == quota_route.AUTH_STATUS
         else "only its exact retry applies, on the same model, which is likely to refuse it again: "
     )
     return f"The stopped {job} {stopped}, but {why}, so it takes no other model; {retry}{_RETRY}"
@@ -206,7 +210,10 @@ def answer(runner, args, state: RunState, run_dir, workspace):
         if args.delegate or args.delegate_all:
             raise ValueError("A model question has no default to delegate; name the model yourself")
         candidate["job_failure"]["route"] = copy.deepcopy(route)
-        asked, model = quota_route.parse_answer(args.answer, [route], {"pause_status": failure.get("pause_status")})
+        candidate["job_failure"]["pause_status"] = quota_route.job_stop_status(failure)
+        asked, model = quota_route.parse_answer(
+            args.answer, [route], {"pause_status": quota_route.job_stop_status(failure)}
+        )
         role = asked["route_role"]
         if failure.get("pause_status") in (
             quota_route.REFUSAL_STATUS,

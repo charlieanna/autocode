@@ -53,16 +53,21 @@ QUOTA_STATUS = "PAUSED_BUDGET"
 REFUSAL_STATUS = provider_refusal.STATUS
 OUTPUT_STATUS = output_cap.STATUS
 STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS)
+AUTH_STATUS = "PAUSED_AUTH"
+# Authentication rerouting is limited to retained workflow jobs with exact tokens.
+JOB_STATUSES = STATUSES + (AUTH_STATUS,)
+JOB_PREFLIGHT_PAUSES = (AUTH_STATUS, "PAUSED_BILLING_ROUTE")
 # The cross-model guard is the same kind of model question: a person names the
 # verifier's next model. It is not a provider stop, so it is kept out of STATUSES
 # (which classify attempt failures) and added to MODEL_STOPS for --answer.
 CROSS_MODEL_STATUS = "PAUSED_CROSS_MODEL"
 CROSS_CAUSE = "cross_model"
-MODEL_STOPS = STATUSES + (CROSS_MODEL_STATUS,)
+MODEL_STOPS = JOB_STATUSES + (CROSS_MODEL_STATUS,)
 _STOPPED = {
     QUOTA_STATUS: "stopped on quota",
     REFUSAL_STATUS: "its provider's content filter refused",
     OUTPUT_STATUS: "exhausted its response output limit",
+    AUTH_STATUS: "failed provider authentication",
 }
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
@@ -145,6 +150,11 @@ def _routable(state: RunState, record: dict) -> str | None:
     return None
 
 
+def job_stop_status(failure: dict) -> str | None:
+    """Include retained pre-auth-routing failures without mutating their evidence."""
+    return failure.get("pause_status") or (AUTH_STATUS if failure.get("kind") == "provider_auth" else None)
+
+
 def job_pause_current(state: RunState) -> bool:
     """True when ``job_failure`` is the pause the run is in now.
 
@@ -154,7 +164,20 @@ def job_pause_current(state: RunState) -> bool:
     only set ``job_failure``, keep the exact retry.
     """
     failure = state.get("job_failure") or {}
-    if not failure or state.get("status") not in _JOB_PAUSES:
+    if not failure:
+        return False
+    status = state.get("status")
+    if status in JOB_PREFLIGHT_PAUSES:
+        authorization = state.get("job_retry_authorization") or {}
+        if (
+            state.get("active_stage")
+            or authorization.get("consumed") is not False
+            or authorization.get("token") != failure.get("job_retry_token")
+            or authorization.get("stage") != failure.get("stage")
+            or state.get("next_stage") != failure.get("stage")
+        ):
+            return False
+    elif status not in _JOB_PAUSES:
         return False
     recovery = state.get("recovery_context") or {}
     if not recovery:
@@ -170,7 +193,7 @@ def job_pause_current(state: RunState) -> bool:
 def _job_row(state: RunState) -> dict | None:
     """The archived attempt of a workflow job paused on quota or a refusal (autocode_job_failure), or None."""
     failure = state.get("job_failure") or {}
-    if not job_pause_current(state) or failure.get("pause_status") not in STATUSES:
+    if not job_pause_current(state) or job_stop_status(failure) not in JOB_STATUSES:
         return None
     return next(
         (
@@ -218,7 +241,7 @@ def job_question(state: RunState) -> dict | None:
     ):
         return None
     return question(
-        state, {"role": role, "stage": row["stage"], "model": bound["model"], "pause_status": failure["pause_status"]}
+        state, {"role": role, "stage": row["stage"], "model": bound["model"], "pause_status": job_stop_status(failure)}
     )
 
 
@@ -259,7 +282,7 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
     events = record.get("events")
     role = _routable(state, record)
     if kind == "job":
-        status = state["job_failure"]["pause_status"]  # classified when the job stopped
+        status = job_stop_status(state["job_failure"])  # classified when the job stopped
     else:
         try:
             status = failure_status(events) if events and Path(events).is_file() else None
@@ -270,7 +293,7 @@ def stopped_attempt(state: RunState, *, failure_status) -> dict | None:
             status = failure_status(events, record=record)
         except (OSError, ValueError, TypeError):
             status = None
-    if not role or status not in STATUSES:
+    if not role or status not in (JOB_STATUSES if kind == "job" else STATUSES):
         return None
     bound = (
         state["job_failure"].get("configuration")
@@ -334,6 +357,17 @@ def question(
         "cause": "quota",
         "stopped_model": stopped_on,
     }
+    if attempt.get("pause_status") == AUTH_STATUS:
+        asked.update(
+            cause="authentication",
+            question=f"{job}'s provider authentication failed; name another model or repair its login",
+            why=(
+                f"The {job} could not authenticate on {stopped_on}. Repair that provider's credentials and retry "
+                "unchanged, or explicitly name a model for the same engine. AutoCode never switches models or "
+                "copies credentials on its own. The exact retry retains the failed attempt, usage and limits."
+            ),
+        )
+        return asked
     if attempt.get("pause_status") == OUTPUT_STATUS:
         asked.update(
             cause="output_limit",
@@ -452,6 +486,11 @@ def advice(asked: dict, attempt_id: str | None, *, kind: str = "stage", answerab
                 "; or, once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage "
                 "--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
             )
+        if asked.get("cause") == "authentication":
+            text += (
+                "; or, after repairing provider authentication, retry it unchanged with --resume-paused "
+                "--retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
+            )
         return text + "." + (" " + asked["recommendation"] if asked.get("recommendation") else "")
     steps = (
         [
@@ -562,7 +601,7 @@ def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
     """(question, model) from ``--answer route-<role>=MODEL`` at a model stop; ValueError otherwise."""
     if (origin or {}).get("pause_status") not in MODEL_STOPS:
         raise ValueError(
-            "Only a quota, content-filter, output-limit or cross-model stop is answered with a model; "
+            "Only a quota, content-filter, output-limit, failed-job authentication or cross-model stop is answered with a model; "
             "use --resolver-response for this request"
         )
     if len(answers) != 1:

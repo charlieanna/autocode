@@ -1705,3 +1705,19 @@ scope. No prior permission or completion gate is silently bypassed.
 The public `needs` includes `permission_decisions`, `permission_decision_limit`, the
 saved blocker reason, and a named feedback action. Plain resume remains held without
 another provider call. All earlier requests, answers and usage remain retained.
+
+### Authentication during an exact job retry
+
+A retained workflow job that failed provider authentication offers the same token-bound
+model answer as other model-related job failures: inspect `view.needs.route`, call
+`TaskRun.assign_model(role, model, job_retry_token=token)`, and then use the newly
+issued `view.needs.job_retry_token` with `TaskRun.retry_job`. The model answer launches
+nothing and preserves effort, other roles, limits and recorded usage. Alternatively,
+repair the existing provider login and retry that exact job unchanged.
+
+If billing or authentication preflight blocks an authorized job retry before the job
+launches, the public view retains that exact job's retry and model-choice actions.
+It does not offer an ordinary Resume that would discard the job's retry boundary.
+An old token, consumed authorization, different next stage or active attempt cannot
+revive a previous failed job. No automatic provider substitution or credential copy
+is performed.

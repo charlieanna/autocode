@@ -259,7 +259,8 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertNotIn("route-sol", questions)
         result = self.launch([*self.args, "--answer", "route-sol=" + OTHER_MODEL], 2)
         self.assertIn(
-            "Only a quota, content-filter, output-limit or cross-model stop is answered with a model", result.stderr
+            "Only a quota, content-filter, output-limit, failed-job authentication or cross-model stop is answered with a model",
+            result.stderr,
         )
         result = self.launch([*self.args, "--answer", questions[0] + "=retry please"], 2)
         self.assertIn("Use --resolver-response for this operational request", result.stderr)
