@@ -63,6 +63,7 @@ def prepare(
     native_environment=None,
     native_image_preparation=None,
     replay_context=None,
+    planning_report_recovery=False,
 ):
     """Return (command, environment, overrides, worker) for one stage launch.
 
@@ -189,6 +190,8 @@ def prepare(
                 containment["private_run"] = str(Path(run_dir).resolve())
         launch_kwargs = {"containment": containment} if containment else {}
         launch_kwargs["env"] = environment
+        if type(adapter) is KiloProvider and not kilo_owner and planning_report_recovery:
+            launch_kwargs["report_recovery"] = True
         if native_image_preparation is not None:
             launch_kwargs["image_preparation"] = native_image_preparation
         if engine == "opencode" and not getattr(adapter, "CONFIGURED", False):
@@ -307,6 +310,7 @@ def prepare(
         session = None
         fresh_reason = "Kilo restricted stages require a fresh session without prior tool grants"
         worker["kilo_readonly_tools"] = True
+        worker["planning_report_recovery"] = planning_report_recovery
     if prior_session and session is None:
         worker["fresh_session_reason"] = (
             fresh_reason or "Native tool containment requires a newly bound provider session"
@@ -374,7 +378,9 @@ def stage_record(worker):
         if worker.get("kilo_readonly_tools"):
             return {
                 **record,
-                "isolation": "Kernel-constrained Kilo shell; other tools disabled"
+                "isolation": "Kilo report-only recovery; all tools disabled"
+                if worker.get("planning_report_recovery")
+                else "Kernel-constrained Kilo shell; other tools disabled"
                 if worker.get("tool_containment")
                 else "Kilo read-tools-only permissions; no shell or OS sandbox",
                 "tool_containment": worker.get("tool_containment"),

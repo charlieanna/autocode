@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- The status view's `cost.breakdown.unpriced` says why each finished unpriced stage has no cost (#1713):
+  no token counts recorded, no model identified, or no rate for its model, naming the models without a rate.
+  The counts are stages, never a guessed amount, and the known spend and cap are unchanged.
+
 - Chat everywhere (#1731, step 2). In a terminal, `autocode-issue start` and `continue` open the run's chat when it
   needs you (`--chat`/`--no-chat` to choose), and every waiting step they print starts with that chat command. A
   `--goal-file` load says to review and approve it in chat. A project's `autocode runs` (and the terminal chat's
@@ -58,6 +62,11 @@ PR template asks for an entry here; a change without one is incomplete.
   Clean-up still keeps worktrees an older program owns, and agents are still denied `.autocode/programs`.
 
 ### Fixed
+
+- A Planner's change that declares an example correction (a stdout count fixed by a receipt) is judged by the
+  example rules alone again. #1691 let a Planner reword its own unapproved criterion, and that allowance also
+  passed a receipt that changed the example's input as well as its output, so a plan could reach approval with
+  a new input. The same change declared as a plain rewording is still the Planner's own to correct.
 
 - VS Code chat: while you read older messages, the Latest button now names the step running now
   ("↓ Now: Tester working") and follows each status read, so a stage change is visible without being moved to the

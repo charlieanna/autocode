@@ -36,3 +36,15 @@ def with_capture_command(prompt: str) -> str:
     if "\n" not in packet.strip():
         return instructions + marker + json.dumps(data, separators=(",", ":"))
     return instructions + marker + json.dumps(data, indent=2)
+
+
+def planning_packet(prompt: str) -> bool:
+    """Whether a runner-owned handoff describes planning, for output instructions."""
+    _, marker, packet = prompt.partition(MARKER)
+    if not marker:
+        return False
+    try:
+        data = json.loads(packet)
+    except ValueError:
+        return False
+    return isinstance(data, dict) and data.get("joint_planning") is True

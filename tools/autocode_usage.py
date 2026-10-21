@@ -141,12 +141,13 @@ def stage_rows(state: RunState, estimator=None):
             cost, basis = guess, "estimated"
         else:
             cost, basis = None, "unknown"
+        row_tokens = {key: _count(tokens.get(key)) for key in TOKEN_KEYS}
         rows.append(
             {
                 "stage": record.get("stage"),
                 "role": str(record.get("role") or record.get("route_role") or ""),
                 "model": model,
-                "tokens": {key: _count(tokens.get(key)) for key in TOKEN_KEYS},
+                "tokens": row_tokens,
                 "partial": metrics.get("provider_tokens_partial") is True,
                 # Process completion is not a passing review or accepted work.
                 "process_outcome": (
@@ -160,9 +161,17 @@ def stage_rows(state: RunState, estimator=None):
                 ),
                 "cost_usd": cost,
                 "basis": basis,
+                "unpriced_reason": _unpriced_reason(model, row_tokens) if basis == "unknown" else None,
             }
         )
     return rows
+
+
+def _unpriced_reason(model, tokens):
+    """Why a stage has no cost (#1713): no token counts recorded, no model identified, or no rate for its model."""
+    if tokens.get("input_tokens") is None or tokens.get("output_tokens") is None:
+        return "usage_missing"
+    return "model_unknown" if not model else "rate_unavailable"
 
 
 def _sum(values):

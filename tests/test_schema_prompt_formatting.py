@@ -19,6 +19,21 @@ class CompactSchemaPromptTests(unittest.TestCase):
         self.assertNotIn("A PASS report", prompt)
         self.assertNotIn("checks[].command", prompt)
 
+    def test_planning_keeps_full_schema_without_execution_or_private_log_instructions(self):
+        schema = {"properties": {"summary": {"type": "string"}, "concerns": {"type": "array"}}}
+        packet = {"joint_planning": True, "goal_contract": {"task": "retained"}}
+        original = "Review the plan\nCURRENT HANDOFF DATA\n" + json.dumps(packet)
+        prompt = opencode.prompt_for_schema(original, schema, Path("/private-run/events.jsonl"))
+        self.assertIn(json.dumps(schema, separators=(",", ":")), prompt)
+        self.assertEqual(packet, json.loads(prompt.split("\nCURRENT HANDOFF DATA\n")[1]))
+        self.assertNotIn("A PASS report", prompt)
+        self.assertNotIn("checks[].command", prompt)
+        self.assertNotIn("/private-run/events.jsonl", prompt)
+        self.assertNotIn("--output .autocode/evidence", prompt)
+        self.assertIn("strict filesystem boundary", prompt)
+        self.assertIn("without tools", prompt)
+        self.assertIn("missing evidence as a concern", prompt)
+
     def test_a_verdict_report_with_assistant_text_keeps_execution_evidence_rules(self):
         schema = {"properties": {"assistant_reply": {"type": "string"}, "checks": {"type": "array"}}}
         prompt = opencode.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", schema, Path("/run/events.jsonl"))

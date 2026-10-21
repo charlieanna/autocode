@@ -840,6 +840,15 @@ class UnapprovedRewordingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
             revision_guard(state, after, changes, "glm_revise")
 
+    def test_a_declared_example_correction_is_not_a_plain_rewording(self):
+        # The receipt claims a count correction the example guard does not accept (no blocking concern
+        # backs it, and the criterion's text changed beyond the literal): the allowance for a Planner's own
+        # unapproved wording must not wave it through. Without the receipt the same text passes (above).
+        state, after, changes = self.inputs()
+        changes[0]["example_correction"] = {"concern_id": "C_COUNT", "before": self.WRONG, "after": self.RIGHT}
+        with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
+            revision_guard(state, after, changes, "glm_revise")
+
     def test_once_approved_every_rewording_needs_the_person(self):
         for fields, history in (
             ({"approval_status": "approved"}, []),

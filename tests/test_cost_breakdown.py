@@ -77,6 +77,27 @@ class CostBreakdownTests(unittest.TestCase):
         self.assertIn("Builder 2 attempts: at least $0.008 (1 interrupted, 1 unpriced)", cost.line(view))
         self.assertEqual(0.008, view["spent_usd"])
 
+    def test_each_unpriced_stage_says_why_without_a_guessed_amount(self):
+        tokens = {"provider_tokens": {"input_tokens": 1000, "output_tokens": 200}}
+        priced = record("terra", model="anthropic/claude-opus-5-5", exit_code=0)
+        unmapped = record("sol", model="vendor/no-such-model", exit_code=0)
+        unnamed = record("astra_review", exit_code=0)
+        for row in (priced, unmapped, unnamed):
+            row["metrics"] = copy.deepcopy(tokens)
+        view = cost.view({"stages": [priced, unmapped, unnamed, record("astra_plan", model="vendor/no-such-model")]})
+        self.assertEqual(3, view["unpriced_stages"])
+        self.assertEqual(
+            {
+                "usage_missing": 1,
+                "model_unknown": 1,
+                "rate_unavailable": 1,
+                "models_without_rate": ["vendor/no-such-model"],
+            },
+            view["breakdown"]["unpriced"],
+        )
+        self.assertEqual(0.008, view["spent_usd"], "an unpriced stage still adds nothing to the known spend")
+        self.assertFalse(view["complete"])
+
     def test_active_workers_are_excluded_and_routing_names_and_repair_purpose_survive(self):
         state = {
             "settings": {"workflow": {"mode": "glm_first_v1"}},

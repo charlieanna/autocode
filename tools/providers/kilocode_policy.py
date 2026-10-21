@@ -43,7 +43,7 @@ def intersect(rules, tools):
     return result
 
 
-def restrict(argv, child, workspace, *, role, request=None):
+def restrict(argv, child, workspace, *, role, request=None, report_recovery=False):
     # A remote server or inherited session could apply different tool grants.
     if any(arg in ("--attach", "--continue", "-c") or arg.startswith("--attach=") for arg in argv):
         raise ValueError("Restricted Kilo stages require a fresh local provider, not attach/continue")
@@ -75,7 +75,9 @@ def restrict(argv, child, workspace, *, role, request=None):
     else:
         selected = debug("config").get("default_agent") or "code"
     original = debug("agent", selected)
-    permitted = ("bash",) if request is not None else READ_TOOLS
+    if report_recovery and request is not None:
+        raise ValueError("Report recovery cannot grant a verification shell")
+    permitted = () if report_recovery else ("bash",) if request is not None else READ_TOOLS
     policy = intersect(original.get("permission"), permitted)
     config = json.loads(child["KILO_CONFIG_CONTENT"])
     agents = config.get("agent", {})
