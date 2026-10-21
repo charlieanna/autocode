@@ -1084,6 +1084,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         if retry:
             need["retry_action"] = retry
             need.setdefault("action", retry)
+        elif blocked := recovery_limits.scoped_retry_unavailable(state):
+            # The hold admits no retry yet; say what must happen first instead of implying a resume will do.
+            need["retry_unavailable"] = blocked
         # A parallel member's model stop whose request a person answered continues only by its own
         # control (#541): --resume-paused --retry-builder M.
         member = member_stop.action(state) if "action" not in need else None

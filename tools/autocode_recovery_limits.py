@@ -137,45 +137,72 @@ def held_request(state: RunState, stage) -> dict:
     return {}
 
 
-def scoped_retry(state: RunState) -> str | None:
-    """``SCOPED_RETRY`` while a novelty hold on the next stage waits for one, with nothing to reconcile first.
+UNSETTLED_REFUSAL = "Reconcile owned active or uncertain workers before authorizing recovery"
+HOLD_STATUSES = ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING")
 
-    Mirrors the saved-state checks of ``autocode_resolver_recovery.authorize_retry``, so the view names
-    the retry only where the CLI would admit it: the hold's own status, and no other pending decision.
-    The CLI still rechecks the source, settings and scope binding when the retry is given (#1770).
+
+def published_request(state: RunState) -> dict | None:
+    """The published AutoResolver request whose ledger entry is still pending, else None.
+
+    The status view's reading of the request. The CLI passes its receipt-verified request
+    (``autocode_resolver_human.current``) to ``scoped_retry_refusal`` instead; this module cannot
+    import that one without a cycle.
     """
-    if not held_request(state, state.get("next_stage")).get("novelty_hold"):
+    # autocode_goals.RESOLVER_REQUEST_KEY; this policy imports no contract module.
+    public = state.get("resolver_human_request")
+    if not isinstance(public, dict):
         return None
+    entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(public.get("request_id"))
+    return public if isinstance(entry, dict) and entry.get("status") == "pending" else None
+
+
+def scoped_retry_refusal(state: RunState, public: dict | None) -> str | None:
+    """Why the saved state cannot take an explicit scoped retry of its novelty hold now, else None.
+
+    The one admission rule for ``--resume-paused --retry-failed-stage`` that reads only saved state:
+    ``autocode_resolver_recovery.authorize_retry`` raises these reasons, and the status view names
+    the retry only when this returns None, or shows the reason instead (#1770). ``public`` is the
+    current published AutoResolver request, or None. The CLI separately rechecks the hold's source,
+    settings and scope binding, which needs the run's files.
+    """
     if any(state.get(key) for key in UNSETTLED):
-        return None
-    if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
-        return None
-    # autocode_goals.RESOLVER_PROPOSAL_KEY / RESOLVER_REQUEST_KEY; this policy imports no contract module.
+        return UNSETTLED_REFUSAL
+    if state.get("status") not in HOLD_STATUSES:
+        return "Scoped recovery retry requires its no-progress hold"
+    if public:
+        entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(public.get("request_id")) or {}
+        origin = ((entry.get("identity") or {}).get("proposal") or {}).get("origin") or {}
+        if public.get("scope") != "operational_exhaustion" or origin.get("pause_status") != "PAUSED_NO_PROGRESS":
+            return "A different human decision cannot grant a recovery retry"
+    # autocode_goals.RESOLVER_PROPOSAL_KEY: AutoResolver's request before it is published.
     pending = state.get("resolver_human_proposal")
     if pending and (
         pending.get("scope") != "operational_exhaustion"
         or (pending.get("origin") or {}).get("pause_status") != "PAUSED_NO_PROGRESS"
         or (pending.get("origin") or {}).get("stage") != state.get("next_stage")
     ):
-        return None
-    public = state.get("resolver_human_request") or {}
-    escalations = (state.get("resolver") or {}).get("human_escalations") or {}
-    entry = escalations.get(public.get("request_id")) if isinstance(public, dict) else None
-    if not (isinstance(entry, dict) and entry.get("status") == "pending"):
-        entry = None
-    if entry and (
-        public.get("scope") != "operational_exhaustion"
-        or ((entry.get("identity") or {}).get("proposal") or {}).get("origin", {}).get("pause_status")
-        != "PAUSED_NO_PROGRESS"
-    ):
-        return None
-    if not (pending or entry) and (
+        return "A different pending decision cannot grant a recovery retry"
+    if not (public or pending) and (
         state.get("status") != "PAUSED_NO_PROGRESS"
         or state.get("pending_questions")
         or (state.get("user_request") or {}).get("kind") not in (None, "none")
     ):
+        return "A different pending decision cannot grant a recovery retry"
+    return None
+
+
+def scoped_retry(state: RunState) -> str | None:
+    """``SCOPED_RETRY`` while a novelty hold on the next stage waits for one and the CLI would admit it."""
+    if not held_request(state, state.get("next_stage")).get("novelty_hold"):
         return None
-    return SCOPED_RETRY
+    return None if scoped_retry_refusal(state, published_request(state)) else SCOPED_RETRY
+
+
+def scoped_retry_unavailable(state: RunState) -> str | None:
+    """Why a novelty hold's one scoped retry cannot be given yet, else None (no hold, or it can)."""
+    if not held_request(state, state.get("next_stage")).get("novelty_hold"):
+        return None
+    return scoped_retry_refusal(state, published_request(state))
 
 
 def _no_progress_reasons(state: RunState, cause):

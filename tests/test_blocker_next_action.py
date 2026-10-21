@@ -160,17 +160,44 @@ class BlockerNeedTests(unittest.TestCase):
         self.assertEqual(["--resume-paused", "--retry-failed-stage"], retry["args"])
         self.assertIn("one more attempt", retry["effect"])
 
-    def test_no_scoped_retry_for_an_unpublished_hold_that_cannot_admit_it(self):
+    def test_an_unpublished_hold_that_cannot_take_the_retry_says_what_comes_first(self):
+        # Each refusal is the CLI's own reason (autocode_resolver_recovery.authorize_retry).
+        cases = {
+            "uncertain attempt": (
+                lambda: self.state.update(uncertain_artifacts=["iterations/002/resolver-02.json"]),
+                recovery_limits.UNSETTLED_REFUSAL,
+            ),
+            "different pending decision": (
+                lambda: self.state[human.PRIVATE].update(scope="blocker"),
+                "A different pending decision cannot grant a recovery retry",
+            ),
+        }
+        for name, (change, reason) in cases.items():
+            with self.subTest(name):
+                self.setUp()  # a fresh run per case
+                self.hold_before_publication()
+                change()
+                need = self.needs()
+                self.assertNotIn("retry_action", need)
+                self.assertNotEqual(recovery_limits.SCOPED_RETRY, need.get("action"))
+                self.assertEqual(reason, need["retry_unavailable"])
+                self.assertNotIn("retry_failed_stage", self.card_actions())
         self.hold_before_publication()
-        self.state["uncertain_artifacts"] = ["iterations/002/resolver-02.json"]
-        self.assertNotIn("retry_action", self.needs())
-        self.hold_before_publication()
-        self.state[human.PRIVATE]["scope"] = "blocker"  # a different pending decision
-        self.assertNotIn("retry_action", self.needs())
-        self.assertNotIn("retry_failed_stage", self.card_actions())
-        self.hold_before_publication()
-        self.state["resolution_request"] = {}  # no novelty hold to retry
-        self.assertNotIn("retry_action", self.needs())
+        self.state["resolution_request"] = {}  # no novelty hold: nothing to retry or explain
+        need = self.needs()
+        self.assertNotIn("retry_action", need)
+        self.assertNotIn("retry_unavailable", need)
+
+    def test_the_view_and_the_cli_share_one_admission_rule(self):
+        # A published request of another kind refuses in both, with the same reason.
+        self.publish_no_progress()
+        public = human.current(self.state)
+        self.assertIsNone(recovery_limits.scoped_retry_refusal(self.state, public))
+        public = {**public, "scope": "blocker"}
+        self.assertEqual(
+            "A different human decision cannot grant a recovery retry",
+            recovery_limits.scoped_retry_refusal(self.state, public),
+        )
 
     def test_a_requirements_question_keeps_its_answer_path(self):
         self.queue_question()

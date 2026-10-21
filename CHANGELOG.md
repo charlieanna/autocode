@@ -15,7 +15,9 @@ PR template asks for an entry here; a change without one is incomplete.
   scoped retry, `--resume-paused --retry-failed-stage`, as its next command and recovery-card action (#1770). The
   status view offered a plain `--resume-paused`, which only held the run again, and the retry was named only in
   prose a thin client must not parse. The view names it only where the CLI would admit it: nothing unsettled, the
-  hold's own status and no different pending decision; the CLI still rechecks the hold's binding.
+  hold's own status and no different pending decision. The view and the CLI now share that one admission rule, and
+  when the retry cannot be given yet, `needs.retry_unavailable` says why instead of implying a resume will do. The
+  CLI still rechecks the hold's source, settings and scope binding.
 
 - A first project whose pinned base holds only a README, a manifest and an empty test package can now complete
   (#1783). The preservation gate accepted only the root README.md, Markdown, .gitignore and empty files, so a base
