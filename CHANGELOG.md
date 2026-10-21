@@ -9,6 +9,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-10-21
+
 ### Added
 
 - A live agent log in the full-screen terminal chat (owner decision 2026-10-21). While AutoCode works, a pane under
