@@ -110,6 +110,9 @@ class ReplayTests(unittest.TestCase):
                 approved_state=state,
             )
         message = str(rejected.exception)
+        self.assertIsInstance(rejected.exception, check_replay.PlannedCheckFailure)
+        self.assertIn("Replay summary:", message)
+        self.assertNotIn("Receipt:", message)
         self.assertIn(
             "Check `python3 -m notes add` is required by the approved verification methods or the current "
             "task's validation plan (the Validator did not report it)",
@@ -118,6 +121,15 @@ class ReplayTests(unittest.TestCase):
         self.assertIn("the plan's author (the Resolver, for a repair task) must reword that step", message)
         self.assertIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, message)
         self.assertNotIn("was reported as exit", message)
+
+        import autocode_report_repair_queue as report_repair_queue
+
+        repair_state = {"settings": {"report_repair": {"max_attempts": 2}}}
+        valid_record = {"exit_code": 0, "source_revision": "rev1"}
+        self.assertFalse(
+            report_repair_queue.queue(repair_state, valid_record, rejected.exception, completed=lambda: True)
+        )
+
         # A failing check the Validator reported keeps its own message.
         with self.assertRaises(ValueError) as reported:
             check_replay.replay(
@@ -127,8 +139,12 @@ class ReplayTests(unittest.TestCase):
                 self.record,
                 run,
             )
+        self.assertNotIsInstance(reported.exception, check_replay.PlannedCheckFailure)
         self.assertIn("was reported as exit 0", str(reported.exception))
         self.assertNotIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, str(reported.exception))
+        self.assertTrue(
+            report_repair_queue.queue(repair_state, valid_record, reported.exception, completed=lambda: True)
+        )
 
     def test_an_unrelated_success_does_not_replace_the_approved_command(self):
         calls = []
