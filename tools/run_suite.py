@@ -75,12 +75,15 @@ from __future__ import annotations
 import argparse
 import ast
 import compileall
+import contextlib
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 import warnings
@@ -440,8 +443,12 @@ def compile_runtime() -> None:
             compileall.compile_dir(str(root), quiet=2)
 
 
-def run_module(module: str, verbosity: int) -> dict:
-    """Run one test module in its own interpreter from the repository root."""
+def run_module(module: str, verbosity: int, timeout: float | None = None) -> dict:
+    """Run one test module in its own interpreter from the repository root.
+
+    With `timeout`, a module still running after that many seconds has its whole process tree ended and is
+    reported as timed out (#1681), with the output it wrote so far, so one hung module cannot hold the run
+    past its step limit and hide which module it was."""
     started = time.monotonic()
     command = [*unprivileged_prefix(), sys.executable, "-m", "unittest"]
     command += (["-v"] if verbosity > 1 else []) + [module]
@@ -449,15 +456,65 @@ def run_module(module: str, verbosity: int) -> dict:
     # test is measuring it for verification. Propagate this to test subprocesses
     # as well; a -B flag on the suite controller alone does not reach them.
     environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-    completed = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True)
-    ran = re.search(r"^Ran (\d+) tests?", completed.stderr, re.MULTILINE)
+    timed_out = False
+    returncode: int | None
+    if timeout is None:
+        completed = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True)
+        returncode, stdout, stderr = completed.returncode, completed.stdout, completed.stderr
+    else:
+        returncode, stdout, stderr, timed_out = _run_bounded(command, environment, timeout)
+    ran = re.search(r"^Ran (\d+) tests?", stderr, re.MULTILINE)
+    output = stdout + stderr
+    if timed_out:
+        output += f"\nrun_suite: {module} was still running after {timeout:g}s; its process tree was ended.\n"
     return {
         "module": module,
-        "ok": completed.returncode == 0,
+        "ok": returncode == 0 and not timed_out,
+        "timed_out": timed_out,
         "seconds": time.monotonic() - started,
         "tests": int(ran.group(1)) if ran else 0,
-        "output": completed.stdout + completed.stderr,
+        "output": output,
     }
+
+
+def _run_bounded(command: list[str], environment: dict, timeout: float) -> tuple[int | None, str, str, bool]:
+    """Run `command` for at most `timeout` seconds in its own process group, ending the whole group on overrun.
+
+    Output goes to files, not pipes: a grandchild that outlives the module (a server a test started) keeps a
+    pipe open, so reading one would wait for it after the module itself was ended."""
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        if sys.platform == "win32":
+            process = subprocess.Popen(
+                command,
+                cwd=REPO_ROOT,
+                env=environment,
+                stdout=out,
+                stderr=err,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+        else:
+            process = subprocess.Popen(
+                command, cwd=REPO_ROOT, env=environment, stdout=out, stderr=err, start_new_session=True
+            )
+        try:
+            returncode, timed_out = process.wait(timeout=timeout), False
+        except subprocess.TimeoutExpired:
+            _end_tree(process)
+            returncode, timed_out = None, True
+        out.seek(0)
+        err.seek(0)
+        return returncode, out.read().decode(errors="replace"), err.read().decode(errors="replace"), timed_out
+
+
+def _end_tree(process: subprocess.Popen) -> None:
+    """End a timed-out module and everything it started, then reap it."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
+        process.kill()
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+    process.wait()
 
 
 # Where unittest's report of failures starts in a module's output: the separator above its first one.
@@ -472,7 +529,9 @@ def failure_report(output: str) -> str:
     return output[found.start() :] if found else output
 
 
-def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "modules") -> bool:
+def run_parallel(
+    modules: list[str], jobs: int, verbosity: int, unit: str = "modules", timeout: float | None = None
+) -> bool:
     """Run each module in its own process, ``jobs`` at a time. A failing module's whole output is printed
     as soon as it finishes, so a slow or hung module cannot hold back a finished failure (#545), and its
     failure report again at the end, so the tracebacks sit above the summary rather than under every later
@@ -486,13 +545,16 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
     started = time.monotonic()
     failed = []
     tests = 0
+    bound = [timeout] if timeout is not None else []
     unprivileged_prefix()  # once, before the workers race to compute it and each print its notice
     with ThreadPoolExecutor(jobs) as pool:
-        for future in as_completed([pool.submit(run_module, module, verbosity) for module in modules]):
+        for future in as_completed([pool.submit(run_module, module, verbosity, *bound) for module in modules]):
             row = future.result()
             tests += row["tests"]
+            # A timed-out module is a failure; its row says so without changing the ok/FAIL column.
+            limit = ", timed out" if row.get("timed_out") else ""
             print(
-                f"{'ok  ' if row['ok'] else 'FAIL'} {row['seconds']:6.1f}s  {row['module']} ({row['tests']} tests)",
+                f"{'ok  ' if row['ok'] else 'FAIL'} {row['seconds']:6.1f}s  {row['module']} ({row['tests']} tests{limit})",
                 flush=True,
             )
             if verbosity > 1 and row["ok"]:
@@ -504,9 +566,11 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
         print("\nThe failures again:")
     for row in failed:
         print(f"\n{'=' * 70}\nFAIL: {row['module']}\n{'=' * 70}\n{failure_report(row['output'])}")
+    timed_out = [row["module"] for row in failed if row.get("timed_out")]
     print(
         f"\nRan {tests} tests in {len(modules)} {unit}, {jobs} at a time, in {time.monotonic() - started:.0f}s: "
         + (f"{len(failed)} module(s) FAILED: " + ", ".join(row["module"] for row in failed) if failed else "OK")
+        + (f" ({len(timed_out)} timed out: {', '.join(timed_out)})" if timed_out else "")
     )
     return not failed
 
@@ -558,6 +622,13 @@ def main(argv: list[str] | None = None) -> int:
         metavar="N",
         help="test modules to run at once, each in its own interpreter "
         "(default: one per CPU; 1 runs everything in this process)",
+    )
+    parser.add_argument(
+        "--module-timeout",
+        type=float,
+        metavar="SECONDS",
+        help="with --jobs above 1, end a test module still running after SECONDS and report it as a timed-out failure "
+        "(default: no limit)",
     )
     args = parser.parse_args(argv)
 
@@ -642,7 +713,7 @@ def main(argv: list[str] | None = None) -> int:
         kept = unittest.TestSuite(test for test in iter_tests(kept) if _module_of(test.id()) in selected)
 
     if args.jobs > 1 and not args.durations:
-        return 0 if run_parallel(modules, args.jobs, args.verbosity) else 1
+        return 0 if run_parallel(modules, args.jobs, args.verbosity, timeout=args.module_timeout) else 1
 
     options = {"durations": args.durations} if args.durations else {}
     runner = unittest.TextTestRunner(verbosity=args.verbosity, **options)

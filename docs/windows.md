@@ -18,7 +18,9 @@ locking, file and process handling, not in the engines.
 
 The `windows-fast-suite` job in `.github/workflows/tests.yml` runs on
 `windows-latest`: install, `autocode --version`, `autocode doctor --json`, then every
-fast test module (`tools/run_suite.py --changed HEAD --all-fast`). It is allowed to
+fast test module (`tools/run_suite.py --changed HEAD --all-fast --module-timeout 600`).
+A module still running after ten minutes has its process tree ended and is reported as a
+timed-out failure, by name, so one hung module cannot hide behind the step limit (#1681). It is allowed to
 fail: every step and the job itself are `continue-on-error`, so it reports progress in
 the job summary and never fails the workflow. Make it required once it is green.
 
