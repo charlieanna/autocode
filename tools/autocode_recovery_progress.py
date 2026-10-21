@@ -1,4 +1,4 @@
-"""Correct pre-build planning recoveries miscounted as implementation batches."""
+"""Reconcile obsolete recovery holds against retained saved progress."""
 
 from __future__ import annotations
 
@@ -8,12 +8,41 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_recovery_accounting as accounting
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_recovery_accounting as accounting
     import autocode_roles as roles
 
 PLANNING = frozenset(roles.ALL_PLANNING_STAGES)
 PRE_BUILD = PLANNING | {"recognize_workflow"}
+
+
+def routine_resume(state: RunState, issued):
+    """An old exhausted request whose own ledger proves intervening success."""
+    if not issued or issued.get("scope") != "operational_exhaustion":
+        return None
+    entry = (state.get("resolver") or {}).get("human_escalations", {}).get(issued.get("request_id"), {})
+    origin = entry.get("identity", {}).get("proposal", {}).get("origin", {})
+    if (
+        entry.get("status") != "pending"
+        or origin.get("pause_status") != "PAUSED_TIMEOUT_RECOVERY"
+        or any(
+            state.get(key)
+            for key in ("active_stage", "active_runner_check", "pending_report_repair", "uncertain_artifacts")
+        )
+    ):
+        return None
+    credit = accounting.progress_credit(state)
+    limit = (state.get("settings") or {}).get("limits", {}).get("no_progress_batches", 3)
+    if (
+        not credit
+        or credit["previous_count"] < accounting.MAX_AUTOMATIC_RECOVERIES
+        or credit["remaining_count"] >= accounting.MAX_AUTOMATIC_RECOVERIES
+        or (limit and accounting.consecutive_timeouts(state) >= limit)
+    ):
+        return None
+    return credit
 
 
 def planning_only_count(state: RunState):
@@ -51,7 +80,7 @@ def planning_only_count(state: RunState):
 
 
 def reconcile(state: RunState, *, issued, approved, supersede, now):
-    """One explicit resume may withdraw only a verified, false pre-build hold.
+    """One explicit resume may withdraw a hold disproved by retained progress.
 
     The caller verifies the current request under the run lock. Unknown history,
     any implementation attempt and stale requests retain their existing hold.
@@ -59,6 +88,25 @@ def reconcile(state: RunState, *, issued, approved, supersede, now):
     """
     if not issued or issued.get("scope") != "operational_exhaustion" or not approved:
         return False
+    credit = routine_resume(state, issued)
+    if credit:
+        reason = "A valid saved stage ended the old run-wide recovery streak; history and usage retained"
+        if not supersede(state, reason):
+            return False
+        state["automatic_recoveries_since_resume"] = credit["remaining_count"]
+        state.setdefault("user_events", []).append(
+            {
+                "kind": "recovery_accounting_correction",
+                "actor": "runner",
+                "at": now(),
+                "request_id": issued["request_id"],
+                **credit,
+                "reason": reason,
+            }
+        )
+        state.update({"status": "RUNNING", "phase": state.get("phase") or "READY_TO_EXECUTE"})
+        state.pop("stop_reason", None)
+        return True
     entry = cast(dict, state.get("resolver", {})).get("human_escalations", {}).get(issued["request_id"], {})
     origin = entry.get("identity", {}).get("proposal", {}).get("origin", {})
     if origin.get("pause_status") != "PAUSED_NO_PROGRESS":

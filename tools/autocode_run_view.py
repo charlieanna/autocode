@@ -57,6 +57,7 @@ try:
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_recovery_progress as recovery_progress
     from . import autocode_recovery_view as recovery_view
     from . import autocode_report_retry as report_retry
     from . import autocode_request_usage as request_usage
@@ -99,6 +100,7 @@ except ImportError:
     import autocode_progressive_plan as progressive_rules
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
+    import autocode_recovery_progress as recovery_progress
     import autocode_recovery_view as recovery_view
     import autocode_report_retry as report_retry
     import autocode_request_usage as request_usage
@@ -925,6 +927,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             "reason": state.get("stop_reason"),
             "producer_run": (state.get("dependency_wait") or {}).get("producer_run"),
             "producer_workspace": (state.get("dependency_wait") or {}).get("producer_workspace"),
+        }
+    issued = state.get("resolver_human_request")
+    if recovery_progress.routine_resume(state, issued):
+        return {
+            "kind": "resume",
+            "action": "--resume-paused",
+            "reason": "Saved progress permits bounded recovery without another slot grant",
         }
     questions = state.get("pending_questions") or []
     reviews = [question for question in questions if question.get("review_criteria")]

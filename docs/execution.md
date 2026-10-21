@@ -1026,17 +1026,27 @@ Builder stage also counts as an unchanged implementation batch; recoveries of
 planning and review stages do not, and unchanged batches never spend the recovery
 ceiling below. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including the Plan Reviewer and Tester.
-A successful stage resets the consecutive-timeout counter. A separate ceiling of
-three automatic recoveries covers timeouts and provider-capacity failures. External-directory
+A valid saved provider stage resets both the consecutive-timeout counter and the
+three-recovery failure streak (#1820). Failed, rejected, interrupted and runner-only
+reports do not renew the streak. Timeouts, startup failures and recoverable network
+failures still have their bounded recovery paths. External-directory
 denials have their own accounting instead: a denial retry never consumes the
 timeout-recovery budget, repeats of the same denied operation hold after one
 workspace-only retry, and distinct denials hold at their own ceiling of three
-recoveries without an accepted stage. Accepted
-intermediate reports and milestone-budget extensions do not reset these ceilings.
-Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
-acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
-history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but
-never disables the three-recovery safety ceiling.
+recoveries without an accepted stage. Milestone-budget extensions do not renew
+recovery. A valid saved stage preserves every failed attempt, token, cost and time
+record; it does not extend any run limit, change a route or approve a plan.
+Three recovery failures without a valid saved stage still stop. A grant remains
+available after inspecting an actually exhausted streak; ordinary resume never
+grants more attempts to an unchanged failure.
+
+Older runs may already be held by the former run-wide counter even after successful
+stages. When the retained recovery/grant ledger balances and proves intervening
+success, status offers ordinary Resume. The core rechecks that request under its
+lock, corrects only the streak and retains a correction receipt, without a slot
+grant. Inconsistent or incomplete history stays held. Every other admission gate,
+including explicit time/cost limits, unchanged-failure holds and plan approval,
+still applies. Setting `--no-progress-limit 0` never disables the streak bound.
 A run held at `PAUSED_NO_PROGRESS` keeps its count. `--resume-paused
 --no-progress-limit N` acknowledges that pause when N is above the count, or `0`;
 an N at or below the count holds without launching the Builder. Information alone

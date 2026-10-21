@@ -104,6 +104,10 @@ PR template asks for an entry here; a change without one is incomplete.
   with instructions to report concerns rather than return or edit contract fields their
   report schema forbids (#1808). Contract-author prompts and the approval/validation gates are unchanged.
 
+- Routine recovery now uses a bounded failure streak between valid saved provider stages (#1820),
+  preserving attempt history and usage. Proven legacy run-wide exhaustion offers ordinary Resume
+  without another slot grant; inconsistent history and all independent admission gates stay held.
+
 ## [0.8.2] — 2026-10-21
 
 ### Added
