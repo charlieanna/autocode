@@ -22,6 +22,7 @@ try:
     from . import autocode_design_intake as design_intake
     from . import autocode_design_job as design_job
     from . import autocode_discuss_job as discuss_job
+    from . import autocode_prompts as prompts
     from . import autocode_review_job as review_job
     from . import autocode_stuck_job as stuck_job
 except ImportError:
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_design_intake as design_intake
     import autocode_design_job as design_job
     import autocode_discuss_job as discuss_job
+    import autocode_prompts as prompts
     import autocode_review_job as review_job
     import autocode_stuck_job as stuck_job
 
@@ -50,6 +52,10 @@ UNIT = {
     acceptance_tests_job.STAGE: "autoreview",
 }
 STAGES = tuple(UNIT)
+
+# The jobs whose report carries evidence rows the runner probes. `investigate_stuck` is not here: its
+# repair prompt already states its own evidence and probe-path policy (autocode_stuck_repair_context).
+PROBING_STAGES = frozenset({discuss_job.STAGE, bug_job.STAGE, design_job.STAGE, design_check_job.STAGE})
 
 
 def ended_in(state: RunState):
@@ -69,8 +75,16 @@ def render(state: RunState, fallback) -> str:
 
 
 def repair_rules(stage: str) -> str:
-    """The job's own report rules for a report-only repair of its stage, or "" when it has none."""
-    return next((getattr(job, "REPAIR_RULES", "") for job in JOBS if stage == job.STAGE), "")
+    """The job's own report rules for a report-only repair of its stage, or "" when it has none.
+
+    A probing stage also gets what a `probe` is. The repair prompt carries the report schema, where a probe
+    is only a string, and a model that guesses wrote an event ID, which the runner then handed to the shell
+    and lost a call over (#1769)."""
+    rules = next((getattr(job, "REPAIR_RULES", "") for job in JOBS if stage == job.STAGE), "")
+    if stage not in PROBING_STAGES:
+        return rules
+    probe = prompts.get("fragments/report-repair-context/evidence-probe.md")
+    return f"{rules}\n{probe}" if rules else probe
 
 
 def repair_context(stage: str, state: RunState) -> dict:

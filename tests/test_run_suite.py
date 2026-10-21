@@ -458,9 +458,24 @@ class ModuleTimeoutTests(unittest.TestCase):
         self.assertEqual((False, True), (result["ok"], result["timed_out"]))
         self.assertIn("still running after 2s", result["output"])
         child = int(re.search(r"^child (\d+)$", result["output"], re.MULTILINE).group(1))
-        stat = Path(f"/proc/{child}/stat")
-        if stat.parent.parent.is_dir():  # Linux: ended means gone, or a zombie no reaper has collected yet
-            self.assertTrue(not stat.exists() or stat.read_text().rpartition(")")[2].split()[0] == "Z")
+        if Path("/proc").is_dir():  # Linux: ended means gone, or a zombie no reaper has collected yet
+            self.assertTrue(self.ended(child), f"process {child} was still alive after the module's tree was ended")
+
+    @staticmethod
+    def ended(pid, within=10.0):
+        """Whether `pid` is gone or a zombie. The kill is asynchronous: a process that has been sent SIGKILL can
+        still be running for a moment on a loaded host, after the module it belonged to was reaped."""
+        deadline = time.monotonic() + within
+        while True:
+            try:
+                state = Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0]
+            except FileNotFoundError:
+                return True
+            if state == "Z":
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
 
     def test_a_timed_out_module_is_a_named_failure_in_its_row_and_the_summary(self):
         def run_module(module, _verbosity, timeout):
