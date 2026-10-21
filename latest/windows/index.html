@@ -2043,7 +2043,9 @@ locking, file and process handling, not in the engines.</p>
 <h2 id="ci">CI<a class="headerlink" href="#ci" title="Permanent link">&para;</a></h2>
 <p>The <code>windows-fast-suite</code> job in <code>.github/workflows/tests.yml</code> runs on
 <code>windows-latest</code>: install, <code>autocode --version</code>, <code>autocode doctor --json</code>, then every
-fast test module (<code>tools/run_suite.py --changed HEAD --all-fast</code>). It is allowed to
+fast test module (<code>tools/run_suite.py --changed HEAD --all-fast --module-timeout 600</code>).
+A module still running after ten minutes has its process tree ended and is reported as a
+timed-out failure, by name, so one hung module cannot hide behind the step limit (#1681). It is allowed to
 fail: every step and the job itself are <code>continue-on-error</code>, so it reports progress in
 the job summary and never fails the workflow. Make it required once it is green.</p>
 <p><code>tests/test_windows_portability.py</code> runs on Linux and fails when a runtime module
