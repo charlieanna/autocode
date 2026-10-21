@@ -879,11 +879,12 @@ def present(state: RunState, run_dir=None):
     return rendered
 
 
-def approve(state: RunState, selected, *, initial_assignment_proof=None):
+def approve(state: RunState, selected, *, initial_assignment_proof=None, source=None):
     # Assignment/eligibility may still reject after seal preflight. Publish no
     # approval, retirement or active pointer unless the whole boundary succeeds.
+    # ``source`` marks an approval the person chose when starting the run (--skip-to-build, #1731).
     candidate = copy.deepcopy(state)
-    _approve(candidate, selected, initial_assignment_proof=initial_assignment_proof)
+    _approve(candidate, selected, initial_assignment_proof=initial_assignment_proof, source=source)
     cast(dict, state).clear()
     state.update(candidate)
 
@@ -899,7 +900,7 @@ def approval_boundary_refusal(state: RunState):
     return None
 
 
-def _approve(state: RunState, selected, *, initial_assignment_proof=None):
+def _approve(state: RunState, selected, *, initial_assignment_proof=None, source=None):
     if reason := approval_boundary_refusal(state):
         raise ValueError(reason)
     contract = cast(dict, state["goal_contract"])
@@ -921,6 +922,8 @@ def _approve(state: RunState, selected, *, initial_assignment_proof=None):
     prepared_progressive = progressive_state.prepare_seal(state, selected)
     recorded_under = finding_rescope.previous_approved(state)
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
+    if source:
+        event["source"] = source
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
     progressive_state.seal(state, selected, prepared=prepared_progressive)

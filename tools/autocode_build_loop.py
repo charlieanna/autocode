@@ -32,6 +32,7 @@ try:
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_skip_requirements as skip_requirements
     from . import autocode_storage_budget as storage_budget
     from . import autocode_support as support
     from . import autocode_workflow as workflow
@@ -55,6 +56,7 @@ except ImportError:
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_skip_requirements as skip_requirements
     import autocode_storage_budget as storage_budget
     import autocode_support as support
     import autocode_workflow as workflow
@@ -370,6 +372,8 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
         resolver_runtime.boundary(runner, current, run_dir, workspace)
+        if skip_requirements.settle(runner, current, run_dir, native=getattr(runner, "native_calls", None)):
+            runner.write_json(state_path, current)  # an unattended worker's defaults or approval (#1731)
         if args.chat and current["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
             if not runner.chat_checkpoint(current, run_dir):
                 runner.write_json(state_path, current)

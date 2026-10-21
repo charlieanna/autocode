@@ -45,6 +45,7 @@ try:
     from . import autocode_role_transport as role_transport
     from . import autocode_roles as role_names
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_skip_requirements as skip_requirements
     from . import autocode_support as support
     from . import autocode_task_preflight as task_preflight
     from . import autocode_utility_route as utility_route
@@ -70,6 +71,7 @@ except ImportError:
     import autocode_role_transport as role_transport
     import autocode_roles as role_names
     import autocode_route_ladder as route_ladder
+    import autocode_skip_requirements as skip_requirements
     import autocode_support as support
     import autocode_task_preflight as task_preflight
     import autocode_utility_route as utility_route
@@ -297,6 +299,10 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         )
     if started and adaptive.resume_refused(state.get("settings") or {}, getattr(args, "adaptive_planning", None)):
         raise ValueError("Adaptive planning is a new-run policy; a saved run keeps its planning flow")
+    if started and skip_requirements.resume_refused(state.get("settings") or {}, args):
+        raise ValueError(
+            "--skip-requirements and --skip-to-build are chosen when a run starts; a saved run keeps its choice"
+        )
     if started and requirements_review.resume_refused(state.get("settings") or {}, getattr(args, "spec_first", None)):
         raise ValueError("--spec-first is a new-run policy; a saved run keeps its planning flow")
     manifest_input = None
@@ -752,6 +758,7 @@ def configure(args, state: RunState, *, planning, milestones, autopilot, opencod
         settings["adaptive_planning"] = True
     if getattr(args, "plan_review_full", False):
         settings["plan_review_full"] = True
+    settings.update(skip_requirements.new_run_settings(args, joint))
     # A persisted review allowance for new runs (#1565): the flag wins, then the
     # user's config.toml, then the machinery's built-in default. A resumed run
     # keeps its saved settings; this applies only where settings are first built.

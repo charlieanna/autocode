@@ -9,8 +9,19 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- `--skip-requirements` and `--skip-to-build` for an unattended worker (#1731, owner decisions 2026-10-21). The first
+  answers each delegable Requirements question with its proposed default, recorded as delegated, and still runs the
+  Planner and Plan Reviewer and waits for a person's plan approval. The second also approves the plan once the Plan
+  Reviewer has finalized it and goes on to build; the approval is recorded as the person's choice, marked
+  `source: skip_to_build` in the status view. A question with no safe default always waits for a person, and without
+  `--skip-to-build` AutoCode never approves its own plan.
+
 ### Changed
 
+- The stuck-stage Investigator on OpenCode is GLM 5.3 whenever the stuck stage runs a GPT model, not only GPT-6 Sol:
+  GPT models are one family, so GPT-6 Sol no longer diagnoses a stuck GPT-6 Luna Builder.
 - The automatic model switch after a quota, content-filter or output stop (#1426 step 9) leaves a model the
   person pinned with `--<role>-model` alone: that stop asks for the next model, as every stop did before the
   switch existed. Automatic selection's own choices still move within the run's permitted set.

@@ -267,8 +267,20 @@ class RunViewTests(unittest.TestCase):
         approved = run_view.view(state)
         shown = approved["approved_contract"]
         self.assertEqual(
-            {"revision", "hash", "token", "task_id", "approved_at", "body", "goal_hash", "plan_file"}, set(shown)
+            {
+                "revision",
+                "hash",
+                "token",
+                "task_id",
+                "approved_at",
+                "approval_source",
+                "body",
+                "goal_hash",
+                "plan_file",
+            },
+            set(shown),
         )
+        self.assertEqual("person", shown["approval_source"])  # not --skip-to-build (#1731)
         # Expected values are public and independent of the saved contract: what the draft view
         # showed for approval, the token it asked for, and the inputs the run was given.
         self.assertEqual(

@@ -644,6 +644,7 @@ class RouteTests(unittest.TestCase):
         # OpenCode runs: Sol, or GLM when the stuck stage runs on Sol.
         self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, "zai-coding-plan/glm-5.3"))
         self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "openai/gpt-6-sol"))
+        self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "openai/gpt-6-luna"))  # one GPT family
         self.assertEqual("opencode", stuck.route(roles, "x")["engine"])
         # Native Codex runs have GPT models only: Sol, or Luna when the stuck stage runs on Sol.
         codex = {"plan_reviewer": {"model": "gpt-6-astra", "engine": "codex"}}
@@ -666,7 +667,8 @@ class RouteTests(unittest.TestCase):
             ("astra", stuck.ROUTE, False, stuck.SCHEMA),
             (request.role, request.route_role, request.allow_write, request.schema),
         )
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"][stuck.ROUTE]["model"])
+        # The stuck Plan Reviewer runs GPT-6 Astra: another GPT model shares its family, so GLM investigates.
+        self.assertEqual("zai-coding-plan/glm-5.3", state["settings"]["roles"][stuck.ROUTE]["model"])
         self.assertNotIn(stuck.ROUTE, state["sessions"])
         self.assertIn('"status": "PAUSED_PLANNING_BUDGET"', request.prompt)
         self.assertIn(str(Path(workspace) / "state.json"), request.prompt)
