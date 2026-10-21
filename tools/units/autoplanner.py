@@ -35,6 +35,7 @@ try:
     from .. import autocode_goals as goals
     from .. import autocode_native_test_names as native_test_names
     from .. import autocode_planning_artifacts as artifacts
+    from .. import autocode_planning_report_policy as report_policy
     from .. import autocode_progressive_state as progressive
     from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_risk_obligations as risk_obligations
@@ -61,6 +62,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_native_test_names as native_test_names
     import autocode_planning_artifacts as artifacts
+    import autocode_planning_report_policy as report_policy
     import autocode_progressive_state as progressive
     import autocode_requirement_cues as requirement_cues
     import autocode_risk_obligations as risk_obligations
@@ -1242,16 +1244,27 @@ def context(state: RunState, stage, state_path):
     if manifest_context:
         packet["design_manifest"] = manifest_context
         figma_instruction += design_manifest.INSTRUCTION
+    author_rules, audit_context, audit_instruction = report_policy.scope_contract_rules(
+        schema_for(state, stage),
+        {
+            "decision_provenance": goals.DECISION_PROVENANCE,
+            "contract_references": goals.CONTRACT_REFERENCES,
+            "revision_conflicts": REVISION_CONFLICT_RULE,
+            "example_criteria": DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE,
+            "milestone_handoff": s.MILESTONE_POLICY,
+        },
+    )
+    packet.update(audit_context)
     planning_policy = (
         ""
         if stage == "requirements_gather"
         else (
-            goals.DECISION_PROVENANCE
-            + goals.CONTRACT_REFERENCES
+            author_rules["decision_provenance"]
+            + author_rules["contract_references"]
             + examples.RULE
-            + s.MILESTONE_POLICY
+            + author_rules["milestone_handoff"]
             + EVIDENCE_FACTS
-            + REVISION_CONFLICT_RULE
+            + author_rules["revision_conflicts"]
             + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
@@ -1292,7 +1305,7 @@ def context(state: RunState, stage, state_path):
     if turn:
         design_rule += prompts.get("fragments/autoplanner/context-02.md")
     if stage != "requirements_gather":
-        design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
+        design_rule += author_rules["example_criteria"]
         # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.
         native = native_test_names.requested(state)
         design_rule += native_test_names.rule(native) if native else ""
@@ -1327,6 +1340,7 @@ def context(state: RunState, stage, state_path):
     )
     prompt = (
         PROMPTS[stage]
+        + audit_instruction
         + memory_rule
         + JOB_TYPE_POLICY
         + design_rule

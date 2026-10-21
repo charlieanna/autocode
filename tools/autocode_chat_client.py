@@ -120,15 +120,19 @@ class History:
         except ValueError:
             raise actions.ClientGap(f"`autocode {' '.join(argv)}` failed: {tail(proc)}") from None
 
+    def connection_rows(self) -> list[dict]:
+        """`connections list`, or none when it cannot be read: the banner and /engine still show the rest."""
+        try:
+            return setup.connections(self.read(["connections", "list", "--json"]))
+        except actions.ClientGap:
+            return []
+
     def summary(self) -> str:
+        rows = self.connection_rows()
         try:
-            default = setup.default_connection(setup.connections(self.read(["connections", "list", "--json"])))
+            return setup.summary(self.read(["modes", "list", "--json"]), self.new, rows)
         except actions.ClientGap:
-            default = None
-        try:
-            return setup.summary(self.read(["modes", "list", "--json"]), self.new, default)
-        except actions.ClientGap:
-            return setup.summary(None, self.new, default)
+            return setup.summary(None, self.new, rows)
 
     def chose(self, done: str) -> str:
         kept = self.new.save(self.workspace)
@@ -145,9 +149,9 @@ class History:
 
     def engine(self, argument: str) -> str:
         if not argument:
-            return setup.engines_text(self.new)
+            return setup.engines_text(self.new, self.connection_rows())
         if (chosen := setup.choose_engine(argument)) is None:
-            return f"There is no engine {argument!r}.\n" + setup.engines_text(self.new)
+            return f"There is no engine {argument!r}.\n" + setup.engines_text(self.new, self.connection_rows())
         self.new.options = setup.with_engine(self.new.options, chosen)
         return self.chose(f"New chats run on {setup.ENGINE_LABELS[chosen]}.")
 
@@ -523,17 +527,24 @@ class ChatClient:
             # Under a notice already said, a new progress line is the only news: say it, not silence.
             if progress.get("line") and (streaming_text or not notice or notice == self.last_notice):
                 self.say(f"  · {progress['line']}")
-        self.last_notice = notice
+        # A brief clear between stages is not a new state: say an identical notice once per turn (#1807).
+        # A run that waits for the person ends the turn, so the notice is said again once it carries on.
+        if notice:
+            self.last_notice = notice
+        elif view.get("done") or (view.get("needs") or {}).get("kind") != "continue":
+            self.last_notice = None
 
     # ---- the conversation ------------------------------------------------------------------
 
     def talk_to(self, workspace: Path, run_dir: Path) -> None:
         """Carry on with another run: its whole conversation is shown afresh. The chat left is watched."""
         self.others[str(self.run_dir)] = (self.workspace, self.identity)
-        self.others.pop(str(run_dir), None)
+        known = self.others.pop(str(run_dir), None)
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.seen, self.said, self.started, self.last_line, self.last_notice = set(), set(), False, (), None
-        self.identity = None
+        # A tab keeps the state last read for it until status() reads it again, so the tabs drawn below never
+        # show a chat that waits for the person as working (#1757); a chat not seen before has none yet.
+        self.identity = known[1] if known else None
         if str(self.run_dir) not in self.tab_order:
             self.tab_order.append(str(self.run_dir))
         if self.switched is not None:

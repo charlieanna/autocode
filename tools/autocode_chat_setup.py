@@ -120,13 +120,25 @@ def default_connection(rows: list[dict]) -> str | None:
     return next((str(row["id"]) for row in rows if row.get("default") is True), None)
 
 
-def summary(listed: dict | None, chosen: NewChat, default: str | None = None) -> str:
-    """One line: what a new chat starts with. Without an --engine or --provider of its own, a new
-    chat runs on the default connection (``default``, from `connections list`), else OpenCode."""
-    mode = mode_label(listed or {}, chosen.mode) if listed else (chosen.mode or "the default mode")
+def backend(chosen: NewChat, default: str | None = None) -> str:
+    """The engine or connection a new chat runs on. Without an --engine or --provider of its own, it is
+    the default connection (``default``, from `connections list`), else OpenCode. The banner, /engine
+    and /connect all name this one, so they agree (#1756)."""
     own = flag_value(chosen.options, "--engine") or flag_value(chosen.options, "--provider")
-    engine = engine_of(chosen.options) if own or not default else default
-    return f"New chats: {mode} · {ENGINE_LABELS.get(engine, engine)}. /mode and /engine change them."
+    return engine_of(chosen.options) if own or not default else default
+
+
+def backend_label(name: str, rows: list[dict] | None = None) -> str:
+    """How ``name`` is shown: an engine's label, else its connection's label, else the id."""
+    row = next((row for row in rows or [] if row["id"] == name), {})
+    return ENGINE_LABELS.get(name) or str(row.get("label") or name)
+
+
+def summary(listed: dict | None, chosen: NewChat, rows: list[dict] | None = None) -> str:
+    """One line: what a new chat starts with, its backend named as `connections list` (``rows``) labels it."""
+    mode = mode_label(listed or {}, chosen.mode) if listed else (chosen.mode or "the default mode")
+    used = backend(chosen, default_connection(rows or []))
+    return f"New chats: {mode} · {backend_label(used, rows)}. /mode and /engine change them."
 
 
 def modes_text(listed: dict, chosen: NewChat) -> str:
@@ -151,11 +163,14 @@ def choose_mode(listed: dict, wanted: str) -> str | None:
     return None
 
 
-def engines_text(chosen: NewChat) -> str:
-    current = engine_of(chosen.options)
+def engines_text(chosen: NewChat, rows: list[dict] | None = None) -> str:
+    """What /engine prints: the engines, the one new chats run on marked, or the connection they use."""
+    current = backend(chosen, default_connection(rows or []))
     lines = [
         f"  {engine}  {ENGINE_LABELS[engine]}" + ("  (current)" if engine == current else "") for engine in ENGINES
     ]
+    if current not in ENGINES:
+        lines.append(f"New chats use the {backend_label(current, rows)} connection ({current}); /connect lists it.")
     lines.append("Type /engine NAME for new chats; /connect checks a backend or signs in to it.")
     return "\n".join(lines)
 
@@ -179,10 +194,10 @@ def connections_text(rows: list[dict], chosen: NewChat) -> str:
     """What /connect prints: each backend's state and the actions it offers."""
     if not rows:
         return "AutoCode lists no connections."
-    provider = flag_value(chosen.options, "--provider")
+    used = backend(chosen, default_connection(rows))
     lines = []
     for row in rows:
-        mark = "  (new chats use it)" if row["id"] == provider else ""
+        mark = "  (new chats use it)" if row["id"] == used else ""
         lines.append(f"  {row['id']}  {row.get('label') or row['id']}: {state(row)}{mark}")
         if row.get("detail"):
             lines.append(f"      {row['detail']}")

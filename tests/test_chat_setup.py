@@ -105,11 +105,25 @@ class ListingTests(unittest.TestCase):
 
     def test_a_new_chat_runs_on_the_default_connection_unless_it_names_one(self):
         rows = [{"id": "opencode"}, {"id": "kilo_glm_mimo_gpt", "default": True}]
-        default = setup.default_connection(rows)
-        self.assertEqual("kilo_glm_mimo_gpt", default)
-        self.assertIn("· kilo_glm_mimo_gpt.", setup.summary(MODES, setup.NewChat(), default))
-        self.assertIn("· Claude Code.", setup.summary(MODES, setup.NewChat(None, ["--engine", "claude"]), default))
+        self.assertEqual("kilo_glm_mimo_gpt", setup.default_connection(rows))
+        self.assertIn("· kilo_glm_mimo_gpt.", setup.summary(MODES, setup.NewChat(), rows))
+        self.assertIn("· Claude Code.", setup.summary(MODES, setup.NewChat(None, ["--engine", "claude"]), rows))
         self.assertIn("· OpenCode.", setup.summary(MODES, setup.NewChat(), None))
+
+    def test_the_banner_engine_and_connect_agree_on_the_default_connection(self):
+        """#1756: with default_provider = "kilocode", the banner said kilocode, /engine OpenCode, and
+        /connect marked nothing."""
+        rows = [{**row, "default": row["id"] == "kilocode"} for row in setup.connections(CONNECTIONS)]
+        chosen = setup.NewChat()
+        self.assertIn("· Kilo.", setup.summary(MODES, chosen, rows), "the label, not the id")
+        engines = setup.engines_text(chosen, rows)
+        self.assertNotIn("(current)", engines, "no engine is the one new chats use")
+        self.assertIn("New chats use the Kilo connection (kilocode)", engines)
+        self.assertIn("  kilocode  Kilo: unavailable  (new chats use it)", setup.connections_text(rows, chosen))
+        self.assertNotIn("OpenCode: not checked  (new chats use it)", setup.connections_text(rows, chosen))
+        claude = setup.NewChat(None, ["--engine", "claude"])  # a choice of its own wins over the default
+        self.assertIn("  claude  Claude Code  (current)", setup.engines_text(claude, rows))
+        self.assertIn("  kilocode  Kilo: unavailable\n", setup.connections_text(rows, claude))
 
     def test_connections_offer_their_own_actions_and_use_only_when_usable(self):
         rows = setup.connections(CONNECTIONS)
