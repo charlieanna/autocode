@@ -638,9 +638,32 @@ class RouteTests(unittest.TestCase):
         pick = lambda roles, stuck_model, provider=None: tuple(
             stuck.route(roles, stuck_model, provider)[k] for k in ("model", "reasoning_effort")
         )
-        # kilocode runs reach Claude through the Kilo Gateway.
-        self.assertEqual((stuck.CLAUDE, "high"), pick(roles, "zai-coding-plan/glm-5.3", "kilocode"))
-        self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, stuck.CLAUDE, "kilocode"))
+        # kilocode runs use the run's own direct routes, never the Resolver's Astra and never a kilo/ gateway
+        # route (user 2026-10-21): the first configured role outside the stuck stage's family.
+        self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, "zai-coding-plan/glm-5.3", "kilocode"))
+        self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "openai/gpt-6-sol", "kilocode"))
+        self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "kilo/anthropic/claude-opus-5.5", "kilocode"))
+        direct = {
+            "plan_reviewer": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "engine": "opencode"},
+            "glm": {"model": "zai-coding-plan/glm-5.3"},
+            "astra": {"model": "kilo/anthropic/claude-opus-5.5"},
+        }
+        self.assertEqual(
+            ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "high"), pick(direct, "zai-coding-plan/glm-5.3", "kilocode")
+        )
+        self.assertEqual(
+            ("zai-coding-plan/glm-5.3", "high"), pick(direct, "xiaomi-token-plan-sgp/mimo-v2.6-pro", "kilocode")
+        )
+        gateway = {
+            "plan_reviewer": {"model": "kilo/anthropic/claude-opus-5.5"},
+            "glm": {"model": "kilo/openai/gpt-6-sol"},
+        }
+        # Only gateway routes configured: the reviewer's own, which prepare_stuck's independence check then judges.
+        self.assertEqual(
+            ("kilo/anthropic/claude-opus-5.5", "high"), pick(gateway, "zai-coding-plan/glm-5.3", "kilocode")
+        )
+        self.assertEqual("glm", stuck.family("zhipuai-coding-plan/glm-5.3"))
+        self.assertEqual(stuck.family("openai/gpt-6-luna"), stuck.family("gpt-6-sol"))
         # OpenCode runs: Sol, or GLM when the stuck stage runs on Sol.
         self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, "zai-coding-plan/glm-5.3"))
         self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "openai/gpt-6-sol"))

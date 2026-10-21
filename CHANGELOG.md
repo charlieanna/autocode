@@ -86,6 +86,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A `kilocode` run's default stuck-stage Investigator is one of the run's own direct routes, the first outside the
+  stuck stage's model family, never the Kilo Gateway's Claude it used to be (#1630). A gateway (`kilo/`) model now
+  needs `--investigator-model`; a run on GLM-5.3 and GPT-5.6 Sol without the flag had sent it to the gateway.
 - Planning handoffs for the stages that write criteria now split each source into numbered sentences
   (`source_sentences`, ids like `task:0#3`, with the requirement rows each sentence supports), and a criterion may cite a
   whole sentence by putting its id in the citation's `quote` (#1630). The runner replaces the id with the verbatim sentence
