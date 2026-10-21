@@ -776,6 +776,16 @@ class TabTests(unittest.TestCase):
             client.slash("/tab", "previous")
         self.assertEqual(RUN, client.run_dir)
 
+    def test_a_chat_switched_to_keeps_its_last_state_until_it_is_read_again(self):
+        """#1757: the tabs drawn on /tab showed a chat that waits for the person as working."""
+        client, other = self.client()
+        client.others[other] = (WORKSPACE, ("approve_plan", "t0"))
+        drawn = []
+        client.tabs_changed = drawn.append
+        with self.assertRaises(chat.Switched):
+            client.slash("/tab", "1")
+        self.assertEqual(["needs you", "needs you"], [row["state"] for row in drawn[0]])
+
     def test_a_long_task_makes_a_short_title(self):
         self.assertEqual("Hierarchical planning", chat.title_of({"task": "# Hierarchical planning\nbody"}))
         self.assertEqual(40, len(chat.title_of({"task": "x" * 99})))
@@ -826,12 +836,29 @@ class StreamAndNoticeTests(unittest.TestCase):
         self.assertIn("· Plan Reviewer working", client.text())
         self.assertIn("· Tester working", client.text())
 
-    def test_a_notice_that_returns_after_a_break_is_said_again(self):
+    def test_a_notice_that_returns_after_a_transient_gap_is_not_said_again(self):
+        client = ScriptedChat({})
+        working = {"chat": {"notice": "Working on your request…"}, "needs": {"kind": "continue"}}
+        client.show({**working, "progress": {"line": "Requirements working"}})
+        client.show({"needs": {"kind": "continue"}, "progress": {"line": "Next: Requirements"}})
+        client.show({**working, "progress": {"line": "Requirements working"}})
+        self.assertEqual(1, client.text().count("Working on your request…"))
+        self.assertIn("· Next: Requirements", client.text())
+        self.assertIn("· Requirements working", client.text())
+
+    def test_a_notice_that_returns_after_the_run_waited_for_the_person_is_said_again(self):
+        client = ScriptedChat({})
+        working = {"chat": {"notice": "Working on your request…"}, "needs": {"kind": "continue"}}
+        client.show(working)
+        client.show({"chat": {"notice": None}, "needs": {"kind": "answer"}})
+        client.show(working)
+        self.assertEqual(2, client.text().count("Working on your request…"))
+
+    def test_a_different_notice_after_a_gap_is_still_said(self):
         client = ScriptedChat({})
         client.show({"chat": {"notice": "Working on your request…"}})
-        client.show({})
-        client.show({"chat": {"notice": "Working on your request…"}})
-        self.assertEqual(2, client.text().count("Working on your request…"))
+        client.show({"chat": {"notice": "Paused as you asked. Your work so far is saved; resume when you’re ready."}})
+        self.assertEqual(1, client.text().count("Paused as you asked"))
 
     def test_the_wait_a_notice_tells_apart(self):
         self.assertEqual(("done",), chat.wait_identity({"done": True}))
@@ -1095,6 +1122,26 @@ class TerminalChatTests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn(b"Nothing started.", seen)
         self.assertFalse((self.workspace / ".autocode" / "runs").exists())
+
+    def test_a_multi_line_paste_keeps_one_line_break_per_line(self):
+        """#1758: the terminal turned each pasted CR into NL, so a CRLF reached the composer as two breaks.
+        Keeping CR as CR leaves Enter, which most terminals send as CR, still sending."""
+        leader, child = self.spawn_terminal()
+        try:
+            read_terminal(leader, until=b"What do you want done?")
+            os.write(leader, b"\x1b[200~Line 1\r\nLine 2\x1b[201~")
+            shown = read_terminal(leader, until=b"Line 2").decode(errors="replace")
+            os.write(leader, b"\x15/help\r")  # Ctrl-U clears the composer; a CR is still Enter
+            read_terminal(leader, until=b"List these commands")
+            os.write(leader, b"\x04")
+            read_terminal(leader)
+        finally:
+            os.close(leader)
+            if child.poll() is None:
+                child.kill()
+        self.assertEqual(2, child.wait(timeout=60))
+        self.assertIn("Line 1↵Line 2", shown)
+        self.assertNotIn("↵↵", shown)
 
     def test_an_error_before_the_conversation_is_shown_after_the_full_screen_closes(self):
         leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), "--mode", "bogus", BRIEF)

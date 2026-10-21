@@ -62,6 +62,7 @@ except ImportError:
 import copy
 import datetime as dt
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -266,21 +267,45 @@ def annotate(state: RunState, status: str, reason: str) -> str:
     return f"{reason}\nInvestigator ({entry['outcome']}): {entry['diagnosis']}{ask}"
 
 
-CLAUDE = "kilo/anthropic/claude-opus-5.5"
+# The run's own direct routes a default Investigator may use, most independent judge first. Never the Resolver's
+# Astra (user 2026-09-28: too expensive) and never a kilo/ gateway route (user 2026-10-21: direct logins only), so a
+# gateway model needs --investigator-model.
+CANDIDATE_ROLES = ("plan_reviewer", "glm", "requirements", "completion", "sol", "terra")
+GATEWAY_PREFIX = "kilo/"
+
+
+def family(model) -> str:
+    """The model family a route belongs to, so the Investigator never judges its own: gpt-6-sol and gpt-6-luna are
+    gpt, zai-coding-plan/glm-5.3 and zhipuai-coding-plan/glm-5.3 are glm, kilo/anthropic/claude-opus-5.5 is claude."""
+    name = str(model or "").rsplit("/", 1)[-1]
+    found = re.match(r"[a-z]+", name.lower())
+    return found.group(0) if found else name
+
+
+def direct_default(roles: dict, stuck_model: str) -> str | None:
+    """The first configured direct route outside the stuck stage's family, in CANDIDATE_ROLES order; None if none."""
+    seen = []
+    for role in CANDIDATE_ROLES:
+        model = str((roles.get(role) or {}).get("model") or "")
+        if not model or model in seen or model.startswith(GATEWAY_PREFIX) or "astra" in model:
+            continue
+        seen.append(model)
+    return next((model for model in seen if family(model) != family(stuck_model)), None)
 
 
 def route(roles: dict, stuck_model: str, provider: str | None = None) -> dict:
-    """The Investigator's default route (user 2026-09-28: no Astra; Claude where the run can reach it).
+    """The Investigator's default route (user 2026-09-28: no Astra; 2026-10-21: no gateway route by default).
 
-    kilocode runs: Claude Opus 5.5 via the Kilo Gateway. OpenCode runs: GPT-6 Sol, or GLM 5.3 when
-    the stuck stage runs on any GPT model (one family). Native Codex runs (GPT only): GPT-6 Sol, or Luna when the stuck
-    stage runs on Sol. A custom provider keeps its reviewer model. Always high effort, on the Plan
-    Reviewer's engine and provider; --investigator-model overrides all of this (pinned_route)."""
+    kilocode runs: the run's own direct routes, the first outside the stuck stage's family (direct_default); the
+    Kilo Gateway's Claude, the old default, bills per token and now needs --investigator-model. OpenCode runs: GPT-6
+    Sol, or GLM 5.3 when the stuck stage runs on any GPT model (one family). Native Codex runs (GPT only): GPT-6 Sol,
+    or Luna when the stuck stage runs on Sol. A custom provider keeps its reviewer model. Always high effort, on the
+    Plan Reviewer's engine and provider; --investigator-model overrides all of this (pinned_route)."""
     base = dict(roles.get("plan_reviewer") or roles.get("astra") or {})
     model, stuck_model = str(base.get("model") or ""), str(stuck_model or "")
-    if provider == "kilocode" and CLAUDE not in stuck_model:
-        choice = CLAUDE
-    elif provider == "kilocode" or model.startswith(("openai/", "zai-coding-plan/", "kilo/")):
+    if provider == "kilocode":
+        choice = direct_default(roles, stuck_model) or model
+    elif model.startswith(("openai/", "zai-coding-plan/", "kilo/")):
         # All GPT models are one family (2026-10-20): a stuck Luna or Sol stage gets GLM's view.
         choice = "zai-coding-plan/glm-5.3" if "gpt-" in stuck_model else "openai/gpt-6-sol"
     elif model.startswith("gpt-"):
@@ -300,8 +325,9 @@ def add_arguments(parser) -> None:
         "--investigator-model",
         help="Pin the stuck-stage Investigator's model for this run; a provider/model id "
         "(e.g. openai/gpt-6-sol) runs it through OpenCode. Automatic runs reuse an independent "
-        "permitted reviewer route. Fixed-route default: Claude Opus 5.5 in "
-        "kilocode runs, otherwise GPT-6 Sol (GLM 5.3 when the stuck stage runs on Sol)",
+        "permitted reviewer route. Fixed-route default: in kilocode runs the run's own direct route outside "
+        "the stuck stage's model family (never a kilo/ gateway route), otherwise GPT-6 Sol (GLM 5.3 when the "
+        "stuck stage runs on Sol)",
     )
     parser.add_argument(
         "--investigator-reasoning-effort",

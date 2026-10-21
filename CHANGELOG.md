@@ -16,6 +16,18 @@ PR template asks for an entry here; a change without one is incomplete.
   repository, which has its own git dir; the runner now names its own excludes file through the provider's
   environment (`core.excludesFile`), for Kilo as well as OpenCode, and the read-only guard and the exclusions
   share one predicate. The user's global ignore rules are kept. `docs/bugs/native-snapshot-excludes.md`.
+- Switching tabs in the terminal chat (`/tab`, Ctrl-←/→) no longer draws the chat switched to as working when it is
+  waiting for the person or done (#1757). The tab kept no state until its status was read again; it now keeps the
+  state last read for it.
+
+- A running chat no longer says `Working on your request…` twice in a row when the status view's notice
+  briefly clears between stages (#1807). The terminal chat says an identical notice once per turn and still
+  shows the progress lines underneath; a different notice, such as a pause, is still said, and the notice is
+  said again once the run carries on after waiting for you.
+- A multi-line bracketed paste into the full-screen terminal chat no longer doubles each line break (#1758). The
+  terminal turned the pasted CR of each CRLF into NL before the chat read it; the chat now keeps CR as typed
+  (`curses.nonl()`) while it is open and restores the terminal's setting when it closes.
+
 - Before a chat is open, the full-screen terminal chat's `/new` and Ctrl-T now say `This is a new chat: type what
   you want done.` (#1759). `/new` answered `/new is not available right now` and Ctrl-T `Tabs switch once a chat is
   open`, though the client already had the right reply; `/new` is now offered in the `/` menu there too.
@@ -87,6 +99,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A `kilocode` run's default stuck-stage Investigator is one of the run's own direct routes, the first outside the
+  stuck stage's model family, never the Kilo Gateway's Claude it used to be (#1630). A gateway (`kilo/`) model now
+  needs `--investigator-model`; a run on GLM-5.3 and GPT-5.6 Sol without the flag had sent it to the gateway.
 - Planning handoffs for the stages that write criteria now split each source into numbered sentences
   (`source_sentences`, ids like `task:0#3`, with the requirement rows each sentence supports), and a criterion may cite a
   whole sentence by putting its id in the citation's `quote` (#1630). The runner replaces the id with the verbatim sentence

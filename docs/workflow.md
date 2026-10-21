@@ -205,10 +205,11 @@ the stage, at the same source, failed with the same error and left the same kind
 (`tools/autocode_failures.py`). Different problems that happen to share an exception type,
 such as missing responses to different concerns, pause as `PAUSED_INVALID_OUTPUT`.
 
-The Investigator runs at high effort on a model different from the stuck stage's: Claude Opus
-5.5 (`kilo/anthropic/claude-opus-5.5`) in `kilocode` runs; otherwise GPT-6 Sol, or GLM 5.3 when
-the stuck stage runs on Sol (GPT-6 Luna in native Codex runs, which have GPT models only). Never
-Astra by default. It runs on a fresh route and session. It reads the task, the saved state and the stuck stage's attempts and returns
+The Investigator runs at high effort on a model different from the stuck stage's: in `kilocode`
+runs the first of the run's own direct routes (Plan Reviewer, Planner, Requirements, Completion,
+Tester, Builder) outside the stuck stage's model family, never a `kilo/` gateway route; otherwise
+GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol (GPT-6 Luna in native Codex runs, which have
+GPT models only). Never Astra by default. A gateway model needs `--investigator-model`. It runs on a fresh route and session. It reads the task, the saved state and the stuck stage's attempts and returns
 a diagnosis, then either guidance for one more attempt or the question only you can answer.
 `--investigator-model MODEL` (and `--investigator-reasoning-effort`) pins the Investigator's model for
 a run instead; a `provider/model` id such as `openai/gpt-6-sol` runs it through OpenCode even in a
