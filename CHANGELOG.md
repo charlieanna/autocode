@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A provider connection that OpenCode marks retryable now gets its one no-effect retry even when it names the loss
+  only generically (`Network connection failed`, with empty `code`/`syscall` and no HTTP status) instead of stopping
+  as `PAUSED_PROVIDER_UNCERTAIN` (#1797). The provider's own retryable flag, a read-only stage, an unchanged
+  workspace and no written files are still required; empty errno fields no longer hide the flag.
+
 - A Planner that declares a rewording while leaving the protected criterion or list entry unchanged no longer
   creates a human wording-choice question (#1791, #1793). Inconsistent change metadata now follows the existing
   report-repair path. Genuine protected wording changes still require the person's decision.
