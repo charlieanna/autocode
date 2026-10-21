@@ -29,9 +29,12 @@ REQUIREMENT_MARKS = {
     "awaiting_review": "?",
     "unchecked": "·",
 }
-ASCII_MARKS = {"✓": "+", "▸": ">", "·": "-", "✗": "x", "?": "?", "±": "~", "$": "$"}
+ASCII_MARKS = {"✓": "+", "▸": ">", "·": "-", "✗": "x", "?": "?", "±": "~", "$": "$", "∴": ":", "»": ">"}
 EVENT_MARKS = {"command": "$", "edit": "±", "tool": "·"}  # a live event's mark, by its kind
 EVENT_ROWS = 6  # how many of the newest events the panel lists
+LIVE_MARKS = {"thinking": "∴", "message": "»", "command": "$", "edit": "±", "tool": "·"}  # a live log entry's mark
+LIVE_KINDS = {"thinking": ("thinking",), "messages": ("message",), "tools": ("command", "edit", "tool")}
+LIVE_LIMIT = 500  # entries the live log keeps
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,7 @@ COMMANDS = (
     Command("/tasks", "Show the task list"),
     Command("/log", "Show how the run has moved so far"),
     Command("/details", "Why the run is where it is"),
+    Command("/live", "Show or hide the live agent log; /live NAME, thinking or tools filters it"),
     Command("/diff", "The saved code steps; /diff N shows what changed since step N"),
     Command("/undo", "Go back to a saved step on a new branch: /undo N"),
     Command("/runs", "Your chats in every project, open and finished; /open N opens one"),
@@ -103,7 +107,7 @@ SWITCHING_COMMANDS = ("/open", "/new", "/tab")
 
 
 # What needs a run to act on: none of these does anything before the first chat is open.
-RUN_COMMANDS = ("/plan", "/tasks", "/log", "/details", "/diff", "/undo", "/new", "/tab", "/panel", "/pause")
+RUN_COMMANDS = ("/plan", "/tasks", "/log", "/details", "/live", "/diff", "/undo", "/new", "/tab", "/panel", "/pause")
 
 
 def commands(*, asking: bool, client: bool = True, run: bool = True) -> list[Command]:
@@ -334,6 +338,60 @@ def text(name: str, view: dict | None, log: StageLog) -> str:
         if section.title == wanted:
             return "\n".join([section.summary, *(f"{row.mark} {row.text}" for row in section.rows)])
     return "There is no plan yet." if name == "/plan" else "There is no task list yet."
+
+
+def log_entries(view: dict | None) -> list[dict]:
+    """The running agents' reasoning, messages and tool calls, oldest first (``chat.log``)."""
+    rows = _rows(_mapping(_mapping(view).get("chat")).get("log"))
+    return [
+        row
+        for row in rows
+        if row.get("kind") in LIVE_MARKS
+        and isinstance(row.get("id"), str)
+        and isinstance(row.get("text"), str)
+        and isinstance(row.get("agent"), str)
+    ]
+
+
+@dataclass
+class LiveLog:
+    """What each agent has thought, said and done, kept across views: the view holds only the newest
+    entries, so each is kept by its id, and a later view of the same entry updates it in place."""
+
+    entries: dict[str, dict] = field(default_factory=dict)
+    filter: str = ""
+
+    def observe(self, view: dict | None) -> bool:
+        """Add the view's new entries and update changed ones; True when anything changed."""
+        changed = False
+        for row in log_entries(view):
+            entry = {key: row.get(key) for key in ("agent", "kind", "text", "status")}
+            if self.entries.get(row["id"]) != entry:
+                self.entries[row["id"]] = entry
+                changed = True
+        for key in list(self.entries)[:-LIVE_LIMIT]:
+            del self.entries[key]
+        return changed
+
+    def agents(self) -> list[str]:
+        return list(dict.fromkeys(entry["agent"] for entry in self.entries.values()))
+
+    def shown(self) -> list[dict]:
+        """The entries the filter keeps: a kind (thinking, messages, tools) or part of an agent's name."""
+        wanted = self.filter.strip().casefold()
+        if not wanted:
+            return list(self.entries.values())
+        if wanted in LIVE_KINDS:
+            return [entry for entry in self.entries.values() if entry["kind"] in LIVE_KINDS[wanted]]
+        return [entry for entry in self.entries.values() if wanted in entry["agent"].casefold()]
+
+    def title(self) -> str:
+        return "LIVE · " + (self.filter.strip() or "all agents")
+
+    def text(self, limit: int = 60) -> str:
+        """The newest entries as plain lines, for where the pane does not fit."""
+        lines = [f"{entry['agent']} {LIVE_MARKS[entry['kind']]} {entry['text']}" for entry in self.shown()[-limit:]]
+        return "\n".join(lines) or "No agent is working right now."
 
 
 def ascii_mark(mark: str) -> str:
