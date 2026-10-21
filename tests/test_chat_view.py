@@ -326,9 +326,28 @@ class ChatViewTests(unittest.TestCase):
             with self.subTest(need=open_need):
                 public = {"status": state["status"], "needs": open_need}
                 result = chat.project(state, public, workspace="/ws", run_dir="/run")
-                self.assertEqual(["requirements-question"], [row["id"] for row in result["messages"]])
+                [message] = result["messages"]
+                self.assertTrue(message["id"].startswith("requirements-question-"))
                 self.assertEqual(question, result["messages"][0]["text"])
                 self.assertIsNone(result["input"])
+
+    def test_each_requirements_question_is_its_own_message(self):
+        # A client shows a message id once, so a shared id hid every question after the first (#1792).
+        def ids(question_id, text):
+            need = {"kind": "answer", "questions": [{"id": question_id, "question": text, "options": []}]}
+            state = {
+                "status": "WAITING_FOR_USER",
+                "settings": {"spec_first": True},
+                "next_stage": "requirements_gather",
+            }
+            result = chat.project(state, {"status": "WAITING_FOR_USER", "needs": need}, workspace="/ws", run_dir="/run")
+            return [row["id"] for row in result["messages"] if row["id"].startswith(chat.REQUIREMENTS_QUESTION)]
+
+        first, again = ids("Q1", "Who is it for?"), ids("Q1", "Who is it for?")
+        second = ids("Q2", "What should happen with no name?")
+        self.assertEqual(first, again, "the same question keeps its id across reads")
+        self.assertEqual(1, len(first))
+        self.assertNotEqual(first, second)
 
     def test_history_preserves_original_request_answers_feedback_and_followups(self):
         state = {
