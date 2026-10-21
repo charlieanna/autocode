@@ -17,7 +17,9 @@ shell command (autocode_cmd_only_report, issue #512) is the same kind of slip wi
 nothing to re-serialize: it gets the same one correction, with its own targeted
 instruction, on any session-capable transport (OpenCode events or Codex) and for
 planning stages too, whose Plan Reviewer is where it was seen. A session is resumed
-only on the route that started it. Runtime services are passed in; this module
+only on the route that started it. Kilo restricted launches always start fresh, so
+they skip this reminder and receive the complete report/schema repair handoff.
+Runtime services are passed in; this module
 imports nothing from the runner.
 """
 
@@ -68,6 +70,15 @@ def session_for(state: RunState, pending, route_role=None) -> str | None:
     elif original.get("engine") != "opencode" or not error.startswith(FORMAT_ERROR) or original.get("planning"):
         return None
     if not stage_supports_sessions(state, original) or not same_route(state, original, route_role):
+        return None
+    settings = state.get("settings") or {}
+    role = route_role or original.get("route_role") or original.get("role")
+    route = (settings.get("roles") or {}).get(role) or {}
+    provider = original.get("provider") or route.get("provider") or settings.get("provider")
+    if original.get("engine") == "opencode" and provider == "kilocode":
+        # Every correction is read-only. The Kilo launch boundary strips its
+        # session to prevent inherited tool grants, so a context-free reminder
+        # cannot work. Leave the original report intact for the full repair.
         return None
     return event_thread_id(Path(original["events"]))
 

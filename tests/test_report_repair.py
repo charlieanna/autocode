@@ -388,6 +388,43 @@ class RepairTests(unittest.TestCase):
         # The correction borrows no repair budget: the full repair remains available.
         self.assertEqual(0, self.state["pending_report_repair"]["attempts"])
 
+    def test_fresh_kilo_repair_receives_report_and_schema_on_its_first_call(self):
+        # The actual restricted Kilo launch discards resume_session. A reminder
+        # alone therefore has neither the previous answer nor its schema.
+        self.state["next_stage"] = "terra"
+        rejected = "Completed implementation, but this final report is not JSON."
+        pending = self.queue(
+            error=self.FORMAT_ERROR,
+            engine="opencode",
+            provider="kilocode",
+            supports_sessions=True,
+            report=rejected,
+        )
+        calls = []
+
+        def fresh_provider(**kwargs):
+            calls.append(kwargs)
+            self.assertIsNone(kwargs.get("resume_session"))
+            self.assertIn("CURRENT HANDOFF DATA\n", kwargs["prompt"])
+            handoff = json.loads(kwargs["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertEqual(rejected, handoff["rejected_report"]["content"])
+            self.assertEqual(Path(pending["original"]["schema"]), kwargs["schema"])
+            self.assertEqual(str(kwargs["schema"]), handoff["original"]["schema"])
+            self.assertFalse(kwargs["allow_write"])
+            self.assertTrue(kwargs["report_only"])
+            return {"summary": "Re-serialized saved report"}, {"stage": "terra_report_repair"}
+
+        with (
+            patch.object(runner, "run_role", side_effect=fresh_provider),
+            patch.object(runner, "account_stage"),
+            patch.object(runner, "accept_repaired_report") as accepted,
+        ):
+            runner.execute_report_repair(self.state, self.run, self.root)
+        self.assertEqual(1, len(calls))
+        accepted.assert_called_once()
+        self.assertEqual(1, pending["attempts"])
+        self.assertNotIn("correction_attempted", pending)
+
     def test_failed_correction_falls_back_to_the_unchanged_full_repair(self):
         self.state["next_stage"] = "terra"
         self.queue(error=self.FORMAT_ERROR, engine="opencode")
