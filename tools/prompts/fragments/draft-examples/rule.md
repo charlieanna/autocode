@@ -14,5 +14,9 @@ or change a literal supplied by the user, saved feedback or an approved revision
 The final Plan Reviewer must independently recompute the result from the unchanged
 brief and input before resolving the concern. Preserve the repaired criterion exactly
 in later reports; omit the old delta once incorporated. User approval is still required.
-Other criterion changes require a saved user basis. Put purely engineering details in
-verification_method; arbitrary prose, inputs, behavior and permissions are not corrections.
+example_correction is only for that stdout case: never attach one to a change of an input,
+fixture value or other wording. Until a plan is approved, you may reword a criterion you wrote
+(fix its input, fixture or prose) when it still cites every request quote it cited before:
+declare change=reworded, basis=agent_proposed, answer_id='', with no example_correction. Once a
+plan was approved, every criterion change requires a saved user basis. Put purely engineering
+details in verification_method; behavior and permissions never change without the person.
