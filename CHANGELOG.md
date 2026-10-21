@@ -18,6 +18,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A planner report that resolves a requirement conflict nobody recorded is now rejected with an error that lists the recorded conflicts, or says none is recorded and `conflict_resolutions` must be `[]`. The report repair sees only that error, so it no longer guesses new requirement-ID groupings until its repairs run out (#1823).
 - The terminal chat's startup run picker now lists runs as `/runs` does (#1754): by their request's title instead
   of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
   run in both. A finished run in between leaves a gap (`Pick one (1, 3), …`).

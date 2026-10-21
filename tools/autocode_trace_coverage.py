@@ -1,4 +1,4 @@
-"""All requirement coverage errors for one plan, with no controller dependencies."""
+"""Requirement coverage and conflict-resolution errors for one plan, with no controller dependencies."""
 
 from __future__ import annotations
 
@@ -42,3 +42,21 @@ def coverage_errors(requirements, by_id, contract, *, covered, cites_user_event)
         if disposition == "superseded" and not cites_user_event(evidence):
             errors.append(f"Requirement {row['id']} cannot be superseded without a saved user event")
     return errors
+
+
+def unrecorded_conflict_error(ids, conflict_sets):
+    # The repair turn sees only this text, so name what would be accepted: a
+    # saved answer that changes a requirement is not a recorded conflict, and
+    # without the recorded sets the model keeps guessing at new ID groupings.
+    message = "Conflict resolution must name exactly one recorded requirement conflict"
+    if not conflict_sets:
+        return (
+            f"{message}: {', '.join(ids)} is not one, and no requirement conflict is recorded in the "
+            "requirements handoff or its history, so conflict_resolutions must be []. Record a saved "
+            "answer that changes a requirement in contract_changes or accepted_assumptions instead"
+        )
+    recorded = "; ".join("[" + ", ".join(sorted(group)) + "]" for group in sorted(sorted(g) for g in conflict_sets))
+    return (
+        f"{message}: {', '.join(ids)} is not one. Recorded conflicts: {recorded}. Resolve only those, "
+        "each listed once with its exact requirement IDs, or leave conflict_resolutions []"
+    )
