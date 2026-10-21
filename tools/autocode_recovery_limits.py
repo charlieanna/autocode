@@ -44,6 +44,11 @@ CONTRACT_DECISION_ADVICE = (
     "(the goal_contract.body shape from state) followed by --approve-goal; information alone changes nothing."
 )
 BOUND_ADVICE = {
+    # #1815: the planning-review total is acknowledged by an allowance or by direction for the Planner.
+    "PAUSED_PLANNING_BUDGET": (
+        "To allow more plan reviews, use autocode --resume-paused --planning-review-call-limit N "
+        "(more than the calls used, or 0 for no limit); or give the Planner direction with --feedback TEXT."
+    ),
     "PAUSED_TIME_LIMIT": (
         "To acknowledge this active-time pause, use autocode resume --max-seconds N "
         "with a total above elapsed active time (and at least the total the stop names for an attempt on a "

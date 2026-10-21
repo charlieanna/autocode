@@ -18,6 +18,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A small-brief run no longer stops before the final review of a revision that answered the Plan Reviewer's blocking
+  concerns (#1815). Under the two-call total (#1564) a live `--skip-to-build` run spent both calls on challenges, the
+  Planner revised, and the run waited for a person with nothing left but that review. The runner now allows that one
+  final review once per run; a limit you set (flag or config.toml) is never raised. The planning-budget pause now
+  names `--resume-paused --planning-review-call-limit N` and `--feedback TEXT`, and its question says "a limit
+  AutoCode set by default" instead of "internal_default".
 - The terminal chat's startup run picker now lists runs as `/runs` does (#1754): by their request's title instead
   of the run directory name, newest first, and under the number `/runs` gives each one, so a number means the same
   run in both. A finished run in between leaves a gap (`Pick one (1, 3), …`).

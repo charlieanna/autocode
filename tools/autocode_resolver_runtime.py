@@ -62,6 +62,12 @@ except ImportError:
 
 
 REVIEW_STAGES = ("astra_challenge", "astra_finalize")
+CATEGORY_WORDS = {
+    "internal_default": "a limit AutoCode set by default",
+    "explicit_user_cap": "a limit you set",
+    "protected_saved_limit": "a saved limit",
+    "no_progress": "a stage that stopped making progress",
+}
 MAX_PLANNING_RECOVERY_GRANTS = 2
 OPERATIONAL_INSTRUCTION = prompts.get("fragments/resolver-runtime/operational-instruction.md")
 
@@ -587,13 +593,17 @@ def record_operational_exhaustion(runner, state: RunState, run_dir, error, *, re
         for name in ("automatic_timeout_recoveries", "automatic_capacity_recoveries", "automatic_permission_recoveries")
     ) + sum(bool(r.get("startup_recovery")) for r in state.get("stages", []))
     # Never "after 0 recoveries" (#511): with none recorded, say none ran.
+    # The category stays in the evidence; the person reads what it means (#1815: "internal_default" did not say).
+    shown = CATEGORY_WORDS.get(category, category)
     decision = (
-        f"AutoResolver could not resolve {category} after {attempts} recorded operational "
+        f"AutoResolver could not resolve {shown} after {attempts} recorded operational "
         f"recover{'y' if attempts == 1 else 'ies'}. "
         if attempts
-        else f"AutoResolver could not resolve {category}; no automatic operational recovery ran. "
+        else f"AutoResolver could not resolve {shown}; no automatic operational recovery ran. "
     ) + "Provide corrective information or leave the run paused."
     options = ["Provide corrective information", "Leave paused"]
+    if error.status == "PAUSED_PLANNING_BUDGET":
+        options.insert(0, "Allow more plan reviews with --planning-review-call-limit N")
     count = runner.recovery_count(state) if callable(getattr(runner, "recovery_count", None)) else attempts
     maximum = int(getattr(runner, "MAX_AUTOMATIC_RECOVERIES", 3) or 3)
     # Advice and grant eligibility share one check (#288): never name a command
