@@ -52,7 +52,7 @@ try:
     from .autocode_requirement_coverage import missing_sentences
     from .autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
-    from .autocode_trace_coverage import coverage_errors
+    from .autocode_trace_coverage import coverage_errors, unrecorded_conflict_error
 except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_answer_options as answer_options
@@ -75,7 +75,7 @@ except ImportError:
     from autocode_requirement_coverage import missing_sentences
     from autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
-    from autocode_trace_coverage import coverage_errors
+    from autocode_trace_coverage import coverage_errors, unrecorded_conflict_error
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
@@ -504,7 +504,7 @@ def check_requirement_trace(state: RunState, report, contract, *, coverage=True)
             raise ValueError("Conflict resolution needs nonempty requirement_ids")
         key = frozenset(ids)
         if len(key) != len(ids) or key not in conflict_sets or not key.issubset(by_id):
-            raise ValueError("Conflict resolution must name exactly one recorded requirement conflict")
+            raise ValueError(unrecorded_conflict_error(ids, conflict_sets))
         if key in resolved:
             raise ValueError("Duplicate requirement conflict resolution")
         basis, answer_id = resolution.get("basis"), resolution.get("answer_id")
