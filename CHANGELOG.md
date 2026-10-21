@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Leaving the full-screen terminal chat at its first question (Ctrl-D or `/quit` at the run picker) no longer leaves
+  the whole run list on the terminal (#1755). Before any conversation, only what the chat said after its last
+  question, such as `Nothing started.`, stays behind.
+
 - A criterion change the Plan Reviewer asked for, which the runner refuses without the person's say, is now the
   person's question at once instead of a report repair (#1630). In a plan nobody approved, when a blocking concern of
   the saved review names the criterion, the refusal becomes the existing rewording question (#1691), naming the

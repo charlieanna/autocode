@@ -112,6 +112,25 @@ class TranscriptTests(unittest.TestCase):
         transcript.add("Done.")
         self.assertEqual(["Done."], transcript.closing())
 
+    def test_leaving_the_first_question_leaves_only_what_was_said_after_it(self):
+        """#1755: Ctrl-D at the run picker left every listed run on the terminal."""
+        transcript = tui.Transcript()
+        transcript.add("Runs waiting here:")
+        transcript.add("  1. r1  Add a flag")
+        transcript.add("  2. r2  Fix the typo")
+        transcript.asked = len(transcript.blocks)  # Pick one (1-2), or type a new request:
+        self.assertEqual([], transcript.closing())
+        transcript.add("Nothing started.")
+        self.assertEqual(["Nothing started."], transcript.closing())
+
+    def test_before_any_question_everything_the_client_said_stays(self):
+        transcript = tui.Transcript()
+        transcript.add("AutoCode stopped: no run mode 'bogus'")
+        transcript.add("Run it yourself:\n  autocode modes list")
+        self.assertEqual(
+            ["AutoCode stopped: no run mode 'bogus'", "Run it yourself:\n  autocode modes list"], transcript.closing()
+        )
+
     def test_the_request_the_person_typed_is_shown_once(self):
         transcript = tui.Transcript()
         transcript.add("You: Add a --shout flag ")
@@ -369,6 +388,16 @@ class AskTests(unittest.TestCase):
 
     def info(self, ui):
         return [text for role, text in ui._transcript.blocks if role == "info"]
+
+    def test_leaving_the_run_picker_leaves_only_the_last_words_on_the_terminal(self):
+        """#1755: the question marks where the client's last words start."""
+        ui = screen_ui("\x04")
+        for line in ("Runs waiting here:", "  1. r1  Add a flag", "  2. r2  Fix the typo"):
+            ui.say(line)
+        with self.assertRaises(EOFError):
+            ui.ask("Pick one (1-2), or type a new request: ")
+        ui.say("Nothing started.")
+        self.assertEqual(["Nothing started."], ui._transcript.closing())
 
     def test_before_a_chat_is_open_the_menu_offers_what_works_without_one(self):
         ui = screen_ui()
