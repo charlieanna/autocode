@@ -327,7 +327,12 @@ def prepare(
         worker["visual_runtime"] = native_image_preparation.context()
     if engine == "opencode" and (not worker["configured"] or type(adapter) is KiloProvider):
         # Read from the scrubbed environment: the cap the process will actually get.
-        worker["output_token_cap"] = output_cap.recorded(os.environ, environment)
+        variable = (
+            output_cap.KILO_VARIABLE
+            if type(adapter) is KiloProvider and native_role_isolation is None
+            else output_cap.VARIABLE
+        )
+        worker["output_token_cap"] = output_cap.recorded(os.environ, environment, variable)
     return command, environment, overrides, worker
 
 
