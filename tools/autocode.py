@@ -13,8 +13,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_planning_recovery_policy as planning_recovery_policy
     from . import autocode_prompts as prompts
 except ImportError:
+    import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompts as prompts
 
 
@@ -586,6 +588,7 @@ def run_role(
         enforce_tool_boundary=not dry_run,
         source_paths=source_scope.paths(state),
         settings=state["settings"],  # the launcher applies the saved #413 opt-out
+        planning_report_recovery=planning_recovery_policy.active(state, original_stage),
         replay_context={
             "stage": stage,
             "iteration": iteration,

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 try:
     from .. import autocode_plan_chat as plan_chat
+    from .. import autocode_planning_recovery_policy as planning_recovery_policy
     from .. import autocode_prompts as prompts
 except ImportError:
     import autocode_plan_chat as plan_chat
+    import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompts as prompts
 
 
@@ -1042,15 +1044,17 @@ def context(state: RunState, stage, state_path):
     predecessor = None
     if stage in V2_STAGES:
         predecessor = artifacts.verify_predecessor(state, stage, Path(state_path).parent)
+    report_recovery = planning_recovery_policy.active(state, stage)
     exchange: dict = copy.deepcopy(state.get("planning", {}))
     for entry in exchange.get("reports", {}).values():
         # Current contract is included once. Older full drafts stay retrievable
         # via the artifact path; every concern, response and decision remains in
         # the handoff because later review stages must account for every ID.
-        entry["report"].pop("contract", None)
+        if not report_recovery:
+            entry["report"].pop("contract", None)
         # Trim verbose fields from older reports to keep the prompt bounded.
         report = entry.get("report") or {}
-        for key in ("code_refs", "alternatives", "uncertainties", "summary"):
+        for key in () if report_recovery else ("code_refs", "alternatives", "uncertainties", "summary"):
             if isinstance(report.get(key), list) and len(report[key]) > 5:
                 report[key] = report[key][:5]
             elif isinstance(report.get(key), str) and len(report[key]) > 500:
@@ -1114,8 +1118,7 @@ def context(state: RunState, stage, state_path):
         for grant in exchange.get("recovery_review_grants", [])
         if not grant.get("consumed") and grant.get("binding", {}).get("stage") == stage
     ]
-    recovery = packet["recovery_context"] or {}
-    if grants or (stage in ("astra_challenge", "astra_finalize") and recovery.get("stage") == stage):
+    if report_recovery:
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
         except ImportError:
@@ -1123,6 +1126,7 @@ def context(state: RunState, stage, state_path):
         packet["resolver_remediation"] = {
             "receipt_id": grants[0]["id"] if grants else None,
             "instruction": OPERATIONAL_INSTRUCTION,
+            "report_only": True,
         }
         recovery_instruction = "\n" + OPERATIONAL_INSTRUCTION + "\n"
     if stage in ("astra_challenge", "astra_finalize") and (grants or packet["recovery_context"]):
