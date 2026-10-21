@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Leaving the full-screen terminal chat at its first question (Ctrl-D or `/quit` at the run picker) no longer leaves
+  the whole run list on the terminal (#1755). Before any conversation, only what the chat said after its last
+  question, such as `Nothing started.`, stays behind.
+
 - The terminal chat's banner, `/engine` and `/connect` now agree on what new chats use when the user config sets
   `default_provider` (#1756). The banner named the default connection by its id, `/engine` marked OpenCode current
   and `/connect` marked nothing. All three now read one rule (`autocode_chat_setup.backend`): the banner shows the
