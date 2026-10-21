@@ -57,6 +57,8 @@ sentence, and each R row carries its quote.
 
 ## Step 1: name uncited sentences when the draft arrives
 
+*Status: implemented in #1787.*
+
 **Today.** `_bind_plan` validates citations (`check_citations`: each quote is verbatim)
 and requirement rows, but sentence coverage runs only inside `check_ready`, which runs
 only on a sealed body. A draft that leaves a sentence uncited reaches the Plan Reviewer,
