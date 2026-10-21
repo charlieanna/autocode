@@ -123,8 +123,9 @@ def check_citations(body, records):
             source = by_id.get(citation.get("source_id"))
             quote = str(citation.get("quote", "")).strip()
             if source is None or not quote or not quoted(quote, source["text"]):
+                hint = " (no such sentence id)" if SENTENCE_ID.match(quote) else ""
                 raise ValueError(
-                    f"Criterion {row.get('id')} cites {citation.get('source_id')} without quoting it verbatim"
+                    f"Criterion {row.get('id')} cites {citation.get('source_id')} without quoting it verbatim{hint}"
                 )
             key = (citation["source_id"], quote)
             if key in seen:
@@ -320,6 +321,52 @@ def _turn_scoped(state: RunState, records):
     marker = "feedback:" + turn["event_id"]
     ids = [row["id"] for row in records]
     return quotable(records[ids.index(marker) :] if marker in ids else records)
+
+
+SENTENCE_ID = re.compile(r"^(?P<source>.+)#(?P<number>[1-9][0-9]*)$")
+
+
+def sentence_rows(state: RunState, records, requirement_rows=()):
+    """Every sentence a criterion set must cover, numbered per source, as ``source_sentences`` shows them.
+
+    ``id`` is ``<source id>#<n>`` over the source's own sentence list (the list the coverage check walks), and
+    ``requirement_ids`` names the requirement rows whose ``source_quote`` supports the sentence, so a Planner
+    maps rows to sentences by id instead of by comparing text (#1630). The text is in source_inventory too."""
+    rows = []
+    for record in _turn_scoped(state, records):
+        for number, sentence in enumerate(cues.sentences(record["text"]), 1):
+            rows.append(
+                {
+                    "id": f"{record['id']}#{number}",
+                    "source_id": record["id"],
+                    "text": sentence,
+                    "requirement_ids": [
+                        row["requirement_id"]
+                        for row in requirement_rows
+                        if row.get("source_quote") and _covered(sentence, [row["source_quote"]], spans=True)
+                    ],
+                }
+            )
+    return rows
+
+
+def resolve_sentence_ids(contract, records):
+    """Replace each citation whose quote is a sentence id by that sentence's verbatim text, in place.
+
+    Everything after this (citation checks, coverage, survival, the seal, the saved contract) sees verbatim quotes
+    only. An id that names no sentence is left as written, so the citation check refuses it."""
+    by_id = {row["id"]: row for row in records}
+    for row in (contract or {}).get("acceptance_criteria") or []:
+        for citation in row.get("sources") or []:
+            if not isinstance(citation, dict) or not isinstance(citation.get("quote"), str):
+                continue
+            match = SENTENCE_ID.match(citation["quote"].strip())
+            source = by_id.get(citation.get("source_id"))
+            if match is None or source is None or match["source"] != citation["source_id"]:
+                continue
+            sentences = cues.sentences(source["text"])
+            if int(match["number"]) <= len(sentences):
+                citation["quote"] = sentences[int(match["number"]) - 1]
 
 
 def uncited_sentences(state: RunState, body, records):

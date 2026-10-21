@@ -345,6 +345,76 @@ class ReadyGateTests(unittest.TestCase):
             self.ready(draft, out)
 
 
+class SentenceIdTests(unittest.TestCase):
+    """Criteria cite a whole sentence by id; the runner resolves it to the verbatim text first (#1630)."""
+
+    FIRST = "Build a batch CLI."
+    SECOND = "`cli run FILE` processes up to 5000 rows and exits 0."
+    THIRD = "Do not build a web UI."
+    TEXT = " ".join((FIRST, SECOND, THIRD))
+
+    def setUp(self):
+        self.state = make_state(self.TEXT)
+        self.records = obligations.sources(self.state)
+
+    def test_sentences_are_numbered_per_source_and_map_the_requirement_rows(self):
+        rows = trace.sentence_rows(
+            self.state,
+            self.records,
+            [
+                {"requirement_id": "R1", "source_quote": "processes up to 5000 rows"},
+                {"requirement_id": "R2", "source_quote": self.THIRD},
+                {"requirement_id": "R3", "source_quote": ""},
+                {"requirement_id": "R4", "source_quote": "text from no source"},
+            ],
+        )
+        self.assertEqual(
+            [("task:0#1", self.FIRST, []), ("task:0#2", self.SECOND, ["R1"]), ("task:0#3", self.THIRD, ["R2"])],
+            [(row["id"], row["text"], row["requirement_ids"]) for row in rows],
+        )
+        self.assertEqual({"task:0"}, {row["source_id"] for row in rows})
+
+    def test_a_control_reply_gets_no_sentence_and_numbering_does_not_shift(self):
+        event = {"kind": "answer", "actor": "user_cli", "question_id": "requirements-review-0123abcd", "text": "plan"}
+        source_log.save_answer(self.state, "requirements-review-0123abcd", event)
+        self.state.setdefault("user_events", []).append(event)
+        rows = trace.sentence_rows(self.state, obligations.sources(self.state))
+        self.assertEqual(["task:0#1", "task:0#2", "task:0#3"], [row["id"] for row in rows])
+
+    def resolved(self, *quotes, source_id="task:0"):
+        draft = body([criterion("C1", "A criterion", list(quotes), source_id=source_id)])
+        trace.resolve_sentence_ids(draft, self.records)
+        return [citation["quote"] for citation in draft["acceptance_criteria"][0]["sources"]]
+
+    def test_an_id_becomes_the_sentence_and_everything_else_is_left_alone(self):
+        self.assertEqual([self.SECOND, self.FIRST], self.resolved("task:0#2", "task:0#1"))
+        self.assertEqual([self.SECOND], self.resolved(self.SECOND))
+        self.assertEqual(["processes up to 5000 rows"], self.resolved("processes up to 5000 rows"))
+        self.assertEqual(["task:0#4"], self.resolved("task:0#4"))  # past the last sentence
+        self.assertEqual(["task:0#0"], self.resolved("task:0#0"))
+        self.assertEqual(["answer:other#1"], self.resolved("answer:other#1"))  # another source's id
+        self.assertEqual(["task:0#1"], self.resolved("task:0#1", source_id="answer:other"))  # no such source
+
+    def test_a_resolved_citation_is_checked_and_covers_like_its_quote(self):
+        draft = body([criterion("C1", self.TEXT + " never no", ["task:0#1", "task:0#2", "task:0#3"])])
+        trace.resolve_sentence_ids(draft, self.records)
+        trace.check_citations(draft, self.records)
+        self.assertEqual([], trace.uncited_sentences(self.state, draft, self.records))
+        trace.check_ready(draft, self.records, wrapper())
+
+    def test_an_id_that_names_no_sentence_is_refused_with_a_hint(self):
+        draft = body([criterion("C1", "A criterion", ["task:0#9"])])
+        trace.resolve_sentence_ids(draft, self.records)
+        with self.assertRaisesRegex(ValueError, r"without quoting it verbatim \(no such sentence id\)"):
+            trace.check_citations(draft, self.records)
+
+    def test_two_ids_for_one_sentence_are_the_duplicate_citation_they_resolve_to(self):
+        draft = body([criterion("C1", "A criterion", ["task:0#2", self.SECOND])])
+        trace.resolve_sentence_ids(draft, self.records)
+        with self.assertRaisesRegex(ValueError, "twice"):
+            trace.check_citations(draft, self.records)
+
+
 class ControlReplyTests(unittest.TestCase):
     """Replies that only steer a runner-written question are not requirements to quote (#1630)."""
 

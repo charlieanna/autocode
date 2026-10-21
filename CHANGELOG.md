@@ -82,6 +82,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Planning handoffs for the stages that write criteria now split each source into numbered sentences
+  (`source_sentences`, ids like `task:0#3`, with the requirement rows each sentence supports), and a criterion may cite a
+  whole sentence by putting its id in the citation's `quote` (#1630). The runner replaces the id with the verbatim sentence
+  before any check, so saved contracts, the seal and the source log are unchanged. A verbatim quote still works, and a
+  span inside a sentence still needs one.
 - Replies that only steer a question the runner wrote are no longer sources every plan must quote (#1630):
   `plan` to the Requirements review, and `Accept the new wording` or `Keep the approved wording` on a rewording
   question. They are registered once, by the runner's own question ids, in `autocode_control_replies`; a correction
