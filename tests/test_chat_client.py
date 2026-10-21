@@ -1104,6 +1104,26 @@ class TerminalChatTests(unittest.TestCase):
         self.assertIn(b"Nothing started.", seen)
         self.assertFalse((self.workspace / ".autocode" / "runs").exists())
 
+    def test_a_multi_line_paste_keeps_one_line_break_per_line(self):
+        """#1758: the terminal turned each pasted CR into NL, so a CRLF reached the composer as two breaks.
+        Keeping CR as CR leaves Enter, which most terminals send as CR, still sending."""
+        leader, child = self.spawn_terminal()
+        try:
+            read_terminal(leader, until=b"What do you want done?")
+            os.write(leader, b"\x1b[200~Line 1\r\nLine 2\x1b[201~")
+            shown = read_terminal(leader, until=b"Line 2").decode(errors="replace")
+            os.write(leader, b"\x15/help\r")  # Ctrl-U clears the composer; a CR is still Enter
+            read_terminal(leader, until=b"List these commands")
+            os.write(leader, b"\x04")
+            read_terminal(leader)
+        finally:
+            os.close(leader)
+            if child.poll() is None:
+                child.kill()
+        self.assertEqual(2, child.wait(timeout=60))
+        self.assertIn("Line 1↵Line 2", shown)
+        self.assertNotIn("↵↵", shown)
+
     def test_an_error_before_the_conversation_is_shown_after_the_full_screen_closes(self):
         leader, child = self.spawn_terminal("chat", "--workspace", str(self.workspace), "--mode", "bogus", BRIEF)
         try:
