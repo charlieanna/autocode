@@ -5,6 +5,7 @@ Native support is not a configuration flag and cannot fall back to that path.
 """
 
 import json
+import re
 from pathlib import Path
 
 from . import command, kilocode_policy
@@ -13,6 +14,21 @@ try:
     from .. import autocode_output_cap as output_cap
 except ImportError:
     import autocode_output_cap as output_cap
+
+# The qualified Kilo release. Restricted stages already refuse another version
+# (autocode_tool_containment); this is the same pin at the point a launch would
+# otherwise reach the model, so a wrong install stops before any spend.
+RELEASE_VERSION = "7.8.3"
+
+
+def check_version(version):
+    """Refuse a Kilo other than the qualified release; no provider request is launched."""
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:[-+][\w.-]+)?", (version or "").strip())
+    if not match or ".".join(match.groups()) != RELEASE_VERSION:
+        raise RuntimeError(
+            f"kilocode requires Kilo {RELEASE_VERSION} (found {version or 'no version'}); "
+            "no provider request was launched"
+        )
 
 
 class KiloProvider(command.CommandProvider):
@@ -107,6 +123,11 @@ class KiloProvider(command.CommandProvider):
             containment=containment,
             image_preparation=image_preparation,
         )
+
+    def local_settings(self, workspace=None, *, env=None):
+        settings = super().local_settings(workspace, env=env)
+        check_version(settings.get("version"))
+        return settings
 
 
 def load(name):

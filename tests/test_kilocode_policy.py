@@ -12,12 +12,22 @@ from unittest.mock import patch
 
 import autocode_output_cap as output_cap
 import autocode_provider_launch as launch
-from providers import kilocode_policy as policy
+from providers import kilocode, kilocode_policy as policy
 
 from tests import test_kilo_progress as progress_tests
 
 
 class KiloPolicyTests(unittest.TestCase):
+    def test_the_qualified_kilo_release_is_the_only_one_a_launch_accepts(self):
+        for version in ("7.8.3", "7.8.3-issue1063-source"):
+            with self.subTest(version=version):
+                kilocode.check_version(version)
+        for version in ("7.8.12", "7.8.2", "kilo 7.8.3", "", None):
+            with self.subTest(version=version), self.assertRaisesRegex(
+                RuntimeError, "no provider request was launched"
+            ):
+                kilocode.check_version(version)
+
     def test_intersection_preserves_ordered_operator_denies_and_blocks_unknown_tools(self):
         rules = [
             {"permission": "*", "pattern": "*", "action": "allow"},
