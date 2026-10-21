@@ -825,7 +825,11 @@ credit pauses the run with `PAUSED_BUDGET`.
 
 ### KiloCode
 
-`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`.
+`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run --auto`,
+and on Linux a launch refuses any release but the qualified **7.8.3** (`npm install -g
+@kilocode/cli@7.8.3`): restricted read-only and planning stages need its kernel
+shell, so a newer Kilo stops before any spend instead of running uncontained. macOS
+has no such shell and no pin; its checkers run as described above (#1766).
 Its default routes use ChatGPT OAuth for `openai/...`, Zhipu AI Coding Plan for
 `zhipuai-coding-plan/...`, and Alibaba Token Plan for `alibaba-token-plan/...`.
 Optional `zai-coding-plan/...` and `kilo/...` routes require their separate
