@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A running chat no longer says `Working on your request…` twice in a row when the status view's notice
+  briefly clears between stages (#1807). The terminal chat says an identical notice once per turn and still
+  shows the progress lines underneath; a different notice, such as a pause, is still said, and the notice is
+  said again once the run carries on after waiting for you.
 - A multi-line bracketed paste into the full-screen terminal chat no longer doubles each line break (#1758). The
   terminal turned the pasted CR of each CRLF into NL before the chat read it; the chat now keeps CR as typed
   (`curses.nonl()`) while it is open and restores the terminal's setting when it closes.
