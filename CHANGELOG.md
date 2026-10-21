@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat shows every Requirements question, not only the first (#1792). Every question shared one chat
+  message id, and the client shows an id once, so a second question stayed hidden behind a bare `You:` prompt and
+  the person's reply answered a question they never saw. Each question now has its own message id; the chat prints
+  the question its prompt waits on, waits while Requirements is still working on a reply, and repeats the question
+  instead of a bare prompt when a reply has not been taken up.
 - The terminal chat says a running run's notice (`Working on your request…`) once per state instead of repeating it
   every time the progress line changes, and says it again after it clears and returns (#1798).
 

@@ -495,6 +495,38 @@ class ConversationTests(unittest.TestCase):
         },
     }
 
+    @staticmethod
+    def asking(question_id, text, context, message_id="requirements-question"):
+        return {
+            "status": "WAITING_FOR_USER",
+            "needs": {"kind": "answer", "questions": [{"id": question_id, "question": text}]},
+            "next_command": f"autocode {PLACE} --answer {question_id}=ANSWER",
+            "chat": {
+                "phase": "requirements",
+                "context": context,
+                "messages": [{"id": message_id, "role": "assistant", "text": text}],
+                "input": {"kind": "feedback", "next_command": f"autocode {PLACE} --feedback MESSAGE"},
+            },
+        }
+
+    def test_a_second_requirements_question_is_shown_before_the_person_is_asked(self):
+        # #1792: an older core gave every question one message id, so the second was never shown and
+        # the person faced a bare prompt. The client now asks the question its prompt waits on.
+        first = self.asking("Q1", "Who is it for?", "c1")
+        second = self.asking("Q2", "What should happen with no name?", "c2")
+        client = ScriptedChat(first, second, replies=["Me"])
+        self.assertEqual(2, client.converse())
+        out = client.out
+        asked = out.index("\nAutoCode: What should happen with no name?")
+        self.assertEqual("\nYou: ", out[asked + 1], "the question comes before the prompt that answers it")
+        self.assertEqual([["--feedback", "Me"]], client.taken)
+
+    def test_a_reply_the_run_has_not_taken_up_repeats_its_question_not_a_bare_prompt(self):
+        view = self.asking("Q1", "Who is it for?", "c1")
+        client = ScriptedChat(view, replies=["Me"], moves=False)
+        self.assertEqual(2, client.converse())
+        self.assertIn("AutoCode is still waiting on this question:\nWho is it for?", client.text())
+
     def test_planning_starts_only_after_its_spend_is_confirmed(self):
         client = ScriptedChat(self.REVIEW, DONE, replies=["y", "y"])
         self.assertEqual(0, client.converse())

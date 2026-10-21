@@ -180,6 +180,9 @@ an opaque `context`, and an optional `input` offer. Messages project existing
 human receipts and saved completed replies. At a follow-up, the prior reply is
 retained under that turn's historical record; display text grants no approval
 and does not become a new requirement. Status reads do not write a transcript.
+The Requirements question the run waits on is a message whose `id` starts with
+`requirements-question-` and names that question, so each new question is a new
+message a client shows once (#1792).
 
 During a running step, optional `progress` is an array of core-authored display
 lines: the inspected current activity, saved task/requirement counts and up to
