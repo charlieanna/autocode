@@ -2366,7 +2366,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e23e814075505ae4286c79792977df010652646f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/467d75bd2a97a3ccf8c68608bc56384cba8fb2ba/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode program</code>, the
@@ -2779,7 +2779,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/e23e814075505ae4286c79792977df010652646f/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/467d75bd2a97a3ccf8c68608bc56384cba8fb2ba/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3288,7 +3288,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/e23e814075505ae4286c79792977df010652646f/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/467d75bd2a97a3ccf8c68608bc56384cba8fb2ba/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -3495,7 +3495,8 @@ embedded in <code>--show-goal</code> prose. This projection is not approval, exe
 or completion proof; the existing CLI approval checks remain authoritative.</p>
 <p><code>approved_contract</code> is the plan in force: the contract that was approved, for as long
 as that approval holds. It has <code>revision</code>, <code>hash</code>, <code>token</code> (the <code>r&lt;revision&gt;:&lt;hash&gt;</code>
-that was approved), <code>task_id</code>, <code>approved_at</code> and <code>body</code>, the full approved contract
+that was approved), <code>task_id</code>, <code>approved_at</code>, <code>approval_source</code> (<code>skip_to_build</code> when the
+person chose on starting the run to approve the reviewed plan, otherwise <code>person</code>) and <code>body</code>, the full approved contract
 body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
 end-to-end flow, technical approach, milestones and the rest) copied as saved. It also has
 <code>goal_hash</code>, the SHA-256 of that body (what <code>autocode plan --check FILE</code> prints for a file
@@ -3530,7 +3531,8 @@ person, <code>workflow_policy</code> for a small bug fix approved under the work
 <code>contract_token</code> (the plan token approved, or the draft an edit installed; null for a review,
 a completion acceptance or a resume), <code>criterion</code> (the accepted criterion, null otherwise),
 <code>pause_status</code> (the pause a resume took the run out of, such as <code>PAUSED_TIME_LIMIT</code>, or the
-one a pause intervention interrupted; null otherwise) and <code>provenance</code>: <code>git_user_name</code>,
+one a pause intervention interrupted; null otherwise), <code>source</code> (<code>skip_to_build</code> for a plan
+approved because the run was started with <code>--skip-to-build</code>; null otherwise) and <code>provenance</code>: <code>git_user_name</code>,
 <code>git_user_email</code>, <code>host</code>, <code>command</code> (<code>autocode</code>, the <code>resume</code> command word when typed, and
 the invocation's option names, never their values) and <code>claimed_as</code> (the <code>--as</code> name, or
 null). None of it is verified (<a href="../execution/#who-approved">Who approved</a>). <code>provenance</code> is

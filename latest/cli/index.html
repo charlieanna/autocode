@@ -2454,7 +2454,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/e23e814075505ae4286c79792977df010652646f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/467d75bd2a97a3ccf8c68608bc56384cba8fb2ba/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2662,7 +2662,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/e23e814075505ae4286c79792977df010652646f/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/467d75bd2a97a3ccf8c68608bc56384cba8fb2ba/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3102,6 +3102,14 @@ still require their own actions. Recovery eligibility and token checks are uncha
 <td>With <code>--resume-paused</code>, authorize N more automatic timeout recoveries for a run paused at <code>PAUSED_TIMEOUT_RECOVERY</code> after its cause was fixed. Audited as a <code>recovery_grant</code> user event; recovery history is retained.</td>
 </tr>
 <tr>
+<td><code>--skip-requirements</code></td>
+<td>New run, for an unattended worker: wherever Requirements would wait for your answers, each question that <code>--delegate-all</code> could delegate is answered with its proposed default and recorded as delegated (<code>source: skip_requirements</code>). The Planner and Plan Reviewer still run in full; a question with no safe default (cost, quota, permission, external side effect, the requested outcome) still waits for a person, and so does plan approval. A saved run keeps the choice it started with.</td>
+</tr>
+<tr>
+<td><code>--skip-to-build</code></td>
+<td>New run: <code>--skip-requirements</code>, and once the Plan Reviewer has finalized the plan, approve it and go on to the Orchestrator and building in the same invocation. The approval is recorded as yours, with this checkout's provenance, marked <code>source: skip_to_build</code> in <code>approvals</code> and <code>approved_contract.approval_source</code>; a run's <code>--require-approver</code> still applies. Needs joint planning. Without this flag AutoCode never approves its own plan.</td>
+</tr>
+<tr>
 <td><code>--plan-review-full</code></td>
 <td>Keep full-depth plan review for this run: the review allowance stays per planning cycle even for a small clear brief (see <a href="../execution/">Milestone checkpoints</a>).</td>
 </tr>
@@ -3232,7 +3240,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/e23e814075505ae4286c79792977df010652646f/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/467d75bd2a97a3ccf8c68608bc56384cba8fb2ba/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -4119,7 +4127,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/e23e814075505ae4286c79792977df010652646f/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/467d75bd2a97a3ccf8c68608bc56384cba8fb2ba/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
