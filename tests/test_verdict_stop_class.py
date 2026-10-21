@@ -50,6 +50,11 @@ class StopClassTests(unittest.TestCase):
                 verdict.HONEST_BLOCKER, "PAUSED_UNCERTAIN_STAGE", "OpenCode exhausted its output token limit"
             ),
         )
+        # #1794: a live greenfield-todo-cli run stopped here before anything was built.
+        self.assertEqual(
+            verdict.STOP_CLASS_PROVIDER,
+            verdict.stop_class(verdict.HONEST_BLOCKER, "PAUSED_PROVIDER_UNCERTAIN", "the provider produced no events"),
+        )
 
     def test_verification_preparation_expiry_is_typed_across_authentication_phases(self):
         for command in (

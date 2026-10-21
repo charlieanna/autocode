@@ -267,6 +267,11 @@ class RequirementsChatTests(unittest.TestCase):
             prompt, _ = autoplanner.context(state, chat.STAGE, root / "state.json")
             packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
             self.assertIn("reports/export.py", json.dumps(packet.get("workspace_inventory")))
+            # #1822: the prompt's source_refs rule must match the runner's complete-handoff check.
+            instruction = prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+            self.assertIn("at least one existing workspace file", instruction)
+            self.assertIn("Never cite .autocode/", instruction)
+            self.assertIn("source_refs may be empty only when the inventory lists no file", instruction)
 
     def test_partial_reply_decodes_text_without_showing_json_or_other_fields(self):
         for raw, expected in [

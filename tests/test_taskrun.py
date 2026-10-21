@@ -2156,6 +2156,15 @@ class MixedRoleTransportTaskRunTests(unittest.TestCase):
         self.start_options = tuple(
             value for role in ("astra", "sol", "completion") for value in ("--role-transport", role + "=kilocode")
         )
+        if sys.platform.startswith("linux"):
+            # Version admission now refuses this generic 1.16.0 fixture before
+            # a run can reach the later native read-only policy handshake.
+            with self.assertRaisesRegex(taskrun.TaskRunError, "kilocode requires Kilo") as caught:
+                self.start()
+            self.assertIn("found 1.16.0", str(caught.exception))
+            self.assertIn("no provider request was launched", str(caught.exception))
+            self.assertFalse(self.operations("launch"))
+            return
         run = self.start()
         before = run.status()
         self.assertEqual("approve_plan", before["needs"]["kind"])

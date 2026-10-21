@@ -66,6 +66,9 @@ _PROVIDER_STATUS = (
     "PAUSED_AUTH",
     "PAUSED_QUOTA_ROUTE",
     "PAUSED_PROVIDER",
+    # The provider produced no events, timed out or answered in a session the runner did not trust
+    # (autocode_model_preflight, autocode_job_failure): the provider failed, not the product (#1794).
+    "PAUSED_PROVIDER_UNCERTAIN",
 )
 _BUDGET_STATUS = (
     "PAUSED_BUDGET",
