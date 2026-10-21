@@ -42,6 +42,9 @@ NEW_CHAT_PLACEHOLDER = "Ask for a change, a fix, or a question…"
 REPLY_PLACEHOLDER = "Type your reply, then Enter"
 WORKING_PLACEHOLDER = "AutoCode is working… type / for commands"
 PANEL_MIN_COLS = 100  # below this the panel stays hidden unless /panel asks for it
+LIVE_MIN_ROWS = 24  # below this the live log stays hidden unless /live asks for it
+LIVE_SHARE = 0.45  # of the conversation's rows the live log takes
+AGENT_STYLES = 4  # agents in the live log cycle through this many colors
 MENU_ROWS = 10  # at most; fewer where the screen is short, scrolled to keep the choice in view
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"  # bracketed paste, so a pasted newline is not Enter
@@ -442,6 +445,8 @@ class Layout:
     question: list[str]
     body_width: int = 0  # the transcript's width; the panel takes the rest
     panel_col: int | None = None
+    live_start: int | None = None  # the live log's title row, below the transcript; it ends at panel_end
+    panel_end: int = 0  # where the side panel ends: the transcript's end, or the live log's
 
 
 def _unicode_terminal() -> bool:
@@ -469,6 +474,8 @@ class ChatTUI:
         self._ticker: threading.Thread | None = None
         self._view: dict | None = None
         self._log = panel.StageLog()
+        self._live = panel.LiveLog()  # what each agent thinks and does, from the view's chat.log
+        self._live_on: bool | None = None  # None: shown when the terminal is tall enough and an agent works
         self._panel_on: bool | None = None  # None: shown when the terminal is wide enough
         self._menu_index = 0
         self._waiting = False
@@ -609,6 +616,7 @@ class ChatTUI:
         with self._lock:
             self._transcript = Transcript()
             self._log = panel.StageLog()
+            self._live = panel.LiveLog()
             self._view, self._pending, self._scroll, self._launched = None, None, 0, False
             self.set_context(workspace, run_dir)
 
@@ -633,6 +641,7 @@ class ChatTUI:
         with self._lock:
             self._view = view
             self._log.observe(view)
+            self._live.observe(view)
             if view.get("workspace") and view.get("run_dir"):  # the run the chat talks to, after going back too
                 self._context = f"{Path(view['workspace']).name} · {Path(view['run_dir']).name}"
             self._draw()
@@ -851,6 +860,9 @@ class ChatTUI:
             return None
         if name == "/quit":
             raise EOFError
+        if name == "/live":
+            self._live_command(argument)
+            return None
         if name == "/panel":
             self._panel_on = not self._panel_visible(*self._size())
             if self._panel_on and self._size()[1] < 60:
@@ -861,6 +873,24 @@ class ChatTUI:
         self._transcript.info(name, panel.text(name, self._view, self._log))
         self._scroll = 0
         return None
+
+    def _live_command(self, argument: str) -> None:
+        """``/live`` shows or hides the live log; ``/live off`` hides it, ``/live all`` drops the filter, and
+        anything else (an agent's name, thinking, messages or tools) keeps only what matches."""
+        word = argument.strip()
+        if not word:
+            self._live_on = not self._live_visible(*self._size())
+        elif word.lower() == "off":
+            self._live_on = False
+        else:
+            self._live.filter = "" if word.lower() == "all" else word
+            self._live_on = True
+            if self._live.filter and not self._live.shown() and self._live.entries:
+                agents = ", ".join(self._live.agents()) or "none yet"
+                self._transcript.info("/live", f"Nothing matches {word!r} yet. Agents so far: {agents}.")
+        if self._live_on and not self._live_visible(*self._size()):
+            self._transcript.info("/live", self._live.text())
+            self._scroll = 0
 
     def _decide(self, pending: panel.Confirm) -> None:
         """The person's answer to a client command's question; anything but yes changes nothing."""
@@ -924,12 +954,18 @@ class ChatTUI:
                 question[-1] = truncate(question[-1], max(1, width - 4))
         status_start = status_row - len(question) + 1 if question else status_row
         panel_width = min(44, max(28, cols // 3)) if self._panel_visible(rows, cols) else 0
+        panel_end = max(2, status_start - 1)
+        live_start = None
+        if self._live_visible(rows, cols) and panel_end - 2 >= 10:
+            live_start = panel_end - max(4, int((panel_end - 2) * LIVE_SHARE))
         return Layout(
             body_width=width - panel_width - (2 if panel_width else 0),
             panel_col=width - panel_width if panel_width else None,
+            live_start=live_start,
+            panel_end=panel_end,
             width=width,
             body_start=2,
-            body_end=max(2, status_start - 1),
+            body_end=live_start if live_start is not None else panel_end,
             status_start=status_start,
             box_top=box_top,
             box_text=box_text,
@@ -944,6 +980,13 @@ class ChatTUI:
         if self._panel_on is not None:
             return self._panel_on
         return cols >= PANEL_MIN_COLS and len(panel.sections(self._view)) > 1
+
+    def _live_visible(self, rows: int, cols: int) -> bool:
+        if rows < 16 or cols < 40:
+            return False
+        if self._live_on is not None:
+            return self._live_on
+        return rows >= LIVE_MIN_ROWS and bool(panel.log_entries(self._view))
 
     def _draw(self) -> None:
         with self._lock:
@@ -961,6 +1004,7 @@ class ChatTUI:
                 layout = self._layout(rows, cols)
                 self._header(layout)
                 self._body(layout)
+                self._live_pane(layout)
                 self._side_panel(layout)
                 self._question_or_status(layout)
                 self._command_menu(layout)
@@ -1022,7 +1066,7 @@ class ChatTUI:
         if layout.panel_col is None:
             return
         col, width = layout.panel_col, layout.width - layout.panel_col
-        top, bottom = layout.body_start, layout.body_end
+        top, bottom = layout.body_start, layout.panel_end
         for row in range(top, bottom):
             self._put(row, col - 2, self._glyphs.vertical, self._style("border"))
         rows: list[tuple[str, str]] = []
@@ -1051,6 +1095,62 @@ class ChatTUI:
             rows.extend(("dim", line) for line in self._log.lines[-log_room:])
         for row, (style, text) in enumerate(rows[:room], top):
             self._put(row, col, truncate(text, width), self._style(style))
+
+    def live_rows(self, width: int) -> list[list[tuple[str, str]]]:
+        """The live log as screen rows, oldest first: each row is (text, style) pieces, the agent's name
+        first in its own color, and an entry's further lines indented under it."""
+        colors = {agent: f"agent-{number % AGENT_STYLES}" for number, agent in enumerate(self._live.agents())}
+        rows: list[list[tuple[str, str]]] = []
+        for entry in self._live.shown():
+            mark = panel.LIVE_MARKS[entry["kind"]]
+            mark = mark if self._glyphs.unicode else panel.ascii_mark(mark)
+            style = (
+                "panel-bad"
+                if entry.get("status") == "failed"
+                else "live-thinking"
+                if entry["kind"] == "thinking"
+                else "live-plain"
+            )
+            agent, text = safe_text(entry["agent"]), safe_text(entry["text"])
+            lines = wrap(f"{agent} {mark} {text}", width)
+            first = lines[0]
+            if first.startswith(agent):
+                rows.append([(agent, colors.get(entry["agent"], "agent-0")), (first[len(agent) :], style)])
+            else:
+                rows.append([(first, style)])
+            rest = " ".join(lines[1:]).strip()
+            rows.extend([[("  " + line, style)] for line in wrap(rest, max(1, width - 2))] if rest else [])
+        return rows
+
+    def _live_pane(self, layout: Layout) -> None:
+        """The live log under the conversation: a title rule, then the newest rows; typing goes on below."""
+        if layout.live_start is None:
+            return
+        width = layout.body_width or layout.width
+        title = f" {self._live.title()} "
+        hint = " /live to hide "
+        rule = self._glyphs.rule
+        line = rule * 2 + title + rule * max(0, width - 2 - display_width(title) - display_width(hint)) + hint
+        self._put(layout.live_start, 0, truncate(line, width), self._style("border"))
+        self._put(layout.live_start, 2, truncate(title, max(0, width - 2)), self._style("panel-title"))
+        room = layout.panel_end - layout.live_start - 1
+        rows = self.live_rows(width)
+        if not rows:
+            waiting = (
+                "Nothing matches the filter yet; /live all shows every agent."
+                if self._live.filter
+                else (
+                    "No agent is working right now. Their thinking, messages and tool calls show here as they happen."
+                )
+            )
+            self._put(layout.live_start + 1, 0, truncate(waiting, width), self._style("dim"))
+            return
+        for row, pieces in enumerate(rows[-room:], layout.live_start + 1):
+            col = 0
+            for text, style in pieces:
+                shown = truncate(text, width - col)
+                self._put(row, col, shown, self._style(style))
+                col += display_width(shown)
 
     def _command_menu(self, layout: Layout) -> None:
         """The ``/`` commands matching what is typed, just above the composer."""
@@ -1206,6 +1306,9 @@ class ChatTUI:
             "panel-bad": curses.A_BOLD,
             "panel-accent": curses.A_BOLD,
             "panel-warn": curses.A_BOLD,
+            "live-thinking": curses.A_DIM,
+            "live-plain": 0,
+            **{f"agent-{number}": curses.A_BOLD for number in range(AGENT_STYLES)},
             "menu": curses.A_REVERSE | curses.A_DIM,
             "menu-selected": curses.A_REVERSE,
         }
@@ -1252,3 +1355,6 @@ class ChatTUI:
         pair("panel-bad", curses.COLOR_RED, -1, curses.A_BOLD)
         pair("panel-accent", accent, -1, curses.A_BOLD)
         pair("panel-warn", warn, -1, curses.A_BOLD)
+        pair("live-thinking", quiet, -1, curses.A_DIM if quiet == -1 else 0)
+        for number, color in enumerate((accent, good, warn, curses.COLOR_MAGENTA)[:AGENT_STYLES]):
+            pair(f"agent-{number}", color, -1, curses.A_BOLD)

@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Added
 
+- A live agent log in the full-screen terminal chat (owner decision 2026-10-21). While AutoCode works, a pane under
+  the conversation shows what each running agent is thinking and doing (reasoning, messages, commands, edits and tool
+  calls), led by the agent's name, with each parallel Builder under its own; the composer stays usable below it.
+  `/live` hides or shows it and `/live NAME|thinking|messages|tools|all|off` filters it. It reads the status view's
+  new additive `chat.log`; prose is one bounded, redacted line and tool output is never copied.
+
 - The status view's `cost.breakdown.unpriced` says why each finished unpriced stage has no cost (#1713):
   no token counts recorded, no model identified, or no rate for its model, naming the models without a rate.
   The counts are stages, never a guessed amount, and the known spend and cap are unchanged.
@@ -70,6 +76,11 @@ PR template asks for an entry here; a change without one is incomplete.
   their report in the current planning record so the runner can publish the plan for approval. `autocode capture`
   run from the Investigator's scratch copy also accepts the project's own `.autocode/evidence/...` path its instructions name,
   instead of refusing it and costing model turns.
+- A Planner revision that rewords its own unapproved criterion and the way that criterion is verified, backed by
+  a saved user answer, is accepted (#1764). The #1691 allowance for the Planner's own wording also swallowed the
+  declared change, so the guard refused a correction you had already authorized and the next repair put the
+  contradiction back and asked you about it again.
+
 - A Planner's change that declares an example correction (a stdout count fixed by a receipt) is judged by the
   example rules alone again. #1691 let a Planner reword its own unapproved criterion, and that allowance also
   passed a receipt that changed the example's input as well as its output, so a plan could reach approval with
