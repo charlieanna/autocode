@@ -72,6 +72,37 @@ class BillingAwareTests(unittest.TestCase):
         self.assertEqual(["plan/glm", "plan/mimo"], preflight.distinct_models(settings))
 
 
+class BareProbeAgentTests(unittest.TestCase):
+    """#1744: the probe's agent has no tools and a one-line prompt (Kilo 19,053 -> 627 input tokens; OpenCode
+    17,672 -> 218, measured 2026-10-21 on GPT-6 Luna)."""
+
+    def test_an_opencode_family_launch_runs_the_bare_probe_agent(self):
+        for variable, chosen in (
+            ("OPENCODE_CONFIG_CONTENT", {"permission": {"edit": "deny"}}),
+            ("KILO_CONFIG_CONTENT", {"permission": {"read": "allow"}, "model": "openai/gpt-6-luna"}),
+        ):
+            with self.subTest(variable=variable):
+                config = {"plugin": ["activity.mjs"], "agent": {"autocode_sol_x": chosen, "other": {}}}
+                argv = ["kilo", "run", "--agent", "autocode_sol_x", "--model", "openai/gpt-6-luna"]
+                ran, env = preflight.bare(argv, {variable: json.dumps(config), "HOME": "/h"})
+                self.assertEqual(preflight.PROBE_AGENT, ran[ran.index("--agent") + 1])
+                written = json.loads(env[variable])
+                agent = written["agent"][preflight.PROBE_AGENT]
+                self.assertEqual(({"*": False}, {"*": "deny"}), (agent["tools"], agent["permission"]))
+                self.assertEqual(preflight.PROBE_SYSTEM, agent["prompt"])
+                self.assertEqual(chosen.get("model"), agent.get("model"))
+                self.assertEqual(["activity.mjs"], written["plugin"])
+                self.assertEqual("/h", env["HOME"])
+
+    def test_a_launch_without_an_inline_agent_is_left_alone(self):
+        for argv, env in (
+            (["claude", "-p", "x"], {"OPENCODE_CONFIG_CONTENT": "{}"}),
+            (["opencode", "run", "--agent", "a"], {"HOME": "/h"}),
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual((argv, env), preflight.bare(list(argv), dict(env)))
+
+
 class PreflightCheckTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -141,6 +172,25 @@ class PreflightCheckTests(unittest.TestCase):
         self.assertEqual(self.run_identity(), saved["identity"])
         self.assertEqual({"plan/glm", "plan/mimo"}, set(saved["probed"]))
         self.assertEqual("ok", saved["probed"]["plan/mimo"]["status"])
+
+    def test_the_resolvers_own_model_is_probed_only_before_its_first_stage(self):
+        # #1744: GPT-6 Astra's probe cost ~$0.19 of a small run's $1.31, and the Resolver runs only after a send-back.
+        self.state["settings"]["roles"]["astra"] = {"model": "plan/astra"}
+        events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS, "plan/astra": OK_EVENTS}
+        self.state["next_stage"] = "recognize_workflow"
+        self.assertTrue(self.check(events))
+        self.assertEqual(["plan/mimo", "plan/glm"], self.calls)
+        self.state["next_stage"] = "terra"
+        self.assertFalse(self.check(events))
+        self.state["next_stage"] = "astra_resolve"
+        self.assertTrue(self.check(events))
+        self.assertEqual(["plan/mimo", "plan/glm", "plan/astra"], self.calls)
+        self.assertFalse(self.check(events), "a passed probe is never repeated")
+
+    def test_a_deferred_roles_model_that_another_role_runs_is_probed_at_the_start(self):
+        self.state["next_stage"] = "recognize_workflow"  # astra shares plan/glm with sol
+        self.assertTrue(self.check({"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}))
+        self.assertEqual(["plan/mimo", "plan/glm"], self.calls)
 
     def test_changed_provider_configuration_reprobes_the_same_models(self):
         events = {"plan/glm": OK_EVENTS, "plan/mimo": OK_EVENTS}

@@ -144,6 +144,16 @@ def run(runner, args, state: RunState, state_path, run_dir, workspace, *, checko
     def before_code_stage(current):
         if not check_storage(current):
             raise runner.orchestrator.LoopExit(2)
+        if current.get("next_stage") in model_preflight.DEFERRED_STAGES:  # a deferred role's access, first (#1744)
+            model_preflight.check(
+                runner,
+                current,
+                run_dir,
+                workspace,
+                checkpoint=lambda: runner.write_json(state_path, current),
+                before_probe=before_probe,
+                selection=(current.get("settings") or {}).get("route_selection"),
+            )
         native = getattr(runner, "native_calls", None)
         if native is not None:
             native.guard(current)
