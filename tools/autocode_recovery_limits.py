@@ -10,11 +10,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_context as recovery_context
+    from . import autocode_report_repair_queue as report_repair_queue
     from .autocode_permission_recovery import hold_message
     from .autocode_source_scope import snapshot
 except ImportError:
     import autocode_recovery_accounting as accounting
     import autocode_recovery_context as recovery_context
+    import autocode_report_repair_queue as report_repair_queue
     from autocode_permission_recovery import hold_message
     from autocode_source_scope import snapshot
 
@@ -333,6 +335,10 @@ def repeated_failure_resume_guard(state: RunState, *, authorization=None, repeat
     if state.get("status") != "PAUSED_REPEATED_FAILURE":
         return
     pending = state.get("pending_report_repair") or {}
+    if report_repair_queue.pending_repair_dispatchable(state):
+        # This resume dispatches that bounded report-only repair instead of restarting the failed
+        # attempt, and the retry gate refuses --retry-failed-stage until it is reconciled (#1899).
+        return
     record = pending.get("original") or next(
         (row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None
     )

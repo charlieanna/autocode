@@ -123,6 +123,33 @@ class FailureRetryTests(unittest.TestCase):
         self.assertEqual(before, state)
         self.assertIn(record["failure_key"], state["failure_history"])
 
+    def test_a_spent_repair_is_reconciled_before_the_unchanged_failure_hold(self):
+        # Live #1899: the hold told the operator to authorize an inspected retry while the spent repair
+        # it left pending made that exact retry inadmissible, so no command could advance the run.
+        record = self.seed()
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        repair = {"attempts": 2, "original": record, "latest_rejected": True}
+        self.state["pending_report_repair"] = repair
+        support.atomic_json(self.run / "state.json", self.state)
+        with self.assertRaises(support.Paused):
+            runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root)
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertIs(repair, self.state["report_repair_archive"][-1]["repair"])
+        # The retry the hold names is now the command the gate admits.
+        self.assertIsNotNone(runner.authorize_failure_retry(self.state, self.run, self.root))
+
+    def test_a_repair_still_queued_is_dispatched_instead_of_held(self):
+        # A plain resume with a repair left to run dispatches that report-only repair, not another
+        # attempt at the failed work, so the unchanged-failure hold must not pre-empt it (#1899).
+        record = self.seed()
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        self.state["pending_report_repair"] = {"attempts": 1, "original": record}
+        self.assertIsNone(runner.repeated_failure_resume_guard(self.state, self.root))
+        # A spent repair is not a queued one: with nothing left to dispatch the hold still applies.
+        self.state["pending_report_repair"]["attempts"] = 2
+        with self.assertRaises(support.Paused):
+            runner.repeated_failure_resume_guard(self.state, self.root)
+
 
 class FailureRetryCLITests(unittest.TestCase):
     setUp = test_subprocess.SubprocessFlow.setUp

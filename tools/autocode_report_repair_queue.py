@@ -92,6 +92,23 @@ def repair_limit(state: RunState) -> int:
     return limit
 
 
+def pending_repair_dispatchable(state: RunState) -> bool:
+    """True when this resume still has a bounded report-only repair to dispatch on the owning stage.
+
+    The two conditions it reads are the ones ``execute_report_repair`` refuses: a repair belongs to the
+    stage it reports on, and only ``max_attempts`` of them exist. A resume that still holds such a repair
+    dispatches a new report of the saved attempt, not another attempt at the failed work, so an
+    unchanged-failure hold must not pre-empt it (#1899).
+    """
+    pending = state.get("pending_report_repair") or {}
+    original = pending.get("original")
+    return bool(
+        isinstance(original, dict)
+        and state.get("next_stage") == original.get("stage")
+        and pending.get("attempts", 0) < repair_limit(state)
+    )
+
+
 def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> bool:
     """Record the repair of a rejected attempt; True while a repair attempt remains.
 
