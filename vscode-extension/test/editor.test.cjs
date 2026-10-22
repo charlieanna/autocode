@@ -3040,6 +3040,31 @@ test('two runs open as separate tabs with names and busy marks (#1558)', async (
   assert.equal(active, 'other-run');
 });
 
+test('one hung status read does not freeze the other tabs (#1711)', async (t) => {
+  // ChatView.refresh used to await tabs in order: a hung --status on tab 1
+  // blocked every later tab until it returned. Reads now start together.
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-run' };
+  const ui = await openChat(t, chatView());
+  ui.chat.show(other);
+  await flush();
+  const calls = [];
+  let releaseHung;
+  const hung = new Promise((resolve) => { releaseHung = resolve; });
+  t.mock.method(controller, 'status', (target) => {
+    calls.push(target.runDir);
+    if (target.runDir === run.runDir) return hung;
+    return Promise.resolve({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+      chat: { phase: null, context: 'c', input: null, messages: [], progress: ['Tester working'] } });
+  });
+  void ui.chat.refresh();
+  await flush();
+  assert.deepEqual(calls, [run.runDir, other.runDir], 'both tabs start reading at once');
+  // The healthy tab already landed even though the first read is still in flight.
+  await flush();
+  releaseHung({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: { phase: null, context: 'c', input: null, messages: [] } });
+  await flush();
+});
+
 test('a run tab is named after the request it works on and stays in view (#1528)', async (t) => {
   const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/20261019-063752-vscode-bea9dd' };
   const ui = await openChat(t, chatView(), run, {
