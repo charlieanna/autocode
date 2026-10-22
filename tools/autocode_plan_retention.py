@@ -151,9 +151,12 @@ def expand(state: RunState, stage, value):
         if not isinstance(questions, list):
             raise ValueError("Retained contract blocking questions must be a list")
         if questions:
+            # A reviewer that echoes a question the contract already holds adds nothing; ids stay unique.
+            held = result["contract"].get("open_blocking_questions", [])
+            known = {row.get("id") for row in held if isinstance(row, dict)}
             result["contract"]["open_blocking_questions"] = [
-                *result["contract"].get("open_blocking_questions", []),
-                *copy.deepcopy(questions),
+                *held,
+                *(copy.deepcopy(row) for row in questions if not (isinstance(row, dict) and row.get("id") in known)),
             ]
             result["contract"]["technical_approach"] = []
             result["contract"]["milestones"] = []

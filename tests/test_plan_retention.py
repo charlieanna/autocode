@@ -174,6 +174,15 @@ class PlanRetentionTests(unittest.TestCase):
                 {"contract": {"retain_contract": retention.token(state), "initial_task": {"kind": "implement"}}},
             )
 
+    def test_a_question_the_contract_already_holds_is_not_duplicated(self):
+        state = self.state()
+        held = {"id": "Q1", "question": "Which behavior?"}
+        state["goal_contract"]["body"]["open_blocking_questions"] = [held]
+        new = {"id": "Q2", "question": "Which exit code?"}
+        report = {"contract": {"retain_contract": retention.token(state), "open_blocking_questions": [dict(held), new]}}
+        result = retention.expand(state, "astra_finalize", report)
+        self.assertEqual([held, new], result["contract"]["open_blocking_questions"])
+
     def test_compaction_retains_all_requirements_conflicts_and_human_authority(self):
         packet = {
             "requirements_handoff": {
@@ -234,6 +243,20 @@ class CompletedTurnAllowanceTests(unittest.TestCase):
         self.assertEqual(2, state["planning_history"][0]["astra_calls"])
         self.assertEqual(stages, state["stages"])
         self.assertEqual(ledger, state["cost_ledger"])
+
+    def test_a_config_toml_allowance_is_a_default_not_an_explicit_bound(self):
+        # planning_review_call_limit_origin names where a default came from (#1565); it is not a run-wide total.
+        state = self.state()
+        state["settings"] = {
+            "planning_review_call_limit": 2,
+            "planning_review_call_limit_origin": "plan_review_call_limit in ~/.config/autocode/config.toml",
+        }
+        del state["planning"]["review_call_limit"]
+        state["turns"] = [{"event_id": "human-followup-1"}]
+        cycle.new_cycle(state, new_turn=True)
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertNotEqual("user_explicit", state["planning"].get("review_call_limit_origin"))
+        self.assertEqual(2, state["planning_history"][0]["astra_calls"])
 
     def test_internal_restart_and_explicit_human_bound_never_mint_reviews(self):
         for new_turn, explicit in ((False, False), (True, True)):

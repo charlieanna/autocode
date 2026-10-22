@@ -56,9 +56,9 @@ def new_cycle(state: RunState, *, new_turn=False):
     turn = (state.get("turns") or [{}])[-1]
     if turn.get("event_id"):
         state["planning"]["turn_event_id"] = turn["event_id"]
-    explicit = bool(archived and archived.get("review_call_limit_origin") == "user_explicit") or bool(
-        (state.get("settings") or {}).get("planning_review_call_limit_origin")
-    )
+    # Only a bound the person set during this run is explicit. The settings' origin names where a default
+    # allowance came from (config.toml, #1565); that is the size of each cycle's allowance, not a total.
+    explicit = bool(archived and archived.get("review_call_limit_origin") == "user_explicit")
     if archived and archived.get("review_depth_reduced") and (not new_turn or explicit):
         # A small clear brief pays one total allowance across cycles (#1564): the
         # revision restarts the record, not the counter.
