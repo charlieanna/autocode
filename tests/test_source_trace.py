@@ -185,6 +185,18 @@ class ReadyGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed a number the source states: 29.50"):
             self.ready(draft, records=records)
 
+    def test_an_issue_reference_is_not_a_number_the_criteria_must_repeat(self):
+        # Live OSS bugfix (#1874): "Fix issue #474 ..." was refused because no criterion said 474.
+        text = "Fix issue #474 in this repo: from_html() raises ValueError on a ragged HTML table."
+        records = [{"id": "task:0", "kind": "task", "text": text}]
+        kept = "from_html() returns the table for a ragged HTML table instead of raising ValueError"
+        self.ready(body([criterion("C1", kept, [text])]), records=records)
+        # A stated value beside the reference still has to survive.
+        valued = "Fix issue #474: process exactly 7 rows."
+        changed = body([criterion("C1", "Fix issue #474: process rows.", [valued])])
+        with self.assertRaisesRegex(ValueError, "changed a number the source states: 7"):
+            self.ready(changed, records=[{"id": "task:0", "kind": "task", "text": valued}])
+
     def test_a_dropped_literal_is_refused(self):
         draft = body(
             [
