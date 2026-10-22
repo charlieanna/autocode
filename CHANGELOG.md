@@ -28,6 +28,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The CLI's usage line names the command that was run on Python 3.14 too, where argparse otherwise names how
+  Python started (`python -m unittest`); `tests.test_cli_surface` failed on every Python 3.14 checkout.
 - A PASS Validator report that cites a nonzero check is no longer sent to bounded report repair, which cannot
   rerun a command or change an exit code. The rejection names the failed check and the exit-0 rule, so the stage
   runs again with a successful execution instead of spending two guaranteed-futile repairs (#1852).
