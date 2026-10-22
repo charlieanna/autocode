@@ -734,7 +734,12 @@ for another agent without letting that agent make the operator's decisions. It t
 AutoCode's own arguments but refuses every decision or recovery flag (`--answer`,
 `--delegate*`, `--approve-*`, `--resume-paused`, `--retry-*`, `--feedback`, `--follow-up`,
 `--accept-completion`, `--close-finding`, `--close-reason`, `--resolver-response`, …, including
-abbreviations), the command word `resume` (on a paused or blocked run it stands for
+abbreviations) and every flag that sets operator policy instead of a person: `--skip-requirements`
+(answers Requirements questions by default), `--skip-to-build` (approves the plan),
+`--allow-uncontained-tools` (lifts the tool boundary) and `--accept-source-edit`. Setup, routing
+and start-time budgets (`--max-seconds`, `--unlimited-iterations`, model flags) stay allowed. The two
+classes are `DECISION_FLAGS` and `START_FLAGS` in `tools/autocode_decision_flags.py`; a test fails
+when a parser flag is in neither, the command word `resume` (on a paused or blocked run it stands for
 `--resume-paused`; a bare relaunch still continues a run that is not paused)
 and the `intervention`, `tasks`, `ui`, `registry`, `capture` and `compare-baseline`
 subcommands. It forces `--no-chat` with no stdin, and when AutoCode stops it prints

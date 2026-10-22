@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- `autocode unattended` now refuses `--skip-requirements`, `--skip-to-build`, `--allow-uncontained-tools`,
+  `--accept-source-edit` and the companions of a recovery (`--grant-recovery`, `--job-retry-token`, `--resolver-token`,
+  `--revise-protected-tests`, `--submit-repair`, …), which it previously let an agent pass although they decide for
+  the operator. `tools/autocode_decision_flags.py` classifies every parser flag as a decision or a start flag, and
+  `tests/test_decision_flags.py` fails on an unclassified one (#1870).
+
 - Requirements is the first stage of every run and every follow-up turn, and its report names the job, so the
   separate Job recognizer call no longer runs on a flow that has Requirements (owner decision 2026-10-22, #1860).
   A plain CLI bug fix goes from Requirements to the Investigator, a review to the Code Reviewer, a question to the
@@ -40,6 +46,9 @@ PR template asks for an entry here; a change without one is incomplete.
 - A bug fix no longer stops at `PAUSED_ACCEPTANCE_TESTS` when a `test:` case its own plan added already works. That
   case goes back to plan review relabelled `guard:`, as in a build; only the Investigator's reproduction passing
   today still pauses the run, with a message saying the diagnosis and the code disagree (#1868).
+- A brief that names the report it fixes ("Fix issue #474 ...") no longer dead-ends plan finalize: the source-trace
+  audit no longer treats an issue or pull-request reference as a value the criteria must repeat, while a value
+  stated beside it ("process exactly 7 rows") still has to survive (#1874).
 - A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
   proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
   without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to

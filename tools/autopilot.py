@@ -861,7 +861,8 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         "output": record["output"],
         "reviewer_role": record.get("role", stage),
     }
-    criteria = cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]
+    # A Builder self-check, or a saved run from before goal contracts, reviews without one.
+    criteria = ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
     human_pending = modern and any(
         goals.human_only_pending_validation(state, value, c["id"]) for c in criteria if c["human_review"]
     )
@@ -871,7 +872,9 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     report_repair_queue.require_executed_passes(
         value, passing_claim=value["verdict"] == "PASS" or human_pending or progressive_pass
     )
-    if modern and stage == "sol":
+    if modern and stage == "sol" and any(c["human_review"] for c in criteria):
+        # Only a contract with human criteria has a review receipt to look up; the gate itself returns
+        # when there are none, and missing_human_reviews reads a sealed contract.
         human_review_flow.require_human_pending_proof(
             criteria, value, human_pending, bool(goals.missing_human_reviews(state))
         )

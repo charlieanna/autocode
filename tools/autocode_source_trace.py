@@ -75,6 +75,10 @@ _NUMBER = re.compile(r"\d+(?:\.\d+)*")
 _STANDARD = re.compile(
     r"\b(?:ISO(?:/IEC)?|IEC|RFC|IEEE|ECMA(?:-)?|ANSI|PEP|UTF|SHA|HTTP|TLS|IPv)[-/ ]?\d+(?:[-:.]\d+)*(?!\w)"
 )
+# An issue or pull-request reference names the report, not a value the request states:
+# a criterion about the ragged-row defect satisfies "Fix issue #474" without repeating
+# 474 (#1874). A value stated beside the reference ("process exactly 7 rows") still survives.
+_REFERENCE = re.compile(r"(?:(?<!\w)#\d+|\b(?:issue|pull request|pr|gh)[- ]?#?\d+)(?!\w)", re.I)
 _NEGATION = re.compile(r"\b(?:must not|never|do not|don't|cannot|can't|not|no)\b", re.I)
 
 
@@ -241,7 +245,7 @@ def _survival_errors(body, records, waivers):
             if not citing:
                 continue
             corpus = _corpus(body, citing)
-            numbers = _NUMBER.findall(_STANDARD.sub(" ", sentence))
+            numbers = _NUMBER.findall(_REFERENCE.sub(" ", _STANDARD.sub(" ", sentence)))
             lost = [number for number in dict.fromkeys(numbers) if not _number_in(number, corpus)]
             if lost:
                 errors.append(f"Criteria citing {record['id']} changed a number the source states: " + ", ".join(lost))
