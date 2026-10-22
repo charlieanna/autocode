@@ -233,11 +233,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         if stage
         else None
     )
-    following_name = (
-        None
-        if stale_check or not following_id
-        else runner.autocode_status.role_name(following_id, state)
-    )
+    following_name = None if stale_check or not following_id else runner.autocode_status.role_name(following_id, state)
     public_view["progress"] = progress_view.progress(
         state,
         accepted=checkpoint["accepted_milestones"],
