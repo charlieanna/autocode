@@ -1414,6 +1414,41 @@ test('a reader scrolled up sees the running step change on the Latest button wit
   assert.equal(latest(), '↓ Latest messages', 'no step is named once none is running');
 });
 
+test('the progress card is already current in the DOM while follow is paused; Latest only scrolls (#1711)', async (t) => {
+  // Root-cause regression for the Builder→Tester "stale card" report: the card
+  // lives inside #thread-content, so a reader who scrolled up cannot see it
+  // update. The data is never stale — Latest does not refetch.
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null,
+      messages: [{ id: 'a1', role: 'assistant', text: 'Builder working on the follow-up' }],
+      progress: ['Builder working · task M1'] } };
+  const ui = await openChat(t, value);
+  const card = () => ui.document.querySelector('#app').textContent;
+  assert.ok(card().includes('Builder working · task M1'));
+
+  // The conversation row still names the Builder; it is history, not the live card.
+  const next = structuredClone(value);
+  next.chat.progress = ['Tester working'];
+  await ui.poll(next);
+  assert.ok(card().includes('Tester working'), 'the live card updated on the poll alone');
+  assert.ok(!card().includes('Builder working'), 'the live card no longer names the Builder');
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Builder working on the follow-up'),
+    'the historical row is unchanged and can still be on screen above the card');
+
+  // Latest scrolls to the bottom; it issues no status read and no named action.
+  const reads = () => controller.status.mock.callCount();
+  const before = reads();
+  const invoked = t.mock.method(cli, 'invoke', async () => ok);
+  const streamed = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#latest').click();
+  await flush();
+  assert.equal(reads(), before, 'Latest does not refetch status');
+  assert.equal(invoked.mock.callCount(), 0);
+  assert.equal(streamed.mock.callCount(), 0);
+  assert.ok(card().includes('Tester working'), 'the card Latest reveals is the one the poll already wrote');
+});
+
 test('requirements chat shows only Thinking while a step is running', async (t) => {
   const value = { status: 'RUNNING', done: false, phase: 'DISCOVERING', needs: { kind: 'continue' },
     liveness: { kind: 'supervised' }, chat: { phase: 'requirements', context: 'live', input: null,
