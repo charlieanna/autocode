@@ -269,6 +269,7 @@ class ChatClient:
         self._replied_context: str | None = None  # the chat context the last sent reply answered
         self.started = False  # the first view prints the whole conversation, later ones only what is new
         self.last_line: tuple = ()
+        self.last_progress: tuple | None = None  # the stage and counts the last progress line reported
         self.last_notice: str | None = None  # the notice said last, so a progress change does not repeat it
         self._live_text: str | None = None  # the streaming reply from the last show(), for the poll pace
         self._live_quiet = 0  # reads since the streaming reply last changed
@@ -520,13 +521,20 @@ class ChatClient:
         progress = view.get("progress") or {}
         notice = chat.get("notice")
         line = (notice, progress.get("line"))
+        identity = progress_identity(progress) if progress else None
         if line != self.last_line:
             self.last_line = line
             if notice and notice != self.last_notice:
                 self.say(f"\n{notice}")
             # Under a notice already said, a new progress line is the only news: say it, not silence.
-            if progress.get("line") and (streaming_text or not notice or notice == self.last_notice):
+            # The same stage flipping between working, finished and next is not news (#1844).
+            if (
+                progress.get("line")
+                and identity != self.last_progress
+                and (streaming_text or not notice or notice == self.last_notice)
+            ):
                 self.say(f"  · {progress['line']}")
+                self.last_progress = identity
         # A brief clear between stages is not a new state: say an identical notice once per turn (#1807).
         # A run that waits for the person ends the turn, so the notice is said again once it carries on.
         if notice:
@@ -542,6 +550,7 @@ class ChatClient:
         known = self.others.pop(str(run_dir), None)
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.seen, self.said, self.started, self.last_line, self.last_notice = set(), set(), False, (), None
+        self.last_progress = None
         # A tab keeps the state last read for it until status() reads it again, so the tabs drawn below never
         # show a chat that waits for the person as working (#1757); a chat not seen before has none yet.
         self.identity = known[1] if known else None
@@ -944,6 +953,23 @@ def title_of(view: dict) -> str:
         (line.strip().lstrip("#").strip() for line in str(view.get("task") or "").splitlines() if line.strip()), ""
     )
     return first[:39] + "…" if len(first) > 40 else first
+
+
+def progress_identity(progress: dict) -> tuple:
+    """What a progress line tells a person that is new: the stage, the counts and what it waits on,
+    not whether that stage is working, finishing or next. A stage that flips between those words
+    without changing a count is the same news (#1844)."""
+    tasks = progress.get("tasks") or {}
+    requirements = progress.get("requirements") or {}
+    problems = progress.get("problems") or {}
+    return (
+        progress.get("stage"),
+        progress.get("needs_you"),
+        progress.get("for_earlier_request"),
+        tasks.get("label"),
+        requirements.get("label"),
+        problems.get("open"),
+    )
 
 
 def wait_identity(view: dict) -> tuple | None:

@@ -875,8 +875,12 @@ class StreamAndNoticeTests(unittest.TestCase):
 
     def test_an_unchanged_notice_is_said_once_while_the_progress_line_changes(self):
         client = ScriptedChat({})
-        for line in ("Requirements working", "Plan Reviewer working", "Tester working"):
-            client.show({"chat": {"notice": "Working on your request…"}, "progress": {"line": line}})
+        for line, stage in (
+            ("Requirements working", "requirements_gather"),
+            ("Plan Reviewer working", "astra_challenge"),
+            ("Tester working", "astra_checkpoint"),
+        ):
+            client.show({"chat": {"notice": "Working on your request…"}, "progress": {"line": line, "stage": stage}})
         self.assertEqual(1, client.text().count("Working on your request…"))
         self.assertNotIn("Requirements working", client.text(), "the notice stands for the first stage")
         self.assertIn("· Plan Reviewer working", client.text())
@@ -885,12 +889,59 @@ class StreamAndNoticeTests(unittest.TestCase):
     def test_a_notice_that_returns_after_a_transient_gap_is_not_said_again(self):
         client = ScriptedChat({})
         working = {"chat": {"notice": "Working on your request…"}, "needs": {"kind": "continue"}}
-        client.show({**working, "progress": {"line": "Requirements working"}})
-        client.show({"needs": {"kind": "continue"}, "progress": {"line": "Next: Requirements"}})
-        client.show({**working, "progress": {"line": "Requirements working"}})
+        client.show({**working, "progress": {"line": "Requirements working", "stage": "requirements_gather"}})
+        client.show(
+            {"needs": {"kind": "continue"}, "progress": {"line": "Next: Requirements", "stage": "requirements_gather"}}
+        )
+        client.show({**working, "progress": {"line": "Requirements working", "stage": "requirements_gather"}})
         self.assertEqual(1, client.text().count("Working on your request…"))
         self.assertIn("· Next: Requirements", client.text())
-        self.assertIn("· Requirements working", client.text())
+        self.assertNotIn("· Requirements working", client.text(), "the same stage is said once")
+
+    def test_one_progress_line_per_stage_when_it_flips_between_working_finished_and_next(self):
+        """#1844: a stage's line was said again for working, finished and next with unchanged counts."""
+        client = ScriptedChat({})
+
+        def view(headline, stage, checked=0):
+            return {
+                "chat": {"notice": "Working on your request…"},
+                "needs": {"kind": "continue"},
+                "progress": {
+                    "line": f"{headline} · 0 of 1 task done · {checked} of 5 requirements checked",
+                    "stage": stage,
+                    "tasks": {"label": "0 of 1 task done"},
+                    "requirements": {"label": f"{checked} of 5 requirements checked"},
+                    "problems": {"open": 0},
+                },
+            }
+
+        for shown in (
+            view("Next: Orchestrator", "orchestrator"),
+            view("Builder working", "terra"),
+            view("Next: Builder", "terra"),
+            view("Builder working", "terra"),
+            view("Builder finished", "terra"),
+            view("Next: Tester", "sol"),
+            view("Tester working", "sol"),
+            view("Tester finished", "sol"),
+            view("Next: Completion Reviewer", "astra_review", checked=5),
+            view("Completion Reviewer working", "astra_review", checked=5),
+            view("Completion Reviewer finished", "astra_review", checked=5),
+        ):
+            client.show(shown)
+        text = client.text()
+        self.assertEqual(1, text.count("· Builder working"))
+        self.assertEqual(1, text.count("· Next: Tester"))
+        self.assertEqual(1, text.count("· Next: Completion Reviewer"))
+        for repeated in (
+            "· Next: Builder",
+            "Builder finished",
+            "Tester working",
+            "Tester finished",
+            "Completion Reviewer working",
+            "Completion Reviewer finished",
+        ):
+            self.assertNotIn(repeated, text)
 
     def test_a_notice_that_returns_after_the_run_waited_for_the_person_is_said_again(self):
         client = ScriptedChat({})
