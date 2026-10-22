@@ -414,7 +414,7 @@ REPAIR_HANDOFF_BYTES = 256 * 1024
 
 
 def reject_completed_stage(state: RunState, run_dir, record, error):
-    result_application.raise_if_uncertain(error)
+    result_application.raise_if_not_rejected(error)
     account_stage(state, record)
     error = stray_writes.undo(state, record, error)  # a read-only stage's writes are put back first
     failure = failures.record(state, record, error, now())

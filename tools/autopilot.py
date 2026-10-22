@@ -36,6 +36,7 @@ try:
     from . import autocode_findings as findings_ledger
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
+    from . import autocode_human_review_flow as human_review_flow
     from . import autocode_jobs as jobs
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
@@ -83,6 +84,7 @@ except ImportError:
     import autocode_findings as findings_ledger
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
+    import autocode_human_review_flow as human_review_flow
     import autocode_jobs as jobs
     import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
@@ -856,10 +858,9 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         "output": record["output"],
         "reviewer_role": record.get("role", stage),
     }
+    criteria = cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]
     human_pending = modern and any(
-        goals.human_only_pending_validation(state, value, c["id"])
-        for c in cast(dict, state["goal_contract"])["body"]["acceptance_criteria"]
-        if c["human_review"]
+        goals.human_only_pending_validation(state, value, c["id"]) for c in criteria if c["human_review"]
     )
     progressive_pass = progressive_state.enabled(state) and any(
         row["status"] == "PASS" for row in value.get("criterion_results", [])
@@ -869,6 +870,10 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     ):
         raise ValueError(
             "Technically passing validation lacks successful executed checks: list each check you ran, with its exit code"
+        )
+    if modern and stage == "sol":
+        human_review_flow.require_human_pending_proof(
+            criteria, value, human_pending, bool(goals.missing_human_reviews(state))
         )
     native = getattr(runtime, "native_calls", None)
     native_execution = native.verification_execution(state, record) if native is not None else None

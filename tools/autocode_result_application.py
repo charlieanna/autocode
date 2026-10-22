@@ -18,15 +18,17 @@ try:
     from . import autocode_command_receipt as receipts
     from . import autocode_command_supervision as commands
     from . import autocode_runner_check as runner_check
+    from .autocode_util import boundary_pause
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_command_supervision as commands
     import autocode_runner_check as runner_check
+    from autocode_util import boundary_pause
 
 
-def raise_if_uncertain(error):
-    """Keep an ownership hold outside ordinary report rejection and archival."""
-    if isinstance(error, receipts.OwnershipUncertain):
+def raise_if_not_rejected(error):
+    """Keep an ownership hold or a completion boundary outside ordinary rejection and archival."""
+    if isinstance(error, receipts.OwnershipUncertain) or boundary_pause(error):
         raise error
 
 

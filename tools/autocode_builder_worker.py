@@ -112,7 +112,7 @@ def execute(state: RunState, directory, workspace, mode):
         except runner.ReportRepairQueued:
             pass
         except runner.support.Paused as error:
-            runner.result_application.raise_if_uncertain(error)
+            runner.result_application.raise_if_not_rejected(error)
             active = state.get("active_stage") or {}
             if mode != "retry" or not active or active.get("stage") != "terra" or active.get("report_only"):
                 raise

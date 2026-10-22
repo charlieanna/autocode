@@ -18,6 +18,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
+  proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
+  without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to
+  offer the person's review, and the run deadlocked. A completion-gate pause raised while applying an accepted
+  result now surfaces as its own status instead of being caught as a rejected output, archived and handed to the
+  Investigator (#1851).
 - The terminal chat no longer repeats a stage's progress line when it only flips between "working", "finished"
   and "Next:" with unchanged counts. A stage's first line is said once; the next is when its counts or the stage
   itself change (#1844).

@@ -107,6 +107,42 @@ class SerialDispatchCapacityTests(unittest.TestCase):
         self.assertNotIn("active_stage", self.state)
 
 
+class ReportPausePropagationTests(unittest.TestCase):
+    """A completion-gate pause while applying a report is a wait, never a rejected output (#1851)."""
+
+    setUp = test_goals.GoalTests.setUp
+    tearDown = test_assignment_scenarios.AssignmentScenarios.tearDown
+    seed = test_assignment_scenarios.AssignmentScenarios.seed
+    approve = test_assignment_scenarios.AssignmentScenarios.approve
+    greeting_contract = test_assignment_scenarios.AssignmentScenarios.greeting_contract
+
+    def test_a_completion_gate_pause_is_not_turned_into_a_rejected_output(self):
+        self.seed()
+        self.greeting_contract()
+        self.state["settings"]["orchestration"]["enabled"] = False
+        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+        record = {
+            "stage": "terra",
+            "role": "terra",
+            "iteration": 1,
+            "exit_code": 0,
+            "processes": [],
+            "output": str(self.run / "iterations/001/terra-01.json"),
+            "events": str(self.run / "iterations/001/terra-01.jsonl"),
+        }
+        gate = s.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
+        with (
+            patch.object(runner, "run_role", return_value=({}, record)),
+            patch.object(runner, "account_stage"),
+            patch.object(runner, "commit_stage_result", side_effect=gate),
+        ):
+            with self.assertRaises(s.Paused) as caught:
+                runner.autopilot.dispatch_unit(runner, self.state, "terra", self.root, self.run)
+        self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
+        self.assertNotIn("failure_history", self.state)
+        self.assertEqual("RUNNING", self.state["status"])
+
+
 class ResumeParityTests(unittest.TestCase):
     """The truncated-review fixture, without re-running its tests."""
 
