@@ -36,6 +36,55 @@ class ReportRepairQueued(Exception):
     """A finished request needs report-only repair, never implementation replay."""
 
 
+class ExecutionEvidenceRequired(ValueError):
+    """A claimed passing report needs an execution the report-only repair cannot supply.
+
+    Repair may edit prose and reuse evidence a command already produced; it may not rerun
+    a command or change an exit code. A PASS report that cites a nonzero check therefore
+    goes to a fresh stage attempt, never to the bounded repair loop (#1852).
+    """
+
+
+def require_executed_passes(value, *, passing_claim: bool):
+    """Reject a claimed passing report that lists a nonzero check.
+
+    ``check_refs.resolve`` has already replaced each ``check:<n>`` with that check's evidence
+    reference. A failed check nothing cites may be omitted by report repair; a cited one needs
+    the execution the repair cannot perform, so the caller's stage must run again (#1852).
+    """
+    if not passing_claim:
+        return
+    if not value["checks"]:
+        raise ValueError(
+            "Technically passing validation lacks successful executed checks: list each check you ran, with its exit code"
+        )
+    failed = [(position, check) for position, check in enumerate(value["checks"], 1) if check["exit_code"]]
+    if not failed:
+        return
+    rows = [*value.get("criterion_results", []), *value.get("milestone_results", [])]
+    flow = value.get("end_to_end_result") or {}
+    rows += [flow, flow.get("technical_result") or {}]
+    cited = any(
+        check["evidence_ref"] in (row.get("evidence_refs") or [])
+        for _, check in failed
+        for row in rows
+        if row.get("status") != "FAIL"
+    )
+    named = ", ".join(f"check {position} (exit {check['exit_code']})" for position, check in failed)
+    if cited:
+        raise ExecutionEvidenceRequired(
+            f"Technically passing validation cites failed {named}: a PASS report requires every listed check to "
+            "exit 0, and a report-only repair cannot rerun a command or change its exit code. Re-run the stage "
+            "so the command succeeds (a negative assertion must exit 0 when the condition holds) and cite that "
+            "execution."
+        )
+    raise ValueError(
+        f"Technically passing validation lists failed {named}: every listed check must exit 0 for PASS. "
+        "If nothing cites an exploratory failure, omit it from checks; otherwise rerun the stage so it "
+        "succeeds. Never change a recorded exit code."
+    )
+
+
 def repair_limit(state: RunState) -> int:
     limit = state.get("settings", {}).get("report_repair", {}).get("max_attempts", 0)
     if type(limit) is not int or not 0 <= limit <= 2:
@@ -53,7 +102,10 @@ def queue(state: RunState, record, error, *, completed: Callable[[], bool]) -> b
     """
     eligible = (
         isinstance(error, (ValueError, KeyError, RuntimeError))
-        and not isinstance(error, (util.Paused, stray_writes.StrayWrites, verification_plan.PlannedCheckFailure))
+        and not isinstance(
+            error,
+            (util.Paused, stray_writes.StrayWrites, verification_plan.PlannedCheckFailure, ExecutionEvidenceRequired),
+        )
         and record.get("exit_code") == 0
         and record.get("source_revision")
         and not record.get("timed_out")
