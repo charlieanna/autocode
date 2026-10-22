@@ -13,8 +13,9 @@ def own_assumption(before: dict, after: dict, item: str) -> bool:
     The Plan Reviewer can ask for such an assumption to change (a live review found the draft's
     cwd-relative notes.json contradicted the user's next-to-CLI answer). The Planner then had to
     ask the person for a change to its own default, report repair never declared it correctly, and
-    the run paused (a live planning revision, 2026-10-21). Only a row whose previous basis is agent_proposed qualifies; deleting
-    or rewording text saved from the person's answer stays a person's decision.
+    the run paused (a live planning revision, 2026-10-21). Only a row whose previous basis is agent_proposed, or a
+    decision the person delegated to the Planner, qualifies; deleting or rewording text saved from the person's
+    answer or feedback stays a person's decision.
     """
     for key in ("accepted_assumptions", "delegated_decisions"):
         previous = next(
@@ -27,7 +28,7 @@ def own_assumption(before: dict, after: dict, item: str) -> bool:
         )
         if previous is None:
             continue
-        return previous.get("basis") == "agent_proposed" and all(
+        return previous.get("basis") in ("agent_proposed", "delegated") and all(
             not (isinstance(candidate, dict) and candidate.get("text") == item) for candidate in after.get(key, [])
         )
     return False

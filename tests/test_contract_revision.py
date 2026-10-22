@@ -993,10 +993,9 @@ class PersonTracedAssumptionTests(unittest.TestCase):
         )
 
     def test_a_dropped_assumption_saved_from_the_answer_asks_the_person(self):
-        for basis in ("user_answer", "delegated", "user_feedback"):
+        for basis in ("user_answer", "user_feedback"):
             with self.subTest(basis=basis):
                 state, after = self.inputs(basis=basis)
-                state["answers"] = {"A1": {"kind": "delegated" if basis == "delegated" else "answer"}}
                 if basis == "user_feedback":
                     event = {"kind": "brief_feedback", "id": "A1"}
                     state["brief_feedback"] = [event]
@@ -1015,6 +1014,46 @@ class PersonTracedAssumptionTests(unittest.TestCase):
                     ],
                     caught.exception.rewordings,
                 )
+
+    def test_a_decision_the_person_delegated_is_the_planners_to_revise(self):
+        for change in ("reworded", "removed"):
+            with self.subTest(change=change):
+                state, after = self.inputs(basis="delegated")
+                state["answers"] = {"A1": {"kind": "delegated"}}
+                after["accepted_assumptions"] = (
+                    [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+                    if change == "reworded"
+                    else []
+                )
+                changes = [self.row(change)]
+                self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+    def test_an_undeclared_rewording_of_the_persons_assumption_names_the_new_text(self):
+        state, after = self.inputs()
+        after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, [], "glm_revise")
+        self.assertEqual(self.PROPOSED, caught.exception.rewordings[0]["proposed"])
+
+    def test_wording_the_person_accepted_stays_theirs_in_the_next_revision(self):
+        state, after = self.inputs()
+        after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+        revision_guard(state, after, [self.row(basis="user_answer", answer_id="A1")], "glm_revise")
+        self.assertEqual(
+            [{"text": self.PROPOSED, "basis": "user_answer", "answer_id": "A1"}], after["accepted_assumptions"]
+        )
+        state["goal_contract"]["body"] = copy.deepcopy(after)
+        again = copy.deepcopy(after)
+        again["accepted_assumptions"] = []
+        changes = [{"item": self.PROPOSED, "change": "removed", "basis": "agent_proposed", "answer_id": ""}]
+        with self.assertRaises(rewording.ProtectedRewording):
+            revision_guard(state, again, changes, "glm_revise")
+
+    def test_a_declared_replacement_the_revision_does_not_keep_is_refused(self):
+        state, after = self.inputs()
+        after["accepted_assumptions"] = [{"text": "Something else.", "basis": "agent_proposed", "answer_id": ""}]
+        with self.assertRaisesRegex(ValueError, "which the revision does not keep"):
+            revision_guard(state, after, [self.row(basis="user_answer", answer_id="A1")], "glm_revise")
 
     def test_a_forged_or_agent_basis_does_not_authorize_dropping_the_persons_assumption(self):
         cases = ({"basis": "agent_proposed", "answer_id": ""}, {"basis": "delegated", "answer_id": "A1"})

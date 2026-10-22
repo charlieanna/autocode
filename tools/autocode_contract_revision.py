@@ -26,7 +26,9 @@ except ImportError:
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
-USER_BASES = ("user_answer", "user_feedback", "delegated")
+# The person's own words. A delegated decision is the Planner's choice made on the person's behalf, so
+# the Planner may revise it like its own proposal; a delegated answer can still authorize a change.
+PERSON_TEXT_BASES = ("user_answer", "user_feedback")
 DROP_ASSUMPTION = "(the revised plan no longer keeps this assumption)"
 
 
@@ -40,8 +42,8 @@ def decision_rows(body: dict) -> dict:
 
 
 def user_backed_assumptions(body: dict) -> dict:
-    """Assumption texts the person's saved answer, feedback or delegation stands behind."""
-    return {text: row for text, row in decision_rows(body).items() if row.get("basis") in USER_BASES}
+    """Assumption texts saved from the person's own answer or feedback."""
+    return {text: row for text, row in decision_rows(body).items() if row.get("basis") in PERSON_TEXT_BASES}
 
 
 def protected_proof(state: RunState, criterion: dict) -> bool:
@@ -235,7 +237,7 @@ def _review_question(state: RunState, previous: dict, body: dict, items, message
         old = next((row for row in previous.get("acceptance_criteria", []) if row.get("id") == item), None)
         if old is None:
             assumption = decision_rows(previous).get(item)
-            if assumption is None or assumption.get("basis") not in USER_BASES:
+            if assumption is None or assumption.get("basis") not in PERSON_TEXT_BASES:
                 return
             rows.append(
                 {
@@ -374,7 +376,7 @@ def revision_guard(state: RunState, body, changes, origin):
             item = row["item"]
             assumption = decision_rows(previous).get(item)
             proposed = str(row.get("replacement") or "").strip()
-            if row["change"] == "removed" and assumption is not None and assumption.get("basis") in USER_BASES:
+            if row["change"] == "removed" and assumption is not None and assumption.get("basis") in PERSON_TEXT_BASES:
                 proposed = proposed or DROP_ASSUMPTION
             if row["change"] not in ("reworded", "removed") or not proposed:
                 continue
@@ -507,10 +509,38 @@ def revision_guard(state: RunState, body, changes, origin):
     # An assumption saved from the person's answer is their own text: a revision may not drop
     # or reword one without a saved basis. Its own agent_proposed assumptions are engineering detail
     # and are recognized as an engineering delta above.
+    added = [text for text in decision_rows(body) if text not in decision_rows(previous)]
     for text in user_backed_assumptions(previous):
         if text in kept:
             continue
-        consume(text, "reworded" if any(row["change"] == "reworded" for row in declared.get(text, [])) else "removed")
+        kind = "reworded" if any(row["change"] == "reworded" for row in declared.get(text, [])) else "removed"
+        authorizing = next((row for row in declared.get(text, []) if row["change"] == kind), None)
+        if (
+            authorizing is None
+            and len(added) == 1
+            and not (protected_history or previous_contract.get("approval_status") == "approved")
+        ):
+            # An undeclared rewording: name the text that replaced it, not a drop.
+            _review_question(
+                state,
+                previous,
+                body,
+                [text],
+                f"Planner revision changes {text!r} without a user-backed contract change",
+                proposed={text: added[0]},
+            )
+        _, replacement = consume(text, kind)
+        if replacement is None:
+            continue
+        rows = [row for row in decision_rows(body).values() if row.get("text") == replacement]
+        if not rows:
+            raise ValueError(
+                f"Rewording {text!r} declares replacement {replacement!r}, which the revision does not keep"
+            )
+        # The person's answer authorized this wording, so it stays theirs: saved as agent_proposed, the next
+        # revision could change it again as the Planner's own detail.
+        for row in rows:
+            row["basis"], row["answer_id"] = authorizing["basis"], authorizing["answer_id"]
     # A user-backed row for an assumption or a delegated decision the revision really dropped is a true
     # record of the change, though neither list is protected.
     for key in ("accepted_assumptions", "delegated_decisions"):
