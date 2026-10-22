@@ -1942,7 +1942,10 @@ and a bug's reproduction that already passes stop the run with <code>PAUSED_ACCE
 revises the plan.</p>
 <p>A bug fix's cases are its Investigator's, plus any <code>test:</code>/<code>guard:</code> cases its plan adds: the Tester writes
 the reproduction tests, which must run and fail before the fix (a file that cannot load is no
-reproduction), and the preserve tests, which must pass.</p>
+reproduction), and the preserve tests, which must pass. A reproduction that already passes pauses the run
+(<code>PAUSED_ACCEPTANCE_TESTS</code>): the diagnosis and the code disagree, and only <code>--feedback</code> can say which is right.
+A <code>test:</code> case the plan itself added that already passes is not that disagreement; it is sent back relabelled
+<code>guard:</code> and reviewed again, exactly as in a build (#1868).</p>
 <p>In a plan with milestones, the Tester writes the cases due when a milestone is reached; a parallel batch
 gets the cases of every milestone in it at once. Tests for milestones not yet built are written later, so
 they never fail an earlier milestone's checks.</p>
