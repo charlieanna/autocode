@@ -143,6 +143,20 @@ def held_request(state: RunState, stage) -> dict:
 
 
 UNSETTLED_REFUSAL = "Reconcile owned active or uncertain workers before authorizing recovery"
+
+# The saved state that refuses a fresh execution retry, and the reason its own CLI gives. One predicate
+# for the gate (autocode_stage_recovery.authorize_failure_retry) and every projection of it, so a pause
+# cannot name a retry the person is then refused (#1897). Narrower than UNSETTLED, which also blocks a
+# novelty hold's scoped retry: an active runner check or a building batch does not refuse this one.
+RETRY_UNRECONCILED = ("active_stage", "uncertain_artifacts", "pending_report_repair")
+RETRY_UNRECONCILED_REFUSAL = "Reconcile the active attempt or pending report repair before authorizing a retry"
+
+
+def repeated_failure_retry_refusal(state: RunState) -> str | None:
+    """Why ``--retry-failed-stage`` is refused for this saved state right now, else None."""
+    return RETRY_UNRECONCILED_REFUSAL if any(state.get(key) for key in RETRY_UNRECONCILED) else None
+
+
 HOLD_STATUSES = ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING")
 
 
