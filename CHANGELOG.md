@@ -43,6 +43,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A brief that names the report it fixes ("Fix issue #474 ...") no longer dead-ends plan finalize: the source-trace
+  audit no longer treats an issue or pull-request reference as a value the criteria must repeat, while a value
+  stated beside it ("process exactly 7 rows") still has to survive (#1874).
 - A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
   proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
   without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to
