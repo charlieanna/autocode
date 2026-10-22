@@ -11,6 +11,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Requirements is the first stage of every run and every follow-up turn, and its report names the job, so the
+  separate Job recognizer call no longer runs on a flow that has Requirements (owner decision 2026-10-22, #1860).
+  A plain CLI bug fix goes from Requirements to the Investigator, a review to the Code Reviewer, a question to the
+  Analyst; "Fix them." after a review is named a build from the earlier turn's context. `--workflow build` still
+  runs Requirements; another pinned kind starts its own first stage. Adaptive planning no longer skips
+  Requirements for a request judged clear (`planning_depth.requirements_skipped` is `null` on new runs); every
+  adaptive run's Requirements makes that clarity judgment, as a chat's has since #1846. The v2
+  planning flow and runs without a Requirements role keep the recognizer.
+
 - A chat's Requirements names the job it understood, and the chat starts that job without a separate recognizer
   call (#1846). A question goes straight to the Analyst: its handoff no longer needs invented acceptance tests, so
   there is no report repair, and the chat no longer asks twice to "prepare a plan" that never comes. A review, a

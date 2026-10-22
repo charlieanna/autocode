@@ -78,6 +78,48 @@ class ModuleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "predates"):
             workflows.pin({**fresh(), "next_stage": "astra_discovery"}, "build")
 
+    def test_a_run_with_requirements_begins_there_and_its_report_names_the_job(self):
+        """Owner decision 2026-10-22 (#1860): Requirements is the front door; no recognizer runs first."""
+        state = fresh()
+        self.assertTrue(workflows.requirements_first(state))
+        self.assertFalse(workflows.requirements_first(fresh(joint=False)), "no Requirements role")
+        self.assertFalse(
+            workflows.requirements_first({**fresh(), "settings": {**fresh()["settings"], "planning_flow": "v2"}})
+        )
+        workflows.begin_requirements(state)
+        self.assertEqual(("requirements_gather", None), (state["next_stage"], workflows.kind(state)))
+        self.assertEqual("astra_discovery", state["workflow"]["then"], "a build goes on to the Planner")
+        for job, first in (
+            ("bugfix", workflows.INVESTIGATE_STAGE),
+            ("build", "astra_discovery"),
+            (None, "astra_discovery"),
+        ):
+            with self.subTest(job=job):
+                named = fresh()
+                workflows.begin_requirements(named)
+                workflows.from_requirements(named, {"job": job, "intended_outcome": "Fix the pager."})
+                self.assertEqual((job or "build", first), (workflows.kind(named), named["next_stage"]))
+                self.assertEqual("requirements_gather", named["workflow"]["named_by"])
+        self.assertEqual("Requirements named no job; planned as a build", named["workflow"]["reason"])
+
+    def test_pin_at_requirements_keeps_it_for_a_build_and_skips_it_for_another_kind(self):
+        build = fresh()
+        workflows.begin_requirements(build)
+        workflows.pin(build, "build")
+        self.assertEqual(
+            ("build", "user", "requirements_gather"),
+            (workflows.kind(build), build["workflow"]["source"], build["next_stage"]),
+        )
+        review = fresh()
+        workflows.begin_requirements(review)
+        workflows.pin(review, "review")
+        self.assertEqual(workflows.REVIEW_STAGE, review["next_stage"])
+        started = fresh()
+        workflows.begin_requirements(started)
+        started["stages"] = [{"stage": "requirements_gather"}]
+        with self.assertRaisesRegex(ValueError, "predates"):
+            workflows.pin(started, "build")
+
     def test_the_plan_for_approval_states_the_job_kind_and_how_to_correct_it(self):
         self.assertEqual("", workflows.approval_note({}))
         recognized = {"workflow": {"kind": "discuss", "reason": "A tradeoff question. ", "source": "model"}}

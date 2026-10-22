@@ -83,10 +83,10 @@ def conversation_checks(run):
         review, fix = turns
         checks += [
             Check(f"review_turn_{c.name}", c.ok, c.detail)
-            for c in run_checks(review, workflow="review", no_build=True, no_requirements=True)
+            for c in run_checks(review, workflow="review", no_build=True, after_requirements="review_change")
         ]
         checks += [
             Check(f"fix_turn_{c.name}", c.ok, c.detail)
-            for c in run_checks(fix, workflow="build", no_requirements=True, max_questions=0)
+            for c in run_checks(fix, workflow="build", after_requirements="astra_discovery", max_questions=0)
         ]
     return checks

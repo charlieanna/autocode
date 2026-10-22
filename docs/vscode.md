@@ -45,9 +45,9 @@ The conversation does not show an empty task dashboard.
 
 Once the requirements are clear, read the bound understanding and choose
 **Approve understanding and prepare plan**, or send a correction. This releases
-independent plan preparation/review. The core then chooses the workflow
-(build, fix, review, design or discuss) from that understanding; the detailed
-model history shows it as the **Job recognizer** stage. It does not authorize
+independent plan preparation/review. Requirements has already named the
+workflow (build, fix, review, design or discuss) with that understanding, and
+the approval starts it. It does not authorize
 implementation. **Approve and build** appears later for the concrete reviewed
 execution plan. Terminal users can answer the requirements review with **plan**.
 

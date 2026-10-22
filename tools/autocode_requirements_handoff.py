@@ -3,8 +3,9 @@
 Checks the report, archives the previous handoff to ``requirements_history``, binds its local source
 references (the caller's ``check_code_refs``, autopilot's source-inspection gate) and hands the run to
 Discovery. A spec-first run, or a handoff that has only questions so far, stops for the user first
-(autocode_requirements_review, #1200), except a chat whose Requirements named a question, which the
-Analyst answers at once (autocode_requirements_chat.answer_now, #1846).
+(autocode_requirements_review, #1200), except a question Requirements understood, which the Analyst
+answers at once (autocode_requirements_chat.answer_now, #1846). With no stop, the job the report
+names starts (autocode_requirements_chat.start_named_job, #1860).
 
 Moved out of autopilot.apply_planning, so the controller does not grow; besides that stop, the only
 change is that continuing goes through autocode_run_status, which also retires a stale stop reason.
@@ -98,7 +99,11 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     run_status.running(state, "PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"])
     if requirements_chat.answer_now(state, record):
         return
-    requirements_review.wait(state, record, queue)
+    if requirements_review.questions(state):
+        requirements_review.wait(state, record, queue)
+        return
+    # Nothing waits for the person (a plain CLI run, a follow-up turn): start the job Requirements named.
+    requirements_chat.start_named_job(state, record)
 
 
 OUTCOME_QUESTION = "What would you like me to help you build, change, fix, or review in this project?"

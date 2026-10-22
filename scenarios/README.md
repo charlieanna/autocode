@@ -498,7 +498,7 @@ live:
 
 ```toml
 [hybrid]
-scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
+scripted = ["requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
             "astra_finalize"]        # every call of these stages
 first_attempt = ["terra"]            # only the stage's first call in the run
 ```
@@ -615,15 +615,18 @@ cover five kinds of job and check three things beyond the deliverable:
 
 1. **Which workflow ran.** The status view (`autocode --status`,
    docs/task-run.md) carries a `workflow` field naming one of the five,
-   decided by the first stage of every run (`recognize_workflow`; a spec-first
-   chat runs it after the person approves the requirements) unless the
-   user named it with `--workflow`. Oracles
-   check it through `run_checks`, together with which saved stages ran: a
-   review must not dispatch a Builder or ask for plan approval; a bug fix must
-   not start with requirements gathering; a three-line fix must not get
-   plan-review rounds. In fake mode the scripted provider answers this stage
-   with keyword rules (`harness/fake_codex.py`, `recognize`), which proves the
-   plumbing and nothing about model quality.
+   named by Requirements, the first stage of every run and follow-up turn
+   (owner decision 2026-10-22, #1860), unless the user named it with
+   `--workflow`; a flow without Requirements still has the Job recognizer
+   (`recognize_workflow`) name it. Oracles check it through `run_checks`,
+   together with which saved stages ran: a review must not dispatch a Builder
+   or ask for plan approval; every job runs Requirements once, first, and then
+   its own first stage (`after_requirements`: the Investigator for a bug fix,
+   the Code Reviewer for a review), so a bug fix never gathers requirements a
+   second time; a three-line fix must not get plan-review rounds. In fake mode
+   the scripted provider names the job with keyword rules
+   (`harness/fake_codex.py`, `recognize`), which proves the plumbing and
+   nothing about model quality.
 2. **Read-only jobs stay read-only.** Review, design and discussion may leave
    only their report behind (`only_changed_under`); the oracle reads
    `git status` in the delivered workspace.
@@ -858,7 +861,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `bugfix-stale-prices` | bugfix | Checkout charges stale prices because cache invalidation is left to each write path. The fix belongs at the store's write path (every cache hears every write); either fix route passes, with no requirements gathering. Patching today's callers or dropping the cache both fail hidden tests. |
 | `bugfix-cent-drift` | bugfix | Invoice, charge and refunds each round money their own way and drift by a cent. The fix touches every billing module, needs one half-up money rule, and leaves an accounting choice open (tax per line or per invoice), so it must take the planned path: diagnosis, Planner, Plan Reviewer, the user's approval, no requirements gathering. Deriving only the charge from the invoice, or rounding everything with float `round()`, both fail hidden tests. |
 | `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. Its Investigator model is fixed in `scenario.toml` (`--investigator-model openai/gpt-6-sol`), so the scenario cannot be run live on Claude models without a product change to how the stuck-stage Investigator selects a tool provider. |
-| `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. `broken/lone-partial-page` has a regression test that passes on the reference and on its wrong fix; the mutation check reports its surviving off-by-one (#699). |
+| `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis after Requirements names the job, plan review and the user's approval, no second requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. `broken/lone-partial-page` has a regression test that passes on the reference and on its wrong fix; the mutation check reports its surviving off-by-one (#699). |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
 | `bugfix-monorepo-package` | bugfix | Issue #711: `feature-monorepo-package`'s check for a bug fix. Two packages, `packages/invoices/` and `packages/search/`, each keep a copy of the same off-by-one pager; the report and the fix belong to the invoice package. The scripted run passes `--package packages/invoices/` (`[fake] flags`), so the bug goes through the Investigator first and the proof runs in that package. The oracle judges the package as `feature-monorepo-package` does; with a run, the runner's diagnosis note (the `note_path` the run's saved investigation names) is not a change outside the package, but any other file under `docs/bugs/` is. With a run it also requires the bug-fix workflow, the Investigator before any other model stage but the job recognizer (or a repair of its report), plan review and the user's approval, no requirements gathering and no questions. `broken/fixes-search-copy-too` delivers the same correct fix and also fixes the other team's copy: the run stops (`HONEST_BLOCKER`) with the file named in the open `runner` finding. The scripted Investigator names only the files inside the package its handoff names (`package_scope`), so the run reaches the Builder. Before the Investigator was told the package, its diagnosis named the other team's copy too; the runner now refuses such a diagnosis. Against AutoCode from before #1415, the reference did not complete either: the proof counted the diagnosis note as a change outside the package. A live profile gets no `[fake] flags`, so it runs the brief without `--package` and is judged on the delivered files and the workflow alone. |
 | `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; one that never does is `NOT_EXERCISED`. The scripted run reaches it by construction — #628's `[fake] fault = "refund_store_clock"` makes the first Builder apply `broken/trusts-store-date` — and passes with a `CORRECT` diagnosis. |

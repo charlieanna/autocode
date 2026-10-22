@@ -2524,7 +2524,7 @@ class RunChecksTests(unittest.TestCase):
         }
         failed = {
             c.name
-            for c in oracle.run_checks(run_record, workflow="review", no_build=True, no_requirements=True)
+            for c in oracle.run_checks(run_record, workflow="review", no_build=True, after_requirements="review_change")
             if not c.ok
         }
         self.assertEqual(
@@ -2532,7 +2532,7 @@ class RunChecksTests(unittest.TestCase):
                 "workflow_recognized",
                 "no_builder_dispatched",
                 "no_build_plan_approval_requested",
-                "no_requirements_gathering",
+                "job_starts_after_requirements",
             },
             failed,
         )
@@ -2541,17 +2541,31 @@ class RunChecksTests(unittest.TestCase):
         run_record = {
             "view": {"workflow": "review"},
             "cli_calls": ["start", "resume"],
-            "stages": ["review", "sol"],
+            "stages": ["requirements_gather", "review_change", "sol"],
             "answers": [],
         }
         self.assertTrue(
             all(
                 c.ok
                 for c in oracle.run_checks(
-                    run_record, workflow="review", no_build=True, no_requirements=True, max_questions=0
+                    run_record, workflow="review", no_build=True, after_requirements="review_change", max_questions=0
                 )
             )
         )
+
+    def test_requirements_runs_once_and_first(self):
+        """Every flow starts at Requirements, which names the job (owner decision 2026-10-22, #1860)."""
+        for stages, ok in (
+            (["requirements_gather", "investigate_bug", "astra_discovery"], True),
+            (["requirements_gather", "requirements_gather_report_repair", "investigate_bug", "orchestrator"], True),
+            (["recognize_workflow", "requirements_gather", "investigate_bug"], False),
+            (["investigate_bug", "astra_discovery"], False),
+            (["requirements_gather", "investigate_bug", "requirements_gather", "astra_discovery"], False),
+        ):
+            with self.subTest(stages=stages):
+                run_record = {"view": {"workflow": "bugfix"}, "stages": stages, "answers": []}
+                checks = oracle.run_checks(run_record, workflow="bugfix", after_requirements="investigate_bug")
+                self.assertEqual(ok, all(c.ok for c in checks), [c for c in checks if not c.ok])
 
     def test_a_planned_fix_needs_plan_review_and_the_users_approval(self):
         planned = {
@@ -2594,7 +2608,7 @@ class RunChecksTests(unittest.TestCase):
             "cli_calls": ["start"],
             "answers": [],
             "stages": [
-                "recognize_workflow",
+                "requirements_gather",
                 "investigate_bug",
                 "orchestrator",
                 "terra",
@@ -2602,7 +2616,7 @@ class RunChecksTests(unittest.TestCase):
                 "sol",
                 "astra_review",
             ],
-            "model_stages": ["recognize_workflow", "investigate_bug", "terra", "sol", "astra_review"],
+            "model_stages": ["requirements_gather", "investigate_bug", "terra", "sol", "astra_review"],
         }
         (check,) = [
             c for c in oracle.run_checks(run_record, workflow="bugfix", max_model_stages=5) if c.name == "stage_budget"
@@ -2678,7 +2692,7 @@ class BugfixMonorepoPackageOracleTests(unittest.TestCase):
 
     FINDING = "Files outside the package packages/invoices/ changed: "
     NOTE = "docs/bugs/scripted-diagnosis.json"
-    STAGES = ["recognize_workflow", "investigate_bug", "astra_discovery", "astra_challenge", "terra", "sol"]
+    STAGES = ["requirements_gather", "investigate_bug", "astra_discovery", "astra_challenge", "terra", "sol"]
 
     def score(self, overlay, findings, stages=STAGES, package="packages/invoices", model_stages=None, extra=()):
         from harness.project import materialize
@@ -2744,16 +2758,16 @@ class BugfixMonorepoPackageOracleTests(unittest.TestCase):
         )
         self.assertFalse(other["nothing_changed_outside_the_package"].ok)
 
-    def test_the_investigator_runs_before_any_other_model_stage_but_the_job_recognizer(self):
+    def test_the_investigator_runs_before_any_other_model_stage_but_requirements(self):
         for stages, model_stages, ok in (
             (self.STAGES, None, True),
             (self.STAGES[1:], None, True),
-            (["recognize_workflow", "recognize_workflow_report_repair", *self.STAGES[1:]], None, True),
+            (["requirements_gather", "requirements_gather_report_repair", *self.STAGES[1:]], None, True),
             # A runner-owned record is not a model stage.
-            (["recognize_workflow", "model_preflight", *self.STAGES[1:]], self.STAGES, True),
-            (["recognize_workflow", "astra_discovery", "investigate_bug", "terra"], None, False),
-            (self.STAGES, ["recognize_workflow", "astra_discovery", "investigate_bug"], False),
-            (["recognize_workflow", "astra_discovery", "terra"], None, False),
+            (["requirements_gather", "model_preflight", *self.STAGES[1:]], self.STAGES, True),
+            (["requirements_gather", "astra_discovery", "investigate_bug", "terra"], None, False),
+            (self.STAGES, ["requirements_gather", "astra_discovery", "investigate_bug"], False),
+            (["requirements_gather", "astra_discovery", "terra"], None, False),
         ):
             with self.subTest(stages=stages, model_stages=model_stages):
                 checks = self.score("reference", [], stages=stages, model_stages=model_stages)
@@ -4436,7 +4450,7 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_fake("reference", "review-clean-pr")
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("review", result["workflow"])
-        self.assertEqual(["recognize_workflow", "review_change"], result["metrics"]["stage_names"])
+        self.assertEqual(["requirements_gather", "review_change"], result["metrics"]["stage_names"])
 
     def test_tiny_jobs_do_not_quietly_take_more_steps(self):
         # Issue #15: small jobs already take many model calls. These are today's counts
@@ -4473,7 +4487,7 @@ class FakeRunTests(unittest.TestCase):
     def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
         result = self.run_fake("reference", "review-then-fix")
         self.assertEqual(2, len(result["turns"]), result["summary"])
-        self.assertEqual(["recognize_workflow", "review_change"], result["turns"][0]["model_stage_names"])
+        self.assertEqual(["requirements_gather", "review_change"], result["turns"][0]["model_stage_names"])
         self.assertEqual("review", result["turns"][0]["workflow"])
         self.assertTrue(result["turns"][1]["say"].startswith("Fix them."))
 
@@ -4505,9 +4519,10 @@ class FakeRunTests(unittest.TestCase):
             state = json.loads((Path(result["evidence"]) / "state.json").read_text())
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(["discuss", "design", "build"], [turn["workflow"] for turn in result["turns"]])
-        # "Build it." named the design turn 2 wrote: it was checked as approved, and no Requirements ran.
-        self.assertEqual(["recognize_workflow", "check_design"], result["turns"][2]["model_stage_names"][:2])
-        self.assertNotIn("requirements_gather", result["turns"][2]["model_stage_names"])
+        # "Build it." named the design turn 2 wrote: Requirements named it, it was checked as approved, and
+        # Requirements did not run a second time.
+        self.assertEqual(["requirements_gather", "check_design"], result["turns"][2]["model_stage_names"][:2])
+        self.assertEqual(1, result["turns"][2]["model_stage_names"].count("requirements_gather"))
         # The build was planned afresh from the approved design, not as a revision of the design turn's
         # docs-only contract (live Planners were refused there, then repaired or asked the user): that
         # contract moved to contract_history, and every contract since declares no change against it.
@@ -4537,9 +4552,10 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_fake("reference", "design-review-with-answers")
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(["design"] * 3, [turn["workflow"] for turn in result["turns"]])
-        # Each reply runs the Architect again on the same review: nothing is built or gathered.
+        # Each reply runs the Architect again on the same review, after Requirements names it design: nothing
+        # is built.
         self.assertEqual(
-            [["recognize_workflow", "review_design"]] * 3, [turn["model_stage_names"] for turn in result["turns"]]
+            [["requirements_gather", "review_design"]] * 3, [turn["model_stage_names"] for turn in result["turns"]]
         )
 
     def test_a_revision_that_ignores_an_answer_or_renumbers_its_concerns_never_passes(self):
@@ -4600,7 +4616,7 @@ class StockRefusalsRunTests(unittest.TestCase):
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(
             [
-                "recognize_workflow",
+                "requirements_gather",
                 "astra_discovery",
                 "astra_challenge",
                 "terra",
@@ -4870,7 +4886,7 @@ class HybridRunTests(unittest.TestCase):
     which here is the fake provider standing in. They prove the routing, the labels and that the diagnosis
     counts only calls the live side served; nothing about how a model diagnoses."""
 
-    SCRIPTED = ["recognize_workflow", "astra_discovery", "astra_challenge", "terra"]
+    SCRIPTED = ["requirements_gather", "astra_discovery", "astra_challenge", "terra"]
     LIVE = ["sol", "astra_review", "astra_resolve", "investigate_stuck", "terra", "sol", "astra_review"]
 
     def run_hybrid(self, out, **fields):
@@ -6305,18 +6321,19 @@ class PlanCompareTests(unittest.TestCase):
         self.assertTrue(all(case.brief for case in cases))
 
     def test_each_adaptive_path_reaches_plan_approval_with_fewer_calls(self):
-        # Per case: the adaptive run's stages up to the first plan, then after the feedback on it.
+        # Per case: the adaptive run's stages up to the first plan, then after the feedback on it. Every run
+        # starts at Requirements, which names the job (#1860); clarity no longer skips it.
         plan, review, revise = "astra_discovery", "astra_challenge", "glm_revise"
         wanted = {
-            "tiny-greeting": (["recognize_workflow", plan, review], [plan, review]),
-            "vague-refunds": (["recognize_workflow", "requirements_gather", plan, review], [plan, review]),
+            "tiny-greeting": (["requirements_gather", plan, review], [plan, review]),
+            "vague-refunds": (["requirements_gather", plan, review], [plan, review]),
             "diamond-four-milestones": (
-                ["recognize_workflow", plan, review, revise, review],
+                ["requirements_gather", plan, review, revise, review],
                 [plan, review, revise, review],
             ),
             # The Planner sends feedback that changes the product back to Requirements.
             "vague-reading-list": (
-                ["recognize_workflow", "requirements_gather", plan, review, revise, "astra_finalize"],
+                ["requirements_gather", plan, review, revise, "astra_finalize"],
                 [plan, "requirements_gather", plan, review, revise, "astra_finalize"],
             ),
         }
@@ -6342,7 +6359,7 @@ class PlanCompareTests(unittest.TestCase):
                     today["error"] or adaptive["error"],
                 )
                 self.assertEqual(first, adaptive["model_stages"])
-                self.assertEqual(6, today["model_calls"], today["model_stages"])
+                self.assertEqual(5, today["model_calls"], today["model_stages"])
                 self.assertTrue(adaptive["final_plan"])
                 self.assertEqual(after, adaptive["feedback_round"]["model_stages"])
                 self.assertEqual(
@@ -6699,8 +6716,8 @@ class AdaptiveCompletionTests(unittest.TestCase):
 
     def test_review_and_discussion_keep_the_same_model_sequence(self):
         for id_, expected in (
-            ("review-clean-pr", ["recognize_workflow", "review_change"]),
-            ("discuss-cache-choice", ["recognize_workflow", "answer_question"]),
+            ("review-clean-pr", ["requirements_gather", "review_change"]),
+            ("discuss-cache-choice", ["requirements_gather", "answer_question"]),
         ):
             with self.subTest(scenario=id_):
                 result = self.run_fake(id_)

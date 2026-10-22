@@ -25,8 +25,10 @@ if TYPE_CHECKING:
 import re
 
 try:
+    from . import autocode_requirements_review as requirements_review
     from .autocode_conversation import task_user_texts
 except ImportError:
+    import autocode_requirements_review as requirements_review
     from autocode_conversation import task_user_texts
 
 CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
@@ -129,12 +131,17 @@ def source_texts(state: RunState):
 
 
 def new_workflow_turn(state: RunState):
-    """A receipted follow-up changing jobs; same-kind revisions retain their obligations."""
+    """A receipted follow-up changing jobs; same-kind revisions retain their obligations.
+
+    A follow-up whose job is not named yet counts too: Requirements, the first stage of every turn,
+    names it (#1860), and until then the new message alone carries fresh obligations, as it did when
+    the job recognizer ran first and named a different job."""
     turns = state.get("turns") or []
     turn = turns[-1] if turns else {}
     previous = (turn.get("previous") or {}).get("workflow")
-    current = (state.get("workflow") or {}).get("kind")
-    if not previous or not current or current == previous:
+    workflow = state.get("workflow")
+    current = workflow.get("kind") if isinstance(workflow, dict) else None
+    if not previous or not isinstance(workflow, dict) or current == previous:
         return None
     event = next(
         (
@@ -148,6 +155,23 @@ def new_workflow_turn(state: RunState):
         None,
     )
     return turn if event and event in (state.get("user_events") or []) else None
+
+
+def earlier_job_handoff(state: RunState, report) -> bool:
+    """Whether the saved handoff is the earlier turn's and ``report`` names this follow-up a different job.
+
+    Every turn starts at Requirements (#1860), so a follow-up's first report refreshes the handoff the
+    earlier job left: "Fix them." after a review would have to keep the review's "Do not fix anything"
+    as a requirement. A different job's requirements are context, not obligations (archived to
+    requirements_history as every replaced handoff is); the same job's are retained as before. A report
+    naming no job is planned as a build (autocode_workflows.from_requirements)."""
+    turns = state.get("turns") or []
+    if not turns or (state.get("workflow") or {}).get("kind"):
+        return False
+    previous = turns[-1].get("previous") or {}
+    handoff = (state.get("requirements_handoff") or {}).get("output")
+    named = report.get("job") if report.get("job") in requirements_review.JOBS else "build"
+    return bool(handoff) and handoff == previous.get("requirements_output") and named != previous.get("workflow")
 
 
 def scan_texts(state: RunState):

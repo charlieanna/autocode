@@ -466,13 +466,18 @@ def main() -> int:
             "machine_resolutions": [],
             "access_blockers": [],
         }
+        # Requirements names the job it understood in every run (#1846, #1860); this fixture only builds.
+        report.update(job="build", design_document="")
+        asked = (
+            json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+            if "--output-schema" in sys.argv
+            else {}
+        ).get("properties", {})
+        if 'Add "clarity"' in prompt or "clarity" in asked:
+            # Judged as the recognizer judged it before #1860; a report repair's schema still asks for it.
+            report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
         if data.get("spec_first"):
             report["assistant_reply"] = "I understand you want a deterministic greeting CLI. Is that right?"
-            # A chat run's Requirements names the job it understood (#1846); this fixture only builds.
-            report.update(job="build", design_document="")
-            if 'Add "clarity"' in prompt:
-                # An adaptive chat's Requirements judges clarity (#1846); vague keeps the handwritten trace.
-                report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
         for event in data.get("brief_feedback") or []:
             if event.get("text") == "Keep the same scope and standard-library-only constraint.":
                 report["requirements"].append(
@@ -482,8 +487,13 @@ def main() -> int:
                         "source_quote": event["text"],
                     }
                 )
-        if data.get("spec_first") and "It prints 'Hello, NAME'" not in str(data.get("task", "")):
-            # A chat message that names no work (a greeting, "What is your name?"): answer it, then ask.
+        if (
+            data.get("spec_first")
+            and not data.get("follow_up")
+            and "It prints 'Hello, NAME'" not in str(data.get("task", ""))
+        ):
+            # A chat message that names no work (a greeting, "What is your name?"): answer it, then ask. A
+            # follow-up's task is its new message alone, with the earlier turn as context (#1860): it is work.
             report.update(
                 summary="The user has not described a task yet.",
                 assistant_reply="I'm AutoCode's requirements assistant. What would you like to build or change?",

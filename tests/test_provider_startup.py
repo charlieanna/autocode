@@ -13,8 +13,8 @@ from harness.project import git
 class ProviderStartupRecovery(AdversarialCase):
     def setUp(self):
         super().setUp()
-        # Startup recovery is followed through the Requirements stage; a clear request would skip it now that
-        # adaptive planning is the default, so the scripted recognizer calls the request vague.
+        # Requirements, the first stage (#1860), judges the request vague, so the review allowance counts per
+        # planning cycle as the fault traces expect.
         self.env["SCENARIO_FAKE_CLARITY"] = "vague"
         (self.project / "README.md").write_text("Existing source citation target.\n")
         git(self.project, "add", "README.md")
@@ -95,7 +95,8 @@ class ProviderStartupRecovery(AdversarialCase):
         self.assertEqual("build", view["workflow"], self.root)
         self.assertEqual([True, False], [r["injected"] for r in self.startup_trace()])
         self.assertFalse(view["done"])
-        self.assertEqual("requirements_gather", view["next_stage"], self.root)
+        # Requirements ran first and named the job; the Planner is next.
+        self.assertEqual("astra_discovery", view["next_stage"], self.root)
 
     def test_persistent_lock_is_bounded_and_does_not_resume_implicitly(self):
         self.setup_fault("repeated")
@@ -112,13 +113,13 @@ class ProviderStartupRecovery(AdversarialCase):
     def test_retry_bound_survives_restart_between_different_stages(self):
         self.setup_fault("per_stage")
         config = json.loads(self.config_path.read_text())
-        config["startup_fault"]["stages"] = ["recognize_workflow", "requirements_gather", "astra_discovery"]
+        config["startup_fault"]["stages"] = ["requirements_gather", "astra_discovery", "astra_challenge"]
         self.config_path.write_text(json.dumps(config))
         self.invoke("--pause-after-stage", task=self.scenario.brief)
         self.discover_run()
-        self.assertEqual("requirements_gather", self.driver.view()["next_stage"])
-        self.invoke("--resume-paused", "--pause-after-stage")
         self.assertEqual("astra_discovery", self.driver.view()["next_stage"])
+        self.invoke("--resume-paused", "--pause-after-stage")
+        self.assertEqual("astra_challenge", self.driver.view()["next_stage"])
         result = self.invoke("--resume-paused")
         self.assertIn("startup retry limit", result.stdout + result.stderr)
         self.assertEqual([True, False, True, False, True], [r["injected"] for r in self.startup_trace()])

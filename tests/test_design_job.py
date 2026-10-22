@@ -426,7 +426,9 @@ class RevisionTests(unittest.TestCase):
         autoreview.apply_job(
             design_job.STAGE, self.state, report("propose"), {"changed_files": [], "output": "o2"}, self.workspace
         )
-        self.assertEqual(("RUNNING", "requirements_gather"), (self.state["status"], self.state["next_stage"]))
+        # The turn began at Requirements (#1860), so the new design goes on to the Planner, not to a second
+        # Requirements stage.
+        self.assertEqual(("RUNNING", "astra_discovery"), (self.state["status"], self.state["next_stage"]))
 
 
 if __name__ == "__main__":

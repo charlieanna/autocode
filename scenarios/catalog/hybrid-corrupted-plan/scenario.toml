@@ -9,7 +9,7 @@ check = "python3 -m unittest test_todo.py"
 fault = "corrupted_plan"
 
 [hybrid]
-scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"]
+scripted = ["requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"]
 
 [run]
 # Completing after a scripted revise fixes the plant is fine; diagnosis scores the catch.

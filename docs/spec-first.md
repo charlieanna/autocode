@@ -20,12 +20,14 @@ The handoff names the job Requirements understood (`job`: `build`, `bugfix`, `re
 build or a bug fix needs behaviors and acceptance tests; a review, a design or a question names its
 outcome and nothing else. A question is never asked to be approved: once Requirements understands it
 and has nothing to ask, the Analyst answers it straight away. The Job recognizer runs only when
-Requirements named no job (#1846).
+Requirements named no job (#1846). Every run, chat or not, starts at Requirements and has it name the
+job (#1860); what spec-first adds is the confirmation before the job starts.
 
 Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.
 
-Without the setting, a complete handoff goes straight to planning. A handoff that has only questions so
+Without the setting, a complete handoff goes straight to the job Requirements named: planning for a
+build, the Investigator for a bug fix, the Code Reviewer, the Designer or the Analyst for the others. A handoff that has only questions so
 far, with no behaviors or acceptance tests yet, still stops the run for your answers on any flow, and
 Requirements runs again with them; only the confirmation of a complete handoff is spec-first's own.
 

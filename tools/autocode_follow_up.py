@@ -1,11 +1,12 @@
 """A follow-up message to a finished run: the next turn of the same conversation (issue #51).
 
 ``autocode --run-dir R --follow-up TEXT`` on a finished run records TEXT as a new turn and
-reopens the run: the job recognizer reads TEXT (with the earlier turn as context) and picks
-the next workflow, in the same run directory. "Review PR #184" then "Fix them." is one
-conversation: the review's findings carry forward, and a build that acts on them is planned
-from them, the way a bug fix is planned from its diagnosis (autocode_bug_job), so
-requirements gathering is skipped. Plan review and the user's approval still apply.
+reopens the run: Requirements reads TEXT (with the earlier turn as context) and names the
+next workflow, in the same run directory (#1860); a flow without Requirements has the job
+recognizer pick it. "Review PR #184" then "Fix them." is one conversation: the review's
+findings carry forward, and a build that acts on them is planned from them, the way a bug
+fix is planned from its diagnosis (autocode_bug_job). Without Requirements, requirements
+gathering is skipped for it. Plan review and the user's approval still apply.
 
 This module reads the run state, the saved reports and snapshots, and the workspace (a turn's
 changes are its start snapshot against the workspace now). It imports nothing from the runner.
@@ -17,6 +18,7 @@ State keys written here:
         Recording a follow-up does not grant plan approval or recovery allowance.
     turns: [{"at", "say", "stage_index", "event_id",
              "previous": {"task", "workflow", "status", "completed_at", "first_stage", "wrote": [path],
+                          "requirements_output": the requirements handoff's output path or None,
                           "review": {"report_path", "change_under_review", "change_patch", "verdict",
                                      "blocking": [...], "advisory": [...]} or absent,
                           "design": {"mode": "propose", "documents": [path]}
@@ -24,9 +26,9 @@ State keys written here:
                                         "summary", "satisfied", "concerns": [...], "questions": [...],
                                         "blocking": [...], "advisory": [...], "revision", "revisions": [...]}
                                     or absent}}]
-        One entry per follow-up. Read by autocode_workflows.follow_up (the recognizer judges the
-        newest message; it also gets previous.design, so "Build it." after a design turn names that
-        design), by design_review_to_revise (a reply to a design review: the Architect revises the
+        One entry per follow-up. Read by autocode_workflows.follow_up (Requirements, or the recognizer,
+        judges the newest message; it also gets previous.design, so "Build it." after a design turn
+        names that design), by design_review_to_revise (a reply to a design review: the Architect revises the
         report carried here, autocode_design_job), by review_findings (the Planner's handoff) and by
         the status and progress views. A review's blocking and advisory are its OPEN concerns
         (id, area, summary); concerns is every concern as the report has it, resolved ones included.
@@ -154,6 +156,9 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
         "completed_at": state.get("completed_at"),
         "first_stage": first_stage,
         "wrote": wrote(state, changes),
+        # The handoff this job was gathered with: a follow-up naming another job need not keep its
+        # requirements (goals.earlier_job_handoff, #1860).
+        "requirements_output": (state.get("requirements_handoff") or {}).get("output"),
     }
     review = carried_review(state, workspace)
     if review:
@@ -192,8 +197,13 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
     # A completed human turn has its own default review allowance. Historical
     # charges remain archived; explicit run-wide limits and cumulative usage stay.
     planning_cycle.new_cycle(state, new_turn=True)
-    # The findings of a review stand in for requirements gathering when the next job acts on them.
-    workflows.begin(state, workflows.planner_stage(state) if review and review["blocking"] else first_stage)
+    if workflows.requirements_first(state):
+        # Every turn starts at Requirements, which names the next job from the new message and the
+        # earlier turn (workflows.follow_up): "fix them" after a review is a build (#1860).
+        workflows.begin_requirements(state)
+    else:
+        # The findings of a review stand in for requirements gathering when the next job acts on them.
+        workflows.begin(state, workflows.planner_stage(state) if review and review["blocking"] else first_stage)
     state.update({"status": "RUNNING", "phase": "DISCOVERING"})
     completed_keys: tuple[Literal["completed_at", "stop_reason"], ...] = ("completed_at", "stop_reason")
     for key in completed_keys:

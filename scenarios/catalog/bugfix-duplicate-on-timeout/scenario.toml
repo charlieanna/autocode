@@ -4,7 +4,7 @@ category = "bugfix"
 # id. Hidden tests inject a lost reply before and after processing and count
 # mutations at the fake registry. Removing retries loses availability; a longer
 # deadline hides the symptom; both fail. The run must start by investigating
-# (no requirements gathering) and leave a root-cause note.
+# (Requirements only once, first) and leave a root-cause note.
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."

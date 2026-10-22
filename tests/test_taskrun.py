@@ -679,9 +679,10 @@ class TaskRunTests(unittest.TestCase):
         self.assertFalse((self.workspace / ".autocode").exists())
 
     def test_status_shows_the_planning_depth_decisions(self):
-        # #697: whether recognition skipped Requirements, the plan's size, the review allowance and whether
-        # the Plan Reviewer approved the draft at its first review reach --status, not only state.json.
-        for clarity, requirements_ran in (("clear", False), ("vague", True)):
+        # #697: the clarity judgment, the plan's size, the review allowance and whether the Plan Reviewer
+        # approved the draft at its first review reach --status, not only state.json. Requirements runs first
+        # on every run and makes the judgment itself (#1860), so no run skips it.
+        for clarity in ("clear", "vague"):
             with self.subTest(clarity=clarity):
                 workspace = self.workspace.parent / f"project-{clarity}"
                 shutil.copytree(self.workspace, workspace)
@@ -694,7 +695,7 @@ class TaskRunTests(unittest.TestCase):
                     {
                         "adaptive": True,
                         "clarity": clarity,
-                        "requirements_skipped": not requirements_ran,
+                        "requirements_skipped": None,
                         "plan_size": "small",
                         "review_limit": 2,
                         "challenges": 1,
@@ -705,7 +706,8 @@ class TaskRunTests(unittest.TestCase):
                 )
                 self.assertEqual(1, depth["size_signals"]["milestones"])
                 stages = [row["stage"] for row in util.read(run.run_dir / "state.json")["stages"]]
-                self.assertEqual(requirements_ran, "requirements_gather" in stages, stages)
+                self.assertEqual("requirements_gather", stages[0], stages)
+                self.assertNotIn("recognize_workflow", stages)
                 self.assertNotIn("astra_finalize", stages, "approved at the first review")
 
     def test_start_approve_and_complete(self):
@@ -1197,14 +1199,15 @@ class TaskRunTests(unittest.TestCase):
         run.follow_up(request)
         self.env["FOLLOW_UP_PROVENANCE_TEST"] = "1"
         self.env["LIVE_FIXTURE_CLARITY"] = "clear"
-        recognizing = taskrun.TaskRun(
+        gathering = taskrun.TaskRun(
             self.workspace, run.run_dir, options=(*FIXTURE_OPTIONS, "--pause-after-stage"), env=self.env, timeout=300
         )
-        boundary = recognizing.advance()
+        boundary = gathering.advance()
+        # The follow-up began at Requirements (#1860), which refreshed the prior handoff and named a build.
         self.assertEqual(
-            ("PAUSED_REQUESTED", "requirements_gather"), (boundary["status"], boundary["next_stage"]), boundary
+            ("PAUSED_REQUESTED", "astra_discovery"), (boundary["status"], boundary["next_stage"]), boundary
         )
-        # Reattach: refresh the prior handoff, and retain the recorded request and authorization identity.
+        # Reattach: retain the recorded request and authorization identity.
         run = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.resume_paused()
         self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"], view)
