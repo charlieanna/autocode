@@ -30,6 +30,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_process as processes
     from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_limits as recovery_limits
     from . import autocode_report_retry as report_retry
     from . import autocode_report_source as report_source
     from . import autocode_resolver_human as resolver_human
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_process as processes
     import autocode_quota_route as quota_route
+    import autocode_recovery_limits as recovery_limits
     import autocode_report_retry as report_retry
     import autocode_report_source as report_source
     import autocode_resolver_human as resolver_human
@@ -1298,8 +1300,8 @@ def authorize_failure_retry(state: RunState, run_dir, workspace):
         issued and issued["scope"] == "operational_exhaustion" and issued_cause == "PAUSED_REPEATED_FAILURE"
     ):
         raise ValueError("--retry-failed-stage requires a run paused for repeated failure")
-    if any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair")):
-        raise ValueError("Reconcile the active attempt or pending report repair before authorizing a retry")
+    if refusal := recovery_limits.repeated_failure_retry_refusal(state):
+        raise ValueError(refusal)
     record = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None)
     repeated = failures.repeated(state, record) if record else None
     if not repeated:

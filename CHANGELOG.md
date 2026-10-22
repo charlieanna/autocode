@@ -56,11 +56,13 @@ PR template asks for an entry here; a change without one is incomplete.
 - A brief that names the report it fixes ("Fix issue #474 ...") no longer dead-ends plan finalize: the source-trace
   audit no longer treats an issue or pull-request reference as a value the criteria must repeat, while a value
   stated beside it ("process exactly 7 rows") still has to survive (#1874).
-- A run paused with a repeated failure no longer names `--retry-failed-stage` while a report repair or an active
-  runner check is still unreconciled, which its own CLI always refuses ("Reconcile the active attempt or pending
-  report repair before authorizing a retry"). It names the plain `--resume-paused` that reconciles the pending
-  record instead, so a client taking only `next_command` has an action it can run (#1897). The guard now sits in
-  the one helper that builds the advice, where the resolver's own advice already applied it.
+- A run paused with a repeated failure no longer names `--retry-failed-stage` while the attempt or report
+  repair behind that pause is unreconciled, which its own CLI refuses ("Reconcile the active attempt or pending
+  report repair before authorizing a retry"). The pause now says why the retry waits, in `needs.retry_unavailable`
+  carrying that same reason, instead of dropping the retry and implying a resume answers it (#1897). One
+  predicate (`autocode_recovery_limits.repeated_failure_retry_refusal`) now feeds the CLI's gate and both
+  projections, replacing the hand-written key sets that disagreed about `uncertain_artifacts` (refused by the
+  CLI, still named by the view) and `active_runner_check` (not refused, but withheld).
 - A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
   proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
   without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to

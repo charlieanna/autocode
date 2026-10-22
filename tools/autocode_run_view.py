@@ -840,7 +840,11 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      without a model, --resume-paused --retry-builder M;
                                                      a recovery novelty hold, also before its request is
                                                      published: --resume-paused --retry-failed-stage,
-                                                     named again as `retry_action`)
+                                                     named again as `retry_action`; a PAUSED_REPEATED_FAILURE
+                                                     whose active attempt, uncertain artifacts or pending
+                                                     report repair its retry gate will not authorize over:
+                                                     --resume-paused, with that CLI refusal as
+                                                     `retry_unavailable` and never the refused flag (#1897))
     retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
@@ -1132,6 +1136,16 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         ):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
             need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
+        # The CLI refuses --retry-failed-stage while the attempt or report repair behind this pause is
+        # unreconciled, so naming it here would be a command the person is then rejected for (#1897).
+        # Say why the retry waits, as a novelty hold does, and name the resume the CLI does take.
+        if (
+            status == "PAUSED_REPEATED_FAILURE"
+            and "action" not in need
+            and (blocked := recovery_limits.repeated_failure_retry_refusal(state))
+        ):
+            need["retry_unavailable"] = blocked
+            need["action"] = "--resume-paused"
         if "action" not in need and pause_authority.requested_only(state):
             need["confirmation_required"] = False
         return need

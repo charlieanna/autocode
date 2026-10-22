@@ -38,6 +38,7 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
+    from . import autocode_recovery_limits as recovery_limits
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_role_transport as role_transport
@@ -60,6 +61,7 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_operational_information as operational_information
     import autocode_planning as planning
+    import autocode_recovery_limits as recovery_limits
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_role_transport as role_transport
@@ -99,6 +101,10 @@ def next_command(state: RunState, issued, run_dir, workspace):
     pause = origin.get("pause_status") or state.get("status")
     where = f"--workspace {workspace} --run-dir {run_dir}"
     flags = operational_information.resume_flags(state, pause)
+    if flags == recovery_limits.SCOPED_RETRY and recovery_limits.repeated_failure_retry_refusal(state):
+        # The retry is refused until that attempt or repair is reconciled, so advising it would be
+        # a dead end; the plain resume below is the step the CLI takes (#1897).
+        flags = None
     if flags:
         return f"Next command: autocode {flags} {where}"
     if issued:

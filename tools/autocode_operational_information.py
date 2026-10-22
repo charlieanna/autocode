@@ -136,10 +136,6 @@ def resume_flags(state: RunState, pause):
             (state.get("current_task") or {}).get("milestone_id") or "MILESTONE_ID"
         )
     if pause == "PAUSED_REPEATED_FAILURE":
-        if any(state.get(key) for key in ("pending_report_repair", "active_runner_check")):
-            # authorize_failure_retry refuses the retry until that is reconciled (autocode_stage_recovery),
-            # so naming it here would hand a client a command its own CLI rejects (#1897).
-            return None
         return "--resume-paused --retry-failed-stage"
     if pause == "PAUSED_ACCEPTANCE_TESTS":
         # A resume reruns the same Tester on the same plan; feedback revises the plan (#1869).
@@ -266,6 +262,10 @@ def operator_flags(state: RunState, cause):
             if usable and members
             else None
         )
+    if cause == "PAUSED_REPEATED_FAILURE" and any(
+        state.get(key) for key in ("pending_report_repair", "active_runner_check")
+    ):
+        return None  # --retry-failed-stage refuses until the pending repair is reconciled.
     if cause == "PAUSED_BUILDER_RETRY_LIMIT" and not (
         state.get("next_stage") == "terra"
         and any(

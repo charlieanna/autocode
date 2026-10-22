@@ -2,8 +2,10 @@
 
 import unittest
 
+import autocode_recovery_limits as recovery_limits
 import autocode_run_actions as run_actions
 import autocode_run_view as run_view
+import autocode_stage_recovery as stage_recovery
 
 
 class NextCommandTests(unittest.TestCase):
@@ -28,22 +30,50 @@ class NextCommandTests(unittest.TestCase):
 
     def test_a_pending_repair_or_check_names_a_resume_the_cli_accepts(self):
         # Live bugfix run (#1897): while a report repair was still pending the view named
-        # --retry-failed-stage, which authorize_failure_retry always refuses in that state, so a
-        # client that takes only next_command had no action it could run.
-        for key in ("pending_report_repair", "active_runner_check"):
+        # --retry-failed-stage, which authorize_failure_retry refuses in that same state, so a
+        # client taking only next_command had no action it could run, and it ran silent.
+        blockers = {
+            "active_stage": {"stage": "sol", "attempts": 2},
+            "uncertain_artifacts": ["iterations/002/builder-01.json"],
+            "pending_report_repair": {"attempts": 2},
+        }
+        for key, value in blockers.items():
             with self.subTest(key=key):
-                state = {
-                    "status": "PAUSED_REPEATED_FAILURE",
-                    key: {"attempts": 2},
-                    "run_dir": "rd",
-                    "workspace": "ws",
-                }
-                advice = run_actions.next_command(state, None, "rd", "ws")
-                self.assertNotIn("--retry-failed-stage", advice)
-                self.assertIn("--resume-paused", advice)
-                named = run_view.action(state, run_dir="rd", workspace="ws")["next_command"]
-                self.assertNotIn("--retry-failed-stage", named)
-                self.assertIn("--resume-paused", named)
+                state = {"status": "PAUSED_REPEATED_FAILURE", key: value, "run_dir": "rd", "workspace": "ws"}
+                self.assertNotIn("--retry-failed-stage", run_actions.next_command(state, None, "rd", "ws"))
+                view = run_view.action(state, run_dir="rd", workspace="ws")
+                self.assertNotIn("--retry-failed-stage", view["next_command"])
+                self.assertIn("--resume-paused", view["next_command"])
+                # The pause says why the retry waits, in the CLI's own words, rather than dropping it.
+                self.assertEqual(
+                    recovery_limits.RETRY_UNRECONCILED_REFUSAL, (view["needs"] or {}).get("retry_unavailable")
+                )
+
+    def test_a_state_the_retry_gate_ignores_still_names_the_retry(self):
+        # An active runner check or a building batch refuses a novelty hold's scoped retry, not this
+        # one: withholding --retry-failed-stage here would hide a command the person can run (#1897).
+        for key, value in (
+            ("active_runner_check", {"stage": "sol"}),
+            ("orchestration_batch", {"status": "BUILDING"}),
+        ):
+            with self.subTest(key=key):
+                state = {"status": "PAUSED_REPEATED_FAILURE", key: value, "run_dir": "rd", "workspace": "ws"}
+                self.assertIn("--retry-failed-stage", run_actions.next_command(state, None, "rd", "ws"))
+                self.assertIn(
+                    "--retry-failed-stage", run_view.action(state, run_dir="rd", workspace="ws")["next_command"]
+                )
+                self.assertNotIn("retry_unavailable", run_view.action(state, run_dir="rd", workspace="ws")["needs"])
+
+    def test_the_advice_and_the_cli_gate_share_one_refusal(self):
+        # One predicate for both, so the view cannot name a retry the CLI rejects (#1897).
+        for key in recovery_limits.RETRY_UNRECONCILED:
+            with self.subTest(key=key):
+                state = {"status": "PAUSED_REPEATED_FAILURE", key: {"attempts": 1}}
+                self.assertEqual(
+                    recovery_limits.RETRY_UNRECONCILED_REFUSAL, recovery_limits.repeated_failure_retry_refusal(state)
+                )
+                with self.assertRaisesRegex(ValueError, "Reconcile the active attempt or pending report repair"):
+                    stage_recovery.authorize_failure_retry({**state, "run_dir": "rd"}, "rd", "ws")
 
     def test_the_testers_pause_names_feedback_not_a_resume_that_repeats_it(self):
         advice = run_actions.next_command({"status": "PAUSED_ACCEPTANCE_TESTS"}, None, "rd", "ws")
