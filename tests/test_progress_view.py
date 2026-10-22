@@ -294,6 +294,14 @@ class TaskAndHeadlineTests(unittest.TestCase):
         self.assertEqual("Builder finished", view["headline"])
         self.assertNotIn("working", [item["state"] for item in view["tasks"]["items"]])
 
+    def test_a_finished_stage_names_the_job_that_comes_next(self):
+        # A finished Builder must not keep the headline across a Builder→Tester handoff (#1711).
+        view = project(state(), finished=True, following="Tester")
+        self.assertEqual("Builder finished · Next: Tester", view["headline"])
+        self.assertTrue(view["line"].startswith("Builder finished · Next: Tester ·"))
+        # Without a known next job the plain finished line still stands.
+        self.assertEqual("Builder finished", project(state(), finished=True)["headline"])
+
     def test_a_saved_plan_not_shown_yet_still_waits_for_the_person(self):
         view = project(
             state(status="AWAITING_GOAL_APPROVAL", active_stage=None, next_stage="astra_plan"), stage="Planner"

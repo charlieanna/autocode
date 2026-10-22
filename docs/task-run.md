@@ -1121,7 +1121,9 @@ its wording may change, so programs read the fields beside it:
 
 - `headline`: `Complete`, `Waiting for you`, `Paused`, `Waiting for another run`,
   `<job> working`, `<job> finished` (its report is saved but not applied yet),
-  `Next: <job>`, `<job> stopped without saving a report` (the recorded workers are
+  `<job> finished · Next: <job>` when the run already knows the job after that
+  finished one (#1711), `Next: <job>`, `<job> stopped without saving a report` (the
+  recorded workers are
   gone; see the top-level `stale` and `next_action`; a stopped runner check is named
   `Runner check (...)`), or the status in words when no stage is known. Job names
   come from `autocode_roles`; `stage` is that name.
