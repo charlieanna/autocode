@@ -18,6 +18,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat no longer repeats a stage's progress line when it only flips between "working", "finished"
+  and "Next:" with unchanged counts. A stage's first line is said once; the next is when its counts or the stage
+  itself change (#1844).
 - A malformed original-brief observation in an otherwise non-blocking first plan review now goes back to the Reviewer through bounded report repair, instead of sending the Planner through an unnecessary revision and another review. Duplicate, unknown, missing and invalid proposal bindings remain rejected; genuine draft errors still go to the Planner (#1839).
 - A planning revision no longer loops between the reviewer's blocking concerns and a protected draft contract.
   The Planner may correct or drop its own `agent_proposed` assumption without declaring a permission change, and an
