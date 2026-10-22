@@ -177,12 +177,15 @@ class RequirementsChatTests(unittest.TestCase):
         pinned = self.approved(workflow={"kind": "review", "then": chat.STAGE})
         self.assertTrue(chat.recognize_after_approval(pinned))
         self.assertEqual(workflows.REVIEW_STAGE, pinned["next_stage"])
+        # Every chat turn begins at Requirements (#1860), so a follow-up's approval starts its job too.
+        follow_up = self.approved(turns=[{"say": "earlier"}])
+        self.assertTrue(chat.recognize_after_approval(follow_up))
+        self.assertEqual(workflows.STAGE, follow_up["next_stage"])
         for state in (
             self.approved("Also add a total row", next_stage=chat.STAGE),
             self.approved(workflow={"kind": "build", "then": chat.STAGE}),
             self.approved(pending_questions=[{"id": "Q2"}]),
             self.approved(settings={}),
-            self.approved(turns=[{"say": "earlier"}]),
         ):
             with self.subTest(state=state):
                 before = copy.deepcopy(state)
@@ -235,11 +238,18 @@ class RequirementsChatTests(unittest.TestCase):
         pinned = asked(workflow={"kind": "discuss", "then": chat.STAGE})
         self.assertTrue(chat.answer_now(pinned, {"output": None}))
         self.assertEqual(workflows.DISCUSS_STAGE, pinned["next_stage"])
+        # On every flow (#1860): a plain CLI run, and a follow-up after an earlier turn's Analyst.
+        for state in (
+            asked(settings={}),
+            asked(turns=[{"say": "earlier", "stage_index": 1}], stages=[{"stage": workflows.DISCUSS_STAGE}]),
+        ):
+            with self.subTest(state=state):
+                self.assertTrue(chat.answer_now(state, {"output": None}))
+                self.assertEqual(workflows.DISCUSS_STAGE, state["next_stage"])
         for state in (
             asked(requirements_handoff={"report": {"job": "discuss", "open_questions": [{"id": "Q1"}]}}),
             asked(stages=[{"stage": workflows.DISCUSS_STAGE}]),
-            asked(settings={}),
-            asked(turns=[{"say": "earlier"}]),
+            asked(turns=[{"say": "earlier", "stage_index": 0}], stages=[{"stage": workflows.DISCUSS_STAGE}]),
             self.named("review"),
         ):
             with self.subTest(state=state):

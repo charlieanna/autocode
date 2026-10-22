@@ -19,7 +19,7 @@ def check(project, scenario, run=None):
     if isinstance(note, dict):
         missing = [field for field in DIAGNOSIS_FIELDS if not note.get(field)]
         checks.append(Check("diagnosis_has_required_fields", not missing, f"missing: {missing}"))
-    checks += run_checks(run, workflow="bugfix", no_requirements=True)
+    checks += run_checks(run, workflow="bugfix", after_requirements="investigate_bug")
     if run is not None:
         checks += investigation_checks(project)
     return checks

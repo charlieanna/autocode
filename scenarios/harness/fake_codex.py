@@ -2013,18 +2013,33 @@ def report_for(stage: str, data: dict) -> dict:
             return scripted_fault("project_memory_provider.py")["requirements"](report, data)
         if CONFIG.get("fault") == "clarifying_requirements":
             report = scripted_fault("clarifying_requirements_provider.py")["requirements"](report, data)
-        if data.get("spec_first"):
-            # A chat's Requirements understands the job by the recognizer's keyword rules. Behaviors and
-            # acceptance tests describe code to build, so for a job that builds nothing it leaves them empty,
-            # as the live model did in #1846, and it names the job when its schema asks.
-            named = recognize(resolved_task() or CONFIG["brief"], data.get("follow_up"))
+        if "job" in OUTPUT_SCHEMA.get("properties", {}):
+            # Requirements names the job by the recognizer's keyword rules (#1846, #1860); a follow-up's
+            # job is judged from its new message, with the earlier turn as context. Behaviors and
+            # acceptance tests describe code to build, so for a job that builds nothing it leaves them
+            # empty, as the live model did in #1846.
+            follow_up = data.get("follow_up")
+            named = recognize((follow_up or {}).get("message") or resolved_task() or CONFIG["brief"], follow_up)
+            # A report repair has no task or follow-up context: it keeps the job its rejected draft named.
+            rejected = ((data.get("rejected_report") or {}).get("content") or {}) if data.get("report_repair") else {}
+            if rejected.get("job"):
+                named = {"workflow": rejected["job"], "design_document": rejected.get("design_document", "")}
             if named["workflow"] in ("review", "design", "discuss"):
                 report.update(required_behaviors=[], acceptance_tests=[])
-            if "job" in OUTPUT_SCHEMA.get("properties", {}):
-                report.update(job=named["workflow"], design_document=named["design_document"])
-            if "clarity" in OUTPUT_SCHEMA.get("properties", {}):
-                # An adaptive chat's Requirements judges clarity as the recognizer did; the same script answers.
-                report["clarity"] = named.get("clarity") or os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"
+            report.update(job=named["workflow"], design_document=named["design_document"])
+            earlier = ((data.get("previous_requirements_handoff") or {}).get("report") or {}).get("requirements")
+            if follow_up and earlier and named["workflow"] == follow_up.get("previous_workflow"):
+                # The same job continues: its requirements stay, under their IDs (goals.check_requirement_handoff).
+                kept = {row.get("source_quote") for row in earlier}
+                fresh = [row for row in report["requirements"] if row["source_quote"] not in kept]
+                report["requirements"] = [
+                    *earlier,
+                    *({**row, "id": f"R{len(earlier) + number}"} for number, row in enumerate(fresh, start=1)),
+                ]
+        if "clarity" in OUTPUT_SCHEMA.get("properties", {}):
+            # An adaptive run's Requirements judges clarity as the recognizer did (#1846, #1860); same script.
+            report["clarity"] = os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"
+        if data.get("spec_first"):
             report["assistant_reply"] = "Here is what I understand: " + report["intended_outcome"]
         return report
     # An adaptive-planning Planner drafts the complete plan, initial_task included.

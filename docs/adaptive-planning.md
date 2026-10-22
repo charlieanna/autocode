@@ -4,10 +4,10 @@ The fixed AutoPlanner sequence sends every build request through the same stages
 whatever its size:
 
 ```
-recognize → requirements → plan → review → revise → final review → your approval
+requirements → plan → review → revise → final review → your approval
 ```
 
-A one-line change pays for six model calls before you see a plan. A plan the
+A one-line change pays for five model calls before you see a plan. A plan the
 Plan Reviewer has no objection to is still revised and reviewed again. A hard
 plan gets exactly one revision, and whatever the Reviewer still objects to comes
 back to you as questions.
@@ -24,7 +24,6 @@ has the evidence for it:
 
 | Decision | Made by | Evidence | Effect |
 | --- | --- | --- | --- |
-| Does the request need requirements gathering? | Job recognizer | The request text: does it say what to build and how to tell it is done, with no product choice left open? | `clear` build requests go straight to the Planner; `vague` ones keep the Requirements stage. When unsure the recognizer says `vague`. |
 | Is the plan finished? | Plan Reviewer | Its own concerns, each marked blocking or not | No blocking concern: an ordinary Planner draft goes to you, with the non-blocking concerns as notes. Otherwise the Planner revises. Progressive delegations keep revision and final independent review, which supply their approval authority. |
 | How many review rounds? | The runner | The draft's declared milestones and the files they touch (`plan_size`) | A large plan (3+ milestones or 10+ files) gets 3 review calls instead of 2, so a revision is reviewed again before the final decision. |
 | Does feedback on a plan need requirements gathering? | The runner, then the Planner | The run's status: a complete plan waiting for your approval | The Planner revises the plan you were shown, then the Plan Reviewer reviews it. The Planner can send feedback that changes what is being built back to Requirements. See [below](#feedback-on-a-plan-you-were-shown). |
@@ -36,12 +35,13 @@ What does not change:
 
 - You approve every build plan. Adaptive planning removes model calls, never
   your approval.
-- A build named with `--workflow build` skips recognition, so nobody judges its
-  clarity and the Requirements stage always runs.
-- In a chat (`--spec-first`) Requirements always runs first and names the job
-  itself, so it also judges clarity, by the recognizer's rule (#1846). Clarity
-  then skips nothing; it keeps a small clear brief on one review allowance at the
-  reduced Plan Reviewer effort, as before.
+- Requirements always runs. It is the first stage of every run and follow-up turn
+  and names the job (owner decision 2026-10-22, #1846, #1860). Until then a build
+  request the Job recognizer judged `clear` went straight to the Planner; that skip
+  is gone. While it names the job, Requirements also judges clarity by the
+  recognizer's rule. Clarity then skips nothing; it keeps a small clear brief on one
+  review allowance at the reduced Plan Reviewer effort (#1564). A build named with
+  `--workflow build` still runs Requirements, and nobody judges its clarity.
 - The setting applies only to new runs. A saved run keeps the planning flow it
   was started with: resuming with `--adaptive-planning` a run that lacks it, or
   with `--no-adaptive-planning` an adaptive one, is refused. Repeating the run's
@@ -56,11 +56,11 @@ Where it lives: `tools/autocode_adaptive_planning.py` holds the decisions as pur
 functions. `units/autoplanner.py` (`schema_for`, `after_challenge`,
 `after_revise`, `rerun_requirements`), `autocode_workflows.apply` and
 `autocode_goals.feedback` apply them. State: `workflow.clarity`,
-`workflow.requirements_skipped`, `planning.adaptive` (`size`, `signals`,
+`workflow.requirements_skipped` (only on runs saved before #1860), `planning.adaptive` (`size`, `signals`,
 `review_limit`, `challenges`, `approved_at`, `final_stage`), and `revises_plan`
 on a feedback event. `autocode --status --json` shows the decisions under
 `planning_depth` ([task-run interface](task-run.md)): the clarity, whether
-Requirements was skipped, the plan's size, the review allowance and whether the
+an older run skipped Requirements, the plan's size, the review allowance and whether the
 Plan Reviewer approved the draft early.
 
 ## Feedback on a plan you were shown
@@ -230,7 +230,9 @@ the pipeline.
 **Where the savings came from:**
 
 - **Skipping Requirements for clear requests.** Nearly all of the
-  question savings are here (7 questions → 1 on clear requests).
+  question savings are here (7 questions → 1 on clear requests). The owner
+  removed this skip on 2026-10-22 (#1860): Requirements now runs first on every
+  run and names the job, in place of the recognizer's call.
 - **Fewer planning restarts:** 3 today, 1 adaptive. Most began when a revision
   renamed a protected contract item; the guard then asks the user, and
   planning starts over.

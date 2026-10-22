@@ -34,5 +34,5 @@ def check(project, scenario, run=None):
                 str(paths),
             )
         )
-    checks += run_checks(run, workflow="bugfix", no_requirements=True)
+    checks += run_checks(run, workflow="bugfix", after_requirements="investigate_bug")
     return checks

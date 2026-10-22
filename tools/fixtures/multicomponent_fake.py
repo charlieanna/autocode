@@ -301,6 +301,10 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
             "ignored_statements": ignored_statements(component_id, data),
             "conflicts": [],
             "proposed_reframes": [],
+            # Requirements names the job (#1860); a component is always built.
+            "job": "build",
+            "design_document": "",
+            **({"clarity": "vague"} if 'Add "clarity"' in PROMPT else {}),
         }
     adaptive = "ADAPTIVE PLANNING" in PROMPT  # an adaptive Planner's draft carries its initial_task
     task = brief_of(data)

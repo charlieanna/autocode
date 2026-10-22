@@ -16,13 +16,16 @@ in the same conversation. Implementation starts only after you explicitly approv
 After approval, Autocode handles the handoffs:
 
 ```text
-You → Autopilot: recognize the kind of job (build, bugfix, review, design, discuss); saved as `workflow`,
-   printed with its reason and signals; `--workflow KIND` names it instead of recognizing it
+You → Requirements first, on every run and follow-up turn: it names the kind of job (build, bugfix,
+   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build
+   still runs Requirements, any other kind starts its own first stage). A flow without Requirements
+   (v2 planning, no Requirements role) has the Job recognizer name it first
    review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
    bugfix → Investigator first: diagnosis written to docs/bugs/<name>.json, repository untouched;
             not reproduced → run complete;
             reproduced → the build pipeline below from the Planner on, planned from the
-              diagnosis: no requirements gathering, but plan review and your approval
+              diagnosis and the Requirements handoff: no second requirements gathering, but plan
+              review and your approval
               (small or large; the short path for small fixes is off until the full path is dependable)
    design → Architect first: a design review is written to review/design-review.json (goals met,
             blocking/advisory concerns, questions for you), repository untouched, run complete;
@@ -42,7 +45,7 @@ You → Autopilot: recognize the kind of job (build, bugfix, review, design, dis
              conflicts (a frozen API, a documented invariant) → written to <design>.blockers.json,
                run stops (PAUSED_DESIGN_CONFLICT), nothing built, you decide;
              no conflicts → the design's binding decisions become a constraint and the pipeline starts
-               at the Planner (no requirements gathering; the Planner may not redesign or ask);
+               at the Planner (no second requirements gathering; the Planner may not redesign or ask);
                after a design turn the earlier turn's plan is archived, so the Planner drafts a new
                contract for the build instead of revising the design job's
 You → Requirements Gatherer: rough idea → saved requirements report
@@ -86,7 +89,7 @@ one another:
 
 | Setting | Question it answers | Where it applies |
 | --- | --- | --- |
-| **Job kind** (`workflow.kind`: build, bugfix, review, design, discuss) | What you get back, and so which stages run at all. | Every run. Recognized from your request, or named with `--workflow`. Fixed once recognition has run. |
+| **Job kind** (`workflow.kind`: build, bugfix, review, design, discuss) | What you get back, and so which stages run at all. | Every run. Named by Requirements from your request, or with `--workflow`. Fixed once named. |
 | **Workflow mode** (`settings.workflow.mode`: `glm_first_v1`, `glm_final_audit_v2`, or the legacy default) | Who checks the build: which role reviews each milestone and which audits the whole task. | Only inside the build pipeline, so only for `build` and a reproduced `bugfix`. `review`, `design` and `discuss` never reach it. |
 | **Task-lane mode** (`ui` or `code` on an item of `autocode tasks`) | Which loop one lane task runs: the Figma design loop, or a normal code run. | Only in `autocode tasks`. A `code` item is an ordinary run and gets its own job kind. A `ui` item uses the Figma path and has no job kind. |
 
@@ -94,11 +97,11 @@ So the kind decides whether the build pipeline runs, the workflow mode tunes who
 and the lane mode picks between two loops before either applies. If two seem to disagree, the job
 kind wins: a `review` run never builds, whatever the mode says.
 
-The kind is shown where you approve a plan (`Job kind: build (recognized: ...)`), because the two
+The kind is shown where you approve a plan (`Job kind: build (Requirements understood: ...)`), because the two
 mistakes are not equally bad. Reading "build" as "discuss" costs a little time; reading "discuss" as
 "build" writes code you never asked for. If the kind is wrong, do not approve: start a new run with
-`--workflow KIND`. A follow-up message on a finished run (`--follow-up`) is recognized again and
-still needs its own plan approval.
+`--workflow KIND`. A follow-up message on a finished run (`--follow-up`) starts at Requirements
+again, which names its job, and still needs its own plan approval.
 
 ## Four units controlled by Autopilot
 

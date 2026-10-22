@@ -537,7 +537,14 @@ elif stage == "requirements_gather":
         "ignored_requirements": [],
         "machine_resolutions": [],
         "access_blockers": [],
+        # Requirements names the job (#1860); this offline fixture treats every request as a build.
+        "job": "build",
+        "design_document": "",
     }
+    if 'Add "clarity"' in prompt or "clarity" in schema.get("properties", {}):
+        # Vague, as the recognizer answered: the review allowance counts per planning cycle as before. A report
+        # repair's prompt has no rule, but its schema still asks for clarity.
+        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=False)
     if data["saved_answers"]:

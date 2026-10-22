@@ -25,5 +25,5 @@ def check(project, scenario, run=None):
         paths = {p.rstrip("/") for p in note.get("affected_paths") or [] if isinstance(p, str)}
         modules = sorted(p for p in paths if p.startswith("billing/") and p.endswith(".py"))
         checks.append(Check("affected_paths_span_modules", len(modules) >= 3, str(sorted(paths))))
-    checks += run_checks(run, workflow="bugfix", no_requirements=True, plan_approved=True)
+    checks += run_checks(run, workflow="bugfix", after_requirements="investigate_bug", plan_approved=True)
     return checks

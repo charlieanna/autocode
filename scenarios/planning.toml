@@ -7,7 +7,8 @@
 # scenario's brief.md. `expect` is what a good adaptive run should decide; the
 # comparison reports it but does not fail on it. `[case.fake]` scripts what the
 # scripted model says in fake mode, so every adaptive path runs offline:
-#   clarity         the recognizer's answer (default "clear")
+#   clarity         the recognizer's answer (default "clear"); only a flow without Requirements still
+#                   recognizes the job first (#1860), so on the default flow this changes nothing
 #   blocking_review 1 makes the first plan review blocking, so the revise path runs
 #   requirements_rerun 1 makes the Planner send the feedback back to Requirements
 #

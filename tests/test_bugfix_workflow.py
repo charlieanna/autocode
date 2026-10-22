@@ -27,9 +27,8 @@ import task_scenarios as scenarios  # noqa: E402
 
 from tests import test_planning, test_subprocess  # noqa: E402
 
-# The job recognizer runs first (autocode_workflows); this fixture recognizes a build request.
+# Requirements runs first and names the job (#1860); this fixture names a build.
 PLANNING = [
-    "recognize_workflow",
     "requirements_gather",
     "astra_discovery",
     "astra_discovery",
@@ -93,8 +92,8 @@ class BugfixWorkflow(unittest.TestCase):
         self.assertEqual("bugfix", approved["goal_contract"]["body"]["task_kind"])
         self.assertIn("Job type: bug fix", lifecycle.render(approved))
         self.assertIn(
-            "Job kind: build (recognized:", lifecycle.render(approved)
-        )  # the offline fixture recognizes every request as a build
+            "Job kind: build (Requirements understood:", lifecycle.render(approved)
+        )  # the offline fixture's Requirements names every request a build
         self.assertEqual("TASK_COMPLETE", final["status"])
         stages = [row["stage"] for row in final["stages"]]
         self.assertEqual(PLANNING + EXECUTION, stages)
@@ -105,10 +104,10 @@ class BugfixWorkflow(unittest.TestCase):
         runner = next(row for row in final["stages"] if row["stage"] == "regression_proof")
         self.assertTrue(runner["runner_owned"])
         self.assertEqual(0, runner["metrics"]["provider_tokens"]["input_tokens"])
-        # Small-job guard (#15): ten model calls (nine plus the job recognizer), no report-format
-        # repair, one runner proof.
+        # Small-job guard (#15): nine model calls (Requirements names the job, so no recognizer call, #1860),
+        # no report-format repair, one runner proof.
         model_calls = [row for row in final["stages"] if not row.get("runner_owned")]
-        self.assertEqual(10, len(model_calls))
+        self.assertEqual(9, len(model_calls))
         self.assertFalse([row for row in final["stages"] if row["stage"].endswith("_report_repair")])
         # The independent scenario oracle agrees with the runner.
         self.assertEqual("PASS", scenarios.bugfix01_oracle(self.project).status)

@@ -14,5 +14,5 @@ def check(project, scenario, run=None):
             Check("verdict_approves", report.get("verdict") == "approve", f"verdict={report.get('verdict')!r}")
         )
     checks.append(only_changed_under(project, "review/"))
-    checks += run_checks(run, workflow="review", no_build=True, no_requirements=True)
+    checks += run_checks(run, workflow="review", no_build=True, after_requirements="review_change")
     return checks

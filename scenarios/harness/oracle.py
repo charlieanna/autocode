@@ -196,6 +196,7 @@ def findings_of(report: object, severity: str) -> list[dict]:
 REQUIREMENTS_STAGES = ("requirements_gather",)
 PLAN_REVIEW_STAGES = ("astra_challenge", "glm_revise")
 BUILD_STAGES = ("orchestrator", "astra_plan", "terra")
+RUNNER_STAGES = ("orchestrator",)
 
 
 def run_checks(
@@ -203,7 +204,7 @@ def run_checks(
     *,
     workflow: str,
     no_build: bool = False,
-    no_requirements: bool = False,
+    after_requirements: str | None = None,
     no_plan_review: bool = False,
     plan_approved: bool = False,
     max_questions: int | None = None,
@@ -220,6 +221,8 @@ def run_checks(
 
     ``workflow`` is the kind of job the run should have recognized; the harness
     reads it from the status view's ``workflow`` field (README, "Workflows").
+    ``after_requirements`` is the job's own first stage: Requirements must be the first model
+    stage, run once, and that stage must follow it (owner decision 2026-10-22, #1860).
     """
     if run is None:
         return []
@@ -244,9 +247,28 @@ def run_checks(
                 "a build plan was put up for approval" if approved else "",
             )
         )
-    if no_requirements:
-        gathered = [stage for stage in stages if stage in REQUIREMENTS_STAGES]
-        checks.append(Check("no_requirements_gathering", not gathered, f"ran {gathered}"))
+    if after_requirements:
+        # Runner-owned records and report repairs are not the job's stages.
+        model = [
+            str(stage)
+            for stage in (run.get("model_stages") if run.get("model_stages") is not None else stages)
+            if stage not in RUNNER_STAGES and not str(stage).endswith("_report_repair")
+        ]
+        gathered = [stage for stage in model if stage in REQUIREMENTS_STAGES]
+        checks.append(
+            Check(
+                "requirements_first",
+                model[:1] == list(REQUIREMENTS_STAGES) and len(gathered) == 1,
+                f"Requirements ran {len(gathered)} times; first stages: {model[:3]}",
+            )
+        )
+        checks.append(
+            Check(
+                "job_starts_after_requirements",
+                model[1:2] == [after_requirements],
+                f"after Requirements came {model[1:2]}, wanted {after_requirements!r}",
+            )
+        )
     if no_plan_review:
         reviewed = [stage for stage in stages if stage in PLAN_REVIEW_STAGES]
         checks.append(Check("no_plan_review_rounds", not reviewed, f"ran {reviewed}"))

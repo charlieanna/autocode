@@ -628,7 +628,10 @@ def migrate(state: RunState, *, fresh=False):
     state.update(
         {"version": 3, "phase": "DISCOVERING", "status": "RUNNING", "pending_questions": [], "next_stage": first_stage}
     )
-    if fresh:
+    if fresh and workflows.requirements_first(state):
+        # Requirements is the front door of every run that has it: its report names the job (#1860).
+        workflows.begin_requirements(state)
+    elif fresh:
         workflows.begin(state, first_stage)
 
 

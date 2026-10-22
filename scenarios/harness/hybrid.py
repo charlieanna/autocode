@@ -5,7 +5,7 @@ wrote the vacuous refusal tests, so AutoResolver was never tested on them. Such 
 its scenario.toml:
 
     [hybrid]
-    scripted = ["recognize_workflow", "astra_discovery", ...]   # every call scripted
+    scripted = ["requirements_gather", "astra_discovery", ...]  # every call scripted
     first_attempt = ["terra"]                                     # only the stage's first call scripted
 
 ``run --profile NAME --hybrid`` then runs the scenario live with those calls answered by the scripted provider

@@ -42,5 +42,5 @@ def check(project, scenario, run=None):
         ]
         checks.append(Check("no_false_blockers", not false, f"blocking but not a real regression: {false}"))
     checks.append(only_changed_under(project, "review/"))
-    checks += run_checks(run, workflow="review", no_build=True, no_requirements=True)
+    checks += run_checks(run, workflow="review", no_build=True, after_requirements="review_change")
     return checks
