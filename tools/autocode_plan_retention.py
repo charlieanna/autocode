@@ -80,7 +80,7 @@ def model_schema(schema, state: RunState, stage):
     result = copy.deepcopy(schema)
     body = result["properties"]["contract"]
     criteria = body["properties"]["acceptance_criteria"]
-    reference = {
+    reference: dict = {
         "type": "object",
         "properties": {"retain_criterion": {"type": "string"}, "sha256": {"type": "string"}},
         "required": ["retain_criterion", "sha256"],
@@ -108,7 +108,7 @@ def model_schema(schema, state: RunState, stage):
 def validated_trace(state: RunState):
     """Inherit a trace only from the report that produced this exact contract."""
     contract = state.get("goal_contract") or {}
-    origin = contract.get("origin")
+    origin = str(contract.get("origin") or "")
     previous = {"glm_draft": "astra_discovery"}.get(origin, origin)
     report = ((state.get("planning") or {}).get("reports") or {}).get(previous, {}).get("report") or {}
     saved, proposed = contract.get("body"), report.get("contract")
@@ -129,8 +129,9 @@ def expand(state: RunState, stage, value):
     result = copy.deepcopy(value)
     body = result["contract"]
     if "retain_contract" in body:
+        saved_contract = state.get("goal_contract") or {}
         allowed = {"retain_contract", "open_blocking_questions"}
-        if "initial_task" not in state.get("goal_contract", {}).get("body", {}):
+        if "initial_task" not in saved_contract.get("body", {}):
             allowed.add("initial_task")
         if (
             stage not in FINAL
@@ -141,7 +142,7 @@ def expand(state: RunState, stage, value):
             raise ValueError("Retained contract reference is stale, malformed or not a final review")
         if any(result.get(key) for key in ("contract_changes", "conflict_resolutions")):
             raise ValueError("Retained contract cannot also declare changes or replace its validated trace")
-        result["contract"] = copy.deepcopy(state["goal_contract"]["body"])
+        result["contract"] = copy.deepcopy(saved_contract["body"])
         if "initial_task" in body:
             result["contract"]["initial_task"] = copy.deepcopy(body["initial_task"])
         questions = body.get("open_blocking_questions", [])
