@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The Tester's pause (`PAUSED_ACCEPTANCE_TESTS`) now offers the `--feedback` action it already told the person to
+  use (#1869). The core refused it there; it now restarts planning from the pause, as at a planning-budget pause.
+  The status view's `chat.input` offers the feedback message, `next_command` is `--feedback 'WHAT TO CHANGE'`
+  instead of a `--resume-paused` that reruns the same Tester on the same plan, and `needs.guidance` says what
+  feedback and a resume each do. `needs.kind` stays `resume`.
+
 - Requirements is the first stage of every run and every follow-up turn, and its report names the job, so the
   separate Job recognizer call no longer runs on a flow that has Requirements (owner decision 2026-10-22, #1860).
   A plain CLI bug fix goes from Requirements to the Investigator, a review to the Code Reviewer, a question to the

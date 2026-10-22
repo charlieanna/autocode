@@ -712,6 +712,25 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         self.assertTrue(results)
         self.assertEqual({"fails"}, set(results.values()), "a reproduction must really fail before the fix")
 
+    def test_the_pause_on_a_passing_reproduction_names_feedback_and_feedback_revises_the_plan(self):
+        # The scripted reproduction names test_first_page, which the seed already passes (#1869).
+        loaded = catalog.load("bugfix-trivial")
+        self.scenario = dataclasses.replace(loaded, fake_criteria={"C9": "test: test_first_page"})
+        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", view["status"], self.details(view))
+        self.assertEqual("resume", view["needs"]["kind"])
+        self.assertIn("--feedback", view["needs"]["action"])
+        self.assertIn("--resume-paused", view["needs"]["guidance"])
+        offered = view["chat"]["input"]
+        self.assertEqual("feedback", offered["kind"])
+        self.assertIn("--feedback MESSAGE", offered["next_command"])
+        self.assertIn("--feedback", view["next_command"])
+        self.assertNotIn("--resume-paused", view["next_command"])
+        after = run.feedback("The reproduction passes: the diagnosis names the wrong cause; look again.")
+        self.assertNotEqual("PAUSED_ACCEPTANCE_TESTS", after["status"], self.details(after))
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], self.details(view))
+
     def test_without_the_setting_the_builder_writes_the_tests_as_before(self):
         run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning")
         self.assertTrue(view["done"], self.details(view))

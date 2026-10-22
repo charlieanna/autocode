@@ -718,8 +718,7 @@ def feedback(state: RunState, text, *, interpret=True):
             raise ValueError(need["recovery_hint"])
     no_contract_v2 = not state.get("goal_contract") and roles.planning_flow(state) == "v2"
     if (
-        state["status"]
-        not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN")
+        state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", *run_status.PLAN_FEEDBACK_PAUSES)
         and not no_contract_v2
     ) or not text.strip():
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")

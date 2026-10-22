@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 PAUSE_PHASE = "PAUSED_OR_BLOCKED"
+# The pauses that take brief feedback as plan feedback: the Tester's names --feedback as its way to revise the plan (#1869).
+PLAN_FEEDBACK_PAUSES = ("PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN", "PAUSED_ACCEPTANCE_TESTS")
 _RESERVED = frozenset({"status", "phase", "stop_reason"})
 
 

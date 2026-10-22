@@ -825,6 +825,9 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
                                                      and `feedback_action` when offered, then fresh approval;
                                                      when `abandon_stage` is set, --abandon-stage
                                                      ATTEMPT first (the attempt is uncertain);
+                                                     `guidance`, when set, says in prose what the
+                                                     alternatives do (the Tester's pause: --feedback
+                                                     revises the plan, a resume reruns the Tester);
                                                      `action`, when set, is the one command that
                                                      continues (a source-only PAUSED_STALE_HANDOFF:
                                                      --resume-paused --accept-source-edit; a PAUSED_NO_PROGRESS its unchanged-
@@ -1075,6 +1078,13 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
         if stale_report_repair:
             need["action"] = "--resume-paused"
             return need
+        if status == "PAUSED_ACCEPTANCE_TESTS" and "action" not in need:
+            # The command revises the plan; a resume reruns the same Tester on the same plan (#1869).
+            need["action"] = "--feedback 'WHAT TO CHANGE'"
+            need["guidance"] = (
+                "--feedback MESSAGE revises the plan; --resume-paused reruns the Tester unchanged, "
+                "which helps only after you changed the code."
+            )
         if "action" not in need:
             # A source-only stale repair names the command that accepts the edit.
             # Other stale pauses do not.

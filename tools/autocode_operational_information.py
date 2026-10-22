@@ -137,6 +137,9 @@ def resume_flags(state: RunState, pause):
         )
     if pause == "PAUSED_REPEATED_FAILURE":
         return "--resume-paused --retry-failed-stage"
+    if pause == "PAUSED_ACCEPTANCE_TESTS":
+        # A resume reruns the same Tester on the same plan; feedback revises the plan (#1869).
+        return "--feedback 'WHAT TO CHANGE'"
     return None
 
 
