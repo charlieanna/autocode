@@ -744,7 +744,7 @@ function chatView(base = approvalView(), kind = 'feedback', context = 'chat-1') 
 }
 
 async function openChat(t, initial, selected = run, options = {}) {
-  if (!options.timersEnabled) t.mock.timers.enable({ apis: ['setInterval'] });
+  if (!options.timersEnabled) t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
   let value = initial;
   const chatController = options.controller || controller;
   // UI fixtures choose a deterministic no-modes response unless the case has
@@ -1313,6 +1313,71 @@ test('requirements chat streams replies without an empty task dashboard and keep
   await ui.poll(next);
   assert.ok(ui.document.querySelector('#messages').textContent.includes('Who will use it?'));
   assert.equal(ui.document.querySelector('#message').value, 'It is just for me');
+});
+
+test('a streaming reply is provisional (writing…) and updates in place without rebuilding the thread', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [
+      { id: 'u1', role: 'user', text: 'A book app' },
+      { id: 'done1', role: 'assistant', text: 'Understood.' },
+      { id: 'live', role: 'assistant', text: 'Who will', streaming: true },
+    ],
+  } };
+  const ui = await openChat(t, value);
+  ui.type('keep this draft');
+  const live = () => ui.document.querySelector('#messages .message.streaming');
+  assert.ok(live(), 'the growing extract is marked provisional');
+  assert.equal(live().querySelector('.speaker').textContent, 'AutoCode · writing…');
+  assert.equal(live().querySelector('.message-content').textContent, 'Who will');
+  const finished = [...ui.document.querySelectorAll('#messages .message:not(.streaming)')];
+  assert.equal(finished.length, 2, 'user and finished reply stay ordinary messages');
+  assert.ok(!finished.some((row) => row.querySelector('.speaker').textContent.includes('writing')));
+
+  // A longer extract rewrites only the growing body: the finished rows keep their nodes.
+  const firstNodes = finished.map((row) => row);
+  const next = structuredClone(value);
+  next.chat.messages[2].text = 'Who will use it?';
+  await ui.poll(next);
+  assert.equal(live().querySelector('.message-content').textContent, 'Who will use it?');
+  const after = [...ui.document.querySelectorAll('#messages .message:not(.streaming)')];
+  assert.deepEqual(after, firstNodes, 'finished rows are not rebuilt while only the extract grows');
+  assert.equal(ui.document.querySelector('#message').value, 'keep this draft');
+
+  // The finished message replaces the provisional one and is marked as written.
+  const done = structuredClone(next);
+  done.chat.messages = [
+    { id: 'u1', role: 'user', text: 'A book app' },
+    { id: 'done1', role: 'assistant', text: 'Understood.' },
+    { id: 'ask', role: 'assistant', text: 'Who will use it?' },
+  ];
+  await ui.poll(done);
+  assert.equal(ui.document.querySelector('#messages .message.streaming'), null);
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Who will use it?'));
+  assert.ok([...ui.document.querySelectorAll('#messages .speaker')].some((row) => row.textContent === 'AutoCode'));
+});
+
+test('status polls speed up while a reply is streaming and slow down once it is quiet', async (t) => {
+  const growing = (text) => ({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: {
+    phase: 'requirements', context: 'turn-one', input: null,
+    messages: [{ id: 'u1', role: 'user', text: 'A book app' }, { id: 'live', role: 'assistant', text, streaming: true }],
+  } });
+  const ui = await openChat(t, growing('Who'));
+  const reads = () => controller.status.mock.callCount();
+  const before = reads();
+  // The configured interval is 5s; a growing extract polls at the streaming pace (250ms).
+  t.mock.timers.tick(250); await flush();
+  assert.equal(reads(), before + 1, 'a changing extract is read at the streaming pace');
+  ui.setView(growing('Who will'));
+  t.mock.timers.tick(250); await flush();
+  assert.equal(reads(), before + 2, 'each new extract is read at once');
+  // The extract stops changing: after STREAM_QUIET_POLLS quiet reads the ordinary pace returns.
+  for (let i = 0; i < 8; i++) { t.mock.timers.tick(250); await flush(); }
+  const quiet = reads();
+  t.mock.timers.tick(250); await flush();
+  assert.equal(reads(), quiet, 'an unchanged extract no longer forces the short pace');
+  t.mock.timers.tick(5000); await flush();
+  assert.equal(reads(), quiet + 1, 'the ordinary poll interval is back');
 });
 
 test('requirements chat offers Continue when no step is running instead of thinking forever', async (t) => {

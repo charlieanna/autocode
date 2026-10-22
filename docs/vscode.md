@@ -37,8 +37,10 @@ question gets a short answer and a question about what to build or change.
 Answer in the same composer. Requirements reuses
 its provider session, retains prior replies and streams assistant text through
 the public status view; tool output and reasoning stay outside that stream.
-You can keep writing a draft while a reply arrives. The conversation does not
-show an empty task dashboard.
+A reply still being written shows as **AutoCode · writing…** with provisional
+text, the same as the terminal chat, and status polls speed up while that
+extract is still growing. You can keep writing a draft while a reply arrives.
+The conversation does not show an empty task dashboard.
 
 Once the requirements are clear, read the bound understanding and choose
 **Approve understanding and prepare plan**, or send a correction. This releases

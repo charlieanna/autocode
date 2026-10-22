@@ -14,6 +14,13 @@ import { transitionNotice } from "./notify";
 import { applyEngine, engineOf, ENGINES, readSettings, type Engine } from "./settings";
 import { numericActionLabel, numericConfirmation, numericRecoveryEffect, panelHtml, planningSpendConfirmation, stateFor } from "./panel";
 
+// While a reply is being written the view is read this often, so each new extract
+// shows at once. A reply that has not changed for STREAM_QUIET_POLLS reads (a model
+// running tools between messages) is read at the ordinary pace again. Same shape as
+// the terminal chat's STREAM_POLL_SECONDS / STREAM_QUIET_POLLS.
+const STREAM_POLL_SECONDS = 0.25;
+const STREAM_QUIET_POLLS = 8;
+
 interface ChatMessage {
   type?: string;
   text?: string;
@@ -83,6 +90,10 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   private sequence = 0;
   private refreshing = false;
   private timer: NodeJS.Timeout | undefined;
+  private disposed = false;
+  /** Last streaming extract per tab and how many reads it stayed unchanged (the TUI's pace). */
+  private readonly streamText = new Map<string, string>();
+  private readonly streamQuiet = new Map<string, number>();
   private readonly configuration: vscode.Disposable;
   /** The core's run modes for new chats; null when this AutoCode lists none (an older CLI). */
   private modes: RunModes | null | undefined;
@@ -158,13 +169,49 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private startPolling(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.schedulePoll();
+  }
+
+  /** Recursive timeout so a growing reply can poll at the streaming pace (autocode_chat_client.pace). */
+  private schedulePoll(): void {
+    if (this.disposed) return;
+    if (this.timer) clearTimeout(this.timer);
     const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
-    this.timer = setInterval(() => void this.refresh(), seconds * 1000);
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.refresh().finally(() => this.schedulePoll());
+    }, this.pace(seconds) * 1000);
+  }
+
+  /** The wait before the next read: short while a reply is still changing, else ``seconds``. */
+  private pace(seconds: number): number {
+    for (const [key, text] of this.streamText) {
+      if (text && (this.streamQuiet.get(key) ?? 0) < STREAM_QUIET_POLLS) return Math.min(STREAM_POLL_SECONDS, seconds);
+    }
+    return seconds;
+  }
+
+  /** Track the tab's streaming extract so pace() knows whether it is still growing. */
+  private noteStreaming(tab: ChatTab): void {
+    const seconds = Math.max(1, vscode.workspace.getConfiguration("autocode").get<number>("pollSeconds", 5));
+    const before = this.pace(seconds);
+    const live = (tab.status?.chat?.messages ?? []).find((row) => row.streaming)?.text ?? "";
+    if (!live) {
+      this.streamText.delete(tab.key);
+      this.streamQuiet.delete(tab.key);
+    } else {
+      const quiet = live === this.streamText.get(tab.key) ? (this.streamQuiet.get(tab.key) ?? 0) + 1 : 0;
+      this.streamText.set(tab.key, live);
+      this.streamQuiet.set(tab.key, quiet);
+    }
+    // A newly growing (or just finished) extract changes the wait: re-arm the timer.
+    if (this.pace(seconds) !== before) this.startPolling();
   }
 
   dispose(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.disposed = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
     this.configuration.dispose();
   }
 
@@ -251,6 +298,7 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const notice = transitionNotice(null, status);
     tab.status = status;
     tab.readError = "";
+    this.noteStreaming(tab);
     if (!notice || !tab.run || (status.needs?.kind === "continue" && this.busy.has(tab.key))) return;
     const run = tab.run;
     const key = runKey(run);
