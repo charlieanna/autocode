@@ -234,14 +234,18 @@ the first message of a spec-first run, whatever it says: a greeting or an
 off-topic question gets a short answer and a question about what to build or
 change. Until Requirements finds work to do, the person's newest reply becomes
 the task; the source log keeps the first message and each reply as separate
-sources. The Job recognizer runs once the person approves what Requirements
-understood, and judges the job from that understanding. Model access probes for
+sources. Requirements names the job it understood (#1846). A question goes
+straight to the Analyst without a confirmation; any other job starts once the
+person approves what Requirements understood. The Job recognizer runs, after
+that approval, only when Requirements named no job. Model access probes for
 planning and execution roles wait until the user confirms the requirements.
 
 When the only pending question is the core's current requirements review,
 `review` offers its `question_id`, exact `answer`, `label` and bound `summary`.
 A client may display that summary and submit the ordinary named answer action.
-This confirms the understanding and releases plan preparation and review.
+This confirms the understanding and starts the job Requirements named: plan
+preparation and review for a build, the investigation for a bug fix, the review
+or the design work. The `label` and `spend_confirmation` say which.
 The resulting execution plan still needs its own displayed-token approval.
 The optional `review.spend_confirmation` supplies the modal's `title`, `detail`
 and confirm-button `label` before submitting that review's planning answer.
@@ -1308,13 +1312,14 @@ sealed evidence pauses before dispatch. Every assigned repair still requires
 fresh verification and independent completion acceptance.
 
 `workflow` is the kind of job AutoCode recognized from the request, decided by
-the first stage of every new run (`recognize_workflow`; in a spec-first run, once
-the person approves the requirements): one of `build`,
+the first stage of every new run (`recognize_workflow`), or in a spec-first run
+by the Requirements stage the person talks with (#1846): one of `build`,
 `bugfix`, `review`, `design` or `discuss` (see `scenarios/README.md`,
 "Workflows"). It is `null` until that stage has run, and for runs that predate
-it. `workflow_source` is `"model"` when the recognizer decided it and `"user"`
-when `--workflow` named it; `workflow_reason` is the recognizer's one-sentence
-reason. Both are `null` whenever `workflow` is.
+it. `workflow_source` is `"model"` when a model decided it (the recognizer, or
+Requirements in a spec-first run) and `"user"` when `--workflow` named it;
+`workflow_reason` is the recognizer's one-sentence reason, or
+`Requirements understood: <outcome>`. Both are `null` whenever `workflow` is.
 
 `planning_depth` shows how much planning the run chose and why
 ([adaptive planning](adaptive-planning.md)). It is always present:

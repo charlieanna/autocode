@@ -2014,6 +2014,14 @@ def report_for(stage: str, data: dict) -> dict:
         if CONFIG.get("fault") == "clarifying_requirements":
             report = scripted_fault("clarifying_requirements_provider.py")["requirements"](report, data)
         if data.get("spec_first"):
+            # A chat's Requirements understands the job by the recognizer's keyword rules. Behaviors and
+            # acceptance tests describe code to build, so for a job that builds nothing it leaves them empty,
+            # as the live model did in #1846, and it names the job when its schema asks.
+            named = recognize(resolved_task() or CONFIG["brief"], data.get("follow_up"))
+            if named["workflow"] in ("review", "design", "discuss"):
+                report.update(required_behaviors=[], acceptance_tests=[])
+            if "job" in OUTPUT_SCHEMA.get("properties", {}):
+                report.update(job=named["workflow"], design_document=named["design_document"])
             report["assistant_reply"] = "Here is what I understand: " + report["intended_outcome"]
         return report
     # An adaptive-planning Planner drafts the complete plan, initial_task included.

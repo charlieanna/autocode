@@ -31,6 +31,37 @@ except ImportError:
 REQUIREMENTS_QUESTION = "requirements-question"
 
 
+# What approving a chat's understanding starts, by the job Requirements named (#1846): the button's
+# label, then the spend confirmation's title, detail and button. A question is never offered (it is
+# answered at once), and an unnamed job is offered as the plan it becomes.
+APPROVAL_OFFERS = {
+    "build": (
+        "Approve understanding and prepare plan",
+        "Prepare a reviewed plan?",
+        "Planning uses your selected models and saved limits. Building still waits for your approval of the displayed plan.",
+        "Prepare plan",
+    ),
+    "bugfix": (
+        "Approve understanding and investigate",
+        "Investigate the bug?",
+        "The investigation uses your selected models and saved limits. Fixing still waits for your approval of the displayed plan.",
+        "Investigate",
+    ),
+    "review": (
+        "Approve understanding and start the review",
+        "Start the review?",
+        "The review uses your selected models and saved limits. It changes no files.",
+        "Start review",
+    ),
+    "design": (
+        "Approve understanding and start the design",
+        "Start the design work?",
+        "The design work uses your selected models and saved limits. Nothing is built.",
+        "Start design",
+    ),
+}
+
+
 def notice(public):
     """Explain the next human step without exposing the diagnostic dashboard."""
     status = public.get("status") or ""
@@ -172,17 +203,15 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
         and len(questions) == 1
         and questions[0].get("id") == requirements_review.review_question(state)["id"]
     ):
+        label, title, detail, confirm = APPROVAL_OFFERS.get(
+            requirements_review.job(state) or "", APPROVAL_OFFERS["build"]
+        )
         review = {
             "question_id": questions[0]["id"],
-            "answer": "plan",
-            "label": "Approve understanding and prepare plan",
+            "answer": requirements_review.APPROVE,
+            "label": label,
             "summary": requirements_review.review_question(state)["question"],
-            "spend_confirmation": {
-                "match": "trim_lower",
-                "title": "Prepare a reviewed plan?",
-                "detail": "Planning uses your selected models and saved limits. Building still waits for your approval of the displayed plan.",
-                "label": "Prepare plan",
-            },
+            "spend_confirmation": {"match": "trim_lower", "title": title, "detail": detail, "label": confirm},
         }
     return {
         "messages": messages,

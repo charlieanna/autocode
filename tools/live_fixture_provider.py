@@ -468,6 +468,8 @@ def main() -> int:
         }
         if data.get("spec_first"):
             report["assistant_reply"] = "I understand you want a deterministic greeting CLI. Is that right?"
+            # A chat run's Requirements names the job it understood (#1846); this fixture only builds.
+            report.update(job="build", design_document="")
         for event in data.get("brief_feedback") or []:
             if event.get("text") == "Keep the same scope and standard-library-only constraint.":
                 report["requirements"].append(
