@@ -63,7 +63,8 @@ class RunViewTests(unittest.TestCase):
             with self.subTest(status=status):
                 shown = run_view.view(
                     {"status": status, "next_stage": "requirements_gather", "phase": "DISCOVERING"},
-                    workspace=Path("/project"), run_dir=Path("/runs/r1"),
+                    workspace=Path("/project"),
+                    run_dir=Path("/runs/r1"),
                 )
                 self.assertEqual("continue", shown["needs"]["kind"])
                 self.assertIsNone(shown["pause_category"])

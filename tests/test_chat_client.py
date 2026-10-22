@@ -531,7 +531,8 @@ class ConversationTests(unittest.TestCase):
     def test_valid_requirements_approval_advances_through_the_projected_boundary_action(self):
         ready = run_view.view(
             {"status": "RUNNING", "phase": "PLANNING", "next_stage": "astra_discovery"},
-            workspace=WORKSPACE, run_dir=RUN,
+            workspace=WORKSPACE,
+            run_dir=RUN,
         )
         client = ScriptedChat(self.REVIEW, ready, DONE, replies=["y", "y"])
         self.assertEqual(0, client.converse(), client.text())
