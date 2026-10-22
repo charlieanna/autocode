@@ -1908,9 +1908,9 @@
 <h1 id="adaptive-planning">Adaptive planning<a class="headerlink" href="#adaptive-planning" title="Permanent link">&para;</a></h1>
 <p>The fixed AutoPlanner sequence sends every build request through the same stages,
 whatever its size:</p>
-<pre><code>recognize → requirements → plan → review → revise → final review → your approval
+<pre><code>requirements → plan → review → revise → final review → your approval
 </code></pre>
-<p>A one-line change pays for six model calls before you see a plan. A plan the
+<p>A one-line change pays for five model calls before you see a plan. A plan the
 Plan Reviewer has no objection to is still revised and reviewed again. A hard
 plan gets exactly one revision, and whatever the Reviewer still objects to comes
 back to you as questions.</p>
@@ -1933,12 +1933,6 @@ has the evidence for it:</p>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td>Does the request need requirements gathering?</td>
-<td>Job recognizer</td>
-<td>The request text: does it say what to build and how to tell it is done, with no product choice left open?</td>
-<td><code>clear</code> build requests go straight to the Planner; <code>vague</code> ones keep the Requirements stage. When unsure the recognizer says <code>vague</code>.</td>
-</tr>
 <tr>
 <td>Is the plan finished?</td>
 <td>Plan Reviewer</td>
@@ -1965,12 +1959,13 @@ Builder task). In the fixed sequence only the final review writes one.</p>
 <ul>
 <li>You approve every build plan. Adaptive planning removes model calls, never
   your approval.</li>
-<li>A build named with <code>--workflow build</code> skips recognition, so nobody judges its
-  clarity and the Requirements stage always runs.</li>
-<li>In a chat (<code>--spec-first</code>) Requirements always runs first and names the job
-  itself, so it also judges clarity, by the recognizer's rule (#1846). Clarity
-  then skips nothing; it keeps a small clear brief on one review allowance at the
-  reduced Plan Reviewer effort, as before.</li>
+<li>Requirements always runs. It is the first stage of every run and follow-up turn
+  and names the job (owner decision 2026-10-22, #1846, #1860). Until then a build
+  request the Job recognizer judged <code>clear</code> went straight to the Planner; that skip
+  is gone. While it names the job, Requirements also judges clarity by the
+  recognizer's rule. Clarity then skips nothing; it keeps a small clear brief on one
+  review allowance at the reduced Plan Reviewer effort (#1564). A build named with
+  <code>--workflow build</code> still runs Requirements, and nobody judges its clarity.</li>
 <li>The setting applies only to new runs. A saved run keeps the planning flow it
   was started with: resuming with <code>--adaptive-planning</code> a run that lacks it, or
   with <code>--no-adaptive-planning</code> an adaptive one, is refused. Repeating the run's
@@ -1985,11 +1980,11 @@ Builder task). In the fixed sequence only the final review writes one.</p>
 functions. <code>units/autoplanner.py</code> (<code>schema_for</code>, <code>after_challenge</code>,
 <code>after_revise</code>, <code>rerun_requirements</code>), <code>autocode_workflows.apply</code> and
 <code>autocode_goals.feedback</code> apply them. State: <code>workflow.clarity</code>,
-<code>workflow.requirements_skipped</code>, <code>planning.adaptive</code> (<code>size</code>, <code>signals</code>,
+<code>workflow.requirements_skipped</code> (only on runs saved before #1860), <code>planning.adaptive</code> (<code>size</code>, <code>signals</code>,
 <code>review_limit</code>, <code>challenges</code>, <code>approved_at</code>, <code>final_stage</code>), and <code>revises_plan</code>
 on a feedback event. <code>autocode --status --json</code> shows the decisions under
 <code>planning_depth</code> (<a href="../task-run/">task-run interface</a>): the clarity, whether
-Requirements was skipped, the plan's size, the review allowance and whether the
+an older run skipped Requirements, the plan's size, the review allowance and whether the
 Plan Reviewer approved the draft early.</p>
 <h2 id="feedback-on-a-plan-you-were-shown">Feedback on a plan you were shown<a class="headerlink" href="#feedback-on-a-plan-you-were-shown" title="Permanent link">&para;</a></h2>
 <p>Without adaptive planning, feedback on a plan (<code>--feedback</code>, or typing a change
@@ -2233,7 +2228,9 @@ the pipeline.</p>
 <p><strong>Where the savings came from:</strong></p>
 <ul>
 <li><strong>Skipping Requirements for clear requests.</strong> Nearly all of the
-  question savings are here (7 questions → 1 on clear requests).</li>
+  question savings are here (7 questions → 1 on clear requests). The owner
+  removed this skip on 2026-10-22 (#1860): Requirements now runs first on every
+  run and names the job, in place of the recognizer's call.</li>
 <li><strong>Fewer planning restarts:</strong> 3 today, 1 adaptive. Most began when a revision
   renamed a protected contract item; the guard then asks the user, and
   planning starts over.</li>

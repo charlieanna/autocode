@@ -2350,7 +2350,7 @@
 
 
 <h1 id="workflow-planning-approval-and-handoffs">Workflow: planning, approval, and handoffs<a class="headerlink" href="#workflow-planning-approval-and-handoffs" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/f668214ecf45c518c15c1a4a19a444501acc219d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/bc1ec4e0c16cd3327704ed66c59ba3b38983e680/README.md">← Back to README</a></p>
 <p>This page covers the end-to-end conversation flow: how a rough idea becomes an
 approved plan, how that plan is implemented and reviewed, and what Autopilot
 coordinates along the way.</p>
@@ -2360,13 +2360,16 @@ useful end-to-end product, asks focused questions, and drafts a versioned build 
 The Plan Reviewer challenges that draft; the Requirements revises; the Plan Reviewer finalizes. You can revise the brief
 in the same conversation. Implementation starts only after you explicitly approve it.</p>
 <p>After approval, Autocode handles the handoffs:</p>
-<pre><code class="language-text">You → Autopilot: recognize the kind of job (build, bugfix, review, design, discuss); saved as `workflow`,
-   printed with its reason and signals; `--workflow KIND` names it instead of recognizing it
+<pre><code class="language-text">You → Requirements first, on every run and follow-up turn: it names the kind of job (build, bugfix,
+   review, design, discuss), saved as `workflow`; `--workflow KIND` names it instead (a pinned build
+   still runs Requirements, any other kind starts its own first stage). A flow without Requirements
+   (v2 planning, no Requirements role) has the Job recognizer name it first
    review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
    bugfix → Investigator first: diagnosis written to docs/bugs/&lt;name&gt;.json, repository untouched;
             not reproduced → run complete;
             reproduced → the build pipeline below from the Planner on, planned from the
-              diagnosis: no requirements gathering, but plan review and your approval
+              diagnosis and the Requirements handoff: no second requirements gathering, but plan
+              review and your approval
               (small or large; the short path for small fixes is off until the full path is dependable)
    design → Architect first: a design review is written to review/design-review.json (goals met,
             blocking/advisory concerns, questions for you), repository untouched, run complete;
@@ -2386,7 +2389,7 @@ in the same conversation. Implementation starts only after you explicitly approv
              conflicts (a frozen API, a documented invariant) → written to &lt;design&gt;.blockers.json,
                run stops (PAUSED_DESIGN_CONFLICT), nothing built, you decide;
              no conflicts → the design's binding decisions become a constraint and the pipeline starts
-               at the Planner (no requirements gathering; the Planner may not redesign or ask);
+               at the Planner (no second requirements gathering; the Planner may not redesign or ask);
                after a design turn the earlier turn's plan is archived, so the Planner drafts a new
                contract for the build instead of revising the design job's
 You → Requirements Gatherer: rough idea → saved requirements report
@@ -2433,7 +2436,7 @@ one another:</p>
 <tr>
 <td><strong>Job kind</strong> (<code>workflow.kind</code>: build, bugfix, review, design, discuss)</td>
 <td>What you get back, and so which stages run at all.</td>
-<td>Every run. Recognized from your request, or named with <code>--workflow</code>. Fixed once recognition has run.</td>
+<td>Every run. Named by Requirements from your request, or with <code>--workflow</code>. Fixed once named.</td>
 </tr>
 <tr>
 <td><strong>Workflow mode</strong> (<code>settings.workflow.mode</code>: <code>glm_first_v1</code>, <code>glm_final_audit_v2</code>, or the legacy default)</td>
@@ -2450,11 +2453,11 @@ one another:</p>
 <p>So the kind decides whether the build pipeline runs, the workflow mode tunes who checks inside it,
 and the lane mode picks between two loops before either applies. If two seem to disagree, the job
 kind wins: a <code>review</code> run never builds, whatever the mode says.</p>
-<p>The kind is shown where you approve a plan (<code>Job kind: build (recognized: ...)</code>), because the two
+<p>The kind is shown where you approve a plan (<code>Job kind: build (Requirements understood: ...)</code>), because the two
 mistakes are not equally bad. Reading "build" as "discuss" costs a little time; reading "discuss" as
 "build" writes code you never asked for. If the kind is wrong, do not approve: start a new run with
-<code>--workflow KIND</code>. A follow-up message on a finished run (<code>--follow-up</code>) is recognized again and
-still needs its own plan approval.</p>
+<code>--workflow KIND</code>. A follow-up message on a finished run (<code>--follow-up</code>) starts at Requirements
+again, which names its job, and still needs its own plan approval.</p>
 <h2 id="four-units-controlled-by-autopilot">Four units controlled by Autopilot<a class="headerlink" href="#four-units-controlled-by-autopilot" title="Permanent link">&para;</a></h2>
 <p>The same repository contains four callable units:</p>
 <table>
@@ -2969,7 +2972,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   root, normally the package (<code>test_greet.TestGreet.test_x</code>), and a node:test file there that runs another test runner is still not named
   proof (#380). A feature that adds the first Go module in the package, on a
   base with no Go project, is not held to a base Go suite that cannot exist,
-  as at the root (<a href="https://github.com/charlieanna/autocode/blob/f668214ecf45c518c15c1a4a19a444501acc219d/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
+  as at the root (<a href="https://github.com/charlieanna/autocode/blob/bc1ec4e0c16cd3327704ed66c59ba3b38983e680/docs/bugs/2026-10-07-first-go-suite.md">#685</a>).</li>
 <li>Only the package's existing tests are retained as
   <a href="../protected-tests/">original test gates</a>, with the package suite as their
   command unless <code>--test-command</code> gives one, so a large repository does not bind
@@ -3047,7 +3050,7 @@ saved with the run and cannot be changed on resume. Through <code>TaskRun</code>
   also leaves a change outside the package <code>UNVERIFIED</code>, because the package
   suite never ran it.</p>
 <p>The <code>feature-monorepo-package</code> scenario
-(<a href="https://github.com/charlieanna/autocode/blob/f668214ecf45c518c15c1a4a19a444501acc219d/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
+(<a href="https://github.com/charlieanna/autocode/blob/bc1ec4e0c16cd3327704ed66c59ba3b38983e680/scenarios/README.md#catalog">scenarios/README.md, Catalog</a>) runs a build in
 one package of a two-package repository with <code>--package</code> and the scripted
 model. Its reference completes; its broken variant, which also edits the other
 package, stops with each of those files named in the open <code>runner</code> finding.
@@ -3279,7 +3282,7 @@ it is generated from the front matter so reviewers can read the plan.</p>
 holds it. A plan read back from the file has the same goal hash as the run's. The scenario runner
 (<code>scenarios/run.py</code>) checks this at every plan approval its catalog runs reach: it exports the plan
 and reads the file back with <code>--check</code> before it approves the plan
-(<a href="https://github.com/charlieanna/autocode/blob/f668214ecf45c518c15c1a4a19a444501acc219d/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
+(<a href="https://github.com/charlieanna/autocode/blob/bc1ec4e0c16cd3327704ed66c59ba3b38983e680/scenarios/README.md">scenarios/README.md</a>). The approval token is not in the file, so
 committing it approves nothing. Text that looks like a credential is masked before the file is
 written, with the same policy as <code>autocode bundle</code>; the export then says that the file's goal hash
 differs from the run's.</p>
