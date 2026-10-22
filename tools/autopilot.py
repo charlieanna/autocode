@@ -47,6 +47,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_recovery_dispatch as recovery_dispatch
     from . import autocode_regression as regression
+    from . import autocode_report_repair_queue as report_repair_queue
     from . import autocode_requirements_handoff as requirements_handoff
     from . import autocode_resolver_human as human
     from . import autocode_resolver_recovery as resolver_recovery
@@ -95,6 +96,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_recovery_dispatch as recovery_dispatch
     import autocode_regression as regression
+    import autocode_report_repair_queue as report_repair_queue
     import autocode_requirements_handoff as requirements_handoff
     import autocode_resolver_human as human
     import autocode_resolver_recovery as resolver_recovery
@@ -418,6 +420,7 @@ def apply_planning(state: RunState, stage, value, record, *, run_dir=None):
             )
             state.update({"next_stage": "sol" if kind == "validate" else "terra", "phase": "EXECUTING"})
         return
+    value = planning_unit.retention.expand(state, stage, value)
     planning_unit.resolve_sentence_citations(state, value.get("contract"))
     # Older saved reports predate explicit, user-backed conflict resolutions.
     # An absent list supplies no authority to resolve any conflict.
@@ -865,12 +868,9 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
     progressive_pass = progressive_state.enabled(state) and any(
         row["status"] == "PASS" for row in value.get("criterion_results", [])
     )
-    if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (
-        not value["checks"] or any(c["exit_code"] for c in value["checks"])
-    ):
-        raise ValueError(
-            "Technically passing validation lacks successful executed checks: list each check you ran, with its exit code"
-        )
+    report_repair_queue.require_executed_passes(
+        value, passing_claim=value["verdict"] == "PASS" or human_pending or progressive_pass
+    )
     if modern and stage == "sol":
         human_review_flow.require_human_pending_proof(
             criteria, value, human_pending, bool(goals.missing_human_reviews(state))

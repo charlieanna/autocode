@@ -94,6 +94,21 @@ def tool_event(part_id, command, code, output):
 
 
 def deliver(value):
+    if (
+        stage == "astra_finalize"
+        and "retain_contract" not in value.get("contract", {})
+        and "retain_contract" in schema.get("properties", {}).get("contract", {}).get("properties", {})
+    ):
+        draft = value["contract"]
+        retained = {
+            "retain_contract": data.get("retained_contract")
+            or (data.get("clarification_context") or {}).get("retained_contract"),
+            "open_blocking_questions": draft.get("open_blocking_questions", []),
+        }
+        if "initial_task" in schema["properties"]["contract"]["properties"]:
+            retained["initial_task"] = draft.get("initial_task")
+        value["contract"] = retained
+        value["requirement_trace"] = []
     properties = schema.get("properties", {})
     if data.get("report_repair") and "summary" in schema.get("required", []) and "summary" in properties:
         value.setdefault("summary", "Repaired report")
@@ -522,7 +537,14 @@ elif stage == "requirements_gather":
         "ignored_requirements": [],
         "machine_resolutions": [],
         "access_blockers": [],
+        # Requirements names the job (#1860); this offline fixture treats every request as a build.
+        "job": "build",
+        "design_document": "",
     }
+    if 'Add "clarity"' in prompt or "clarity" in schema.get("properties", {}):
+        # Vague, as the recognizer answered: the review allowance counts per planning cycle as before. A report
+        # repair's prompt has no rule, but its schema still asks for clarity.
+        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=False)
     if data["saved_answers"]:

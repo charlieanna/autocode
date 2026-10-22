@@ -23,5 +23,5 @@ def check(project, scenario, run=None):
     )
     if isinstance(note, dict):
         checks.append(Check("note_records_no_source_change", not note.get("changed"), str(note.get("changed"))))
-    checks += run_checks(run, workflow="bugfix", no_requirements=True, no_build=True)
+    checks += run_checks(run, workflow="bugfix", after_requirements="investigate_bug", no_build=True)
     return checks

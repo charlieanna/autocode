@@ -748,11 +748,22 @@ class NewChatSetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / ".autocode").mkdir()
             history = self.history(folder)
-            self.assertEqual("New chats start in Quick plan.", history.slash("/mode", "quick"))
+            self.assertEqual("New chats start in Other mode.", history.slash("/mode", "other"))
             self.assertEqual("New chats run on Claude Code.", history.slash("/engine", "claude"))
             self.assertIn("There is no mode 'fast'", history.slash("/mode", "fast"))
-            self.assertEqual(chat.setup.NewChat("quick", ["--provider", "claude", "--engine", "claude"]), history.new)
+            self.assertEqual(chat.setup.NewChat("other", ["--provider", "claude", "--engine", "claude"]), history.new)
             self.assertEqual(history.new, chat.setup.NewChat.load(Path(folder)))
+
+    def test_a_saved_mode_the_core_no_longer_lists_gives_way_to_the_default(self):
+        with tempfile.TemporaryDirectory() as folder:
+            history = self.history(folder)
+            history.new = chat.setup.NewChat("quick", ["--engine", "claude"])  # saved before 2026-10-22
+            history.forget_unlisted_mode()
+            self.assertEqual(chat.setup.NewChat(None, ["--engine", "claude"]), history.new, "the options stay")
+            self.assertEqual("New chats: Full · Claude Code. /mode and /engine change them.", history.summary())
+            history.new.mode = "other"
+            history.forget_unlisted_mode()
+            self.assertEqual("other", history.new.mode, "a listed choice is kept")
 
     def test_the_banner_engine_and_connect_name_the_same_default_connection(self):
         """#1756: with default_provider = "kilocode" they named kilocode, OpenCode and nothing."""
@@ -1123,12 +1134,29 @@ class TerminalChatTests(unittest.TestCase):
 
     def test_a_question_is_answered_by_choosing_an_option(self):
         ask_one_question_once(self, self.env)
-        proc = self.chat("--mode", "quick", BRIEF, replies="y\n2\ny\n\n")
+        # Requirements first (the only mode since 2026-10-22): confirm, prepare the plan, answer, approve.
+        proc = self.chat(BRIEF, replies="y\ny\n2\ny\n\n")
         self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
-        self.assertIn(chat.LAUNCH_WARNING, proc.stdout, "Quick mode can plan at once, so it confirms at launch")
+        self.assertLess(proc.stdout.index("Prepare plan? [y/N]"), proc.stdout.index("Should the README target"))
         self.assertEqual(1, proc.stdout.count("Should the README target beginners"), "the question is asked once")
         self.assertIn("  2. Experienced Python users", proc.stdout)
         self.assertEqual("Experienced Python users", self.answers()["readme-audience"])
+
+    def test_a_saved_mode_the_core_no_longer_lists_starts_the_default_instead_of_failing(self):
+        (self.workspace / ".autocode").mkdir(exist_ok=True)
+        saved = {"mode": "quick", "options": list(FIXTURE_OPTIONS)}  # kept by a chat before 2026-10-22
+        (self.workspace / ".autocode" / "chat-settings.json").write_text(json.dumps(saved), encoding="utf-8")
+        proc = self.chat(BRIEF, replies="y\ny\ny\n\n", options=())
+        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+        self.assertNotIn("no run mode", proc.stderr)
+        self.assertIn("Approve understanding and prepare plan? [y/N]", proc.stdout, "Requirements comes first")
+        self.assertTrue((self.workspace / "greet.py").is_file())
+
+        explicit = self.chat("--mode", "quick", BRIEF, options=())
+        self.assertEqual(1, explicit.returncode, explicit.stdout + explicit.stderr)
+        self.assertIn(
+            "no run mode 'quick'; choose one of: full", explicit.stderr, "a mode asked for by name is not guessed"
+        )
 
     def test_leaving_at_the_plan_changes_nothing_and_chat_picks_the_run_up_again(self):
         left = self.chat(BRIEF, replies="y\ny\n")

@@ -3,7 +3,9 @@
 Checks the report, archives the previous handoff to ``requirements_history``, binds its local source
 references (the caller's ``check_code_refs``, autopilot's source-inspection gate) and hands the run to
 Discovery. A spec-first run, or a handoff that has only questions so far, stops for the user first
-(autocode_requirements_review, #1200).
+(autocode_requirements_review, #1200), except a question Requirements understood, which the Analyst
+answers at once (autocode_requirements_chat.answer_now, #1846). With no stop, the job the report
+names starts (autocode_requirements_chat.start_named_job, #1860).
 
 Moved out of autopilot.apply_planning, so the controller does not grow; besides that stop, the only
 change is that continuing goes through autocode_run_status, which also retires a stale stop reason.
@@ -25,6 +27,7 @@ try:
     from . import autocode_goals as goals
     from . import autocode_plan_chat as plan_chat
     from . import autocode_project_memory_lifecycle as project_memory
+    from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
     from . import autocode_run_status as run_status
     from . import autocode_technical_questions as technical_questions
@@ -33,6 +36,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_plan_chat as plan_chat
     import autocode_project_memory_lifecycle as project_memory
+    import autocode_requirements_chat as requirements_chat
     import autocode_requirements_review as requirements_review
     import autocode_run_status as run_status
     import autocode_technical_questions as technical_questions
@@ -58,8 +62,11 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     # A chat that has not named any software outcome yet ("what is your name?")
     # may say so honestly, provided it asks the person for that outcome.
     asks_outcome = intake_only and any(question.get("category") == "requested_outcome" for question in questions)
+    # Behaviors and acceptance tests describe code to build. A review, design or question names its
+    # outcome and nothing else; its own stage checks the result (#1846).
+    builds_code = requirements_review.builds_code(requirements_review.job(state, value))
     if (not value["intended_outcome"].strip() and not asks_outcome) or (
-        not clarification_only and (not value["required_behaviors"] or not value["acceptance_tests"])
+        builds_code and not clarification_only and (not value["required_behaviors"] or not value["acceptance_tests"])
     ):
         raise ValueError("Requirements handoff needs an outcome, behaviors, and acceptance tests")
     ids = [question["id"] for question in questions]
@@ -81,7 +88,7 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
     # clarification needs no unrelated source citation. A complete handoff and
     # every explicitly supplied source reference still go through inspection.
     intent_only = clarification_only and not any(value[key] for key in ("required_behaviors", "acceptance_tests"))
-    if local_refs or not intent_only:
+    if local_refs or (builds_code and not intent_only):
         check_code_refs(state, local_refs, "source_refs")
     state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
     project_memory.capture(state, value)
@@ -90,7 +97,13 @@ def accept(state: RunState, value: dict, record: dict, *, check_code_refs, queue
         run_status.running(state, "DISCOVERING", next_stage="requirements_gather", discovery_summary=value["summary"])
         return
     run_status.running(state, "PLANNING", next_stage="astra_discovery", discovery_summary=value["summary"])
-    requirements_review.wait(state, record, queue)
+    if requirements_chat.answer_now(state, record):
+        return
+    if requirements_review.questions(state):
+        requirements_review.wait(state, record, queue)
+        return
+    # Nothing waits for the person (a plain CLI run, a follow-up turn): start the job Requirements named.
+    requirements_chat.start_named_job(state, record)
 
 
 OUTCOME_QUESTION = "What would you like me to help you build, change, fix, or review in this project?"

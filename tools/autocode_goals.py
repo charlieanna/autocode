@@ -51,7 +51,7 @@ try:
     from .autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
     from .autocode_requirement_coverage import missing_sentences
     from .autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
-    from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
+    from .autocode_requirement_cues import cue_sentences, earlier_job_handoff, scan_texts, source_texts
     from .autocode_trace_coverage import coverage_errors, unrecorded_conflict_error
 except ImportError:
     import autocode_adaptive_planning as adaptive
@@ -74,7 +74,7 @@ except ImportError:
     from autocode_git_delivery_policy import SCHEMA as GIT_DELIVERY
     from autocode_requirement_coverage import missing_sentences
     from autocode_requirement_coverage import requirement_coverage_text as requirement_coverage_text
-    from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
+    from autocode_requirement_cues import cue_sentences, earlier_job_handoff, scan_texts, source_texts
     from autocode_trace_coverage import coverage_errors, unrecorded_conflict_error
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
@@ -416,7 +416,7 @@ def check_requirement_handoff(state: RunState, report):
     # (from apply_planning, before the new report is installed) state's saved
     # requirements_handoff is still the previous one.
     previous_handoff = (state.get("requirements_handoff") or {}).get("report") or {}
-    previous_requirements = previous_handoff.get("requirements") or []
+    previous_requirements = [] if earlier_job_handoff(state, report) else previous_handoff.get("requirements") or []
     if previous_requirements:
         ignored_requirements = report.get("ignored_requirements", [])
         if not isinstance(ignored_requirements, list):

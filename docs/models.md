@@ -396,7 +396,8 @@ autocode "Your rough idea" --utility-model ollama/qwen3:8b
 
 The stages it serves are listed in one place, `UTILITY_STAGES` in
 `tools/autocode_roles.py`. Today that is the Job recognizer
-(`recognize_workflow`), which picks one of the five workflows. The route copies
+(`recognize_workflow`), which picks one of the five workflows on a flow without
+a Requirements stage; elsewhere Requirements names the job (#1860). The route copies
 the Plan Reviewer's engine, provider and reasoning effort and replaces only the
 model (`--utility-reasoning-effort` sets its own effort). A run started without
 the flag saves no utility route, so every stage keeps the route it had before.

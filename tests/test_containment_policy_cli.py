@@ -71,8 +71,8 @@ class UncontainedToolsFlow(unittest.TestCase):
             self.assertIsNone(launched[stage]["tool_containment"])
             self.assertIn("--allow-uncontained-tools", launched[stage]["isolation"])
         # Planning stages have the same shell (owner decision 2026-10-21), so the opt-out covers them too.
-        self.assertIs(True, launched["recognize_workflow"]["uncontained_tools"])
-        self.assertIsNone(launched["recognize_workflow"]["tool_containment"])
+        self.assertIs(True, launched["requirements_gather"]["uncontained_tools"])
+        self.assertIsNone(launched["requirements_gather"]["tool_containment"])
         self.assertEqual("uncontained_user_accepted", self.status_view(run)["tool_containment"])
 
     def test_a_saved_run_without_the_opt_out_is_refused_on_resume_until_the_user_accepts(self):

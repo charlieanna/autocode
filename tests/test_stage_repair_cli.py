@@ -194,6 +194,10 @@ class StageRepairCLI(unittest.TestCase):
             "--plan-reviewer-reasoning-effort",
             "high",
         )
+        if case in ("finalizer", "repair-limit", "oversized"):
+            # These faults remove the first task authored by the finalizer. In
+            # adaptive planning it is already validated in the retained draft.
+            fixture.new_run_engine_args += ("--no-adaptive-planning",)
         return fixture
 
     def plan(self, fixture):

@@ -11,6 +11,25 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Requirements is the first stage of every run and every follow-up turn, and its report names the job, so the
+  separate Job recognizer call no longer runs on a flow that has Requirements (owner decision 2026-10-22, #1860).
+  A plain CLI bug fix goes from Requirements to the Investigator, a review to the Code Reviewer, a question to the
+  Analyst; "Fix them." after a review is named a build from the earlier turn's context. `--workflow build` still
+  runs Requirements; another pinned kind starts its own first stage. Adaptive planning no longer skips
+  Requirements for a request judged clear (`planning_depth.requirements_skipped` is `null` on new runs); every
+  adaptive run's Requirements makes that clarity judgment, as a chat's has since #1846. The v2
+  planning flow and runs without a Requirements role keep the recognizer.
+
+- A chat's Requirements names the job it understood, and the chat starts that job without a separate recognizer
+  call (#1846). A question goes straight to the Analyst: its handoff no longer needs invented acceptance tests, so
+  there is no report repair, and the chat no longer asks twice to "prepare a plan" that never comes. A review, a
+  design or a bug fix is confirmed with wording that says what approving starts. In an adaptive chat
+  Requirements also judges the request's clarity, so a small clear brief keeps its reduced plan review.
+- Every chat starts with the Requirements conversation (owner decision, 2026-10-22): `autocode modes list` now
+  offers only `full` (`--joint-planning --spec-first`), and the `quick` mode, which sent a clear request straight to
+  the Planner, is gone from the terminal chat's `/mode` and the VS Code Run mode chip. A new chat whose saved choice
+  is `quick` starts in Full instead of failing; `autocode chat --mode quick` names the modes left. The
+  `--adaptive-planning` flag itself is unchanged.
 - Automatic model selection runs a GLM 5.3 Tester at medium effort, not high (owner decision, 2026-10-21). On
   ladder-07 on Kilo the Tester at medium took 242 s with 14.9k reasoning tokens, against 269-468 s and 23.1k at high
   in the day's earlier runs, and the task passed 8/8 with no send-back. A GPT-6 Sol Tester and the fixed default
@@ -24,6 +43,16 @@ PR template asks for an entry here; a change without one is incomplete.
   offer the person's review, and the run deadlocked. A completion-gate pause raised while applying an accepted
   result now surfaces as its own status instead of being caught as a rejected output, archived and handed to the
   Investigator (#1851).
+- A new human follow-up gets its own default planning-review allowance while preserving cumulative usage
+  and explicit user-selected bounds. Inherited criteria can be retained by hash instead of paraphrased,
+  and default-flow final reviews return a hash-bound verdict rather than copying the full plan again. Ordinary
+  contract, source, dependency, permission and user-approval checks still run after expansion (#1853).
+
+- The CLI's usage line names the command that was run on Python 3.14 too, where argparse otherwise names how
+  Python started (`python -m unittest`); `tests.test_cli_surface` failed on every Python 3.14 checkout.
+- A PASS Validator report that cites a nonzero check is no longer sent to bounded report repair, which cannot
+  rerun a command or change an exit code. The rejection names the failed check and the exit-0 rule, so the stage
+  runs again with a successful execution instead of spending two guaranteed-futile repairs (#1852).
 - The terminal chat no longer repeats a stage's progress line when it only flips between "working", "finished"
   and "Next:" with unchanged counts. A stage's first line is said once; the next is when its counts or the stage
   itself change (#1844).

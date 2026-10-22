@@ -2013,6 +2013,32 @@ def report_for(stage: str, data: dict) -> dict:
             return scripted_fault("project_memory_provider.py")["requirements"](report, data)
         if CONFIG.get("fault") == "clarifying_requirements":
             report = scripted_fault("clarifying_requirements_provider.py")["requirements"](report, data)
+        if "job" in OUTPUT_SCHEMA.get("properties", {}):
+            # Requirements names the job by the recognizer's keyword rules (#1846, #1860); a follow-up's
+            # job is judged from its new message, with the earlier turn as context. Behaviors and
+            # acceptance tests describe code to build, so for a job that builds nothing it leaves them
+            # empty, as the live model did in #1846.
+            follow_up = data.get("follow_up")
+            named = recognize((follow_up or {}).get("message") or resolved_task() or CONFIG["brief"], follow_up)
+            # A report repair has no task or follow-up context: it keeps the job its rejected draft named.
+            rejected = ((data.get("rejected_report") or {}).get("content") or {}) if data.get("report_repair") else {}
+            if rejected.get("job"):
+                named = {"workflow": rejected["job"], "design_document": rejected.get("design_document", "")}
+            if named["workflow"] in ("review", "design", "discuss"):
+                report.update(required_behaviors=[], acceptance_tests=[])
+            report.update(job=named["workflow"], design_document=named["design_document"])
+            earlier = ((data.get("previous_requirements_handoff") or {}).get("report") or {}).get("requirements")
+            if follow_up and earlier and named["workflow"] == follow_up.get("previous_workflow"):
+                # The same job continues: its requirements stay, under their IDs (goals.check_requirement_handoff).
+                kept = {row.get("source_quote") for row in earlier}
+                fresh = [row for row in report["requirements"] if row["source_quote"] not in kept]
+                report["requirements"] = [
+                    *earlier,
+                    *({**row, "id": f"R{len(earlier) + number}"} for number, row in enumerate(fresh, start=1)),
+                ]
+        if "clarity" in OUTPUT_SCHEMA.get("properties", {}):
+            # An adaptive run's Requirements judges clarity as the recognizer did (#1846, #1860); same script.
+            report["clarity"] = os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"
         if data.get("spec_first"):
             report["assistant_reply"] = "Here is what I understand: " + report["intended_outcome"]
         return report
@@ -2802,6 +2828,48 @@ def _main() -> int:
             duplicate = json.loads(json.dumps(report["brief_observations"][0]))
             duplicate["steps"][0]["argv"][-1] += "-duplicate-proposal"
             report["brief_observations"].append(duplicate)
+    if (
+        not data.get("report_repair")
+        and Path("todo.py").is_file()
+        and (
+            os.environ.get("SCENARIO_FAKE_RETAIN_PLAN") == "1" or os.environ.get("SCENARIO_FAKE_EXISTING_SOURCE") == "1"
+        )
+    ):
+        if stage == "requirements_gather":
+            report["source_refs"] = ["todo.py:1"]
+        if stage in ("astra_discovery", "glm_revise"):
+            report["code_refs"] = ["todo.py:1"]
+    if (
+        os.environ.get("SCENARIO_FAKE_RETAIN_PLAN") == "1"
+        and not data.get("report_repair")
+        and stage in ("astra_discovery", "glm_revise")
+        and report.get("contract")
+    ):
+        retained = {row["retain_criterion"]: row for row in data.get("retained_criteria") or []}
+        report["contract"]["acceptance_criteria"] = [
+            retained.get(row["id"], row) for row in report["contract"]["acceptance_criteria"]
+        ]
+    if stage == "astra_finalize" and "retain_contract" in OUTPUT_SCHEMA.get("properties", {}).get("contract", {}).get(
+        "properties", {}
+    ):
+        draft = report["contract"]
+        report["contract"] = {
+            "retain_contract": data.get("retained_contract")
+            or (data.get("clarification_context") or {}).get("retained_contract"),
+            "open_blocking_questions": draft.get("open_blocking_questions", []),
+        }
+        if "initial_task" in OUTPUT_SCHEMA["properties"]["contract"]["properties"]:
+            report["contract"]["initial_task"] = draft.get("initial_task")
+        report["requirement_trace"] = []
+        report["contract_changes"] = []
+        report["conflict_resolutions"] = []
+    if stage == "astra_finalize" and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1":
+        if data.get("report_repair"):
+            rejected = data["rejected_report"]["content"]
+            report = json.loads(rejected) if isinstance(rejected, str) else json.loads(json.dumps(rejected))
+            report["summary"] = "Repaired the retained review summary only"
+        else:
+            report.pop("summary", None)
     if no_evidence and not data.get("report_repair"):
         marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-builder-no-evidence")
         if not marker.exists():  # once: later Builder runs cite their check as usual
@@ -2841,6 +2909,12 @@ def _main() -> int:
             if field not in schema.get("properties", {}):
                 report.pop(field, None)
         complete(report, schema)
+    if (
+        stage == "astra_finalize"
+        and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1"
+        and not data.get("report_repair")
+    ):
+        report.pop("summary", None)
     if cmd_only_final(stage):
         report = dict(CMD_ONLY_FINAL)
     _report(report, sys.argv[sys.argv.index("-o") + 1])

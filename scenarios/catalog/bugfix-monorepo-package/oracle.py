@@ -6,9 +6,9 @@ tests are kept; and nothing outside packages/invoices/ changed since the seed (p
 team's, with its own copy of the bug). With a run, the bug-fix workflow's diagnosis note, which the runner
 writes, is not counted: only the path the run's saved investigation names (``note_path`` in the run's
 state.json), left out by path, so any other file under docs/bugs/ counts. A run must also use the bug-fix
-workflow, its Investigator before any other model stage but the job recognizer (or a repair of the
-recognizer's report), then the fix planned with plan review and the user's approval, no requirements
-gathering and no questions. With a run started with --package (the scripted run's [fake] flags), the
+workflow, its Investigator before any other model stage but Requirements, which runs once and names
+the job (or a repair of its report), then the fix planned with plan review and the user's approval, and
+no questions. With a run started with --package (the scripted run's [fake] flags), the
 status view must also report every file the run left changed outside the package in an open blocking
 finding with source ``runner``, and report none when there is none.
 """
@@ -30,7 +30,7 @@ from harness.oracle import (
 )
 
 PACKAGE = "packages/invoices"
-RECOGNIZER = "recognize_workflow"
+REQUIREMENTS = "requirements_gather"
 # How the runner's finding begins (tools/autocode_package_writes.py).
 FINDING = f"Files outside the package {PACKAGE}/ changed: "
 
@@ -61,7 +61,9 @@ def check(project, scenario, run=None):
     note = runner_note(run)
     outside = [path for path in changed_since_seed(project) if not path.startswith(PACKAGE + "/") and path != note]
     checks.append(Check("nothing_changed_outside_the_package", not outside, f"changed outside {PACKAGE}/: {outside}"))
-    checks += run_checks(run, workflow="bugfix", no_requirements=True, plan_approved=True, max_questions=0)
+    checks += run_checks(
+        run, workflow="bugfix", after_requirements="investigate_bug", plan_approved=True, max_questions=0
+    )
     checks += investigated_first(run)
     checks += reported(run, outside)
     return checks
@@ -80,7 +82,7 @@ def runner_note(run):
 
 
 def investigated_first(run):
-    """The Investigator ran, and no model stage but the job recognizer (or a repair of its report) ran before
+    """The Investigator ran, and no model stage but Requirements (or a repair of its report) ran before
     it. Model stages are the run's ``model_stages`` (runner-owned records left out), else its ``stages``."""
     if run is None:
         return []
@@ -92,7 +94,7 @@ def investigated_first(run):
     early = [
         stage
         for stage in stages[: stages.index("investigate_bug")]
-        if str(stage).removesuffix("_report_repair") != RECOGNIZER
+        if str(stage).removesuffix("_report_repair") != REQUIREMENTS
     ]
     return [Check("investigated_first", not early, f"ran before the Investigator: {early}" if early else "")]
 

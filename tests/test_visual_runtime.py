@@ -1789,7 +1789,7 @@ design = data.get('design_manifest')
 if design:
     design_body = design.get('body') or json.loads(Path(design['full_manifest']).read_text())
     cases = design_body['cases']
-    if 'contract' in result:
+    if 'contract' in result and 'retain_contract' not in result['contract']:
         mapping = {case['id']: ['C2' if mode == 'milestones' and index == 1 else 'C1']
                    for index, case in enumerate(cases)}
         declaration = 'VISUAL_CASE_CRITERIA=' + json.dumps(mapping, sort_keys=True)

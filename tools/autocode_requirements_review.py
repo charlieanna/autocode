@@ -6,6 +6,9 @@ the user its requirements until goal approval. With the setting, every accepted 
 run with one runner-written question beside the handoff's own open questions: answer ``plan`` to
 start planning, or say what to change and Requirements runs again with that answer in its
 saved_answers. The question id carries the handoff's digest, so a new handoff asks again.
+The question says what approving starts for the job Requirements named (``job``, #1846): a plan for
+a build, an investigation for a bug, the review or the design work for those. A question the Analyst
+answers is never asked to be approved (autocode_requirements_chat.answer_now).
 
 On every flow, a handoff that has only questions so far (``questions_only``: open questions and no
 behaviors or acceptance tests yet, as the Requirements prompt asks while a vague request is still
@@ -73,6 +76,34 @@ def _report(state: RunState) -> dict:
     return (state.get("requirements_handoff") or {}).get("report") or {}
 
 
+# The jobs that build nothing (autocode_workflows.WORKFLOWS), named here so this module imports only util.
+READ_ONLY_JOBS = ("review", "design", "discuss")
+JOBS = ("build", "bugfix", *READ_ONLY_JOBS)
+
+
+def job(state: RunState, report: dict | None = None) -> str | None:
+    """The job this run is for: the recognized or pinned kind, else the one Requirements named (#1846)."""
+    known = (state.get("workflow") or {}).get("kind")
+    if known:
+        return known
+    named = (_report(state) if report is None else report).get("job")
+    return named if named in JOBS else None
+
+
+def builds_code(kind: str | None) -> bool:
+    """Whether a job needs behaviors and acceptance tests; an unknown job is held to a build's handoff."""
+    return kind not in READ_ONLY_JOBS
+
+
+# What approving the understanding starts, by job; anything not listed is planned as a build.
+CONFIRMATION = {
+    "bugfix": "Approve this understanding to investigate the bug and prepare a reviewed fix plan, "
+    "or tell me what to change.",
+    "review": "Approve this understanding to start the review, or tell me what to change. The review changes no files.",
+    "design": "Approve this understanding to start the design work, or tell me what to change. Nothing is built.",
+}
+
+
 def questions_only(report: dict) -> bool:
     """A report with open questions and no behaviors or acceptance tests yet: Requirements is still clarifying."""
     return bool(report.get("open_questions")) and not (
@@ -106,7 +137,9 @@ def review_question(state: RunState) -> dict:
             *_lines("Left out", report.get("ignored_statements")),
             *_lines("Assumptions", assumptions),
             "",
-            "Approve this understanding to prepare a reviewed plan, or tell me what to change.",
+            CONFIRMATION.get(
+                job(state) or "", "Approve this understanding to prepare a reviewed plan, or tell me what to change."
+            ),
         ]
     )
     return {
@@ -114,7 +147,9 @@ def review_question(state: RunState) -> dict:
         # unchanged still asks again under a new id (an answered id cannot be answered twice).
         "id": PREFIX + util.digest({"report": report, "round": len(state.get("requirements_history") or [])})[:16],
         "question": text,
-        "why": "Spec-first run: nothing is planned until you confirm what Requirements understood.",
+        "why": "Spec-first run: nothing "
+        + ("is planned" if builds_code(job(state)) else "starts")
+        + " until you confirm what Requirements understood.",
         # Free text, not a label: a correction is an answer too (options would only accept their labels).
         "options": [],
         "proposed_default": APPROVE,

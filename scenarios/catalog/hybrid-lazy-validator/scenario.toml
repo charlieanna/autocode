@@ -10,7 +10,7 @@ check = "python3 -m unittest test_todo.py"
 fault = "lazy_validator"
 
 [hybrid]
-scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge",
+scripted = ["requirements_gather", "astra_discovery", "astra_challenge",
             "glm_revise", "astra_finalize", "terra", "sol"]
 
 [run]

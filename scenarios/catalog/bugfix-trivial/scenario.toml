@@ -3,7 +3,7 @@ category = "bugfix"
 # An off-by-one in page_count. Correctness is the easy part (hidden tests
 # cover every small total/size pair, so `// size + 1` fails on exact
 # multiples). It takes the full path: diagnosis, Planner, Plan Reviewer, the
-# user's approval, no requirements gathering, no questions. Proportionality (no
+# user's approval, Requirements only once, first, no questions. Proportionality (no
 # plan-review rounds, at most five model stages) comes back with the short path.
 
 [fake]

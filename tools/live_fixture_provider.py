@@ -466,6 +466,16 @@ def main() -> int:
             "machine_resolutions": [],
             "access_blockers": [],
         }
+        # Requirements names the job it understood in every run (#1846, #1860); this fixture only builds.
+        report.update(job="build", design_document="")
+        asked = (
+            json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+            if "--output-schema" in sys.argv
+            else {}
+        ).get("properties", {})
+        if 'Add "clarity"' in prompt or "clarity" in asked:
+            # Judged as the recognizer judged it before #1860; a report repair's schema still asks for it.
+            report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
         if data.get("spec_first"):
             report["assistant_reply"] = "I understand you want a deterministic greeting CLI. Is that right?"
         for event in data.get("brief_feedback") or []:
@@ -477,8 +487,13 @@ def main() -> int:
                         "source_quote": event["text"],
                     }
                 )
-        if data.get("spec_first") and "It prints 'Hello, NAME'" not in str(data.get("task", "")):
-            # A chat message that names no work (a greeting, "What is your name?"): answer it, then ask.
+        if (
+            data.get("spec_first")
+            and not data.get("follow_up")
+            and "It prints 'Hello, NAME'" not in str(data.get("task", ""))
+        ):
+            # A chat message that names no work (a greeting, "What is your name?"): answer it, then ask. A
+            # follow-up's task is its new message alone, with the earlier turn as context (#1860): it is work.
             report.update(
                 summary="The user has not described a task yet.",
                 assistant_reply="I'm AutoCode's requirements assistant. What would you like to build or change?",
@@ -646,6 +661,18 @@ def main() -> int:
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Handwritten: every criterion traces to the brief"},
         )
+    if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {}).get("contract", {}).get(
+        "properties", {}
+    ):
+        draft = report["contract"]
+        report["contract"] = {
+            "retain_contract": data.get("retained_contract")
+            or (data.get("clarification_context") or {}).get("retained_contract"),
+            "open_blocking_questions": draft.get("open_blocking_questions", []),
+        }
+        if "initial_task" in schema["properties"]["contract"]["properties"]:
+            report["contract"]["initial_task"] = draft.get("initial_task")
+        report["requirement_trace"] = []
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     output.write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

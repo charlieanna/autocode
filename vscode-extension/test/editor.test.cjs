@@ -1144,7 +1144,8 @@ const RUN_MODES = {
   defaultId: 'full',
   modes: [
     { id: 'full', label: 'Full', description: 'Requirements first.', startArgs: ['--joint-planning', '--spec-first'] },
-    { id: 'quick', label: 'Quick plan', description: 'Clear requests skip Requirements.', startArgs: ['--joint-planning', '--no-spec-first', '--adaptive-planning'] },
+    // The core lists only Full since 2026-10-22; a made-up second mode checks the picker still offers what it lists.
+    { id: 'other', label: 'Other mode', description: 'Another way.', startArgs: ['--joint-planning', '--spec-first', '--max-iterations=2'] },
   ],
 };
 
@@ -1155,23 +1156,35 @@ test('a new chat starts with the run mode picked from the core list and passes i
   const chip = ui.document.getElementById('mode-picker');
   assert.equal(chip.hidden, false, 'a fresh chat offers a mode');
   assert.equal(ui.document.getElementById('mode-name').textContent, 'Full', 'the core default until the person picks');
-  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.id === 'quick'));
+  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.id === 'other'));
   chip.click(); await flush(); await flush();
   assert.equal(ui.sent.at(-1).type, 'mode');
   const [items, options] = picker.mock.calls[0].arguments;
-  assert.deepEqual(items.map((item) => item.label), ['Full', 'Quick plan']);
-  assert.equal(items[1].detail, 'Clear requests skip Requirements.', 'the core describes each mode');
+  assert.deepEqual(items.map((item) => item.label), ['Full', 'Other mode']);
+  assert.equal(items[1].detail, 'Another way.', 'the core describes each mode');
   assert.ok(options.placeHolder.includes('Full'));
-  assert.equal(ui.saved.get('autocode.chat.mode'), 'quick');
-  assert.equal(ui.document.getElementById('mode-name').textContent, 'Quick plan');
+  assert.equal(ui.saved.get('autocode.chat.mode'), 'other');
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Other mode');
   const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
   ui.type('Build something'); ui.submit(); await flush(); await flush();
   assert.equal(start.mock.callCount(), 1);
-  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--no-spec-first', '--adaptive-planning']);
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first', '--max-iterations=2']);
   assert.equal(chip.hidden, true, 'a started chat keeps the flow it started with');
   const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
   assert.ok(rules.some((rule) => rule.selectorText === '#composer .chip[hidden]' && rule.style.display === 'none'),
     'the chip style must not override hidden');
+});
+
+test('a saved mode the core no longer lists starts new chats in its default (quick, removed 2026-10-22)', async (t) => {
+  const modes = { defaultId: 'full', modes: [{ ...structuredClone(RUN_MODES.modes[0]), spendConfirmation: 'planning' }] };
+  t.mock.method(controller, 'modes', async () => structuredClone(modes));
+  const ui = await openChat(t, null, false, { storageValues: new Map([['autocode.chat.mode', 'quick']]) });
+  ui.chat.show(); await flush(); await flush();
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Full');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build something'); ui.submit(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1, 'the unlisted choice does not stop the chat starting');
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first']);
 });
 
 test('Full chat starts a greeting without the spend dialog when the core defers it to planning', async (t) => {
@@ -1412,6 +1425,41 @@ test('a reader scrolled up sees the running step change on the Latest button wit
   assert.equal(ui.document.querySelector('#message').value, 'Keep this draft');
   await ui.poll({ ...structuredClone(next), status: 'TASK_COMPLETE', done: true, needs: { kind: 'none' } });
   assert.equal(latest(), '↓ Latest messages', 'no step is named once none is running');
+});
+
+test('the progress card is already current in the DOM while follow is paused; Latest only scrolls (#1711)', async (t) => {
+  // Root-cause regression for the Builder→Tester "stale card" report: the card
+  // lives inside #thread-content, so a reader who scrolled up cannot see it
+  // update. The data is never stale — Latest does not refetch.
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null,
+      messages: [{ id: 'a1', role: 'assistant', text: 'Builder working on the follow-up' }],
+      progress: ['Builder working · task M1'] } };
+  const ui = await openChat(t, value);
+  const card = () => ui.document.querySelector('#app').textContent;
+  assert.ok(card().includes('Builder working · task M1'));
+
+  // The conversation row still names the Builder; it is history, not the live card.
+  const next = structuredClone(value);
+  next.chat.progress = ['Tester working'];
+  await ui.poll(next);
+  assert.ok(card().includes('Tester working'), 'the live card updated on the poll alone');
+  assert.ok(!card().includes('Builder working'), 'the live card no longer names the Builder');
+  assert.ok(ui.document.querySelector('#messages').textContent.includes('Builder working on the follow-up'),
+    'the historical row is unchanged and can still be on screen above the card');
+
+  // Latest scrolls to the bottom; it issues no status read and no named action.
+  const reads = () => controller.status.mock.callCount();
+  const before = reads();
+  const invoked = t.mock.method(cli, 'invoke', async () => ok);
+  const streamed = t.mock.method(cli, 'stream', async () => ok);
+  ui.document.querySelector('#latest').click();
+  await flush();
+  assert.equal(reads(), before, 'Latest does not refetch status');
+  assert.equal(invoked.mock.callCount(), 0);
+  assert.equal(streamed.mock.callCount(), 0);
+  assert.ok(card().includes('Tester working'), 'the card Latest reveals is the one the poll already wrote');
 });
 
 test('requirements chat shows only Thinking while a step is running', async (t) => {
@@ -3003,6 +3051,31 @@ test('two runs open as separate tabs with names and busy marks (#1558)', async (
   assert.equal(ui.chat.run.runDir, other.runDir, 'switching tabs switches the active run');
   const active = ui.document.querySelector('.chat-tab.active .name').textContent;
   assert.equal(active, 'other-run');
+});
+
+test('one hung status read does not freeze the other tabs (#1711)', async (t) => {
+  // ChatView.refresh used to await tabs in order: a hung --status on tab 1
+  // blocked every later tab until it returned. Reads now start together.
+  const other = { workspace: '/ws', runDir: '/ws/.autocode/runs/other-run' };
+  const ui = await openChat(t, chatView());
+  ui.chat.show(other);
+  await flush();
+  const calls = [];
+  let releaseHung;
+  const hung = new Promise((resolve) => { releaseHung = resolve; });
+  t.mock.method(controller, 'status', (target) => {
+    calls.push(target.runDir);
+    if (target.runDir === run.runDir) return hung;
+    return Promise.resolve({ status: 'RUNNING', done: false, needs: { kind: 'continue' },
+      chat: { phase: null, context: 'c', input: null, messages: [], progress: ['Tester working'] } });
+  });
+  void ui.chat.refresh();
+  await flush();
+  assert.deepEqual(calls, [run.runDir, other.runDir], 'both tabs start reading at once');
+  // The healthy tab already landed even though the first read is still in flight.
+  await flush();
+  releaseHung({ status: 'RUNNING', done: false, needs: { kind: 'continue' }, chat: { phase: null, context: 'c', input: null, messages: [] } });
+  await flush();
 });
 
 test('a run tab is named after the request it works on and stays in view (#1528)', async (t) => {

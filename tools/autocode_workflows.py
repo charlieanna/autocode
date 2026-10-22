@@ -1,13 +1,19 @@
 """Workflow recognition: what kind of engineering job a request is.
 
-AutoPilot runs ``STAGE`` first on every new run, before any requirements or
-planning stage; a chat run (spec-first) runs it once the person approves what
-Requirements understood (autocode_requirements_chat), and the recognizer is
-then given that understanding. The answer is saved under ``state["workflow"]``; the status
+Requirements is the front door of every run and follow-up turn whose saved flow
+has a Requirements role (``requirements_first``, owner decision 2026-10-22): the
+run begins there (``begin_requirements``) and its report names the job (``job``,
+#1846, #1860). ``from_requirements`` then starts that job without a second model
+call: at once on a plain CLI run or a follow-up turn, once the person approves
+what Requirements understood in a chat run (autocode_requirements_chat). The
+job recognizer (``STAGE``) runs first only on a flow without Requirements (the
+v2 planning flow, a run without a Requirements role), and in a chat whose
+Requirements named no job once the person approves its understanding. The answer is
+saved under ``state["workflow"]``; the status
 view reports it as ``workflow`` (docs/task-run.md). There are five kinds,
 described in scenarios/README.md ("Workflows"). Normally the request itself is
-read; ``--workflow KIND`` names the kind instead (``pin``), before the recognizer
-runs. A recognized run keeps its kind: the stages already run belong to it, so a
+read; ``--workflow KIND`` names the kind instead (``pin``), before either stage
+names it. A recognized run keeps its kind: the stages already run belong to it, so a
 wrong recognition is corrected by a new run with ``--workflow``. The console line
 after recognition (``describe``) says which kind was chosen, why, and how to
 override it, so a misroute is visible before more is spent. This module is pure:
@@ -16,17 +22,20 @@ from the runner.
 
 State key written here (and read by autocode_run_view, autopilot):
     workflow: {"kind": one of WORKFLOWS or None, "reason": str, "signals": [str],
-               "source": "model" | "user", "then": the stage to run after recognition,
+               "source": "model" | "user", "then": the build pipeline's entry, the stage a build
+               goes to once its kind is known (the Planner when Requirements already ran),
                "clarity": "clear" | "vague", only in adaptive-planning runs,
                "brief_size": "small" | "medium", a brief-only size signal (#1564) read by
                units.autoplanner.review_depth_reduced to keep small clear briefs on one
                total review allowance across planning cycles,
-               "requirements_skipped": bool, only where clarity decides whether Requirements
-               runs (an adaptive build recognized with Requirements next and no approved
-               design); read by autocode_adaptive_planning.view for the status view,
+               "requirements_skipped": bool, saved only by runs from before 2026-10-22, when an
+               adaptive build the recognizer judged clear skipped Requirements; read by
+               autocode_adaptive_planning.view for the status view,
                "requirements_approved": True, only between a chat run's approval and its
                recognition (autocode_requirements_chat); apply then plans a build instead of
-               gathering it again}
+               gathering it again,
+               "named_by": "requirements_gather", only when the Requirements report named the job
+               (from_requirements, #1846) and the recognizer did not run}
 """
 
 from __future__ import annotations
@@ -204,9 +213,29 @@ def prompt(
 
 
 def begin(state: RunState, then: str) -> None:
-    """Make recognition the first stage of a new run; ``then`` is the stage that follows it."""
+    """Make recognition the first stage of a run without Requirements; ``then`` is the stage that follows it."""
     state["workflow"] = {"kind": None, "reason": "", "signals": [], "source": None, "then": then}
     state["next_stage"] = STAGE
+
+
+REQUIREMENTS_STAGE = "requirements_gather"
+
+
+def requirements_first(state: RunState) -> bool:
+    """Whether this run's saved flow starts every turn at Requirements, which names the job (#1860).
+
+    The v2 planning flow and a run without a Requirements role still recognize the job first."""
+    roles_saved = (state.get("settings") or {}).get("roles") or {}
+    return roles.planning_flow(state) != "v2" and "requirements" in roles_saved
+
+
+def begin_requirements(state: RunState) -> None:
+    """Make Requirements the first stage of a new run or follow-up turn (owner decision 2026-10-22).
+
+    Its report names the job (``from_requirements``); a build then goes on to the Planner, the
+    build pipeline's entry once requirements are gathered."""
+    state["workflow"] = {"kind": None, "reason": "", "signals": [], "source": None, "then": planner_stage(state)}
+    state["next_stage"] = REQUIREMENTS_STAGE
 
 
 def brief_size(task: str) -> str:
@@ -246,11 +275,9 @@ def apply(state: RunState, value: dict, record: dict) -> None:
     design = approved_design(state, value)
     if design:
         state["workflow"]["design_document"] = design
-    first = adaptive.entry_stage(state, value, then, planner_stage(state))
-    if adaptive.enabled(state) and value["workflow"] == "build" and not design and then == "requirements_gather":
-        # Saved where clarity decides it; the status view shows it as planning_depth.requirements_skipped (#697).
-        state["workflow"]["requirements_skipped"] = first != then
-    if previous.get("requirements_approved") and first == then:
+    # Clarity no longer skips Requirements (owner decision 2026-10-22): every build gathers them.
+    first = then
+    if previous.get("requirements_approved") and first == REQUIREMENTS_STAGE:
         # A chat run's Requirements spoke and was approved before recognition (autocode_requirements_chat).
         first = planner_stage(state)
     state.update(
@@ -261,21 +288,58 @@ def apply(state: RunState, value: dict, record: dict) -> None:
     )
 
 
+def named_by_requirements(report: dict) -> str | None:
+    """The job a Requirements report names (#1846), or None when it names none yet.
+
+    Requirements reads the request before the job is known, so its report says which of the five
+    jobs it understood; that replaces a second model call to recognize it."""
+    named = (report or {}).get("job")
+    return named if named in WORKFLOWS else None
+
+
+def from_requirements(state: RunState, report: dict, record: dict | None = None) -> None:
+    """Start the job Requirements named, as recognition would (apply), without the recognizer.
+
+    The record keeps ``source: "model"``: a model decided the kind, here the Requirements stage. A
+    report that names no job is planned as a build, the build pipeline's entry (#1860). A build's
+    design document counts only as apply counts the recognizer's (approved_design). In an adaptive
+    run, Requirements judges the request's clarity as the recognizer did (adaptive.requirements_judge_clarity), which
+    keeps the Plan Reviewer's reduced depth for small clear briefs (units.autoplanner.review_depth_reduced,
+    #1564)."""
+    named = named_by_requirements(report)
+    outcome = str(report.get("intended_outcome") or "").strip().rstrip(".")
+    value = {
+        "workflow": named or "build",
+        "reason": "Requirements understood: " + (outcome or "no outcome stated")
+        if named
+        else "Requirements named no job; planned as a build",
+        "signals": [],
+        "design_document": str(report.get("design_document") or ""),
+        **({"clarity": report["clarity"]} if report.get("clarity") in adaptive.CLARITY else {}),
+    }
+    apply(state, value, record or {})
+    state["workflow"]["named_by"] = REQUIREMENTS_STAGE
+
+
 def pin(state: RunState, kind: str) -> None:
-    """The user named the kind of job (``--workflow``): skip recognition and start it."""
+    """The user named the kind of job (``--workflow``): skip recognition and start it.
+
+    On a run that begins at Requirements (begin_requirements), a pinned build still gathers its
+    requirements first; another kind starts its own first stage, as after recognition."""
     if kind not in WORKFLOWS:
         raise ValueError(f"Unknown workflow {kind!r}; expected one of {WORKFLOWS}")
     current = state.get("workflow") or {}
-    if state.get("next_stage") != STAGE or current.get("kind"):
+    gathering = state.get("next_stage") == REQUIREMENTS_STAGE and "then" in current and not _turn_stages(state)
+    if (state.get("next_stage") != STAGE and not gathering) or current.get("kind"):
         why = (
             f"This run already runs as {current['kind']!r}"
             if current.get("kind")
             else "This run predates workflow recognition"
         )
         raise ValueError(
-            f"{why}; --workflow applies before the recognizer runs. Start a new run with --workflow {kind} instead"
+            f"{why}; --workflow applies before the job is named. Start a new run with --workflow {kind} instead"
         )
-    then = current.get("then") or "requirements_gather"
+    then = current.get("then") or REQUIREMENTS_STAGE
     state["workflow"] = {
         "kind": kind,
         "reason": "Named by the user with --workflow",
@@ -284,7 +348,21 @@ def pin(state: RunState, kind: str) -> None:
         "output": None,
         "then": then,
     }
-    state.update({"status": "RUNNING", "next_stage": FIRST_STAGE.get(kind) or then})
+    state.update(
+        {"status": "RUNNING", "next_stage": FIRST_STAGE.get(kind) or (REQUIREMENTS_STAGE if gathering else then)}
+    )
+
+
+def _turn_stages(state: RunState) -> list:
+    """The stage records of the current turn: since the newest follow-up was said, else the whole run."""
+    turns = state.get("turns") or []
+    start = turns[-1].get("stage_index") if turns else 0
+    return list((state.get("stages") or [])[start if isinstance(start, int) else 0 :])
+
+
+def ran_this_turn(state: RunState, stage: str) -> bool:
+    """Whether ``stage`` already ran in the current turn (an earlier turn's run belongs to its own job)."""
+    return any(isinstance(row, dict) and row.get("stage") == stage for row in _turn_stages(state))
 
 
 def describe(state: RunState, stage: str) -> str:
@@ -309,11 +387,13 @@ def approval_note(state: RunState) -> str:
     found = state.get("workflow") or {}
     if not found.get("kind"):
         return ""
-    why = (
-        "named by you with --workflow"
-        if found.get("source") == "user"
-        else "recognized: " + ((found.get("reason") or "").strip().rstrip(".") or "no reason given")
-    )
+    reason = (found.get("reason") or "").strip().rstrip(".") or "no reason given"
+    if found.get("source") == "user":
+        why = "named by you with --workflow"
+    elif found.get("named_by") == "requirements_gather":
+        why = reason  # already "Requirements understood: …" (#1846)
+    else:
+        why = "recognized: " + reason
     return (
         f"Job kind: {found['kind']} ({why}). Not what you meant? Do not approve; start a new run with "
         f"--workflow {'|'.join(WORKFLOWS)}."

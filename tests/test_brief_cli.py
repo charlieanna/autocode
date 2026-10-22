@@ -51,6 +51,48 @@ class BriefCliTests(unittest.TestCase):
         )
         return run, self.drive(run) if drive else run.status()
 
+    def test_hash_bound_final_review_completes_without_copying_or_report_repair(self):
+        run, view = self.start(
+            planning=("--joint-planning", "--no-adaptive-planning"),
+            env={"SCENARIO_FAKE_RETAIN_PLAN": "1"},
+        )
+        self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
+        self.assert_reference(run, view)
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertFalse(any(row.get("report_only") for row in attempts))
+        final = next(row for row in attempts if row["stage"] == "astra_finalize")
+        report = json.loads(Path(final["output"]).read_text())
+        self.assertEqual({"retain_contract", "initial_task", "open_blocking_questions"}, set(report["contract"]))
+        self.assertTrue(view["approvals"])
+
+    def test_retained_final_verdict_can_be_repaired_without_reauthoring_the_plan(self):
+        run, view = self.start(
+            planning=("--joint-planning", "--no-adaptive-planning"),
+            env={"SCENARIO_FAKE_RETAIN_PLAN": "1", "SCENARIO_FAKE_RETAIN_REPAIR": "1"},
+        )
+        self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
+        self.assert_reference(run, view)
+        repairs = [row for row in view["usage"]["accounting"]["attempts"] if row.get("report_only")]
+        self.assertEqual(["astra_finalize_report_repair"], [row["stage"] for row in repairs])
+        report = json.loads(Path(repairs[0]["output"]).read_text())
+        self.assertIn("retain_contract", report["contract"])
+
+    def test_completed_small_turn_gets_fresh_default_reviews_in_the_same_chat(self):
+        run, first = self.start(
+            planning=("--joint-planning",),
+            env={"SCENARIO_FAKE_BLOCKING_REVIEW": "1", "SCENARIO_FAKE_EXISTING_SOURCE": "1"},
+        )
+        self.assert_reference(run, first)
+        before = first["usage"]["accounting"]["attempts"]
+        self.assertEqual(2, sum(row["stage"] in ("astra_challenge", "astra_finalize") for row in before))
+        run.follow_up(self.scenario.brief)
+        second = self.drive(run)
+        self.assertEqual("TASK_COMPLETE", second["status"], self.details(second))
+        self.assert_reference(run, second)
+        after = second["usage"]["accounting"]["attempts"]
+        self.assertGreater(len(after), len(before))
+        self.assertEqual(4, sum(row["stage"] in ("astra_challenge", "astra_finalize") for row in after))
+
     def test_period_separated_commands_complete_without_a_phantom_add_observation(self):
         self.assertIn("exits 0. `todo.py list`", self.scenario.brief)
         run, view = self.start(planning=("--joint-planning", "--no-adaptive-planning"))

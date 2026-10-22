@@ -4,10 +4,12 @@ from __future__ import annotations
 
 try:
     from .. import autocode_plan_chat as plan_chat
+    from .. import autocode_plan_retention as retention
     from .. import autocode_planning_recovery_policy as planning_recovery_policy
     from .. import autocode_prompts as prompts
 except ImportError:
     import autocode_plan_chat as plan_chat
+    import autocode_plan_retention as retention
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompts as prompts
 
@@ -566,6 +568,12 @@ SCHEMAS[RECOGNIZE] = workflows.SCHEMA
 # previous handoff had (goals.check_requirement_handoff enforces the citation).
 SCHEMAS["requirements_gather"]["properties"]["ignored_requirements"] = {"type": "array", "items": IGNORED_REQUIREMENT}
 SCHEMAS["requirements_gather"]["properties"]["assistant_reply"] = S
+# Requirements names the job it understood (#1846, #1860; workflows.from_requirements), or "none"
+# while no software outcome is named yet. Optional for saved reports; asked for in every run.
+SCHEMAS["requirements_gather"]["properties"]["job"] = {"type": "string", "enum": [*workflows.WORKFLOWS, "none"]}
+SCHEMAS["requirements_gather"]["properties"]["design_document"] = S
+# Judged with the job in an adaptive run (adaptive.requirements_judge_clarity), as the recognizer did.
+SCHEMAS["requirements_gather"]["properties"]["clarity"] = {"type": "string", "enum": list(adaptive.CLARITY)}
 # A discoverable question is answered from the workspace, never by the user.
 # machine_resolutions are accepted only during the runner's one investigation
 # pass, bound to the report that raised the question (handoff_hash). An
@@ -797,7 +805,11 @@ def apply_review_depth_policy(state: RunState):
         planning = state["planning"] = {}
     if planning.get("review_depth_reduced"):
         return
-    archived = sum(row.get("astra_calls", 0) for row in state.get("planning_history") or [])
+    archived = sum(
+        row.get("astra_calls", 0)
+        for row in state.get("planning_history") or []
+        if row.get("turn_event_id") == planning.get("turn_event_id")
+    )
     planning["review_depth_reduced"] = True
     planning["review_calls_before_policy"] = archived
     planning["astra_calls"] = archived + planning.get("astra_calls", 0)
@@ -1087,6 +1099,11 @@ def repair_rules(stage, schema):
     fields = schema.get("properties", {})
     if stage not in (*TRACE_STAGES, "plan", "plan_revise", "plan_finalize") or "contract" not in fields:
         return ""
+    if "retain_contract" in fields["contract"].get("properties", {}):
+        return (
+            "Use clarification_context.retained_contract as the current reference and "
+            "clarification_context.retained_criteria for retained criterion identities.\n" + retention.FINAL_RULE
+        )
     return (
         REVISION_CONFLICT_RULE
         + prompts.get("fragments/autoplanner/repair-citations.md")
@@ -1303,6 +1320,10 @@ def context(state: RunState, stage, state_path):
         packet["review_findings"] = findings
     if stage == "requirements_gather":
         packet["previous_requirements_handoff"] = state.get("requirements_handoff")
+        # Requirements names a follow-up's job (#1860): the earlier turn, as the recognizer was told it.
+        earlier_turn = workflows.follow_up(state)
+        if earlier_turn:
+            packet["follow_up"] = earlier_turn
     if stage in ("requirements_gather", "astra_discovery"):
         packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"])
     try:
@@ -1317,7 +1338,7 @@ def context(state: RunState, stage, state_path):
         packet["design_manifest"] = manifest_context
         figma_instruction += design_manifest.INSTRUCTION
     author_rules, audit_context, audit_instruction = report_policy.scope_contract_rules(
-        schema_for(state, stage),
+        retention.model_schema(schema_for(state, stage), state, stage),
         {
             "decision_provenance": goals.DECISION_PROVENANCE,
             "contract_references": goals.CONTRACT_REFERENCES,
@@ -1327,17 +1348,18 @@ def context(state: RunState, stage, state_path):
         },
     )
     packet.update(audit_context)
+    compact_final = stage in retention.FINAL and bool(retention.token(state))
     planning_policy = (
         ""
         if stage == "requirements_gather"
         else (
             author_rules["decision_provenance"]
             + author_rules["contract_references"]
-            + examples.RULE
+            + ("" if compact_final else examples.RULE)
             + author_rules["milestone_handoff"]
             + EVIDENCE_FACTS
             + author_rules["revision_conflicts"]
-            + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
+            + ("" if compact_final or stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
     progressive_rule = (
@@ -1420,8 +1442,17 @@ def context(state: RunState, stage, state_path):
             "last_error": str(rejection.get("last_error") or "")[:2000],
         }
         rejection_rule = PRIOR_REJECTION_RULE
+    retain_rule = ""
+    if stage in retention.AUTHORS and retention.token(state):
+        packet["retained_criteria"] = retention.inventory(state)
+        retain_rule = retention.RULE
+        if stage in retention.FINAL:
+            packet["retained_contract"] = retention.token(state)
+            packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
+            retention.compact_final_packet(packet)
+            retain_rule += retention.FINAL_RULE
     prompt = (
-        PROMPTS[stage]
+        (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
         + audit_instruction
         + memory_rule
         + JOB_TYPE_POLICY
@@ -1433,6 +1464,7 @@ def context(state: RunState, stage, state_path):
         + clarification_policy
         + progressive_rule
         + s.COMMON
+        + retain_rule
         + prompts.get("fragments/autoplanner/context-03.md")
         + json.dumps(packet, separators=(",", ":"))
     )
@@ -1445,10 +1477,16 @@ def context(state: RunState, stage, state_path):
 def _model_report_schema(schema, state: RunState):
     """Protected contract provenance is retained by the runner, never generated by a model."""
     result = copy.deepcopy(schema)
-    if not (state.get("settings") or {}).get("spec_first"):
-        result.get("properties", {}).pop("assistant_reply", None)
-        if "assistant_reply" in result.get("required", []):
-            result["required"].remove("assistant_reply")
+    # assistant_reply only in a chat; job and design_document in every Requirements report (#1860), and
+    # clarity with them while an adaptive run's Requirements names the job.
+    fields = result.get("properties", {})
+    dropped = [] if (state.get("settings") or {}).get("spec_first") else ["assistant_reply"]
+    if "job" in fields and not adaptive.requirements_judge_clarity(state):
+        dropped.append("clarity")
+    for field in dropped:
+        fields.pop(field, None)
+        if field in result.get("required", []):
+            result["required"].remove(field)
     for field in ("contract", "requirements"):
         body = result.get("properties", {}).get(field, {})
         for protected in ("brief_acceptance", "risk_acceptance", "source_trace"):
@@ -1552,7 +1590,12 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         else design_plan.report_schema(goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest"))
     )
     return ModelRequest(
-        role, route_for(state, stage, role), prompt, metrics, _model_report_schema(schema, state), False
+        role,
+        route_for(state, stage, role),
+        prompt,
+        metrics,
+        retention.model_schema(_model_report_schema(schema, state), state, stage),
+        False,
     )
 
 

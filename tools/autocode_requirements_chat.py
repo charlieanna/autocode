@@ -1,9 +1,13 @@
 """Requirements conversation policy and bounded assistant-text projection.
 
-The existing task controller owns dispatch and sessions. In a chat run
+The existing task controller owns dispatch and sessions. Requirements is the first
+stage of every run and follow-up turn that has it (#1860), and its report names the
+job (#1846): a question goes straight to the Analyst on every flow, and any other job
+starts once nothing stands in front of it (``start_named_job``). In a chat run
 (spec-first) Requirements answers every message first, whatever it says; until
-it finds work to do, the person's newest reply becomes the run's task, and the
-job is recognized only once the person approves what Requirements understood.
+it finds work to do, the person's newest reply becomes the run's task, and a job
+other than a question starts once the person approves what Requirements understood.
+Only a chat report that names no job leaves the job to the recognizer after that approval.
 This module also reads only the active stage's assistant reply, never tool
 output or reasoning. A partial reply carries no planning authority.
 """
@@ -88,13 +92,14 @@ def adopt_reply(state: RunState):
 
 
 def recognize_after_approval(state: RunState):
-    """Once the person approves what Requirements understood, recognize the job before planning it.
+    """Once the person approves what Requirements understood, start the job it named, else recognize it.
 
     Recognition keeps ``workflow.then`` as the build pipeline's entry, so a later request is gathered
     again; ``requirements_approved`` tells workflows.apply that this one already was. A job with its
     own first stage starts there once; when it hands back for planning, the approval stands.
     """
-    if not _first_conversation(state) or state.get("pending_questions"):
+    # Every turn of a chat begins at Requirements (#1860), so a follow-up's approval starts its job too.
+    if not enabled(state) or "workflow" not in state or state.get("pending_questions"):
         return False
     if state.get("next_stage") != requirements_review.NEXT or not state.get("requirements_handoff"):
         return False
@@ -102,15 +107,55 @@ def recognize_after_approval(state: RunState):
     if str(answer.get("text", "")).strip().lower() != requirements_review.APPROVE:
         return False
     kind = state["workflow"].get("kind")
-    if kind is None:
+    handoff = state["requirements_handoff"]
+    if kind is None and workflows.named_by_requirements(handoff.get("report") or {}):
+        # Requirements named the job the person just approved (#1846): start it, no second model call.
+        state["workflow"]["requirements_approved"] = True
+        workflows.from_requirements(state, handoff.get("report") or {}, {"output": handoff.get("output")})
+    elif kind is None:
         workflows.begin(state, state["workflow"].get("then") or STAGE)
         state["workflow"]["requirements_approved"] = True
-    elif kind in workflows.FIRST_STAGE and not any(
-        row.get("stage") == workflows.FIRST_STAGE[kind] for row in state.get("stages") or []
-    ):
+    elif kind in workflows.FIRST_STAGE and not workflows.ran_this_turn(state, workflows.FIRST_STAGE[kind]):
         state["next_stage"] = workflows.FIRST_STAGE[kind]
     else:
         return False
+    return True
+
+
+def answer_now(state: RunState, record: dict) -> bool:
+    """A run whose Requirements understood a clear question starts the Analyst at once (#1846, #1860).
+
+    Nothing is planned or built for a question, so there is nothing for the person to approve: asking
+    them to "prepare a plan" first only invited a yes to a plan that never came. Unanswered open
+    questions still stop the run, and a question the Analyst already answered in this turn is not
+    answered again."""
+    if "workflow" not in state or requirements_review.job(state) != "discuss":
+        return False
+    report = (state.get("requirements_handoff") or {}).get("report") or {}
+    answered = state.get("answers") or {}
+    if any(row.get("id") not in answered for row in report.get("open_questions") or []):
+        return False
+    first = workflows.FIRST_STAGE["discuss"]
+    if workflows.ran_this_turn(state, first):
+        return False
+    if state["workflow"].get("kind") is None:
+        workflows.from_requirements(state, report, record)
+    else:
+        # The handoff was just accepted as running (autocode_requirements_handoff); only the stage changes.
+        state["next_stage"] = first
+    return True
+
+
+def start_named_job(state: RunState, record: dict) -> bool:
+    """Start the job Requirements named once no question stands in front of it (#1860).
+
+    A plain CLI run has no confirmation stop, and neither has a follow-up turn whose earlier plan
+    still stands; a chat's first handoff waits for the person's approval instead
+    (recognize_after_approval). A report that names no job plans as a build. A job already known
+    (pinned with --workflow, or recognized) keeps the stage the handoff chose."""
+    if (state.get("workflow") or {}).get("kind") is not None or "workflow" not in state:
+        return False
+    workflows.from_requirements(state, (state.get("requirements_handoff") or {}).get("report") or {}, record)
     return True
 
 

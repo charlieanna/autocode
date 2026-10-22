@@ -275,15 +275,16 @@ export class ChatView implements vscode.WebviewViewProvider, vscode.Disposable {
     const sequence = this.sequence;
     this.refreshing = true;
     try {
-      for (const tab of [...this.tabs]) {
-        if (!tab.run) continue;
+      // Tabs read in parallel: one slow or hung --status must not freeze the others
+      // until its timeout (#1711 timing gaps).
+      await Promise.all([...this.tabs].filter((tab) => tab.run).map(async (tab) => {
         try {
-          const status = await this.controller.pollStatus(tab.run);
+          const status = await this.controller.pollStatus(tab.run!);
           if (this.tabs.includes(tab)) this.announce(tab, status);
         } catch (error) {
           if (sequence === this.sequence && !tab.starting) tab.readError = messageOf(error);
         }
-      }
+      }));
     } finally {
       this.refreshing = false;
       if (sequence === this.sequence) this.post();

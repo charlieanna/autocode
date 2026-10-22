@@ -1,11 +1,16 @@
 """`autocode modes list --json`: the ways a client may start a new run.
 
 A run mode is a named set of start flags for a new run. Clients (the VS Code
-extension, the dashboard) offer these choices and pass the chosen mode's
-``start_args`` unchanged when they start a run; they never build a list of
-their own. Every mode keeps the plan approval, the Tester and the Completion
-Reviewer: a mode changes how much planning a run does before you approve it,
-never what counts as done. Listing launches nothing and reads no run.
+extension, the terminal chat, the dashboard) offer these choices and pass the
+chosen mode's ``start_args`` unchanged when they start a run; they never build
+a list of their own. Every mode keeps the plan approval, the Tester and the
+Completion Reviewer: a mode changes how much planning a run does before you
+approve it, never what counts as done. Listing launches nothing and reads no run.
+
+Every chat starts with the Requirements conversation (owner decision,
+2026-10-22), so ``full`` is the only mode; the "quick" mode that let a clear
+request skip Requirements is gone. A client still reads the list and must take
+a saved choice the list no longer names as the default.
 """
 
 from __future__ import annotations
@@ -29,17 +34,6 @@ MODES = (
         ),
         "start_args": ["--joint-planning", "--spec-first"],
         "spend_confirmation": "planning",
-    },
-    {
-        "id": "quick",
-        "label": "Quick plan",
-        "description": (
-            "A clear request goes straight to the Planner without the Requirements conversation; "
-            "a vague one still gets it. You still approve the plan, and the Tester and Completion "
-            "Reviewer still check the work."
-        ),
-        "start_args": ["--joint-planning", "--no-spec-first", "--adaptive-planning"],
-        "spend_confirmation": "start",
     },
 )
 

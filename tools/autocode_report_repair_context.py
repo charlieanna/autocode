@@ -17,9 +17,11 @@ import copy
 
 try:
     from . import autocode_goals as goals
+    from . import autocode_plan_retention as retention
     from . import autocode_roles as roles
 except ImportError:
     import autocode_goals as goals
+    import autocode_plan_retention as retention
     import autocode_roles as roles
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
@@ -85,6 +87,11 @@ def clarification_context(state: RunState, stage: str) -> dict:
         else ()
     )
     return {
+        **(
+            {"retained_contract": retention.token(state), "retained_criteria": retention.inventory(state)}
+            if retention.token(state)
+            else {}
+        ),
         "protected_contract": goals.protected_contract_snapshot(state) if stage in goals.PLANNER_ORIGINS else None,
         "planning_exchange": planning_exchange(reports, predecessors),
         "requirements_handoff": handoff,

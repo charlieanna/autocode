@@ -234,14 +234,18 @@ the first message of a spec-first run, whatever it says: a greeting or an
 off-topic question gets a short answer and a question about what to build or
 change. Until Requirements finds work to do, the person's newest reply becomes
 the task; the source log keeps the first message and each reply as separate
-sources. The Job recognizer runs once the person approves what Requirements
-understood, and judges the job from that understanding. Model access probes for
+sources. Requirements names the job it understood (#1846), as it does on every
+run (#1860). A question goes straight to the Analyst without a confirmation; any
+other job starts once the person approves what Requirements understood. The Job
+recognizer runs, after that approval, only when Requirements named no job. Model access probes for
 planning and execution roles wait until the user confirms the requirements.
 
 When the only pending question is the core's current requirements review,
 `review` offers its `question_id`, exact `answer`, `label` and bound `summary`.
 A client may display that summary and submit the ordinary named answer action.
-This confirms the understanding and releases plan preparation and review.
+This confirms the understanding and starts the job Requirements named: plan
+preparation and review for a build, the investigation for a bug fix, the review
+or the design work. The `label` and `spend_confirmation` say which.
 The resulting execution plan still needs its own displayed-token approval.
 The optional `review.spend_confirmation` supplies the modal's `title`, `detail`
 and confirm-button `label` before submitting that review's planning answer.
@@ -600,19 +604,20 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 
 Answers and approvals never launch a model; continue afterwards. A follow-up
 is the next request in the same conversation: on a finished run it records a
-new turn (`turn` in the status view) and reopens the run, which recognizes the
-kind of job again from the new message and continues in the same run
-directory. After a review, a follow-up that asks to act on the findings is
-planned from them: the review's blocking findings are the requirements, so no
-requirements questions are asked, and the plan still goes to the user for
-approval. The rewritten task names what the previous turn wrote (its report or
+new turn (`turn` in the status view) and reopens the run at Requirements,
+which names the kind of job again from the new message, with the earlier turn
+as context (its job, a review's verdict and finding counts, a design turn's
+documents), and continues in the same run directory (#1860). After a review, a
+follow-up that asks to act on the findings is a build planned from them: the
+review's blocking findings are the task list, so no requirements questions are
+asked, and the plan still goes to the user for approval. The rewritten task names what the previous turn wrote (its report or
 note, then the files its stages changed; at most eight paths). After a design
 turn, a follow-up that asks to build the design names that document, so the
-build starts by checking it against the repository (`check_design`) instead of
-gathering requirements. The build is planned afresh from the design: the design
+build goes from Requirements to checking it against the repository
+(`check_design`). The build is planned afresh from the design: the design
 turn's contract and requirements move to the run's history rather than being
 revised, and the new plan still needs approval. After a design review, a
-reply to it (an answer, a correction) is recognized as design and the Architect
+reply to it (an answer, a correction) is named design and the Architect
 revises the same review: concern ids are kept, settled concerns stay as resolved,
 and `review/design-review.json` records every revision
 ([CLI](cli.md#replying-to-a-design-review)). Only a finished run takes
@@ -1307,14 +1312,17 @@ human decisions remain intact and hold the handoff before either route. Modified
 sealed evidence pauses before dispatch. Every assigned repair still requires
 fresh verification and independent completion acceptance.
 
-`workflow` is the kind of job AutoCode recognized from the request, decided by
-the first stage of every new run (`recognize_workflow`; in a spec-first run, once
-the person approves the requirements): one of `build`,
-`bugfix`, `review`, `design` or `discuss` (see `scenarios/README.md`,
-"Workflows"). It is `null` until that stage has run, and for runs that predate
-it. `workflow_source` is `"model"` when the recognizer decided it and `"user"`
-when `--workflow` named it; `workflow_reason` is the recognizer's one-sentence
-reason. Both are `null` whenever `workflow` is.
+`workflow` is the kind of job AutoCode recognized from the request, named by
+Requirements, the first stage of every new run and follow-up turn (#1846,
+#1860): one of `build`, `bugfix`, `review`, `design` or `discuss` (see
+`scenarios/README.md`, "Workflows"). A flow without a Requirements stage (the
+v2 planning flow, a run without a Requirements role) still begins with the Job
+recognizer (`recognize_workflow`). It is `null` until that stage has run, and
+for runs that predate it. `workflow_source` is `"model"` when a model decided
+it (Requirements or the recognizer) and `"user"` when `--workflow` named it;
+`workflow_reason` is `Requirements understood: <outcome>` (`Requirements named
+no job; planned as a build` when its report named none), or the recognizer's
+one-sentence reason. Both are `null` whenever `workflow` is.
 
 `planning_depth` shows how much planning the run chose and why
 ([adaptive planning](adaptive-planning.md)). It is always present:
@@ -1322,8 +1330,8 @@ reason. Both are `null` whenever `workflow` is.
 | Field | Meaning |
 | --- | --- |
 | `adaptive` | Whether the run plans adaptively (`--adaptive-planning`, the default where it applies); `false` on the fixed sequence |
-| `clarity` | The recognizer's judgment of the request text, `"clear"` or `"vague"`; `null` on the fixed sequence, under `--workflow`, and before recognition |
-| `requirements_skipped` | `true` when recognition judged a build request clear and sent it straight to the Planner, `false` when that judgment kept the Requirements stage (a vague request, a follow-up refreshing its requirements, or `--spec-first`); `null` where clarity decides nothing (another kind of job, a build from an approved design, the fixed sequence, a run saved before this field) |
+| `clarity` | `"clear"` or `"vague"`: the judgment of the request text by the stage that names the job, Requirements (or the recognizer on a flow without Requirements); `null` on the fixed sequence, under `--workflow`, and before the job is named. It no longer skips Requirements; a small clear brief keeps its reduced plan-review depth |
+| `requirements_skipped` | `true` only on a run saved before 2026-10-22 whose recognizer judged a build request clear and sent it straight to the Planner, `false` where such a run's judgment kept the Requirements stage; `null` on every newer run, which always runs Requirements first (#1860), and wherever clarity decided nothing |
 | `plan_size` | `"small"`, `"medium"` or `"large"`, measured from the draft's milestones and the files they touch at its first review; `null` before that review |
 | `size_signals` | The counts behind `plan_size`: `milestones`, `affected_paths`, `acceptance_criteria`, `dependency_edges`; `null` before the first review |
 | `review_limit` | The plan-review call allowance set at the first review (`0` is unlimited); a large plan gets one more call. A later `--planning-review-call-limit` changes the allowance in force, not this record |
@@ -1680,13 +1688,21 @@ run keeps the flow it started with. Listing launches nothing and reads no run.
 Optional `spend_confirmation` is `"planning"` for Full mode: start the Requirements
 conversation without a spend dialog, then honor the core's review confirmation
 before preparing the plan. Requirements conversation still uses the selected
-model allowance. Quick mode uses `"start"` because it can plan immediately.
-Missing or unknown metadata retains confirmation at launch for older cores.
+model allowance. A mode with `"start"` (none today) can plan immediately, so a
+client confirms at launch. Missing or unknown metadata retains confirmation at
+launch for older cores.
 
 | Mode | Start flags | What it changes |
 | --- | --- | --- |
 | `full` (default) | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
-| `quick` | `--joint-planning --no-spec-first --adaptive-planning` | A request the Job recognizer judges clear goes straight to the plan without Requirements; a vague one still gets it ([Adaptive planning](adaptive-planning.md)). |
+
+Every chat starts with the Requirements conversation (owner decision,
+2026-10-22), so `full` is the only mode listed. The `quick` mode
+(`--joint-planning --no-spec-first --adaptive-planning`), which let a clear
+request skip Requirements, was removed; the `--adaptive-planning` flag itself
+remains. A client still reads the list rather than assuming one mode, and a
+choice it saved that the list no longer names, such as `quick`, starts the
+default instead of failing.
 
 Every mode keeps the plan approval, the Tester and the Completion Reviewer: a
 mode changes how much planning happens before approval, never what counts as

@@ -336,7 +336,14 @@ elif stage == "requirements_gather":
         "machine_resolutions": [],
         "access_blockers": [],
         "task_kind": task_kind,
+        # Requirements names the job (#1860); this offline fixture treats every request as a build.
+        "job": "build",
+        "design_document": "",
     }
+    if 'Add "clarity"' in prompt or "clarity" in schema.get("properties", {}):
+        # Vague, as the recognizer answered: the review allowance counts per planning cycle as before. A report
+        # repair's prompt has no rule, but its schema still asks for clarity.
+        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=mode in ("standard", "human-pending"), task_kind=task_kind)
     if os.environ.get("AUTOCODE_FIXTURE_TECHNICAL_FLOW_PENDING"):
@@ -878,5 +885,20 @@ elif stage == "astra_review" and ((contract.get("body") or {}).get("source_trace
         "source_verdict",
         {"verdict": "PASS", "uncovered": [], "summary": "Scripted: every criterion traces to the brief"},
     )
+# New final reviews are verdicts on the exact current plan; old saved schemas
+# continue to use the full fixture report. Keep deliberate invalid-task faults.
+if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {}).get("contract", {}).get(
+    "properties", {}
+):
+    draft = result["contract"]
+    retained = {
+        "retain_contract": data.get("retained_contract")
+        or (data.get("clarification_context") or {}).get("retained_contract"),
+        "open_blocking_questions": draft.get("open_blocking_questions", []),
+    }
+    if "initial_task" in schema["properties"]["contract"]["properties"]:
+        retained["initial_task"] = draft.get("initial_task")
+    result["contract"] = retained
+    result["requirement_trace"] = []
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))
