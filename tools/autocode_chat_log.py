@@ -62,19 +62,52 @@ def prose_event(row: dict) -> tuple[str, dict] | None:
     return (f"{kind}:{identifier}", {"kind": kind, "text": shown}) if shown else None
 
 
+def progress_event(row: dict) -> tuple[str, dict] | None:
+    """An opaque streaming receipt proves activity, never the content of a thought or response."""
+    progress = row.get("progress")
+    if row.get("type") != "autocode_progress" or not isinstance(progress, dict):
+        return None
+    kind, identifier, position = progress.get("kind"), progress.get("id"), progress.get("position")
+    if (
+        kind not in ("reasoning", "text")
+        or not isinstance(identifier, (str, int))
+        or isinstance(identifier, bool)
+        or not str(identifier).strip()
+        or not isinstance(position, int)
+        or isinstance(position, bool)
+        or position <= 0
+        or progress.get("nonwhite") is not True
+    ):
+        return None
+    name = "Reasoning" if kind == "reasoning" else "Response"
+    shown = PROSE[kind]
+    return f"{shown}:{identifier}", {
+        "kind": shown,
+        "text": f"{name} stream activity received; text unavailable.",
+        "status": "streaming",
+    }
+
+
 def read(path: Path, workspace=None) -> list[tuple[str, dict]]:
     """The newest entries in an attempt's event file, oldest first, each with its key in that file."""
     entries: dict[str, dict] = {}
+    supplied_prose: set[str] = set()
     for row in activity.rows(path):
         found = prose_event(row)
-        if found is None:
-            found = (
-                activity.item_event(row, workspace)
-                if isinstance(row.get("item"), dict)
-                else activity.part_event(row, workspace)
-            )
-            if found is not None:
-                found = (f"{found[1]['kind']}:{found[0]}", found[1])
+        if found is not None:
+            supplied_prose.add(found[0])
+        else:
+            found = progress_event(row)
+            if found is not None and found[0] in supplied_prose:
+                continue  # a late opaque receipt must not replace the provider's actual prose
+            if found is None:
+                found = (
+                    activity.item_event(row, workspace)
+                    if isinstance(row.get("item"), dict)
+                    else activity.part_event(row, workspace)
+                )
+                if found is not None:
+                    found = (f"{found[1]['kind']}:{found[0]}", found[1])
         if found is not None:
             entries[found[0]] = found[1]  # a later row for the same item replaces it in place
     return list(entries.items())[-LIMIT:]
