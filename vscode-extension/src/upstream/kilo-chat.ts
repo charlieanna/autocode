@@ -44,6 +44,9 @@ export const chatStyles = /* css */ `
   .message.notice .speaker { color: var(--vscode-errorForeground, #a1260d); }
   .message.user { white-space: pre-wrap; padding: 10px 12px; border-radius: 8px;
     background: var(--vscode-textCodeBlock-background); }
+  /* A streaming extract is provisional display content, not a finished reply. */
+  .message.streaming { opacity: .85; }
+  .message.streaming .message-content { white-space: pre-wrap; font-style: italic; }
   .speaker { font-size: .75rem; font-weight: 600; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
   .message p { margin: 0 0 10px; }
   .message pre { white-space: pre; word-break: normal; overflow: auto; padding: 10px; }

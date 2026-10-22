@@ -1286,19 +1286,43 @@ function renderChat(data) {
   // A start that never reached a run leaves no transcript. The thread must still
   // hold what happened: the greeting, the request, and why it did not start.
   if (!data.state && data.error) rows.push({ role: 'notice', text: data.error });
-  const serialized = JSON.stringify(rows);
-  if (messages.dataset.content !== serialized) {
-    messages.dataset.content = serialized; messages.textContent = '';
+  // A streaming reply is provisional display content (task-run.md): shown as still
+  // written, never as a finished AutoCode message. Its extract updates in place so a
+  // growing reply does not rebuild the whole thread (#1528 parity with the TUI).
+  const finishedKey = JSON.stringify(rows.filter((row) => !row.streaming));
+  const liveRows = rows.filter((row) => row.streaming);
+  const liveKey = JSON.stringify(liveRows.map((row) => [row.id, row.text]));
+  const priorLive = messages.dataset.live ?? '';
+  const priorFinished = messages.dataset.finished ?? '';
+  if (priorFinished !== finishedKey || (liveKey && !priorLive) || (!liveKey && priorLive)) {
+    messages.dataset.finished = finishedKey;
+    messages.dataset.live = liveKey;
+    messages.dataset.content = finishedKey + liveKey;
+    messages.textContent = '';
     rows.forEach((row) => {
       const notice = row.role === 'notice';
-      const item = el('div', 'message ' + (notice ? 'notice' : row.role === 'user' ? 'user' : 'assistant'));
-      item.appendChild(el('div', 'speaker', notice ? 'Notice' : row.role === 'user' ? 'You' : 'AutoCode'));
+      const streaming = Boolean(row.streaming);
+      const item = el('div', 'message ' + (notice ? 'notice' : row.role === 'user' ? 'user' : streaming ? 'assistant streaming' : 'assistant'));
+      if (streaming) item.dataset.live = row.id;
+      const speaker = notice ? 'Notice' : row.role === 'user' ? 'You' : streaming ? 'AutoCode · writing…' : 'AutoCode';
+      item.appendChild(el('div', 'speaker', speaker));
       const body = el('div', 'message-content');
-      const formatted = data.state && data.state.formattedMessages && data.state.formattedMessages[row.id];
+      // Provisional text is shown plain while it grows, as the terminal chat does.
+      const formatted = !streaming && data.state && data.state.formattedMessages && data.state.formattedMessages[row.id];
       if (row.role === 'assistant' && formatted) appendFormatted(body, formatted);
       else body.textContent = row.text;
       item.appendChild(body); messages.appendChild(item);
     });
+  } else if (liveKey !== priorLive) {
+    // Only the growing extract changed: rewrite that body, leave the rest of the thread alone.
+    messages.dataset.live = liveKey;
+    messages.dataset.content = finishedKey + liveKey;
+    for (const row of liveRows) {
+      // String concat, not a template literal: this script is itself inside one.
+      const item = messages.querySelector('[data-live="' + row.id + '"]');
+      const body = item && item.querySelector('.message-content');
+      if (body) body.textContent = row.text;
+    }
   }
   updateLatestCue(data.state);
   if (data.state) render(data.state);
