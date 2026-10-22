@@ -16,6 +16,11 @@ PR template asks for an entry here; a change without one is incomplete.
   The status view's `chat.input` offers the feedback message, `next_command` is `--feedback 'WHAT TO CHANGE'`
   instead of a `--resume-paused` that reruns the same Tester on the same plan, and `needs.guidance` says what
   feedback and a resume each do. `needs.kind` stays `resume`.
+- `autocode unattended` now refuses `--skip-requirements`, `--skip-to-build`, `--allow-uncontained-tools`,
+  `--accept-source-edit` and the companions of a recovery (`--grant-recovery`, `--job-retry-token`, `--resolver-token`,
+  `--revise-protected-tests`, `--submit-repair`, …), which it previously let an agent pass although they decide for
+  the operator. `tools/autocode_decision_flags.py` classifies every parser flag as a decision or a start flag, and
+  `tests/test_decision_flags.py` fails on an unclassified one (#1870).
 
 - Requirements is the first stage of every run and every follow-up turn, and its report names the job, so the
   separate Job recognizer call no longer runs on a flow that has Requirements (owner decision 2026-10-22, #1860).
@@ -43,6 +48,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A brief that names the report it fixes ("Fix issue #474 ...") no longer dead-ends plan finalize: the source-trace
+  audit no longer treats an issue or pull-request reference as a value the criteria must repeat, while a value
+  stated beside it ("process exactly 7 rows") still has to survive (#1874).
 - A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
   proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
   without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to
