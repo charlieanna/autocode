@@ -1453,7 +1453,9 @@ class RepairTests(unittest.TestCase):
         with self.assertRaises(support.Paused) as stopped:
             runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root)
         self.assertEqual("PAUSED_REPEATED_FAILURE", stopped.exception.status)
-        self.assertEqual(expected, self.state["pending_report_repair"])
+        # #1899: the hold reconciles the repair it leaves behind, so the retry it names is admissible.
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertEqual(expected, self.state["report_repair_archive"][-1]["repair"])
 
     def test_abandoned_sol_repair_retries_sol_instead_of_astra_review(self):
         pending = self.queue()

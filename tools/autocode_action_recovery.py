@@ -205,12 +205,15 @@ def resume(runner, args, parser, state: RunState, state_path, run_dir, workspace
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2
                 runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
-                runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
                 runner.prepare_planning_retry(state, run_dir)
                 runner.prepare_exhausted_execution_report_retry(state, run_dir, workspace)
                 discarded = runner.archive_stale_report_repair(state, run_dir, workspace)
                 if discarded:
                     print(discarded, flush=True)
+                # Reconcile the saved repair before holding (#1899): the two calls above archive an
+                # exhausted or stale one, so this guard judges only what a resume cannot dispatch, and
+                # the retry it tells the operator to authorize is then actually admissible.
+                runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
             # Reset report repair attempts on explicit resume, for whatever
             # repair record is still pending. An exhaustion-gated retry
             # above (which requires and archives the true attempt count)

@@ -1016,6 +1016,17 @@ def prepare_exhausted_execution_report_retry(state: RunState, run_dir, workspace
             f"{repeated.get('streak', repeated['count'])} consecutive times. Inspect failure_history and saved output; "
             "change the cause before another execution request."
         )
+        # Reconcile the spent repair before holding, so the inspected retry this pause tells the
+        # operator to authorize is admissible on the next resume instead of refused by it (#1899).
+        # Only a repair this function already judged spent or unlaunchable reaches here.
+        state.setdefault("report_repair_archive", []).append(
+            {
+                "at": records.now(),
+                "reason": "Reconciled on the unchanged-failure hold; the repair was spent or "
+                "cannot launch, and its rejected report stays in the archive",
+                "repair": state.pop("pending_report_repair"),
+            }
+        )
         run_status.pause(state, "PAUSED_REPEATED_FAILURE", message, paused_at=records.now())
         records.write_json(run_dir / "state.json", state)
         raise support.Paused("PAUSED_REPEATED_FAILURE", message)

@@ -50,6 +50,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A run paused with a repeated failure whose report repair is spent no longer tells the person to authorize an
+  inspected retry that its own gate then refuses. A resume now reconciles the repair first: an exhausted or
+  unlaunchable one is archived before the unchanged-failure hold, so the retry that hold names is admissible on
+  the next resume, and a repair with an attempt still queued dispatches its report-only repair instead of being
+  held as though the resume restarted the failed work (#1899). Rejected reports stay in the archive, and neither
+  path authorizes a fresh execution attempt.
 - A bug fix no longer stops at `PAUSED_ACCEPTANCE_TESTS` when a `test:` case its own plan added already works. That
   case goes back to plan review relabelled `guard:`, as in a build; only the Investigator's reproduction passing
   today still pauses the run, with a message saying the diagnosis and the code disagree (#1868).

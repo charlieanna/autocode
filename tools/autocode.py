@@ -1429,6 +1429,7 @@ def repeated_failure_resume_guard(state: RunState, workspace, *, authorization=N
         state,
         authorization=authorization,
         repeated_failure=failures.repeated,
+        repair_dispatchable=report_repair_queue.pending_repair_dispatchable,
         current_revision=lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"],
         paused=support.Paused,
     )

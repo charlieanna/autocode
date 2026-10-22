@@ -323,7 +323,9 @@ def stop_reason(state: RunState, count, maximum, *, allow_grant=True):
     return None
 
 
-def repeated_failure_resume_guard(state: RunState, *, authorization=None, repeated_failure, current_revision, paused):
+def repeated_failure_resume_guard(
+    state: RunState, *, authorization=None, repeated_failure, repair_dispatchable, current_revision, paused
+):
     """A restart or plain resume cannot erase an unchanged repeated failure.
 
     A recognized recovery path that reroutes the run changes the saved status
@@ -333,6 +335,10 @@ def repeated_failure_resume_guard(state: RunState, *, authorization=None, repeat
     if state.get("status") != "PAUSED_REPEATED_FAILURE":
         return
     pending = state.get("pending_report_repair") or {}
+    if repair_dispatchable(state):
+        # This resume dispatches that bounded report-only repair instead of restarting the failed
+        # attempt, and the retry gate refuses --retry-failed-stage until it is reconciled (#1899).
+        return
     record = pending.get("original") or next(
         (row for row in reversed(state.get("stages", [])) if row.get("failure_key")), None
     )
