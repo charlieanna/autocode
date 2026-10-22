@@ -34,7 +34,7 @@ class BriefCliTests(unittest.TestCase):
     def details(view):
         return {key: view.get(key) for key in ("status", "next_stage", "needs", "stop_reason")}
 
-    def start(self, *, planning, solution="reference", env=None):
+    def start(self, *, planning, solution="reference", env=None, drive=True):
         project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
         flags, provider_env = fake_setup(self.scenario, self.root, self.scenario.dir / solution)
         environment = {
@@ -49,7 +49,7 @@ class BriefCliTests(unittest.TestCase):
         run = taskrun.TaskRun.start(
             project, self.scenario.brief, options=(*flags, *planning), env=environment, timeout=180, cwd=self.root
         )
-        return run, self.drive(run)
+        return run, self.drive(run) if drive else run.status()
 
     def test_period_separated_commands_complete_without_a_phantom_add_observation(self):
         self.assertIn("exits 0. `todo.py list`", self.scenario.brief)
@@ -282,6 +282,47 @@ class BriefCliTests(unittest.TestCase):
     def test_adaptive_early_review_reference_has_current_brief_receipt(self):
         run, view = self.start(planning=("--adaptive-planning",))
         self.assert_reference(run, view)
+
+    def test_duplicate_first_review_observation_repairs_the_review_without_replanning(self):
+        run, _ = self.start(
+            planning=("--joint-planning", "--adaptive-planning", "--no-spec-first"),
+            env={
+                "SCENARIO_FAKE_DUPLICATE_REVIEW_OBSERVATION": "1",
+                "SCENARIO_FAKE_SIDE": "review-observation-ownership",
+            },
+            drive=False,
+        )
+        view = run.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], self.details(view))
+        self.assertTrue((self.root / "fake-duplicate-review-observation").exists())
+        calls = [json.loads(line) for line in (self.root / "fake-calls.jsonl").read_text().splitlines()]
+        self.assertEqual(1, sum(row["stage"] == "astra_challenge" and row["repair"] for row in calls), calls)
+        self.assertFalse(any(row["stage"] in ("glm_revise", "astra_finalize") for row in calls), calls)
+        self.assertTrue(view["planning_depth"]["approved_early"])
+        self.assertEqual(1, view["planning_depth"]["challenges"])
+        self.assertNotIn("approved_contract", view)
+        self.assertFalse((run.workspace / "todo.py").exists(), "The user still owns build approval")
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertTrue(any(row["stage"] == "astra_challenge" and row.get("rejected") for row in attempts))
+        self.assertTrue(any(row["stage"] == "astra_challenge_report_repair" for row in attempts))
+
+    def test_persistently_duplicate_review_observations_stay_rejected_and_bounded(self):
+        run, view = self.start(
+            planning=("--joint-planning", "--adaptive-planning", "--no-spec-first"),
+            env={
+                "SCENARIO_FAKE_DUPLICATE_REVIEW_OBSERVATION": "always",
+                "SCENARIO_FAKE_SIDE": "review-observation-ownership",
+            },
+            drive=False,
+        )
+        self.assertFalse(view["done"])
+        self.assertNotEqual("approve_plan", view["needs"].get("kind"), self.details(view))
+        self.assertFalse((run.workspace / "todo.py").exists())
+        calls = [json.loads(line) for line in (self.root / "fake-calls.jsonl").read_text().splitlines()]
+        repairs = [row for row in calls if row["stage"] == "astra_challenge" and row["repair"]]
+        self.assertGreater(len(repairs), 0, calls)
+        self.assertLessEqual(len(repairs), 3, calls)
+        self.assertFalse(any(row["stage"] in ("glm_revise", "astra_finalize") for row in calls), calls)
 
     def test_fixed_selfconsistent_unbracketed_mutant_cannot_complete_after_restart(self):
         self.check_mutant_restart(("--no-adaptive-planning",))

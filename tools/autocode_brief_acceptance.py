@@ -24,6 +24,11 @@ import re
 import shlex
 from pathlib import PurePosixPath
 
+
+class ObservationProposalError(ValueError):
+    """Reviewer-owned proposal content is invalid; source/authorization failures stay distinct."""
+
+
 VERSION = 2
 MAX_STEPS = 8
 MAX_ARGUMENTS = 32
@@ -643,24 +648,30 @@ def bind(sources, proposals, *, inactive=(), version=VERSION):
         raise ValueError("Inactive declarations must be known and unique")
     declared = [row for row in full_inventory if row["id"] not in inactive]
     if not isinstance(proposals, list):
-        raise ValueError("Observation proposals must be a list")
+        raise ObservationProposalError("Observation proposals must be a list")
     by_id = {row["id"]: row for row in declared}
     proposed = {}
     for proposal in proposals:
         keys = set(proposal) if isinstance(proposal, dict) else set()
         if not set(PROPOSAL_REQUIRED) <= keys or keys - set(PROPOSAL_REQUIRED) - set(PROPOSAL_OPTIONAL):
-            raise ValueError("Observation declarations must be known and unique")
+            raise ObservationProposalError("Observation declarations must be known and unique")
         ident = proposal["declaration_id"]
         if not isinstance(ident, str) or ident not in by_id or ident in proposed:
-            raise ValueError("Observation declarations must be known and unique")
+            raise ObservationProposalError("Observation declarations must be known and unique")
         proposed[ident] = proposal
     if set(proposed) != set(by_id):
-        raise ValueError("Every supported original-brief declaration needs an observation")
+        raise ObservationProposalError("Every supported original-brief declaration needs an observation")
+    observations = []
+    for row in declared:
+        try:
+            observations.append(_bind_one(row, proposed[row["id"]]))
+        except ValueError as error:
+            raise ObservationProposalError(str(error)) from error
     manifest = {
         "version": version,
         "inventory_hash": digest(full_inventory),
         "inactive_declaration_ids": sorted(inactive),
-        "observations": [_bind_one(row, proposed[row["id"]]) for row in declared],
+        "observations": observations,
     }
     manifest["hash"] = digest(manifest)
     return manifest
