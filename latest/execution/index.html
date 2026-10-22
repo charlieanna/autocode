@@ -2538,7 +2538,7 @@
 
 
 <h1 id="execution-and-completion">Execution and completion<a class="headerlink" href="#execution-and-completion" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/31f2e5a35a3b820000a1b0713cfb775bf5473a8f/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/cd32cfdabb6eb9ca6c998e71be0b4a1915ef8bed/README.md">← Back to README</a></p>
 <p>This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.</p>
 <h2 id="the-projects-own-tests-as-examples">The project's own tests as examples<a class="headerlink" href="#the-projects-own-tests-as-examples" title="Permanent link">&para;</a></h2>
@@ -2894,17 +2894,17 @@ before a PASS is accepted, the runner requires its own current execution of each
 <li><strong>What is refused.</strong> A check that runs <code>git status</code> is refused before anything
   runs: it reads the working tree's state, not the product, and once the work is
   committed and merged it lists nothing
-  (<a href="https://github.com/charlieanna/autocode/blob/31f2e5a35a3b820000a1b0713cfb775bf5473a8f/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
+  (<a href="https://github.com/charlieanna/autocode/blob/cd32cfdabb6eb9ca6c998e71be0b4a1915ef8bed/docs/bugs/2026-10-06-replay-uncommitted-git-state.md">bug note</a>). So a new plan
   that names <code>git status</code> is refused when its author hands it in: a criterion's
   verification method, a task's validation plan or requirements, a progressive
   slice's check, a user's <code>--edit-goal</code> or <code>--goal-file</code>. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
-  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/31f2e5a35a3b820000a1b0713cfb775bf5473a8f/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
+  A contract approved before this rule is not checked again (<a href="https://github.com/charlieanna/autocode/blob/cd32cfdabb6eb9ca6c998e71be0b4a1915ef8bed/docs/bugs/2026-10-07-plan-names-git-status.md">bug note</a>).
   A new plan with a command that <code>/bin/sh</code> cannot parse is refused at the same
   points, in the same repair. The replay runs each planned command with
   <code>/bin/sh -c</code>, so the runner asks that shell to read the command with <code>sh -n</code>,
   which runs nothing. A live step with backticks inside double quotes could
-  never run (<a href="https://github.com/charlieanna/autocode/blob/31f2e5a35a3b820000a1b0713cfb775bf5473a8f/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
+  never run (<a href="https://github.com/charlieanna/autocode/blob/cd32cfdabb6eb9ca6c998e71be0b4a1915ef8bed/docs/bugs/2026-10-07-plan-check-shell-syntax.md">bug note</a>).</li>
 <li><strong>When one does not reproduce.</strong> The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -3099,6 +3099,19 @@ whose server clock runs more than 10 seconds behind could let two writes in one 
 look like one. On Windows, where a file's times can be set back and <code>st_ctime</code> is the
 creation time, every snapshot rereads every file. The hashes and source revisions are
 the same as before.</p>
+<p>Those hashes live only in the memory of one AutoCode process (never in a file a stage
+could rewrite), so every new process reads the whole workspace once: 2.5–3 s on a
+13.6k-file project, and a chat starts a new process for each turn, each saved message
+and each status refresh. With <code>AUTOCODE_SOURCE_HOST=1</code> in the environment of the
+AutoCode process, <code>--status</code> and every other command ask a long-lived per-user helper
+(<code>autocode_source_host</code>) for the snapshot instead. The helper runs the same snapshot
+function with its own in-memory hashes and answers over a private Unix socket in a
+<code>0700</code> folder under the temporary directory; the answer is identical, and nothing is
+written to disk. One helper serves one code version and one Git environment, and it
+exits after 30 idle minutes. A process that finds no helper starts one and takes its
+own snapshot that time; a helper that fails or answers slowly is not asked again by
+that process. On the 13.6k-file project a status refresh drops from 1.5–3 s to about
+0.45 s. The setting is off by default while it is proven in live chats (#1707).</p>
 <p>Logical phases are <code>DISCOVERING</code>, <code>AWAITING_GOAL_APPROVAL</code>, <code>READY_TO_EXECUTE</code>,
 <code>EXECUTING</code>, <code>WAITING_FOR_USER</code>, <code>COMPLETE</code>, and <code>PAUSED_OR_BLOCKED</code>. While an initial
 interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.
@@ -3168,7 +3181,7 @@ plan and review approval the harness gave a run must also be listed among that r
 and so must each budget pause the scenario's person acknowledged, as the resume that names it.
 In a components scenario each such gate names the task run it was given to, so an
 approval listed only in another component's run fails
-(<a href="https://github.com/charlieanna/autocode/blob/31f2e5a35a3b820000a1b0713cfb775bf5473a8f/scenarios/README.md">scenarios/README.md</a>).</p>
+(<a href="https://github.com/charlieanna/autocode/blob/cd32cfdabb6eb9ca6c998e71be0b4a1915ef8bed/scenarios/README.md">scenarios/README.md</a>).</p>
 <h4 id="required-approver">Required approver<a class="headerlink" href="#required-approver" title="Permanent link">&para;</a></h4>
 <p>A team that wants only named people to approve can list their Git email addresses as
 <code>require-approver</code> in its <a href="../cli/#project-settings">project settings</a>:</p>
