@@ -4,10 +4,12 @@ from __future__ import annotations
 
 try:
     from .. import autocode_plan_chat as plan_chat
+    from .. import autocode_plan_retention as retention
     from .. import autocode_planning_recovery_policy as planning_recovery_policy
     from .. import autocode_prompts as prompts
 except ImportError:
     import autocode_plan_chat as plan_chat
+    import autocode_plan_retention as retention
     import autocode_planning_recovery_policy as planning_recovery_policy
     import autocode_prompts as prompts
 
@@ -797,7 +799,11 @@ def apply_review_depth_policy(state: RunState):
         planning = state["planning"] = {}
     if planning.get("review_depth_reduced"):
         return
-    archived = sum(row.get("astra_calls", 0) for row in state.get("planning_history") or [])
+    archived = sum(
+        row.get("astra_calls", 0)
+        for row in state.get("planning_history") or []
+        if row.get("turn_event_id") == planning.get("turn_event_id")
+    )
     planning["review_depth_reduced"] = True
     planning["review_calls_before_policy"] = archived
     planning["astra_calls"] = archived + planning.get("astra_calls", 0)
@@ -1087,6 +1093,11 @@ def repair_rules(stage, schema):
     fields = schema.get("properties", {})
     if stage not in (*TRACE_STAGES, "plan", "plan_revise", "plan_finalize") or "contract" not in fields:
         return ""
+    if "retain_contract" in fields["contract"].get("properties", {}):
+        return (
+            "Use clarification_context.retained_contract as the current reference and "
+            "clarification_context.retained_criteria for retained criterion identities.\n" + retention.FINAL_RULE
+        )
     return (
         REVISION_CONFLICT_RULE
         + prompts.get("fragments/autoplanner/repair-citations.md")
@@ -1317,7 +1328,7 @@ def context(state: RunState, stage, state_path):
         packet["design_manifest"] = manifest_context
         figma_instruction += design_manifest.INSTRUCTION
     author_rules, audit_context, audit_instruction = report_policy.scope_contract_rules(
-        schema_for(state, stage),
+        retention.model_schema(schema_for(state, stage), state, stage),
         {
             "decision_provenance": goals.DECISION_PROVENANCE,
             "contract_references": goals.CONTRACT_REFERENCES,
@@ -1327,17 +1338,18 @@ def context(state: RunState, stage, state_path):
         },
     )
     packet.update(audit_context)
+    compact_final = stage in retention.FINAL and bool(retention.token(state))
     planning_policy = (
         ""
         if stage == "requirements_gather"
         else (
             author_rules["decision_provenance"]
             + author_rules["contract_references"]
-            + examples.RULE
+            + ("" if compact_final else examples.RULE)
             + author_rules["milestone_handoff"]
             + EVIDENCE_FACTS
             + author_rules["revision_conflicts"]
-            + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
+            + ("" if compact_final or stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
         )
     )
     progressive_rule = (
@@ -1420,8 +1432,17 @@ def context(state: RunState, stage, state_path):
             "last_error": str(rejection.get("last_error") or "")[:2000],
         }
         rejection_rule = PRIOR_REJECTION_RULE
+    retain_rule = ""
+    if stage in retention.AUTHORS and retention.token(state):
+        packet["retained_criteria"] = retention.inventory(state)
+        retain_rule = retention.RULE
+        if stage in retention.FINAL:
+            packet["retained_contract"] = retention.token(state)
+            packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
+            retention.compact_final_packet(packet)
+            retain_rule += retention.FINAL_RULE
     prompt = (
-        PROMPTS[stage]
+        (retention.FINAL_PROMPT if compact_final else PROMPTS[stage])
         + audit_instruction
         + memory_rule
         + JOB_TYPE_POLICY
@@ -1433,6 +1454,7 @@ def context(state: RunState, stage, state_path):
         + clarification_policy
         + progressive_rule
         + s.COMMON
+        + retain_rule
         + prompts.get("fragments/autoplanner/context-03.md")
         + json.dumps(packet, separators=(",", ":"))
     )
@@ -1552,7 +1574,12 @@ def prepare(state: RunState, stage, state_path, schema_dir):
         else design_plan.report_schema(goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest"))
     )
     return ModelRequest(
-        role, route_for(state, stage, role), prompt, metrics, _model_report_schema(schema, state), False
+        role,
+        route_for(state, stage, role),
+        prompt,
+        metrics,
+        retention.model_schema(_model_report_schema(schema, state), state, stage),
+        False,
     )
 
 

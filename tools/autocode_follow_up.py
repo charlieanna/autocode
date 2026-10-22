@@ -74,12 +74,14 @@ from pathlib import Path
 
 try:
     from . import autocode_contract_identity as identity
+    from . import autocode_planning_cycle as planning_cycle
     from . import autocode_source_log as source_log
     from . import autocode_task_input as task_input
     from . import autocode_util as util
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_contract_identity as identity
+    import autocode_planning_cycle as planning_cycle
     import autocode_source_log as source_log
     import autocode_task_input as task_input
     import autocode_util as util
@@ -187,6 +189,9 @@ def accept(state: RunState, text: str, workspace, now: str) -> None:
         f"{say}\n\nThis follows up an earlier request in the same conversation"
         f" ({previous['workflow'] or 'a finished job'}{_named(cast('list[str]', previous['wrote']))}): {previous['task']}",
     )
+    # A completed human turn has its own default review allowance. Historical
+    # charges remain archived; explicit run-wide limits and cumulative usage stay.
+    planning_cycle.new_cycle(state, new_turn=True)
     # The findings of a review stand in for requirements gathering when the next job acts on them.
     workflows.begin(state, workflows.planner_stage(state) if review and review["blocking"] else first_stage)
     state.update({"status": "RUNNING", "phase": "DISCOVERING"})

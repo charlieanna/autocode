@@ -1,0 +1,208 @@
+"""Hash-bound references to already validated planning text.
+
+Model reports may retain a criterion or final contract without copying its prose.
+References expand before the ordinary schema, provenance and approval guards;
+no semantic equivalence guess, new authority, or validation bypass is involved.
+"""
+
+from __future__ import annotations
+
+import copy
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .autocode_run_state import RunState
+
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
+AUTHORS = {"astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"}
+FINAL = {"astra_finalize", "plan_finalize"}
+RULE = """
+RETAIN VALIDATED TEXT. retained_criteria lists hash-bound references to the current
+contract's criteria. For an unchanged criterion, return that reference object in
+contract.acceptance_criteria instead of copying or paraphrasing its wording.
+The runner expands it to the exact saved row before all ordinary checks. New or
+user-authorized changed criteria use full rows and the existing change receipts.
+When adding a new human source binding to an existing criterion, use a full row
+with its exact saved wording and proof; do not paraphrase the inherited behavior.
+A reference cannot add, remove or alter behavior, proofs, sources or permissions.
+"""
+FINAL_PROMPT = """You are the independent Plan Reviewer making the final planning decision.
+Settle EVERY concern by ID against the exact current plan and evidence-backed
+Planner responses. Check dependencies, safety, source coverage and the executable
+first task. Return a contract reference and concise decisions/rationales/tests.
+Raise unresolved blockers as questions; do not author another plan or implement.
+The user must still approve the exact reviewed plan before implementation.
+"""
+FINAL_RULE = """
+FINAL REVIEW, NOT PLAN REAUTHORING. Independently settle every concern against the
+current goal_contract and the Planner's responses; inspect source where needed
+to decide a concern. Do not redo the bug investigation or re-run the complete
+behavioral suite merely to copy a plan. When the current plan needs no change,
+return contract={"retain_contract": retained_contract} and requirement_trace=[];
+the runner retains that exact contract and its validated Planner trace when available.
+If no validated trace is available, supply requirement_trace for the ordinary
+source-coverage checks. If that
+contract has no initial_task yet, include only the newly proposed initial_task
+inside the reference object; it receives the ordinary task/permission checks. Return
+contract_changes=[] and conflict_resolutions=[] in that case. This reference
+satisfies instructions to return the final contract without rewriting it.
+If a concern remains unresolved, put it in contract.open_blocking_questions; the
+runner retains existing obligations and makes the task non-executable. Never mark
+an unresolved concern resolved to use retention. The final reviewer does not
+rewrite criteria, permissions or milestone structure; the Planner owns revisions.
+Independent observations, source_trace and concern decisions are still yours to
+supply and are checked normally. Retention is not user approval.
+"""
+
+
+def token(state: RunState):
+    contract = state.get("goal_contract") or {}
+    if not contract.get("hash") or not contract.get("revision"):
+        return None
+    return f"r{contract['revision']}:{contract['hash']}"
+
+
+def inventory(state: RunState):
+    return [
+        {"retain_criterion": row["id"], "sha256": util.digest(row)}
+        for row in ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
+    ]
+
+
+def model_schema(schema, state: RunState, stage):
+    """Only generation syntax changes; saved contracts keep their existing schema."""
+    if stage not in AUTHORS or not token(state) or "contract" not in schema.get("properties", {}):
+        return schema
+    result = copy.deepcopy(schema)
+    body = result["properties"]["contract"]
+    criteria = body["properties"]["acceptance_criteria"]
+    reference = {
+        "type": "object",
+        "properties": {"retain_criterion": {"type": "string"}, "sha256": {"type": "string"}},
+        "required": ["retain_criterion", "sha256"],
+        "additionalProperties": False,
+    }
+    criteria["items"] = {"anyOf": [reference, criteria["items"]]}
+    if stage in FINAL:
+        reference = {
+            "type": "object",
+            "properties": {"retain_contract": {"type": "string"}},
+            "required": ["retain_contract"],
+            "additionalProperties": False,
+        }
+        if "initial_task" not in ((state.get("goal_contract") or {}).get("body") or {}):
+            reference["properties"]["initial_task"] = copy.deepcopy(body["properties"]["initial_task"])
+            reference["required"].append("initial_task")
+        reference["properties"]["open_blocking_questions"] = copy.deepcopy(
+            body["properties"]["open_blocking_questions"]
+        )
+        reference["required"].append("open_blocking_questions")
+        result["properties"]["contract"] = reference
+    return result
+
+
+def validated_trace(state: RunState):
+    """Inherit a trace only from the report that produced this exact contract."""
+    contract = state.get("goal_contract") or {}
+    origin = contract.get("origin")
+    previous = {"glm_draft": "astra_discovery"}.get(origin, origin)
+    report = ((state.get("planning") or {}).get("reports") or {}).get(previous, {}).get("report") or {}
+    saved, proposed = contract.get("body"), report.get("contract")
+    if not isinstance(saved, dict) or not isinstance(proposed, dict):
+        return None
+    sealed = {"brief_acceptance", "risk_acceptance", "source_trace"}
+    if {k: v for k, v in saved.items() if k not in sealed} != {k: v for k, v in proposed.items() if k not in sealed}:
+        return None
+    trace = report.get("requirement_trace")
+    return copy.deepcopy(trace) if isinstance(trace, list) else None
+
+
+def expand(state: RunState, stage, value):
+    """Resolve only explicit, current references; leave real changes to the guards."""
+    body = value.get("contract")
+    if not isinstance(body, dict):
+        return value
+    result = copy.deepcopy(value)
+    body = result["contract"]
+    if "retain_contract" in body:
+        allowed = {"retain_contract", "open_blocking_questions"}
+        if "initial_task" not in state.get("goal_contract", {}).get("body", {}):
+            allowed.add("initial_task")
+        if (
+            stage not in FINAL
+            or not set(body) <= allowed
+            or not token(state)
+            or body["retain_contract"] != token(state)
+        ):
+            raise ValueError("Retained contract reference is stale, malformed or not a final review")
+        if any(result.get(key) for key in ("contract_changes", "conflict_resolutions")):
+            raise ValueError("Retained contract cannot also declare changes or replace its validated trace")
+        result["contract"] = copy.deepcopy(state["goal_contract"]["body"])
+        if "initial_task" in body:
+            result["contract"]["initial_task"] = copy.deepcopy(body["initial_task"])
+        questions = body.get("open_blocking_questions", [])
+        if not isinstance(questions, list):
+            raise ValueError("Retained contract blocking questions must be a list")
+        if questions:
+            result["contract"]["open_blocking_questions"] = [
+                *result["contract"].get("open_blocking_questions", []),
+                *copy.deepcopy(questions),
+            ]
+            result["contract"]["technical_approach"] = []
+            result["contract"]["milestones"] = []
+            first = result["contract"].get("initial_task")
+            if first is not None:
+                result["contract"]["initial_task"] = {
+                    key: "none" if key == "kind" else [] if isinstance(item, list) else ""
+                    for key, item in first.items()
+                }
+        trace = validated_trace(state)
+        if trace is not None and "requirement_trace" in result:
+            if result["requirement_trace"] and result["requirement_trace"] != trace:
+                raise ValueError("Retained contract cannot replace its validated trace")
+            result["requirement_trace"] = trace
+        return result
+    old = {
+        row["id"]: row for row in ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
+    }
+    for index, row in enumerate(body.get("acceptance_criteria") or []):
+        if not isinstance(row, dict) or "retain_criterion" not in row:
+            continue
+        saved = old.get(row.get("retain_criterion"))
+        if (
+            stage not in AUTHORS
+            or set(row) != {"retain_criterion", "sha256"}
+            or not saved
+            or row.get("sha256") != util.digest(saved)
+        ):
+            raise ValueError("Retained criterion reference is stale, unknown or malformed")
+        body["acceptance_criteria"][index] = copy.deepcopy(saved)
+    return result
+
+
+def compact_final_packet(packet):
+    """Remove repeated author material; retain every requirement, conflict and concern."""
+    handoff = packet.get("requirements_handoff")
+    if isinstance(handoff, dict) and isinstance(handoff.get("report"), dict):
+        packet["requirements_handoff"] = {
+            **{key: value for key, value in handoff.items() if key != "report"},
+            "report": {
+                key: value
+                for key, value in handoff["report"].items()
+                if key in ("requirements", "conflicts", "open_questions", "ignored_requirements")
+            },
+        }
+    # The latest human text and its source IDs are already in source_inventory;
+    # keep receipt identities and authority, not duplicate display/approval prose.
+    packet["user_events"] = [
+        {
+            key: value
+            for key, value in event.items()
+            if key in ("kind", "id", "actor", "answer_id", "contract_token", "token", "text")
+        }
+        for event in packet.get("user_events", [])
+    ]

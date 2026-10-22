@@ -18,6 +18,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A new human follow-up gets its own default planning-review allowance while preserving cumulative usage
+  and explicit user-selected bounds. Inherited criteria can be retained by hash instead of paraphrased,
+  and new final reviews return a hash-bound verdict rather than copying the full plan again. Ordinary
+  contract, source, dependency, permission and user-approval checks still run after expansion (#1853).
+
 - The terminal chat no longer repeats a stage's progress line when it only flips between "working", "finished"
   and "Next:" with unchanged counts. A stage's first line is said once; the next is when its counts or the stage
   itself change (#1844).

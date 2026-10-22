@@ -64,6 +64,9 @@ class DynamicDependenciesTests(unittest.TestCase):
         for path in (
             "tools/autocode_brief_acceptance.py",
             "tools/autocode_brief_obligations.py",
+            "tools/autocode_plan_retention.py",
+            "tools/autocode_planning_cycle.py",
+            "tools/autocode_follow_up.py",
             "tools/units/autoplanner.py",
             "scenarios/harness/fake_codex.py",
         ):

@@ -1,6 +1,8 @@
 """A run's planning cycle: begin one, archive the one before it, and decide whether a Requirements handoff
 renews it.
 
+The cycle records ``turn_event_id`` from the human follow-up receipt; the small-brief
+depth policy uses it to scope archived default charges, without resetting usage.
 The cycle is the ``planning`` record: its Plan Reviewer charges, reports and final token. Pure steps over
 the run state. The planning unit (units/autoplanner) re-exports them, so ``autocode_planning.start`` and the
 others are the same functions as before. The goal lifecycle (autocode_goal_lifecycle) begins a cycle from
@@ -42,14 +44,22 @@ def internal_answer_restart(state: RunState):
         planning["internal_answer_restart"] = True
 
 
-def new_cycle(state: RunState):
+def new_cycle(state: RunState, *, new_turn=False):
     """Archive the planning record, with its reports and review charges, and begin a cycle under the configured
     review allowance. A v2 cycle records the inputs it began after (planning_inputs, read by admit_requirements)."""
     archived = state.get("planning")
     if archived:
         state.setdefault("planning_history", []).append(copy.deepcopy(archived))
     state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
-    if archived and archived.get("review_depth_reduced"):
+    # Scope default depth-policy history to this human turn, not the whole chat.
+    # Internal replans keep the same event; model output cannot create one.
+    turn = (state.get("turns") or [{}])[-1]
+    if turn.get("event_id"):
+        state["planning"]["turn_event_id"] = turn["event_id"]
+    explicit = bool(archived and archived.get("review_call_limit_origin") == "user_explicit") or bool(
+        (state.get("settings") or {}).get("planning_review_call_limit_origin")
+    )
+    if archived and archived.get("review_depth_reduced") and (not new_turn or explicit):
         # A small clear brief pays one total allowance across cycles (#1564): the
         # revision restarts the record, not the counter.
         state["planning"]["review_depth_reduced"] = True
@@ -69,6 +79,12 @@ def new_cycle(state: RunState):
             # spec-first send-back retains spent calls but silently restores the
             # smaller configured default. Ordinary per-cycle allowances below
             # keep their existing reset policy.
+            state["planning"].update(
+                review_call_limit=archived["review_call_limit"], review_call_limit_origin="user_explicit"
+            )
+    if new_turn and archived and explicit:
+        state["planning"].update(astra_calls=archived.get("astra_calls", 0))
+        if "review_call_limit" in archived:
             state["planning"].update(
                 review_call_limit=archived["review_call_limit"], review_call_limit_origin="user_explicit"
             )

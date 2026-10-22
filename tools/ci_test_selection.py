@@ -129,6 +129,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
+        ("tools/autocode_plan_retention.py", "tools/autocode_planning_cycle.py", "tools/autocode_follow_up.py"),
+        ("tests.test_brief_cli",),
+    ),
+    (
         ("tools/autocode_brief_acceptance.py", "tools/autocode_brief_obligations.py", "tools/units/autoplanner.py"),
         ("tests.test_brief_cli",),
     ),
