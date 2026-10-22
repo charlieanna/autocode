@@ -320,6 +320,19 @@ class ServeCliTests(Workspace):
             [sys.executable, str(ROOT / "tools" / "autocode.py"), *argv], env=env, text=True, **options
         )
 
+    # A line from `autocode serve start`, read with a bound: readline blocks until the child writes one, so a
+    # server that never starts (the native Windows advisory job, #1681) would stall the module until
+    # run_suite ends it after 600 s and hides every later verdict. The reader thread dies with the child,
+    # which the cleanup kills.
+    def line(self, process, timeout=30):
+        lines = []
+        reader = threading.Thread(target=lambda: lines.append(process.stdout.readline()), daemon=True)
+        reader.start()
+        reader.join(timeout)
+        if not lines:
+            self.fail(f"autocode serve start printed no line within {timeout} s")
+        return lines[0]
+
     def test_status_shows_a_configured_server_that_is_not_running(self):
         self.save_state({"serve": self.saved()})
         code, out, _ = self.cli("status", "--json")
@@ -346,7 +359,7 @@ class ServeCliTests(Workspace):
         start = ["serve", "start", "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)]
         process = self.autocode(*start, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.addCleanup(lambda: process.poll() is None and process.kill())
-        line = process.stdout.readline()
+        line = self.line(process)
         self.assertIn("Serving http://127.0.0.1:", line)
         code, out, _ = self.cli("stop")
         self.assertEqual(0, code)
@@ -354,16 +367,17 @@ class ServeCliTests(Workspace):
         self.assertEqual(0, process.wait(30))
         self.assertEqual("stopped", dev_server.read(self.run_dir)["status"])
 
+    @unittest.skipIf(sys.platform == "win32", "the test ends the server with SIGINT, which Windows cannot send")
     def test_start_says_when_a_code_change_restarted_the_server(self):
         self.save_state({"serve": self.saved()})
         start = ["serve", "start", "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)]
         process = self.autocode(*start, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.addCleanup(lambda: process.poll() is None and process.kill())
-        url = process.stdout.readline().split()[1]
-        process.stdout.readline()
+        url = self.line(process).split()[1]
+        self.line(process)
         state = util.read(self.run_dir / "state.json")
         util.atomic_json(self.run_dir / "state.json", {**state, "code_checkpoints": [{"id": "code-b"}]})
-        self.assertEqual(f"Serving {url} again after a code change (code-b).\n", process.stdout.readline())
+        self.assertEqual(f"Serving {url} again after a code change (code-b).\n", self.line(process))
         process.send_signal(signal.SIGINT)
         self.assertEqual(0, process.wait(30))
 
@@ -397,7 +411,7 @@ class ServeCliTests(Workspace):
         start = ["serve", "start", "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)]
         process = self.autocode(*start, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.addCleanup(lambda: process.poll() is None and process.kill())
-        url = process.stdout.readline().split()[1]
+        url = self.line(process).split()[1]
         process.send_signal(signal.SIGINT)
         self.assertEqual(0, process.wait(30))
         self.assertEqual("stopped", dev_server.read(self.run_dir)["status"])
