@@ -10,9 +10,17 @@ Every time Requirements produces a handoff, the run stops with one question (`ne
 the outcome, the behaviors, the acceptance examples, the constraints, what it left out and its
 assumptions.
 
-- Answer `plan` to start the Planner.
+- Answer `plan` to start the job: the Planner for a build, the Investigator for a bug fix, the Code
+  Reviewer or the Designer for a review or a design.
 - Answer anything else to correct it: Requirements runs again with your answer and asks again.
 - `--feedback` works as usual.
+
+The handoff names the job Requirements understood (`job`: `build`, `bugfix`, `review`, `design`,
+`discuss`, or `none` while no outcome is named yet), and the question says what approving starts. Only a
+build or a bug fix needs behaviors and acceptance tests; a review, a design or a question names its
+outcome and nothing else. A question is never asked to be approved: once Requirements understands it
+and has nothing to ask, the Analyst answers it straight away. The Job recognizer runs only when
+Requirements named no job (#1846).
 
 Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.

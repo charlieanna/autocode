@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A chat's Requirements names the job it understood, and the chat starts that job without a separate recognizer
+  call (#1846). A question goes straight to the Analyst: its handoff no longer needs invented acceptance tests, so
+  there is no report repair, and the chat no longer asks twice to "prepare a plan" that never comes. A review, a
+  design or a bug fix is confirmed with wording that says what approving starts. In an adaptive chat
+  Requirements also judges the request's clarity, so a small clear brief keeps its reduced plan review.
 - Every chat starts with the Requirements conversation (owner decision, 2026-10-22): `autocode modes list` now
   offers only `full` (`--joint-planning --spec-first`), and the `quick` mode, which sent a clear request straight to
   the Planner, is gone from the terminal chat's `/mode` and the VS Code Run mode chip. A new chat whose saved choice

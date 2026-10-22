@@ -1,9 +1,12 @@
 """Workflow recognition: what kind of engineering job a request is.
 
 AutoPilot runs ``STAGE`` first on every new run, before any requirements or
-planning stage; a chat run (spec-first) runs it once the person approves what
-Requirements understood (autocode_requirements_chat), and the recognizer is
-then given that understanding. The answer is saved under ``state["workflow"]``; the status
+planning stage. A chat run (spec-first) talks with Requirements first, and its
+Requirements report names the job (``job``, #1846): ``from_requirements`` starts
+that job without the recognizer. Only a chat whose Requirements named no job runs
+the recognizer once the person approves what Requirements understood
+(autocode_requirements_chat), and the recognizer is then given that understanding.
+The answer is saved under ``state["workflow"]``; the status
 view reports it as ``workflow`` (docs/task-run.md). There are five kinds,
 described in scenarios/README.md ("Workflows"). Normally the request itself is
 read; ``--workflow KIND`` names the kind instead (``pin``), before the recognizer
@@ -26,7 +29,9 @@ State key written here (and read by autocode_run_view, autopilot):
                design); read by autocode_adaptive_planning.view for the status view,
                "requirements_approved": True, only between a chat run's approval and its
                recognition (autocode_requirements_chat); apply then plans a build instead of
-               gathering it again}
+               gathering it again,
+               "named_by": "requirements_gather", only when a chat run's Requirements report named
+               the job (from_requirements, #1846) and the recognizer did not run}
 """
 
 from __future__ import annotations
@@ -261,6 +266,36 @@ def apply(state: RunState, value: dict, record: dict) -> None:
     )
 
 
+def named_by_requirements(report: dict) -> str | None:
+    """The job a chat run's Requirements report names (#1846), or None when it names none yet.
+
+    In a spec-first chat Requirements talks with the person before the job is known, so its report
+    says which of the five jobs it understood; that replaces a second model call to recognize it."""
+    named = (report or {}).get("job")
+    return named if named in WORKFLOWS else None
+
+
+def from_requirements(state: RunState, report: dict, record: dict | None = None) -> None:
+    """Start the job a chat run's Requirements named, as recognition would (apply), without the recognizer.
+
+    The record keeps ``source: "model"``: a model decided the kind, here the Requirements stage the person
+    talked with. A build's design document counts only as apply counts the recognizer's (approved_design)."""
+    named = named_by_requirements(report)
+    if named is None:
+        raise ValueError("Requirements named no job to start")
+    outcome = str(report.get("intended_outcome") or "").strip().rstrip(".")
+    value = {
+        "workflow": named,
+        "reason": "Requirements understood: " + (outcome or "no outcome stated"),
+        "signals": [],
+        "design_document": str(report.get("design_document") or ""),
+        # An adaptive chat's Requirements judges clarity as the recognizer did; apply keeps it only there.
+        **({"clarity": report["clarity"]} if report.get("clarity") in adaptive.CLARITY else {}),
+    }
+    apply(state, value, record or {})
+    state["workflow"]["named_by"] = "requirements_gather"
+
+
 def pin(state: RunState, kind: str) -> None:
     """The user named the kind of job (``--workflow``): skip recognition and start it."""
     if kind not in WORKFLOWS:
@@ -309,11 +344,13 @@ def approval_note(state: RunState) -> str:
     found = state.get("workflow") or {}
     if not found.get("kind"):
         return ""
-    why = (
-        "named by you with --workflow"
-        if found.get("source") == "user"
-        else "recognized: " + ((found.get("reason") or "").strip().rstrip(".") or "no reason given")
-    )
+    reason = (found.get("reason") or "").strip().rstrip(".") or "no reason given"
+    if found.get("source") == "user":
+        why = "named by you with --workflow"
+    elif found.get("named_by") == "requirements_gather":
+        why = reason  # already "Requirements understood: …" (#1846)
+    else:
+        why = "recognized: " + reason
     return (
         f"Job kind: {found['kind']} ({why}). Not what you meant? Do not approve; start a new run with "
         f"--workflow {'|'.join(WORKFLOWS)}."

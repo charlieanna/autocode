@@ -124,7 +124,7 @@ class ChatCliTests(unittest.TestCase):
         )
         self.assertFalse((self.workspace / "greet.py").exists())
 
-    def test_requirements_answers_any_opener_first_and_the_job_is_recognized_after_approval(self):
+    def test_requirements_answers_any_opener_first_and_the_job_it_names_starts_after_approval(self):
         # An unrelated existing file must not force code inspection/citations
         # before the user has even named a goal.
         (self.workspace / "README.md").write_text("# Existing project\n")
@@ -139,7 +139,7 @@ class ChatCliTests(unittest.TestCase):
 
         self.assertEqual("answer", view["needs"]["kind"], view.get("needs"))
         self.assertEqual(1, count("requirements-gather"), "Requirements answers the first message")
-        self.assertEqual(0, count("recognize-workflow"), "The job is recognized only after the goal is understood")
+        self.assertEqual(0, count("recognize-workflow"), "Requirements names the job; no recognizer runs (#1846)")
         self.assertFalse((run.run_dir / "model-preflight").exists(), "A chat turn must not probe models")
         messages = view["chat"]["messages"]
         self.assertEqual(("user", opener), (messages[0]["role"], messages[0]["text"]))
@@ -170,11 +170,12 @@ class ChatCliTests(unittest.TestCase):
         self.assertFalse((self.workspace / "greet.py").exists())
         approved = refreshed["needs"]["questions"][-1]
         run.answer(approved["id"], "plan", resolver_token=refreshed["needs"]["resolver_token"])
-        self.assertEqual("recognize_workflow", run.status()["next_stage"])
+        # The build Requirements named and the person approved is planned at once (#1846).
+        self.assertEqual("astra_discovery", run.status()["next_stage"])
         reviewed = run.advance_until_input()
         self.assertEqual("approve_plan", reviewed["needs"]["kind"])
         self.assertEqual("build", reviewed["workflow"])
-        self.assertEqual(1, count("recognize-workflow"))
+        self.assertEqual(0, count("recognize-workflow"))
         self.assertIsNotNone(reviewed["displayed_plan"])
         self.assertTrue(list(run.run_dir.glob("iterations/*/plan-challenge-*.jsonl")))
         texts = [row["text"] for row in reviewed["chat"]["messages"] if row["role"] == "user"]

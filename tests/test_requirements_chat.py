@@ -192,6 +192,72 @@ class RequirementsChatTests(unittest.TestCase):
         legacy.pop("workflow")
         self.assertFalse(chat.recognize_after_approval(legacy))
 
+    def named(self, job, **change):
+        """An approved chat whose Requirements report named ``job`` (#1846)."""
+        state = self.approved(**change)
+        report = {**state["requirements_handoff"]["report"], "job": job, "design_document": ""}
+        state["requirements_handoff"] = {"report": report, "output": None}
+        state["answers"] = {review.review_question(state)["id"]: {"text": "plan"}}
+        return state
+
+    def test_an_approval_starts_the_job_requirements_named_without_the_recognizer(self):
+        for job, first in (
+            ("build", review.NEXT),
+            ("bugfix", workflows.FIRST_STAGE["bugfix"]),
+            ("review", workflows.REVIEW_STAGE),
+            ("design", workflows.FIRST_STAGE["design"]),
+        ):
+            with self.subTest(job=job):
+                state = self.named(job)
+                self.assertTrue(chat.recognize_after_approval(state))
+                self.assertEqual(first, state["next_stage"])
+                self.assertEqual(
+                    (job, "model", "requirements_gather"),
+                    tuple(state["workflow"].get(key) for key in ("kind", "source", "named_by")),
+                )
+                self.assertIn("Requirements understood: CSV export", workflows.approval_note(state))
+        # "none" (still chatting) or an unknown value names no job: the recognizer decides, as before.
+        for job in ("none", "deploy"):
+            with self.subTest(job=job):
+                state = self.named(job)
+                self.assertTrue(chat.recognize_after_approval(state))
+                self.assertEqual(workflows.STAGE, state["next_stage"])
+
+    def test_a_named_question_starts_the_analyst_without_asking_for_approval(self):
+        def asked(**change):
+            state = self.named("discuss", **change)
+            state.pop("answers")
+            return state
+
+        state = asked()
+        self.assertTrue(chat.answer_now(state, {"output": None}))
+        self.assertEqual((workflows.DISCUSS_STAGE, "discuss"), (state["next_stage"], state["workflow"]["kind"]))
+        pinned = asked(workflow={"kind": "discuss", "then": chat.STAGE})
+        self.assertTrue(chat.answer_now(pinned, {"output": None}))
+        self.assertEqual(workflows.DISCUSS_STAGE, pinned["next_stage"])
+        for state in (
+            asked(requirements_handoff={"report": {"job": "discuss", "open_questions": [{"id": "Q1"}]}}),
+            asked(stages=[{"stage": workflows.DISCUSS_STAGE}]),
+            asked(settings={}),
+            asked(turns=[{"say": "earlier"}]),
+            self.named("review"),
+        ):
+            with self.subTest(state=state):
+                before = copy.deepcopy(state)
+                self.assertFalse(chat.answer_now(state, {"output": None}))
+                self.assertEqual(before, state)
+
+    def test_only_jobs_that_build_code_need_behaviors_and_acceptance_tests(self):
+        self.assertEqual(
+            [True, True, False, False, False, True],
+            [review.builds_code(job) for job in ("build", "bugfix", "review", "design", "discuss", None)],
+        )
+        state = {"workflow": {"kind": None}, "requirements_handoff": {"report": {"job": "discuss"}}}
+        self.assertEqual("discuss", review.job(state))
+        self.assertEqual("build", review.job(state, {"job": "build"}))
+        self.assertIsNone(review.job(state, {"job": "deploy"}))
+        self.assertEqual("review", review.job({**state, "workflow": {"kind": "review"}}), "A known kind wins")
+
     def test_an_approved_build_is_planned_and_a_later_request_is_gathered_again(self):
         build = {"workflow": "build", "reason": "Adds a feature", "signals": []}
         state = self.approved()
