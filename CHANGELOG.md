@@ -28,6 +28,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A new human follow-up gets its own default planning-review allowance while preserving cumulative usage
+  and explicit user-selected bounds. Inherited criteria can be retained by hash instead of paraphrased,
+  and default-flow final reviews return a hash-bound verdict rather than copying the full plan again. Ordinary
+  contract, source, dependency, permission and user-approval checks still run after expansion (#1853).
+
 - The CLI's usage line names the command that was run on Python 3.14 too, where argparse otherwise names how
   Python started (`python -m unittest`); `tests.test_cli_surface` failed on every Python 3.14 checkout.
 - A PASS Validator report that cites a nonzero check is no longer sent to bounded report repair, which cannot

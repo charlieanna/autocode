@@ -2813,6 +2813,48 @@ def _main() -> int:
             duplicate = json.loads(json.dumps(report["brief_observations"][0]))
             duplicate["steps"][0]["argv"][-1] += "-duplicate-proposal"
             report["brief_observations"].append(duplicate)
+    if (
+        not data.get("report_repair")
+        and Path("todo.py").is_file()
+        and (
+            os.environ.get("SCENARIO_FAKE_RETAIN_PLAN") == "1" or os.environ.get("SCENARIO_FAKE_EXISTING_SOURCE") == "1"
+        )
+    ):
+        if stage == "requirements_gather":
+            report["source_refs"] = ["todo.py:1"]
+        if stage in ("astra_discovery", "glm_revise"):
+            report["code_refs"] = ["todo.py:1"]
+    if (
+        os.environ.get("SCENARIO_FAKE_RETAIN_PLAN") == "1"
+        and not data.get("report_repair")
+        and stage in ("astra_discovery", "glm_revise")
+        and report.get("contract")
+    ):
+        retained = {row["retain_criterion"]: row for row in data.get("retained_criteria") or []}
+        report["contract"]["acceptance_criteria"] = [
+            retained.get(row["id"], row) for row in report["contract"]["acceptance_criteria"]
+        ]
+    if stage == "astra_finalize" and "retain_contract" in OUTPUT_SCHEMA.get("properties", {}).get("contract", {}).get(
+        "properties", {}
+    ):
+        draft = report["contract"]
+        report["contract"] = {
+            "retain_contract": data.get("retained_contract")
+            or (data.get("clarification_context") or {}).get("retained_contract"),
+            "open_blocking_questions": draft.get("open_blocking_questions", []),
+        }
+        if "initial_task" in OUTPUT_SCHEMA["properties"]["contract"]["properties"]:
+            report["contract"]["initial_task"] = draft.get("initial_task")
+        report["requirement_trace"] = []
+        report["contract_changes"] = []
+        report["conflict_resolutions"] = []
+    if stage == "astra_finalize" and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1":
+        if data.get("report_repair"):
+            rejected = data["rejected_report"]["content"]
+            report = json.loads(rejected) if isinstance(rejected, str) else json.loads(json.dumps(rejected))
+            report["summary"] = "Repaired the retained review summary only"
+        else:
+            report.pop("summary", None)
     if no_evidence and not data.get("report_repair"):
         marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-builder-no-evidence")
         if not marker.exists():  # once: later Builder runs cite their check as usual
@@ -2852,6 +2894,12 @@ def _main() -> int:
             if field not in schema.get("properties", {}):
                 report.pop(field, None)
         complete(report, schema)
+    if (
+        stage == "astra_finalize"
+        and os.environ.get("SCENARIO_FAKE_RETAIN_REPAIR") == "1"
+        and not data.get("report_repair")
+    ):
+        report.pop("summary", None)
     if cmd_only_final(stage):
         report = dict(CMD_ONLY_FINAL)
     _report(report, sys.argv[sys.argv.index("-o") + 1])

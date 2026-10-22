@@ -94,6 +94,21 @@ def tool_event(part_id, command, code, output):
 
 
 def deliver(value):
+    if (
+        stage == "astra_finalize"
+        and "retain_contract" not in value.get("contract", {})
+        and "retain_contract" in schema.get("properties", {}).get("contract", {}).get("properties", {})
+    ):
+        draft = value["contract"]
+        retained = {
+            "retain_contract": data.get("retained_contract")
+            or (data.get("clarification_context") or {}).get("retained_contract"),
+            "open_blocking_questions": draft.get("open_blocking_questions", []),
+        }
+        if "initial_task" in schema["properties"]["contract"]["properties"]:
+            retained["initial_task"] = draft.get("initial_task")
+        value["contract"] = retained
+        value["requirement_trace"] = []
     properties = schema.get("properties", {})
     if data.get("report_repair") and "summary" in schema.get("required", []) and "summary" in properties:
         value.setdefault("summary", "Repaired report")

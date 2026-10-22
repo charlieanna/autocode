@@ -651,6 +651,18 @@ def main() -> int:
             "source_verdict",
             {"verdict": "PASS", "uncovered": [], "summary": "Handwritten: every criterion traces to the brief"},
         )
+    if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {}).get("contract", {}).get(
+        "properties", {}
+    ):
+        draft = report["contract"]
+        report["contract"] = {
+            "retain_contract": data.get("retained_contract")
+            or (data.get("clarification_context") or {}).get("retained_contract"),
+            "open_blocking_questions": draft.get("open_blocking_questions", []),
+        }
+        if "initial_task" in schema["properties"]["contract"]["properties"]:
+            report["contract"]["initial_task"] = draft.get("initial_task")
+        report["requirement_trace"] = []
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     output.write_text(json.dumps(report))
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}), flush=True)

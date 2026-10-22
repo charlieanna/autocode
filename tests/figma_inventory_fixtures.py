@@ -19,14 +19,14 @@ if 'requirements_rerun' in data.get('report_schema', {}).get('properties', {}):
     report['requirements_rerun'] = ''
 elif stage == 'astra_discovery' and data.get('brief_feedback'):
     report['requirements_rerun'] = ''
-if 'requirement_trace' in report and 'requirement_trace_rows' in data:
+if 'requirement_trace' in report and 'requirement_trace_rows' in data and 'retain_contract' not in report.get('contract', {}):
     report['requirement_trace'] = [dict(requirement_id=row['requirement_id'], disposition='covered', evidence='C1')
                                  for row in data['requirement_trace_rows']]
 design = data.get('design_manifest')
 design_cases = (design.get('catalog', {}).get('cases', design.get('body', {}).get('cases', []))
                 if design and stage in ('terra', 'sol') else
                 design.get('body', {}).get('cases', []) if design else [])
-if design and design.get('body', {}).get('version') == 2 and 'contract' in report:
+if design and design.get('body', {}).get('version') == 2 and 'contract' in report and 'retain_contract' not in report['contract']:
     reference_scope = ('Use supplied design manifest ' + design['manifest_hash']
                        + ' for exact case IDs: ' + ', '.join(case['id'] for case in design_cases))
     constraints = report['contract'].setdefault('constraints', [])
