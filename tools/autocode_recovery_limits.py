@@ -10,11 +10,13 @@ if TYPE_CHECKING:
 try:
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_context as recovery_context
+    from . import autocode_report_repair_queue as report_repair_queue
     from .autocode_permission_recovery import hold_message
     from .autocode_source_scope import snapshot
 except ImportError:
     import autocode_recovery_accounting as accounting
     import autocode_recovery_context as recovery_context
+    import autocode_report_repair_queue as report_repair_queue
     from autocode_permission_recovery import hold_message
     from autocode_source_scope import snapshot
 
@@ -323,9 +325,7 @@ def stop_reason(state: RunState, count, maximum, *, allow_grant=True):
     return None
 
 
-def repeated_failure_resume_guard(
-    state: RunState, *, authorization=None, repeated_failure, repair_dispatchable, current_revision, paused
-):
+def repeated_failure_resume_guard(state: RunState, *, authorization=None, repeated_failure, current_revision, paused):
     """A restart or plain resume cannot erase an unchanged repeated failure.
 
     A recognized recovery path that reroutes the run changes the saved status
@@ -335,7 +335,7 @@ def repeated_failure_resume_guard(
     if state.get("status") != "PAUSED_REPEATED_FAILURE":
         return
     pending = state.get("pending_report_repair") or {}
-    if repair_dispatchable(state):
+    if report_repair_queue.pending_repair_dispatchable(state):
         # This resume dispatches that bounded report-only repair instead of restarting the failed
         # attempt, and the retry gate refuses --retry-failed-stage until it is reconciled (#1899).
         return
