@@ -147,6 +147,11 @@ class PlanRetentionTests(unittest.TestCase):
         )
         self.assertNotIn("acceptance_criteria", schema["properties"]["contract"]["properties"])
 
+    def test_v2_generation_keeps_its_separate_artifact_protocol(self):
+        schema = {"properties": {"contract": {"properties": {"acceptance_criteria": {"items": {}}}}}}
+        for stage in ("plan", "plan_revise", "plan_finalize"):
+            self.assertEqual(schema, retention.model_schema(schema, self.state(), stage))
+
     def test_blocking_verdict_keeps_obligations_and_cannot_dispatch(self):
         state = self.state()
         state["goal_contract"]["body"]["initial_task"] = {

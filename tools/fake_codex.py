@@ -865,7 +865,8 @@ if stage == "astra_finalize" and "retain_contract" in schema.get("properties", {
 ):
     draft = result["contract"]
     retained = {
-        "retain_contract": data["retained_contract"],
+        "retain_contract": data.get("retained_contract")
+        or (data.get("clarification_context") or {}).get("retained_contract"),
         "open_blocking_questions": draft.get("open_blocking_questions", []),
     }
     if "initial_task" in schema["properties"]["contract"]["properties"]:

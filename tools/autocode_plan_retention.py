@@ -18,8 +18,10 @@ try:
 except ImportError:
     import autocode_util as util
 
-AUTHORS = {"astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"}
-FINAL = {"astra_finalize", "plan_finalize"}
+# The default flow is affected by the incident. V2 keeps its separately sealed
+# artifact protocol; changing that protocol is outside this fix.
+AUTHORS = {"astra_discovery", "glm_revise", "astra_finalize"}
+FINAL = {"astra_finalize"}
 RULE = """
 RETAIN VALIDATED TEXT. retained_criteria lists hash-bound references to the current
 contract's criteria. For an unchanged criterion, return that reference object in
@@ -46,7 +48,7 @@ return contract={"retain_contract": retained_contract} and requirement_trace=[];
 the runner retains that exact contract and its validated Planner trace when available.
 If no validated trace is available, supply requirement_trace for the ordinary
 source-coverage checks. If that
-contract has no initial_task yet, include only the newly proposed initial_task
+contract has no initial_task yet, include only the newly proposed contract.initial_task
 inside the reference object; it receives the ordinary task/permission checks. Return
 contract_changes=[] and conflict_resolutions=[] in that case. This reference
 satisfies instructions to return the final contract without rewriting it.

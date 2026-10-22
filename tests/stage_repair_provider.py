@@ -24,7 +24,7 @@ from pathlib import Path
 
 def initial_task(contract):
     """A coherent first task for the existing greeting fixture contract."""
-    milestone = contract["milestones"][0]
+    milestone = contract.get("milestones", [{"id": "M1", "acceptance_criteria": ["C1"]}])[0]
     return {
         "objective": "Implement greeting CLI",
         "affected_paths": ["greet.py"],
@@ -185,6 +185,7 @@ def main():
         case == "unchanged-rewording"
         and not repair
         and "contract" in value
+        and "retain_contract" not in value["contract"]
         and any(event.get("kind") == "goal_approval" for event in data.get("user_events", []))
     ):
         # This follow-up asks to preserve the delivery. The ordinary greeting
