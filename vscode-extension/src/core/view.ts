@@ -203,6 +203,8 @@ export interface StatusView {
     progress?: string[];
     /** The running attempt's recent commands, edits and tool calls; display only, never proof. */
     activity?: ChatActivity[];
+    /** Live agent log: reasoning and messages beside those tool marks (docs/task-run.md). */
+    log?: ChatLogEntry[];
     review?: { question_id: string; answer: string; label: string; summary?: string;
       spend_confirmation?: { title: string; detail: string; label: string; match?: "trim_lower" } } | null;
     context: string;
@@ -215,6 +217,16 @@ export interface ChatActivity {
   kind: "command" | "edit" | "tool";
   text: string;
   status: "running" | "done" | "failed";
+  paths?: string[];
+}
+
+/** One `chat.log` entry: what a running agent thinks, says or does. Display only. */
+export interface ChatLogEntry {
+  id: string;
+  agent: string;
+  kind: "thinking" | "message" | "command" | "edit" | "tool";
+  text: string;
+  status?: "running" | "done" | "failed";
   paths?: string[];
 }
 

@@ -1479,6 +1479,54 @@ test('chat shows the running step\'s activity and the live diff the view names (
   assert.ok(!text().includes('+print(1)'), 'a diff of an ended step is not left on screen');
 });
 
+test('chat shows the live agent log (chat.log) with agent names and thinking', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working · task M2'],
+      // The log already carries tool marks; the bare activity list is not shown beside it.
+      activity: [{ kind: 'command', text: 'duplicate of the log', status: 'done' }],
+      log: [
+        { id: 'a1', agent: 'Builder · task M2', kind: 'thinking', text: 'I should check the tests first' },
+        { id: 'a2', agent: 'Builder · task M2', kind: 'message', text: 'Running the greeting checks now.' },
+        { id: 'a3', agent: 'Builder · task M2', kind: 'command', text: 'python3 -m unittest -q', status: 'done' },
+        { id: 'a4', agent: 'Plan Reviewer', kind: 'command', text: 'false', status: 'failed' },
+      ] } };
+  const ui = await openChat(t, value);
+  const text = () => ui.document.querySelector('#app').textContent;
+  assert.ok(text().includes('Builder · task M2'), 'each line names the agent');
+  assert.ok(text().includes('Plan Reviewer'));
+  assert.ok(text().includes('I should check the tests first'), 'reasoning is shown');
+  assert.ok(text().includes('Running the greeting checks now.'), 'agent prose is shown');
+  assert.ok(text().includes('python3 -m unittest -q'));
+  assert.ok(text().includes('false'));
+  assert.ok(!text().includes('duplicate of the log'), 'the log supersedes the bare activity list');
+  assert.equal(ui.document.querySelector('#app .live-log').getAttribute('aria-label'), 'Agent log');
+  const thinking = ui.document.querySelector('#app .activity-row.thinking');
+  assert.ok(thinking, 'thinking rows are marked');
+  assert.equal(thinking.querySelector('.activity-mark').textContent, '∴');
+  assert.equal(thinking.querySelector('.agent').textContent, 'Builder · task M2');
+});
+
+test('the live agent log keeps entries by id across reads as the view moves on', async (t) => {
+  const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' },
+    liveness: { kind: 'supervised' }, next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,
+    chat: { phase: null, context: 'live-step', input: null, messages: [], progress: ['Builder working'],
+      log: [{ id: 'a1', agent: 'Builder', kind: 'message', text: 'First extract' }] } };
+  const ui = await openChat(t, value);
+  const text = () => ui.document.querySelector('#app').textContent;
+  assert.ok(text().includes('First extract'));
+  // The view only holds the newest entries; earlier ones stay available by id.
+  const next = structuredClone(value);
+  next.chat.log = [
+    { id: 'a1', agent: 'Builder', kind: 'message', text: 'First extract, completed' },
+    { id: 'a2', agent: 'Tester', kind: 'command', text: 'pytest -q', status: 'running' },
+  ];
+  await ui.poll(next);
+  assert.ok(text().includes('First extract, completed'), 'a later read of the same id updates in place');
+  assert.ok(text().includes('Tester'));
+  assert.ok(text().includes('pytest -q'));
+});
+
 test('a live diff the view names differently is refused before anything runs', async (t) => {
   const value = { status: 'RUNNING', done: false, needs: { kind: 'continue' }, liveness: { kind: 'supervised' },
     next_command: `autocode --workspace ${run.workspace} --run-dir ${run.runDir}`,

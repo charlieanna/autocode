@@ -584,7 +584,9 @@ export function panelHtml(chat = false): string {
   .activity-row { display: flex; gap: 6px; opacity: .85; }
   .activity-row.running { opacity: 1; }
   .activity-row.failed { color: var(--vscode-errorForeground); }
+  .activity-row.thinking { opacity: .7; font-style: italic; }
   .activity-mark { width: 1ch; flex: none; }
+  .live-log .agent { flex: none; opacity: .75; }
   pre { white-space: pre-wrap; word-break: break-all; font-size: .76rem; background: var(--vscode-textCodeBlock-background);
         padding: 8px; border-radius: 4px; }
   .gap, .notice { border-left: 3px solid var(--vscode-inputValidation-warningBorder, #cc8800);
@@ -624,7 +626,9 @@ let answers = Object.create(null);
 let renderedState = '';
 let checkpointCompare = Object.create(null);
 let workingCompare = null;
-const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·' };
+const ACTIVITY_MARKS = { command: '$', edit: '±', tool: '·', thinking: '∴', message: '»' };
+// The live agent log kept by entry id across reads (the terminal chat's LiveLog).
+const liveLog = new Map();
 let checkpointResult = null;
 const tabScroll = Object.create(null);
 
@@ -653,6 +657,31 @@ function renderChatProgress(container, state) {
   const lines = state.chat && Array.isArray(state.chat.progress)
     ? state.chat.progress.filter((line) => typeof line === 'string' && line) : [];
   (lines.length ? lines : ['Thinking…']).forEach((line) => container.appendChild(el('div', 'line', line)));
+  // Live agent log (chat.log): what each running agent thinks, says and does. Kept by id
+  // across reads like the terminal chat's LiveLog, since the view holds only the newest.
+  const logRows = state.chat && Array.isArray(state.chat.log) ? state.chat.log : [];
+  for (const row of logRows) {
+    if (!row || typeof row.id !== 'string' || typeof row.text !== 'string' || typeof row.agent !== 'string') continue;
+    if (!(row.kind in ACTIVITY_MARKS)) continue;
+    liveLog.set(row.id, { agent: row.agent, kind: row.kind, text: row.text, status: row.status || '' });
+  }
+  while (liveLog.size > 500) liveLog.delete(liveLog.keys().next().value);
+  const live = [...liveLog.values()].slice(-8);
+  if (live.length) {
+    // Supersedes the bare activity list: the log already carries those tool marks.
+    const list = el('div', 'activity live-log');
+    list.setAttribute('aria-label', 'Agent log');
+    live.forEach((row) => {
+      const mark = row.status === 'failed' ? '✗' : (ACTIVITY_MARKS[row.kind] || '·');
+      const line = el('div', 'activity-row ' + (row.status || '') + (row.kind === 'thinking' ? ' thinking' : ''));
+      line.appendChild(el('span', 'activity-mark', mark));
+      line.appendChild(el('span', 'agent', row.agent));
+      line.appendChild(el('span', null, row.text));
+      list.appendChild(line);
+    });
+    container.appendChild(list);
+    return;
+  }
   // What the running step does now: core-written display text, never proof that it worked.
   const events = state.chat && Array.isArray(state.chat.activity)
     ? state.chat.activity.filter((row) => row && typeof row.text === 'string' && row.text).slice(-6) : [];
@@ -707,7 +736,7 @@ function render(state) {
     state.status, state.needKind, state.pause, state.gap, state.canApprove, state.token,
     state.taking, state.working, state.plan, state.criteria, state.decisions, state.decisionContext,
     state.actionLabel, state.actionEffect, state.stopped, state.unreadable,
-    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.review, state.chat.input && state.chat.input.kind],
+    state.chat && [state.chat.phase, state.chat.notice, state.chat.progress, state.chat.activity, state.chat.log, state.chat.review, state.chat.input && state.chat.input.kind],
     state.workingDiff,
   ] : state;
   const serialized = JSON.stringify(chatSlice);
@@ -1277,6 +1306,7 @@ function renderChat(data) {
     document.getElementById('message').value = (saved.drafts || {})[data.runKey] || '';
     current = null; renderedState = ''; answers = Object.create(null);
     checkpointCompare = Object.create(null); checkpointResult = null; workingCompare = null;
+    liveLog.clear();
   }
   chatEnvelope = data;
   const messages = document.getElementById('messages');
