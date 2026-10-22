@@ -158,8 +158,8 @@ def expand(state: RunState, stage, value):
                 *held,
                 *(copy.deepcopy(row) for row in questions if not (isinstance(row, dict) and row.get("id") in known)),
             ]
-            result["contract"]["technical_approach"] = []
-            result["contract"]["milestones"] = []
+            # Open questions block approval, and a "none" first task blocks dispatch; the reviewed milestones
+            # and approach stay, so the redraft after the answer starts from them (as master's finalize did).
             first = result["contract"].get("initial_task")
             if first is not None:
                 result["contract"]["initial_task"] = {

@@ -159,6 +159,8 @@ class PlanRetentionTests(unittest.TestCase):
             "objective": "fix",
             "affected_paths": ["todo.py"],
         }
+        state["goal_contract"]["body"]["milestones"] = [{"id": "M1", "objective": "store"}]
+        state["goal_contract"]["body"]["technical_approach"] = ["argparse CLI"]
         question = {"id": "Q1", "question": "Which behavior?"}
         report = {"contract": {"retain_contract": retention.token(state), "open_blocking_questions": [question]}}
         result = retention.expand(state, "astra_finalize", report)
@@ -167,6 +169,8 @@ class PlanRetentionTests(unittest.TestCase):
         self.assertEqual(
             state["goal_contract"]["body"]["acceptance_criteria"], result["contract"]["acceptance_criteria"]
         )
+        for kept in ("milestones", "technical_approach"):
+            self.assertEqual(state["goal_contract"]["body"].get(kept), result["contract"].get(kept), kept)
         with self.assertRaises(ValueError):
             retention.expand(
                 state,
