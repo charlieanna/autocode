@@ -85,6 +85,23 @@ def launcher_listing_proposal(records):
     }
 
 
+class ProposalOwnershipTests(unittest.TestCase):
+    def test_report_proposal_errors_are_distinct_from_authenticated_inactive_ids(self):
+        records = sources()
+        valid = proposal(records)
+        unknown = {**valid, "declaration_id": "not-a-declaration"}
+        malformed = {key: value for key, value in valid.items() if key != "steps"}
+        bad_binding = {**valid, "bindings": []}
+        for proposals in (None, [], [valid, copy.deepcopy(valid)], [unknown], [malformed], [bad_binding]):
+            with self.subTest(proposals=proposals):
+                with self.assertRaises(brief.ObservationProposalError):
+                    brief.bind(records, proposals)
+        self.assertTrue(brief.bind(records, [valid])["observations"])
+        with self.assertRaises(ValueError) as failed:
+            brief.bind(records, [valid], inactive=["not-an-authorized-declaration"])
+        self.assertNotIsInstance(failed.exception, brief.ObservationProposalError)
+
+
 # A correct multi-item to-do list, independent of the catalog reference and oracle.
 LIST_PRODUCT = """import json
 from pathlib import Path

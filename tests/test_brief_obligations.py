@@ -605,6 +605,21 @@ class BriefObligationsTests(unittest.TestCase):
         self.assertEqual("astra_challenge", state["goal_contract"]["body"]["brief_acceptance"]["review"]["stage"])
         self.assertEqual(goals.token(state["goal_contract"]), state["planning"]["final_token"])
 
+    def test_adaptive_review_observation_error_stays_owned_by_the_reviewer(self):
+        state = self.planning_state(adaptive=True)
+        proposal = self.proposal(brief.inventory(state)[0])
+        report = {
+            "summary": "Approve the draft",
+            "concerns": [],
+            "brief_observations": [proposal, copy.deepcopy(proposal)],
+            "brief_observation_changes": [],
+            "source_trace": {"out_of_scope": [], "negation_waivers": []},
+        }
+        with self.assertRaisesRegex(ValueError, "Observation declarations must be known and unique"):
+            autopilot.apply_planning(
+                state, "astra_challenge", report, self.reviewer_record(state, report, stage="astra_challenge")
+            )
+
     def test_adaptive_challenge_publishes_the_reviewed_plan_for_approval(self):
         state = self.state(adaptive=True)
         lifecycle.install_draft(state, self.contract_body(initial=True), origin="glm_draft")

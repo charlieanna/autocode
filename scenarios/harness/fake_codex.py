@@ -2783,6 +2783,25 @@ def _main() -> int:
         and os.environ.get("SCENARIO_FAKE_BRIEF_OMIT") == "1"
     ):
         report["brief_observations"] = []
+    if stage == "astra_challenge" and os.environ.get("SCENARIO_FAKE_DUPLICATE_REVIEW_OBSERVATION") in ("1", "always"):
+        marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-duplicate-review-observation")
+        if data.get("report_repair"):
+            # Repair only the faulty review report; do not author a new plan.
+            rejected = data["rejected_report"]["content"]
+            report = json.loads(rejected) if isinstance(rejected, str) else json.loads(json.dumps(rejected))
+            if os.environ["SCENARIO_FAKE_DUPLICATE_REVIEW_OBSERVATION"] != "always":
+                seen = set()
+                fixed = []
+                for proposal in report["brief_observations"]:
+                    if proposal["declaration_id"] not in seen:
+                        fixed.append(proposal)
+                        seen.add(proposal["declaration_id"])
+                report["brief_observations"] = fixed
+        elif not marker.exists() and report.get("brief_observations"):
+            marker.touch()
+            duplicate = json.loads(json.dumps(report["brief_observations"][0]))
+            duplicate["steps"][0]["argv"][-1] += "-duplicate-proposal"
+            report["brief_observations"].append(duplicate)
     if no_evidence and not data.get("report_repair"):
         marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-builder-no-evidence")
         if not marker.exists():  # once: later Builder runs cite their check as usual

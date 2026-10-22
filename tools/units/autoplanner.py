@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 try:
     from .. import autocode_acceptance_policy as acceptance_policy
     from .. import autocode_adaptive_planning as adaptive
+    from .. import autocode_brief_acceptance as brief_acceptance
     from .. import autocode_brief_literals as brief_literals
     from .. import autocode_brief_obligations as brief_obligations
     from .. import autocode_bug_job as bug_job
@@ -54,6 +55,7 @@ try:
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_adaptive_planning as adaptive
+    import autocode_brief_acceptance as brief_acceptance
     import autocode_brief_literals as brief_literals
     import autocode_brief_obligations as brief_obligations
     import autocode_bug_job as bug_job
@@ -1615,6 +1617,10 @@ def after_challenge(state: RunState, value, record):
             changes=value.get("risk_observation_changes") or [],
         )
         lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
+    except brief_acceptance.ObservationProposalError:
+        # The Reviewer owns these proposals. Let the ordinary bounded report-repair path correct them;
+        # sending this to the Planner repeats work without giving it authority to fix the review.
+        raise
     except ValueError as error:
         # The draft cannot go to the user as it stands, for example a brief sentence no criterion
         # cites. The Planner owns the contract: rejecting this review sent it to report repair,

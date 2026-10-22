@@ -61,6 +61,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
+    ("scenarios/harness/fake_codex.py", ("tests.test_brief_cli",)),
     ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
@@ -127,6 +128,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("tools/autocode_brief_acceptance.py", "tools/autocode_brief_obligations.py", "tools/units/autoplanner.py"),
+        ("tests.test_brief_cli",),
+    ),
     (
         ("tools/autocode_planning_report_policy.py", "tools/units/autoplanner.py"),
         ("tests.test_stage_repair_cli",),
