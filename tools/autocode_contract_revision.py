@@ -530,7 +530,7 @@ def revision_guard(state: RunState, body, changes, origin):
                 proposed={text: added[0]},
             )
         _, replacement = consume(text, kind)
-        if replacement is None:
+        if replacement is None or authorizing is None:
             continue
         rows = [row for row in decision_rows(body).values() if row.get("text") == replacement]
         if not rows:
