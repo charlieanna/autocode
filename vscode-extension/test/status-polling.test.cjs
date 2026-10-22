@@ -245,3 +245,13 @@ test('a current read error after invalidation is still propagated', async (t) =>
   reads[1].reject(new Error('current transport failure'));
   await rejected;
 });
+
+test('a CLI call that never exits times out instead of hanging the caller forever', async () => {
+  // A hung --status must not freeze ChatView.refresh's poll loop for minutes (#1711).
+  const started = Date.now();
+  await assert.rejects(
+    cli.stream({ command: 'sleep', prefix: [] }, ['30'], {}, undefined, 50, 120),
+    /timed out after 120ms/,
+  );
+  assert.ok(Date.now() - started < 5000, 'the timeout bound is what ends the call, not the sleep');
+});

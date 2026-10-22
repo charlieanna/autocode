@@ -1623,6 +1623,85 @@ class RepairTests(unittest.TestCase):
                 self.run,
             )
 
+    def test_a_pass_citing_a_failed_check_is_not_sent_to_report_repair(self):
+        # Live run 2026-10-21: check 4 was a negative assertion whose shell command exited 1
+        # while the assertion held; two report-only repairs could not change that exit code (#1852).
+        events = self.run / "failed-events.jsonl"
+        command = "sh -c 'for f in package.json; do [ -e \"$f\" ] && exit 1; done'"
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"id": "prt_9", "type": "command_execution", "command": command, "exit_code": 1},
+                }
+            )
+            + "\n"
+        )
+        with self.assertRaises(runner.report_repair_queue.ExecutionEvidenceRequired) as raised:
+            runner.autopilot.apply_review_result(
+                runner,
+                self.state,
+                "sol",
+                {
+                    "verdict": "PASS",
+                    "checks": [{"command": command, "exit_code": 1, "evidence_ref": "event:prt_9"}],
+                    "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["check:1"]}],
+                },
+                {"events": str(events), "source_revision": "r", "output": "sol-01.json"},
+                self.root,
+                self.run,
+            )
+        self.assertIn("check 1 (exit 1)", str(raised.exception))
+        self.assertIn("every listed check to exit 0", str(raised.exception))
+
+    def test_an_uncited_failed_exploratory_check_stays_repairable_but_names_the_rule(self):
+        events = self.run / "exploratory-events.jsonl"
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "prt_7",
+                        "type": "command_execution",
+                        "command": "grep -q unexpected package.json",
+                        "exit_code": 1,
+                    },
+                }
+            )
+            + "\n"
+        )
+        with self.assertRaises(ValueError) as raised:
+            runner.autopilot.apply_review_result(
+                runner,
+                self.state,
+                "sol",
+                {
+                    "verdict": "PASS",
+                    "checks": [
+                        {"command": "grep -q unexpected package.json", "exit_code": 1, "evidence_ref": "event:prt_7"}
+                    ],
+                    "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": []}],
+                },
+                {"events": str(events), "source_revision": "r", "output": "sol-01.json"},
+                self.root,
+                self.run,
+            )
+        self.assertNotIsInstance(raised.exception, runner.report_repair_queue.ExecutionEvidenceRequired)
+        self.assertIn("every listed check must exit 0", str(raised.exception))
+
+    def test_an_execution_evidence_error_is_not_queued_for_report_repair(self):
+        self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        record = self.stage_record()
+        with self.assertRaises(runner.support.Paused) as paused:
+            runner.reject_completed_stage(
+                self.state,
+                self.run,
+                record,
+                runner.report_repair_queue.ExecutionEvidenceRequired("cites failed check 1 (exit 1)"),
+            )
+        self.assertEqual("PAUSED_INVALID_OUTPUT", paused.exception.status)
+        self.assertNotIn("pending_report_repair", self.state)
+
     def test_a_criterion_citing_something_the_runner_did_not_verify_gets_a_report_repair(self):
         # A PASS row whose evidence is prose proves nothing the runner replayed (#1070).
         events = self.run / "events.jsonl"

@@ -45,12 +45,16 @@ export function invoke(options: CliOptions, args: string[], env: Record<string, 
  * grandchild can hold them forever) before the action is complete anyway. */
 export const EXIT_GRACE_MS = 2000;
 
+/** A status poll must not hang the conversation: after this, the read fails and the next tick can try again. */
+export const STATUS_TIMEOUT_MS = 30_000;
+
 export function stream(
   options: CliOptions,
   args: string[],
   env: Record<string, string> = {},
   onOutput?: (chunk: string) => void,
   exitGraceMs = EXIT_GRACE_MS,
+  timeoutMs?: number,
 ): Promise<CliResult> {
   const { file, args: argv } = buildArgv(options, args);
   return new Promise((resolve, reject) => {
@@ -63,12 +67,23 @@ export function stream(
     let stderr = "";
     let settled = false;
     let grace: NodeJS.Timeout | undefined;
+    let timer: NodeJS.Timeout | undefined;
     const finish = (code: number | null) => {
       if (settled) return;
       settled = true;
       if (grace) clearTimeout(grace);
+      if (timer) clearTimeout(timer);
       resolve({ code, stdout, stderr, rejected: isRejection(code, stderr) });
     };
+    if (timeoutMs && timeoutMs > 0) {
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        if (grace) clearTimeout(grace);
+        child.kill("SIGKILL");
+        reject(new Error(`autocode timed out after ${timeoutMs}ms: ${file} ${argv.join(" ")}`));
+      }, timeoutMs);
+    }
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
       onOutput?.(chunk.toString());
@@ -79,7 +94,7 @@ export function stream(
     });
     child.on("error", (error: NodeJS.ErrnoException) => {
       const hint = error.code === "ENOENT" ? `Is ${file} on PATH? Set "autocode.cliPath" in settings.` : error.message;
-      if (!settled) { settled = true; if (grace) clearTimeout(grace); }
+      if (!settled) { settled = true; if (grace) clearTimeout(grace); if (timer) clearTimeout(timer); }
       reject(new Error(`${file} could not start: ${hint}`));
     });
     // A controller that exits at a pause boundary may leave a provider child
@@ -100,7 +115,8 @@ function isRejection(code: number | null, stderr: string): boolean {
 export async function readStatus<T>(options: CliOptions, workspace: string, runDir: string, parse: (raw: string) => T): Promise<T> {
   // Use the public TaskRun reader grammar. With --status last, the core's
   // conservative legacy-worker check can mistake polling for another writer.
-  const result = await invoke(options, ["--status", "--workspace", workspace, "--run-dir", runDir]);
+  // Bounded: a hung --status must not freeze the conversation's poll loop.
+  const result = await stream(options, ["--status", "--workspace", workspace, "--run-dir", runDir], {}, undefined, EXIT_GRACE_MS, STATUS_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(tail(result));
   return parse(result.stdout);
 }
