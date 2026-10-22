@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- `autocode unattended` now refuses `--skip-requirements`, `--skip-to-build`, `--allow-uncontained-tools`,
+  `--accept-source-edit` and the companions of a recovery (`--grant-recovery`, `--job-retry-token`, `--resolver-token`,
+  `--revise-protected-tests`, `--submit-repair`, …), which it previously let an agent pass although they decide for
+  the operator. `tools/autocode_decision_flags.py` classifies every parser flag as a decision or a start flag, and
+  `tests/test_decision_flags.py` fails on an unclassified one (#1870).
+
 - Requirements is the first stage of every run and every follow-up turn, and its report names the job, so the
   separate Job recognizer call no longer runs on a flow that has Requirements (owner decision 2026-10-22, #1860).
   A plain CLI bug fix goes from Requirements to the Investigator, a review to the Code Reviewer, a question to the

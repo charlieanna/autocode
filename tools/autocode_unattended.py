@@ -34,39 +34,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Every flag that records an operator decision or recovers from a pause.
-OPERATOR_FLAGS = (
-    "--answer",
-    "--feedback",
-    "--follow-up",
-    "--delegate",
-    "--delegate-all",
-    "--reject-assumption",
-    "--approve-goal",
-    "--edit-goal",
-    "--goal-file",
-    "--approve-review",
-    "--as",
-    "--reject-review",
-    "--review-note",
-    "--reconcile-review",
-    "--accept-completion",
-    "--review-token",
-    "--resume-paused",
-    "--retry-failed-stage",
-    "--diagnose-failed-stage",
-    "--retry-builder",
-    "--retry-report",
-    "--abandon-stage",
-    "--recover-job-report",
-    "--accept-transport-change",
-    "--planning-review-call-limit",
-    "--migrate-only",
-    "--close-finding",
-    "--close-reason",
-    "--resolver-response",
-    "--chat",
-)
+try:
+    from .autocode_decision_flags import DECISION_FLAGS
+except ImportError:
+    from autocode_decision_flags import DECISION_FLAGS
+
 # Subcommands that submit interventions or run other flows.
 OPERATOR_SUBCOMMANDS = (
     "tasks",
@@ -113,7 +85,7 @@ def refused(argv: list[str]) -> str | None:
         # --no-chat is allowed: it is forced anyway.
         if name == "--no-chat":
             continue
-        for flag in OPERATOR_FLAGS:
+        for flag in DECISION_FLAGS:
             if flag.startswith(name):
                 return f"{flag} is an operator decision; run autocode directly to make it"
     return None
@@ -454,7 +426,7 @@ def cli() -> int:
             prog="autocode-unattended",
             description=__doc__.split("\n\n")[1],
             epilog="Takes AutoCode's own arguments, minus operator decisions: "
-            + ", ".join(OPERATOR_FLAGS)
+            + ", ".join(DECISION_FLAGS)
             + ". Use --analyze --run-dir RUN [--out DIR] to report on a saved run without launching anything.",
         ).print_help()
         return 0
