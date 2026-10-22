@@ -862,7 +862,7 @@ def apply_review_result(runtime, state: RunState, stage, value, record, workspac
         "reviewer_role": record.get("role", stage),
     }
     # A Builder self-check, or a saved run from before goal contracts, reviews without one.
-    criteria = (cast(dict, state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
+    criteria = ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
     human_pending = modern and any(
         goals.human_only_pending_validation(state, value, c["id"]) for c in criteria if c["human_review"]
     )
