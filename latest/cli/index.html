@@ -2404,7 +2404,7 @@
 
 
 <h1 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/1e6d34a41ceea08e0c78b3e6c3f63dbf6c720cbe/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/be07dda2ab0ac8d499854f287ce03afa56d32070/README.md">← Back to README</a></p>
 <p>Use <code>autocode</code> for tasks and its subcommands for related work. <code>autocode --help</code>
 shows the short command overview; <code>autocode --help-all</code> lists every run option,
 and <code>autocode COMMAND --help</code> shows that command's options. This reference lists the accepted public flags, including advanced run
@@ -2608,7 +2608,7 @@ project.</p>
 and keeps every output inside its new directory. To choose where it goes, use
 <code>autocode demo --directory /path/to/new-demo</code>; the directory must not exist.
 Remove that directory after inspection. Fake-provider evidence demonstrates the
-workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/1e6d34a41ceea08e0c78b3e6c3f63dbf6c720cbe/RELIABILITY.md">real-model reliability results</a>.</p>
+workflow and is separate from the <a href="https://github.com/charlieanna/autocode/blob/be07dda2ab0ac8d499854f287ce03afa56d32070/RELIABILITY.md">real-model reliability results</a>.</p>
 <h2 id="common-flags">Common flags<a class="headerlink" href="#common-flags" title="Permanent link">&para;</a></h2>
 <h3 id="supplying-a-brief">Supplying a brief<a class="headerlink" href="#supplying-a-brief" title="Permanent link">&para;</a></h3>
 <table>
@@ -3178,7 +3178,7 @@ changes. Select the exact displayed choice with the normal <code>--answer</code>
 the runner applies that choice's settings and records their old/new values.
 Declining changes no timeout. These decisions preserve the approved goal and
 elapsed run budget. Legacy prose-only consent changes no runner setting; see
-<a href="https://github.com/charlieanna/autocode/blob/1e6d34a41ceea08e0c78b3e6c3f63dbf6c720cbe/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
+<a href="https://github.com/charlieanna/autocode/blob/be07dda2ab0ac8d499854f287ce03afa56d32070/docs/bugs/permission-timeout-consent.md">timeout permission payloads</a>.</p>
 <p>An accepted parallel <code>--retry-builder</code> copies the run's saved operator tool,
 stage and milestone bounds (<code>--max-tool-seconds</code>, <code>--max-stage-seconds</code>,
 <code>--max-milestone-seconds</code>) to only those members. Save these limits separately
@@ -3957,7 +3957,12 @@ for another agent without letting that agent make the operator's decisions. It t
 AutoCode's own arguments but refuses every decision or recovery flag (<code>--answer</code>,
 <code>--delegate*</code>, <code>--approve-*</code>, <code>--resume-paused</code>, <code>--retry-*</code>, <code>--feedback</code>, <code>--follow-up</code>,
 <code>--accept-completion</code>, <code>--close-finding</code>, <code>--close-reason</code>, <code>--resolver-response</code>, …, including
-abbreviations), the command word <code>resume</code> (on a paused or blocked run it stands for
+abbreviations) and every flag that sets operator policy instead of a person: <code>--skip-requirements</code>
+(answers Requirements questions by default), <code>--skip-to-build</code> (approves the plan),
+<code>--allow-uncontained-tools</code> (lifts the tool boundary) and <code>--accept-source-edit</code>. Setup, routing
+and start-time budgets (<code>--max-seconds</code>, <code>--unlimited-iterations</code>, model flags) stay allowed. The two
+classes are <code>DECISION_FLAGS</code> and <code>START_FLAGS</code> in <code>tools/autocode_decision_flags.py</code>; a test fails
+when a parser flag is in neither, the command word <code>resume</code> (on a paused or blocked run it stands for
 <code>--resume-paused</code>; a bare relaunch still continues a run that is not paused)
 and the <code>intervention</code>, <code>tasks</code>, <code>ui</code>, <code>registry</code>, <code>capture</code> and <code>compare-baseline</code>
 subcommands. It forces <code>--no-chat</code> with no stdin, and when AutoCode stops it prints
@@ -3971,7 +3976,7 @@ repair calls counted separately), and the code changes against the task's base c
 including new untracked files, plus a summary of the run's always-on <a href="../execution/#activity-log">activity log</a>.
 <code>--out</code> saves <code>analysis.md</code>, the full <code>changes.diff</code> and a copy of <code>activity.jsonl</code>.</p>
 <p>To lock a Claude Code agent to it, launch the agent from a copy of
-<a href="https://github.com/charlieanna/autocode/blob/1e6d34a41ceea08e0c78b3e6c3f63dbf6c720cbe/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
+<a href="https://github.com/charlieanna/autocode/blob/be07dda2ab0ac8d499854f287ce03afa56d32070/examples/agent-operator"><code>examples/agent-operator</code></a>: its <code>.claude/settings.json</code>
 allows only <code>autocode-unattended</code> and read-only tools, denies edits and other
 AutoCode or provider commands, and uses <code>dontAsk</code> so anything else is refused
 without a prompt. Its <code>CLAUDE.md</code> has the agent report stops verbatim and, after completion,
