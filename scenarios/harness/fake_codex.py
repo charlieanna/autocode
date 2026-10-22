@@ -1327,8 +1327,11 @@ def scripted_cases() -> list[dict]:
     # Native scenarios name the cases in their scripted plan instead of asking
     # this fixture to parse three languages' test source. Existing Python
     # scenarios keep their added-function discovery when no names are declared.
+    # A criterion id starting PLAN_ is the plan's own case, beside the diagnosis (#1868): it never becomes one.
     declared = [
-        match[1] for text in (CONFIG.get("criteria") or {}).values() if (match := re.search(r"test:\s*(\w+)", text))
+        match[1]
+        for cid, text in (CONFIG.get("criteria") or {}).items()
+        if not cid.startswith("PLAN_") and (match := re.search(r"test:\s*(\w+)", text))
     ]
     if declared:
         return [

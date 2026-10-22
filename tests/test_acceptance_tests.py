@@ -398,6 +398,73 @@ class BlindTestsCandidateExecutionTests(unittest.TestCase):
 class RunnerCollectionTests(unittest.TestCase):
     """#1567: a test the run wrote in a form the runner's command does not collect must be fixable."""
 
+    def already_working_bug_fix(self, passing):
+        """Apply a bug fix's Tester report (#1868) whose runner sees the ``passing`` tests pass on today's code.
+
+        The bug's reproduction is ``off_by_one`` (the diagnosis); ``PLAN_1`` is a ``test:`` case the plan added.
+        Returns the state, whether the run paused, and the plan bodies ``send_back`` was given."""
+        import autocode_acceptance_tests_job as job
+
+        names = {"off_by_one": "test_off_by_one_page_count", "PLAN_1": "test_plan_1_first_page"}
+        with tempfile.TemporaryDirectory() as root:
+            workspace, evidence = Path(root) / "workspace", Path(root) / "evidence"
+            (workspace / "tests").mkdir(parents=True)
+            evidence.mkdir()
+            (workspace / "tests" / "test_pager.py").write_text(
+                "import unittest\n\n\nclass P(unittest.TestCase):\n"
+                + "".join(f"    def {name}(self):\n        pass\n\n" for name in names.values())
+            )
+            state = approved({"PLAN_1": f"test: {names['PLAN_1']}"}, task="page_count is off by one")
+            state["goal_contract"]["body"]["task_kind"] = "bugfix"
+            state["investigation"] = {
+                "outcome": "reproduced",
+                "test_cases": [{"id": "off_by_one", "given": "10 items", "when": "page_count(10, 5)", "then": "2"}],
+            }
+            acceptance.route(state)
+            value = {
+                "tests": [
+                    {"case_id": cid, "test_name": name, "file": "tests/test_pager.py"} for cid, name in names.items()
+                ],
+                "cannot_write": [],
+                "already_passing": [
+                    {"case_id": cid, "test_name": names[cid], "evidence": "it passed"} for cid in passing
+                ],
+            }
+            sent = []
+            record = {"output": str(evidence / "tester.json"), "changed_files": ["tests/test_pager.py"]}
+            results = {
+                "passed": [names[cid] for cid in passing],
+                "failed": [n for c, n in names.items() if c not in passing],
+            }
+            job.apply(
+                state,
+                value,
+                record,
+                workspace,
+                run_tests=lambda files: {"results": results},
+                evidence_dir=evidence,
+                send_back=lambda body, changes: sent.append((body, changes)),
+            )
+            return state, state.get("status") == job.PAUSE, sent
+
+    def test_a_bug_fix_sends_a_plan_added_case_that_already_works_back_as_a_guard(self):
+        state, paused, sent = self.already_working_bug_fix(["PLAN_1"])
+        self.assertFalse(paused, state.get("stop_reason"))
+        self.assertEqual(1, len(sent))
+        body, changes = sent[0]
+        rows = {row["id"]: row["verification_method"] for row in body["acceptance_criteria"]}
+        self.assertEqual("guard: test_plan_1_first_page", rows["PLAN_1"])
+        self.assertEqual(["PLAN_1"], [change["item"] for change in changes])
+
+    def test_a_bug_fix_whose_reproduction_already_passes_still_pauses_without_a_send_back(self):
+        for passing in (["off_by_one"], ["off_by_one", "PLAN_1"]):
+            with self.subTest(passing=passing):
+                state, paused, sent = self.already_working_bug_fix(passing)
+                self.assertTrue(paused)
+                self.assertEqual([], sent, "only the user can say whether the diagnosis or the code is wrong")
+                self.assertIn("the diagnosis and the code disagree", state["stop_reason"])
+                self.assertIn("--feedback", state["stop_reason"])
+
     def test_an_uncollected_test_names_the_runners_command_and_a_collected_rewrite_is_accepted(self):
         import subprocess
 
@@ -730,6 +797,28 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         self.assertNotEqual("PAUSED_ACCEPTANCE_TESTS", after["status"], self.details(after))
         view = run.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], self.details(view))
+
+    def test_a_bug_fix_plans_case_that_already_works_goes_back_to_plan_review_as_a_guard(self):
+        # A bug fix's plan can add test: cases beside the Investigator's reproduction (#1868). One that already
+        # passes is the same disagreement as in a build: the runner relabels it guard:, plan review runs again,
+        # and the run goes on to the fix. Only the reproduction itself must keep failing.
+        self.scenario = dataclasses.replace(
+            catalog.load("bugfix-trivial"),
+            fake_fault="",
+            fake_criteria={"PLAN_C1": "test: test_page_size_must_be_positive"},
+        )
+        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
+        self.assertTrue(view["done"], self.details(view))
+        self.assertEqual(2, len(self.plan_approvals), "the corrected plan needs its own approval")
+        criteria = {row["id"]: row for row in view["approved_contract"]["body"]["acceptance_criteria"]}
+        self.assertEqual("guard: test_page_size_must_be_positive", criteria["PLAN_C1"]["verification_method"])
+        results = view["acceptance_tests"]["results"]
+        self.assertEqual("passes", results["PLAN_C1"])
+        self.assertIn("fails", results.values(), "the bug's reproduction must still fail before the fix")
+        order = self.stage_order(run)
+        repair = order.index("acceptance-tests-report-repair")
+        self.assertIn("plan-challenge", order[repair:], order)
+        self.assertLess(order.index("acceptance-tests"), order.index("builder"), order)
 
     def test_without_the_setting_the_builder_writes_the_tests_as_before(self):
         run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning")
