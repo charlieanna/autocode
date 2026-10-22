@@ -13,9 +13,11 @@ case says, and changes nothing but test files. The runner then:
 
 A ``test:`` case the Tester reports already working (``already_passing``, its test still delivered) and
 the runner sees pass goes back to plan review once, relabelled ``guard:`` in a runner-built draft (ORIGIN);
-the user approves the corrected plan. A second disagreement on that case, a case no test can show
-(``cannot_write``) and a bug's reproduction that already passes pause the run (PAUSED_ACCEPTANCE_TESTS):
-only the user (``--feedback``) can say which is right.
+the user approves the corrected plan. That holds for a bug fix too: its plan can add ``test:`` cases of
+its own beside the Investigator's reproduction (autocode_acceptance_tests._cases), and one of those that
+already works is the same disagreement as in a build (#1868). A second disagreement on that case, a case no
+test can show (``cannot_write``) and a bug's reproduction that already passes pause the run
+(PAUSED_ACCEPTANCE_TESTS): only the user (``--feedback``) can say which is right.
 
 Pure: prompt, schema and the transition; the unit passes in the function that runs the tests.
 """
@@ -159,6 +161,14 @@ def _pause(state: RunState, rows: list[str]) -> None:
     )
 
 
+def reproduction_ids(state: RunState) -> set[str]:
+    """The ids of the Investigator's reproduction cases: a reproduced bug's ``restore`` cases, not its guards.
+
+    They live in the diagnosis, not the contract, so the runner cannot relabel one; a plan's own cases
+    never share their ids (autocode_acceptance_tests._cases)."""
+    return {case["id"] for case in test_cases.diagnosis_cases(state) if case.get("kind", "restore") != "preserve"}
+
+
 def corrected_body(state: RunState, names: dict[str, str]) -> dict:
     """The approved plan with each case in ``names`` (id -> test name) relabelled from test: to guard:."""
     body = copy.deepcopy((state.get("goal_contract") or {}).get("body") or {})
@@ -272,8 +282,21 @@ def apply(
     if already:
         names = {row["case_id"]: row["test_name"] for row in value["tests"] if row["case_id"] in already}
         # A bug's reproduction that already passes disagrees with its diagnosis: only the user can settle that.
-        if send_back is None or test_cases.bugfix(state) or acceptance.sent_back(state) & set(already):
-            _pause(state, [f"{cid} already works: {row['evidence']}" for cid, row in sorted(already.items())])
+        # The plan's own test: cases are contract rows the runner can relabel, in a bug fix as in a build.
+        reproduced = reproduction_ids(state) & set(already)
+        if send_back is None or reproduced or acceptance.sent_back(state) & set(already):
+            _pause(
+                state,
+                [
+                    f"{cid} already works: {row['evidence']}"
+                    + (
+                        " (the bug's reproduction passes, so the diagnosis and the code disagree)"
+                        if cid in reproduced
+                        else ""
+                    )
+                    for cid, row in sorted(already.items())
+                ],
+            )
             return
         changes = [
             {
