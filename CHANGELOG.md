@@ -48,6 +48,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A bug fix no longer stops at `PAUSED_ACCEPTANCE_TESTS` when a `test:` case its own plan added already works. That
+  case goes back to plan review relabelled `guard:`, as in a build; only the Investigator's reproduction passing
+  today still pauses the run, with a message saying the diagnosis and the code disagree (#1868).
 - A brief that names the report it fixes ("Fix issue #474 ...") no longer dead-ends plan finalize: the source-trace
   audit no longer treats an issue or pull-request reference as a value the criteria must repeat, while a value
   stated beside it ("process exactly 7 rows") still has to survive (#1874).

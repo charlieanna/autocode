@@ -54,7 +54,10 @@ revises the plan.
 
 A bug fix's cases are its Investigator's, plus any `test:`/`guard:` cases its plan adds: the Tester writes
 the reproduction tests, which must run and fail before the fix (a file that cannot load is no
-reproduction), and the preserve tests, which must pass.
+reproduction), and the preserve tests, which must pass. A reproduction that already passes pauses the run
+(`PAUSED_ACCEPTANCE_TESTS`): the diagnosis and the code disagree, and only `--feedback` can say which is right.
+A `test:` case the plan itself added that already passes is not that disagreement; it is sent back relabelled
+`guard:` and reviewed again, exactly as in a build (#1868).
 
 In a plan with milestones, the Tester writes the cases due when a milestone is reached; a parallel batch
 gets the cases of every milestone in it at once. Tests for milestones not yet built are written later, so
