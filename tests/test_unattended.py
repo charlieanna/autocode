@@ -56,6 +56,28 @@ class RefusalTests(unittest.TestCase):
             with self.subTest(argv=argv):
                 self.assertIsNone(unattended.refused(argv), "a model setting or task text is not a decision")
 
+    def test_policy_flags_that_decide_for_the_operator_are_refused(self):
+        for argv in (
+            ["--skip-to-build"],
+            ["--skip-to-build", "Build it"],
+            ["--skip-requirements"],
+            ["--allow-uncontained-tools"],
+            ["--accept-source-edit"],
+            ["--skip-to"],
+            ["--skip-req"],
+            ["--allow-unc"],
+            ["--accept-source"],
+            ["--accept-source-edit=1"],
+            ["--grant-recovery", "2"],
+            ["--revise-protected-tests", "{}"],
+            ["--submit-repair", "dir"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertIn("is an operator decision", unattended.refused(["--run-dir", "r", *argv]))
+        for argv in (["--max-seconds", "60"], ["--max-seconds=60"], ["--terra-model", "m"], ["--unlimited-iterations"]):
+            with self.subTest(argv=argv):
+                self.assertIsNone(unattended.refused(argv), "a start-time budget or model is not a decision")
+
     def test_the_resume_command_word_is_refused_wherever_autocode_reads_it(self):
         # On a paused run `autocode resume` stands for --resume-paused, and its companions need no flag.
         for argv in (
