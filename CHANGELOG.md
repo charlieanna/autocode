@@ -11,6 +11,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A chat's Requirements names the job it understood, and the chat starts that job without a separate recognizer
+  call (#1846). A question goes straight to the Analyst: its handoff no longer needs invented acceptance tests, so
+  there is no report repair, and the chat no longer asks twice to "prepare a plan" that never comes. A review, a
+  design or a bug fix is confirmed with wording that says what approving starts. In an adaptive chat
+  Requirements also judges the request's clarity, so a small clear brief keeps its reduced plan review.
+- Every chat starts with the Requirements conversation (owner decision, 2026-10-22): `autocode modes list` now
+  offers only `full` (`--joint-planning --spec-first`), and the `quick` mode, which sent a clear request straight to
+  the Planner, is gone from the terminal chat's `/mode` and the VS Code Run mode chip. A new chat whose saved choice
+  is `quick` starts in Full instead of failing; `autocode chat --mode quick` names the modes left. The
+  `--adaptive-planning` flag itself is unchanged.
 - Automatic model selection runs a GLM 5.3 Tester at medium effort, not high (owner decision, 2026-10-21). On
   ladder-07 on Kilo the Tester at medium took 242 s with 14.9k reasoning tokens, against 269-468 s and 23.1k at high
   in the day's earlier runs, and the task passed 8/8 with no send-back. A GPT-6 Sol Tester and the fixed default

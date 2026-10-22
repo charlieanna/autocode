@@ -61,7 +61,7 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("scenarios/harness/conformance.py", ("tests.test_planning_allowance_cli",)),
-    ("scenarios/harness/fake_codex.py", ("tests.test_brief_cli",)),
+    ("scenarios/harness/fake_codex.py", ("tests.test_brief_cli", "tests.test_requirements_job_cli")),
     ("scenarios/harness/clarifying_requirements_provider.py", ("tests.test_requirements_review",)),
     ("scripts/homebrew_formula.py", ("tests.test_homebrew_formula",)),
     ("scenarios/catalog/review-clean-pr/broken/blocks-on-a-nit/", ("tests.test_review_attribution_cli",)),
@@ -76,7 +76,10 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("tools/providers/requirements_stream.mjs", ("tests.test_requirements_stream", "tests.test_requirements_chat")),
     ("tools/providers/opencode_activity.mjs", ("tests.test_opencode_activity", "tests.test_kilo_progress")),
-    ("tools/prompts/requirements-gather.md", ("tests.test_chat_cli", "tests.test_requirements_review")),
+    (
+        "tools/prompts/requirements-gather.md",
+        ("tests.test_chat_cli", "tests.test_requirements_review", "tests.test_requirements_job_cli"),
+    ),
     (
         "tools/prompts/fragments/provider-opencode/conversation-output.md",
         ("tests.test_schema_prompt_formatting", "tests.test_requirements_chat", "tests.test_plan_chat"),
@@ -244,7 +247,12 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "tools/autocode_requirements_review.py",
             "tools/autocode_workflows.py",
         ),
-        ("tests.test_chat_cli", "tests.test_requirements_review"),
+        ("tests.test_chat_cli", "tests.test_requirements_review", "tests.test_requirements_job_cli"),
+    ),
+    # A chat's Requirements names the job and the chat starts it (#1846); the test drives the CLI.
+    (
+        ("tools/autocode_requirements_chat.py", "tools/autocode_chat_view.py", "tools/units/autoplanner.py"),
+        ("tests.test_requirements_job_cli",),
     ),
     (
         (

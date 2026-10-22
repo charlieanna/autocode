@@ -468,6 +468,11 @@ def main() -> int:
         }
         if data.get("spec_first"):
             report["assistant_reply"] = "I understand you want a deterministic greeting CLI. Is that right?"
+            # A chat run's Requirements names the job it understood (#1846); this fixture only builds.
+            report.update(job="build", design_document="")
+            if 'Add "clarity"' in prompt:
+                # An adaptive chat's Requirements judges clarity (#1846); vague keeps the handwritten trace.
+                report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
         for event in data.get("brief_feedback") or []:
             if event.get("text") == "Keep the same scope and standard-library-only constraint.":
                 report["requirements"].append(

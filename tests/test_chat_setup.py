@@ -11,7 +11,9 @@ MODES = {
     "default": "full",
     "modes": [
         {"id": "full", "label": "Full", "description": "Requirements first.", "start_args": ["--spec-first"]},
-        {"id": "quick", "label": "Quick plan", "description": "Plan at once.", "start_args": ["--no-spec-first"]},
+        # The core lists only "full" since 2026-10-22; the client offers whatever it lists, so a second,
+        # made-up mode checks that a choice between modes still works.
+        {"id": "other", "label": "Other mode", "description": "Another way.", "start_args": ["--max-iterations=2"]},
     ],
 }
 CONNECTIONS = {
@@ -74,14 +76,20 @@ class EngineTests(unittest.TestCase):
     def test_choices_by_id_or_label(self):
         self.assertEqual("claude", setup.choose_engine("Claude Code"))
         self.assertIsNone(setup.choose_engine("gpt"))
-        self.assertEqual("quick", setup.choose_mode(MODES, "Quick plan"))
+        self.assertEqual("other", setup.choose_mode(MODES, "Other mode"))
         self.assertIsNone(setup.choose_mode(MODES, "fast"))
+
+    def test_a_mode_the_core_no_longer_lists_gives_way_to_its_default(self):
+        self.assertEqual("other", setup.listed_mode(MODES, "other"))
+        self.assertIsNone(setup.listed_mode(MODES, "quick"), "quick was removed on 2026-10-22")
+        self.assertIsNone(setup.listed_mode(MODES, None))
+        self.assertEqual("Full", setup.mode_label(MODES, setup.listed_mode(MODES, "quick")))
 
 
 class SavedChoiceTests(unittest.TestCase):
     def test_a_choice_is_kept_only_once_the_project_has_autocode_and_read_back(self):
         with tempfile.TemporaryDirectory() as folder:
-            chosen = setup.NewChat("quick", ["--engine", "claude"])
+            chosen = setup.NewChat("other", ["--engine", "claude"])
             self.assertFalse(chosen.save(Path(folder)), "never creates .autocode")
             (Path(folder) / ".autocode").mkdir()
             self.assertTrue(chosen.save(Path(folder)))
@@ -96,10 +104,10 @@ class SavedChoiceTests(unittest.TestCase):
 
 class ListingTests(unittest.TestCase):
     def test_modes_and_the_summary_name_the_current_choice(self):
-        chosen = setup.NewChat("quick", ["--engine", "claude"])
-        self.assertIn("  quick  Quick plan  (current)\n      Plan at once.", setup.modes_text(MODES, chosen))
+        chosen = setup.NewChat("other", ["--engine", "claude"])
+        self.assertIn("  other  Other mode  (current)\n      Another way.", setup.modes_text(MODES, chosen))
         self.assertEqual(
-            "New chats: Quick plan · Claude Code. /mode and /engine change them.", setup.summary(MODES, chosen)
+            "New chats: Other mode · Claude Code. /mode and /engine change them.", setup.summary(MODES, chosen)
         )
         self.assertIn("  claude  Claude Code  (current)", setup.engines_text(chosen))
 

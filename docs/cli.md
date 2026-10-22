@@ -623,9 +623,10 @@ follow, so a person gets the same choices in each:
 - **Requirements** asks in its own words; you reply in yours, and confirm the
   understanding it summarizes with `y`. Before the plan is prepared the chat shows the
   core's spend confirmation (`review.spend_confirmation`: what planning spends) and
-  asks `Prepare plan? [y/N]`; anything but yes sends nothing. A mode that can plan at
-  once (`quick`, whose `spend_confirmation` is `start`) asks `Start it? [y/N]` before
-  the run starts instead, as the VS Code extension does.
+  asks `Prepare plan? [y/N]`; anything but yes sends nothing. A mode that could plan at
+  once (`spend_confirmation` `start`; the core lists none since `quick` was removed on
+  2026-10-22) would ask `Start it? [y/N]` before the run starts instead, as the VS Code
+  extension does.
 - **A question** with options takes the option's number or your own answer; Enter
   takes the proposed default when there is one.
 - **The plan** is shown from `displayed_plan` and approved with `y` only while its
@@ -638,7 +639,7 @@ follow, so a person gets the same choices in each:
 autocode                            # in a terminal: pick up the open run, or ask what to do
 autocode chat "Add a --verbose flag to greet.py"
 autocode chat                       # the same as plain autocode in a terminal
-autocode chat --mode quick "Fix the README typo" -- --engine claude
+autocode chat --mode full "Fix the README typo" -- --engine claude
 autocode chat --line                # the line-by-line prompts, even in a terminal
 ```
 
@@ -693,7 +694,7 @@ highlighted one:
 | `/open N` | At a question: open chat N from `/runs`. Its whole conversation is shown and you carry on there: a follow-up on a finished chat, or the decision it waits for. The chat you leave stays as it is |
 | `/new` | At a question: start a new chat in a new tab (also `Ctrl-T`); an empty request keeps the current one |
 | `/tab N` | At a question: switch to tab N (also `Ctrl-←`/`Ctrl-→` for the previous and next tab). Once a session has two chats, a tab bar under the header lists them with a mark for each: `●` working, `!` needs you, `✓` done |
-| `/mode [ID]` | The modes the core lists (`autocode modes list`), and which one new chats start in; `/mode quick` changes it for new chats only |
+| `/mode [ID]` | The modes the core lists (`autocode modes list`; only `full` since 2026-10-22), and which one new chats start in; `/mode ID` changes it for new chats only, and a saved mode the core no longer lists gives way to its default |
 | `/engine [NAME]` | The engine new chats run on: `opencode`, `codex` or `claude`, set as the VS Code extension's engine picker sets it |
 | `/connect [NAME check\|login\|setup\|use]` | The backends `autocode connections list` reports, with their state. `check` runs the connection's own check; `login` and `setup` hand the terminal to the backend's sign-in or AutoCode's setup and bring the chat back afterwards; `use` makes new chats use it. Only an action the connection offers is run |
 | `/panel` | Show or hide the side panel |
