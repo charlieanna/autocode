@@ -289,6 +289,8 @@ def from_requirements(state: RunState, report: dict, record: dict | None = None)
         "reason": "Requirements understood: " + (outcome or "no outcome stated"),
         "signals": [],
         "design_document": str(report.get("design_document") or ""),
+        # An adaptive chat's Requirements judges clarity as the recognizer did; apply keeps it only there.
+        **({"clarity": report["clarity"]} if report.get("clarity") in adaptive.CLARITY else {}),
     }
     apply(state, value, record or {})
     state["workflow"]["named_by"] = "requirements_gather"

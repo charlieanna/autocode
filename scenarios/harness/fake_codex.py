@@ -2022,6 +2022,9 @@ def report_for(stage: str, data: dict) -> dict:
                 report.update(required_behaviors=[], acceptance_tests=[])
             if "job" in OUTPUT_SCHEMA.get("properties", {}):
                 report.update(job=named["workflow"], design_document=named["design_document"])
+            if "clarity" in OUTPUT_SCHEMA.get("properties", {}):
+                # An adaptive chat's Requirements judges clarity as the recognizer did; the same script answers.
+                report["clarity"] = named.get("clarity") or os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"
             report["assistant_reply"] = "Here is what I understand: " + report["intended_outcome"]
         return report
     # An adaptive-planning Planner drafts the complete plan, initial_task included.

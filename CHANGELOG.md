@@ -14,7 +14,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - A chat's Requirements names the job it understood, and the chat starts that job without a separate recognizer
   call (#1846). A question goes straight to the Analyst: its handoff no longer needs invented acceptance tests, so
   there is no report repair, and the chat no longer asks twice to "prepare a plan" that never comes. A review, a
-  design or a bug fix is confirmed with wording that says what approving starts.
+  design or a bug fix is confirmed with wording that says what approving starts. In an adaptive chat
+  Requirements also judges the request's clarity, so a small clear brief keeps its reduced plan review.
 
 - Automatic model selection runs a GLM 5.3 Tester at medium effort, not high (owner decision, 2026-10-21). On
   ladder-07 on Kilo the Tester at medium took 242 s with 14.9k reasoning tokens, against 269-468 s and 23.1k at high

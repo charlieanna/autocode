@@ -32,8 +32,10 @@ build plan, and the Validator and Completion Owner still judge the work.
 This module is pure. It imports nothing from the runner; callers pass state in.
 
 State keys written by callers from these decisions:
-    workflow.clarity: "clear" | "vague", saved by autocode_workflows.apply. Evidence of why
-        Requirements was skipped; nothing in tools/ branches on it after recognition.
+    workflow.clarity: "clear" | "vague", saved by autocode_workflows.apply, from the recognizer or, in
+        an adaptive chat, from Requirements (from_requirements, #1846). Evidence of why Requirements was
+        skipped; units.autoplanner.review_depth_reduced reads it to keep a small clear brief on one
+        review allowance.
         scenarios/harness/plan_compare.py reads it from state.json.
     workflow.requirements_skipped: whether that clarity sent the turn straight to the Planner,
         saved by autocode_workflows.apply where clarity decides it.
@@ -75,6 +77,9 @@ LARGE_PLAN_REVIEW_LIMIT = 3
 MAX_CHALLENGES = 3
 
 RECOGNIZER_RULE = prompts.get("fragments/adaptive-planning/recognizer-rule.md")
+
+# A chat's Requirements names the job instead of the recognizer (#1846), so it judges clarity too.
+REQUIREMENTS_CLARITY_RULE = prompts.get("fragments/adaptive-planning/requirements-clarity-rule.md")
 
 PLANNER_RULE = prompts.get("fragments/adaptive-planning/planner-rule.md")
 
@@ -120,6 +125,14 @@ def resume_refused(saved_settings: dict, requested) -> bool:
 
 def recognizer_rule(state: RunState) -> str:
     return RECOGNIZER_RULE if enabled(state) else ""
+
+
+def requirements_judge_clarity(state: RunState) -> bool:
+    """Whether Requirements reports clarity: an adaptive spec-first chat, where it names the job (#1846).
+
+    The recognizer judged clarity before; without it units.autoplanner.review_depth_reduced never saw a
+    small clear brief, and a small bug fix lost its reduced review."""
+    return enabled(state) and bool((state.get("settings") or {}).get("spec_first"))
 
 
 def recognizer_schema(state: RunState, base: dict) -> dict:
@@ -176,6 +189,8 @@ def prompt_rule(state: RunState, stage: str) -> str:
         return REVIEW_RULE + (FEEDBACK_REVIEW_RULE if feedback else "")
     if stage == "astra_finalize":
         return FEEDBACK_TRACE_RULE if feedback else ""
+    if stage == "requirements_gather" and requirements_judge_clarity(state):
+        return REQUIREMENTS_CLARITY_RULE
     return ""
 
 

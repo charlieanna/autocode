@@ -38,6 +38,10 @@ What does not change:
   your approval.
 - A build named with `--workflow build` skips recognition, so nobody judges its
   clarity and the Requirements stage always runs.
+- In a chat (`--spec-first`) Requirements always runs first and names the job
+  itself, so it also judges clarity, by the recognizer's rule (#1846). Clarity
+  then skips nothing; it keeps a small clear brief on one review allowance at the
+  reduced Plan Reviewer effort, as before.
 - The setting applies only to new runs. A saved run keeps the planning flow it
   was started with: resuming with `--adaptive-planning` a run that lacks it, or
   with `--no-adaptive-planning` an adaptive one, is refused. Repeating the run's
