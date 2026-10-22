@@ -18,6 +18,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The terminal chat live log now shows an honest streaming activity indicator when Kilo supplies hashed progress without prose, instead of claiming no agent is working. Actual prose replaces the indicator when supplied; hashes and tool output stay out of the display, and supervision checks remain enforced (#1837).
 - On a finished run, a saved step's `restore` is no longer explained as "Pause after the current step": nothing is running, so the status view's `code_checkpoints.blocked_reason` now says a finished run cannot go back to a saved step, that its steps can still be compared, and that a follow-up changes the code. The terminal chat's `/undo` shows that text (#1643).
 - The chat's recent steps no longer show "Orchestrator attempt stopped" on a clean run. The Orchestrator's dispatch launches no process and records no exit code, and that absence was read as a failed exit; a model stage with no exit code still reads as stopped (#1643).
 - A small-brief run no longer stops before the final review of a revision that answered the Plan Reviewer's blocking

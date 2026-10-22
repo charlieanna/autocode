@@ -23,6 +23,19 @@ def write(path, rows):
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
 
 
+def progress(kind="reasoning", identifier="p1", position=23, **changes):
+    value = {
+        "id": identifier,
+        "kind": kind,
+        "position": position,
+        "nonwhite": True,
+        "content_hash": "a" * 64,
+        "delta_hash": "b" * 64,
+    }
+    value.update(changes)
+    return {"type": "autocode_progress", "version": 1, "progress": value}
+
+
 class ReadTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -72,6 +85,54 @@ class ReadTests(unittest.TestCase):
         self.assertEqual(
             [("thinking", "Plan: read then edit"), ("message", "Done reading."), ("command", "ls")], self.entries()
         )
+
+    def test_hashed_streaming_progress_shows_activity_without_inventing_prose(self):
+        write(self.events, [progress(), progress(position=50), progress("text", "p2")])
+        self.assertEqual(
+            [
+                ("thinking", "Reasoning stream activity received; text unavailable."),
+                ("message", "Response stream activity received; text unavailable."),
+            ],
+            self.entries(),
+        )
+        entries = log.read(self.events)
+        self.assertEqual(["streaming", "streaming"], [row["status"] for _, row in entries])
+        self.assertNotIn("a" * 64, json.dumps(entries))
+        self.assertNotIn("b" * 64, json.dumps(entries))
+
+    def test_actual_prose_replaces_progress_and_late_progress_cannot_hide_it(self):
+        write(
+            self.events,
+            [
+                progress(),
+                {"type": "reasoning", "part": {"id": "p1", "text": "Now checking the original tests."}},
+                progress(position=80),
+            ],
+        )
+        self.assertEqual([("thinking", "Now checking the original tests.")], self.entries())
+        self.assertNotIn("status", log.read(self.events)[0][1])
+
+    def test_invalid_blank_and_unsupported_progress_are_not_activity(self):
+        variants = [
+            progress("tool"),
+            progress(nonwhite=False),
+            progress(position=0),
+            progress(position=True),
+            progress(position="1"),
+            progress(identifier=None),
+            progress(identifier=[]),
+            progress(identifier=True),
+            {"type": "autocode_progress", "progress": None},
+        ]
+        write(self.events, variants)
+        self.assertEqual([], self.entries())
+
+    def test_progress_never_copies_arbitrary_text_or_tool_output(self):
+        write(self.events, [progress(text="api_key=abcdefghijkl", output="SECRET-OUTPUT")])
+        shown = json.dumps(log.read(self.events))
+        self.assertIn("Reasoning stream activity received", shown)
+        self.assertNotIn("abcdefghijkl", shown)
+        self.assertNotIn("SECRET-OUTPUT", shown)
 
     def test_prose_is_one_line_without_control_characters_or_secrets_and_keeps_its_newest_words(self):
         write(
@@ -257,6 +318,19 @@ class StatusViewTests(unittest.TestCase):
             chat["activity"],
             "chat.activity still never copies reasoning",
         )
+
+    def test_supervised_hashed_kilo_progress_reaches_the_live_tui(self):
+        import autocode_chat_panel as panel
+
+        chat = self.render({}, [progress()])
+        self.assertIn("log", chat)
+        live = panel.LiveLog()
+        self.assertTrue(live.observe({"chat": chat}))
+        self.assertIn("Builder", live.text())
+        self.assertIn("Reasoning stream activity received", live.text())
+        self.assertNotIn("No agent is working", live.text())
+        self.assertNotIn("activity", chat)
+        self.assertNotIn("log", self.render({"keeper": False}, [progress()]))
 
     def test_an_attempt_without_supervision_shows_none(self):
         chat = self.render({"keeper": False}, [codex("item.completed", "r1", type="reasoning", text="hidden")])
