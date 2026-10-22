@@ -28,10 +28,12 @@ class NextCommandTests(unittest.TestCase):
             "--retry-failed-stage", run_actions.next_command({"status": "PAUSED_REPEATED_FAILURE"}, None, "rd", "ws")
         )
 
-    def test_a_pending_repair_or_check_names_a_resume_the_cli_accepts(self):
+    def test_a_retry_the_cli_refuses_is_not_named_and_the_reason_is_published(self):
         # Live bugfix run (#1897): while a report repair was still pending the view named
         # --retry-failed-stage, which authorize_failure_retry refuses in that same state, so a
-        # client taking only next_command had no action it could run, and it ran silent.
+        # client taking only next_command was pointed at a command its own CLI rejects.
+        # This pins the projection and the published reason. Whether any command then advances such
+        # a run is #1899: on an unchanged source the plain resume holds again before reconciliation.
         blockers = {
             "active_stage": {"stage": "sol", "attempts": 2},
             "uncertain_artifacts": ["iterations/002/builder-01.json"],

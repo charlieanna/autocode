@@ -60,9 +60,10 @@ PR template asks for an entry here; a change without one is incomplete.
   repair behind that pause is unreconciled, which its own CLI refuses ("Reconcile the active attempt or pending
   report repair before authorizing a retry"). The pause now says why the retry waits, in `needs.retry_unavailable`
   carrying that same reason, instead of dropping the retry and implying a resume answers it (#1897). One
-  predicate (`autocode_recovery_limits.repeated_failure_retry_refusal`) now feeds the CLI's gate and both
-  projections, replacing the hand-written key sets that disagreed about `uncertain_artifacts` (refused by the
-  CLI, still named by the view) and `active_runner_check` (not refused, but withheld).
+  predicate (`autocode_recovery_limits.repeated_failure_retry_refusal`) now feeds the CLI's gate and both command
+  projections, replacing the hand-written set behind the view's naming, which disagreed with the gate about
+  `uncertain_artifacts`: refused by the CLI, still named by the view. The resolver's own advice keeps its separate
+  and broader key set for now — a divergence that predates this fix, not one it removes.
 - A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
   proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
   without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to
