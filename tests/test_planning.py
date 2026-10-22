@@ -1910,6 +1910,47 @@ class ReviewDepthPolicyTests(unittest.TestCase):
         with self.assertRaises(support.Paused):
             planning.charge(state, "astra_challenge")
 
+    def spent_revision(self, *, blocking=True, **extra):
+        """2/2 spent on challenges; the Planner answered the last one's concerns and the final review is next."""
+        state = self.state(**extra)
+        planning.charge(state, "astra_challenge")
+        state["planning"]["astra_calls"] = 2
+        concern = {"id": "C1", "concern": "AC6 uses a value Python lacks", "blocking": blocking}
+        state["planning"]["reports"] = {
+            "astra_challenge": {"report": {"concerns": [concern]}, "output": "/run/plan-challenge-02.json"},
+            "glm_revise": {"report": {"responses": [{"id": "C1"}]}, "output": "/run/requirements-revise-02.json"},
+        }
+        state["next_stage"] = "astra_finalize"
+        return state
+
+    def test_a_revision_answering_blocking_concerns_gets_its_final_review_once(self):
+        # #1815: a live worker run spent 2/2 on two blocking challenges and stopped before the final review.
+        state = self.spent_revision()
+        planning.charge(state, "astra_finalize")
+        self.assertEqual((3, 3), (state["planning"]["astra_calls"], state["planning"]["review_call_limit"]))
+        self.assertEqual(["C1"], state["planning"]["revision_review_renewal"]["blocking_ids"])
+        cycle.new_cycle(state)
+        state["planning"]["reports"] = self.spent_revision()["planning"]["reports"]
+        state.update(next_stage="astra_finalize")
+        with self.assertRaises(support.Paused) as raised:
+            planning.charge(state, "astra_finalize")
+        self.assertEqual("PAUSED_PLANNING_BUDGET", raised.exception.status, "only one renewal per run")
+        self.assertIn("--planning-review-call-limit N", str(raised.exception))
+
+    def test_no_renewal_without_blocking_concerns_or_against_the_persons_limit(self):
+        for state in (
+            self.spent_revision(blocking=False),
+            self.spent_revision(
+                settings={"planning_review_call_limit": 2, "planning_review_call_limit_origin": "config"}
+            ),
+        ):
+            with self.subTest(state=state["settings"]), self.assertRaises(support.Paused):
+                planning.charge(state, "astra_finalize")
+        state = self.spent_revision()
+        state["next_stage"] = "astra_challenge"
+        with self.assertRaises(support.Paused):
+            planning.charge(state, "astra_challenge")  # never another challenge, only the revision's final review
+
     def test_an_ordinary_restart_still_carries_the_small_brief_total(self):
         state = self.state()
         planning.charge(state, "astra_challenge")

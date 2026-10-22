@@ -106,6 +106,14 @@ class PlanningAllowanceCLITests(unittest.TestCase):
         self.assertNotEqual(self.original_plan["token"], self.status()["displayed_plan"]["token"])
         self.assert_unapproved(used=3)
 
+    def test_the_paused_question_names_the_allowance_and_feedback_not_an_internal_category(self):
+        # #1815: a live worker run waited on "AutoResolver could not resolve internal_default".
+        self.checkpoint(operational=True)
+        shown = json.dumps(self.status()["needs"])
+        self.assertIn("--planning-review-call-limit N", shown)
+        self.assertIn("--feedback TEXT", shown)
+        self.assertNotIn("resolve internal_default", shown)
+
     def test_held_choice_only_saves_without_resuming_or_approving(self):
         view = self.checkpoint(operational=True)
         self.inform(view, "The operator requests total4 review calls; keep scope and plan approval unchanged")

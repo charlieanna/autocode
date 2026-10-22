@@ -27,6 +27,14 @@ PR template asks for an entry here; a change without one is incomplete.
   now carries the rejection it is resuming from in its handoff, and the planning prompts state the same allowances
   the guard enforces instead of telling the Planner to ask the person about its own draft wording.
 
+- On a finished run, a saved step's `restore` is no longer explained as "Pause after the current step": nothing is running, so the status view's `code_checkpoints.blocked_reason` now says a finished run cannot go back to a saved step, that its steps can still be compared, and that a follow-up changes the code. The terminal chat's `/undo` shows that text (#1643).
+- The chat's recent steps no longer show "Orchestrator attempt stopped" on a clean run. The Orchestrator's dispatch launches no process and records no exit code, and that absence was read as a failed exit; a model stage with no exit code still reads as stopped (#1643).
+- A small-brief run no longer stops before the final review of a revision that answered the Plan Reviewer's blocking
+  concerns (#1815). Under the two-call total (#1564) a live `--skip-to-build` run spent both calls on challenges, the
+  Planner revised, and the run waited for a person with nothing left but that review. The runner now allows that one
+  final review once per run; a limit you set (flag or config.toml) is never raised. The planning-budget pause now
+  names `--resume-paused --planning-review-call-limit N` and `--feedback TEXT`, and its question says "a limit
+  AutoCode set by default" instead of "internal_default".
 - A complete Requirements handoff and its repair now agree on `source_refs` (#1822). A handoff that states
   behaviors or acceptance tests must cite at least one existing workspace file; an empty list is valid only while
   it asks clarifying questions, and runner-owned paths such as `.autocode/` are never citable. The Requirements

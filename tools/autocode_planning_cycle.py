@@ -57,6 +57,8 @@ def new_cycle(state: RunState):
         state["planning"]["astra_calls"] = archived.get("astra_calls", 0)
         renewals = archived.get("internal_answer_renewals", 0)
         state["planning"]["internal_answer_renewals"] = renewals
+        if archived.get("revision_review_renewals"):  # once per run (#1815), as the internal-answer renewal
+            state["planning"]["revision_review_renewals"] = archived["revision_review_renewals"]
         if archived.get("internal_answer_restart") and not renewals:
             # AutoCode settled the reviewer's technical question itself and planning restarted, so the
             # redrafted plan needs a review the carried total had already spent: a live run dead-ended at
