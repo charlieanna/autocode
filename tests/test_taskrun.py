@@ -58,6 +58,17 @@ FIXTURE_OPTIONS = (
 
 
 class RunViewTests(unittest.TestCase):
+    def test_ready_boundary_names_advance_without_inventing_a_pause_category(self):
+        for status in ("RUNNING", "DISCOVERING"):
+            with self.subTest(status=status):
+                shown = run_view.view(
+                    {"status": status, "next_stage": "requirements_gather", "phase": "DISCOVERING"},
+                    workspace=Path("/project"), run_dir=Path("/runs/r1"),
+                )
+                self.assertEqual("continue", shown["needs"]["kind"])
+                self.assertIsNone(shown["pause_category"])
+                self.assertEqual("autocode --run-dir /runs/r1 --workspace /project --no-chat", shown["next_command"])
+
     def test_source_inventory_pause_names_reconciliation_without_discarding_the_retained_result(self):
         state = {
             "status": "PAUSED_SOURCE_UNAVAILABLE",

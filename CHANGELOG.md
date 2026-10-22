@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Ready run boundaries now name the existing advance command even though they have no pause category,
+  so terminal and editor clients can continue after Requirements approval (#1901). The Investigator
+  receives its saved stage window and prioritizes a minimal reproduction before expanding source
+  exploration, with the existing evidence and deadline checks retained (#1902).
+
 - The Tester's pause (`PAUSED_ACCEPTANCE_TESTS`) now offers the `--feedback` action it already told the person to
   use (#1869). The core refused it there; it now restarts planning from the pause, as at a planning-budget pause.
   The status view's `chat.input` offers the feedback message, `next_command` is `--feedback 'WHAT TO CHANGE'`

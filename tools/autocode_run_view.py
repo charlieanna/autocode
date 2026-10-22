@@ -783,7 +783,7 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,
         "next_command": None
-        if not category
+        if not category and (need or {}).get("kind") != "continue"
         else pause_command.command(
             need,
             run_dir=run_dir or state.get("run_dir"),

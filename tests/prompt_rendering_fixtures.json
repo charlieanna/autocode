@@ -1,7 +1,7 @@
 {
   "bug/prepared-scratch": {
-    "bytes": 7623,
-    "sha256": "b7a41387f872ccfbf552dead3328e9fc6b1bb198bd38fe7f138362da73591acb"
+    "bytes": 8575,
+    "sha256": "bd489c90de4c5a025a3936ecb8ac476705eba7c442e4c0ea77038e9ff00f7691"
   },
   "containment/astra_checkpoint/False": {
     "bytes": 726,
@@ -148,12 +148,12 @@
     "sha256": "0d8494940168d597951b82bc408db6faaaccca071f78d42174754174c438c51c"
   },
   "job/autocode_bug_job/codex": {
-    "bytes": 6414,
-    "sha256": "27078fcbf9b53f69716b5e9aee7ff757283e196d5c70f514ccdeb6e92b5b5966"
+    "bytes": 7366,
+    "sha256": "d9e852b8003a1a093332d24de1fad293db4f751e2efda6cb88f989a38bf4ae7c"
   },
   "job/autocode_bug_job/opencode": {
-    "bytes": 6417,
-    "sha256": "fa44f9c2ab88d9339719ec06f76a3a2fe636860206e76784b0dc37b9ebdc3376"
+    "bytes": 7369,
+    "sha256": "75bb8276bf4f425fc5f9ad460df6c32a85570f40502ca094d7847f02a2b2a323"
   },
   "job/autocode_design_check_job/codex": {
     "bytes": 2845,
@@ -260,8 +260,8 @@
     "sha256": "707c67144828b4a51e9fdd585ff7077593bfa87208caadc214b455507ade9c7b"
   },
   "package/investigate_bug": {
-    "bytes": 8852,
-    "sha256": "dd33d61bb4201a1ee69d1d872da82530ed3f28a88997ce0079306d4d27dc2b71"
+    "bytes": 9804,
+    "sha256": "fef851ec329d2900645673fc8a8922b7888192d312885fb538e6f3087f44ad16"
   },
   "package/terra": {
     "bytes": 12868,
