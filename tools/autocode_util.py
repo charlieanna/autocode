@@ -325,6 +325,18 @@ class Paused(RuntimeError):
         self.status = status
 
 
+def boundary_pause(error) -> bool:
+    """A pause after a report was accepted, not a rejected output.
+
+    The completion gate runs once the report passed its own checks; it says the run
+    still lacks evidence, so recording that report as a failed output would hide the
+    gate's reason behind an Investigator (#1851). The runner sets the attempt aside
+    under the gate's own status instead (autocode_run_records.set_aside_at_completion_gate).
+    Output-shaped pauses such as PAUSED_ASSIGNMENT_SCOPE stay ordinary rejections.
+    """
+    return isinstance(error, Paused) and error.status == "PAUSED_COMPLETION_GATE"
+
+
 class MissingModule:
     """Stands in for a dependency that failed to import, so a module that needs it only
     at call time still loads: `autocode --version` and `autocode doctor` work without

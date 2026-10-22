@@ -226,7 +226,7 @@ TABLE: dict[str, tuple[str, str]] = {
     ),
     "PAUSED_COMPLETION_GATE": (
         "Completion was refused: required evidence is missing, stale or failed.",
-        "The stop reason names the gap; supply the evidence, then --accept-completion.",
+        "The stop reason names the gap; supply the evidence, then --accept-completion, or --resume-paused for a fresh review.",
     ),
     "PAUSED_ACCEPTANCE_TESTS": (
         "Before any building, the Tester found the approved plan and the code disagree: a case already works or cannot be tested.",

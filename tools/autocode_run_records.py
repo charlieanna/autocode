@@ -524,6 +524,28 @@ def archive_rejected_stage(state: RunState, run_dir, record, reason):
     return originals
 
 
+def set_aside_at_completion_gate(state: RunState, run_dir, record, error, *, persist):
+    """A completion-gate pause (util.boundary_pause) sets its attempt aside and is re-raised; any other error returns.
+
+    The report passed its own checks and the completion gate refused the run's claim (#1851).
+    Not a rejected output: no failure record, no escalation, no report repair, so the
+    Investigator is never involved and the run pauses under the gate's own status and
+    reason. The attempt is still set aside like one (archive_rejected_stage), because an
+    attempt left active made every resume re-apply the same report against the same gate.
+    --resume-paused starts a fresh attempt; the person's review or --accept-completion
+    settle the gap the reason names. ``persist`` is the runner's state writer.
+    """
+    if not util.boundary_pause(error):
+        return
+    account_stage(state, record)
+    originals = archive_rejected_stage(state, run_dir, record, error)
+    run_status.pause(state, error.status, str(error), paused_at=now())
+    persist(Path(run_dir) / "state.json", state)
+    for artifact in originals:
+        artifact.unlink(missing_ok=True)
+    raise error
+
+
 def assert_stage_stopped(record):
     # A lost parent may have left a worker alive. Check without exposing args.
     pid = record.get("pid")

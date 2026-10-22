@@ -172,6 +172,20 @@ if data.get("report_repair"):
                 for event in original_events
                 if event.get("type") == "item.completed" and event.get("item", {}).get("type") == "command_execution"
             ]
+        if original_stage == "sol" and os.environ.get("AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF"):
+            # A report-only repair cites the original execution and shapes the human gap (#1851).
+            result["criterion_results"][0]["evidence_refs"] = ["event:check"]
+            result["end_to_end_result"].update(
+                status="NOT_VERIFIED",
+                summary="Both CLI flows executed; C1 human acceptance pending",
+                evidence_refs=["event:check"],
+                technical_result={
+                    "status": "PASS",
+                    "summary": "Both CLI flows executed",
+                    "evidence_refs": ["event:check"],
+                },
+                pending_human_criteria=["C1"],
+            )
     source_verdict(result)
     if "progressive_checkpoint" in schema.get("properties", {}):
         result.setdefault("progressive_checkpoint", False)
@@ -731,6 +745,12 @@ else:
                         "evidence_refs": ["check:1"],
                     },
                 )
+        if os.environ.get("AUTOCODE_FIXTURE_INCOMPLETE_HUMAN_PROOF"):
+            # The live #1851 shape: the human row cites nothing and the flow proves no technical result.
+            result["criterion_results"][0]["evidence_refs"] = []
+            result["end_to_end_result"].update(
+                status="NOT_VERIFIED", summary="", evidence_refs=[], technical_result=None, pending_human_criteria=[]
+            )
         if os.environ.get("AUTOCODE_FIXTURE_OMIT_CHECKS"):
             result["checks"] = []
         if os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):

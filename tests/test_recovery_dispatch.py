@@ -107,6 +107,51 @@ class SerialDispatchCapacityTests(unittest.TestCase):
         self.assertNotIn("active_stage", self.state)
 
 
+class ReportPausePropagationTests(unittest.TestCase):
+    """A completion-gate pause while applying a report pauses under its own status, with the attempt set aside (#1851).
+
+    Not a rejected output (no failure record, no Investigator), but not left active either: an active attempt made
+    every resume re-apply the same report against the same gate."""
+
+    setUp = test_goals.GoalTests.setUp
+    tearDown = test_assignment_scenarios.AssignmentScenarios.tearDown
+    seed = test_assignment_scenarios.AssignmentScenarios.seed
+    approve = test_assignment_scenarios.AssignmentScenarios.approve
+    greeting_contract = test_assignment_scenarios.AssignmentScenarios.greeting_contract
+
+    def test_a_completion_gate_pause_sets_the_report_aside_under_its_own_status(self):
+        self.seed()
+        self.greeting_contract()
+        self.state["settings"]["orchestration"]["enabled"] = False
+        self.state.update(status="RUNNING", phase="EXECUTING", next_stage="terra")
+        record = {
+            "stage": "terra",
+            "role": "terra",
+            "iteration": 1,
+            "exit_code": 0,
+            "processes": [],
+            "output": str(self.run / "iterations/001/terra-01.json"),
+            "events": str(self.run / "iterations/001/terra-01.jsonl"),
+        }
+        gate = s.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
+        with (
+            patch.object(runner, "run_role", return_value=({}, record)),
+            patch.object(runner, "account_stage"),
+            patch.object(runner, "commit_stage_result", side_effect=gate),
+        ):
+            with self.assertRaises(s.Paused) as caught:
+                runner.autopilot.dispatch_unit(runner, self.state, "terra", self.root, self.run)
+        self.assertEqual("PAUSED_COMPLETION_GATE", caught.exception.status)
+        self.assertEqual(("PAUSED_COMPLETION_GATE", str(gate)), (self.state["status"], self.state["stop_reason"]))
+        self.assertNotIn("failure_history", self.state, "the gate is not a failed output")
+        self.assertNotIn("stuck_investigation", self.state, "no Investigator")
+        self.assertNotIn("active_stage", self.state, "a resume must not re-apply the same report")
+        self.assertEqual("terra", self.state["next_stage"], "a resume starts a fresh attempt of the stage")
+        aside = self.state["stages"][-1]
+        self.assertEqual(("terra", str(gate)), (aside["stage"], aside["rejection_reason"]))
+        self.assertIn("archived-", aside["output"])
+
+
 class ResumeParityTests(unittest.TestCase):
     """The truncated-review fixture, without re-running its tests."""
 
