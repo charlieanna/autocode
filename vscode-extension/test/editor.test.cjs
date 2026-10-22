@@ -1144,7 +1144,8 @@ const RUN_MODES = {
   defaultId: 'full',
   modes: [
     { id: 'full', label: 'Full', description: 'Requirements first.', startArgs: ['--joint-planning', '--spec-first'] },
-    { id: 'quick', label: 'Quick plan', description: 'Clear requests skip Requirements.', startArgs: ['--joint-planning', '--no-spec-first', '--adaptive-planning'] },
+    // The core lists only Full since 2026-10-22; a made-up second mode checks the picker still offers what it lists.
+    { id: 'other', label: 'Other mode', description: 'Another way.', startArgs: ['--joint-planning', '--spec-first', '--max-iterations=2'] },
   ],
 };
 
@@ -1155,23 +1156,35 @@ test('a new chat starts with the run mode picked from the core list and passes i
   const chip = ui.document.getElementById('mode-picker');
   assert.equal(chip.hidden, false, 'a fresh chat offers a mode');
   assert.equal(ui.document.getElementById('mode-name').textContent, 'Full', 'the core default until the person picks');
-  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.id === 'quick'));
+  const picker = t.mock.method(host.vscode.window, 'showQuickPick', async (items) => items.find((item) => item.id === 'other'));
   chip.click(); await flush(); await flush();
   assert.equal(ui.sent.at(-1).type, 'mode');
   const [items, options] = picker.mock.calls[0].arguments;
-  assert.deepEqual(items.map((item) => item.label), ['Full', 'Quick plan']);
-  assert.equal(items[1].detail, 'Clear requests skip Requirements.', 'the core describes each mode');
+  assert.deepEqual(items.map((item) => item.label), ['Full', 'Other mode']);
+  assert.equal(items[1].detail, 'Another way.', 'the core describes each mode');
   assert.ok(options.placeHolder.includes('Full'));
-  assert.equal(ui.saved.get('autocode.chat.mode'), 'quick');
-  assert.equal(ui.document.getElementById('mode-name').textContent, 'Quick plan');
+  assert.equal(ui.saved.get('autocode.chat.mode'), 'other');
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Other mode');
   const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
   ui.type('Build something'); ui.submit(); await flush(); await flush();
   assert.equal(start.mock.callCount(), 1);
-  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--no-spec-first', '--adaptive-planning']);
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first', '--max-iterations=2']);
   assert.equal(chip.hidden, true, 'a started chat keeps the flow it started with');
   const rules = [...ui.document.styleSheets].flatMap((sheet) => [...sheet.cssRules]);
   assert.ok(rules.some((rule) => rule.selectorText === '#composer .chip[hidden]' && rule.style.display === 'none'),
     'the chip style must not override hidden');
+});
+
+test('a saved mode the core no longer lists starts new chats in its default (quick, removed 2026-10-22)', async (t) => {
+  const modes = { defaultId: 'full', modes: [{ ...structuredClone(RUN_MODES.modes[0]), spendConfirmation: 'planning' }] };
+  t.mock.method(controller, 'modes', async () => structuredClone(modes));
+  const ui = await openChat(t, null, false, { storageValues: new Map([['autocode.chat.mode', 'quick']]) });
+  ui.chat.show(); await flush(); await flush();
+  assert.equal(ui.document.getElementById('mode-name').textContent, 'Full');
+  const start = t.mock.method(controller, 'start', async (workspace, brief, created) => { created(run); return new Promise(() => {}); });
+  ui.type('Build something'); ui.submit(); await flush(); await flush();
+  assert.equal(start.mock.callCount(), 1, 'the unlisted choice does not stop the chat starting');
+  assert.deepEqual(start.mock.calls[0].arguments[3], ['--joint-planning', '--spec-first']);
 });
 
 test('Full chat starts a greeting without the spend dialog when the core defers it to planning', async (t) => {

@@ -154,6 +154,16 @@ def modes_text(listed: dict, chosen: NewChat) -> str:
     return "\n".join(lines)
 
 
+def listed_mode(listed: dict, mode: str | None) -> str | None:
+    """``mode`` while the core still lists it, else None (the core's default).
+
+    A choice saved in an earlier session may name a mode the core has since dropped,
+    such as "quick" (removed 2026-10-22); a new chat then starts in the default
+    rather than failing."""
+    ids = {row.get("id") for row in listed.get("modes") or [] if isinstance(row, dict)}
+    return mode if mode in ids else None
+
+
 def choose_mode(listed: dict, wanted: str) -> str | None:
     """The mode id the core lists for ``wanted`` (by id or label), or None."""
     word = wanted.strip().lower()

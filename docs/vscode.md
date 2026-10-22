@@ -20,15 +20,16 @@ change the conversation shown in another. The Runs list in each window can
 still open any task registered for that workspace.
 
 New sidebar chats start in the run mode shown on the **Run mode** chip beside the
-engine chip: **Full** (the default) or **Quick plan**. The list and each mode's
-flags come from `autocode modes list --json`
+engine chip. AutoCode lists one mode, **Full**: every chat starts with the
+Requirements conversation (the **Quick plan** mode that skipped it was removed
+on 2026-10-22). The list and each mode's flags come from
+`autocode modes list --json`
 ([Run modes for clients](task-run.md#run-modes-for-clients)); the extension
-passes the chosen mode's flags unchanged. Your choice is remembered for new
-chats in this workspace, and a chat that has started keeps the flow it started
-with, so the chip shows only on a new chat. An AutoCode without run modes shows
-no chip and starts the full flow. Quick plan sends a clear request straight to
-the plan without the Requirements conversation; you still approve the plan,
-and the Tester and Completion Reviewer still check the work.
+passes the chosen mode's flags unchanged. A choice is remembered for new
+chats in this workspace; one the list no longer names, such as Quick plan,
+starts Full. A chat that has started keeps the flow it started with, so the
+chip shows only on a new chat. An AutoCode without run modes shows no chip and
+starts the full flow.
 
 In the full flow, new sidebar chats enable joint planning and the core's `--spec-first` flow.
 The Requirements agent answers your first message, whatever it is, and talks

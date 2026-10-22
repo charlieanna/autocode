@@ -1685,13 +1685,21 @@ run keeps the flow it started with. Listing launches nothing and reads no run.
 Optional `spend_confirmation` is `"planning"` for Full mode: start the Requirements
 conversation without a spend dialog, then honor the core's review confirmation
 before preparing the plan. Requirements conversation still uses the selected
-model allowance. Quick mode uses `"start"` because it can plan immediately.
-Missing or unknown metadata retains confirmation at launch for older cores.
+model allowance. A mode with `"start"` (none today) can plan immediately, so a
+client confirms at launch. Missing or unknown metadata retains confirmation at
+launch for older cores.
 
 | Mode | Start flags | What it changes |
 | --- | --- | --- |
 | `full` (default) | `--joint-planning --spec-first` | Requirements talks with the person and confirms what it understood before the plan is prepared ([Spec-first runs](spec-first.md)). |
-| `quick` | `--joint-planning --no-spec-first --adaptive-planning` | A request the Job recognizer judges clear goes straight to the plan without Requirements; a vague one still gets it ([Adaptive planning](adaptive-planning.md)). |
+
+Every chat starts with the Requirements conversation (owner decision,
+2026-10-22), so `full` is the only mode listed. The `quick` mode
+(`--joint-planning --no-spec-first --adaptive-planning`), which let a clear
+request skip Requirements, was removed; the `--adaptive-planning` flag itself
+remains. A client still reads the list rather than assuming one mode, and a
+choice it saved that the list no longer names, such as `quick`, starts the
+default instead of failing.
 
 Every mode keeps the plan approval, the Tester and the Completion Reviewer: a
 mode changes how much planning happens before approval, never what counts as

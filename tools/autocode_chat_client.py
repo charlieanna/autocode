@@ -10,7 +10,7 @@ the run should do next; where the view names no action it can take, it prints th
 command for the person to run instead.
 
     autocode chat "Add a --verbose flag"            start a run here and talk to it
-    autocode chat --mode quick "Fix the typo"       start with a run mode from `autocode modes list`
+    autocode chat --mode full "Fix the typo"        start with a run mode from `autocode modes list`
     autocode chat                                   pick up this project's open run, or ask what to do
     autocode chat --run-dir RUN                     pick up that run
     autocode chat "..." -- --engine claude          options for a new run, after --
@@ -137,6 +137,11 @@ class History:
     def chose(self, done: str) -> str:
         kept = self.new.save(self.workspace)
         return done + ("" if kept else " (for this session: the project has no .autocode yet)")
+
+    def forget_unlisted_mode(self) -> None:
+        """A saved mode the core no longer lists gives way to its default; an unreadable list keeps it."""
+        with contextlib.suppress(actions.ClientGap):
+            self.new.mode = setup.listed_mode(self.read(["modes", "list", "--json"]), self.new.mode)
 
     def mode(self, argument: str) -> str:
         listed = self.read(["modes", "list", "--json"])
@@ -1238,6 +1243,8 @@ def cli(argv: list[str] | None = None) -> int:
         saved = setup.NewChat.load(workspace)
         new = setup.NewChat(args.mode or saved.mode, list(options) if options else saved.options)
         history = History(workspace.resolve(), new=new)
+        if args.mode is None and saved.mode is not None:
+            history.forget_unlisted_mode()
         if ui is not None:
             history.outside = ui.outside
         if ui is not None and args.run_dir is None:
