@@ -115,6 +115,13 @@ registry and retains unavailable pointers with their diagnostic. Both surfaces
 use the core's named commands, including the optional `view.chat.input` offer.
 Commands use argument arrays; issued tokens stay in the child environment.
 
+While a step works, the conversation shows the live agent log the status view
+names (`view.chat.log`): what each running agent thinks (`∴`), says (`»`) and
+does (`$`, `±`, `·`), with its screen name. Like the terminal chat's `/live`,
+those entries are display only — a thought is not a report and a command shown
+is not a passed check. Where an older core offers only `chat.activity`, the
+conversation shows those tool marks instead.
+
 Starting a new chat asks you to confirm model spend. Buttons that save an input
 and then advance explicitly say **and continue**; advancing uses the run’s saved
 provider and per-role routes. Person-only recovery decisions still require their
