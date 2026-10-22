@@ -1892,10 +1892,17 @@ build, so that what you approve is what gets built (#1200).</p>
 the outcome, the behaviors, the acceptance examples, the constraints, what it left out and its
 assumptions.</p>
 <ul>
-<li>Answer <code>plan</code> to start the Planner.</li>
+<li>Answer <code>plan</code> to start the job: the Planner for a build, the Investigator for a bug fix, the Code
+  Reviewer or the Designer for a review or a design.</li>
 <li>Answer anything else to correct it: Requirements runs again with your answer and asks again.</li>
 <li><code>--feedback</code> works as usual.</li>
 </ul>
+<p>The handoff names the job Requirements understood (<code>job</code>: <code>build</code>, <code>bugfix</code>, <code>review</code>, <code>design</code>,
+<code>discuss</code>, or <code>none</code> while no outcome is named yet), and the question says what approving starts. Only a
+build or a bug fix needs behaviors and acceptance tests; a review, a design or a question names its
+outcome and nothing else. A question is never asked to be approved: once Requirements understands it
+and has nothing to ask, the Analyst answers it straight away. The Job recognizer runs only when
+Requirements named no job (#1846).</p>
 <p>Adaptive planning never skips Requirements on such a run. Planning, plan review and plan approval are
 unchanged.</p>
 <p>Without the setting, a complete handoff goes straight to planning. A handoff that has only questions so

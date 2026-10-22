@@ -2382,7 +2382,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/bdef0e5e4c54eba9c20e0b8040add19d2b6b23f5/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/0a6412f9ca79f5e834891a35008b2ba315f5bbbd/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2589,13 +2589,17 @@ the first message of a spec-first run, whatever it says: a greeting or an
 off-topic question gets a short answer and a question about what to build or
 change. Until Requirements finds work to do, the person's newest reply becomes
 the task; the source log keeps the first message and each reply as separate
-sources. The Job recognizer runs once the person approves what Requirements
-understood, and judges the job from that understanding. Model access probes for
+sources. Requirements names the job it understood (#1846). A question goes
+straight to the Analyst without a confirmation; any other job starts once the
+person approves what Requirements understood. The Job recognizer runs, after
+that approval, only when Requirements named no job. Model access probes for
 planning and execution roles wait until the user confirms the requirements.</p>
 <p>When the only pending question is the core's current requirements review,
 <code>review</code> offers its <code>question_id</code>, exact <code>answer</code>, <code>label</code> and bound <code>summary</code>.
 A client may display that summary and submit the ordinary named answer action.
-This confirms the understanding and releases plan preparation and review.
+This confirms the understanding and starts the job Requirements named: plan
+preparation and review for a build, the investigation for a bug fix, the review
+or the design work. The <code>label</code> and <code>spend_confirmation</code> say which.
 The resulting execution plan still needs its own displayed-token approval.
 The optional <code>review.spend_confirmation</code> supplies the modal's <code>title</code>, <code>detail</code>
 and confirm-button <code>label</code> before submitting that review's planning answer.
@@ -2813,7 +2817,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/bdef0e5e4c54eba9c20e0b8040add19d2b6b23f5/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/0a6412f9ca79f5e834891a35008b2ba315f5bbbd/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3330,7 +3334,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/bdef0e5e4c54eba9c20e0b8040add19d2b6b23f5/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/0a6412f9ca79f5e834891a35008b2ba315f5bbbd/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -3669,13 +3673,14 @@ human decisions remain intact and hold the handoff before either route. Modified
 sealed evidence pauses before dispatch. Every assigned repair still requires
 fresh verification and independent completion acceptance.</p>
 <p><code>workflow</code> is the kind of job AutoCode recognized from the request, decided by
-the first stage of every new run (<code>recognize_workflow</code>; in a spec-first run, once
-the person approves the requirements): one of <code>build</code>,
+the first stage of every new run (<code>recognize_workflow</code>), or in a spec-first run
+by the Requirements stage the person talks with (#1846): one of <code>build</code>,
 <code>bugfix</code>, <code>review</code>, <code>design</code> or <code>discuss</code> (see <code>scenarios/README.md</code>,
 "Workflows"). It is <code>null</code> until that stage has run, and for runs that predate
-it. <code>workflow_source</code> is <code>"model"</code> when the recognizer decided it and <code>"user"</code>
-when <code>--workflow</code> named it; <code>workflow_reason</code> is the recognizer's one-sentence
-reason. Both are <code>null</code> whenever <code>workflow</code> is.</p>
+it. <code>workflow_source</code> is <code>"model"</code> when a model decided it (the recognizer, or
+Requirements in a spec-first run) and <code>"user"</code> when <code>--workflow</code> named it;
+<code>workflow_reason</code> is the recognizer's one-sentence reason, or
+<code>Requirements understood: &lt;outcome&gt;</code>. Both are <code>null</code> whenever <code>workflow</code> is.</p>
 <p><code>planning_depth</code> shows how much planning the run chose and why
 (<a href="../adaptive-planning/">adaptive planning</a>). It is always present:</p>
 <table>
