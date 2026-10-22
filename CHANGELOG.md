@@ -37,6 +37,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A bug fix no longer stops at `PAUSED_ACCEPTANCE_TESTS` when a `test:` case its own plan added already works. That
+  case goes back to plan review relabelled `guard:`, as in a build; only the Investigator's reproduction passing
+  today still pauses the run, with a message saying the diagnosis and the code disagree (#1868).
 - A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
   proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
   without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to
