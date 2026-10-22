@@ -41,8 +41,8 @@ PR template asks for an entry here; a change without one is incomplete.
   proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
   without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to
   offer the person's review, and the run deadlocked. A completion-gate pause raised while applying an accepted
-  result now surfaces as its own status instead of being caught as a rejected output, archived and handed to the
-  Investigator (#1851).
+  result now pauses under its own status with the gate's reason, with no failure record and no Investigator; the
+  report is set aside so a resume starts a fresh attempt instead of re-applying it against the same gate (#1851).
 - A new human follow-up gets its own default planning-review allowance while preserving cumulative usage
   and explicit user-selected bounds. Inherited criteria can be retained by hash instead of paraphrased,
   and default-flow final reviews return a hash-bound verdict rather than copying the full plan again. Ordinary

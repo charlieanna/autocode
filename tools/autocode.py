@@ -154,7 +154,7 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_role_transport as role_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
     from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
-    from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
+    from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage, set_aside_at_completion_gate,  # noqa: F401 - compatibility API
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
@@ -202,7 +202,7 @@ except ImportError:
     import autocode_run_setup as run_setup  # noqa: F401 - compatibility API
     import autocode_output_policy as output_policy
     import autocode_output_cap as output_cap  # noqa: F401 - compatibility API
-    from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
+    from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage, set_aside_at_completion_gate,  # noqa: F401 - compatibility API
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
@@ -414,6 +414,7 @@ REPAIR_HANDOFF_BYTES = 256 * 1024
 
 
 def reject_completed_stage(state: RunState, run_dir, record, error):
+    set_aside_at_completion_gate(state, run_dir, record, error, persist=write_json)  # a gate pause re-raises here
     result_application.raise_if_not_rejected(error)
     account_stage(state, record)
     error = stray_writes.undo(state, record, error)  # a read-only stage's writes are put back first
