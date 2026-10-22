@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- The Tester's pause (`PAUSED_ACCEPTANCE_TESTS`) now offers the `--feedback` action it already told the person to
+  use (#1869). The core refused it there; it now restarts planning from the pause, as at a planning-budget pause.
+  The status view's `chat.input` offers the feedback message, `next_command` is `--feedback 'WHAT TO CHANGE'`
+  instead of a `--resume-paused` that reruns the same Tester on the same plan, and `needs.guidance` says what
+  feedback and a resume each do. `needs.kind` stays `resume`.
+
+
 - `autocode unattended` now refuses `--skip-requirements`, `--skip-to-build`, `--allow-uncontained-tools`,
   `--accept-source-edit` and the companions of a recovery (`--grant-recovery`, `--job-retry-token`, `--resolver-token`,
   `--revise-protected-tests`, `--submit-repair`, …), which it previously let an agent pass although they decide for

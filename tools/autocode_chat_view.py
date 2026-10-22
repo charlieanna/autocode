@@ -16,11 +16,13 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_acceptance_tests_job as acceptance_tests_job
     from . import autocode_chat_history as history
     from . import autocode_pause_authority as pause_authority
     from . import autocode_requirements_chat as requirements_chat
     from . import autocode_requirements_review as requirements_review
 except ImportError:
+    import autocode_acceptance_tests_job as acceptance_tests_job
     import autocode_chat_history as history
     import autocode_pause_authority as pause_authority
     import autocode_requirements_chat as requirements_chat
@@ -136,6 +138,9 @@ def project(state: RunState, public, *, run_dir=None, workspace=None):
             else ("Send message" if (state.get("settings") or {}).get("spec_first") else "Send plan feedback"),
             "--feedback",
         )
+    elif status == acceptance_tests_job.PAUSE and not pause_authority.feedback_refusal(state):
+        # The Tester's pause says --feedback revises the plan; offer it so a client can take it (#1869).
+        action = ("feedback", "Send plan feedback", "--feedback")
     context = hashlib.sha256(
         json.dumps(
             [status, len(turns), need, state.get("displayed_goal"), len(state.get("user_events") or [])],

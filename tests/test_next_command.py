@@ -25,6 +25,11 @@ class NextCommandTests(unittest.TestCase):
             "--retry-failed-stage", run_actions.next_command({"status": "PAUSED_REPEATED_FAILURE"}, None, "rd", "ws")
         )
 
+    def test_the_testers_pause_names_feedback_not_a_resume_that_repeats_it(self):
+        advice = run_actions.next_command({"status": "PAUSED_ACCEPTANCE_TESTS"}, None, "rd", "ws")
+        self.assertIn("--feedback", advice)
+        self.assertNotIn("--resume-paused", advice)
+
 
 if __name__ == "__main__":
     unittest.main()

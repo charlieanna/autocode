@@ -151,6 +151,10 @@ class ConformanceDriver(Driver):
         needs none, ``retry_action`` (one explicit scoped retry).
         """
         need = view["needs"]
+        if need["kind"] == "resume" and ((view.get("chat") or {}).get("input") or {}).get("kind") == "feedback":
+            # The pause offers plan feedback (the Tester's, #1869); a resume reruns the same stage on the
+            # same plan, and the feedback text is the person's, so the client stops rather than resume.
+            return None
         if need["kind"] in ("resume", "retry_job"):
             return self.named_command(view)
         if need.get("retry_action"):

@@ -119,6 +119,22 @@ class ChatViewTests(unittest.TestCase):
             }
             self.assertIsNone(chat.project(state, public, workspace="/ws", run_dir="/run")["input"])
 
+    def test_the_testers_pause_offers_plan_feedback_unless_it_is_operational(self):
+        state = {"status": "PAUSED_ACCEPTANCE_TESTS", "task": "Fix it"}
+        public = {"status": state["status"], "needs": {"kind": "resume"}}
+        result = chat.project(state, public, workspace="/ws", run_dir="/run")
+        self.assertEqual("feedback", result["input"]["kind"])
+        self.assertEqual(
+            ["autocode", "--workspace", "/ws", "--run-dir", "/run", "--feedback", "MESSAGE"],
+            shlex.split(result["input"]["next_command"]),
+        )
+        held = {**state, "status": "WAITING_FOR_USER", "user_request": {"kind": "blocker"}}
+        public = {"status": held["status"], "needs": {"kind": "answer", "resolver_scope": "operational_exhaustion"}}
+        self.assertIsNone(chat.project(held, public, workspace="/ws", run_dir="/run")["input"])
+        other = {"status": "PAUSED_REPEATED_FAILURE"}
+        public = {"status": other["status"], "needs": {"kind": "resume"}}
+        self.assertIsNone(chat.project(other, public, workspace="/ws", run_dir="/run")["input"])
+
     def test_pending_operational_request_offers_bound_reply_only(self):
         state = {"status": "WAITING_FOR_USER", "user_request": {"kind": "blocker"}}
         need = {
