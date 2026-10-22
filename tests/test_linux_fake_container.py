@@ -111,6 +111,14 @@ class LinuxFakeContainerTests(unittest.TestCase):
         self.assertNotIn("ADD", instructions)
         self.assertIn("FROM ubuntu:24.04@sha256:", dockerfile)
         self.assertIn("ARG GO_VERSION=1.25.5", dockerfile)
+        # Go's archives are checked against pinned hashes: go.dev's .sha256 URLs answer with HTML (#1878).
+        self.assertIn(
+            "ARG GO_SHA256_AMD64=9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b", dockerfile
+        )
+        self.assertIn(
+            "ARG GO_SHA256_ARM64=b00b694903d126c588c378e72d3545549935d3982635ba3f7a964c9fa23fe3b9", dockerfile
+        )
+        self.assertNotIn("${go_archive}.sha256", dockerfile)
         self.assertIn("ARG NODE_VERSION=22.18.0", dockerfile)
         self.assertIn("python3.11", dockerfile)
 
