@@ -61,6 +61,7 @@ def progress(
     reviewed=(),
     stopped: str | None = None,
     finished: bool = False,
+    following: str | None = None,
 ) -> dict:
     """The progress projection of one run.
 
@@ -70,6 +71,8 @@ def progress(
     reviewed  criterion IDs whose human review receipt is valid now (autocode_goals.missing_human_reviews)
     stopped   the next action when the recorded workers are gone with no saved report, else None
     finished  the running stage's turn is over (its report is saved, not yet applied)
+    following screen name of the job after that finished stage, when the run already knows it
+              (#1711: a finished Builder must not keep the headline across a Builder→Tester handoff)
     """
     status = state.get("status", "")
     done = status in COMPLETE
@@ -98,7 +101,10 @@ def progress(
         # --chat run is asking at its prompt, and otherwise the next launch shows it.
         headline, asked = "Waiting for you", "plan approval needed"
     elif stage and state.get("active_stage") and finished:
-        headline = f"{stage} finished"
+        # The attempt saved its report. Name the job that comes next when the run
+        # already knows it, so a finished Builder does not keep the headline while
+        # the Tester is already queued (#1711).
+        headline = f"{stage} finished · Next: {following}" if following else f"{stage} finished"
     elif stage and state.get("active_stage"):
         # Recognition chooses the workflow before planning. Explain the activity
         # without making it sound like a separate conversation with another agent;

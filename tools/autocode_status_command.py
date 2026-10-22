@@ -211,6 +211,11 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
     stale_check = stale_check or bool(check and state.get("status") == "RUNNING" and lost_check_supervisor)
     checkpoint = runner.milestones.summary(state)
     stage = (active or {}).get("stage") or state.get("next_stage")
+    # A finished attempt still sits in active_stage until its record is saved. The
+    # job after it is what a person should see next to that "finished" line (#1711).
+    following_id = state.get("next_stage") if active_finished else None
+    if following_id and following_id == (active or {}).get("stage"):
+        following_id = None
     next_action = (
         f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"
         if stale
@@ -228,6 +233,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         if stage
         else None
     )
+    following_name = None if stale_check or not following_id else runner.autocode_status.role_name(following_id, state)
     public_view["progress"] = progress_view.progress(
         state,
         accepted=checkpoint["accepted_milestones"],
@@ -236,6 +242,7 @@ def render(runner, state: "RunState", args, workspace, run_dir, *, design_input_
         stopped=next_action,
         finished=bool(active_finished),
         stage=stage_name,
+        following=following_name,
     )
     public_view["chat"]["progress"] = chat_progress.project(
         state, public_view, finished=bool(active_finished), stopped=bool(next_action)
