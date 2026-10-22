@@ -18,6 +18,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A planning revision no longer loops between the reviewer's blocking concerns and a protected draft contract.
+  The Planner may correct or drop its own `agent_proposed` assumption without declaring a permission change, and an
+  unapproved criterion it may reword may correct its unmarked verification in the same revision; a runner-checked
+  proof still cannot become a plain command. Text saved from the person's answer, feedback or delegation stays
+  theirs: rewording or dropping it is refused and, even in an unapproved draft, becomes one question naming the
+  proposed text (or that the assumption is dropped) instead of a generic pause and report repair. A resumed stage
+  now carries the rejection it is resuming from in its handoff, and the planning prompts state the same allowances
+  the guard enforces instead of telling the Planner to ask the person about its own draft wording.
+
 - The terminal chat live log now shows an honest streaming activity indicator when Kilo supplies hashed progress without prose, instead of claiming no agent is working. Actual prose replaces the indicator when supplied; hashes and tool output stay out of the display, and supervision checks remain enforced (#1837).
 - On a finished run, a saved step's `restore` is no longer explained as "Pause after the current step": nothing is running, so the status view's `code_checkpoints.blocked_reason` now says a finished run cannot go back to a saved step, that its steps can still be compared, and that a follow-up changes the code. The terminal chat's `/undo` shows that text (#1643).
 - The chat's recent steps no longer show "Orchestrator attempt stopped" on a clean run. The Orchestrator's dispatch launches no process and records no exit code, and that absence was read as a failed exit; a model stage with no exit code still reads as stopped (#1643).

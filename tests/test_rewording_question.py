@@ -253,6 +253,121 @@ class GuardTests(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, rewording.ProtectedRewording)
 
 
+TRACED = "notes.json is created at the workspace root, next to the CLI."
+TRACED_PROPOSED = "notes.json is created in the working directory where the CLI is invoked."
+
+
+class DraftAssumptionQuestionTests(unittest.TestCase):
+    """A live planning revision (2026-10-21): an assumption saved from the person's answer is their text even in an unapproved draft."""
+
+    def inputs(self):
+        body = {
+            "acceptance_criteria": [],
+            "required_behaviors": [],
+            "scope_exclusions": [],
+            "constraints": [],
+            "important_failure_cases": [],
+            "permission_boundaries": [],
+            "accepted_assumptions": [{"text": TRACED, "basis": "user_answer", "answer_id": "A1"}],
+            "delegated_decisions": [],
+        }
+        sealed = {"task_id": "t1", "revision": 1, "body": body}
+        return {
+            "goal_contract": {
+                **sealed,
+                "hash": util.digest(sealed),
+                "approval_status": "draft",
+                "approval_event": None,
+                "origin": "glm_draft",
+            },
+            "answers": {"A1": {"kind": "answer", "text": "next to the CLI"}},
+        }
+
+    def reworded(self, state):
+        after = copy.deepcopy(state["goal_contract"]["body"])
+        after["accepted_assumptions"] = [{"text": TRACED_PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+        changes = [
+            {
+                "item": TRACED,
+                "change": "reworded",
+                "basis": "agent_proposed",
+                "answer_id": "",
+                "replacement": TRACED_PROPOSED,
+            }
+        ]
+        return after, changes
+
+    def test_a_reworded_assumption_asks_with_the_proposed_text_and_round_trips(self):
+        state = self.inputs()
+        after, changes = self.reworded(state)
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, changes, "glm_revise")
+        self.assertEqual(
+            [{"item": TRACED, "approved": TRACED, "proposed": TRACED_PROPOSED, "traced": True}],
+            caught.exception.rewordings,
+        )
+        asked = rewording.question(state, caught.exception.rewordings)
+        self.assertIn("traced to your answers", asked["question"])
+        self.assertIn(f"approved: {json.dumps(TRACED)}", asked["question"])
+        self.assertIn(f"proposed: {json.dumps(TRACED_PROPOSED)}", asked["question"])
+        self.assertEqual("Text traced to your answer changes only with your answer.", asked["why"])
+        proposal = {
+            "scope": "clarification",
+            "questions": [asked],
+            "evidence": {
+                "rewording": {
+                    "contract_token": rewording.contract_token(state),
+                    "rewordings": caught.exception.rewordings,
+                }
+            },
+        }
+        self.assertTrue(rewording.accepts(state, proposal))
+
+    def test_the_answer_lets_the_next_revision_make_the_change(self):
+        state = self.inputs()
+        after, changes = self.reworded(state)
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, changes, "glm_revise")
+        asked = rewording.question(state, caught.exception.rewordings)
+        state["answers"][asked["id"]] = {"kind": "answer", "actor": "user_cli", "text": rewording.ACCEPT}
+        changes = [dict(changes[0], basis="user_answer", answer_id=asked["id"])]
+        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+    def test_a_dropped_assumption_is_named_as_a_drop_and_its_answer_lets_it_go(self):
+        state = self.inputs()
+        after = copy.deepcopy(state["goal_contract"]["body"])
+        after["accepted_assumptions"] = []
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, [], "glm_revise")
+        [row] = caught.exception.rewordings
+        self.assertEqual(TRACED, row["approved"])
+        self.assertTrue(row["proposed"].startswith("(the revised plan no longer keeps"))
+        asked = rewording.question(state, caught.exception.rewordings)
+        state["answers"][asked["id"]] = {"kind": "answer", "actor": "user_cli", "text": rewording.ACCEPT}
+        changes = [
+            {"item": TRACED, "change": "removed", "basis": "user_answer", "answer_id": asked["id"], "replacement": ""}
+        ]
+        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+    def test_the_question_is_queued_as_the_persons_clarification_not_a_repair(self):
+        state = self.inputs()
+        state["pending_report_repair"] = {"attempts": 1}
+        after, changes = self.reworded(state)
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, changes, "glm_revise")
+        queued = {}
+
+        def queue(target, scope, origin, **kwargs):
+            queued.update(scope=scope, origin=origin, **kwargs)
+
+        self.assertTrue(
+            rewording.ask(state, {"stage": "glm_revise", "output": "/run/revise.json"}, caught.exception, queue)
+        )
+        self.assertEqual("clarification", queued["scope"])
+        self.assertEqual("DISCOVERING", queued["phase"])
+        self.assertNotIn("pending_report_repair", state)
+
+
 class AskTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
     tearDown = base.RetrofitTest.tearDown

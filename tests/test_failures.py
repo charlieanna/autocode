@@ -1,5 +1,6 @@
 """A stage pauses for repeated failure only when it keeps failing the same way."""
 
+import copy
 import unittest
 
 import autocode_failures as failures
@@ -110,6 +111,53 @@ class LedgerTests(unittest.TestCase):
         }
         self.assertIsNotNone(failures.repeated(self.state, {"failure_key": "k"}))
         self.assertIsNotNone(failures.repeated(self.state, {"stage": "terra", "source_revision": "r1"}))
+
+
+class RecentRejectionTests(unittest.TestCase):
+    """A live planning revision (2026-10-21): a resumed stage is told the rejection it is resuming from; the ledger only."""
+
+    def setUp(self):
+        self.state = {"stages": []}
+        self.iteration = 0
+
+    def reject(self, text, at, revision="r1", stage="glm_revise"):
+        self.iteration += 1
+        row = {
+            "stage": stage,
+            "iteration": self.iteration,
+            "source_revision": revision,
+            "output": f"/run/iterations/{self.iteration:03d}/{stage}-01.json",
+        }
+        entry = failures.record(self.state, row, ValueError(text), at)
+        self.state["stages"].append(row)
+        return entry
+
+    def succeed(self, stage="glm_revise"):
+        self.iteration += 1
+        self.state["stages"].append(
+            {"stage": stage, "iteration": self.iteration, "output": f"/run/{self.iteration}.json"}
+        )
+
+    def test_the_rejection_is_reported_until_a_later_outcome_of_that_stage(self):
+        entry = self.reject("AC9 keeps every request quote", "t1")
+        self.assertIs(entry, failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIsNone(failures.recent_rejection(self.state, "astra_plan"))
+        self.succeed("astra_challenge")  # another stage's later row does not end it
+        self.assertIs(entry, failures.recent_rejection(self.state, "glm_revise"))
+        self.succeed()
+        self.assertIsNone(failures.recent_rejection(self.state, "glm_revise"))
+
+    def test_the_newest_rejection_is_the_one_reported(self):
+        self.reject("first refusal", "t1")
+        later = self.reject("second refusal", "t2", revision="r2")
+        self.assertIs(later, failures.recent_rejection(self.state, "glm_revise"))
+        self.assertIn("second refusal", later["last_error"])
+
+    def test_reading_the_rejection_writes_nothing(self):
+        self.reject("first refusal", "t1")
+        before = copy.deepcopy(self.state)
+        self.assertIsNotNone(failures.recent_rejection(self.state, "glm_revise"))
+        self.assertEqual(before, self.state)
 
 
 class PauseTests(unittest.TestCase):

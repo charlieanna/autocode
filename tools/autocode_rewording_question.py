@@ -55,9 +55,12 @@ def question(state: RunState, rewordings: list[dict]) -> dict:
     (``approved_proof``/``proposed_proof``) when those differ, and the blocking review ``concern`` that asked for
     the change in a plan nobody approved (#1630)."""
     reviewed = any(row.get("concern") for row in rewordings)
+    traced = any(row.get("traced") for row in rewordings)
     lines = [
         "The Plan Reviewer asked the Planner to change text traced to your request:"
         if reviewed
+        else "The Planner wants to change text traced to your answers:"
+        if traced
         else "The Planner wants to change wording you approved:"
     ]
     for row in rewordings:
@@ -78,6 +81,8 @@ def question(state: RunState, rewordings: list[dict]) -> dict:
         "question": "\n".join(lines),
         "why": "Text traced to your request changes only with your answer."
         if reviewed
+        else "Text traced to your answer changes only with your answer."
+        if traced
         else "A plan you approved changes only with your answer.",
         "options": [ACCEPT, KEEP],
         "proposed_default": KEEP,

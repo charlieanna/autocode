@@ -26,6 +26,24 @@ except ImportError:
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
+# The person's own words. A delegated decision is the Planner's choice made on the person's behalf, so
+# the Planner may revise it like its own proposal; a delegated answer can still authorize a change.
+PERSON_TEXT_BASES = ("user_answer", "user_feedback")
+DROP_ASSUMPTION = "(the revised plan no longer keeps this assumption)"
+
+
+def decision_rows(body: dict) -> dict:
+    return {
+        row["text"]: row
+        for key in ("accepted_assumptions", "delegated_decisions")
+        for row in body.get(key, [])
+        if isinstance(row, dict) and isinstance(row.get("text"), str) and row.get("text")
+    }
+
+
+def user_backed_assumptions(body: dict) -> dict:
+    """Assumption texts saved from the person's own answer or feedback."""
+    return {text: row for text, row in decision_rows(body).items() if row.get("basis") in PERSON_TEXT_BASES}
 
 
 def protected_proof(state: RunState, criterion: dict) -> bool:
@@ -56,11 +74,16 @@ def protected_proof(state: RunState, criterion: dict) -> bool:
     return False
 
 
-def draft_proof_corrections(state: RunState, before: dict, after: dict) -> set[str]:
+def draft_proof_corrections(state: RunState, before: dict, after: dict, reworded=()) -> set[str]:
     """Only planner-generated draft proofs may change without a saved user basis.
 
     Preserve criterion text, human review and runner-enforced proof requirements.
     Verification mentioned only in free-form task text has no structured provenance.
+    A criterion the unapproved-wording allowance may reword may correct its verification with
+    the same revision: a live revision aligned AC9's README prose with the user's storage answer,
+    kept the request quote, and was still refused because the proof had moved with the wording
+    (a live planning revision, 2026-10-21). A marked proof still never becomes an unmarked command, and a user-protected proof
+    never changes here.
     """
     contract = state.get("goal_contract") or {}
     if contract.get("approval_status") != "draft" or contract.get("approval_event"):
@@ -71,7 +94,7 @@ def draft_proof_corrections(state: RunState, before: dict, after: dict) -> set[s
     return {
         cid
         for cid in old.keys() & new.keys()
-        if old[cid]["criterion"] == new[cid]["criterion"]
+        if (old[cid]["criterion"] == new[cid]["criterion"] or cid in reworded)
         and old[cid].get("human_review") == new[cid].get("human_review")
         and str(new[cid].get("verification_method") or "").strip()
         and old[cid]["verification_method"] != new[cid]["verification_method"]
@@ -110,6 +133,9 @@ def unapproved_rewordings(previous_contract, previous, body, protected_history):
 def saved_user_basis(state: RunState, basis, answer_id):
     if basis == "user_answer":
         return bool(answer_id) and answer_id in state.get("answers", {})
+    if basis == "delegated":
+        answer = state.get("answers", {}).get(answer_id) if answer_id else None
+        return isinstance(answer, dict) and answer.get("kind") == "delegated"
     if basis == "user_feedback":
         return bool(answer_id) and any(
             event.get("id") == answer_id and event in state.get("user_events", [])
@@ -130,6 +156,8 @@ def canonical_items(previous: dict, changes: list) -> list:
     """
     criteria = {row["id"]: row.get("criterion", "") for row in previous.get("acceptance_criteria", []) if row.get("id")}
     texts = {text for key in (*PROTECTED_LISTS, "permission_boundaries") for text in previous.get(key, [])}
+    # A declared assumption change may wrap its text the same way (`accepted_assumptions: "<text>"`).
+    texts |= set(decision_rows(previous))
 
     def canonical(item):
         if not isinstance(item, str) or item in texts or item in criteria:
@@ -164,7 +192,10 @@ def _reject_unchanged_rewordings(previous, body, changes):
             unchanged = item in new and _criterion_signature(old[item]) == _criterion_signature(new[item])
         else:
             owners = [key for key in PROTECTED_LISTS if item in previous.get(key, [])]
-            unchanged = bool(owners) and all(item in body.get(key, []) for key in owners)
+            if owners:
+                unchanged = all(item in body.get(key, []) for key in owners)
+            else:
+                unchanged = item in decision_rows(previous) and item in decision_rows(body)
         if unchanged:
             raise ValueError(
                 f"contract_changes names {item!r}, which was not changed in the protected contract; drop that row"
@@ -192,14 +223,34 @@ def reviewer_backed(state: RunState, item) -> str | None:
     return None
 
 
-def _review_question(state: RunState, previous: dict, body: dict, items, message: str):
-    """Raise the person's question for refused criterion changes a blocking concern asked for, if every one was."""
+def _review_question(state: RunState, previous: dict, body: dict, items, message: str, proposed=None):
+    """Raise the person's question for refused changes only they can settle, if every one is.
+
+    A criterion needs a blocking review concern naming it (#1630). An assumption saved from the
+    person's answer, feedback or delegation is their own text: the Planner may not change it
+    without their answer, and the person is asked even when the contract is still an unapproved
+    draft (a live planning revision, 2026-10-21). A declared rewording supplies its proposed text; an undeclared drop is named
+    as such.
+    """
     rows = []
     for item in items:
-        concern = reviewer_backed(state, item)
         old = next((row for row in previous.get("acceptance_criteria", []) if row.get("id") == item), None)
+        if old is None:
+            assumption = decision_rows(previous).get(item)
+            if assumption is None or assumption.get("basis") not in PERSON_TEXT_BASES:
+                return
+            rows.append(
+                {
+                    "item": item,
+                    "approved": item,
+                    "proposed": str((proposed or {}).get(item) or "").strip() or DROP_ASSUMPTION,
+                    "traced": True,
+                }
+            )
+            continue
+        concern = reviewer_backed(state, item)
         new = next((row for row in body.get("acceptance_criteria", []) if row.get("id") == item), None)
-        if concern is None or old is None or new is None:
+        if concern is None or new is None:
             return
         rows.append(
             {
@@ -279,7 +330,8 @@ def revision_guard(state: RunState, body, changes, origin):
     protected.restore_spelling(
         previous, body, {raw.get("item") for raw in changes if isinstance(raw, dict)}, PROTECTED_LISTS
     )
-    proof_corrections = draft_proof_corrections(state, previous, body) - {
+    reworded = unapproved_rewordings(previous_contract, previous, body, protected_history)
+    proof_corrections = draft_proof_corrections(state, previous, body, reworded) - {
         raw.get("item")
         for raw in changes
         if isinstance(raw, dict) and saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))
@@ -296,9 +348,7 @@ def revision_guard(state: RunState, body, changes, origin):
         for raw in changes
         if isinstance(raw, dict) and saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))
     }
-    example_corrections |= (
-        unapproved_rewordings(previous_contract, previous, body, protected_history) - receipted - user_backed
-    )
+    example_corrections |= reworded - receipted - user_backed
     protected_changes = []
     for raw in changes:
         if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
@@ -321,15 +371,19 @@ def revision_guard(state: RunState, body, changes, origin):
         raw = unbacked[0]
         message = f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event; change={raw['change']!r}"
         approved = protected_history or previous_contract.get("approval_status") == "approved"
-        rewordings = [
-            {
-                "item": row["item"],
-                "approved": rewording.approved_text(previous, row["item"]),
-                "proposed": str(row.get("replacement") or "").strip(),
-            }
-            for row in unbacked
-            if row["change"] == "reworded"
-        ]
+        rewordings = []
+        for row in unbacked:
+            item = row["item"]
+            assumption = decision_rows(previous).get(item)
+            proposed = str(row.get("replacement") or "").strip()
+            if row["change"] == "removed" and assumption is not None and assumption.get("basis") in PERSON_TEXT_BASES:
+                proposed = proposed or DROP_ASSUMPTION
+            if row["change"] not in ("reworded", "removed") or not proposed:
+                continue
+            entry = {"item": item, "approved": rewording.approved_text(previous, item), "proposed": proposed}
+            if assumption is not None:
+                entry["traced"] = True
+            rewordings.append(entry)
         if (
             approved
             and len(rewordings) == len(unbacked)
@@ -337,7 +391,14 @@ def revision_guard(state: RunState, body, changes, origin):
         ):
             raise rewording.ProtectedRewording(message, rewordings)  # the person is asked (#1691)
         if not approved:
-            _review_question(state, previous, body, [row["item"] for row in unbacked], message)  # (#1630)
+            _review_question(  # (#1630, live revision loop 2026-10-21)
+                state,
+                previous,
+                body,
+                [row["item"] for row in unbacked],
+                message,
+                proposed={row["item"]: row.get("replacement") for row in unbacked},
+            )
         hint = refusal_hint(previous, body, raw.get("item"), approved=approved)
         raise ValueError(f"{message}. {hint}" if hint else message)
     declared: dict = {}
@@ -439,14 +500,49 @@ def revision_guard(state: RunState, body, changes, origin):
                     f"Planner revision adds permission boundary {item!r} without a user-backed "
                     "permission_changed entry; declare it as the replacement of the boundary it changes"
                 )
-    # A user-backed row for an assumption or a delegated decision the revision really dropped is a true
-    # record of the change, though neither list is protected.
     kept = {
         row.get("text")
         for key in ("accepted_assumptions", "delegated_decisions")
         for row in body.get(key, [])
         if isinstance(row, dict)
     }
+    # An assumption saved from the person's answer is their own text: a revision may not drop
+    # or reword one without a saved basis. Its own agent_proposed assumptions are engineering detail
+    # and are recognized as an engineering delta above.
+    added = [text for text in decision_rows(body) if text not in decision_rows(previous)]
+    for text in user_backed_assumptions(previous):
+        if text in kept:
+            continue
+        kind = "reworded" if any(row["change"] == "reworded" for row in declared.get(text, [])) else "removed"
+        authorizing = next((row for row in declared.get(text, []) if row["change"] == kind), None)
+        if (
+            authorizing is None
+            and len(added) == 1
+            and not (protected_history or previous_contract.get("approval_status") == "approved")
+        ):
+            # An undeclared rewording: name the text that replaced it, not a drop.
+            _review_question(
+                state,
+                previous,
+                body,
+                [text],
+                f"Planner revision changes {text!r} without a user-backed contract change",
+                proposed={text: added[0]},
+            )
+        _, replacement = consume(text, kind)
+        if replacement is None or authorizing is None:
+            continue
+        rows = [row for row in decision_rows(body).values() if row.get("text") == replacement]
+        if not rows:
+            raise ValueError(
+                f"Rewording {text!r} declares replacement {replacement!r}, which the revision does not keep"
+            )
+        # The person's answer authorized this wording, so it stays theirs: saved as agent_proposed, the next
+        # revision could change it again as the Planner's own detail.
+        for row in rows:
+            row["basis"], row["answer_id"] = authorizing["basis"], authorizing["answer_id"]
+    # A user-backed row for an assumption or a delegated decision the revision really dropped is a true
+    # record of the change, though neither list is protected.
     for key in ("accepted_assumptions", "delegated_decisions"):
         for row in previous.get(key, []):
             if isinstance(row, dict) and row.get("text") not in kept:

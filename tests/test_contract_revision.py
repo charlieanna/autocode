@@ -3,6 +3,8 @@
 import copy
 import unittest
 
+import autocode_contract_revision as revision
+import autocode_rewording_question as rewording
 from autocode_goals import revision_guard
 
 
@@ -899,6 +901,22 @@ class UnapprovedRewordingTests(unittest.TestCase):
         state["answers"] = {"A1": {"kind": "answer", "text": "compare only the first two rows"}}
         self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
 
+    def test_an_allowable_rewording_may_correct_its_unmarked_proof(self):
+        # A live revision (2026-10-21) aligned AC9's wording with the person's storage answer, kept the request
+        # quote, and moved its unmarked verification with it; the guard refused only because the proof moved.
+        state, after, changes = self.inputs()
+        after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover -s tests -t ."
+        self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+    def test_a_proof_the_runner_checks_still_cannot_become_a_plain_command_with_a_rewording(self):
+        state, after, changes = self.inputs()
+        state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = (
+            "test: test_ac2_report_filters"
+        )
+        after["acceptance_criteria"][0]["verification_method"] = "Run python3 -m unittest discover"
+        with self.assertRaisesRegex(ValueError, "names a proof.*own criterion"):
+            revision_guard(state, after, changes, "glm_revise")
+
     def test_once_approved_every_rewording_needs_the_person(self):
         for fields, history in (
             ({"approval_status": "approved"}, []),
@@ -911,3 +929,148 @@ class UnapprovedRewordingTests(unittest.TestCase):
                 state["contract_history"] = history
                 with self.assertRaisesRegex(ValueError, "needs a saved user answer"):
                     revision_guard(state, after, changes, "glm_revise")
+
+
+class PersonTracedAssumptionTests(unittest.TestCase):
+    """A live planning revision (2026-10-21): the Planner may correct its own assumption, never one saved from the person."""
+
+    TEXT = "notes.json is created at the workspace root, next to the CLI."
+    PROPOSED = "notes.json is created in the working directory where the CLI is invoked."
+
+    def inputs(self, basis="user_answer"):
+        body = {
+            "acceptance_criteria": [],
+            "required_behaviors": [],
+            "scope_exclusions": [],
+            "constraints": [],
+            "important_failure_cases": [],
+            "permission_boundaries": [],
+            "accepted_assumptions": [{"text": self.TEXT, "basis": basis, "answer_id": "A1"}],
+            "delegated_decisions": [],
+        }
+        state = {
+            "goal_contract": {"body": body, "approval_status": "draft", "approval_event": None},
+            "answers": {"A1": {"kind": "answer", "text": "next to the CLI"}},
+        }
+        return state, copy.deepcopy(body)
+
+    def row(self, change="reworded", basis="agent_proposed", answer_id="", replacement=None):
+        return {
+            "item": self.TEXT,
+            "change": change,
+            "basis": basis,
+            "answer_id": answer_id,
+            "replacement": self.PROPOSED if replacement is None and change == "reworded" else replacement or "",
+        }
+
+    def test_the_planners_own_assumption_can_be_reworded_or_removed_without_permission(self):
+        for change in ("reworded", "removed"):
+            with self.subTest(change=change):
+                state, after = self.inputs(basis="agent_proposed")
+                after["accepted_assumptions"] = (
+                    [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+                    if change == "reworded"
+                    else []
+                )
+                changes = [self.row(change)]
+                self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+    def test_a_wrapped_assumption_reference_is_recognized(self):
+        state, after = self.inputs(basis="agent_proposed")
+        after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+        changes = [dict(self.row(), item=f'accepted_assumptions: "{self.TEXT}"')]
+        returned = revision_guard(state, after, changes, "glm_revise")
+        self.assertEqual(self.TEXT, returned[0]["item"])
+
+    def test_a_reworded_assumption_saved_from_the_answer_asks_the_person(self):
+        state, after = self.inputs()
+        after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, [self.row()], "glm_revise")
+        self.assertEqual(
+            [{"item": self.TEXT, "approved": self.TEXT, "proposed": self.PROPOSED, "traced": True}],
+            caught.exception.rewordings,
+        )
+
+    def test_a_dropped_assumption_saved_from_the_answer_asks_the_person(self):
+        for basis in ("user_answer", "user_feedback"):
+            with self.subTest(basis=basis):
+                state, after = self.inputs(basis=basis)
+                if basis == "user_feedback":
+                    event = {"kind": "brief_feedback", "id": "A1"}
+                    state["brief_feedback"] = [event]
+                    state["user_events"] = [event]
+                after["accepted_assumptions"] = []
+                with self.assertRaises(rewording.ProtectedRewording) as caught:
+                    revision_guard(state, after, [], "glm_revise")
+                self.assertEqual(
+                    [
+                        {
+                            "item": self.TEXT,
+                            "approved": self.TEXT,
+                            "proposed": revision.DROP_ASSUMPTION,
+                            "traced": True,
+                        }
+                    ],
+                    caught.exception.rewordings,
+                )
+
+    def test_a_decision_the_person_delegated_is_the_planners_to_revise(self):
+        for change in ("reworded", "removed"):
+            with self.subTest(change=change):
+                state, after = self.inputs(basis="delegated")
+                state["answers"] = {"A1": {"kind": "delegated"}}
+                after["accepted_assumptions"] = (
+                    [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+                    if change == "reworded"
+                    else []
+                )
+                changes = [self.row(change)]
+                self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
+
+    def test_an_undeclared_rewording_of_the_persons_assumption_names_the_new_text(self):
+        state, after = self.inputs()
+        after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+        with self.assertRaises(rewording.ProtectedRewording) as caught:
+            revision_guard(state, after, [], "glm_revise")
+        self.assertEqual(self.PROPOSED, caught.exception.rewordings[0]["proposed"])
+
+    def test_wording_the_person_accepted_stays_theirs_in_the_next_revision(self):
+        state, after = self.inputs()
+        after["accepted_assumptions"] = [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+        revision_guard(state, after, [self.row(basis="user_answer", answer_id="A1")], "glm_revise")
+        self.assertEqual(
+            [{"text": self.PROPOSED, "basis": "user_answer", "answer_id": "A1"}], after["accepted_assumptions"]
+        )
+        state["goal_contract"]["body"] = copy.deepcopy(after)
+        again = copy.deepcopy(after)
+        again["accepted_assumptions"] = []
+        changes = [{"item": self.PROPOSED, "change": "removed", "basis": "agent_proposed", "answer_id": ""}]
+        with self.assertRaises(rewording.ProtectedRewording):
+            revision_guard(state, again, changes, "glm_revise")
+
+    def test_a_declared_replacement_the_revision_does_not_keep_is_refused(self):
+        state, after = self.inputs()
+        after["accepted_assumptions"] = [{"text": "Something else.", "basis": "agent_proposed", "answer_id": ""}]
+        with self.assertRaisesRegex(ValueError, "which the revision does not keep"):
+            revision_guard(state, after, [self.row(basis="user_answer", answer_id="A1")], "glm_revise")
+
+    def test_a_forged_or_agent_basis_does_not_authorize_dropping_the_persons_assumption(self):
+        cases = ({"basis": "agent_proposed", "answer_id": ""}, {"basis": "delegated", "answer_id": "A1"})
+        for fields in cases:
+            with self.subTest(fields=fields), self.assertRaises(rewording.ProtectedRewording):
+                state, after = self.inputs()
+                after["accepted_assumptions"] = []
+                revision_guard(state, after, [self.row("removed", **fields)], "glm_revise")
+
+    def test_the_persons_answer_lets_the_revision_drop_the_assumption(self):
+        for change in ("reworded", "removed"):
+            with self.subTest(change=change):
+                state, after = self.inputs()
+                after["accepted_assumptions"] = (
+                    [{"text": self.PROPOSED, "basis": "agent_proposed", "answer_id": ""}]
+                    if change == "reworded"
+                    else []
+                )
+                changes = [self.row(change, basis="user_answer", answer_id="A1")]
+                self.assertEqual(changes, revision_guard(state, after, changes, "glm_revise"))
