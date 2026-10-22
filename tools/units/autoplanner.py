@@ -32,6 +32,7 @@ try:
     from .. import autocode_bug_job as bug_job
     from .. import autocode_design_plan as design_plan
     from .. import autocode_draft_examples as examples
+    from .. import autocode_failures as failures
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
     from .. import autocode_native_test_names as native_test_names
@@ -60,6 +61,7 @@ except ImportError:
     import autocode_bug_job as bug_job
     import autocode_design_plan as design_plan
     import autocode_draft_examples as examples
+    import autocode_failures as failures
     import autocode_follow_up as follow_up
     import autocode_goals as goals
     import autocode_native_test_names as native_test_names
@@ -153,6 +155,7 @@ EVIDENCE_FACTS = (
     + prompts.get("fragments/autoplanner/evidence-facts.md")
 )
 REVISION_CONFLICT_RULE = prompts.get("fragments/autoplanner/revision-conflict-rule.md")
+PRIOR_REJECTION_RULE = prompts.get("fragments/autoplanner/prior-rejection-rule.md")
 RESPONSE_EVIDENCE_RULE = prompts.get("fragments/autoplanner/response-evidence-rule.md")
 # A live review-then-fix plan (2026-09-29) marked "the diff touches only the two fixes" for human
 # review although its own verification method was "Validator reads git diff"; the run then
@@ -1409,6 +1412,14 @@ def context(state: RunState, stage, state_path):
         if stage in ("requirements_gather", "requirements")
         else ""
     )
+    rejection = failures.recent_rejection(state, stage)
+    rejection_rule = ""
+    if rejection:
+        packet["prior_rejection"] = {
+            "attempts": rejection.get("count"),
+            "last_error": str(rejection.get("last_error") or "")[:2000],
+        }
+        rejection_rule = PRIOR_REJECTION_RULE
     prompt = (
         PROMPTS[stage]
         + audit_instruction
@@ -1416,6 +1427,7 @@ def context(state: RunState, stage, state_path):
         + JOB_TYPE_POLICY
         + design_rule
         + recovery_instruction
+        + rejection_rule
         + figma_instruction
         + planning_policy
         + clarification_policy

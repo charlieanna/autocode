@@ -399,7 +399,10 @@ class HumanResponseCLITests(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--resume-paused", "--grant-recovery", "1", "--no-chat"], 2)
         _, granted = self.saved()
         self.assertGreater(len(granted["stages"]), stages_before)
-        self.assertEqual(2, granted["automatic_recoveries_since_resume"])
+        # The grant took the streak from 3 to 2; the stage it let run then saved a valid report, which
+        # starts a fresh streak (#1820) while the grant stays in the ledger.
+        self.assertEqual(2, granted["recovery_grants"][-1]["remaining_count"])
+        self.assertEqual(0, granted["automatic_recoveries_since_resume"])
         self.assertEqual(0, granted["consecutive_timeout_recoveries"])
         self.assertEqual(history, len(granted["automatic_timeout_recoveries"]))
         events = [event for event in granted["user_events"] if event.get("kind") == "recovery_grant"]
@@ -489,7 +492,8 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertIn("Recovery grant recorded", result.stdout)
         _, granted = self.saved()
         self.assertGreater(len(granted["stages"]), stages_before)
-        self.assertEqual(2, granted["automatic_recoveries_since_resume"])
+        self.assertEqual(2, granted["recovery_grants"][-1]["remaining_count"])
+        self.assertEqual(0, granted["automatic_recoveries_since_resume"], "the saved stage renews the streak (#1820)")
         self.assertEqual(1, len([event for event in granted["user_events"] if event.get("kind") == "recovery_grant"]))
 
     def test_real_cli_generic_answer_rejects_operational_request_without_changing_approval(self):

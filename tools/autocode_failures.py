@@ -156,6 +156,30 @@ def record(state: RunState, stage_record, error, at):
     return entry
 
 
+def recent_rejection(state: RunState, stage):
+    """The latest rejection of ``stage`` that no later outcome of that stage has ended.
+
+    A resumed run re-enters the same stage with the same handoff. Without the saved error the
+    fresh request repeats the rejected attempt: a live planning revision spent three revise calls looping between two
+    refusals. This reads the ledger only; it writes nothing and changes no retry decision.
+    """
+    entries = [
+        entry
+        for entry in (state.get("failure_history") or {}).values()
+        if (entry.get("identity") or {}).get("stage") == stage and entry.get("count")
+    ]
+    if not entries:
+        return None
+    entry = max(entries, key=lambda row: row.get("last_seen") or "")
+    for row in (state.get("stages") or [])[entry.get("stage_index", 0) :]:
+        if _owner(row) != stage or row.get("runner_owned"):
+            continue
+        if row.get("failure_attempt") in entry.get("attempts", []):
+            continue
+        return None  # a later outcome for this stage ended the rejection episode
+    return entry
+
+
 def repeated(state: RunState, stage_record):
     failure_key = stage_record.get("failure_key")
     entry = (state.get("failure_history") or {}).get(failure_key)

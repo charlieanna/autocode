@@ -516,8 +516,9 @@ class NewBehaviorCriterionRuleTests(EpisodeCase):
 
 class CriterionSelfCheckRuleTests(EpisodeCase):
     """A live build-turn plan stated a cache entry exactly at its TTL both ways in one criterion (AC2). The Plan
-    Reviewer caught it before approval, but rewording a criterion needs the user even in an unapproved draft, so the
-    build turn asked a question it had no budget for (#732, discuss-then-design-then-build, 2026-10-08)."""
+    Reviewer caught it before approval, but the build turn asked the user to repair the Planner's own wording,
+    which it had no budget for (#732, discuss-then-design-then-build, 2026-10-08). The self-check and the
+    allowed draft rewording keep that correction with the Planner; saving user text still needs the person."""
 
     SELF_CHECK = "Before you return the plan, check each criterion against itself"
 
@@ -532,22 +533,23 @@ class CriterionSelfCheckRuleTests(EpisodeCase):
                 self.assertIn(self.SELF_CHECK, prompt)
                 self.assertIn("its examples must agree with each other and with its own rule", prompt)
                 self.assertIn("never state the boundary both ways", prompt)
-                # The numeric stdout correction (DRAFT EXAMPLE CORRECTIONS) still needs no question.
+                # The Planner corrects its own draft wording when it keeps every request quote; the
+                # numeric stdout correction (DRAFT EXAMPLE CORRECTIONS) still needs no question either.
                 self.assertIn(
-                    "contradiction needs the user's answer even in an unapproved draft "
-                    "(outside the narrow allowed draft proof/example corrections)",
+                    "In a plan nobody approved, reword your own criterion after the Plan Reviewer finds a "
+                    "contradiction while it still cites every request quote it cited before",
                     prompt,
                 )
+                self.assertIn("text saved from the person's answer, feedback or an approved plan still needs", prompt)
         self.assertNotIn(self.SELF_CHECK, self.prompt("requirements_gather"))
 
-    def test_the_design_rule_says_a_draft_criterion_also_needs_the_user_to_change(self):
+    def test_the_design_rule_lets_the_planner_correct_its_own_draft_criterion(self):
         self.state["design_constraint"] = {"design_document": "docs/design/cache.md", "summary": "s", "constraints": []}
         prompt = self.prompt("astra_discovery")
         self.assertIn("APPROVED DESIGN: approved_design in the handoff data", prompt)
         self.assertIn("with approved_design when there is one", prompt)
         self.assertNotIn("once the plan is approved, changing such a criterion needs the user", prompt)
+        self.assertIn("correct your own criterion to agree with the design", prompt)
         self.assertIn(
-            "Changing a criterion needs the user even in an unapproved draft "
-            "(outside the narrow allowed draft proof/example corrections)",
-            prompt,
+            "text saved from the person's answer, feedback or an approved plan still needs their answer", prompt
         )
