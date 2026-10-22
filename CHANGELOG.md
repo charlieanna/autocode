@@ -56,6 +56,11 @@ PR template asks for an entry here; a change without one is incomplete.
 - A brief that names the report it fixes ("Fix issue #474 ...") no longer dead-ends plan finalize: the source-trace
   audit no longer treats an issue or pull-request reference as a value the criteria must repeat, while a value
   stated beside it ("process exactly 7 rows") still has to survive (#1874).
+- A run paused with a repeated failure no longer names `--retry-failed-stage` while a report repair or an active
+  runner check is still unreconciled, which its own CLI always refuses ("Reconcile the active attempt or pending
+  report repair before authorizing a retry"). It names the plain `--resume-paused` that reconciles the pending
+  record instead, so a client taking only `next_command` has an action it can run (#1897). The guard now sits in
+  the one helper that builds the advice, where the resolver's own advice already applied it.
 - A Validator report that passes its own checks but leaves the declared human-review rows unverified without the
   proof completion requires is now rejected at that gate, and the bounded report repair names the gaps to fill
   without rerunning a command or inventing an approval. Previously it was accepted, completion then refused to
