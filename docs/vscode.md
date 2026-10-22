@@ -160,6 +160,12 @@ The jsdom tests alone establish neither editor-host nor live-provider compatibil
 | `autocode.pollSeconds` | `5` | Seconds between read-only status updates. |
 | `autocode.confirmPersonOnly` | `true` | Ask before acting on a pause the run stopped for a person. |
 
+Each status update is a new `autocode` process, which reads the whole workspace once
+before answering. On a large project, set `AUTOCODE_SOURCE_HOST=1` in the environment
+the editor starts the CLI with, so the updates share one warm snapshot helper; see
+[Execution](execution.md#who-approved) just above "Who approved" for what it does and
+keeps.
+
 ## Remaining scope
 
 This is an AutoCode chat client with selected Kilo UI adaptations, not the full

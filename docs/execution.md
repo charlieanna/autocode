@@ -636,6 +636,20 @@ look like one. On Windows, where a file's times can be set back and `st_ctime` i
 creation time, every snapshot rereads every file. The hashes and source revisions are
 the same as before.
 
+Those hashes live only in the memory of one AutoCode process (never in a file a stage
+could rewrite), so every new process reads the whole workspace once: 2.5–3 s on a
+13.6k-file project, and a chat starts a new process for each turn, each saved message
+and each status refresh. With `AUTOCODE_SOURCE_HOST=1` in the environment of the
+AutoCode process, `--status` and every other command ask a long-lived per-user helper
+(`autocode_source_host`) for the snapshot instead. The helper runs the same snapshot
+function with its own in-memory hashes and answers over a private Unix socket in a
+`0700` folder under the temporary directory; the answer is identical, and nothing is
+written to disk. One helper serves one code version and one Git environment, and it
+exits after 30 idle minutes. A process that finds no helper starts one and takes its
+own snapshot that time; a helper that fails or answers slowly is not asked again by
+that process. On the 13.6k-file project a status refresh drops from 1.5–3 s to about
+0.45 s. The setting is off by default while it is proven in live chats (#1707).
+
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
 `EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial
 interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.
