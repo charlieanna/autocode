@@ -195,7 +195,13 @@ class ParallelQuotaTests(unittest.TestCase):
             '                "required_behaviors": draft["required_behaviors"], "constraints": draft["constraints"],\n'
             '                "acceptance_tests": ["Read a.txt, b.txt and combined.txt"], "source_refs": [],\n'
             '                "proposed_assumptions": [], "open_questions": [], "requirements": [],\n'
-            '                "ignored_statements": [], "conflicts": []}\n'
+            '                "ignored_statements": [], "conflicts": [],\n'
+            # Requirements names the job (#1860) and, where its schema asks, judges clarity as the
+            # recognizer below would; the strict generation schema requires both.
+            '                "job": "build", "design_document": "",\n'
+            '                **({"clarity": "clear"} if "--output-schema" in sys.argv and "clarity" in json.loads(\n'
+            '                    Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()).get("properties", {})\n'
+            "                   else {})}\n"
             '    if data["stage"] == "astra_challenge":\n'
             '        draft = ((data.get("goal_contract") or {}).get("body") or {})\n'
             '        return {"summary": "The three milestones cover the outputs", "concerns": [],\n'
