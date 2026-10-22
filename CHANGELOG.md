@@ -17,6 +17,7 @@ PR template asks for an entry here; a change without one is incomplete.
   instead of a `--resume-paused` that reruns the same Tester on the same plan, and `needs.guidance` says what
   feedback and a resume each do. `needs.kind` stays `resume`.
 
+
 - `autocode unattended` now refuses `--skip-requirements`, `--skip-to-build`, `--allow-uncontained-tools`,
   `--accept-source-edit` and the companions of a recovery (`--grant-recovery`, `--job-retry-token`, `--resolver-token`,
   `--revise-protected-tests`, `--submit-repair`, …), which it previously let an agent pass although they decide for
