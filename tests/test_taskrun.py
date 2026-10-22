@@ -26,6 +26,7 @@ import autocode_source_snapshot as source_snapshot
 import autocode_taskrun as taskrun
 import autocode_util as util
 import goal_fixtures
+from units import autoplanner as planner
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
@@ -820,6 +821,14 @@ class TaskRunTests(unittest.TestCase):
         contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
         state["planning"]["final_token"] = "r" + str(contract["revision"]) + ":" + contract["hash"]
         state["displayed_goal"] = state["planning"]["final_token"]
+        final = next((row for row in state["stages"] if row.get("stage") == "astra_finalize"), None)
+        if final:
+            # The checkpoint predates retained final reviews (#1858) too: its final review was asked for
+            # the full contract, so its saved schema, which the report repair reuses, asks for one.
+            schema = Path(final["schema"])
+            schema.write_text(
+                json.dumps(planner._model_report_schema(planner.schema_for(state, final["stage"]), state))
+            )
         if activate_later:
             state["settings"]["milestone_checkpoints"]["enabled"] = False
             run = taskrun.TaskRun(
@@ -1913,9 +1922,22 @@ spec = importlib.util.spec_from_file_location('mixed_greeting_fixture', '__FIXTU
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)
 # Reuse the deterministic greeting provider, never another test or a model.
+def prompt_schema(text):
+    # OpenCode and Kilo carry the output schema in the prompt, not as --output-schema: a compact JSON line
+    # just before the handoff data, or a configured tool's TOOL OUTPUT CONTRACT block. The fixture reads
+    # it to answer in the current protocol (a retained final review, #1858).
+    head = text.split('\nCURRENT HANDOFF DATA\n', 1)[0]
+    if '\nTOOL OUTPUT CONTRACT\n' in head:
+        contract = head.rsplit('\nTOOL OUTPUT CONTRACT\n', 1)[1]
+        return json.JSONDecoder().raw_decode(contract[contract.index('\n{') + 1:])[0]
+    last = (head.rstrip().splitlines() or [''])[-1]
+    return json.loads(last) if last.startswith('{') else {}
 with tempfile.TemporaryDirectory(dir=log.parent) as temporary:
     output = Path(sys.argv[sys.argv.index('--report') + 1]) if '--report' in sys.argv else Path(temporary) / 'report.json'
-    sys.argv = ['fixture', '-o', str(output), *(['resume', session] if session_arg else [])]
+    schema_path = Path(temporary) / 'schema.json'
+    schema_path.write_text(json.dumps(prompt_schema(prompt)))
+    sys.argv = ['fixture', '-o', str(output), '--output-schema', str(schema_path),
+                *(['resume', session] if session_arg else [])]
     original_stdin = sys.stdin
     try:
         sys.stdin = io.StringIO(prompt)
