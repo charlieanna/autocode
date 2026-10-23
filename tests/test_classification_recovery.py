@@ -712,6 +712,34 @@ class ClassificationOfferTests(unittest.TestCase):
             self.assertNotIn("stuck_investigation", state)
             self.assertEqual("investigation_failed", state["stuck_investigations"][-1]["outcome"])
 
+    def test_older_boundary_stops_before_launch_do_not_spend_the_allowance(self):
+        # #1949: runs saved before the fix recorded each boundary stop as a failed classification
+        # until the allowance ran out, though no Investigator had started.
+        state = self.state()
+        limit = recovery.policy.classification_limit(state)
+        stopped = [
+            {
+                "identity": f"stopped-{i}",
+                "trigger": "builder_failure",
+                "milestone_key": recovery.policy.key(state),
+                "outcome": "investigation_failed",
+                "error": "Saved active-time limit reached at stage boundary",
+                "requested_at": f"2026-10-09T01:0{i}:00+00:00",
+                "finished_at": f"2026-10-09T01:0{i}:01+00:00",
+            }
+            for i in range(limit)
+        ]
+        state["stuck_investigations"][:0] = stopped
+        context = state["builder_failure_hold"]["classification_retry"]
+        context.update(history_index=limit, history_prefix=copy.deepcopy(stopped))
+        need = recovery.offer(state)
+        self.assertEqual("retry_job", need["kind"])
+        self.assertEqual({"used": 1, "limit": limit}, need["classification_attempts"])
+        # One that started an Investigator, or stopped for any other reason, still counts.
+        state["stages"].append({"stage": "investigate_stuck", "started_at": "2026-10-09T01:00:00.5+00:00"})
+        state["stuck_investigations"][1]["error"] = "Classification retry admission changed; no provider launched"
+        self.assertEqual(3, len(recovery.failure.classified(state)))
+
     def test_older_failed_hold_names_a_plan_correction_instead_of_plain_resume(self):
         state = self.state()
         state["builder_failure_hold"].pop("classification_retry")

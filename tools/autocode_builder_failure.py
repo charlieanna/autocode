@@ -126,13 +126,49 @@ def dispatch_guard(state: RunState, stage, workspace):
     raise util.Paused(held["status"], held["reason"])
 
 
+# Stops saved as a classification's failure before #1949, when a run-wide limit reached at the
+# stage boundary abandoned the request before its Investigator launched. Since #1949 such a stop
+# keeps the request queued under the limit's own pause, so only older runs hold these rows.
+BOUNDARY_STOPS = (
+    "Saved active-time limit reached at stage boundary",
+    "Saved active-time limit reached before model access",
+    "Saved iteration ceiling reached",
+)
+
+
+def _boundary_stop(state: RunState, row) -> bool:
+    """A failed row whose request a boundary limit stopped before any Investigator started."""
+    error, started, finished = row.get("error") or "", row.get("requested_at"), row.get("finished_at")
+    if (
+        row.get("outcome") != "investigation_failed"
+        or not isinstance(started, str)
+        or not isinstance(finished, str)
+        or not (
+            error in BOUNDARY_STOPS
+            or (error.startswith("Spend so far ") and error.endswith("cost cap at stage boundary"))
+        )
+    ):
+        return False
+    return not any(
+        (record.get("original_stage") or str(record.get("stage", "")).removesuffix("_report_repair"))
+        == "investigate_stuck"
+        and started <= record.get("started_at", "") <= finished
+        for record in state.get("stages") or []
+    )
+
+
 def classified(state: RunState):
-    """This milestone's classification history rows; rows saved before #686 name no milestone."""
+    """This milestone's classification history rows; rows saved before #686 name no milestone.
+
+    A request a boundary limit stopped before its Investigator started classified nothing and
+    is not counted (#1949)."""
     milestone = policy.key(state)
     return [
         row
         for row in state.get("stuck_investigations") or []
-        if row.get("trigger") == "builder_failure" and row.get("milestone_key") == milestone
+        if row.get("trigger") == "builder_failure"
+        and row.get("milestone_key") == milestone
+        and not _boundary_stop(state, row)
     ]
 
 
