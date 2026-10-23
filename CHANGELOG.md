@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Kilo launches verify explicitly selected reasoning variants against the selected
+  model's native catalog before inference (#1940). Unsupported saved variants now
+  require an explicit correction instead of silently using the provider default.
+  New bundled Kilo GLM routes use its supported High level; saved routes stay unchanged.
+
 - Restricted Kilo stages retain the selected agent's custom prompt while keeping
   AutoCode's tool restrictions and fresh-session boundary (#1935).
 

@@ -38,6 +38,7 @@ class KiloProgressTests(unittest.TestCase):
         original = copy.deepcopy(inherited)
         with (
             patch.object(self.provider, "_preflight_environment", return_value=inherited.copy()),
+            patch.object(self.provider, "validate_effort"),
             patch.object(
                 kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *args, **kwargs: (argv, child)
             ),

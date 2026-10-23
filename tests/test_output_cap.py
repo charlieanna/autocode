@@ -176,7 +176,11 @@ class KiloCapTests(unittest.TestCase):
             ({output_cap.KILO_VARIABLE: "bad"}, 64000, "autocode"),
         ):
             env = {"PATH": "/usr/bin", **overrides}
-            with self.subTest(overrides=overrides), patch.dict(os.environ, env, clear=True):
+            with (
+                self.subTest(overrides=overrides),
+                patch.dict(os.environ, env, clear=True),
+                patch.object(adapter, "validate_effort"),
+            ):
                 _, child, _, worker = provider_launch.prepare(
                     engine="opencode",
                     adapter=adapter,
