@@ -196,6 +196,13 @@ def historical_author_report(stage: str, original: dict, latest: dict | None) ->
     )
 
 
+def sources(pending: dict, read_source) -> tuple[dict, dict]:
+    """Load the original and current pinned report once, in their existing order."""
+    original = read_source(pending["original"])
+    latest = read_source(pending["latest_rejected"]) if pending.get("latest_rejected") else original
+    return original, latest
+
+
 def prompt_parts(
     state: RunState, pending: dict, original: dict, latest: dict, receipt_parts: tuple
 ) -> tuple[str, dict]:
@@ -208,11 +215,10 @@ def prompt_parts(
     )
     receipt_instruction, receipt_handoff = receipt_parts
     return receipt_instruction + retention_instruction + historical_instruction, {
-        **receipt_handoff,
-        **references,
+        "header": {**receipt_handoff, **references},
         "original_report": historical_source,
         "protected_contract": protected,
-        **({"clarification_context": clarification} if stage == "astra_finalize" else {}),
+        "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
     }
 
 

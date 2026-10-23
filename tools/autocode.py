@@ -1226,10 +1226,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     resolver_runtime.boundary(runtime, state, run_dir, workspace)
     if native is None and format_correction.execute(runtime, state, run_dir, workspace):
         return
-    original_source = repair_report_source(original)
-    rejected_source = (
-        repair_report_source(pending["latest_rejected"]) if pending.get("latest_rejected") else original_source
-    )
+    original_source, rejected_source = report_repair_context.sources(pending, repair_report_source)
     for source in (original_source, rejected_source):
         pending["pins"].setdefault(source["path"], source["sha256"])
     context_instruction, context_handoff = report_repair_context.prompt_parts(
@@ -1265,8 +1262,9 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                     "error",
                     original.get("rejection_reason", "Legacy report validation failed without a recorded error"),
                 ),
-                **context_handoff,
+                **context_handoff["header"],
                 "rejected_report": rejected_source,
+                "original_report": context_handoff["original_report"],
                 "original": {
                     key: original[key]
                     for key in (
@@ -1296,9 +1294,11 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                 if original["stage"] == "requirements_gather"
                 else None,
                 **report_repair_context.requirements_sources(state, original["stage"]),
+                **context_handoff["clarification"],
                 "investigation_context": stuck_repair_context.context(
                     state, original["stage"], run_dir / "state.json", workspace, (original_source, rejected_source)
                 ),
+                "protected_contract": context_handoff["protected_contract"],
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
                 **planning.repair_citation_context(state, original["stage"], workspace),
                 "report_identity": {
