@@ -171,9 +171,13 @@ def start(
                 if current.get("availability") == "available" and current.get("id") == saved["conversation_id"]:
                     return run
             if not saved.get("refused") or candidates:
-                raise ValueError("Prior conversation creation is unresolved; inspect/attach it instead of replaying start")
+                raise ValueError(
+                    "Prior conversation creation is unresolved; inspect/attach it instead of replaying start"
+                )
             # The launch refused this request before it saved a run, so retrying it is a fresh launch.
-            return _launch(driver_class, workspace, selected, marker, saved, options, start_options, command, env, timeout, cwd)
+            return _launch(
+                driver_class, workspace, selected, marker, saved, options, start_options, command, env, timeout, cwd
+            )
         conversation_id = uuid.uuid4().hex
         handoff = protocol.handoff_from_document(
             {
@@ -207,7 +211,9 @@ def start(
             "prior_runs": [str(path) for path in driver_class.runs_in(workspace)],
         }
         protocol.write_private_json(marker, saved)
-        return _launch(driver_class, workspace, selected, marker, saved, options, start_options, command, env, timeout, cwd)
+        return _launch(
+            driver_class, workspace, selected, marker, saved, options, start_options, command, env, timeout, cwd
+        )
 
 
 def _launch(driver_class, workspace, selected, marker, saved, options, start_options, command, env, timeout, cwd):
