@@ -25,8 +25,10 @@ status view names (`view["code_checkpoints"]`); going back makes a new run on a 
 branch, and the chat carries on with it.
 
 While a stage works, Ctrl-C asks the run to pause after the current step (the
-view's named pause), a second Ctrl-C interrupts the step and a third stops AutoCode. Leaving the chat at a
-question or a plan changes nothing; `autocode chat` picks the run up again.
+view's named pause). For an owned worker, a second Ctrl-C interrupts the step
+and a third stops AutoCode. An attached viewer requests only the named boundary
+pause. Leaving the chat at a question or a plan changes nothing;
+`autocode chat` picks the run up again.
 
 Exit codes: 0 the run completed, 2 it is waiting for a person (or the person left
 the chat), 1 the chat could not continue.
@@ -51,11 +53,13 @@ from pathlib import Path
 
 try:
     from . import autocode_chat_panel as panel
+    from . import autocode_chat_polling as polling
     from . import autocode_chat_setup as setup
     from . import autocode_client_actions as actions
     from . import autocode_events_command as events
 except ImportError:
     import autocode_chat_panel as panel
+    import autocode_chat_polling as polling
     import autocode_chat_setup as setup
     import autocode_client_actions as actions
     import autocode_events_command as events
@@ -282,28 +286,89 @@ class ChatClient:
         # /runs, /open and /new: the project's chats, and how a new one starts (start flags, run options).
         self.history: History | None = None
         self.switched: Callable[[Path, Path], None] | None = None  # the renderer starts the new chat's screen
+        self._poller = polling.StatusPoller(self.command, env=self.env)
+        self._status_view: dict | None = None
+        self._status_serial = 0
+        self._status_error = ""
+        self._read_errors: dict[str, str] = {}
+        self._pause_pending = False
+        self._attached = False
 
     # ---- the CLI ---------------------------------------------------------------------------
 
     def cli(self, argv, *, env=None) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [*self.command, *argv],
-            capture_output=True,
-            text=True,
-            env={**(self.env or os.environ), **(env or {})},
-            cwd=self.workspace,
-        )
+        try:
+            return subprocess.run(
+                [*self.command, *argv],
+                capture_output=True,
+                text=True,
+                env={**(self.env or os.environ), **(env or {})},
+                cwd=self.workspace,
+                timeout=polling.READ_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            raise actions.ClientGap("The command receipt timed out; check status before trying it again.") from None
+
+    def close(self) -> None:
+        self._poller.close()
 
     def own(self, view: dict) -> tuple[Path, Path]:
         self.workspace, self.run_dir = actions.own(view, self.workspace, self.run_dir)
         return self.workspace, self.run_dir
 
+    def poll(self) -> None:
+        """Pump bounded reads; also called between keys while a question is open."""
+        current = (str(self.workspace), str(self.run_dir))
+        targets = {current: self.pace(self.poll_seconds)}
+        targets.update({(str(workspace), run): OTHERS_SECONDS for run, (workspace, _) in self.others.items()})
+        for key, raw, error in self._poller.tick(targets):
+            try:
+                view = json.loads(raw)["view"] if not error else None
+                if not error and not isinstance(view, dict):
+                    error = "status response has no view"
+                if error:
+                    view = None
+                if (
+                    view is not None
+                    and view.get("run_dir")
+                    and Path(view["run_dir"]).resolve() != Path(key[1]).resolve()
+                ):
+                    raise ValueError("response belongs to another run")
+            except (ValueError, KeyError, TypeError, actions.ClientGap):
+                view, error = None, "status response has no valid view for this chat"
+            if error:
+                if self._read_errors.get(key[1]) != error:
+                    self.say(f"Status unavailable ({Path(key[1]).name}): {error}. Retrying; last view is stale.")
+                self._read_errors[key[1]] = error
+            else:
+                if self._read_errors.pop(key[1], None):
+                    self.say(f"Status available again ({Path(key[1]).name}).")
+            if key == current:
+                self._status_serial += 1
+                self._status_error = error
+                if view is not None:
+                    self._status_view = view
+                    self.accept_status(view)
+            elif key[1] in self.others:
+                if view is not None:
+                    self.other_status(key[1], Path(key[0]), view)
+            self.show_tabs()
+
     def status(self) -> dict:
-        proc = self.cli(["--status", "--workspace", str(self.workspace), "--run-dir", str(self.run_dir)])
-        try:
-            view = json.loads(proc.stdout)["view"]
-        except (ValueError, KeyError):
-            raise actions.ClientGap(f"--status did not return a status view: {tail(proc)}") from None
+        # An approval/message check always starts a new read, after the person's input.
+        key = (str(self.workspace), str(self.run_dir))
+        self._poller.command, self._poller.env = self.command, self.env
+        self._poller.refresh(key)
+        before = self._status_serial
+        while self._status_serial == before:
+            self.poll()
+            if self._status_serial == before and self._wait(0.05) == "pause":
+                self._pause_pending = True
+        if self._status_error or self._status_view is None:
+            raise actions.ClientGap(self._status_error or "status response has no view")
+        return self._status_view
+
+    def accept_status(self, view: dict) -> None:
         self.viewed.add(str(self.run_dir))
         self.own(view)
         self.identity = wait_identity(view)
@@ -311,7 +376,6 @@ class ChatClient:
         self.show_tabs()
         if self._observe is not None:
             self._observe(view)
-        return view
 
     def take(self, command: actions.NamedCommand) -> None:
         """Run a named action against this run; an advancing one is watched while it works."""
@@ -350,7 +414,8 @@ class ChatClient:
                         # The first reads come sooner, so what the person just decided shows as taken.
                         polls += 1
                         pace = self.poll_seconds if polls > 3 else min(self.poll_seconds, 0.5)
-                        if self._wait(self.pace(pace)) == "pause":
+                        if self._wait(self.pace(pace)) == "pause" or self._pause_pending:
+                            self._pause_pending = False
                             self.request_pause(again="Try /pause again in a moment.")
                     break
                 except KeyboardInterrupt:
@@ -381,18 +446,29 @@ class ChatClient:
                     log.seek(0)
                     raise actions.ClientGap(f"AutoCode did not start the run: {log.read()[-2000:].strip()}") from None
 
-    def request_pause(self, *, again: str = "Press Ctrl-C again to interrupt the current step.") -> bool:
+    def request_pause(self, *, again: str | None = None) -> bool:
+        attached = self._attached
+        again = again or (
+            "This viewer can only request a boundary pause."
+            if attached
+            else "Press Ctrl-C again to interrupt the current step."
+        )
         try:
             view = self.status()
             words = actions.pause(view, f"chat-pause-{secrets.token_hex(8)}", self.workspace, self.run_dir)
         except actions.ClientGap as error:
             self.say(f"{error}. {again}")
             return True
-        proc = self.cli(words)
+        try:
+            proc = self.cli(words)
+        except actions.ClientGap:
+            self.say(f"The pause receipt is unavailable; check the next status. {again}")
+            return True
         if proc.returncode != 0:
             self.say(f"The pause was not accepted: {tail(proc)}. {again}")
             return True
-        self.say(f"{(view.get('pause') or {}).get('effect') or 'Pausing after this step.'} Ctrl-C interrupts it now.")
+        guidance = "This viewer does not interrupt the external worker." if attached else "Ctrl-C interrupts it now."
+        self.say(f"{(view.get('pause') or {}).get('effect') or 'Pausing after this step.'} {guidance}")
         return True
 
     # ---- saved code steps ------------------------------------------------------------------
@@ -556,6 +632,7 @@ class ChatClient:
         self.workspace, self.run_dir = Path(workspace), Path(run_dir)
         self.seen, self.said, self.started, self.last_line, self.last_notice = set(), set(), False, (), None
         self.last_progress = None
+        self._status_view, self._status_error = None, ""
         # A tab keeps the state last read for it until status() reads it again, so the tabs drawn below never
         # show a chat that waits for the person as working (#1757); a chat not seen before has none yet.
         self.identity = known[1] if known else None
@@ -576,6 +653,8 @@ class ChatClient:
                 continue
             identity = self.identity if current else self.others[run][1]
             state = "done" if identity == ("done",) else ("working" if identity is None else "needs you")
+            if run in self._read_errors:
+                state = "unavailable"
             title = self.titles.get(run) or Path(run).name
             rows.append({"number": len(rows) + 1, "run": run, "title": title, "state": state, "current": current})
         return rows
@@ -629,27 +708,21 @@ class ChatClient:
         self.begin(brief, list(chosen.get("start_args") or []), options)
 
     def check_others(self, every: float = OTHERS_SECONDS) -> None:
-        """Say when a chat opened earlier this session starts to wait for the person or finishes."""
-        if not self.others or time.monotonic() - self.others_checked < every:
+        """Admit due reads without waiting on other chats; the poller owns their cadence."""
+        if self.others:
+            self.poll()
+
+    def other_status(self, run: str, workspace: Path, view: dict) -> None:
+        before = self.others[run][1]
+        now = wait_identity(view)
+        self.others[run] = (workspace, now)
+        self.titles[run] = title_of(view) or self.titles.get(run, "")
+        if now is None or now == before:
             return
-        self.others_checked = time.monotonic()
-        for run, (workspace, before) in list(self.others.items()):
-            proc = self.cli(["--status", "--workspace", str(workspace), "--run-dir", run])
-            try:
-                view = json.loads(proc.stdout)["view"]
-            except (ValueError, KeyError):
-                continue
-            now = wait_identity(view)
-            self.others[run] = (workspace, now)
-            self.titles[run] = title_of(view) or self.titles.get(run, "")
-            self.show_tabs()
-            if now is None or now == before:
-                continue
-            name = Path(run).name
-            what = "finished" if now == ("done",) else f"needs you: {panel.needs_you(view) or now[0]}"
-            tab = next((row["number"] for row in self.tabs() if row["run"] == run), None)
-            hint = f"Ctrl-←/→ or /tab {tab} switches to it" if tab else "Type /runs, then /open it"
-            self.say(f"\nAnother chat {what} ({self.titles.get(run) or name}). {hint}.")
+        what = "finished" if now == ("done",) else f"needs you: {panel.needs_you(view) or now[0]}"
+        tab = next((row["number"] for row in self.tabs() if row["run"] == run), None)
+        hint = f"Ctrl-←/→ or /tab {tab} switches to it" if tab else "Type /runs, then /open it"
+        self.say(f"\nAnother chat {what} ({self.titles.get(run) or Path(run).name}). {hint}.")
 
     def converse(self) -> int:
         try:
@@ -667,6 +740,8 @@ class ChatClient:
         except actions.ClientGap as error:
             self.say(f"\n{error}")
             return 1
+        finally:
+            self.close()
 
     def step(self) -> int | None:
         """Act on one status view; an exit code once the chat ends here."""
@@ -710,13 +785,27 @@ class ChatClient:
         While a reply is still changing, poll at the short streaming pace so each new
         extract appears immediately; otherwise the ordinary poll interval is enough.
         """
+        self._attached = True
         try:
-            while actions.working(view := self.status()):
-                self.show(view)
-                time.sleep(self.pace(self.poll_seconds))
-        except KeyboardInterrupt:
-            if not self.request_pause():
-                raise Left from None
+            while True:
+                try:
+                    view = self.status()
+                    if not actions.working(view):
+                        return
+                    self.show(view)
+                    self.check_others()
+                    if self._wait(self.pace(self.poll_seconds)) == "pause" or self._pause_pending:
+                        self._pause_pending = False
+                        self.request_pause()
+                except actions.ClientGap:
+                    self._wait(0.1)  # unavailable status is not completion; keep input and retries alive
+                except KeyboardInterrupt:
+                    try:
+                        self.request_pause()
+                    except KeyboardInterrupt:
+                        self.say("This viewer can only request a boundary pause; the external worker is unchanged.")
+        finally:
+            self._attached = False
 
     def respond(self, view: dict) -> bool:
         """Act on what the view asks of a person. False: the chat stops here, the run waits."""
@@ -1016,19 +1105,23 @@ def start(workspace: Path, brief: str, start_args, options, *, command=AUTOCODE,
     client = ChatClient(workspace, run_dir, command=command, env=env, **kwargs)
     client.say(f"\nYou: {brief}")
     client.started = True
-    client.advance(
-        [
-            brief,
-            "--in-place",
-            "--no-chat",
-            *start_args,
-            *options,
-            "--workspace",
-            str(workspace),
-            "--new-run-dir",
-            str(run_dir),
-        ]
-    )
+    try:
+        client.advance(
+            [
+                brief,
+                "--in-place",
+                "--no-chat",
+                *start_args,
+                *options,
+                "--workspace",
+                str(workspace),
+                "--new-run-dir",
+                str(run_dir),
+            ]
+        )
+    except BaseException:
+        client.close()
+        raise
     return client
 
 
@@ -1232,6 +1325,7 @@ def cli(argv: list[str] | None = None) -> int:
     if args.run_dir is not None and (options or args.mode):
         arguments.error("run options and --mode apply to a new run, not to --run-dir")
     ui = None
+    client = None
     try:
         if args.brief is not None and not args.brief.strip():
             arguments.error("the brief is empty")
@@ -1281,6 +1375,7 @@ def cli(argv: list[str] | None = None) -> int:
             ui.bind(client.slash)
             client.switched = ui.switch
             client.tabs_changed = ui.tabs
+            ui.idle = client.poll
             client.show_tabs()
         return client.converse()
     except (actions.ClientGap, OSError, ValueError) as error:
@@ -1294,6 +1389,8 @@ def cli(argv: list[str] | None = None) -> int:
         print("\nautocode chat: interrupted.", file=sys.stderr)
         return 130
     finally:
+        if client is not None:
+            client.close()
         if ui is not None:
             ui.close()
 

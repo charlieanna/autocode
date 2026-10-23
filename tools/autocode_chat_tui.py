@@ -144,8 +144,8 @@ def role_of(text: str) -> str:
     return "plain"
 
 
-TAB_MARKS = {"working": "●", "needs you": "!", "done": "✓"}
-ASCII_TAB_MARKS = {"working": "*", "needs you": "!", "done": "+"}
+TAB_MARKS = {"working": "●", "needs you": "!", "done": "✓", "unavailable": "unavailable"}
+ASCII_TAB_MARKS = {"working": "*", "needs you": "!", "done": "+", "unavailable": "unavailable"}
 CTRL_T = "\x14"
 # Ctrl-← and Ctrl-→ as terminfo names them (xterm-style terminals); other terminals use /tab.
 TAB_KEYS = {b"kLFT5": "previous", b"kRIT5": "next", b"kLFT3": "previous", b"kRIT3": "next"}
@@ -466,6 +466,7 @@ class ChatTUI:
         self._composer = Composer()
         self._prompt = ""
         self._asking = False
+        self.idle: Callable[[], None] | None = None
         self._scroll = 0
         self._closed = False
         self._context = ""
@@ -605,6 +606,8 @@ class ChatTUI:
     def tabs(self, rows: list[dict]) -> None:
         """This session's chats, as the client numbers them: drawn as tabs once there is more than one."""
         with self._lock:
+            if self._tabs == rows:
+                return
             self._tabs = list(rows)
             self._draw()
 
@@ -648,6 +651,8 @@ class ChatTUI:
     def observe(self, view: dict) -> None:
         """The status view the client just read: the panel and the log draw from it alone."""
         with self._lock:
+            if self._view == view:
+                return
             self._view = view
             self._log.observe(view)
             self._live.observe(view)
@@ -664,24 +669,29 @@ class ChatTUI:
             time.sleep(seconds)
             return None
         deadline = time.monotonic() + seconds
-        self._launched = True
+        if not self._asking:
+            self._launched = True
+        was_waiting = self._waiting
         self._waiting = True  # this loop animates the marker; the ticker must not draw beside a key read
         try:
             while (left := deadline - time.monotonic()) > 0:
+                if self.idle is not None:
+                    self.idle()
                 with self._lock:  # curses is not thread-safe: read, handle and draw as one step
                     if self._closed or self._screen is None:
                         return None
                     self._screen.timeout(max(1, int(min(left, 0.1) * 1000)))
                     key = self._read_key()
                     action = self._handle(key, asking=False)
-                    self._frame += 1
-                    self._draw()
+                    if key is not None or self._animate():
+                        self._frame += 1
+                        self._draw()
                 if action is not None:
                     return action
         finally:
-            self._waiting = False
+            self._waiting = was_waiting
             with self._lock, contextlib.suppress(curses.error, AttributeError):
-                self._screen.timeout(-1)
+                self._screen.timeout(100 if self._asking or was_waiting else -1)
         return None
 
     def ask(self, prompt: str) -> str:
@@ -704,14 +714,21 @@ class ChatTUI:
             self._frame = 0
             self._cursor(1)
         try:
+            self._screen.timeout(100)
+            self._draw()
             while True:
-                self._draw()
-                answer = self._handle(self._read_key(), asking=True)
+                if self.idle is not None:
+                    self.idle()
+                key = self._read_key()
+                answer = self._handle(key, asking=True)
+                if key is not None:
+                    self._draw()
                 if answer is not None:
                     return answer
         finally:
             with self._lock:
                 self._asking = False
+                self._screen.timeout(-1)
                 self._prompt = ""
                 self._frame = 0
                 self._cursor(0)
@@ -733,7 +750,7 @@ class ChatTUI:
         try:
             pasted = read_paste(self._read_next, consumed)
         finally:
-            self._screen.timeout(-1)
+            self._screen.timeout(100 if self._asking or self._waiting else -1)
         if pasted is not None:
             return Pasted(pasted)
         self._queued.extend(consumed)  # an escape key on its own, then whatever followed it
@@ -1279,11 +1296,17 @@ class ChatTUI:
         with contextlib.suppress(curses.error):
             curses.curs_set(visible)
 
+    def _animate(self) -> bool:
+        return bool(
+            not self._asking
+            and (self._launched or (self._view or {}).get("liveness", {}).get("kind") in ("supervised", "unsupervised"))
+        )
+
     def _tick(self) -> None:
         """Animate the working marker; never draws while a question waits for a key."""
         while not self._stopping.wait(0.12):
             with self._lock:
-                if self._closed or self._asking or self._waiting:
+                if self._closed or self._asking or self._waiting or not self._animate():
                     continue
                 self._frame += 1
                 self._draw()
