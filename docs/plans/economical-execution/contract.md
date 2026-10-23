@@ -50,8 +50,10 @@ implemented. Worker lifecycle and viewer compatibility belong to #1879.
   optional properties; protecting them in the required list is still open.
 - No client checks `view.schema`; compatibility rests on clients ignoring unknown
   fields and older cores omitting new ones.
-- `prompts_hash` is recorded at launch but never compared on resume, so a saved run
-  resumed under a newer install launches with the new prompts.
+- The run's `prompts_hash` is written once at setup, and each stage's launch record stores
+  the prompt set it launched with (`autocode_provider_launch`). Nothing compares the two,
+  so a saved run resumed under a newer install launches with new prompts and no surface
+  says so.
 - No versioned policy identity is recorded on a run.
 
 ## Trust and authority
@@ -77,7 +79,7 @@ renders nothing.
 {
   "stage_policy": {
     "version": 1,
-    "policy": {"id": "default", "revision": 1, "source": "project", "fixed_at": "2026-11-01T10:00:00Z"},
+    "policy": {"id": "acme-default", "revision": 3, "digest": "sha256:...", "source": "project", "fixed_at": "2026-11-01T10:00:00Z"},
     "class": {
       "value": "clear_localized_bug",
       "basis": "runner",
@@ -120,6 +122,34 @@ Additions to existing projections, each named in its own record:
 | `cost.estimate` | [accounting](accounting.md) | `{low_usd, high_usd, samples, scope}` or `null` |
 | `efficiency.observations[].kind` values `invalidated`, `unknown` | [evidence reuse](evidence-reuse.md) | Why an item was not reused, with the binding that changed |
 
+## Where the policy lives
+
+The policy follows the `require-approver` precedent (`autocode_required_approver`): a
+project-file setting with no flag, read only by a new run and saved in its settings, so a
+changed file never alters a run in progress and no caller can pass a looser policy on the
+command line (G2). It would join `autocode_project_config.FILE_ONLY`.
+
+```toml
+[tool.autocode]
+sensitive-paths = ["src/billing/**", "src/auth/**", "migrations/**"]
+
+[tool.autocode.stage-policy]
+id = "acme-default"
+revision = 3
+short-bugfix = true            # P1: runner-built contract, the person approves it
+combined-verification = true   # one validation-and-decision pass for a single non-sensitive task
+follow-up-reuse = true         # carry unchanged criteria and settled answers into a follow-up
+preauthorize = []              # classes approved without a person; empty unless the owner decides otherwise
+```
+
+- **Saved at launch** as `settings.stage_policy`: `{id, revision, digest, rules}`, where
+  `digest` hashes the rules. The shipped default sensitive-path list is merged in and
+  recorded, so the run shows exactly what it used.
+- **No file, no policy.** A project without the table runs the full pipeline, as today.
+- **Only stricter by flag.** One start flag, `--full-pipeline`, turns every shortcut off
+  for a run. It can only add stages, so unattended callers may pass it. No flag loosens
+  the policy.
+
 ## Named actions
 
 Policy actions follow the existing pattern: the view names an argument array; clients
@@ -127,19 +157,134 @@ take it unchanged.
 
 | Action | Where named | Kind | Unattended |
 | --- | --- | --- | --- |
-| Approve the displayed contract | `needs.token`, `next_command` | Existing decision | Refused |
-| Move a held run to a newer policy revision | `stage_policy.next_command`, only at an idle, reconciled boundary | New decision flag | Refused |
-| Opt a new run into a policy | `--stage-policy ID` | New start flag, fixed at launch | Allowed |
+| Approve the displayed contract, on every path | `needs.token`, `next_command` | Existing decision flag | Refused |
+| Run one task on the full pipeline | `--full-pipeline` | New start flag, fixed at launch | Allowed: it only adds stages |
+| Move a held run to a newer policy revision | Not offered in the first slices: a new policy applies to new runs, as a project file does today | — | — |
 
 A stale action fails with the current offer, as a stale approval token does today.
+Clients detect the feature by the presence of `stage_policy`; there is no version
+handshake, and none is needed while every field is additive.
+
+## Worked decision records
+
+The same field for each path. Only `class`, `decisions` and `escalations` differ; the
+`policy` block is as above.
+
+**Full path** (no policy, a sensitive path, or any unknown signal):
+
+```json
+{"class": {"value": "sensitive", "basis": "runner",
+           "signals": [{"kind": "sensitive_paths", "value": ["src/billing/rounding.py"], "source": "project policy"}],
+           "hints": []},
+ "decisions": [
+   {"stage": "astra_challenge", "decision": "included", "reason": "Sensitive path in the plan", "covered_by": []},
+   {"stage": "sol", "decision": "included", "reason": "Sensitive class keeps a separate Tester", "covered_by": []},
+   {"stage": "terra", "decision": "included", "reason": "No low-effort first attempt on a sensitive change", "covered_by": []}],
+ "escalations": []}
+```
+
+A run with no policy shows `"stage_policy": null`, not this record: absence means the
+pipeline was never asked to choose.
+
+**Short path** (P1, a reproduced bug in one task, nothing sensitive). The person still
+approves; `needs.kind` is `approve_plan` with the runner-built contract's token:
+
+```json
+{"class": {"value": "clear_localized_bug", "basis": "runner",
+           "signals": [{"kind": "diagnosis", "value": "reproduced", "source": "investigate_bug"},
+                       {"kind": "affected_paths", "value": 1, "source": "runner"},
+                       {"kind": "sensitive_paths", "value": [], "source": "project policy"}],
+           "hints": []},
+ "decisions": [
+   {"stage": "astra_discovery", "decision": "omitted", "reason": "Contract built from the reproduced diagnosis",
+    "covered_by": ["person:approve_goal", "runner:regression_proof"]},
+   {"stage": "astra_challenge", "decision": "omitted", "reason": "The person reviews the runner-built contract",
+    "covered_by": ["person:approve_goal"]},
+   {"stage": "sol", "decision": "combined", "with": "astra_checkpoint", "reason": "Single non-sensitive task",
+    "covered_by": ["runner:completion_gate", "runner:check_replay"]}],
+ "escalations": []}
+```
+
+**Escalated path** (started short; the Builder touched a file outside its task). The
+earlier decisions stay as history; the new ones apply from the escalation on, and
+nothing already verified is redone:
+
+```json
+{"class": {"value": "default", "basis": "runner", "signals": [], "hints": []},
+ "decisions": [
+   {"stage": "sol", "decision": "included", "reason": "Escalated: separate Tester restored", "covered_by": []}],
+ "escalations": [
+   {"at": "2026-11-01T10:20:00Z", "from": "clear_localized_bug", "to": "default",
+    "trigger": "changed_file_outside_task", "evidence": "src/billing/rounding.py"}]}
+```
+
+**Follow-up turn** (same chat; one criterion changed). Each turn records its own
+decisions; reuse names what it reused and why that is still valid:
+
+```json
+{"class": {"value": "follow_up", "basis": "runner", "signals": [{"kind": "changed_criteria", "value": ["C3"], "source": "runner"}], "hints": []},
+ "decisions": [
+   {"stage": "requirements_gather", "decision": "reused", "reason": "Settled answers whose source sentences are unchanged",
+    "covered_by": ["runner:source_log"], "reused": ["answer:Q2", "answer:Q4"]},
+   {"stage": "write_acceptance_tests", "decision": "reused", "reason": "C1 and C2 tests unchanged",
+    "covered_by": ["runner:criterion_digest"], "reused": ["C1", "C2"], "invalidated": [{"item": "C3", "binding": "criterion_digest"}]}],
+ "escalations": []}
+```
+
+## Schema draft
+
+To be added to `docs/schemas/status-view.schema.json` with the implementation, as an
+optional property (additive; `view.schema` stays 2):
+
+```json
+"stage_policy": {
+  "type": ["object", "null"],
+  "required": ["version", "policy", "class", "decisions", "escalations", "preauthorized"],
+  "properties": {
+    "version": {"type": "integer", "enum": [1]},
+    "policy": {"type": "object", "required": ["id", "revision", "digest", "source", "fixed_at"]},
+    "class": {"type": "object", "required": ["value", "basis", "signals", "hints"],
+      "properties": {"basis": {"enum": ["runner", "unknown"]}}},
+    "decisions": {"type": "array", "items": {"type": "object", "required": ["stage", "decision", "reason", "covered_by"],
+      "properties": {"decision": {"enum": ["included", "omitted", "combined", "reused"]},
+                     "covered_by": {"type": "array", "items": {"type": "string"}}}}},
+    "escalations": {"type": "array", "items": {"type": "object", "required": ["at", "from", "to", "trigger"]}},
+    "preauthorized": {"type": "boolean"}
+  }
+}
+```
+
+A model hint is never the `basis`: hints sit in `hints` and can only have raised the class.
+
+## Preauthorization, if the owner wants it
+
+Today one non-person approval exists: `actor: "workflow_policy"` for the disabled
+small-correction origin (`autocode_workflows.POLICY_ORIGINS`), admitted by
+`approval_actor_ok`. A company preauthorization would be a second, narrower one:
+
+```json
+{"kind": "goal_approval", "actor": "company_policy", "token": "r2:9f0c...",
+ "policy": {"id": "acme-default", "revision": 3, "digest": "sha256:..."},
+ "class": "clear_localized_bug", "at": "2026-11-01T10:05:00Z"}
+```
+
+- Admitted only when the run's saved `settings.stage_policy.preauthorize` lists the class,
+  the policy digest matches the saved one, and the class came from runner signals.
+- **Never with `require-approver`.** That setting names the people who may approve; a
+  policy approval is made by no person and is not checked against it today. A run with
+  `require-approver` set should refuse a preauthorized approval rather than bypass it.
+- Never for the sensitive class, and never for a follow-up that changed a criterion.
+
+**Recommendation:** leave preauthorization out of the first slices. Every path keeps the
+person's approval of the displayed token; revisit after the S8 comparison.
 
 ## Saved-run compatibility
 
 | Saved run | Under a newer install | Behavior |
 | --- | --- | --- |
 | No `stage_policy` recorded (G1) | Any | Full pipeline; never adopts a shortcut |
-| Policy revision 1 recorded, install has revision 2 | Resume | Keeps revision 1, as a saved run keeps its adaptive-planning setting |
-| Policy changed while the run is held (G7) | Explicit move | Only at an idle, reconciled boundary, with a recorded event bound to the contract hash; an approved plan whose path changes needs a new approval |
+| Policy revision 1 recorded, project file now has revision 2 | Resume | Keeps revision 1: only a new run reads the project file |
+| Policy changed while the run is held (G7) | Resume | No change: the run keeps the policy it started with. A new run picks up the new revision |
 | Evidence without a required binding | Any | Not reusable ([evidence reuse](evidence-reuse.md)); cumulative usage untouched |
 | Status read by an older client | Any | Unknown fields ignored; `stage_policy` absent from the client's view |
 | Status from an older core (G5) | New client | Field absent; the client shows no policy claims, not invented defaults |
@@ -155,7 +300,7 @@ A stale action fails with the current offer, as a stale approval token does toda
 | G4 TUI, CLI and a future worker see the same decision | One core projection, `stage_policy`; clients never infer an omission from prose |
 | G5 old status lacks the fields | Absent means unknown, rendered as nothing |
 | G6 follow-up keeps cumulative usage and evidence | Existing usage carry-over; decisions recorded per turn |
-| G7 policy changes while held | The explicit move action above |
+| G7 policy changes while held | The held run keeps its saved policy; new runs take the new one |
 
 ## Modules and consumers
 
@@ -169,15 +314,19 @@ A stale action fails with the current offer, as a stale approval token does toda
   readers.
 - **View and schema:** `autocode_run_view.view`, `docs/schemas/status-view.schema.json`,
   `docs/task-run.md`.
-- **Flags:** `autocode_decision_flags` for the two new flags.
+- **Project config and flags:** `stage-policy` and `sensitive-paths` in `autocode_project_config.FILE_ONLY`; `--full-pipeline` as a start flag in `autocode_decision_flags`.
 - **Consumers needing focused checks:** the terminal chat, the VS Code client, the
   conformance client (`scenarios/harness/conformance.py`) and the dashboard.
 
 ## Questions for the second owner checkpoint
 
-1. Is company preauthorization of a task class wanted at all? If so, which classes, and
-   is it recorded as its own approval actor bound to the policy revision and contract hash?
-2. Should a held run ever move to a newer policy revision, or should a new policy apply
-   to new runs only?
-3. Should resuming a saved run under different prompts be recorded or refused? Today it
-   is silent.
+Each with the recommendation this record makes.
+
+1. **Company preauthorization of a task class?** Recommended: not in the first slices;
+   every path keeps the person's approval. If wanted later, it is its own approval actor
+   bound to the policy digest and contract token, refused on runs with `require-approver`.
+2. **May a held run move to a newer policy revision?** Recommended: no. A new policy
+   applies to new runs only, as a project file does today.
+3. **Resuming under different prompts: record or refuse?** Recommended: surface it. Each
+   stage record already stores its launch prompt set; the status view should say when it
+   differs from the run's original set. Refusing would strand runs on every prompt edit.

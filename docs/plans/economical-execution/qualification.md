@@ -42,6 +42,28 @@ From [baseline](baseline.md).
 | Sensitive small diff | **New:** a one-line rounding or permission change in a module the sensitive-path default covers, with a broken variant that passes the existing tests | To write |
 | Same-chat follow-up | `review-then-fix` | Exists |
 
+## Current-master deterministic row
+
+Recorded 2026-10-23 on master `518254b7e` with `scenarios/run.py run ... --fake` on
+macOS (portable supervision). The fake provider writes valid reports and its first plan
+review raises no blocking concern, so these are best-case stage sequences: live runs
+add revision rounds and report repairs (the Plan Reviewer blocked the first draft in 21
+of 22 live runs, `docs/adaptive-planning.md`). The harness does not pass `--spec-first`, so no acceptance-test
+stage runs; the clients' `full` mode adds one, plus the Requirements review stop.
+
+| Entry | Verdict | Model stages | Runner stages | Sequence | Person's decisions | Bundle manifest |
+| --- | --- | ---: | ---: | --- | --- | --- |
+| `bugfix-trivial` | PASS, oracle 14/14 | 7 | 2 | Requirements, Investigator, draft, challenge, orchestrator, Builder, regression proof, Tester, Completion Reviewer | 1 plan approval | `6f7c3532…` |
+| `bugfix-iso-weeks` | PASS, oracle 8/8 | 7 | 2 | Same as above | 1 plan approval | `44d01c78…` |
+| `feature-timesheet-by-project` | PASS, oracle 9/9 | 6 | 1 | Requirements, draft, challenge, orchestrator, Builder, Tester, Completion Reviewer | 1 plan approval | `24957149…` |
+| `review-then-fix` | PASS, oracle 21/21 | 8 | 1 | Requirements, Code Reviewer, Requirements, draft, challenge, orchestrator, Builder, Tester, Completion Reviewer | 1 plan approval | `78c18f50…` |
+
+No report repair ran in any of the four. Against this row, the proposed P1 path would run
+4 model stages on `bugfix-trivial` (Requirements, Investigator, Builder, one combined
+verification) and the combined pass alone would take `feature-timesheet-by-project` from
+6 to 5. Wall times (26 to 41 s) are harness overhead, not model latency. The archives are
+under the main checkout's ignored `.scenario-runs/economical-baseline-20261023/`.
+
 ## Qualification matrix
 
 Deterministic layers first: pure tests, then CLI-level tests with fake providers, then
@@ -63,6 +85,10 @@ boundary (AGENTS.md "Testing").
 
 ## Implementation slices
 
+Each slice below is drafted as an issue, with its tests, compatibility and closing
+evidence, in [implementation issue drafts](implementation-issues.md). S1 there is split
+into one pull request per field.
+
 In dependency order. Each slice is one pull request unless noted, and each names what
 closes it.
 
@@ -83,6 +109,8 @@ checkpoint to start. S2 and S3 run in shadow, so they gather classification
 evidence on real runs without changing behavior.
 
 ## Live comparison: authorization boundary and format
+
+The fill-in authorization is at the end of [implementation issue drafts](implementation-issues.md).
 
 A live comparison is a paid sweep, so AGENTS.md requires an explicit decision; this
 record does not grant it. The decision at the second checkpoint states:
