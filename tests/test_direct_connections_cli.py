@@ -81,6 +81,9 @@ class DirectCliTests(unittest.TestCase):
             elif stage == "requirements_gather":
                 report = {
                     "assistant_reply": "Hi! What would you like to build or change?",
+                    "job": "build",
+                    "design_document": "",
+                    "clarity": "vague",
                     "summary": "No task specified",
                     "intended_outcome": "Not yet specified by the user",
                     "required_behaviors": [],
@@ -180,13 +183,26 @@ class DirectCliTests(unittest.TestCase):
         def respond(body):
             data = json.loads(body["messages"][1]["content"].split("CURRENT HANDOFF DATA\n", 1)[1])
             stages.append(data["stage"])
-            if data["stage"] == "recognize_workflow":
+            if data["stage"] == "requirements_gather":
                 report = {
-                    "workflow": "discuss",
-                    "reason": "Answer a repository question",
-                    "signals": [],
+                    "job": "discuss",
                     "design_document": "",
                     "clarity": "clear",
+                    "summary": "Answer a repository question",
+                    "intended_outcome": "Explain README.md without changing files.",
+                    "required_behaviors": ["Explain README.md without changing files."],
+                    "constraints": ["Read only"],
+                    "acceptance_tests": ["Answer cites README.md"],
+                    "source_refs": ["README.md"],
+                    "proposed_assumptions": [],
+                    "requirements": [],
+                    "ignored_statements": [],
+                    "conflicts": [],
+                    "proposed_reframes": [],
+                    "ignored_requirements": [],
+                    "machine_resolutions": [],
+                    "access_blockers": [],
+                    "open_questions": [],
                 }
             elif body["messages"][-1]["role"] != "tool":
                 return 200, {
@@ -248,7 +264,7 @@ class DirectCliTests(unittest.TestCase):
         )
         view = run.status()
         self.assertTrue(view["done"], view.get("stop_reason"))
-        self.assertEqual(["recognize_workflow", "answer_question", "answer_question"], stages)
+        self.assertEqual(["requirements_gather", "answer_question", "answer_question"], stages)
         self.assertEqual(7, tool_results[0]["exit_code"])
         self.assertIn("DIRECT_TOOL_EVIDENCE", tool_results[0]["output"])
         self.assertEqual("DIRECT_TOOL_EVIDENCE\n", (self.workspace / "README.md").read_text())

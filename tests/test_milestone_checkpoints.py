@@ -101,6 +101,8 @@ class MilestoneCheckpointTests(unittest.TestCase):
         statuses = statuses or {"C1": "PASS", "C2": "PASS", "C3": "NOT_VERIFIED"}
         criterion_ids = m.scope(self.state)["acceptance_criteria"]
         passed = all(statuses.get(cid) == "PASS" for cid in criterion_ids)
+        statuses = dict(statuses)
+        human = [c["id"] for c in self.state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
         n = sum(r.get("role") == "sol" for r in self.state["stages"])
         events = self.run / f"sol-{n}.jsonl"
         # A real command with the fixture's outcome: the runner re-runs PASS checks (autocode_check_replay).
@@ -136,6 +138,19 @@ class MilestoneCheckpointTests(unittest.TestCase):
             },
         }
         # An integrated batch's validation reports every member (autopilot.apply_review_result).
+        if human and passed:
+            # Automated PASS rows remain technical evidence; the structured
+            # flow, not an uncertain technical finding, carries owner review.
+            value["unverified_criteria"] = []
+            value["end_to_end_result"].update(
+                status="NOT_VERIFIED",
+                technical_result={
+                    "status": "PASS",
+                    "summary": "Automated checks passed",
+                    "evidence_refs": ["event:check"],
+                },
+                pending_human_criteria=human,
+            )
         for member in m.scope(self.state).get("members", []):
             value.setdefault("milestone_results", []).append(
                 {

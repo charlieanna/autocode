@@ -95,12 +95,9 @@ MUTATIONS = [
     ),
     (
         "M09",
-        "tools/autopilot.py",
-        # Anchor spans the wrapped condition; keep it in sync with ruff format's line breaks.
-        'if (value["verdict"] == "PASS" or human_pending or progressive_pass) and ('
-        '\n        not value["checks"] or any(c["exit_code"] for c in value["checks"])'
-        "\n    ):",
-        "if False:",
+        "tools/autocode_report_repair_queue.py",
+        "    if not passing_claim:\n        return",
+        "    return\n    if not passing_claim:\n        return",
         ["tests.test_catalogue_t06"],
     ),
     (

@@ -8,6 +8,14 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_resolver_fixture_keeps_its_cli_consumer_even_when_slow(self):
+        consumer = "tests.test_resolver_recommendation_cli"
+        selected = run_suite.select_tests(
+            ["tests/resolver_recommendation_provider.py"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+        self.assertEqual([consumer], list(kept))
+
     def test_cost_aliases_and_attribution_keep_the_public_cap_consumer(self):
         consumer = "tests.test_cost_cap"
         for path in (
