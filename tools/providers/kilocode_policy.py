@@ -80,6 +80,9 @@ def restrict(argv, child, workspace, *, role, request=None, report_recovery=Fals
     else:
         selected = debug("config").get("default_agent") or "code"
     original = debug("agent", selected)
+    prompt = original.get("prompt")
+    if prompt is not None and not isinstance(prompt, str):
+        raise ValueError("Kilo effective agent prompt must be a string")
     if report_recovery and request is not None:
         raise ValueError("Report recovery cannot grant a verification shell")
     permitted = (
@@ -104,6 +107,7 @@ def restrict(argv, child, workspace, *, role, request=None, report_recovery=Fals
             "mode": "primary",
             "permission": policy,
             "model": argv[argv.index("--model") + 1],
+            **({"prompt": prompt} if prompt is not None else {}),
         },
     }
     child["KILO_CONFIG_CONTENT"] = json.dumps(config)

@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Restricted Kilo stages retain the selected agent's custom prompt while keeping
+  AutoCode's tool restrictions and fresh-session boundary (#1935).
+
 - A callback socket closing after a verified clean stage deadline retains the timeout result
   instead of reporting unknown process cleanup (#1920). Missing or uncertain cleanup, armed
   ownership failures and unsuccessful keeper exits remain blocked; this grants no retry.

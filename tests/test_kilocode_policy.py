@@ -93,6 +93,52 @@ class KiloPolicyTests(unittest.TestCase):
             with self.subTest(rules=rules), self.assertRaises(ValueError):
                 policy.intersect(rules, policy.READ_TOOLS)
 
+    def test_restriction_preserves_effective_custom_prompt_without_copying_tool_grants(self):
+        rules = [{"permission": "*", "pattern": "*", "action": "allow"}]
+        original = {
+            "permission": rules,
+            "prompt": "Review only the supplied plan. Return the requested report.",
+            "tools": {"edit": True, "task": True},
+        }
+        child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+        argv = [sys.executable, "run", "--agent", "selected", "--session", "old-session", "--model", "fixture/selected"]
+        with patch.object(
+            policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+        ):
+            ran, env = policy.restrict(argv, dict(child), Path.cwd(), role="plan_reviewer")
+        name = ran[ran.index("--agent") + 1]
+        agent = json.loads(env["KILO_CONFIG_CONTENT"])["agent"][name]
+        self.assertEqual(original["prompt"], agent["prompt"])
+        self.assertEqual("fixture/selected", agent["model"])
+        self.assertEqual("deny", agent["permission"]["*"])
+        self.assertNotIn("edit", agent["permission"])
+        self.assertNotIn("tools", agent)
+        self.assertNotIn("--session", ran)
+        self.assertEqual("{}", child["KILO_CONFIG_CONTENT"])
+
+    def test_effective_prompt_preserves_empty_and_rejects_non_strings(self):
+        argv = [sys.executable, "run", "--agent", "selected", "--model", "fixture/selected"]
+        for prompt in ("", None, {"text": "invalid"}, ["invalid"], 42):
+            original = {"permission": [{"permission": "*", "pattern": "*", "action": "allow"}], "prompt": prompt}
+            child = {"PATH": os.environ["PATH"], "KILO_CONFIG_CONTENT": "{}"}
+            with (
+                self.subTest(prompt=prompt),
+                patch.object(
+                    policy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(original), "")
+                ),
+            ):
+                if prompt is not None and not isinstance(prompt, str):
+                    with self.assertRaisesRegex(ValueError, "prompt must be a string"):
+                        policy.restrict(argv, child, Path.cwd(), role="plan_reviewer")
+                    self.assertEqual("{}", child["KILO_CONFIG_CONTENT"])
+                else:
+                    ran, env = policy.restrict(argv, child, Path.cwd(), role="plan_reviewer")
+                    agent = json.loads(env["KILO_CONFIG_CONTENT"])["agent"][ran[-1]]
+                    if prompt is None:
+                        self.assertNotIn("prompt", agent)
+                    else:
+                        self.assertEqual(prompt, agent["prompt"])
+
 
 @unittest.skipUnless(
     sys.platform == "linux" and os.environ.get("AUTOCODE_KILO_LOCAL_SSE_TEST") == "1",
@@ -199,6 +245,7 @@ class NativeKiloPolicyTests(unittest.TestCase):
     def test_report_recovery_removes_tools_from_actual_native_model_request(self):
         requests = []
         report = '{"summary":"Evidence insufficient; return a concern","concerns":[]}'
+        role_prompt = "OPERATOR_REVIEW_PROMPT_SENTINEL: review only; return the supplied report."
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_args):
@@ -229,7 +276,30 @@ class NativeKiloPolicyTests(unittest.TestCase):
         env = self.configured()
         config = json.loads(env["KILO_CONFIG_CONTENT"])
         config["provider"]["localfixture"]["options"]["baseURL"] = f"http://127.0.0.1:{server.server_port}/v1"
+        config["default_agent"] = "code"
+        config["agent"] = {"code": {"prompt": role_prompt}}
         env["KILO_CONFIG_CONTENT"] = json.dumps(config)
+        run_dir = self.workspace / ".autocode" / "runs" / "prompt-policy"
+        run_dir.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True, env=env)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "Fixture baseline",
+            ],
+            check=True,
+            env=env,
+        )
         for recovering in (False, True):
             with self.subTest(recovering=recovering), patch.dict(os.environ, env, clear=True):
                 requests.clear()
@@ -239,7 +309,7 @@ class NativeKiloPolicyTests(unittest.TestCase):
                     role="astra",
                     route_role="plan_reviewer",
                     workspace=self.workspace,
-                    run_dir=self.root,
+                    run_dir=run_dir,
                     session="old-session",
                     model="localfixture/check",
                     effort="medium",
@@ -266,6 +336,11 @@ class NativeKiloPolicyTests(unittest.TestCase):
                 )
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertTrue(requests, result.stdout)
+                for row in requests:
+                    system = [message["content"] for message in row["messages"] if message["role"] == "system"]
+                    self.assertIn(
+                        role_prompt, json.dumps(system), "Restriction must retain the selected agent's prompt"
+                    )
                 names = {tool["function"]["name"] for row in requests for tool in row.get("tools", [])}
                 if recovering:
                     self.assertEqual(set(), names, "Recovery must not advertise exploratory tools")
