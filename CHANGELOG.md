@@ -18,6 +18,11 @@ PR template asks for an entry here; a change without one is incomplete.
   classification is spent by the stop. A run saved before this fix
   gets back the classifications those stops recorded, so its retry is offered again.
 
+- Planning revisions can retain all unchanged acceptance criteria with one exact
+  contract reference and return only changed/new rows and explicit removals (#1958).
+  This avoids retranscribing every criterion hash and the resulting report repairs.
+  Stale identities, unauthorized edits, independent review and plan approval remain checked.
+
 - Terminal status polling preserves complete valid long-run histories instead of
   rejecting responses above 2 MiB (#1951). Before the first view arrives, the
   terminal shows that it is reading status rather than claiming a worker is running.

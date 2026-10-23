@@ -313,6 +313,49 @@ class StageRepairCLI(unittest.TestCase):
         self.assertFalse((fixture.project / "greet.py").exists())
         self.assertFalse(any(row["stage"] == "terra" for row in trace))
 
+    def test_criteria_delta_reaches_review_and_plan_approval_without_report_repair(self):
+        fixture = self.fixture_for("criteria-delta")
+        _, state, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        self.assertFalse(any(row["repair"] for row in trace), trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual(1, len(revisions), trace)
+        self.assertTrue(revisions[0]["delta_offered"])
+        self.assertTrue(revisions[0]["current_contract_offered"])
+        self.assertEqual([], revisions[0]["criteria_delta"]["upsert"])
+        self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in trace), trace)
+        self.assertEqual(1, sum(row["stage"] == "astra_finalize" for row in trace), trace)
+        before = state["planning"]["reports"]["astra_discovery"]["report"]["contract"]["acceptance_criteria"]
+        after = state["planning"]["reports"]["glm_revise"]["report"]["contract"]["acceptance_criteria"]
+        self.assertEqual(before, after)
+        self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+        self.assertFalse((fixture.project / "greet.py").exists())
+
+    def test_one_format_repair_preserves_the_bound_delta_without_restarting_planning(self):
+        fixture = self.fixture_for("criteria-delta-repair")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["repair"]]
+        self.assertEqual(["glm_revise"], [row["stage"] for row in repairs], trace)
+        self.assertTrue(repairs[0]["delta_offered"])
+        self.assertTrue(repairs[0]["current_contract_offered"])
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual([False, True], [row["repair"] for row in revisions], trace)
+        self.assertEqual(revisions[0]["criteria_delta"], revisions[1]["criteria_delta"])
+        self.assertEqual(1, sum(row["stage"] == "astra_finalize" for row in trace), trace)
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
+    def test_invalid_criteria_deltas_cannot_reach_approval_or_builder(self):
+        for case in ("criteria-delta-stale", "criteria-delta-invalid-row", "criteria-delta-weakened-proof"):
+            with self.subTest(case=case):
+                fixture = self.fixture_for(case)
+                _, _, view, trace = self.plan(fixture)
+                self.assertNotEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("stop_reason"))
+                self.assertFalse(view["done"])
+                self.assertTrue(any(row["repair"] for row in trace), trace)
+                self.assertFalse(any(row["stage"] in ("astra_finalize", "terra") for row in trace))
+
     def test_large_revision_repair_keeps_the_latest_draft_without_repeating_its_predecessor(self):
         fixture = self.fixture_for("retained-criteria-large")
         _, state, view, trace = self.plan(fixture)
