@@ -144,7 +144,7 @@ class PlanSentBackTwice(unittest.TestCase):
         rotated = [row for row in state.get("session_rotations", []) if row["role"] == "glm"]
         self.assertEqual(1, len(rotated))
         self.assertNotEqual(rotated[0]["old_session"], state["sessions"].get("glm"))
-        view = json.loads(self.launch(["--run-dir", str(run), "--status", "--json"], 0).stdout)
+        view = json.loads(self.launch(["--run-dir", str(run), "--status", "--json"], 0).stdout)["view"]
         self.assertEqual(1, sum(view["escalation_outcomes"].values()))
 
     def test_under_the_default_allowance_the_planner_never_climbs(self):
