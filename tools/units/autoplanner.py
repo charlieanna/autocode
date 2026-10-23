@@ -38,6 +38,7 @@ try:
     from .. import autocode_follow_up as follow_up
     from .. import autocode_goals as goals
     from .. import autocode_native_test_names as native_test_names
+    from .. import autocode_planner_escalation as planner_escalation
     from .. import autocode_planning_artifacts as artifacts
     from .. import autocode_planning_report_policy as report_policy
     from .. import autocode_progressive_state as progressive
@@ -67,6 +68,7 @@ except ImportError:
     import autocode_follow_up as follow_up
     import autocode_goals as goals
     import autocode_native_test_names as native_test_names
+    import autocode_planner_escalation as planner_escalation
     import autocode_planning_artifacts as artifacts
     import autocode_planning_report_policy as report_policy
     import autocode_progressive_state as progressive
@@ -1637,6 +1639,7 @@ def after_challenge(state: RunState, value, record):
         # A progressive delegation is authorized by an accepted revision and final
         # independent review. A challenge cannot supply that approval evidence.
         state["next_stage"] = "glm_revise"
+        escalate_planner(state, value)
         return
     try:
         from .. import autocode_goal_lifecycle as lifecycle
@@ -1681,6 +1684,22 @@ def after_challenge(state: RunState, value, record):
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(
         approved_at=f"astra_challenge#{planning['adaptive']['challenges']}", final_stage="astra_challenge"
+    )
+
+
+def escalate_planner(state: RunState, value):
+    """A revised draft the Plan Reviewer blocks again moves the Planner once to a stronger model for the next
+    revision (autocode_planner_escalation). Only blocking concerns count: a draft sent back because it could not
+    be approved as written, or because a progressive delegation needs a revision, is not the reviewer's verdict."""
+    challenges = state["planning"]["adaptive"]["challenges"]
+    blocking = adaptive.blocking(value["concerns"])
+    if challenges < planner_escalation.CHALLENGE or not blocking:
+        return None
+    ids = ", ".join(str(concern["id"]) for concern in blocking)
+    return planner_escalation.escalate(
+        state,
+        detail=f"Plan Reviewer challenge {challenges} still blocks the revised plan: {ids}",
+        struggle_id=f"planning:{len(state.get('planning_history') or [])}",
     )
 
 

@@ -95,6 +95,21 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on `openai/gpt-6-sol` (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.
 
+The Planner has one stronger attempt of its own (`autocode_planner_escalation`, owner
+decision 2026-10-23). In an adaptive run, when the Plan Reviewer's second challenge in a
+planning cycle still has a blocking concern about the revised plan, the next revision runs
+on Claude Opus 5.5 High, or on GPT-6 Sol High when the Plan Reviewer is a Claude model. Only
+a blocking concern counts: schema errors, silences and output caps go through report repair
+and recovery as before. A target is used only when the run's provider serves it, the saved
+accounts permit it, it is a different model from the Planner's and it is outside the Plan
+Reviewer's family; otherwise the Planner stays. The climb is a `reasoning_escalations` row
+with trigger `plan_sent_back`, the Planner's session is rotated, and the route stays climbed
+for the rest of the run, so a run climbs at most once. A second challenge runs only when the
+review allowance leaves room for it (a large plan, `--planning-review-call-limit 3` or more,
+or `0`): under the default allowance of two calls the first revision goes straight to the
+final review and the Planner never climbs. If the stronger revision is still blocked, the
+final review returns the open concerns to you as blocking questions.
+
 Two scripted scenarios check these rows end to end, through `autocode --status --json`
 ([catalog](../scenarios/README.md#catalog)). In `escalation-converts` the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
