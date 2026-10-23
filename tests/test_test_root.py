@@ -491,7 +491,11 @@ class StoreTests(unittest.TestCase):
             canonical = verify.detect_framework(
                 self.project.root, python=python, test_root=root, base=self.project.base
             )
-            self.assertEqual(("unittest", suite), (canonical.name, canonical.suite))
+            if layout == "existing":
+                self.assertEqual("pytest", canonical.name)
+                self.assertIn("-m pytest", canonical.suite)
+            else:
+                self.assertEqual(("unittest", suite), (canonical.name, canonical.suite))
             baseline = verify.baseline(
                 self.project.root, self.project.base, self.run_dir, framework=supplied, suite_command=suite, timeout=120
             )

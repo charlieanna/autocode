@@ -31,5 +31,12 @@ multi-component fake also needed to read the complete latest rejection rather
 than a historical inline delta. Its existing component-admission refusals pass
 without weakening those guards.
 
+Final CI also checked a stronger repair invariant: the fake must preserve the
+original failed checks even when a newer rejected report incorrectly says PASS.
+It now reconstructs the historical JSON overlay rather than choosing a newer
+report by preference. The acceptance fixture selects the interpreter owning
+the declared test dependency. A mixed pytest/unittest proof test now expects
+pytest detection while continuing to refuse exit-code-only unittest evidence.
+
 The feedback/replanning gap following an acceptance hold is tracked separately
 by #1961. These old saved runs are preserved and are not post-fix live evidence.

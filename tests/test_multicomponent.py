@@ -281,7 +281,7 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
             schema = root / "schema.json"
             schema.write_text(json.dumps({"type": "object", "properties": {}, "required": []}))
             output = root / "report.json"
-            for repeated in (False, True):
+            for repeated in (False, True, "historical_delta"):
                 with self.subTest(repeated=repeated):
                     data = {
                         "report_repair": True,
@@ -295,6 +295,17 @@ class FakeSchemaCompatibilityTests(unittest.TestCase):
                     if repeated:
                         data["original_report"] = {"content": report}
                         data["rejected_report"]["content"].update(verdict="PASS", findings=[], contract_hash="wrong")
+                    if repeated == "historical_delta":
+                        data["original_report"] = {
+                            "content_base": "rejected_report.content",
+                            "content_delta": {
+                                "remove": [],
+                                "replace": [
+                                    {"path": [key], "value": report[key]}
+                                    for key in ("verdict", "findings", "contract_hash")
+                                ],
+                            },
+                        }
                     proc = subprocess.run(
                         [
                             sys.executable,

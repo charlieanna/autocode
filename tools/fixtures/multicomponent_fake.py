@@ -471,6 +471,37 @@ def complete(value, schema):
     return value
 
 
+def repair_report(data: dict) -> dict:
+    """Recover the immutable original, including its lossless historical JSON overlay."""
+    source = data.get("original_report") or data.get("rejected_report") or {}
+    if isinstance(source.get("content"), dict):
+        return json.loads(json.dumps(source["content"]))
+    latest = (data.get("rejected_report") or {}).get("content")
+    delta = source.get("content_delta")
+    if (
+        source.get("content_base") != "rejected_report.content"
+        or not isinstance(latest, dict)
+        or not isinstance(delta, dict)
+    ):
+        raise SystemExit("multicomponent_fake: report repair needs the supplied structured report")
+    report = json.loads(json.dumps(latest))
+    for path in delta["remove"]:
+        parent = report
+        for key in path[:-1]:
+            parent = parent[key]
+        del parent[path[-1]]
+    for replacement in delta["replace"]:
+        path, value = replacement["path"], replacement["value"]
+        if not path:
+            report = value
+            continue
+        parent = report
+        for key in path[:-1]:
+            parent = parent[key]
+        parent[path[-1]] = value
+    return report
+
+
 def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (multicomponent fake)")
@@ -491,11 +522,7 @@ def main() -> int:
         # A repair envelope is not a new task handoff. Preserve the original
         # report identity, failures and event references without rerunning work.
         # This fixture cannot manufacture evidence to fix a semantic rejection.
-        # The latest rejected report is complete; an older original may be an inline delta.
-        supplied = data.get("rejected_report") or data.get("original_report") or {}
-        if not isinstance(supplied.get("content"), dict):
-            raise SystemExit("multicomponent_fake: report repair needs the supplied structured report")
-        report = json.loads(json.dumps(supplied["content"]))
+        report = repair_report(data)
     else:
         component_id = component_id_for(prompt, data)
         spec = MANIFEST[component_id]
