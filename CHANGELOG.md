@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- When the Plan Reviewer still blocks a revised plan at its second challenge, the Planner's
+  next revision runs once on a stronger model (Claude Opus 5.5 High, or GPT-6 Sol High under a
+  Claude reviewer), when the provider serves it, the saved accounts permit it and it stays
+  outside the reviewer's family. It shows as a `plan_sent_back` escalation. Under the default
+  two-call review allowance it never fires.
+
 - Draft proof corrections can update only the verification method through a bound
   criterion delta, retaining the saved wording and sources exactly (#1966). A
   literal Python suite mistakenly labeled as a test name can lose only that prefix
