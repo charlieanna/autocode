@@ -46,7 +46,8 @@ implemented. Worker lifecycle and viewer compatibility belong to #1879.
 - `planning_depth`, `pause`, `package`, `dev_server`, `changes_by_criterion`,
   `tool_containment_backend`, `run_dir` and `workspace` are in the view but not in
   `docs/schemas/status-view.schema.json`. A field outside the schema's `required` list
-  could be removed without `tests/test_json_contract.py` failing.
+  could be removed without `tests/test_json_contract.py` failing. #1906 adds them as
+  optional properties; protecting them in the required list is still open.
 - No client checks `view.schema`; compatibility rests on clients ignoring unknown
   fields and older cores omitting new ones.
 - `prompts_hash` is recorded at launch but never compared on resume, so a saved run

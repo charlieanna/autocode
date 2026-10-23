@@ -96,7 +96,7 @@ resumes. A new contract or milestone opens a fresh Builder lane.
 
 | Rank | Change | Why | Owner decision needed |
 | --- | --- | --- | --- |
-| 1 | Correct `docs/models.md` to describe the automatic switch, and its limits | The docs contradict the runtime on a cost-relevant behavior | None; a documentation fix |
+| 1 | Correct `docs/models.md` to describe the automatic switch, and its limits | The docs contradicted the runtime on a cost-relevant behavior | Done in #1906 |
 | 2 | A start rung per producer role: Requirements, Planner draft and report repair start at low effort and climb on the existing triggers | The 98 s against 827 s replay; the owner's GLM-low choice for live runs; the light Builder precedent | Which roles, and whether GLM-low becomes the fixed default |
 | 3 | Report-format repair at low effort on the same model | A repair rewrites prose against a schema; no new reasoning about the code | Whether a repair may run at a lower effort than its stage |
 | 4 | A cheaper first route for routine Resolver work, climbing to Astra on evidence | Two Astra calls were 34% and 37% of their attempts (2026-10-02) | Revisits the recorded "Astra for the Resolver for now" decision |

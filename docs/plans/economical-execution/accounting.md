@@ -125,20 +125,22 @@ needs.
 6. **The money cap fails open on unknown spend.** The retired token guard paused on
    unknown usage (`PAUSED_USAGE_UNKNOWN`); the money cap ignores it. See the policy
    levels below.
-7. **No receipt for a cap change.** `--max-cost-usd` on resume overwrites the
-   setting and marks its origin, but keeps no old-to-new record, unlike
-   `--grant-recovery` and `--planning-review-call-limit`.
+7. **Cap changes are already recorded.** An earlier draft listed this as a gap. A
+   resume that changes any setting, the cap included, appends the previous and selected
+   settings to `configuration_changes` (`autocode_run_setup`). It is deliberately not a
+   `user_events` entry: AutoResolver requests bind a digest of that list, and the
+   deferred-approval bound counts its entries as the person's input.
 8. **Cost per accepted task uses reported dollars only.** Covered in [baseline](baseline.md).
 9. **No pre-run estimate.** `spend_confirmation` shows fixed text and the plan
    approval brief shows the cap only when one is set. See below.
-10. **Documentation drift.** `docs/cost-reporting.md` points to comparison rates
-    "below" that live in `autocode_usage.REFERENCE_PRICES`, and names one route where
-    two are listed.
+10. **Documentation drift.** `docs/cost-reporting.md` pointed to comparison rates
+    "below" that live in `autocode_usage.REFERENCE_PRICES`, and named one route where
+    two are listed. Fixed in #1906.
 
 ## Visibility versus enforcement
 
 **Recommendation for the first owner checkpoint:** visibility is the default and
-needs only gaps 1 to 4 and 7 to be truthful. Enforcement is opt-in company policy,
+needs only gaps 1 to 4 to be truthful. Enforcement is opt-in company policy,
 and each level states the guarantee it actually gives.
 
 | Level | What it does | Actual guarantee | Status |

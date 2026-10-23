@@ -68,8 +68,8 @@ closes it.
 
 | Slice | Change | Public interface | Regressions and negative controls | Compatibility | Rollout and rollback | Closed by |
 | --- | --- | --- | --- | --- | --- | --- |
-| S0 Truth fixes | Add the missing view fields to the status schema; fix `docs/models.md` on the automatic switch, the `--adaptive-planning` help, `docs/cost-reporting.md` drift | Schema, docs | `tests/test_json_contract.py` | Additive | Docs and schema only | Schema validates every view key |
-| S1 Accounting gaps | Price basis and billing per stage; cap-change receipt; estimated-dollar unit metric; human-waiting emitter | `cost.breakdown`, `efficiency.unit_metrics`, `user_events` | H7, H10 | Old stages show `price_basis: null` | Additive; reverting drops fields only | H7 and H10 pass |
+| S0 Truth fixes | Add the missing view fields to the status schema; fix `docs/models.md` on the automatic switch, the `--adaptive-planning` help, `docs/cost-reporting.md` drift | Schema, docs | `tests/test_json_contract.py` | Additive | Docs and schema only | Delivered in #1906 |
+| S1 Accounting gaps | Price basis and billing per stage; estimated-dollar unit metric; human-waiting emitter | `cost.breakdown`, `efficiency.unit_metrics` | H7, H10 | Old stages show `price_basis: null` | Additive; reverting drops fields only | H7 and H10 pass |
 | S2 Decision record, shadow | `autocode_stage_policy` computes the class and decisions and records them; nothing acts on them | `stage_policy` | H9; pure classification tests including B1 to B8 | `null` for old runs | Shadow only: records what it would do | Shadow records on the fake catalog match expectations |
 | S3 Sensitivity input | Project sensitive-path setting with a shipped default; diff check at Builder exit | Project config; `stage_policy.escalations` | H2 | No setting means the default list | Shadow first, with S2 | H2 passes in shadow |
 | S4 Planning reuse for follow-ups | Per-criterion acceptance-test coverage; carry settled answers | `efficiency.observations` | H4, H5 | Old runs re-produce as today | Behind the policy | H4 and H5 pass |
@@ -78,8 +78,8 @@ closes it.
 | S7 Catalog additions | The sensitive small-diff entry; a follow-up delta entry; a missing-price fixture; a stale-policy-token case | Scenarios | Their broken variants | — | Test-only | Entries pass `scenarios/run.py check` |
 | S8 Live comparison | The approved matched comparison below | Evidence notes | — | — | Explicit owner authorization | Recorded result, either way |
 
-S0 and S1 are independent of the policy decisions and can start once the second
-checkpoint confirms the plan. S2 and S3 run in shadow, so they gather classification
+S0 is delivered in #1906. S1 is independent of the policy decisions and needs no
+checkpoint to start. S2 and S3 run in shadow, so they gather classification
 evidence on real runs without changing behavior.
 
 ## Live comparison: authorization boundary and format

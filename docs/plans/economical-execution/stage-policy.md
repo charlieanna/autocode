@@ -60,7 +60,8 @@ and never reach the build pipeline.
   protocols at completion; it does not classify tasks.
 - **No plan-amendment path.** Scope growth during the Builder always pauses for a
   person (`--feedback` narrows or re-approves). The Resolver's `replan` action is
-  allowed by policy but excluded from every runtime boundary.
+  excluded from every runtime boundary by design: the Resolver never changes the
+  approved contract (1254fe712, written down in #1915).
 
 ## Principles for any shortcut
 

@@ -68,7 +68,7 @@ From [contract](contract.md) and [qualification](qualification.md):
 1. Is company preauthorization of a task class wanted at all?
 2. May a held run move to a newer policy revision, or only new runs?
 3. Should resuming under different prompts be recorded or refused?
-4. Approve slices S0 to S7, and the scope, repetitions and spend limit of the live
+4. Approve slices S1 to S7 (S0 is delivered in #1906), and the scope, repetitions and spend limit of the live
    comparison S8?
 
 From [routes and recovery](routes-and-recovery.md):
@@ -94,16 +94,16 @@ From [accounting](accounting.md):
 
 ## Defects found on the way, outside these records
 
-Each is small and independent of the policy decisions. Slice S0 in
-[qualification](qualification.md) collects the documentation and schema ones.
+Each is independent of the policy decisions and is handled outside these records. Two items
+an earlier draft listed turned out not to be defects.
 
-| Defect | Where |
+| Finding | Status |
 | --- | --- |
-| The docs say a quota stop never switches models automatically; automatically selected roles do switch (`autocode_route_recovery`) | `docs/models.md`, "When a role's quota runs out" |
-| `--adaptive-planning` help still promises the Requirements skip #1860 removed | `tools/autocode_args.py` |
-| Eight view fields, including `planning_depth` and `pause`, are missing from the status schema | `docs/schemas/status-view.schema.json` |
-| `--max-cost-usd` on resume keeps no old-to-new receipt | `tools/autocode_configure.py` |
-| The Completion Reviewer's `source_verdict` is not read by any gate | `tools/units/autoreview.py` |
-| The efficiency observation kind `repeat` has no emitter | `tools/autocode_efficiency.py` |
-| `docs/cost-reporting.md` points to comparison rates "below" that are not there | `docs/cost-reporting.md` |
-| The Resolver's `replan` action is allowed by policy but excluded from every runtime boundary | `tools/autocode_resolver_runtime.py` |
+| The docs said a quota stop never switches models automatically; automatically selected roles do switch (`autocode_route_recovery`) | Fixed in #1906 |
+| `--adaptive-planning` help still promised the Requirements skip #1860 removed | Fixed in #1906 |
+| Eight view fields, including `planning_depth` and `pause`, were missing from the status schema | Fixed in #1906 |
+| `docs/cost-reporting.md` pointed to comparison rates "below" that are not there | Fixed in #1906 |
+| A Completion Reviewer could mark a task complete beside its own FAIL `source_verdict`, which nothing read | Fixed in #1913 |
+| The efficiency observation kind `repeat` had no emitter | Fixed in #1914 |
+| The Resolver's `replan` action is excluded from every runtime boundary | Not a defect: deliberate since 1254fe712; written down in #1915 |
+| `--max-cost-usd` on resume keeps no old-to-new receipt | Not a defect: the resume records the previous and selected settings in `configuration_changes` |

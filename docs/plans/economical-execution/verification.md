@@ -74,11 +74,12 @@ model reading of the same change. Under the fixed defaults that second reading i
 same model family at a lower effort, so it is a second sample, not a different
 checker.
 
-Two gaps must close before combining:
+Two gaps had to close before combining; the first is now fixed:
 
-1. **`source_verdict` is not read by any gate.** It exists only in
-   `units/autoreview.py` and the fake providers. Either a gate consumes it, or the
-   obligation "original request covered" rests on brief evidence alone.
+1. **`source_verdict` was not read by any gate.** #1913 now refuses a completion beside
+   a FAIL verdict or an uncovered sentence and sends it back through report repair. A
+   combined pass inherits that check. Whether one reader's verdict is enough for
+   "original request covered" is still for the qualification to show.
 2. **One reviewer resolves its own findings.** With separate passes a Tester finding
    can be resolved only by a later Tester report, so the Completion Reviewer cannot wave
    it through. In a combined pass the same reviewer raises and later resolves every
@@ -145,5 +146,5 @@ Each scenario names the existing coverage to keep and what a shorter path needs 
    approval with fixed text. Under a stage policy the choice would come from the policy
    ([contract](contract.md)). Keep a per-contract approval, or let the owner's policy
    select it for the eligible class?
-4. **Close the two gaps above** (`source_verdict` and finding resolution) before
-   any qualification run of the combined pass.
+4. **Close the finding-resolution gap above** before any qualification run of the
+   combined pass; the `source_verdict` gap is closed by #1913.

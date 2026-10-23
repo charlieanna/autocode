@@ -81,14 +81,15 @@ because its binding does not include the contract.
 ## Explanation vocabulary
 
 The status view already records check observations in `efficiency.observations` with
-the kinds `activity`, `reuse` and `suppressed`; `repeat` is accepted but nothing emits
-it. Proposed public words, mapped onto those kinds:
+the kinds `activity`, `reuse` and `suppressed`, and `repeat`, which #1914 records for a
+check executed again after the same obligation had a completed receipt. Proposed public
+words, mapped onto those kinds:
 
 | Word | Meaning | Existing kind |
 | --- | --- | --- |
 | reused | Bindings unchanged; the original receipt verified | `reuse` |
 | invalidated | A named binding changed; the item was discarded | none; proposed |
-| re-executed | Run again because it was invalidated or never reusable | `activity`, plus a proposed `repeat` emitter |
+| re-executed | Run again because it was invalidated or never reusable | `repeat` when the same obligation already had a receipt (#1914), else `activity` |
 | unknown | Provenance missing; treated as invalidated | none; proposed |
 | suppressed | Held by a recovery decision | `suppressed` |
 
