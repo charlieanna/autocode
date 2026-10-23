@@ -1396,6 +1396,13 @@ TaskRun methods; adding a scope or a needs-table row requires an execution case.
 | `operational_exhaustion` | `answer`: use `respond_operational`, not an ordinary answer | Existing limits hold; information is considered at the next explicit resume |
 | `intake` | `answer`: answer the Resolver intake question with its current token | Intent is saved; no project plan or execution approval is implied |
 
+AutoResolver never changes the approved contract itself. The resolver policy defines a `replan`
+action (`autocode_resolver.ACTIONS`), but every decision the runner asks of it admits only
+`continue`, `retry` and `escalate`, and a diagnosis only `retry` and `escalate`. A contract change
+always goes through fresh planning and the person's approval of the new plan token. This is
+deliberate: the Resolver adapter does not authorize contract replanning, implementation replay, new
+permissions or completion.
+
 ## Supervision timing in status
 
 `view.liveness.timing` reports an authenticated supervision receipt's
