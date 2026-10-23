@@ -75,7 +75,11 @@ if any(row.get("criterion") == corrected for row in prior.get("acceptance_criter
         if fixture is not None and "source_trace" in report:
             # The base review predates our added accepted-wording citation.
             # Recompute its judgment against the actual emitted criterion.
-            report["source_trace"] = fixture["source_trace_for"](report["contract"])
+            # Compact finalization retains the authenticated body by token;
+            # the wire object itself has no criteria to classify. Judge the
+            # retained body rather than declaring every source out of scope.
+            traced = prior if report["contract"].get("retain_contract") else report["contract"]
+            report["source_trace"] = fixture["source_trace_for"](traced)
 output.write_text(json.dumps(report))
 with Path(os.environ["RECOMMENDATION_TRACE"]).open("a") as trace:
     trace.write(

@@ -265,6 +265,26 @@ class DispatchTests(unittest.TestCase):
                 for mid in (["M1"] if missing_member else ["M1", "M2"])
             ],
         }
+        human = [c["id"] for c in self.state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
+        if human:
+            value["unverified_criteria"] = []
+            value["criterion_results"] = [
+                {
+                    "id": c["id"],
+                    "status": "NOT_VERIFIED" if c["id"] == "C3" else "PASS",
+                    "evidence_refs": ["event:check"],
+                }
+                for c in self.state["goal_contract"]["body"]["acceptance_criteria"]
+            ]
+            value["end_to_end_result"].update(
+                status="NOT_VERIFIED",
+                technical_result={
+                    "status": "PASS",
+                    "summary": "Automated checks passed",
+                    "evidence_refs": ["event:check"],
+                },
+                pending_human_criteria=human,
+            )
         runner.apply_result(
             self.state,
             "sol",

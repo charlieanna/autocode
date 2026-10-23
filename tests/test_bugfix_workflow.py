@@ -120,11 +120,12 @@ class BugfixWorkflow(unittest.TestCase):
         self.assertEqual("FAIL", proof["verdict"])
         self.assertTrue(any("No regression test" in reason for reason in proof["failures"]))
         stages = [row["stage"] for row in final["stages"]]
-        # Every stage still ran and the gate refused; the refusal was investigated once
-        # (autocode_stuck_job) and the fixture's Investigator left the pause standing.
-        self.assertEqual(PLANNING + EXECUTION + ["investigate_stuck"], stages)
+        # Every stage still ran and the gate refused. A runner-owned proof
+        # refusal is not a failed model attempt and must not spend an extra
+        # Investigator call merely to explain that the proof is missing.
+        self.assertEqual(PLANNING + EXECUTION, stages)
         self.assertIn("no passing regression proof", final["stop_reason"])
-        self.assertEqual(["paused"], [row["outcome"] for row in final["stuck_investigations"]])
+        self.assertFalse(final.get("stuck_investigations"))
 
     def test_build_tasks_get_no_proof_step(self):
         self.env["AUTOCODE_FIXTURE_TASK_KIND"] = "build"
