@@ -43,6 +43,11 @@ def check_version(version, platform=None):
 
 
 class KiloProvider(command.CommandProvider):
+    # Every stage starts a fresh Kilo session, as the other providers' stages do (#1939): a resumed role
+    # session grows stage after stage until Kilo compacts it on a context overflow. Read-only stages were
+    # already fresh (#1739); a same-stage correction still resumes (autocode_provider_launch.prepare).
+    RESUME_ACROSS_STAGES = False
+
     def launch(
         self,
         role,
