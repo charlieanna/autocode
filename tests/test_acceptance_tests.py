@@ -528,9 +528,15 @@ class RunnerCollectionTests(unittest.TestCase):
 
     def test_unconfigured_pytest_acceptance_is_collected_and_really_fails_before_building(self):
         import subprocess
+        from unittest.mock import patch
 
         import autocode_acceptance_tests_job as job
         import autocode_verify as verify
+
+        # The test extra belongs to this interpreter, not necessarily the system python3 on PATH.
+        self.enterContext(
+            patch.dict(os.environ, {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"]})
+        )
 
         with tempfile.TemporaryDirectory() as root:
             workspace, evidence = Path(root) / "workspace", Path(root) / "evidence"

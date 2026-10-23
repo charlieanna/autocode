@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Collector regressions run on the interpreter owning the declared test dependency;
+  multi-component fake repairs reconstruct historical JSON overlays while preserving
+  original failures and evidence, and wrong-collector proof refusals stay covered (#1960).
+
 - Questions at an approved acceptance-test pause use the bounded plan conversation
   and return to the same pause without invalidating the plan or repeating review (#1961).
   Actual or mixed change requests still require replanning and fresh approval.
