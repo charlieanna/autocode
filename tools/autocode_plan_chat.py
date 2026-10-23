@@ -49,7 +49,7 @@ def pending(state: RunState):
     )
 
 
-def _check_plan(state: RunState, selected):
+def _check_plan(state: RunState, selected, *, held=False):
     contract = state.get("goal_contract")
     report = (state.get("requirements_handoff") or {}).get("report")
     handoff = util.digest(report)[:12] if report else "none"
@@ -58,24 +58,27 @@ def _check_plan(state: RunState, selected):
         or not identity.sealed(contract)
         or not selected
         or selected != identity.token(contract)
-        or selected != state.get("displayed_goal")
-        or handoff != state.get("displayed_handoff")
-        or contract.get("approval_status") != "draft"
+        or (held and not identity.approved(state))
+        or (not held and (selected != state.get("displayed_goal") or handoff != state.get("displayed_handoff")))
+        or contract.get("approval_status") != ("approved" if held else "draft")
     ):
-        raise ValueError("Plan conversation needs the current sealed displayed draft")
+        raise ValueError("Plan conversation needs the current sealed plan and its displayed draft or saved approval")
 
 
 def begin(state: RunState, text: str) -> bool:
-    """Queue interpretation only at a chat run's displayed approval checkpoint."""
+    """Interpret a plan message at approval or its approved acceptance-test hold."""
+    held = state.get("status") == "PAUSED_ACCEPTANCE_TESTS"
     if (
         not (state.get("settings") or {}).get("spec_first")
-        or state.get("status") != "AWAITING_GOAL_APPROVAL"
+        or state.get("status") not in ("AWAITING_GOAL_APPROVAL", "PAUSED_ACCEPTANCE_TESTS")
         or not state.get("goal_contract")
+        or (held and (state.get("goal_contract") or {}).get("approval_status") != "approved")
     ):
         return False
     if not text.strip():
         raise ValueError("Plan conversation needs nonempty text")
-    _check_plan(state, state.get("displayed_goal"))
+    selected = identity.token(state["goal_contract"]) if held else state.get("displayed_goal")
+    _check_plan(state, selected, held=held)
     if any(state.get(key) for key in ("active_stage", "uncertain_artifacts", "pending_report_repair")) or pending(
         state
     ):
@@ -87,8 +90,9 @@ def begin(state: RunState, text: str) -> bool:
             "id": "plan-message-" + uuid.uuid4().hex[:12],
             "at": util.now(),
             "text": text,
-            "contract_token": state["displayed_goal"],
+            "contract_token": selected,
             "return_stage": state.get("next_stage") or "astra_plan",
+            **({"return_pause": {"status": state["status"], "reason": state.get("stop_reason", "")}} if held else {}),
         }
     )
     run_status.running(state, "PLANNING", next_stage="requirements_gather")
@@ -100,7 +104,7 @@ def context(state: RunState):
     message = pending(state)
     if not message:
         raise ValueError("No pending plan message")
-    _check_plan(state, message["contract_token"])
+    _check_plan(state, message["contract_token"], held=bool(message.get("return_pause")))
     prior = [
         {"text": row["text"], "assistant_reply": row["reply_after"]}
         for row in state.get("user_events") or []
@@ -137,9 +141,15 @@ def accept(state: RunState, value: dict, record: dict):
     message = pending(state)
     if not message or value["message_id"] != message["id"] or value["contract_token"] != message["contract_token"]:
         raise ValueError("Plan response does not match the pending message")
-    _check_plan(state, value["contract_token"])
+    checkpoint = message.get("return_pause")
+    if checkpoint and checkpoint.get("status") != "PAUSED_ACCEPTANCE_TESTS":
+        raise ValueError("Plan response cannot replace an unrelated operational pause")
+    _check_plan(state, value["contract_token"], held=bool(checkpoint))
     if not value["assistant_reply"].strip() or len(value["assistant_reply"]) > 12000:
         raise ValueError("Plan response needs a nonempty answer of at most 12000 characters")
     message.update(intent=value["intent"], reply_after=value["assistant_reply"], output=record.get("output"))
-    run_status.awaiting_approval(state, next_stage=message["return_stage"])
+    if checkpoint:
+        run_status.pause(state, checkpoint["status"], checkpoint["reason"], next_stage=message["return_stage"])
+    else:
+        run_status.awaiting_approval(state, next_stage=message["return_stage"])
     return message

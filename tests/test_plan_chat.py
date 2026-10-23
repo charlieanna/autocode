@@ -84,6 +84,102 @@ def response(state, intent="question", **changes):
     }
 
 
+def acceptance_hold():
+    state = reviewed()
+    event = {"kind": "goal_approval", "actor": "user_cli", "token": state["displayed_goal"]}
+    state["goal_contract"].update(approval_status="approved", approval_event=event)
+    state["user_events"].append(event)
+    state.update(
+        status="PAUSED_ACCEPTANCE_TESTS",
+        phase="PAUSED_OR_BLOCKED",
+        next_stage="write_acceptance_tests",
+        stop_reason="The reproduction already passes; clarify the diagnosis.",
+    )
+    return state
+
+
+class AcceptanceHoldMessageTests(unittest.TestCase):
+    def test_explanation_preserves_the_approved_hold_and_spent_reviews(self):
+        state = acceptance_hold()
+        before = copy.deepcopy(state)
+        goals.feedback(state, "What needs changing here?")
+        self.assertEqual(before["goal_contract"], state["goal_contract"])
+        self.assertEqual(before["source_log"], state["source_log"])
+        self.assertEqual(before["planning"], state["planning"])
+        self.assertEqual("requirements_gather", state["next_stage"])
+        queue = mock.Mock()
+        self.assertTrue(handoff.accept_chat(state, response(state), {"output": None}, queue=queue))
+        queue.assert_not_called()
+        for key in (
+            "goal_contract",
+            "source_log",
+            "planning",
+            "brief_feedback",
+            "status",
+            "phase",
+            "next_stage",
+            "stop_reason",
+        ):
+            self.assertEqual(before[key], state[key], key)
+        self.assertTrue(goals.approved(state))
+
+    def test_a_real_change_from_the_hold_still_revokes_approval(self):
+        state = acceptance_hold()
+        goals.feedback(state, "Change the expected empty result to an empty array.")
+        self.assertTrue(handoff.accept_chat(state, response(state, "change"), {"output": None}, queue=mock.Mock()))
+        self.assertEqual("draft", state["goal_contract"]["approval_status"])
+        self.assertFalse(goals.approved(state))
+        self.assertTrue(state["brief_feedback"])
+        self.assertEqual("RUNNING", state["status"])
+        self.assertEqual("requirements_gather", state["next_stage"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
+
+    def test_changed_or_unapproved_contract_cannot_borrow_the_held_approval(self):
+        import autocode_plan_chat as chat
+
+        state = acceptance_hold()
+        goals.feedback(state, "Why did this stop?")
+        reply = response(state)
+        state["goal_contract"]["body"]["intended_outcome"] = "another task"
+        with self.assertRaises(ValueError):
+            chat.accept(state, reply, {})
+        state = acceptance_hold()
+        state["goal_contract"]["approval_event"] = None
+        with self.assertRaises(ValueError):
+            chat.begin(state, "Why did this stop?")
+
+    def test_only_an_idle_approved_acceptance_hold_can_start_a_discussion(self):
+        import autocode_plan_chat as chat
+
+        for change in (
+            {"status": "PAUSED_PLANNING_BUDGET"},
+            {"status": "PAUSED_TRANSPORT_CHANGED"},
+            {"goal_contract": {"approval_status": "draft"}},
+        ):
+            state = {**acceptance_hold(), **change}
+            before = copy.deepcopy(state)
+            self.assertFalse(chat.begin(state, "Why did this stop?"))
+            self.assertEqual(before, state)
+        for key in ("active_stage", "uncertain_artifacts", "pending_report_repair"):
+            state = acceptance_hold()
+            state[key] = {"pending": True}
+            before = copy.deepcopy(state)
+            with self.assertRaises(ValueError):
+                chat.begin(state, "Why did this stop?")
+            self.assertEqual(before, state)
+
+    def test_a_saved_reply_cannot_restore_an_unrelated_pause(self):
+        import autocode_plan_chat as chat
+
+        state = acceptance_hold()
+        goals.feedback(state, "Why did this stop?")
+        chat.pending(state)["return_pause"]["status"] = "PAUSED_TRANSPORT_CHANGED"
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(ValueError, "unrelated operational pause"):
+            chat.accept(state, response(state), {})
+        self.assertEqual(before, state)
+
+
 class PlanMessageTests(unittest.TestCase):
     def test_feedback_at_plan_approval_defers_interpretation_without_changing_the_plan(self):
         state = reviewed()

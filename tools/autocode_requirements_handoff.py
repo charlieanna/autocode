@@ -147,7 +147,7 @@ def accept_chat(state: RunState, value: dict, record: dict, *, queue) -> bool:
         goals.feedback(state, event["text"], interpret=False)
         state["brief_feedback"][-1]["reply_after"] = event["reply_after"]
         event["forwarded"] = True
-    else:
+    elif not event.get("return_pause"):
         output = record.get("output")
         evidence = {"hashes": {output: util.file_hash(Path(output))} if output and Path(output).is_file() else {}}
         queue(

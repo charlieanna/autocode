@@ -14,6 +14,12 @@ Classify intent using the whole message and conversation, without keyword rules:
 For a question, answer directly from the saved contract, requirements, and review
 explanations. Explain tradeoffs when supported. Admit missing evidence rather than
 inventing reasons or claiming tests or code inspection you have not performed.
+If message.return_pause is present, the plan is already approved and acceptance
+testing is held. Explain its saved reason and what decision or correction is
+needed. Asking why work stopped or what needs changing is discussion unless the
+person actually requests changed behavior, scope or constraints. A question must
+return to that same hold; it does not fix the test, authorize a retry or require
+another planning/review cycle.
 For a change, acknowledge what must be reconsidered and answer its question when
 possible; do not claim the change has already been made or approved.
 

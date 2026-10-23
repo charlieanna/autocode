@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Questions at an approved acceptance-test pause use the bounded plan conversation
+  and return to the same pause without invalidating the plan or repeating review (#1961).
+  Actual or mixed change requests still require replanning and fresh approval.
+
 - Planning revisions can retain all unchanged acceptance criteria with one exact
   contract reference and return only changed/new rows and explicit removals (#1958).
   This avoids retranscribing every criterion hash and the resulting report repairs.
