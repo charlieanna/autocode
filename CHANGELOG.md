@@ -118,6 +118,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A number typed at a pause's yes/no that only *prose* tells the person to raise no longer vanishes. The
+  time-limit pause reached through an AutoResolver hold names a plain `--resume-paused` and advertises no
+  `--max-seconds` entry, so typing the total it asked for was consumed as a decline and the run stayed
+  paused while the person believed they had raised the bound. The chat now says the number set nothing and
+  names the command that would: it still takes no action the view did not name (#1950).
 - Time a run spent waiting for the person is now measured. Each question, plan approval or other request a
   person answered counts from when it became answerable to their response, under `efficiency.time`'s `waiting`
   category, so it is kept apart from execution time. The category had no source before (#1867 S1d).
