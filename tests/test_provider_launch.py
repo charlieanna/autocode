@@ -131,6 +131,38 @@ class ProviderLaunchTests(unittest.TestCase):
         *_, worker = prepare(legacy, planning=False)
         self.assertEqual((["s1"], "s1"), (legacy.sessions, worker["provider_session"]))
 
+    def test_a_kilo_builder_starts_each_stage_in_a_fresh_session(self):
+        """#1939: a resumed Kilo Builder session grew until Kilo compacted it; writable stages now start fresh too."""
+        from providers.kilocode import KiloProvider
+
+        kilo = object.__new__(KiloProvider)
+        kilo.NAME = "kilocode"
+        kilo.launch = mock.Mock(return_value=(["kilo", "run"], {}, {}))
+        with tempfile.TemporaryDirectory() as root:
+            *_, worker = launch.prepare(
+                engine="opencode",
+                adapter=kilo,
+                role="terra",
+                route_role="terra",
+                workspace=Path(root),
+                run_dir=Path(root) / ".autocode/runs/one",
+                session="ses_saved",
+                model="zai-coding-plan/glm-5.3",
+                effort="medium",
+                allow_write=True,
+                planning=False,
+                report=Path(root) / "output.json",
+                schema=Path(root) / "schema.json",
+                prompt_file=Path(root) / "prompt.txt",
+                sandbox="workspace-write",
+                transport_args=[],
+                chatgpt=False,
+                provider="kilocode",
+            )
+        self.assertIsNone(kilo.launch.call_args.args[3])
+        self.assertIsNone(worker["provider_session"])
+        self.assertIn("fresh session", launch.stage_record(worker)["fresh_session_reason"])
+
     def test_retired_or_unknown_engine_cannot_fall_back_to_codex(self):
         for engine in ("gocode", "qwen", "unknown"):
             with self.subTest(engine=engine), self.assertRaisesRegex(RuntimeError, "providers live in .*--provider"):
