@@ -71,6 +71,51 @@ def account(model):
     return model.split("/", 1)[0] or None
 
 
+# How a provider prefix bills. OpenAI depends on how OpenCode signs in (see ``plan``).
+PLANS = {
+    "zai-coding-plan": ("Z.AI Coding Plan", "subscription"),
+    "github-copilot": ("GitHub Copilot", "subscription"),
+    "zai": ("Z.AI API", "pay per token"),
+    "opencode": ("OpenCode Zen", "pay per token"),
+    "kilo": ("Kilo Gateway", "pay per token"),
+}
+BILLING_KINDS = ("subscription", "pay per token")
+
+
+def plan(model: str, openai_auth: str | None = None) -> tuple[str, str | None]:
+    """(plan, billing) for display; authentication never bans a model."""
+    provider = model.split("/", 1)[0]
+    if provider != "openai":
+        return PLANS.get(provider, (provider, None))
+    if openai_auth == "oauth":
+        return "ChatGPT login", "subscription"
+    if openai_auth == "api":
+        return "OpenAI via api", "pay per token"
+    return "OpenAI", None
+
+
+def billing(model, settings=None):
+    """How a stage's model bills: "subscription", "pay per token", or None when unknown (#1924).
+
+    An automatically selected run saved the billing discovery found for each permitted candidate
+    (``route_selection["candidates"]``); otherwise the model ID's account decides. An OpenAI model's
+    billing depends on its login, which a saved run does not otherwise record, so it stays None.
+    """
+    if not isinstance(model, str) or not model:
+        return None
+    selection = (settings or {}).get("route_selection") if isinstance(settings, dict) else None
+    saved = (selection or {}).get("candidates") if isinstance(selection, dict) else None
+    for candidates in saved.values() if isinstance(saved, dict) else ():
+        for candidate in candidates if isinstance(candidates, list) else ():
+            if (
+                isinstance(candidate, dict)
+                and candidate.get("model") == model
+                and candidate.get("billing") in BILLING_KINDS
+            ):
+                return candidate["billing"]
+    return plan(model)[1] if "/" in model else None
+
+
 def engine(settings, role):
     """The engine that runs ``role`` (autocode_stage_roles.engine_for, accepting no settings)."""
     return stage_roles.engine_for(settings or {}, role)

@@ -215,14 +215,8 @@ TIERS = {
 }
 TIER_LABELS = {"worker": "cheap worker", "judge": "strong judge", "resolver": "Resolver tier", None: "tier unknown"}
 WANTED = {"worker": "cheap worker", "judge": "strong judge", "resolver": "Resolver-tier model"}
-# How a provider prefix bills. OpenAI depends on how OpenCode signs in (see ``plan``).
-PLANS = {
-    "zai-coding-plan": ("Z.AI Coding Plan", "subscription"),
-    "github-copilot": ("GitHub Copilot", "subscription"),
-    "zai": ("Z.AI API", "pay per token"),
-    "opencode": ("OpenCode Zen", "pay per token"),
-    "kilo": ("Kilo Gateway", "pay per token"),
-}
+# How a provider prefix bills: one table, in autocode_role_route (#1924).
+PLANS = role_route.PLANS
 # A run's roles in pipeline order: screen name (autocode_roles), the flag that
 # selects its model, the tier it wants. Labels are not a second name table.
 ROLES = {
@@ -252,16 +246,7 @@ def tier(model: str) -> str | None:
     return TIERS.get(model.rsplit("/", 1)[-1])
 
 
-def plan(model: str, openai_auth: str | None = None) -> tuple[str, str | None]:
-    """(plan, billing) for display; authentication never bans a model."""
-    provider = model.split("/", 1)[0]
-    if provider != "openai":
-        return PLANS.get(provider, (provider, None))
-    if openai_auth == "oauth":
-        return "ChatGPT login", "subscription"
-    if openai_auth == "api":
-        return "OpenAI via api", "pay per token"
-    return "OpenAI", None
+plan = role_route.plan
 
 
 def lineage(model: str) -> str:
