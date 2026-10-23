@@ -247,8 +247,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="New runs plan adaptively by default when they use joint planning on the default flow: "
-        "skip requirements for a clear build request and let a Plan Reviewer with no blocking "
-        "concern approve the draft (docs/adaptive-planning.md); --no-adaptive-planning opts out",
+        "a Plan Reviewer with no blocking concern approves the draft, a large plan gets a third "
+        "review call, and feedback on a shown plan goes to the Planner; Requirements always runs "
+        "first (docs/adaptive-planning.md); --no-adaptive-planning opts out",
     )
     resolver_human.requirements_review.add_argument(parser)
     acceptance_tests.add_argument(parser)

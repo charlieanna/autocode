@@ -194,7 +194,16 @@
           }
         },
         "displayed_plan": {"type": "object", "description": "Present while a sealed plan is displayed for approval."},
-        "approved_contract": {"type": "object", "description": "Present once a plan is approved."}
+        "approved_contract": {"type": "object", "description": "Present once a plan is approved."},
+        "workspace": {"type": ["string", "null"], "description": "The run's effective workspace; after bootstrap relocation it can differ from the handle a client started with."},
+        "run_dir": {"type": ["string", "null"], "description": "The run's effective run directory, compared with a named command's run before it is taken."},
+        "planning_depth": {"type": "object", "description": "How much planning the run chose and why (docs/adaptive-planning.md); documented in docs/task-run.md."},
+        "pause": {"type": ["object", "null"], "description": "The boundary pause a working run offers: label, effect, requested and next_command. Null when nothing is working.",
+          "properties": {"label": {"type": "string"}, "effect": {"type": "string"}, "requested": {"type": "boolean"}, "next_command": {"type": ["array", "null"], "items": {"type": "string"}}}},
+        "package": {"type": ["string", "null"], "description": "The repository directory a run started with --package works in; null for a run of the whole repository."},
+        "tool_containment_backend": {"type": ["object", "null"], "description": "The kernel boundary the latest contained launch ran in; null until a stage launches contained."},
+        "changes_by_criterion": {"type": ["object", "null"], "description": "Saved Builder steps attributed to the approved plan's criteria; null until a plan is approved. Attribution, not proof."},
+        "dev_server": {"type": ["object", "null"], "description": "The run's development server: configured, status, url, code_checkpoint, restarts and waiting."}
       }
     },
     "result": {

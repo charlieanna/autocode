@@ -55,6 +55,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The documentation no longer says a quota stop never switches models: on a run that chose its models
+  automatically, a quota, content-filter or output-limit stop moves the role to the next qualified model on
+  its own and asks only when none remains, as it has since #1426. The `--adaptive-planning` help and CLI
+  reference no longer promise the Requirements skip #1860 removed, `docs/cost-reporting.md` points to the
+  comparison rates where they are, and the status-view schema now lists eight fields the view already
+  returned, including `planning_depth` and `pause` (#1905).
 - A run paused with a repeated failure whose report repair is spent no longer tells the person to authorize an
   inspected retry that its own gate then refuses. A resume now reconciles the repair first: an exhausted or
   unlaunchable one is archived before the unchanged-failure hold, so the retry that hold names is admissible on
