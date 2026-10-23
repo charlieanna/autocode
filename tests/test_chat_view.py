@@ -6,6 +6,7 @@ import shlex
 import unittest
 from pathlib import Path
 
+import autocode_chat_history as chat_history
 import autocode_chat_view as chat
 import autocode_requirements_review as requirements_review
 import autocode_run_view as run_view
@@ -515,6 +516,40 @@ class ChatViewTests(unittest.TestCase):
         )
         rows = self.project(state, "continue")["messages"]
         self.assertEqual(["Explain it", "It uses a queue.", "Add a test"], [row["text"] for row in rows])
+
+    def test_a_bootstrapped_project_is_named_in_the_conversation_once(self):
+        state = {
+            "status": "RUNNING",
+            "task": "Build wordcount.py",
+            "workspace_bootstrap": {
+                "selected": "/tmp/notes",
+                "project": "/tmp/notes/autocode-projects/build-wordcount-py-47003121",
+            },
+        }
+        rows = self.project(state, "continue")["messages"]
+        self.assertEqual(["user", "assistant"], [row["role"] for row in rows])
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, rows[1]["id"])
+        self.assertIn("/tmp/notes is not a Git repository", rows[1]["text"])
+        self.assertIn("autocode-projects/build-wordcount-py-47003121", rows[1]["text"])
+        # One disclosure for the whole run: a later turn does not repeat it.
+        state["user_events"] = [{"kind": "brief_feedback", "id": "f1", "text": "Add a test"}]
+        later = self.project(state, "continue")["messages"]
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, later[1]["id"])
+        self.assertEqual(1, sum(row["id"] == chat_history.BOOTSTRAP_NOTICE for row in later))
+        self.assertIn("Add a test", [row["text"] for row in later][-1])
+
+    def test_an_empty_folder_that_became_the_project_says_so_and_a_repository_says_nothing(self):
+        state = {
+            "status": "RUNNING",
+            "task": "Build it",
+            "workspace_bootstrap": {"selected": "/tmp/empty", "project": "/tmp/empty"},
+        }
+        rows = self.project(state, "continue")["messages"]
+        self.assertEqual(chat_history.BOOTSTRAP_NOTICE, rows[1]["id"])
+        self.assertIn("was not a Git repository", rows[1]["text"])
+        self.assertIn("/tmp/empty", rows[1]["text"])
+        del state["workspace_bootstrap"]
+        self.assertEqual(["Build it"], [row["text"] for row in self.project(state, "continue")["messages"]])
 
 
 if __name__ == "__main__":

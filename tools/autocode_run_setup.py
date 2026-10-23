@@ -371,6 +371,10 @@ def resolve(runner, args, parser):
             "next_stage": "astra_plan",
             "acceptance_criteria": [],
         }
+        if created:
+            # The selected folder held no repository, so the work happens in a project AutoCode
+            # created. A launch line on stdout never reaches a chat client (#1908).
+            state["workspace_bootstrap"] = {"selected": str(selected), "project": str(workspace)}
         task_input.assign(state, task)
         source_log.seed(state)
         project_memory_lifecycle.install(state, getattr(args, "_project_memory_input", None))

@@ -19,6 +19,8 @@ except ImportError:
 # What a person did when they pressed a button, in their words rather than the CLI's answer value.
 CONFIRMED_REQUIREMENTS = "Looks right. Prepare the plan."
 APPROVED_PLAN = "Approved the plan."
+# A client shows a message id once, so the bootstrap disclosure keeps a stable one (#1908).
+BOOTSTRAP_NOTICE = "workspace-bootstrap"
 
 
 def response(state: RunState) -> str:
@@ -73,12 +75,37 @@ def _approved_plan(state: RunState, event) -> str | None:
     return None
 
 
+def _bootstrap_notice(state: RunState) -> dict | None:
+    """Say once where the work happens when the selected folder held no Git repository (#1908).
+
+    A launch prints the project it created, but a chat client starts the CLI as a subprocess and
+    never shows that output, so the person would otherwise find the path only in a footer.
+    """
+    record = state.get("workspace_bootstrap")
+    if not isinstance(record, dict):
+        return None
+    project = record.get("project")
+    if not isinstance(project, str) or not project:
+        return None
+    selected = record.get("selected")
+    if selected == project:
+        text = f"This folder was not a Git repository, so I started one here and the work happens in it: {project}."
+    else:
+        text = (
+            f"{selected} is not a Git repository, so I created a project inside it and the work happens there: "
+            f"{project}. Your own files stay where they are; the files I write land in that project."
+        )
+    return {"id": BOOTSTRAP_NOTICE, "role": "assistant", "text": text}
+
+
 def messages(state: RunState, *, completed=False) -> list[dict]:
     turns = state.get("turns") or []
     initial = (turns[0].get("previous") or {}).get("task") if turns else state.get("task")
     # A chat shows the message it opened with, not a later reply that became the task.
     initial = requirements_chat.opener(state) or initial
     rows = [{"id": "initial", "role": "user", "text": initial}] if initial else []
+    if notice := _bootstrap_notice(state):
+        rows.append(notice)
     prior = {turn.get("event_id"): (turn.get("previous") or {}).get("chat_response") for turn in turns}
     for index, event in enumerate(state.get("user_events") or []):
         if event.get("kind") == "goal_approval" and event.get("token"):
