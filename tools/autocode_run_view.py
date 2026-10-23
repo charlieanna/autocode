@@ -778,12 +778,17 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
     inputs = None if terminal or not category else command_inputs.project(state, need, resume_flags)
     if inputs and need is not None:
         need = {**need, "command_inputs": inputs}
+    ready_boundary = (
+        (need or {}).get("kind") == "continue"
+        and state.get("active_stage") is None
+        and state.get("active_runner_check") is None
+    )
     return {
         "needs": need,
         "pause_category": category,
         "pause_category_label": pause_category.LABELS.get(category) if category else None,
         "next_command": None
-        if not category
+        if not category and not ready_boundary
         else pause_command.command(
             need,
             run_dir=run_dir or state.get("run_dir"),

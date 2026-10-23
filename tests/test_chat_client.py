@@ -13,6 +13,7 @@ from unittest import mock
 
 import autocode_chat_client as chat
 import autocode_client_actions as actions
+import autocode_run_view as run_view
 
 from tests.test_agent_step import ask_one_question_once, fixture_workspace
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS
@@ -526,6 +527,17 @@ class ConversationTests(unittest.TestCase):
         client = ScriptedChat(view, replies=["Me"], moves=False)
         self.assertEqual(2, client.converse())
         self.assertIn("AutoCode is still waiting on this question:\nWho is it for?", client.text())
+
+    def test_valid_requirements_approval_advances_through_the_projected_boundary_action(self):
+        ready = run_view.view(
+            {"status": "RUNNING", "phase": "PLANNING", "next_stage": "astra_discovery"},
+            workspace=WORKSPACE,
+            run_dir=RUN,
+        )
+        client = ScriptedChat(self.REVIEW, ready, DONE, replies=["y", "y"])
+        self.assertEqual(0, client.converse(), client.text())
+        self.assertEqual([["--answer", "RQ=plan"], ["--no-chat"]], client.taken)
+        self.assertNotIn("--feedback", str(client.taken))
 
     def test_planning_starts_only_after_its_spend_is_confirmed(self):
         client = ScriptedChat(self.REVIEW, DONE, replies=["y", "y"])

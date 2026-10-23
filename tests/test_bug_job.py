@@ -100,6 +100,16 @@ class RoutingTests(unittest.TestCase):
 
 
 class InvestigationPromptBoundaryTests(unittest.TestCase):
+    def test_investigation_receives_saved_window_and_prioritizes_reproduction(self):
+        state = state_for("/repo")
+        state["settings"]["limits"] = {"stage_timeout_seconds": 600}
+        text, _ = bug_job.prompt(state, scratch_workspace="/repo/.autocode/investigation/bug-example")
+        data = json.loads(text.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(600, data["configured_stage_timeout_seconds"])
+        self.assertIn("Attempt the smallest behavior reproduction before broad source exploration", text)
+        self.assertIn("Once the failing behavior and causal path are established", text)
+        self.assertIn("never weaken the reproduction evidence", text)
+
     def test_opencode_investigation_uses_workspace_scratch_and_foreground_checks(self):
         text, _ = bug_job.prompt(state_for("/repo"), engine="opencode")
         self.assertIn(".autocode/investigation/", text)

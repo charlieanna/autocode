@@ -163,6 +163,11 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "task": state["task"],
         "workspace": state.get("workspace"),
         "execution_engine": engine,
+        # The model must finish its evidence and report inside the saved window;
+        # this is context, never permission to change or bypass that limit.
+        "configured_stage_timeout_seconds": ((state.get("settings") or {}).get("limits") or {}).get(
+            "stage_timeout_seconds"
+        ),
         "notes_directory": NOTES_PREFIX,
         "test_command": ((state.get("settings") or {}).get("regression") or {}).get("test_command"),
         "workspace_inventory": inventory or {},

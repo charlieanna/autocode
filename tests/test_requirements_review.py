@@ -153,6 +153,8 @@ class RequirementsReviewCliTests(unittest.TestCase):
         self.assertIn("Here’s what I understand", need["questions"][-1]["question"])
         self.assertNotIn("astra_discovery", self.stages(run))
         view = run.answer(question, "plan", resolver_token=need["resolver_token"])
+        self.assertEqual("continue", view["needs"]["kind"])
+        self.assertIn("--no-chat", view["next_command"], "the client must be able to advance the approved brief")
         view = run.advance_until_input()
         self.assertEqual("approve_plan", (view.get("needs") or {}).get("kind"), view.get("needs"))
         stages = self.stages(run)

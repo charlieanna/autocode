@@ -55,7 +55,10 @@ class PauseViewTests(unittest.TestCase):
                 view = run_view.view({"status": status, "settings": {}})
                 self.assertIsNone(view["pause_category"])
                 self.assertIsNone(view["pause_category_label"])
-                self.assertIsNone(view["next_command"])
+                if status == "RUNNING":
+                    self.assertEqual("autocode --run-dir RUN_DIR --no-chat", view["next_command"])
+                else:
+                    self.assertIsNone(view["next_command"])
 
 
 class PauseCommandTests(unittest.TestCase):
