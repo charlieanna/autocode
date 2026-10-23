@@ -536,6 +536,31 @@ class SessionHandoffTests(unittest.TestCase):
     def test_callback_transport_close_after_clean_publication_preserves_success(self):
         self.watch_transport(failure=BrokenPipeError("keeper finished"), clean=True)
 
+    def test_callback_reset_after_verified_deadline_preserves_timeout(self):
+        self.watch_transport(
+            failure=ConnectionResetError("keeper finished"),
+            clean=True,
+            terminal_cause="stage_deadline",
+            callback_read_failure=True,
+        )
+
+    def test_callback_reset_while_armed_is_not_excused_by_later_deadline(self):
+        self.watch_transport(
+            failure=ConnectionResetError("ownership unknown"),
+            clean=False,
+            terminal_cause="stage_deadline",
+            callback_read_failure=True,
+        )
+
+    def test_deadline_callback_reset_with_cleanup_error_remains_blocked(self):
+        self.watch_transport(
+            failure=ConnectionResetError("cleanup unknown"),
+            clean=True,
+            terminal_cause="stage_deadline",
+            terminal_cleanup_error="ProcessError: cleanup unverified",
+            callback_read_failure=True,
+        )
+
     def test_callback_failure_retains_a_safe_specific_ownership_reason(self):
         cases = (
             ("Session ownership receipt is unavailable", "receipt_unavailable"),
@@ -584,7 +609,18 @@ class SessionHandoffTests(unittest.TestCase):
         self.assertIn("reason=unclassified", message)
         self.assertNotIn("untrusted payload", message)
 
-    def watch_transport(self, *, failure, clean, ownership_failure=False, expected_type=None, receipt_missing=False):
+    def watch_transport(
+        self,
+        *,
+        failure,
+        clean,
+        ownership_failure=False,
+        expected_type=None,
+        receipt_missing=False,
+        terminal_cause="provider_stopped",
+        callback_read_failure=False,
+        terminal_cleanup_error=None,
+    ):
         """Drive the public launch with an offline transport and a fake event."""
 
         class Event:
@@ -604,14 +640,19 @@ class SessionHandoffTests(unittest.TestCase):
 
         event = Event()
         watchers = []
-        state = {"phase": "armed", "cause": None, "cleanup_error": None, "session_boundary": "linux-setsid-notify-v1"}
+        state = {
+            "phase": "armed",
+            "cause": None,
+            "cleanup_error": terminal_cleanup_error,
+            "session_boundary": "linux-setsid-notify-v1",
+        }
         polls = []
         keeper = SimpleNamespace(pid=600, returncode=None, poll=lambda: polls.pop(0) if polls else keeper.returncode)
         child = SimpleNamespace(pid=501, returncode=None, poll=lambda: child.returncode)
 
         def finished(timeout=None):
             keeper.returncode = 0
-            state.update(phase="stopped", cause="provider_stopped")
+            state.update(phase="stopped", cause=terminal_cause)
 
         keeper.wait = finished
         keeper.kill = Mock()
@@ -636,6 +677,9 @@ class SessionHandoffTests(unittest.TestCase):
             pair_count += 1
             if ownership_failure and pair_count == 2:
                 child_socket.send(json.dumps(self.notice).encode() if receipt_missing else b"offline-notice")
+            if callback_read_failure and pair_count == 2:
+                parent = Mock(wraps=parent)
+                parent.recv.side_effect = failure
             return parent, child_socket
 
         with (
@@ -664,13 +708,16 @@ class SessionHandoffTests(unittest.TestCase):
                 with context:
                     control_fd = sent.call_args.args[0]
                     if clean:
-                        state.update(phase="stopped", cause="provider_stopped")
+                        state.update(phase="stopped", cause=terminal_cause)
                     if failure is None and not receipt_missing:
                         polls.extend((None, 0))
                         with patch.object(supervision.select, "select", return_value=([object()], [], [])) as select:
                             watchers[0]()  # The real callback peer has closed: recv returns EOF.
                         self.assertEqual(1, select.call_count)
                         self.assertEqual([0.05], event.waits)
+                    elif callback_read_failure:
+                        with patch.object(supervision.select, "select", return_value=([object()], [], [])):
+                            watchers[0]()
                     elif ownership_failure:
                         with (
                             patch.object(supervision.select, "select", return_value=([object()], [], [])),
@@ -693,12 +740,12 @@ class SessionHandoffTests(unittest.TestCase):
                     else:
                         with patch.object(supervision.select, "select", side_effect=failure):
                             watchers[0]()
-                    if (failure is not None or receipt_missing) and not clean:
+                    if (failure is not None or receipt_missing) and (not clean or terminal_cleanup_error):
                         with self.assertRaises(OSError):
                             os.fstat(control_fd)
                     child.returncode = 0
 
-            if (failure is not None or receipt_missing) and not clean:
+            if (failure is not None or receipt_missing) and (not clean or terminal_cleanup_error):
                 name = expected_type or ("SupervisionError" if receipt_missing else type(failure).__name__)
                 expected = f"Session ownership handoff failed: {name}"
                 with self.assertRaisesRegex(supervision.SupervisionError, expected) as caught:
@@ -706,7 +753,12 @@ class SessionHandoffTests(unittest.TestCase):
                 fallback.return_value.stop.assert_called_once()
                 return str(caught.exception)
             else:
-                exercise()
+                if terminal_cause == "stage_deadline":
+                    with self.assertRaises(supervision.VerifiedStop) as caught:
+                        exercise()
+                    self.assertEqual("stage_deadline", caught.exception.cause)
+                else:
+                    exercise()
                 fallback.assert_not_called()
 
 

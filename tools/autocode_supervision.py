@@ -380,12 +380,14 @@ def _send(fd, value):
         data = data[os.write(fd, data) :]
 
 
-def _terminal_clean(value):
+def _terminal_clean(value, *, allow_deadline=False):
     return bool(
         value
         and value.get("phase") == "stopped"
         and value.get("cleanup_error") is None
-        and value.get("cause") in receipts.NORMAL_CAUSES
+        and (
+            value.get("cause") in receipts.NORMAL_CAUSES or (allow_deadline and value.get("cause") == "stage_deadline")
+        )
     )
 
 
@@ -811,7 +813,13 @@ def _launch(command, *, receipt_path, timeout, checkpoint, cleanup_policy, provi
                         stopped.wait(0.05)  # EOF remains readable; do not spin on it.
                 except BaseException as error:
                     # Clean publication can race the reply socket's closure.
-                    if stopped.is_set() or (isinstance(error, OSError) and _terminal_clean(receipt(metadata))):
+                    # A clean deadline closes this socket too. Let final receipt
+                    # and keeper-exit validation raise VerifiedStop; do not turn
+                    # an already verified timeout into unknown cleanup. This
+                    # does not widen normal command or ownership-grant success.
+                    if stopped.is_set() or (
+                        isinstance(error, OSError) and _terminal_clean(receipt(metadata), allow_deadline=True)
+                    ):
                         return
                     try:
                         errors.append(_session_handoff_failure(error, phase))
