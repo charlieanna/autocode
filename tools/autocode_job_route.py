@@ -244,6 +244,7 @@ def answer(runner, args, state: RunState, run_dir, workspace):
             configured_tool=getattr(runner.opencode, "CONFIGURED", False),
             cross_check=runner.dispatch.enforce_cross_model_verification,
             job=asked.get("job"),
+            allow_unchanged=quota_route.job_stop_status(failure) == quota_route.TIMEOUT_STATUS,
         )
         if quota_route.engine(candidate["settings"], role) == "opencode":
             try:

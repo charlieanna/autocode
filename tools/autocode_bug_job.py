@@ -169,7 +169,10 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
             "stage_timeout_seconds"
         ),
         "notes_directory": NOTES_PREFIX,
-        "test_command": ((state.get("settings") or {}).get("regression") or {}).get("test_command"),
+        # The configured acceptance command belongs to post-fix validation. Sending
+        # it as an unqualified command here caused reproduced bugs to spend the
+        # remaining investigation window rerunning broad consumer suites (#1902).
+        # prepare() still uses the saved command to select the dependency Python.
         "workspace_inventory": inventory or {},
         # Present because every provider reads them; nothing is planned yet.
         "goal_contract": None,

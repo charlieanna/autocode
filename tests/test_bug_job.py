@@ -151,7 +151,10 @@ class PrepareTests(unittest.TestCase):
             request = autoresolver.prepare(state, bug_job.STAGE, "/run/state.json", None)
             data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
             self.assertEqual(str(python), data["investigation_python"])
-            self.assertEqual(command, data["test_command"])
+            self.assertNotIn("test_command", data)
+            self.assertNotIn(command, request.prompt)
+            self.assertEqual(command, state["settings"]["regression"]["test_command"])
+            self.assertIn("not post-fix validation", request.prompt)
 
     def test_investigation_uses_virtualenv_dependencies_with_the_scratch_source(self):
         for name in (".venv", "venv"):

@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Investigator handoffs retain the configured validation command for later Builder/Tester work
+  instead of offering it as an investigation command (#1902). Reproduction and diagnosis remain
+  required; broader baseline suites no longer compete with the investigation report. At a stopped
+  job timeout, naming the current model explicitly can keep that route and expose its exact retry
+  through the TUI without forcing a model substitution; all saved limits and usage remain intact.
+
 - Fully stopped workflow-job timeouts can offer the existing token-bound model answer for that
   failed role, preserving other roles, effort, limits, usage and history (#1907). A named model
   launches nothing and rotates the exact retry token; an unchanged retry remains available.
