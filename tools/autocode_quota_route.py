@@ -155,7 +155,7 @@ def _routable(state: RunState, record: dict) -> str | None:
 def job_stop_status(failure: dict) -> str | None:
     """Include retained pre-auth/timeout-routing failures without mutating their evidence."""
     return failure.get("pause_status") or {"provider_auth": AUTH_STATUS, "timeout": TIMEOUT_STATUS}.get(
-        failure.get("kind")
+        str(failure.get("kind") or "")
     )
 
 
