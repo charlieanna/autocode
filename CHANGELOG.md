@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- An authorized Builder classification retry on a run whose time, cost or iteration limit is
+  already spent now pauses on that limit, naming its raise, instead of recording a failed
+  classification and offering the same retry again (#1949). Resuming with the raise launches
+  the same Investigator; no classification is spent by the stop.
+
 - Terminal status polling preserves complete valid long-run histories instead of
   rejecting responses above 2 MiB (#1951). Before the first view arrives, the
   terminal shows that it is reading status rather than claiming a worker is running.
