@@ -126,13 +126,16 @@ def dispatch_guard(state: RunState, stage, workspace):
     raise util.Paused(held["status"], held["reason"])
 
 
-# Stops saved as a classification's failure before #1949, when a run-wide limit reached at the
-# stage boundary abandoned the request before its Investigator launched. Since #1949 such a stop
-# keeps the request queued under the limit's own pause, so only older runs hold these rows.
+# Stops saved as a classification's failure before #1949, when a run-wide limit or a changed
+# provider transport found at the stage boundary abandoned the request before its Investigator
+# launched. Since #1949 such a stop keeps the request queued under its own pause, so only older
+# runs hold these rows.
 BOUNDARY_STOPS = (
     "Saved active-time limit reached at stage boundary",
     "Saved active-time limit reached before model access",
     "Saved iteration ceiling reached",
+    "A joint-planning CLI/auth/provider configuration changed",
+    "Local model/auth/provider settings differ from checkpoint",
 )
 
 

@@ -704,11 +704,14 @@ class ClassificationOfferTests(unittest.TestCase):
                     recovery.admit(state, record, Path(temporary))
                 self.assertEqual(request["classification_retry"]["token"], record["classification_retry_token"])
 
-    def test_raising_a_boundary_bound_keeps_the_grant_but_a_route_change_does_not(self):
+    def test_raising_a_bound_or_accepting_a_transport_keeps_the_grant_but_other_settings_do_not(self):
         with tempfile.TemporaryDirectory() as temporary:
             state, _ = self.authorized(Path(temporary))
             state["settings"]["limits"] = {"max_seconds": 5000, "max_cost_usd": 20, "iteration_ceiling": 9}
             state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+            # --accept-transport-change records the provider identity the boundary check found.
+            state["settings"]["transport_identity"] = {"config_path": "/another/checkout/kilocode.toml"}
+            state["settings"]["transport_identities"] = {"opencode": state["settings"]["transport_identity"]}
             raised = copy.deepcopy(state)
             with patch.object(recovery.failure, "guard"):
                 recovery.admit(raised, {"stage": "investigate_stuck"}, Path(temporary))
@@ -752,6 +755,9 @@ class ClassificationOfferTests(unittest.TestCase):
         state["stages"].append({"stage": "investigate_stuck", "started_at": "2026-10-09T01:00:00.5+00:00"})
         state["stuck_investigations"][1]["error"] = "Classification retry admission changed; no provider launched"
         self.assertEqual(3, len(recovery.failure.classified(state)))
+        # A transport change found at the boundary before launch was not the Investigator's either.
+        state["stuck_investigations"][1]["error"] = "A joint-planning CLI/auth/provider configuration changed"
+        self.assertEqual(2, len(recovery.failure.classified(state)))
 
     def test_older_failed_hold_names_a_plan_correction_instead_of_plain_resume(self):
         state = self.state()

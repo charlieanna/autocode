@@ -92,8 +92,11 @@ def configuration(state: RunState):
     # prepare_stuck derives this temporary role from the bound source roles and
     # Investigator settings; abandon removes it. It is not a user route change.
     (settings.get("roles") or {}).pop("stuck_investigator", None)
-    # The run-wide bounds checked at every stage boundary are not the grant's: raising the one
-    # that stopped a queued classification is what lets it launch (#1949).
+    # The run-wide bounds and the accepted transport identity are checked at every stage boundary,
+    # not by the grant: raising the bound or accepting the transport change that stopped a queued
+    # classification is what lets it launch (#1949). Its roles and every other setting still bind.
+    settings.pop("transport_identity", None)
+    settings.pop("transport_identities", None)
     for key in ("limits", "budget_origins"):
         kept = {name: value for name, value in (settings.get(key) or {}).items() if name not in BOUNDARY_BOUNDS}
         if kept:

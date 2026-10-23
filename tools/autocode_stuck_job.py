@@ -103,10 +103,13 @@ DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
 )
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
-# Run-wide bounds checked at every stage boundary. One reached before a queued Builder
-# classification launched stops the run, not the Investigator (#1949): the classification stays
-# queued under that pause, whose own raise lets it run, and no classification is spent.
-BOUNDARY_LIMITS = frozenset({"PAUSED_TIME_LIMIT", "PAUSED_COST_LIMIT", "PAUSED_ITERATION_LIMIT"})
+# Run-wide holds checked at every stage boundary: the bounds, and a provider transport that changed
+# under the run. One reached before a queued Builder classification launched stops the run, not the
+# Investigator (#1949): the classification stays queued under that pause, whose own control (a raise,
+# --accept-transport-change) lets it run, and no classification is spent.
+BOUNDARY_LIMITS = frozenset(
+    {"PAUSED_TIME_LIMIT", "PAUSED_COST_LIMIT", "PAUSED_ITERATION_LIMIT", "PAUSED_TRANSPORT_CHANGED"}
+)
 PLANNING = roles.ALL_PLANNING_STAGES
 # Diagnosticians are never themselves investigated.
 NEVER = (STAGE, "astra_diagnose", "astra_resolve")
