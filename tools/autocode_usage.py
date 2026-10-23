@@ -79,8 +79,11 @@ def reported_cost(rows):
     return sum(costs) or None
 
 
-def estimate(model, tokens):
-    """Tokens priced at the comparison rates; None for an unlisted model or unknown token counts."""
+def estimate(model, tokens, at=None):
+    """Tokens priced at the comparison rates; None for an unlisted model or unknown token counts.
+
+    The comparison rates are frozen, so `at` (when the stage finished) changes nothing.
+    """
     prices, inp, out = (
         REFERENCE_PRICES.get(model),
         _count(tokens.get("input_tokens")),
@@ -123,8 +126,9 @@ def pending_workers(state: RunState):
 def stage_rows(state: RunState, estimator=None):
     """One row per finished stage: role, model, tokens, cost and where the cost came from.
 
-    `estimator(model, tokens)` prices a stage without a reported cost; the default is `estimate`, the
-    frozen comparison rates. autocode_cost passes the dated price table instead.
+    `estimator(model, tokens, finished_at)` prices a stage without a reported cost; the default is
+    `estimate`, the frozen comparison rates. autocode_cost passes the dated price table instead, which
+    prices each stage at the rate in force when it finished.
     """
     estimator = estimator or estimate
     rows = []
@@ -137,7 +141,7 @@ def stage_rows(state: RunState, estimator=None):
             cost, basis = 0.0, "runner"
         elif _money(metrics.get("provider_cost_usd")) is not None:
             cost, basis = metrics["provider_cost_usd"], "reported"
-        elif (guess := estimator(model, tokens)) is not None:
+        elif (guess := estimator(model, tokens, record.get("finished_at"))) is not None:
             cost, basis = guess, "estimated"
         else:
             cost, basis = None, "unknown"
@@ -161,6 +165,7 @@ def stage_rows(state: RunState, estimator=None):
                 ),
                 "cost_usd": cost,
                 "basis": basis,
+                "finished_at": record.get("finished_at"),
                 "unpriced_reason": _unpriced_reason(model, row_tokens) if basis == "unknown" else None,
             }
         )
