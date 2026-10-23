@@ -194,6 +194,17 @@ class NamedActionTests(unittest.TestCase):
         with self.assertRaisesRegex(actions.ClientGap, "stale numeric"):
             actions.decisions(stale, actions.named(stale, WORKSPACE, RUN))
 
+    def test_a_number_typed_at_a_yes_no_names_the_bound_it_did_not_set(self):
+        # Live #1950: a time-limit pause that advertised no entry consumed the typed 3600 as a decline.
+        why = "To acknowledge this active-time pause, use autocode resume --max-seconds N with a total above 2400."
+        self.assertEqual("--max-seconds", actions.unapplied_bound("3600", why, []))
+        self.assertEqual("--max-cost-usd", actions.unapplied_bound("9", "use autocode resume --max-cost-usd N ...", []))
+        # An advertised entry is the normal path, and a yes/no answer is not a bound.
+        self.assertIsNone(actions.unapplied_bound("3600", why, [{"key": "max_seconds"}]))
+        for reply in ("y", "YES", "n", "no", "  "):
+            self.assertIsNone(actions.unapplied_bound(reply, why, []), reply)
+        self.assertIsNone(actions.unapplied_bound("3600", "a pause naming no bound at all", []))
+
     def test_a_message_goes_through_the_offered_input_and_only_for_the_conversation_read(self):
         view = answer_view()
         self.assertEqual(["--feedback", "Use B"], actions.message(view, "Use B", "c1", WORKSPACE, RUN).argv)

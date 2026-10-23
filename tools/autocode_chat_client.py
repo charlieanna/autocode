@@ -910,7 +910,14 @@ class ChatClient:
         prompt = "Accept these criteria" if need.get("kind") == "review" else "Continue"
         # On this run, so its paths are left out; an issued token stays out of the terminal too.
         self.say(f"Next it runs: autocode {shlex.join(actions.fill(view, command, answers).argv)}")
-        if self.ask(f"{prompt}? [y/N]: ").lower() not in YES:
+        answer = self.ask(f"{prompt}? [y/N]: ")
+        if unapplied := actions.unapplied_bound(answer, why, decided):
+            self.say(
+                f"'{answer.strip()}' sets nothing: this pause advertises no {unapplied} entry, so a "
+                f"number here is not a new limit. Raise it with: autocode resume {unapplied} N "
+                f"--run-dir {self.run_dir}"
+            )
+        if answer.lower() not in YES:
             self.say(f"Left as it is. Pick it up with: autocode chat --run-dir {self.run_dir}")
             return False
         fresh = self.status()

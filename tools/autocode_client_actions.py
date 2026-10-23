@@ -92,6 +92,26 @@ def parse(text: str, workspace: Path, run_dir: Path) -> NamedCommand:
     return NamedCommand(argv, env)
 
 
+# The bound a pause's own prose tells the person to raise, when its view advertises no entry for it (#1950).
+BOUND_CONTROL = re.compile(
+    r"use autocode resume (--(?:max-seconds|max-cost-usd|max-milestone-seconds|max-iterations)) N"
+)
+
+
+def unapplied_bound(reply: str, why: str, advertised) -> str | None:
+    """Name the flag a typed reply tried to set, when this pause offers no number entry for it.
+
+    A yes/no whose prose says "use autocode resume --max-seconds N" still consumes any number typed
+    into it as a decline, so the person believes they raised the bound. Naming the control turns a
+    silent no-op into an answer; the client gains no authority and takes no flag the view did not name.
+    """
+    text = (reply or "").strip()
+    if advertised or not text or text.lower() in ("y", "yes", "n", "no"):
+        return None
+    match = BOUND_CONTROL.search(why or "")
+    return match.group(1) if match else None
+
+
 def named(view: dict, workspace: Path, run_dir: Path) -> NamedCommand:
     """``view["next_command"]``; an active run's ``continue`` need has none, and its action is ``--no-chat``."""
     text = view.get("next_command")
