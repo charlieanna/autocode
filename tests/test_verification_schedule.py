@@ -96,6 +96,19 @@ class ReceiptPolicyTests(unittest.TestCase):
         self.assertEqual("execute", second["scheduling"]["action"])
         self.assertEqual(2, len(self.calls))
 
+    def test_a_second_execution_names_the_attempt_it_repeats(self):
+        # #1910: efficiency could not tell a repeated check from a first one.
+        first = self.run_check(allow=False)
+        second = self.run_check(allow=False)
+        self.assertNotIn("previous_attempt_id", first["scheduling"])
+        self.assertEqual(first["scheduling"]["attempt_id"], second["scheduling"]["previous_attempt_id"])
+        reused = self.run_check()
+        self.assertEqual("reuse", reused["scheduling"]["action"])
+        self.assertEqual(second["scheduling"]["attempt_id"], reused["scheduling"]["attempt_id"])
+        self.assertEqual(first["scheduling"]["attempt_id"], reused["scheduling"]["original_previous_attempt_id"])
+        self.identity["source"] += " changed"
+        self.assertNotIn("previous_attempt_id", self.run_check()["scheduling"])  # another obligation
+
     def test_missing_or_tampered_output_is_never_reused(self):
         for action in ("tamper", "delete"):
             with self.subTest(action=action):

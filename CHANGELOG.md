@@ -70,6 +70,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `efficiency.repeats` in the status view now counts a check the runner executed again although the same
+  obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
+  an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was
+  always 0. The scheduler's execute record names the earlier attempt as `previous_attempt_id` (#1910).
 - A Completion Reviewer can no longer mark a task complete while its own source verdict says FAIL or names an
   uncovered sentence of the original request. The verdict was required but never read, so the reviewer's own
   finding was dropped. Such a report now goes back through the bounded report repair for one consistent answer:

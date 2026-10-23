@@ -3,6 +3,7 @@
 import json
 import tempfile
 import unittest
+import warnings
 from copy import deepcopy
 from pathlib import Path
 from unittest import mock
@@ -830,6 +831,35 @@ class TimingAndProvenanceTests(unittest.TestCase):
         self.assertEqual(1, measured["repeats"]["reused_observed"])
         self.assertEqual(0, measured["repeats"]["redundant_checks_observed"])
         self.assertEqual(5, measured["by_category"]["functional_proof"]["summed_execution_seconds"])
+
+    def test_a_reexecuted_obligation_is_a_repeat_with_its_reason_and_keeps_its_time(self):
+        # #1910: `repeat` was accepted but never emitted, so `repeats.observed` was always 0.
+        state, repeated = {}, self.replay("execute")
+        repeated["checks"][0]["scheduling"].update(reason="mandatory_approved_execution", previous_attempt_id="runner0")
+        efficiency.observe_replay(state, repeated, attempt_id="validator-events")
+        measured = efficiency.summary(state)
+        self.assertEqual(1, measured["repeats"]["observed"])
+        self.assertEqual(1, measured["repeats"]["by_reason"]["independent_obligation"])
+        self.assertEqual(0, measured["repeats"]["redundant_checks_observed"])
+        self.assertEqual(5, measured["time"]["summed_execution_seconds"])
+        self.assertEqual("runner0", state["efficiency_observations"][0]["provenance"]["previous_attempt_id"])
+        first = {}
+        efficiency.observe_replay(first, self.replay("execute"), attempt_id="validator-events")
+        self.assertEqual(0, efficiency.summary(first)["repeats"]["observed"])
+
+    def test_reusing_a_repeated_execution_imports_it_once_without_a_conflict(self):
+        state = {}
+        repeated, reuse = self.replay("execute"), self.replay("reuse")
+        repeated["checks"][0]["scheduling"]["previous_attempt_id"] = "runner0"
+        reuse["checks"][0]["scheduling"]["original_previous_attempt_id"] = "runner0"
+        efficiency.observe_replay(state, repeated, attempt_id="validator-events")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            efficiency.observe_replay(state, reuse, attempt_id="validator-events")
+        measured = efficiency.summary(state)
+        self.assertEqual(1, measured["repeats"]["observed"])
+        self.assertEqual(1, measured["repeats"]["reused_observed"])
+        self.assertNotIn("conflict", [row["kind"] for row in state["efficiency_observations"]])
 
     def test_waiting_is_only_recorded_when_observed_not_inferred_from_stage_gaps(self):
         state = {"stages": [attempt(start=0, end=10), attempt(identity="two", start=20, end=30)]}
