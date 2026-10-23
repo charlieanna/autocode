@@ -21,6 +21,7 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_goals as g
 import autocode_interventions as interventions
 import autocode_proof_declarations as proof_declarations
+import autocode_providers as providers
 import autocode_regression as regression
 import autocode_review_rejection as review_rejection
 import autocode_stage_context as stage_context
@@ -49,9 +50,20 @@ class GoalTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
-        self.registry_environment = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")})
-        self.registry_environment.start()
-        self.addCleanup(self.registry_environment.stop)
+        # A new run takes its provider and user settings from AUTOCODE_PROVIDER and
+        # $XDG_CONFIG_HOME/autocode/config.toml: give it an empty config home, never the developer's (#1933).
+        config_home = tempfile.TemporaryDirectory()
+        self.addCleanup(config_home.cleanup)
+        self.isolated_environment = patch.dict(
+            os.environ,
+            {
+                "AUTOCODE_HOME": str(self.root / "registry-home"),
+                "XDG_CONFIG_HOME": config_home.name,
+                "AUTOCODE_PROVIDER": "",
+            },
+        )
+        self.isolated_environment.start()
+        self.addCleanup(self.isolated_environment.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         seed_greeting_workspace(self.root)
         subprocess.run(["git", "-C", str(self.root), "add", "greet.py", "test_greeting.py"], check=True)
@@ -2672,6 +2684,24 @@ class GoalTests(unittest.TestCase):
         self.assertTrue(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
         self.state["validation"]["task_id"] = "previous-task"
         self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
+
+
+class GoalFixtureIsolationTests(unittest.TestCase):
+    def test_fixture_runs_ignore_the_developers_provider_choice(self):
+        """A developer who sends new runs to Kilo still gets the built-in default in the fixture (#1933)."""
+        developer = tempfile.TemporaryDirectory()
+        self.addCleanup(developer.cleanup)
+        config = Path(developer.name) / "autocode" / "config.toml"
+        config.parent.mkdir()
+        config.write_text('default_provider = "kilocode"\n')
+        # Started before the fixture, so the fixture's own environment is stopped first.
+        outer = patch.dict(os.environ, {"XDG_CONFIG_HOME": developer.name, "AUTOCODE_PROVIDER": ""})
+        outer.start()
+        self.addCleanup(outer.stop)
+        self.assertEqual(("kilocode", f"default_provider in {config}"), providers.default_choice())
+        os.environ["AUTOCODE_PROVIDER"] = "kilocode"
+        GoalTests.setUp(self)
+        self.assertEqual(("opencode", "built-in default"), providers.default_choice())
 
 
 if __name__ == "__main__":

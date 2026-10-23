@@ -186,6 +186,9 @@ class JobHarness(unittest.TestCase):
         self.env = {
             "PATH": str(bindir) + os.pathsep + os.environ["PATH"],
             "AUTOCODE_HOME": str(root / "registry"),
+            # An empty config home, so the CLI never reads the developer's default_provider (#1933).
+            "XDG_CONFIG_HOME": str(root / "config"),
+            "AUTOCODE_PROVIDER": "",
             "PYTHONDONTWRITEBYTECODE": "1",
             "JOB_RUNTIME": str(RUNTIME),
             "JOB_CALLS": str(self.calls),
