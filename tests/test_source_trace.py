@@ -772,6 +772,95 @@ class CompletionVerdictSchemaTests(unittest.TestCase):
         self.assertEqual(["PASS", "FAIL"], schema["properties"]["source_verdict"]["properties"]["verdict"]["enum"])
 
 
+class CompletionVerdictConsistencyTests(unittest.TestCase):
+    """A completion its own source verdict contradicts is an invalid report (#1909).
+
+    The reviewer's prompt says a FAIL without a real gap only costs a repair; before this the
+    field was never read, so a COMPLETE beside a FAIL verdict completed the run.
+    """
+
+    FAIL = {"verdict": "FAIL", "uncovered": ["Totals round half up."], "summary": "One sentence is not honored"}
+    PASS = {"verdict": "PASS", "uncovered": [], "summary": "Every sentence is honored"}
+
+    def check(self, status, verdict):
+        import autocode_completion_result as completion_result
+
+        value = {"status": status}
+        if verdict is not None:
+            value["source_verdict"] = verdict
+        completion_result.check_source_verdict(value)
+
+    def test_a_completion_beside_a_fail_or_an_uncovered_sentence_is_refused(self):
+        for status in ("COMPLETE", "TASK_COMPLETE"):
+            for verdict in (self.FAIL, {**self.PASS, "uncovered": ["Totals round half up."]}):
+                with self.subTest(status=status, verdict=verdict["verdict"]):
+                    with self.assertRaisesRegex(ValueError, "Totals round half up.*REWORK"):
+                        self.check(status, verdict)
+        with self.assertRaisesRegex(ValueError, "none named"):
+            self.check("TASK_COMPLETE", {**self.FAIL, "uncovered": []})
+
+    def test_a_consistent_completion_passes(self):
+        # A REWORK beside a FAIL never reaches this check: only a completion being applied does.
+        for verdict in (self.PASS, None):  # None: an untraced contract's report carries no verdict
+            with self.subTest(verdict=verdict and verdict["verdict"]):
+                self.check("TASK_COMPLETE", verdict)
+
+    def approved_run(self):
+        import autocode_goals as goals
+        from goal_fixtures import approve_fixture
+
+        from tests import test_autocode
+
+        fixture = test_autocode.RetrofitTest(methodName="run")
+        fixture.setUp()
+        self.addCleanup(fixture.temp.cleanup)
+        approve_fixture(fixture.state, goals)
+        return fixture
+
+    def review(self, fixture, verdict, **changes):
+        from goal_fixtures import envelope
+
+        value = {**fixture.decision("TASK_COMPLETE"), **envelope(fixture.state), **changes}
+        value["source_verdict"] = verdict
+        return value
+
+    def test_the_review_step_refuses_the_contradiction_before_completing(self):
+        from tests import test_autocode
+
+        fixture = self.approved_run()
+        before = fixture.state["status"]
+        with self.assertRaisesRegex(ValueError, "source_verdict is FAIL"):
+            test_autocode.runner.apply_result(
+                fixture.state, "astra_review", self.review(fixture, self.FAIL), {}, fixture.root, fixture.run
+            )
+        self.assertEqual(before, fixture.state["status"])
+
+    def test_a_consistent_review_goes_on_to_the_completion_gate(self):
+        # The control: on this fixture (no validation yet) a PASS verdict passes the check and the
+        # completion gate refuses it; on master the FAIL verdict above went the same way.
+        import autocode_util as util
+
+        from tests import test_autocode
+
+        fixture = self.approved_run()
+        with self.assertRaises(util.Paused) as paused:
+            test_autocode.runner.apply_result(
+                fixture.state, "astra_review", self.review(fixture, self.PASS), {}, fixture.root, fixture.run
+            )
+        self.assertIn("Completion rejected", str(paused.exception))
+
+    def test_a_stale_contradictory_review_still_pauses_instead_of_going_back_for_repair(self):
+        import autocode_util as util
+
+        from tests import test_autocode
+
+        fixture = self.approved_run()
+        stale = self.review(fixture, self.FAIL, contract_revision=fixture.state["goal_contract"]["revision"] + 1)
+        with self.assertRaises(util.Paused) as paused:
+            test_autocode.runner.apply_result(fixture.state, "astra_review", stale, {}, fixture.root, fixture.run)
+        self.assertEqual("PAUSED_STALE_GOAL", paused.exception.status)
+
+
 class SourceCitationRuleTests(unittest.TestCase):
     def test_rule_lists_source_ids_without_repeating_verbatim_text(self):
         # #1337: the instruction named every source with its full text beside source_inventory.

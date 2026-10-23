@@ -7,8 +7,8 @@ consumes the latter. The archive retains fragments, usage and source captures.
 The failure source_paths preserve the captured inventory scope for authorize,
 reroute and admission; legacy failures retain their original Git-only scope.
 
-A job stopped on quota or by its provider's content filter (#463) also keeps, on
-state.job_failure: ``pause_status`` (PAUSED_BUDGET or PAUSED_CONTENT_FILTER; read by
+A job stopped on quota, provider refusal, authentication, output exhaustion or timeout also keeps, on
+state.job_failure: ``pause_status`` (the classified model stop; read by
 quota_route.stopped_attempt and autocode_job_route), ``route`` (the job's model question,
 quota_route.question; read by run_view's retry_job need and autocode_job_route) and, once a
 person named a model, ``route_assignment`` (that recorded change). reroute() binds the exact
@@ -55,6 +55,7 @@ _ROUTE_STOPS = {
     "quota": quota_route.QUOTA_STATUS,
     "output_limit": quota_route.OUTPUT_STATUS,
     "provider_auth": quota_route.AUTH_STATUS,
+    "timeout": quota_route.TIMEOUT_STATUS,
 }
 
 
@@ -175,6 +176,8 @@ def _route_reason(failure):
         if failure.get("pause_status") == quota_route.OUTPUT_STATUS
         else f"provider authentication failed on {route.get('stopped_model')}"
         if quota_route.job_stop_status(failure) == quota_route.AUTH_STATUS
+        else f"the execution time limit was exceeded on {route.get('stopped_model')}"
+        if quota_route.job_stop_status(failure) == quota_route.TIMEOUT_STATUS
         else f"the provider reported its quota used up on {route.get('stopped_model')}"
     )
     return (

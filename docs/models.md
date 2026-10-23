@@ -450,8 +450,9 @@ without a row, whose cost is then unknown rather than zero. The money cap
 A provider that reports a used-up quota, usage limit or credits stops the stage with
 `PAUSED_BUDGET`, and so does a used-up daily, weekly or monthly plan limit sent as an
 HTTP 429 (Z.AI's "Weekly/Monthly Limit Exhausted"); a per-minute rate limit does not.
-The stopped attempt is kept, never replayed, and AutoCode asks you which model the
-role should continue on, for example:
+The stopped attempt is kept and never replayed. Unless the run can switch the role on
+its own (see the end of this section), AutoCode asks you which model the role should
+continue on, for example:
 
 ```text
 [route-sol] Tester's quota is exhausted; name the model to continue on
@@ -498,9 +499,20 @@ route is what it is — and the changes under `route_assignments`; while the
 question is open, `needs.route` names the role and its current model. The new model
 stays on the role until you change it again, including past the next milestone.
 
-There is no fallback list, configuration table or automatic switch: a quota stop is
-always your decision. Capacity errors retry the same model, rate limits pause as
-before, and authentication failures never ask for a model.
+A run that chose its models automatically ([Choosing models automatically](#choosing-models-automatically))
+first switches the role on its own. It takes the next qualified model on an account the
+run already uses, keeps every checker independent of its producer, and prints a line such
+as `Builder: MODEL stopped (PAUSED_BUDGET); switched to NEW_MODEL on ACCOUNT without asking`.
+The switch sets the stopped attempt aside the same way an answer does, is recorded as a
+`route_assignment` whose actor is `runner`, and counts as an automatic recovery. AutoCode
+asks instead when no such model remains, when you pinned the role's model with a flag,
+when a pause was requested, and for native runs and workflow jobs. The same switch applies
+to content-filter and output-limit stops.
+
+A run on fixed routes (`--no-auto-select`, or a launch whose automatic selection fell
+back to them) has no fallback list or configuration table: its quota stop is always your
+decision. Capacity errors retry the same model, rate limits pause as before, and
+authentication failures never ask for a model.
 
 ### When the stopped role is a workflow job
 
@@ -546,7 +558,9 @@ Builder: the provider's content filter refused the response on xiaomi-token-plan
 ```
 
 The same model is likely to refuse the same request again, so the attempt is kept and never
-replayed, and AutoCode asks the question a quota stop asks, answered the same way:
+replayed. AutoCode handles it as a quota stop: a run that chose its models automatically
+switches on its own where it can ([above](#when-a-roles-quota-runs-out)); otherwise it asks
+the question a quota stop asks, answered the same way:
 
 ```text
 [route-terra] Builder's model was refused by its provider's content filter; name another model to continue on
@@ -586,10 +600,12 @@ one.
 
 ## When a response reaches its output limit
 
-An authenticated terminal output-limit stop (`PAUSED_OUTPUT_CAP`) asks for another model
-on the same engine with the existing availability and checker-independence rules.
+An authenticated terminal output-limit stop (`PAUSED_OUTPUT_CAP`) switches models on its
+own on a run that chose them automatically, as a quota stop does
+([above](#when-a-roles-quota-runs-out)). Otherwise it asks for another model on the same
+engine with the existing availability and checker-independence rules.
 The answer retains the incomplete attempt and usage; continuation is explicit. Builder
-and Requirements never automatically retry this stop. See [Output cap](providers.md#output-cap)
+and Requirements never automatically retry this stop on the same model. See [Output cap](providers.md#output-cap)
 for cap settings and the existing bounded read-only report repair.
 
 ## A parallel Builder stopped on its model

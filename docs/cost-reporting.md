@@ -19,12 +19,13 @@ switched on and no model is called.
 
 Cost has three bases, always kept apart: **reported** is the provider's own `cost_usd` (the built-in
 claude provider writes each call's share of Claude Code's cumulative session cost; a provider that
-reports none, or only a zero for a subscription plan, has none); **estimated** is tokens at the flat comparison rates below, and only for models listed
-there (today the GLM route); anything else is **unknown, not zero**. `complete` is false while a
-stage has no cost or is still running, so a total is then a floor. Stages the runner executes
-itself (the regression proof, the orchestrator) cost nothing. The OpenCode/Codex route reports
-tokens but no price, so its cost shows as unknown until a rate is added to
-`autocode_usage.REFERENCE_PRICES`.
+reports none, or only a zero for a subscription plan, has none); **estimated** is tokens at the
+frozen comparison rates in `autocode_usage.REFERENCE_PRICES`, and only for the models listed there
+(today GLM-5.3 on the Z.AI coding plan and MiMo v2.6 Pro on the Xiaomi token plan); anything else is
+**unknown, not zero**. `complete` is false while a stage has no cost or is still running, so a total
+is then a floor. Stages the runner executes itself (the regression proof, the orchestrator) cost
+nothing. Any other model, such as an OpenAI route, has no comparison estimate until a rate is added
+there; the status view's `cost` field prices it from the dated table below instead.
 
 Parallel Builders are counted once, in their parent. A worker run keeps no ledger of its own: when a
 batch finishes, the parent copies each worker's finished stages, cost included, into its own record

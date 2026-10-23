@@ -11,6 +11,21 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Exact Investigator retries receive links to the matching failed attempt's prompt and evidence
+  instead of losing that recovery context and repeating the investigation (#1902). Links are
+  unverified leads only; source/configuration admission and fresh reproduction checks stay required.
+
+- Investigator handoffs retain the configured validation command for later Builder/Tester work
+  instead of offering it as an investigation command (#1902). Reproduction and diagnosis remain
+  required; broader baseline suites no longer compete with the investigation report. At a stopped
+  job timeout, naming the current model explicitly can keep that route and expose its exact retry
+  through the TUI without forcing a model substitution; all saved limits and usage remain intact.
+
+- Fully stopped workflow-job timeouts can offer the existing token-bound model answer for that
+  failed role, preserving other roles, effort, limits, usage and history (#1907). A named model
+  launches nothing and rotates the exact retry token; an unchanged retry remains available.
+  Rejected configuration changes at a stopped job leave its saved settings unchanged.
+
 - Idle run boundaries without a retained stage or runner check now name the existing advance command even though they have no pause category,
   so terminal and editor clients can continue after Requirements approval (#1901). The Investigator
   receives its saved stage window and prioritizes a minimal reproduction before expanding source
@@ -59,6 +74,17 @@ PR template asks for an entry here; a change without one is incomplete.
   obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
   an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was
   always 0. The scheduler's execute record names the earlier attempt as `previous_attempt_id` (#1910).
+- A Completion Reviewer can no longer mark a task complete while its own source verdict says FAIL or names an
+  uncovered sentence of the original request. The verdict was required but never read, so the reviewer's own
+  finding was dropped. Such a report now goes back through the bounded report repair for one consistent answer:
+  a PASS verdict, or a REWORK that covers the sentences. A report for another contract or task still pauses as
+  before (#1909).
+- The documentation no longer says a quota stop never switches models: on a run that chose its models
+  automatically, a quota, content-filter or output-limit stop moves the role to the next qualified model on
+  its own and asks only when none remains, as it has since #1426. The `--adaptive-planning` help and CLI
+  reference no longer promise the Requirements skip #1860 removed, `docs/cost-reporting.md` points to the
+  comparison rates where they are, and the status-view schema now lists eight fields the view already
+  returned, including `planning_depth` and `pause` (#1905).
 - A run paused with a repeated failure whose report repair is spent no longer tells the person to authorize an
   inspected retry that its own gate then refuses. A resume now reconciles the repair first: an exhausted or
   unlaunchable one is archived before the unchanged-failure hold, so the retry that hold names is admissible on

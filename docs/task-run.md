@@ -1352,7 +1352,7 @@ run is waiting for:
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
-| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal or an authenticated output limit | Exact retry after restoring original source; with `route`, name another model first |
+| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped execution timeout | Exact retry after restoring original source; with `route`, name another model first |
 | `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; at `PAUSED_ACCEPTANCE_TESTS` (the Tester's pause) `action` is `--feedback 'WHAT TO CHANGE'`, which revises the plan and returns the run to plan approval, `chat.input` offers the same `feedback` message, and `guidance` says that `--resume-paused` reruns the Tester unchanged and helps only once the code changed; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota, content-filter or output-limit stop whose request was answered without a model, or `--resume-paused --retry-failed-stage` (also as `retry_action`) at a recovery novelty hold whose request is not yet published, where a plain resume would hold again; when that hold cannot take the retry yet, `retry_unavailable` instead says why (an owned or uncertain attempt to reconcile, or a different pending decision), the same reason the CLI gives; at a `PAUSED_REPEATED_FAILURE` whose active attempt, uncertain artifacts or pending report repair its retry gate will not authorize over, `retry_unavailable` carries that CLI refusal verbatim and `action` is the plain `--resume-paused`, never the rejected `--retry-failed-stage` (#1897) | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `dependency` | a bound producer run's delivery (see [Dependencies between existing runs](#dependencies-between-existing-runs)) | `reason`, `producer_run`, `producer_workspace` | `autocode wait --run-dir <producer_run> --workspace <producer_workspace>`: returns when the producer needs a person or ends. Nothing to answer on this run: the dependency worker (`python tools/autocode_dependencies.py ... --watch`) calls `--receive-dependency MANIFEST` (`TaskRun.receive_dependency`) when the producer's verified delivery is ready |
 | `continue` | nothing; the run can simply proceed | | Continue |
@@ -1395,6 +1395,13 @@ TaskRun methods; adding a scope or a needs-table row requires an execution case.
 | `blocker` | `answer`: use `respond_operational`, not an ordinary answer | Corrective information does not edit the contract or authorize execution |
 | `operational_exhaustion` | `answer`: use `respond_operational`, not an ordinary answer | Existing limits hold; information is considered at the next explicit resume |
 | `intake` | `answer`: answer the Resolver intake question with its current token | Intent is saved; no project plan or execution approval is implied |
+
+AutoResolver never changes the approved contract itself. The resolver policy defines a `replan`
+action (`autocode_resolver.ACTIONS`), but every decision the runner asks of it admits only
+`continue`, `retry` and `escalate`, and a diagnosis only `retry` and `escalate`. A contract change
+always goes through fresh planning and the person's approval of the new plan token. This is
+deliberate: the Resolver adapter does not authorize contract replanning, implementation replay, new
+permissions or completion.
 
 ## Supervision timing in status
 
@@ -1483,7 +1490,7 @@ saved source, route and limits. The CLI equivalent is
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.
 
-A job stopped by its provider's content filter or on quota also carries
+A job stopped by its provider's content filter, on quota, or by its stage time limit also carries
 `needs.route` (the shape of the `answer` need's `route`: `question_id`, `role`,
 `job`, `current_model`, `engine`, `cause`, `stopped_model`, and `candidates` for a
 refusal). The same model is likely to refuse again, so before retrying, a person
@@ -1501,9 +1508,9 @@ make the exact retry stale), unless it puts back the model the retry is bound to
 The answer carries no other setting: given with a limit or another role's model it
 is refused and nothing is saved, and the CLI refuses it next to
 `--resume-paused --retry-failed-stage` (the retry needs the new token). After a
-refusal or output-limit stop, until a different model is named, the need's `action` is that answer
+refusal, output-limit or timeout stop, until a different model is named, the need's `action` is that answer
 (`--answer route-ROLE=MODEL --job-retry-token TOKEN`) and the recovery card offers
-no `retry_job` action, since the exact retry would replay the stopped model; the
+no `retry_job` action for a refusal or output-limit stop, since the exact retry would replay the stopped model; the
 CLI still accepts the shown token. A quota stop keeps the retry in both, for once
 the quota resets. Once a model
 is named, `progress.needs_you` and the recovery card's `what_happened` ask only for
@@ -1750,3 +1757,16 @@ It does not offer an ordinary Resume that would discard the job's retry boundary
 An old token, consumed authorization, different next stage or active attempt cannot
 revive a previous failed job. No automatic provider substitution or credential copy
 is performed.
+
+### Model choice after a stopped job timeout
+
+A fully stopped workflow job that exceeded its stage limit can name another model through the
+same exact job-token answer. `needs.route.cause` is `timeout`; choosing a model changes only that
+job's model, rotates its retry token and launches nothing. It preserves other roles (including a
+bug Investigator's Plan Reviewer), effort, limits, usage and the archived attempt. A same-model
+exact retry is still accepted, but can time out again; no model or time-limit change is automatic.
+
+A saved bug-Investigator timeout without a route question can expose one only when the archived
+rejected, timed-out attempt matches its source capture, launch route, configuration and archive.
+An active/uncertain attempt or a mismatch cannot gain that model action. The answer then rechecks
+source and configuration before it is saved, and the explicit retry checks the newly bound token.

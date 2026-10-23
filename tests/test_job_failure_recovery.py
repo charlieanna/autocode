@@ -403,8 +403,12 @@ class JobFailureTaskRunTests(JobHarness):
         self.paused(run)
 
     def test_ac15_retry_rejects_model_effort_and_limit_changes(self):
+        # Make "high" a real change rather than depending on an earlier rejected
+        # model flag having silently mutated the checkpoint.
+        self.options = (*self.options, "--sol-reasoning-effort", "medium")
         run = self.start()
         token = self.paused(run)["job_retry_token"]
+        held = run.status()
         for flags in (
             ("--sol-model", "gpt-6-astra"),
             ("--sol-reasoning-effort", "high"),
@@ -417,6 +421,9 @@ class JobFailureTaskRunTests(JobHarness):
                 with self.assertRaisesRegex(TaskRunError, "configuration|limits"):
                     changed.retry_job(token)
                 self.assertEqual(1, self.count())
+                after = run.status()
+                for field in ("needs", "routes", "usage"):
+                    self.assertEqual(held[field], after[field], field)
 
     def test_saved_joint_transport_change_invalidates_retry(self):
         self.env["JOB_TRANSPORT"] = "original"
