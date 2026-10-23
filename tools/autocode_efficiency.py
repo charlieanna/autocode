@@ -351,7 +351,51 @@ def _observations(state: RunState):
             }
         )
         issues.append(f"Conflicting observation: {event_id}")
+    observations.extend(_waiting(state, {row.get("event_id") for row in observations}))
     return observations, issues
+
+
+def _waiting(state: RunState, seen):
+    """Time the run waited for a person, from the AutoResolver requests a person answered (#1926).
+
+    A published request records when it became answerable (`issued_at`); the person's response
+    consumes it and records when (`response.at`). Only those spans count: a request superseded
+    without a response, or still pending, adds nothing, and gaps between stages are never
+    presumed waiting. Derived from saved receipts, so older runs are measured too.
+    """
+    rows = []
+    escalations = _dict(_dict(state.get("resolver")).get("human_escalations"))
+    for request_id, entry in sorted(escalations.items()):
+        entry = _dict(entry)
+        response = _dict(entry.get("response"))
+        start, end = _time(entry.get("issued_at")), _time(response.get("at"))
+        event_id = f"waiting:{request_id}"
+        if (
+            entry.get("status") != "consumed"
+            or response.get("actor") != "user_cli"
+            or start is None
+            or end is None
+            or end < start
+            or event_id in seen
+        ):
+            continue
+        rows.append(
+            {
+                "event_id": event_id,
+                "kind": "activity",
+                "category": "waiting",
+                "reason": "unknown",
+                "provenance": {
+                    "request_id": request_id,
+                    "scope": _dict(_dict(entry.get("identity")).get("proposal")).get("scope"),
+                },
+                "attempt_id": None,
+                "finding_ids": [],
+                "started_at": entry["issued_at"],
+                "finished_at": response["at"],
+            }
+        )
+    return rows
 
 
 def _visual(state: RunState, acceptance=None, *, now=None, accounting=None):

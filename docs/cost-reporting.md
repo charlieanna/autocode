@@ -67,6 +67,9 @@ additive measurement projections, not new acceptance gates or model calls.
 - Observed execution intervals, summed execution durations and provider-request
   intervals are separate. Parallel overlap is not added to wall time twice.
   Unobserved waiting, setup or visual-inspection time is not inferred from gaps.
+  Time waiting for the person is measured from each request a person answered: from
+  when it became answerable to their response (`efficiency.time`, category `waiting`).
+  A request superseded or still pending adds nothing.
   OpenCode request starts are paired within the same session and message. Multiple
   pending starts for one message leave its timing unknown and coverage explicitly
   uncertain; known finish-token receipts are retained. Message-free events use

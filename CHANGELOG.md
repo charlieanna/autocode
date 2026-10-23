@@ -74,6 +74,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Time a run spent waiting for the person is now measured. Each question, plan approval or other request a
+  person answered counts from when it became answerable to their response, under `efficiency.time`'s `waiting`
+  category, so it is kept apart from execution time. The category had no source before (#1867 S1d).
 - `cost.breakdown.by_billing` groups a run's spend by how each stage's model bills (subscription, pay per token
   or unknown), so an API-equivalent estimate for a coding-plan stage is no longer indistinguishable from a
   metered one. The provider billing table moved from `model_catalogue` to `autocode_role_route` so the cost
