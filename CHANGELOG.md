@@ -11,7 +11,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
-- Ready run boundaries now name the existing advance command even though they have no pause category,
+- Idle run boundaries without a retained stage or runner check now name the existing advance command even though they have no pause category,
   so terminal and editor clients can continue after Requirements approval (#1901). The Investigator
   receives its saved stage window and prioritizes a minimal reproduction before expanding source
   exploration, with the existing evidence and deadline checks retained (#1902).
