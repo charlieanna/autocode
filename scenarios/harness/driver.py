@@ -201,21 +201,22 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
     # base URL there pauses joint planning even when API keys are absent).
     codex_home = root / "codex-home"
     codex_home.mkdir(parents=True, exist_ok=True)
-    config_env = {}
+    # Likewise the host's ~/.config/autocode: a default_provider or provider config there would change
+    # what a fake run does on that machine only (#1938). This run's user config home starts empty.
+    config_home = root / "user-config"
+    config_home.mkdir(parents=True, exist_ok=True)
     if scenario.fake_plan_review_call_limit is not None:
         # The fixture author declares this before the run starts. Use the same public configuration
         # as a person, scoped to this fake run; the driver never invents an allowance at a pause.
-        config_home = root / "user-config"
         user_config = config_home / "autocode" / "config.toml"
         user_config.parent.mkdir(parents=True, exist_ok=True)
         user_config.write_text(f"plan_review_call_limit = {scenario.fake_plan_review_call_limit}\n")
-        config_env["XDG_CONFIG_HOME"] = str(config_home)
     return flags, {
         "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
         "SCENARIO_FAKE_CONFIG": str(config),
         "CODEX_HOME": str(codex_home),
         STRIP_BILLING_AUTH: "1",
-        **config_env,
+        "XDG_CONFIG_HOME": str(config_home),
     }
 
 
