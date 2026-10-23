@@ -16,6 +16,10 @@ PR template asks for an entry here; a change without one is incomplete.
   literal Python suite mistakenly labeled as a test name can lose only that prefix
   before approval; real test/guard obligations and user-protected proofs stay protected.
 
+- A conversation start the launch refuses no longer leaves a new project in the selected
+  folder per attempt (#1957). The refusal names the project it created, a retry of the same
+  task reuses it while it holds only AutoCode's baseline, and the same request ID launches again.
+
 - Collector regressions run on the interpreter owning the declared test dependency;
   multi-component fake repairs reconstruct historical JSON overlays while preserving
   original failures and evidence, and wrong-collector proof refusals stay covered (#1960).
