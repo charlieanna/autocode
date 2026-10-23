@@ -112,6 +112,14 @@ class DynamicDependenciesTests(unittest.TestCase):
                 kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
                 self.assertEqual([consumer], list(kept))
 
+    def test_kilo_defaults_keep_the_planning_consumer_even_when_slow(self):
+        consumer = "tests.test_planning"
+        selected = run_suite.select_tests(
+            ["tools/providers/configs/kilocode.toml"], {consumer: "", "tests.test_unrelated": ""}
+        )
+        kept, _ = run_suite.drop_slow(selected, {consumer: "151s"})
+        self.assertEqual([consumer], list(kept))
+
     def test_typed_planning_allowance_keeps_its_public_consumer_even_when_slow(self):
         consumer = "tests.test_planning_allowance_cli"
         for path in (

@@ -314,10 +314,10 @@ class PlanningTests(unittest.TestCase):
         )
 
     def test_requirements_model_inherits_planner_only_when_the_route_is_created(self):
-        for engine, provider, default in (
-            ("opencode", "opencode", "zai-coding-plan/glm-5.3"),
-            ("opencode", "kilocode", "zhipuai-coding-plan/glm-5.3"),
-            ("codex", "opencode", "gpt-5.6-sol"),
+        for engine, provider, default, default_effort in (
+            ("opencode", "opencode", "zai-coding-plan/glm-5.3", "medium"),
+            ("opencode", "kilocode", "zhipuai-coding-plan/glm-5.3", "high"),
+            ("codex", "opencode", "gpt-5.6-sol", "medium"),
         ):
             prefix = "" if engine == "codex" else "openai/"
             selected, explicit, later = (prefix + name for name in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra"))
@@ -342,7 +342,7 @@ class PlanningTests(unittest.TestCase):
                         settings, self.configure_args(**overrides), fresh=True, planning=planning
                     )
                     self.assertEqual(expected, settings["roles"]["requirements"]["model"])
-                    self.assertEqual("medium", settings["roles"]["requirements"]["reasoning_effort"])
+                    self.assertEqual(default_effort, settings["roles"]["requirements"]["reasoning_effort"])
                     saved_requirements = copy.deepcopy(settings["roles"]["requirements"])
                     autocode_configure.configure_joint(
                         settings, self.configure_args(glm_model=later), fresh=False, planning=planning
