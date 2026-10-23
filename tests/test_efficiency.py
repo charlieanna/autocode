@@ -879,6 +879,34 @@ class TimingAndProvenanceTests(unittest.TestCase):
         self.assertEqual(20, after["time"]["summed_execution_seconds"])
         self.assertEqual(10, after["time"]["exclusive_wall_seconds_by_category"]["waiting"])
 
+    def test_time_waiting_for_the_person_comes_from_the_requests_they_answered(self):
+        # #1926: the waiting category had no emitter, so time waiting for a person was never measured.
+        def request(status, issued, answered=None, actor="user_cli"):
+            entry = {"status": status, "issued_at": issued, "identity": {"proposal": {"scope": "goal_approval"}}}
+            if answered is not None:
+                entry["response"] = {"actor": actor, "at": answered}
+            return entry
+
+        state = {
+            "stages": [attempt(start=0, end=10), attempt(identity="two", start=610, end=620)],
+            "resolver": {
+                "human_escalations": {
+                    "answered": request("consumed", 10, 610),
+                    "superseded": request("superseded", 700),
+                    "pending": request("pending", 800),
+                    "not a person": request("consumed", 900, 950, actor="runner"),
+                }
+            },
+        }
+        measured = efficiency.summary(state)
+        self.assertEqual(600, measured["time"]["exclusive_wall_seconds_by_category"]["waiting"])
+        self.assertEqual(20, measured["time"]["summed_execution_seconds"])
+        self.assertEqual(620, measured["time"]["wall_union_seconds"])
+        self.assertNotIn("waiting", measured["attribution"]["uninstrumented_categories"])
+        self.assertEqual(
+            ["waiting:answered"], [row["event_id"] for row in measured["observations"] if row["category"] == "waiting"]
+        )
+
     def test_missing_original_replay_interval_is_unknown_not_zero(self):
         state, replay = {}, self.replay("reuse")
         del replay["checks"][0]["scheduling"]["original_started_at"]

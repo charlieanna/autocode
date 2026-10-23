@@ -74,6 +74,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Time a run spent waiting for the person is now measured. Each question, plan approval or other request a
+  person answered counts from when it became answerable to their response, under `efficiency.time`'s `waiting`
+  category, so it is kept apart from execution time. The category had no source before (#1867 S1d).
 - `efficiency.repeats` in the status view now counts a check the runner executed again although the same
   obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
   an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was
