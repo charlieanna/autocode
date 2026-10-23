@@ -338,7 +338,7 @@ class ChatClient:
                 view, error = None, "status response has no valid view for this chat"
             if error:
                 if self._read_errors.get(key[1]) != error:
-                    self.say(f"Status unavailable ({Path(key[1]).name}): {error}. Retrying; last view is stale.")
+                    self.say(f"Status unavailable ({Path(key[1]).name}): {error}. Last view is stale.")
                 self._read_errors[key[1]] = error
             else:
                 if self._read_errors.pop(key[1], None):

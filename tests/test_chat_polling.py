@@ -77,6 +77,19 @@ class Reads(unittest.TestCase):
         self.assertIn("NEW", result[0][1])
         self.assertNotIn("OLD", result[0][1])
 
+    def test_valid_large_status_keeps_the_entire_paused_conversation(self):
+        key = next(iter(self.keys))
+        self.poller.tick({key: 100})
+        view = {
+            "status": "PAUSED_REPORT_REPAIR_INPUT",
+            "needs": {"kind": "resume"},
+            "chat": {"messages": [{"text": "history " * 350000 + "FINAL-MESSAGE"}]},
+        }
+        self.children[-1].finish(view)
+        result = self.poller.tick({key: 100})
+        self.assertEqual("", result[0][2], "a valid long history must not become unavailable")
+        self.assertEqual(view, json.loads(result[0][1])["view"])
+
     def test_removal_and_close_reap_all_inflight_reads(self):
         self.poller.tick(self.keys)
         first = self.children[0]
@@ -153,6 +166,7 @@ class AttachedInput(unittest.TestCase):
             ui._tick()
         draw.assert_not_called()
         ui._launched = True
+        ui._view = {"liveness": {"kind": "supervised"}}
         ui._stopping.wait.side_effect = [False, True]
         with mock.patch.object(ui, "_draw") as draw:
             ui._tick()
@@ -170,3 +184,26 @@ class UnavailableTab(unittest.TestCase):
         ui._put = lambda row, col, text, attr=0: shown.append((row, text))
         ui._header(ui._layout(30, 120))
         self.assertIn(" 1 Current unavailable ", [text for row, text in shown if row == 1])
+
+
+class InitialRead(unittest.TestCase):
+    def test_initial_status_read_does_not_claim_a_worker_is_running(self):
+        ui = screen_ui()
+        shown = []
+        ui._put = lambda row, col, text, attr=0: shown.append(text)
+        layout = ui._layout(30, 120)
+        ui._question_or_status(layout)
+        ui._composer_box(layout)
+        ui._hints(layout)
+        text = " ".join(shown)
+        self.assertIn("Reading run status", text)
+        self.assertNotIn("AutoCode is working", text)
+        self.assertNotIn("pause after this step", text)
+        self.assertNotIn("ctrl-c asks AutoCode", text)
+
+    def test_enter_during_initial_loading_keeps_text_without_claiming_work(self):
+        ui = screen_ui()
+        for key in "hello\n":
+            ui._handle(key, asking=False)
+        self.assertEqual("hello", ui._composer.text)
+        self.assertIn("Reading run status", ui._transcript.blocks[-1][1])
