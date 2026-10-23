@@ -269,6 +269,7 @@ KEYS: frozenset[str] = frozenset(
         "visual_acceptance_receipts",
         "workflow",
         "workspace",
+        "workspace_bootstrap",
     }
 )
 
@@ -287,6 +288,11 @@ class RunState(TypedDict, total=False):
     task_id: str  # current task id; written by goals
     workspace: str  # the project (or task worktree) root
     project_workspace: str  # the project a task worktree belongs to
+    # The folder a launch selected that held no Git repository, and the project AutoCode created to
+    # run in: {selected, project}, equal when an empty folder became the project itself. Written once
+    # by autocode_run_setup when it bootstraps; read only by autocode_chat_history, which says so once
+    # in the conversation instead of leaving a client to infer it from workspace (#1908).
+    workspace_bootstrap: dict
     project_memory: dict  # project_memory_lifecycle owns launch input/tags/publication; Requirements reads context
     run_dir: str  # this run's .autocode/runs/<id>
     status: str  # RUNNING / PAUSED_* / TASK_COMPLETE; written by the runner
