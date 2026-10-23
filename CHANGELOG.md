@@ -74,6 +74,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Cost per accepted task is no longer always unknown on coding-plan routes. `efficiency.unit_metrics.spent_usd`
+  divides the run's own spend (`cost.spent_usd`: reported where the provider reported, else the dated-table
+  estimate) by the accepted deliveries, and stays null with a reason while any stage is unpriced, partial or
+  running. `reported_usd` is unchanged (#1867 S1c).
 - `efficiency.repeats` in the status view now counts a check the runner executed again although the same
   obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
   an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was
