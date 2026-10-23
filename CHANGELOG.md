@@ -70,6 +70,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The status-view schema now requires the eight fields the view always returns (`workspace`, `run_dir`,
+  `planning_depth`, `pause`, `package`, `tool_containment_backend`, `changes_by_criterion`, `dev_server`), so
+  removing one fails the JSON contract test, and a new always-present field must be added to the schema
+  (#1867 S1f).
 - `efficiency.repeats` in the status view now counts a check the runner executed again although the same
   obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
   an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was

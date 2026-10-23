@@ -180,5 +180,19 @@ class JsonContractTests(unittest.TestCase):
         self.assertEqual("continue", saved["view"]["needs"]["kind"])
 
 
+class SchemaCoverageTests(unittest.TestCase):
+    def test_every_field_the_view_always_returns_is_required_by_the_schema(self):
+        # #1905 found eight such fields missing from the schema; required, removing one fails the contract above.
+        import autocode_run_view as run_view
+
+        states = (
+            {"status": "RUNNING", "version": 3, "settings": {}, "stages": []},
+            {"status": "TASK_COMPLETE", "version": 3, "settings": {}, "stages": [], "run_dir": "/r", "workspace": "/w"},
+            {"status": "PAUSED_REQUESTED", "version": 2, "settings": {}, "stages": []},
+        )
+        always = set.intersection(*(set(run_view.view(state)) for state in states))
+        self.assertEqual(set(), always - set(SCHEMA["properties"]["view"]["required"]))
+
+
 if __name__ == "__main__":
     unittest.main()
