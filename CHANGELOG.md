@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Exact Investigator retries receive links to the matching failed attempt's prompt and evidence
+  instead of losing that recovery context and repeating the investigation (#1902). Links are
+  unverified leads only; source/configuration admission and fresh reproduction checks stay required.
+
 - Investigator handoffs retain the configured validation command for later Builder/Tester work
   instead of offering it as an investigation command (#1902). Reproduction and diagnosis remain
   required; broader baseline suites no longer compete with the investigation report. At a stopped
