@@ -483,8 +483,9 @@ names that pause, the driver calls `--resume-paused` with those flags once
 the new values on every later call in place of the scenario's `[fake] flags`.
 
 A scripted fixture that deliberately needs several planning passes can declare a finite
-`[fake] plan_review_call_limit` (an integer of at least 2). Fake setup writes that starting
-allowance to an isolated `XDG_CONFIG_HOME/autocode/config.toml`. This uses the public user
+`[fake] plan_review_call_limit` (an integer of at least 2). Every fake run has its own empty
+`XDG_CONFIG_HOME`, so your `~/.config/autocode` never applies to it, and fake setup writes that
+starting allowance to its `autocode/config.toml`. This uses the public user
 configuration before the run starts; it does not disable review accounting or authorize a
 new allowance when a run pauses. Undeclared fixtures retain the normal default.
 

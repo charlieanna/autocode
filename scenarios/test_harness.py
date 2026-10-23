@@ -1873,13 +1873,14 @@ class CatalogTests(unittest.TestCase):
                 self.assertEqual(fixture.fake_check, provider_config["check"])
                 self.assertNotIn("--planning-review-call-limit", flags)
                 self.assertNotIn("--plan-review-full", flags)
+                # Every fake run has its own config home, so the ambient one never applies (#1938).
+                config_home = Path(environment["XDG_CONFIG_HOME"])
+                self.assertTrue(config_home.is_relative_to(case))
+                user_config = config_home / "autocode" / "config.toml"
                 if limit is None:
-                    self.assertNotIn("XDG_CONFIG_HOME", environment)
+                    self.assertFalse(user_config.exists())
                 else:
-                    config_home = Path(environment["XDG_CONFIG_HOME"])
-                    self.assertTrue(config_home.is_relative_to(case))
-                    config = tomllib.loads((config_home / "autocode" / "config.toml").read_text())
-                    self.assertEqual({"plan_review_call_limit": 6}, config)
+                    self.assertEqual({"plan_review_call_limit": 6}, tomllib.loads(user_config.read_text()))
                 self.assertEqual("plan_review_call_limit = 19\n", ambient.read_text())
 
     def test_nothing_here_imports_autocode(self):
