@@ -277,7 +277,7 @@ class ProviderRegistryTests(unittest.TestCase):
             settings["roles"]["plan_reviewer"],
         )
         self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["terra"]["model"])
-        self.assertEqual("medium", settings["roles"]["glm"]["reasoning_effort"])
+        self.assertEqual("high", settings["roles"]["glm"]["reasoning_effort"])
 
 
 if __name__ == "__main__":
