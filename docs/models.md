@@ -105,8 +105,8 @@ accounts permit it, it is a different model from the Planner's and it is outside
 Reviewer's family; otherwise the Planner stays. The climb is a `reasoning_escalations` row
 with trigger `plan_sent_back`, the Planner's session is rotated, and the route stays climbed
 for the rest of the run, so a run climbs at most once. A second challenge runs only when the
-review allowance leaves room for it (a large plan, `--planning-review-call-limit 3` or more,
-or `0`): under the default allowance of two calls the first revision goes straight to the
+review allowance leaves room for it (a large plan, `plan_review_call_limit` of 3 or more, or
+`0`, in `~/.config/autocode/config.toml`): under the default allowance of two calls the first revision goes straight to the
 final review and the Planner never climbs. If the stronger revision is still blocked, the
 final review returns the open concerns to you as blocking questions.
 
