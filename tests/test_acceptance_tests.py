@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -494,11 +495,18 @@ class RunnerCollectionTests(unittest.TestCase):
             record = {"output": str(evidence / "tester.json"), "changed_files": ["tests/test_stats.py"]}
 
             def run_tests(files):
-                return verify.scratch_run(workspace, evidence / "acceptance-proof", tests=files)
+                return verify.scratch_run(
+                    workspace,
+                    evidence / "acceptance-proof",
+                    tests=files,
+                )
 
-            # The project has no pytest configuration, so the runner uses unittest, which skips a bare function.
+            # An explicit unittest collection hook retains its collector despite bare functions.
             with test_file.open("a") as handle:
-                handle.write(f"\n\ndef {name}():\n    assert median([1, 2, 3, 4]) == 2.5\n")
+                handle.write(
+                    f"\n\ndef {name}():\n    assert median([1, 2, 3, 4]) == 2.5\n"
+                    "\ndef load_tests(loader, tests, pattern):\n    return tests\n"
+                )
             with self.assertRaises(ValueError) as rejected:
                 job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
             message = str(rejected.exception)
@@ -517,6 +525,49 @@ class RunnerCollectionTests(unittest.TestCase):
             receipt = next(iter(acceptance.receipts(state).values()))
             self.assertEqual({"T1": "fails"}, receipt["results"])
             self.assertEqual("terra", state["next_stage"])
+
+    def test_unconfigured_pytest_acceptance_is_collected_and_really_fails_before_building(self):
+        import subprocess
+
+        import autocode_acceptance_tests_job as job
+        import autocode_verify as verify
+
+        with tempfile.TemporaryDirectory() as root:
+            workspace, evidence = Path(root) / "workspace", Path(root) / "evidence"
+            workspace.mkdir()
+            evidence.mkdir()
+            (workspace / "totals.py").write_text("def sum_positive(values):\n return sum(values)\n")
+            test = workspace / "test_totals.py"
+            test.write_text(
+                "from totals import sum_positive\ndef test_t1_positive():\n assert sum_positive([1,-2,3,0]) == 4\n"
+            )
+            git = ["git", "-C", str(workspace), "-c", "user.name=t", "-c", "user.email=t@t"]
+            for args in (("init", "-q"), ("add", "-A"), ("commit", "-qm", "base")):
+                subprocess.run([*git, *args], check=True)
+            state = approved({"T1": "test: test_t1_positive"})
+            acceptance.route(state)
+            value = {
+                "tests": [{"case_id": "T1", "test_name": "test_t1_positive", "file": "test_totals.py"}],
+                "cannot_write": [],
+                "already_passing": [],
+            }
+            record = {"output": str(evidence / "tester.json"), "changed_files": ["test_totals.py"]}
+            observed = []
+
+            def run_tests(files):
+                result = verify.scratch_run(workspace, evidence / "acceptance-proof", tests=files)
+                observed.append(result)
+                return result
+
+            job.apply(state, value, record, workspace, run_tests=run_tests, evidence_dir=evidence)
+            self.assertIn("-m pytest", observed[0]["command"])
+            self.assertTrue(observed[0]["results"]["failed"])
+            self.assertEqual({"T1": "fails"}, next(iter(acceptance.receipts(state).values()))["results"])
+            self.assertEqual("terra", state["next_stage"])
+            # Passing on original code must not be manufactured into a failing reproduction.
+            (workspace / "totals.py").write_text("def sum_positive(values):\n return sum(v for v in values if v > 0)\n")
+            with self.assertRaisesRegex(ValueError, "already passes"):
+                job.apply(state, value, record, workspace, run_tests=run_tests, evidence_dir=evidence)
 
 
 class RouteTests(unittest.TestCase):
@@ -778,6 +829,45 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         results = view["acceptance_tests"]["results"]
         self.assertTrue(results)
         self.assertEqual({"fails"}, set(results.values()), "a reproduction must really fail before the fix")
+
+    def test_bare_pytest_suite_completes_without_zero_collection_repairs_or_replanning(self):
+        loaded = catalog.load("bugfix-trivial")
+        directory = self.root / "pytest-scenario"
+        shutil.copytree(loaded.dir, directory)
+        source = """import pytest
+from pager import page, page_count, pages
+def test_exact_multiple():
+    assert page_count(10, 5) == 2
+    assert pages(list(range(1, 11)), 5) == [[1,2,3,4,5], [6,7,8,9,10]]
+def test_partial_last_page_is_counted():
+    assert page_count(11, 5) == 3
+    assert page_count(1, 5) == 1
+def test_first_page():
+    assert page([1,2,3,4,5,6], 1, 3) == [1,2,3]
+def test_page_size_must_be_positive():
+    with pytest.raises(ValueError):
+        page_count(3, 0)
+"""
+        (directory / "reference/tests/test_pager.py").write_text(source)
+        (directory / "seed/tests/test_pager.py").write_text(
+            "import pytest\nfrom pager import page, page_count, pages\n"
+            "def test_exact_multiple():\n assert page_count(10, 5) == 2\n"
+            " assert pages(list(range(1, 11)), 5) == [[1,2,3,4,5], [6,7,8,9,10]]\n"
+            "def test_first_page():\n assert page([1,2,3,4,5,6], 1, 3) == [1,2,3]\n"
+            "def test_page_size_must_be_positive():\n with pytest.raises(ValueError):\n  page_count(3, 0)\n"
+        )
+        self.scenario = dataclasses.replace(
+            loaded, dir=directory, fake_check="python3 -m pytest -q -p no:cacheprovider"
+        )
+        _, _, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
+        self.assertTrue(view["done"], self.details(view))
+        attempts = view["usage"]["accounting"]["attempts"]
+        self.assertEqual(1, sum(row["stage"] == "astra_discovery" for row in attempts))
+        self.assertEqual(1, sum(row["stage"] == "write_acceptance_tests" for row in attempts))
+        self.assertFalse(any(row["report_only"] for row in attempts), [(r["stage"], r["rejected"]) for r in attempts])
+        self.assertEqual({"fails"}, set(view["acceptance_tests"]["results"].values()))
+        self.assertIn("sol", {row["stage"] for row in attempts})
+        self.assertIn("astra_review", {row["stage"] for row in attempts})
 
     def test_the_pause_on_a_passing_reproduction_names_feedback_and_feedback_revises_the_plan(self):
         # The scripted reproduction names test_first_page, which the seed already passes (#1869).

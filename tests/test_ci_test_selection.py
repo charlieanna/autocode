@@ -8,6 +8,13 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_python_collection_keeps_the_public_acceptance_consumer_even_when_slow(self):
+        consumer = "tests.test_acceptance_tests"
+        for path in ("tools/autocode_python_tests.py", "tools/autocode_verify.py"):
+            selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+            kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+            self.assertEqual([consumer], list(kept))
+
     def test_resolver_fixture_keeps_its_cli_consumer_even_when_slow(self):
         consumer = "tests.test_resolver_recommendation_cli"
         selected = run_suite.select_tests(
