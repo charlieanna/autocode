@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Projects with declared pytest-style test functions or classes use pytest for
+  automatic acceptance and regression checks even without a pytest config (#1960).
+  Explicit commands and unittest collection hooks keep their authority; scoped
+  checks retain pinned-base framework evidence instead of collecting zero tests.
+
 - Planning revisions can retain all unchanged acceptance criteria with one exact
   contract reference and return only changed/new rows and explicit removals (#1958).
   This avoids retranscribing every criterion hash and the resulting report repairs.

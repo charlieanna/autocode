@@ -1,0 +1,28 @@
+# Pytest functions sent to unittest (#1960)
+
+The public recovery views for `20261023-115658-chat-81fc3a` in `small-totals`
+and `20261023-122957-chat-85ba27` in `nobud-totals` show acceptance validation
+running `python -m unittest -v test_totals.py` and collecting zero tests. Their
+test files define module-level pytest functions. No pytest configuration or
+dependency declaration was present, so automatic detection chose unittest.
+The diagnostic added for #1567 explained the mismatch but did not prevent it.
+
+Detection now considers real AST test declarations in Git-visible test modules.
+Comments, strings and helper filenames do not select pytest. A unittest
+`load_tests` hook keeps its existing collector; ordinary TestCase-only projects
+remain unittest. Mixed ordinary TestCase and pytest functions can use pytest.
+Rooted detection also reads the pinned base's test style, through its existing
+bounded policy reader, so rewriting tests cannot silently downgrade collection.
+
+Explicit test commands remain explicit. If inferred pytest is unavailable, its
+execution fails honestly rather than falling back to a collector that skips the
+tests. This does not install dependencies or turn collection errors into proof.
+
+Focused deterministic coverage includes pure style selection, scoped/pinned
+inputs, real failing pytest acceptance execution, explicit unittest refusal of
+bare functions, and a public-CLI spec-first bug fix with no collection repair or
+extra discovery. The negative reproduction check refuses a test that already
+passes. Tester and Completion Reviewer remain separate.
+
+The feedback/replanning gap following an acceptance hold is tracked separately
+by #1961. These old saved runs are preserved and are not post-fix live evidence.
