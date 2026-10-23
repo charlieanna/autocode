@@ -449,6 +449,11 @@ def run(directory, identity, execute, *, reuse_allowed, reason, current_identity
                         "original_finished_at": saved["finished_at"],
                         "original_reason": saved.get("reason", "unknown"),
                         "original_duration_seconds": result.get("duration_seconds"),
+                        **(
+                            {"original_previous_attempt_id": saved["previous_attempt_id"]}
+                            if saved.get("previous_attempt_id")
+                            else {}
+                        ),
                     },
                 }
             reason = "execution_context_changed"
@@ -539,18 +544,21 @@ def run(directory, identity, execute, *, reuse_allowed, reason, current_identity
             "finished_at": util.now(),
             "result": result,
         }
+        if saved:
+            # This obligation already had a completed receipt: the run executed it again (#1910).
+            completed["previous_attempt_id"] = saved["attempt_id"]
         receipt_path, sha = _finish(pending, directory, out, pointer, completed)
-        return {
-            **result,
-            "scheduling": {
-                "action": "execute",
-                "reason": reason,
-                "receipt": str(receipt_path),
-                "receipt_sha256": sha,
-                "identity": util.digest(identity),
-                "attempt_id": attempt,
-                "started_at": started_at,
-                "finished_at": completed["finished_at"],
-                "original_duration_seconds": result.get("duration_seconds"),
-            },
+        scheduling = {
+            "action": "execute",
+            "reason": reason,
+            "receipt": str(receipt_path),
+            "receipt_sha256": sha,
+            "identity": util.digest(identity),
+            "attempt_id": attempt,
+            "started_at": started_at,
+            "finished_at": completed["finished_at"],
+            "original_duration_seconds": result.get("duration_seconds"),
         }
+        if saved:
+            scheduling["previous_attempt_id"] = saved["attempt_id"]
+        return {**result, "scheduling": scheduling}

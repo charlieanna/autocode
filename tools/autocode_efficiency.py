@@ -157,10 +157,16 @@ def observe_replay(state: RunState, replay, *, attempt_id):
             "timed_out": check.get("timed_out"),
             "original_reason": original_reason or "unknown",
         }
+        # An execution of an obligation that already had a completed receipt is a repeat; its
+        # reason says whether it supplied new proof (#1910). A reuse imports its original
+        # execution under the same event, so it carries the original's earlier attempt too.
+        previous = schedule.get("original_previous_attempt_id" if reused else "previous_attempt_id")
+        if previous:
+            provenance["previous_attempt_id"] = previous
         record_observation(
             state,
             event_id=key + ":execute",
-            kind="activity",
+            kind="repeat" if previous else "activity",
             category="functional_proof",
             reason=reason,
             provenance=provenance,

@@ -55,6 +55,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `efficiency.repeats` in the status view now counts a check the runner executed again although the same
+  obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
+  an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was
+  always 0. The scheduler's execute record names the earlier attempt as `previous_attempt_id` (#1910).
 - A run paused with a repeated failure whose report repair is spent no longer tells the person to authorize an
   inspected retry that its own gate then refuses. A resume now reconciles the repair first: an exhausted or
   unlaunchable one is archived before the unchanged-failure hold, so the retry that hold names is admissible on
