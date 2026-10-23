@@ -46,18 +46,62 @@ def _creation_lock(workspace):
         os.close(fd)
 
 
-def _creation_workspace(selected, text, saved):
+def _saved_workspace(selected, saved):
+    workspace = Path(saved.get("workspace", str(selected)))
+    if (
+        not workspace.is_absolute()
+        or workspace != workspace.resolve()
+        or (workspace != selected and workspace.parent != selected / "autocode-projects")
+    ):
+        raise ValueError("Saved conversation workspace is not the selected project or its bootstrap child")
+    return workspace
+
+
+def _refused_project(driver_class, selected, markers, task):
+    """A project an earlier refused start of this task bootstrapped and left untouched (#1957).
+
+    Bootstrapping is the only side effect that precedes the launch's own validation,
+    so a retry reuses that project instead of minting another one per attempt. A
+    project that gained a run, a commit or a change is the person's, not a leftover.
+    """
+    if not markers.is_dir():
+        return None
+    for marker in sorted(markers.glob("*.json")):
+        try:
+            record = policy.read_record(marker, markers)
+            if not record.get("refused") or record.get("task") != task:
+                continue
+            workspace = _saved_workspace(selected, record)
+        except (OSError, ValueError, AttributeError):
+            continue
+        if workspace == selected or not workspace.is_dir() or driver_class.runs_in(workspace):
+            continue
+        try:
+            if (
+                workspaces.git(workspace, "rev-list", "--count", "HEAD") == "1"
+                # AutoCode's own .autocode (the staged handoff) is not a change the person made.
+                and not workspaces.git(
+                    workspace, "status", "--porcelain", "--untracked-files=all", "--", ".", ":(exclude).autocode"
+                )
+                and Path(workspaces.git(workspace, "rev-parse", "--show-toplevel")).resolve() == workspace
+            ):
+                return workspace
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _creation_workspace(driver_class, selected, text, saved, markers):
     if saved is None:
         isolation.require_isolated(selected, Path(__file__))
-        workspace = selected if (selected / ".git").exists() else workspaces.bootstrap(selected, text)
+        workspace = (
+            selected
+            if (selected / ".git").exists()
+            else _refused_project(driver_class, selected, markers, protocol.digest(text))
+            or workspaces.bootstrap(selected, text)
+        )
     else:
-        workspace = Path(saved.get("workspace", str(selected)))
-        if (
-            not workspace.is_absolute()
-            or workspace != workspace.resolve()
-            or (workspace != selected and workspace.parent != selected / "autocode-projects")
-        ):
-            raise ValueError("Saved conversation workspace is not the selected project or its bootstrap child")
+        workspace = _saved_workspace(selected, saved)
         protocol._safe_file(selected, workspace)
         handoff = protocol.load_handoff(Path(saved["source"]), workspace=workspace)
         if handoff["conversation_id"] != saved["conversation_id"]:
@@ -114,7 +158,7 @@ def start(
         saved = policy.read_record(marker, marker.parent) if marker.exists() else None
         if saved is not None and saved["binding"] != binding:
             raise ValueError("Conversation start request ID was already used for different content or configuration")
-        workspace = _creation_workspace(selected, text, saved)
+        workspace = _creation_workspace(driver_class, selected, text, saved, marker.parent)
         if saved is not None:
             candidates = (
                 [Path(saved["run_dir"])]
@@ -126,7 +170,10 @@ def start(
                 current = run.status().get("conversation") or {}
                 if current.get("availability") == "available" and current.get("id") == saved["conversation_id"]:
                     return run
-            raise ValueError("Prior conversation creation is unresolved; inspect/attach it instead of replaying start")
+            if not saved.get("refused") or candidates:
+                raise ValueError("Prior conversation creation is unresolved; inspect/attach it instead of replaying start")
+            # The launch refused this request before it saved a run, so retrying it is a fresh launch.
+            return _launch(driver_class, workspace, selected, marker, saved, options, start_options, command, env, timeout, cwd)
         conversation_id = uuid.uuid4().hex
         handoff = protocol.handoff_from_document(
             {
@@ -152,6 +199,7 @@ def start(
         source = protocol.stage_handoff(workspace, handoff)
         saved = {
             "binding": binding,
+            "task": protocol.digest(text),
             "request_id": request_id,
             "conversation_id": conversation_id,
             "workspace": str(workspace),
@@ -159,6 +207,15 @@ def start(
             "prior_runs": [str(path) for path in driver_class.runs_in(workspace)],
         }
         protocol.write_private_json(marker, saved)
+        return _launch(driver_class, workspace, selected, marker, saved, options, start_options, command, env, timeout, cwd)
+
+
+def _launch(driver_class, workspace, selected, marker, saved, options, start_options, command, env, timeout, cwd):
+    source = Path(saved["source"])
+    handoff = protocol.load_handoff(source, workspace=workspace)
+    saved = {key: value for key, value in saved.items() if key != "refused"}
+    protocol.write_private_json(marker, saved)
+    try:
         run = driver_class.start(
             workspace,
             protocol.task_text(handoff),
@@ -177,8 +234,25 @@ def start(
             timeout=timeout,
             cwd=cwd,
         )
-        protocol.write_private_json(marker, {**saved, "run_dir": str(run.run_dir)})
-        return run
+    except Exception as error:
+        if (
+            getattr(error, "process", None) is not None
+            and getattr(error, "run_dir", None) is None
+            and not [path for path in driver_class.runs_in(workspace) if str(path) not in saved["prior_runs"]]
+        ):
+            # The CLI finished and refused before it saved a run (not a timeout that may
+            # still be launching): a retry may launch again, and a retry of the same task
+            # reuses this project instead of bootstrapping another one.
+            protocol.write_private_json(marker, {**saved, "refused": True})
+            if workspace != selected and error.args and isinstance(error.args[0], str):
+                error.args = (
+                    f"{error.args[0]}\nAutoCode created the project {workspace} for this conversation before the "
+                    "start was refused; starting the same task again reuses it.",
+                    *error.args[1:],
+                )
+        raise
+    protocol.write_private_json(marker, {**saved, "run_dir": str(run.run_dir)})
+    return run
 
 
 def read(run):
