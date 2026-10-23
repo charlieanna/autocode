@@ -4,7 +4,7 @@ The Codex/GLM-through-Kilo run `20261023-004044-chat-afb1d2` repeated planning
 repair because GLM mistyped hash references for unchanged criteria. Revision 02
 took 347.926 seconds and its repair 181.468 seconds; revision 03 took 484.689
 seconds and a rejected repair another 199.971 seconds. The archived reports
-contain altered digits and 63-character hashes. These are provider-active
+contain altered digits and a 65-character AC10 hash in revision 02. These are provider-active
 durations, not an estimate of guaranteed savings. Bundle manifest SHA256:
 `a375d49382cb3ff4834c52b4b078475638ed4011302645474367e2cc6c6bdf0a`.
 
