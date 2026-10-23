@@ -147,9 +147,12 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         self.env["FAILURE_ROUTING_DIAGNOSIS"] = "execution"
         self.drive("--resume-paused", "--retry-failed-stage", "--job-retry-token", token, codes=(2,))
         limited = self.status()
-        self.assertEqual("PAUSED_TIME_LIMIT", limited["status"])
-        self.assertNotEqual("retry_job", limited["view"]["needs"].get("kind"))
-        self.assertIn("--max-seconds", json.dumps(limited["view"]["next_command"]))
+        need = limited["view"]["needs"]
+        # The time limit holds the run, under AutoResolver's request for that limit, not the retry.
+        self.assertEqual("PAUSED_TIME_LIMIT", need.get("pause_origin"), need)
+        self.assertNotEqual("retry_job", need.get("kind"))
+        self.assertNotIn("job_retry_token", need)
+        self.assertIn("--max-seconds", json.dumps(need))
         self.assertEqual(1, len(self.trace("investigate_stuck")))
         self.assertEqual(self.approved_token, limited["contract_token"])
 
