@@ -196,6 +196,26 @@ def historical_author_report(stage: str, original: dict, latest: dict | None) ->
     )
 
 
+def prompt_parts(
+    state: RunState, pending: dict, original: dict, latest: dict, receipt_parts: tuple
+) -> tuple[str, dict]:
+    """Assemble bounded planning context while keeping receipt policy with its caller."""
+    stage = pending["original"]["stage"]
+    clarification, protected = repair_payloads(state, stage)
+    retention_instruction, references = criterion_retention(clarification, stage)
+    historical_instruction, historical_source = historical_author_report(
+        stage, original, latest if pending.get("latest_rejected") else None
+    )
+    receipt_instruction, receipt_handoff = receipt_parts
+    return receipt_instruction + retention_instruction + historical_instruction, {
+        **receipt_handoff,
+        **references,
+        "original_report": historical_source,
+        "protected_contract": protected,
+        **({"clarification_context": clarification} if stage == "astra_finalize" else {}),
+    }
+
+
 def instruction(stage: str) -> str:
     """Explain how a planning report repair must use the saved clarification sources."""
     if stage not in PLANNING_STAGES:

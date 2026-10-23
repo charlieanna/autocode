@@ -1232,14 +1232,9 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     )
     for source in (original_source, rejected_source):
         pending["pins"].setdefault(source["path"], source["sha256"])
-    clarification, protected_contract = report_repair_context.repair_payloads(state, original["stage"])
-    retention_instruction, retention_handoff = report_repair_context.criterion_retention(
-        clarification, original["stage"]
+    context_instruction, context_handoff = report_repair_context.prompt_parts(
+        state, pending, original_source, rejected_source, receipt_repair_context.prompt_parts(pending)
     )
-    historical_instruction, historical_source = report_repair_context.historical_author_report(
-        original["stage"], original_source, rejected_source if pending.get("latest_rejected") else None
-    )
-    receipt_instruction, receipt_handoff = receipt_repair_context.prompt_parts(pending)
     prompt = (
         prompts.get("fragments/autocode/execute-report-repair-15.md")
         + repair_report_instruction(pending)
@@ -1258,9 +1253,7 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
             else ""
         )
         + jobs.repair_rules(original["stage"])
-        + receipt_instruction
-        + retention_instruction
-        + historical_instruction
+        + context_instruction
         + "CURRENT HANDOFF DATA\n"
         + json.dumps(
             {
@@ -1272,10 +1265,8 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                     "error",
                     original.get("rejection_reason", "Legacy report validation failed without a recorded error"),
                 ),
-                **receipt_handoff,
-                **retention_handoff,
+                **context_handoff,
                 "rejected_report": rejected_source,
-                "original_report": historical_source,
                 "original": {
                     key: original[key]
                     for key in (
@@ -1305,11 +1296,9 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                 if original["stage"] == "requirements_gather"
                 else None,
                 **report_repair_context.requirements_sources(state, original["stage"]),
-                **({"clarification_context": clarification} if original["stage"] == "astra_finalize" else {}),
                 "investigation_context": stuck_repair_context.context(
                     state, original["stage"], run_dir / "state.json", workspace, (original_source, rejected_source)
                 ),
-                "protected_contract": protected_contract,
                 "requirement_trace_rows": planning.trace_rows(state, original["stage"]) or None,
                 **planning.repair_citation_context(state, original["stage"], workspace),
                 "report_identity": {
