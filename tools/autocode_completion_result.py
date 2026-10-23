@@ -46,6 +46,28 @@ def before_review(state: RunState, stage, workspace, run_dir):
         raise Paused("PAUSED_COMPLETION_GATE", "Git delivery required: " + str(error)) from error
 
 
+def check_source_verdict(decision):
+    """Refuse a completion the Completion Reviewer's own source verdict contradicts (#1909).
+
+    On a traced contract the reviewer records ``source_verdict`` beside its decision (#595), and
+    its prompt says a FAIL without a real gap only costs a repair. A COMPLETE decision whose
+    verdict is FAIL, or names an uncovered sentence, is therefore an invalid report: the bounded
+    report repair asks for one consistent answer. The runner's mechanical trace check stays the gate.
+    """
+    verdict = decision.get("source_verdict")
+    if not isinstance(verdict, dict):
+        return
+    uncovered = [str(sentence) for sentence in verdict.get("uncovered") or []]
+    if verdict.get("verdict") != "FAIL" and not uncovered:
+        return
+    named = "; ".join(f'"{sentence}"' for sentence in uncovered) or "none named"
+    raise ValueError(
+        f"source_verdict is {verdict.get('verdict')} with uncovered source sentences ({named}) but status is "
+        f"{decision.get('status')}: record PASS with no uncovered sentence if the delivery honors every source "
+        "sentence, or return REWORK with a next_task that covers them"
+    )
+
+
 def apply(
     state: RunState,
     current,
@@ -80,6 +102,7 @@ def apply(
     save path in place. Native publication still follows acceptance and precedes
     that path; simulated completion never acquires current proof or publication.
     """
+    check_source_verdict(decision)
     try:
         from . import autocode_replay_checks as recorded_checks
     except ImportError:

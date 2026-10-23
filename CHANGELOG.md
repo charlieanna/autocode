@@ -70,6 +70,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Completion Reviewer can no longer mark a task complete while its own source verdict says FAIL or names an
+  uncovered sentence of the original request. The verdict was required but never read, so the reviewer's own
+  finding was dropped. Such a report now goes back through the bounded report repair for one consistent answer:
+  a PASS verdict, or a REWORK that covers the sentences. A report for another contract or task still pauses as
+  before (#1909).
 - The documentation no longer says a quota stop never switches models: on a run that chose its models
   automatically, a quota, content-filter or output-limit stop moves the role to the next qualified model on
   its own and asks only when none remains, as it has since #1426. The `--adaptive-planning` help and CLI
