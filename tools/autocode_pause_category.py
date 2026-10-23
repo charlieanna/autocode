@@ -85,6 +85,7 @@ STATUS_GROUPS = MappingProxyType(
             {
                 "PAUSED_COMPLETION_REVIEW",
                 "PAUSED_CONTENT_FILTER",
+                "PAUSED_CONTEXT_WINDOW",
                 "PAUSED_DISCOVERY_WRITE",
                 "PAUSED_INVALID_OUTPUT",
                 "PAUSED_JOB_FAILURE",

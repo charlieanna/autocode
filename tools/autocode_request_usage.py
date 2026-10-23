@@ -288,6 +288,28 @@ def saved_metrics(state: RunState, key):
     return rows
 
 
+def stage_peaks(state: RunState):
+    """Each saved stage's largest single request, so a person can see how close stages run to the window (#1942)."""
+    peaks = []
+    for record in state.get("stages") if isinstance(state.get("stages"), list) else []:
+        if not isinstance(record, dict):
+            continue
+        metrics = record.get("metrics")
+        context = metrics.get("request_context") if isinstance(metrics, dict) else None
+        if not isinstance(context, dict):
+            continue
+        peak = context.get("peak_input_tokens")
+        peaks.append(
+            {
+                "stage": record.get("stage"),
+                "iteration": record.get("iteration"),
+                "peak_input_tokens": peak if type(peak) is int and peak >= 0 else None,
+                "complete": context.get("complete") is True,
+            }
+        )
+    return peaks
+
+
 def view(state: RunState):
     rows = saved_metrics(state, "request_context")
     known = [row for row in rows if row and type(row.get("peak_input_tokens")) is int and row["peak_input_tokens"] >= 0]
@@ -295,5 +317,7 @@ def view(state: RunState):
         "last_completed_stage": rows[-1] if rows else None,
         "peak_input_tokens": max(row["peak_input_tokens"] for row in known) if known else None,
         "unavailable_stages": sum(not row or not row.get("complete") for row in rows),
+        # Per stage, in run order: stage, iteration, that stage's peak request and whether it was fully measured.
+        "stages": stage_peaks(state),
         "scope": "Saved completed stages; active and unreported requests are unavailable",
     }

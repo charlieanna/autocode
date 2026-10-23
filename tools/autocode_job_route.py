@@ -52,6 +52,7 @@ _CAUSE = {
     "content_filter": quota_route.REFUSAL_STATUS,
     "quota": quota_route.QUOTA_STATUS,
     "output_limit": quota_route.OUTPUT_STATUS,
+    "context_window": quota_route.CONTEXT_STATUS,
 }
 
 
@@ -156,12 +157,12 @@ def _no_route(failure, state: RunState, classify=None) -> str:
     if cause is None:
         return (
             f"The stopped {job} takes no other model: only a job stopped on quota, a content-filter "
-            f"refusal, output limit, provider authentication or a stopped-job timeout does, and this stop saved no model question; inspect its saved reason and retry it "
+            f"refusal, output limit, context window, provider authentication or a stopped-job timeout does, and this stop saved no model question; inspect its saved reason and retry it "
             f"with {_RETRY}"
         )
     if cause not in quota_route.JOB_STATUSES:
         return (
-            f"The stopped {job} did not stop on quota, a content-filter refusal, output limit, provider authentication or a stopped-job timeout, so it takes no other "
+            f"The stopped {job} did not stop on quota, a content-filter refusal, output limit, context window, provider authentication or a stopped-job timeout, so it takes no other "
             f"model; inspect it and retry it with {_RETRY}"
         )
     stopped = (
@@ -169,6 +170,8 @@ def _no_route(failure, state: RunState, classify=None) -> str:
         if cause == quota_route.REFUSAL_STATUS
         else "exhausted its response output limit"
         if cause == quota_route.OUTPUT_STATUS
+        else "ran out of its model's context window"
+        if cause == quota_route.CONTEXT_STATUS
         else "failed provider authentication"
         if cause == quota_route.AUTH_STATUS
         else "exceeded its execution time limit"
@@ -186,6 +189,8 @@ def _no_route(failure, state: RunState, classify=None) -> str:
         if cause == quota_route.QUOTA_STATUS
         else "only its exact retry applies, on the same model, which may exhaust its output limit again: "
         if cause == quota_route.OUTPUT_STATUS
+        else "only its exact retry applies, on the same model, whose context window the same request may exceed again: "
+        if cause == quota_route.CONTEXT_STATUS
         else "after repairing provider authentication, retry it unchanged with "
         if cause == quota_route.AUTH_STATUS
         else "only its exact retry applies, on the same model, which may time out again: "
@@ -233,9 +238,14 @@ def answer(runner, args, state: RunState, run_dir, workspace):
         if failure.get("pause_status") in (
             quota_route.REFUSAL_STATUS,
             quota_route.OUTPUT_STATUS,
+            quota_route.CONTEXT_STATUS,
         ) and model == route.get("stopped_model"):
             if failure["pause_status"] == quota_route.REFUSAL_STATUS:
                 raise ValueError(f"The {asked['job']}'s provider refused {model}; name another model")
+            if failure["pause_status"] == quota_route.CONTEXT_STATUS:
+                raise ValueError(
+                    f"The {asked['job']}'s request did not fit {model}'s context window; name a model with a larger one"
+                )
             raise ValueError(f"The {asked['job']} exhausted its output limit on {model}; name another model")
         quota_route.validate(
             candidate,

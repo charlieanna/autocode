@@ -67,7 +67,8 @@ class KiloProgressTests(unittest.TestCase):
         for role in ("glm", "astra", "plan_reviewer", "terra", "sol", "completion"):
             with self.subTest(role=role):
                 argv, env, saved = self.launch(role, configuration=config)
-                expected = {**config, "plugin": ["file:///existing.mjs", ACTIVITY]}
+                # The launch adds its activity hook and turns Kilo's own compaction off (#1942); nothing else moves.
+                expected = {**config, "plugin": ["file:///existing.mjs", ACTIVITY], "compaction": {"auto": False}}
                 self.assertEqual(expected, json.loads(env["KILO_CONFIG_CONTENT"]))
                 self.assertEqual("retained", env["UNCHANGED_SENTINEL"])
                 self.assertEqual(
