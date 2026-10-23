@@ -70,6 +70,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A price table update no longer rewrites what earlier stages cost. A row in `tools/autocode_prices.json`
+  can keep the rates it replaced in `history`, each with the date it stopped applying, and every stage is priced at
+  the rate in force on the day it finished, so a resumed run's spend and money-cap decision stay as they were.
+  `cost.breakdown.price_bases` lists the rates used (#1867 S1a).
 - `efficiency.repeats` in the status view now counts a check the runner executed again although the same
   obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
   an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was
