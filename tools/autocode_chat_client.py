@@ -364,8 +364,8 @@ class ChatClient:
             self.poll()
             if self._status_serial == before and self._wait(0.05) == "pause":
                 self._pause_pending = True
-        if self._status_error:
-            raise actions.ClientGap(self._status_error)
+        if self._status_error or self._status_view is None:
+            raise actions.ClientGap(self._status_error or "status response has no view")
         return self._status_view
 
     def accept_status(self, view: dict) -> None:

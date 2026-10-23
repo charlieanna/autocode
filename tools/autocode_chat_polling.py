@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
+from typing import BinaryIO
 
 READ_TIMEOUT = 5.0
 MAX_READS = 2
@@ -24,7 +25,7 @@ MAX_OUTPUT = 2 * 1024 * 1024
 @dataclass
 class Read:
     child: subprocess.Popen
-    output: object
+    output: BinaryIO
     started: float
 
 

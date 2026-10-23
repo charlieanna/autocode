@@ -157,3 +157,16 @@ class AttachedInput(unittest.TestCase):
         with mock.patch.object(ui, "_draw") as draw:
             ui._tick()
         draw.assert_called_once()
+
+
+class UnavailableTab(unittest.TestCase):
+    def test_unavailable_status_is_written_in_the_visible_tab_bar(self):
+        ui = screen_ui()
+        ui._tabs = [
+            {"number": 1, "title": "Current", "state": "unavailable", "current": True},
+            {"number": 2, "title": "Other", "state": "done", "current": False},
+        ]
+        shown = []
+        ui._put = lambda row, col, text, attr=0: shown.append((row, text))
+        ui._header(ui._layout(30, 120))
+        self.assertIn(" 1 Current unavailable ", [text for row, text in shown if row == 1])

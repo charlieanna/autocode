@@ -144,8 +144,8 @@ def role_of(text: str) -> str:
     return "plain"
 
 
-TAB_MARKS = {"working": "●", "needs you": "!", "done": "✓"}
-ASCII_TAB_MARKS = {"working": "*", "needs you": "!", "done": "+"}
+TAB_MARKS = {"working": "●", "needs you": "!", "done": "✓", "unavailable": "unavailable"}
+ASCII_TAB_MARKS = {"working": "*", "needs you": "!", "done": "+", "unavailable": "unavailable"}
 CTRL_T = "\x14"
 # Ctrl-← and Ctrl-→ as terminfo names them (xterm-style terminals); other terminals use /tab.
 TAB_KEYS = {b"kLFT5": "previous", b"kRIT5": "next", b"kLFT3": "previous", b"kRIT3": "next"}
