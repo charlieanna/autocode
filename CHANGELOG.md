@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Fully stopped workflow-job timeouts can offer the existing token-bound model answer for that
+  failed role, preserving other roles, effort, limits, usage and history (#1907). A named model
+  launches nothing and rotates the exact retry token; an unchanged retry remains available.
+  Rejected configuration changes at a stopped job leave its saved settings unchanged.
+
 - Idle run boundaries without a retained stage or runner check now name the existing advance command even though they have no pause category,
   so terminal and editor clients can continue after Requirements approval (#1901). The Investigator
   receives its saved stage window and prioritizes a minimal reproduction before expanding source

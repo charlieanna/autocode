@@ -55,7 +55,8 @@ OUTPUT_STATUS = output_cap.STATUS
 STATUSES = (QUOTA_STATUS, REFUSAL_STATUS, OUTPUT_STATUS)
 AUTH_STATUS = "PAUSED_AUTH"
 # Authentication rerouting is limited to retained workflow jobs with exact tokens.
-JOB_STATUSES = STATUSES + (AUTH_STATUS,)
+TIMEOUT_STATUS = "PAUSED_PROVIDER_TIMEOUT"
+JOB_STATUSES = STATUSES + (AUTH_STATUS, TIMEOUT_STATUS)
 JOB_PREFLIGHT_PAUSES = (AUTH_STATUS, "PAUSED_BILLING_ROUTE")
 # The cross-model guard is the same kind of model question: a person names the
 # verifier's next model. It is not a provider stop, so it is kept out of STATUSES
@@ -68,6 +69,7 @@ _STOPPED = {
     REFUSAL_STATUS: "its provider's content filter refused",
     OUTPUT_STATUS: "exhausted its response output limit",
     AUTH_STATUS: "failed provider authentication",
+    TIMEOUT_STATUS: "exceeded its execution time limit",
 }
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
@@ -151,8 +153,10 @@ def _routable(state: RunState, record: dict) -> str | None:
 
 
 def job_stop_status(failure: dict) -> str | None:
-    """Include retained pre-auth-routing failures without mutating their evidence."""
-    return failure.get("pause_status") or (AUTH_STATUS if failure.get("kind") == "provider_auth" else None)
+    """Include retained pre-auth/timeout-routing failures without mutating their evidence."""
+    return failure.get("pause_status") or {"provider_auth": AUTH_STATUS, "timeout": TIMEOUT_STATUS}.get(
+        str(failure.get("kind") or "")
+    )
 
 
 def job_pause_current(state: RunState) -> bool:
@@ -219,13 +223,16 @@ def job_question(state: RunState) -> dict | None:
     if isinstance(failure.get("route"), dict):
         return failure["route"]
     row = _job_row(state)
-    role = "stuck_investigator"
+    bug_timeout = failure.get("stage") == "investigate_bug" and failure.get("kind") == "timeout"
+    role = "investigator" if bug_timeout else "stuck_investigator"
     config = failure.get("configuration")
     bound = (config.get("roles") or {}).get(role) if isinstance(config, dict) else None
     launched = (row or {}).get("launch_route") or {}
     if (
-        failure.get("stage") != "investigate_stuck"
+        (failure.get("stage") != "investigate_stuck" and not bug_timeout)
+        or (bug_timeout and (state.get("active_stage") is not None or state.get("active_runner_check") is not None))
         or not row
+        or (bug_timeout and row.get("timed_out") is not True)
         or row.get("worker_attempt")
         or not row.get("rejected")
         or _routable(state, row) != role
@@ -368,6 +375,18 @@ def question(
             ),
         )
         return asked
+    if attempt.get("pause_status") == TIMEOUT_STATUS:
+        asked.update(
+            cause="timeout",
+            question=f"{job} exceeded its execution time limit; name another model or retry unchanged",
+            why=(
+                f"The {job} did not finish on {stopped_on} within its saved time limit. "
+                "An unchanged retry can time out again. Explicitly name another model for this job only, "
+                "or keep the exact retry. AutoCode never changes routes, effort or limits on its own; "
+                "the archived attempt and recorded usage are retained."
+            ),
+        )
+        return asked
     if attempt.get("pause_status") == OUTPUT_STATUS:
         asked.update(
             cause="output_limit",
@@ -486,6 +505,8 @@ def advice(asked: dict, attempt_id: str | None, *, kind: str = "stage", answerab
                 "; or, once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage "
                 "--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
             )
+        if asked.get("cause") == "timeout":
+            text += "; or retry unchanged with --resume-paused --retry-failed-stage --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
         if asked.get("cause") == "authentication":
             text += (
                 "; or, after repairing provider authentication, retry it unchanged with --resume-paused "
@@ -601,7 +622,7 @@ def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
     """(question, model) from ``--answer route-<role>=MODEL`` at a model stop; ValueError otherwise."""
     if (origin or {}).get("pause_status") not in MODEL_STOPS:
         raise ValueError(
-            "Only a quota, content-filter, output-limit, failed-job authentication or cross-model stop is answered with a model; "
+            "Only a quota, content-filter, output-limit, failed-job authentication, stopped-job timeout or cross-model stop is answered with a model; "
             "use --resolver-response for this request"
         )
     if len(answers) != 1:
