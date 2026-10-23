@@ -24,5 +24,12 @@ bare functions, and a public-CLI spec-first bug fix with no collection repair or
 extra discovery. The negative reproduction check refuses a test that already
 passes. Tester and Completion Reviewer remain separate.
 
+The first selected CI run revealed a missing test dependency that the local
+qualification image already provided. The `test` extra now declares pytest;
+CI and the focused Linux image install it explicitly. A separate stale
+multi-component fake also needed to read the complete latest rejection rather
+than a historical inline delta. Its existing component-admission refusals pass
+without weakening those guards.
+
 The feedback/replanning gap following an acceptance hold is tracked separately
 by #1961. These old saved runs are preserved and are not post-fix live evidence.

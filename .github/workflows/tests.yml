@@ -150,7 +150,7 @@ jobs:
         # Evidence-bound reuse requires an isolated, source-bound editable install.
         run: |
           python3 -m venv .venv
-          .venv/bin/python -m pip install -e '.[visual]'
+          .venv/bin/python -m pip install -e '.[visual,test]'
 
       - name: Prepare pinned Java scenario dependencies
         if: needs.scope.outputs.scenarios == 'true'

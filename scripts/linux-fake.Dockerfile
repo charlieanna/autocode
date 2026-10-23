@@ -41,7 +41,7 @@ RUN case "$TARGETARCH" in \
     && rm -f "$node_archive" SHASUMS256.txt "$go_archive"
 
 RUN python3.11 -m venv /opt/autocode-venv \
-    && /opt/autocode-venv/bin/pip install --no-cache-dir psutil==7.1.0 \
+    && /opt/autocode-venv/bin/pip install --no-cache-dir psutil==7.1.0 pytest==9.1.1 \
     # Ubuntu 24.04 images ship their own "ubuntu" user and group as 1000; free the IDs first (#1878).
     && userdel --remove ubuntu \
     && groupadd --gid 1000 autocode \

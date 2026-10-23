@@ -499,12 +499,14 @@ class RunnerCollectionTests(unittest.TestCase):
                     workspace,
                     evidence / "acceptance-proof",
                     tests=files,
-                    command=f"{sys.executable} -m unittest -v tests/test_stats.py",
                 )
 
-            # An explicitly selected unittest command still skips a bare pytest function.
+            # An explicit unittest collection hook retains its collector despite bare functions.
             with test_file.open("a") as handle:
-                handle.write(f"\n\ndef {name}():\n    assert median([1, 2, 3, 4]) == 2.5\n")
+                handle.write(
+                    f"\n\ndef {name}():\n    assert median([1, 2, 3, 4]) == 2.5\n"
+                    "\ndef load_tests(loader, tests, pattern):\n    return tests\n"
+                )
             with self.assertRaises(ValueError) as rejected:
                 job.apply(state, dict(value), record, workspace, run_tests=run_tests, evidence_dir=evidence)
             message = str(rejected.exception)

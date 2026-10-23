@@ -491,7 +491,8 @@ def main() -> int:
         # A repair envelope is not a new task handoff. Preserve the original
         # report identity, failures and event references without rerunning work.
         # This fixture cannot manufacture evidence to fix a semantic rejection.
-        supplied = data.get("original_report") or data.get("rejected_report") or {}
+        # The latest rejected report is complete; an older original may be an inline delta.
+        supplied = data.get("rejected_report") or data.get("original_report") or {}
         if not isinstance(supplied.get("content"), dict):
             raise SystemExit("multicomponent_fake: report repair needs the supplied structured report")
         report = json.loads(json.dumps(supplied["content"]))
