@@ -92,7 +92,18 @@ def settings_refusal(args, state: RunState, selected) -> str | None:
             "Answer without other settings flags: --answer route-stuck_investigator=MODEL "
             "--job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN), then retry with the new token."
         )
-    if not _answering(args, state):
+    answering = _answering(args, state)
+    if (
+        quota_route.job_pause_current(state)
+        and not answering
+        and chosen != current
+        and chosen != failure.get("configuration")
+    ):
+        return (
+            "Provider configuration or limits at a stopped job are bound to its exact retry; nothing is saved. "
+            "Use the token-bound model answer to change only the failed role, or restore the captured configuration."
+        )
+    if not answering:
         return None
     if current == chosen:
         return None
