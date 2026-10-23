@@ -129,9 +129,9 @@ final selection and the live scope.
    metric beside `reported_usd`, so coding-plan routes get a cost per accepted task. An
    emitter for human waiting time. The price basis stored per stage ([accounting](accounting.md)).
    Fresh pinned inputs for `arena/campaign.json`.
-2. **A deterministic current-master row.** The fake catalog on the representative set
-   records stage and call counts per class with no spend. It cannot measure cost or
-   model time.
+2. **A deterministic current-master row.** Done 2026-10-23 on `518254b7e`: see
+   [qualification](qualification.md), "Current-master deterministic row". It records
+   stage sequences per class with no spend; it cannot measure cost or model time.
 3. **A matched live baseline.** The representative set on current master with one
    pinned profile, unchanged routes, at least the campaign's two repetitions, every
    failed attempt kept. Scope and spend are decided at the second owner checkpoint.

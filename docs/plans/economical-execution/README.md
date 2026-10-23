@@ -14,7 +14,7 @@ records its output; the owner's two checkpoint decisions define what is implemen
 | E | #1893 | [Cost accounting, estimates and spending policy](accounting.md) |
 | F | #1894 | [Model effort, escalation and routine recovery](routes-and-recovery.md) |
 | G | #1895 | [Shared contract, approval authority and saved-run compatibility](contract.md) |
-| H | #1896 | [Qualification, rollout and implementation slices](qualification.md) |
+| H | #1896 | [Qualification, rollout and implementation slices](qualification.md); [implementation issue drafts](implementation-issues.md) |
 
 ## What the audit found
 
@@ -82,6 +82,29 @@ From [accounting](accounting.md):
 
 8. Should a project cap become a company setting a person cannot change on resume?
 9. Which providers' quota reporting is worth integrating?
+
+## Proposal for the second checkpoint (G and H together)
+
+What #1895 and #1896 propose, for the owner to accept, change or reject in one decision.
+Each item depends on the first checkpoint's answers where it says so.
+
+1. **Start now, no policy needed:** S1a to S1d and S1f (visibility: price basis, billing
+   marker, estimated cost per accepted task, waiting time, schema protection) and the S7
+   catalog entries. None changes what runs or who approves.
+2. **Then, in shadow:** S2 (the decision record) and S3 (the sensitivity input), driven
+   by a project-file policy that no flag can loosen. They record what they would do on
+   real runs without doing it.
+3. **First shortcut:** S5, the combined validation-and-decision pass for a single
+   non-sensitive task, behind the project policy and turned off per run by
+   `--full-pipeline`. On the current-master fake row it saves one of six model stages
+   on a small feature; P1 would save three of seven on a clear bug but needs a new
+   contract path.
+4. **Authority:** no preauthorization; every path keeps the person's approval of the
+   displayed token. A new policy applies to new runs only. A prompt-set change on resume
+   is surfaced, not refused.
+5. **Qualification:** H1 to H10 pass deterministically before S8. S8 runs only under the
+   filled-in authorization in the drafts, and the shortcut becomes a default only if it
+   meets the success criteria in [qualification](qualification.md).
 
 ## Ownership settled by these records
 
