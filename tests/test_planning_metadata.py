@@ -138,6 +138,27 @@ class PlanningMetadataTests(unittest.TestCase):
         self.assertEqual(before, (state, report))
         goals.revision_guard(state, result["contract"], result["contract_changes"], "glm_revise")
 
+    def test_a_criteria_delta_keeps_existing_metadata_recovery_without_changing_its_rows(self):
+        import autocode_plan_retention as retention
+
+        state, report = self.inputs()
+        state["goal_contract"].update(revision=4, hash="current")
+        self.addition(report)
+        complete = copy.deepcopy(report["contract"])
+        report["contract"]["acceptance_criteria"] = {
+            "retain_from": retention.token(state),
+            "upsert": [complete["acceptance_criteria"][-1]],
+            "remove": [],
+        }
+        before = copy.deepcopy((state, report))
+        result = normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+        self.assertEqual([], result["contract_changes"])
+        self.assertEqual(report["contract"], result["contract"])
+        self.assertEqual(before, (state, report))
+        expanded = retention.expand(state, "glm_revise", result)
+        self.assertEqual(complete, expanded["contract"])
+        goals.revision_guard(state, expanded["contract"], expanded["contract_changes"], "glm_revise")
+
     def test_addition_receipts_cannot_hide_changes_to_existing_obligations(self):
         for kind in ("criterion", "proof", "permission", "behavior", "failure_case", "review"):
             state, report = self.inputs()

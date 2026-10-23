@@ -85,6 +85,83 @@ class PlanRetentionTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "criterion reference"):
                 retention.expand(state, "glm_revise", {"contract": {"acceptance_criteria": [bad]}})
 
+    def delta(self, state, *, upsert=(), remove=()):
+        return {"retain_from": retention.token(state), "upsert": list(upsert), "remove": list(remove)}
+
+    def test_revision_emits_only_changed_rows_and_retains_all_other_bytes(self):
+        state = self.state()
+        old = state["goal_contract"]["body"]["acceptance_criteria"]
+        old.extend({**copy.deepcopy(old[0]), "id": f"AC{n}"} for n in range(9, 30))
+        changed = {**old[1], "sources": [*old[1]["sources"], {"source_id": "answer:Q1", "quote": "Keep bytes."}]}
+        added = {**copy.deepcopy(old[0]), "id": "AC30"}
+        report = {"contract": {"acceptance_criteria": self.delta(state, upsert=[changed, added], remove=["AC10"])}}
+        before = copy.deepcopy((state, report))
+        expanded = retention.expand(state, "glm_revise", report)
+        expected = [old[0], changed, *old[3:], added]
+        self.assertEqual(expected, expanded["contract"]["acceptance_criteria"])
+        self.assertLess(len(json.dumps(report)), len(json.dumps(retention.inventory(state))))
+        self.assertEqual(before, (state, report))
+        expanded["contract"]["acceptance_criteria"][0]["criterion"] = "changed"
+        self.assertEqual(before, (state, report))
+
+    def test_unchanged_criteria_need_one_contract_identity_and_no_row_hashes(self):
+        state = self.state()
+        report = {"contract": {**state["goal_contract"]["body"], "acceptance_criteria": self.delta(state)}}
+        expanded = retention.expand(state, "astra_discovery", report)
+        self.assertEqual(state["goal_contract"]["body"], expanded["contract"])
+        revision.revision_guard(state, expanded["contract"], [], "astra_discovery")
+        self.assertNotIn("sha256", json.dumps(report))
+
+    def test_criteria_delta_rejects_stale_and_ambiguous_inputs(self):
+        state = self.state()
+        row = copy.deepcopy(state["goal_contract"]["body"]["acceptance_criteria"][0])
+        good = self.delta(state)
+        for bad in (
+            {**good, "retain_from": "r3:old"},
+            {**good, "upsert": [row, row]},
+            {**good, "upsert": [row], "remove": [row["id"]]},
+            {**good, "remove": [row["id"], row["id"]]},
+            {**good, "remove": ["AC999"]},
+            {**good, "upsert": [{"retain_criterion": "AC8", "sha256": "wrong"}]},
+            {**good, "upsert": [{"id": []}]},
+            {**good, "remove": [None]},
+            {**good, "upsert": {}},
+            {**good, "extra": True},
+            {k: v for k, v in good.items() if k != "remove"},
+        ):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "criteria delta"):
+                retention.expand(state, "glm_revise", {"contract": {"acceptance_criteria": bad}})
+        for stage in ("astra_finalize", "terra", "plan_revise"):
+            with self.subTest(stage=stage), self.assertRaisesRegex(ValueError, "criteria delta"):
+                retention.expand(state, stage, {"contract": {"acceptance_criteria": good}})
+        # The same IDs with a new contract revision cannot borrow the earlier binding.
+        state["goal_contract"]["revision"] += 1
+        with self.assertRaisesRegex(ValueError, "criteria delta"):
+            retention.expand(state, "glm_revise", {"contract": {"acceptance_criteria": good}})
+
+    def test_delta_still_requires_authority_for_weakened_proof_or_removal(self):
+        for action in ("weaken", "remove"):
+            state = self.state()
+            row = {**state["goal_contract"]["body"]["acceptance_criteria"][0], "verification_method": "echo PASS"}
+            change = self.delta(state, upsert=[row]) if action == "weaken" else self.delta(state, remove=["AC8"])
+            report = {"contract": {**state["goal_contract"]["body"], "acceptance_criteria": change}}
+            expanded = retention.expand(state, "glm_revise", report)
+            with self.subTest(action=action), self.assertRaises(ValueError):
+                revision.revision_guard(state, expanded["contract"], [], "glm_revise")
+
+    def test_author_schema_offers_delta_with_full_rows_but_keeps_legacy_array(self):
+        state = self.state()
+        source = copy.deepcopy(planner.SCHEMAS["glm_revise"])
+        criteria = source["properties"]["contract"]["properties"]["acceptance_criteria"]
+        for stage in ("astra_discovery", "glm_revise"):
+            schema = retention.model_schema(source, state, stage)
+            options = schema["properties"]["contract"]["properties"]["acceptance_criteria"]["anyOf"]
+            delta = options[1]
+            self.assertEqual(criteria["items"], delta["properties"]["upsert"]["items"])
+            self.assertEqual({"retain_from", "upsert", "remove"}, set(delta["required"]))
+            self.assertEqual("array", options[0]["type"])
+        self.assertEqual(planner.SCHEMAS["glm_revise"], source)
+
     def test_final_review_retains_exact_plan_and_validated_trace_without_approval(self):
         state = self.state()
         before = copy.deepcopy(state)

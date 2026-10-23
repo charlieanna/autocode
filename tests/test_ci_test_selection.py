@@ -122,11 +122,11 @@ class DynamicDependenciesTests(unittest.TestCase):
 
     def test_report_repair_context_keeps_its_public_cli_consumer_even_when_slow(self):
         consumer = "tests.test_stage_repair_cli"
-        selected = run_suite.select_tests(
-            ["tools/autocode_report_repair_context.py"], {consumer: "", "tests.test_unrelated": ""}
-        )
-        kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
-        self.assertEqual([consumer], list(kept))
+        for path in ("tools/autocode_report_repair_context.py", "tools/autocode_plan_retention.py"):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
 
     def test_typed_planning_allowance_keeps_its_public_consumer_even_when_slow(self):
         consumer = "tests.test_planning_allowance_cli"
