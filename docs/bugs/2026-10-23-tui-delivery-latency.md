@@ -77,6 +77,18 @@ or dependable end-to-end delivery.
    Those avoidable CI rounds were Codex engineering overhead, not provider-stage
    runtime. Final focused checks and exact-head required CI passed before merge.
 
+## Qualification correction after the TUI merge
+
+The first #1948 fix introduced a 2 MiB status-response rejection that the small
+fixtures missed. Opening this actual saved chat after merge exposed it: valid
+public status was 3,229,376 bytes (the view alone about 2,251,325 bytes), so the
+TUI exited before showing the paused chat. This was a Codex-introduced regression,
+not a provider failure. #1951 tracks its immediate fix forward: preserve complete
+valid JSON rather than increasing an arbitrary sample-sized cap, retain bounded
+read concurrency/deadlines, and show initial status loading honestly. A greater-
+than-2-MiB regression and the full actual public status exercise the corrected
+reader. The run remains paused with 37 attempts; no model work was resumed.
+
 ## What should happen next
 
 Finish and qualify the existing TUI controls first. Use the existing #1867

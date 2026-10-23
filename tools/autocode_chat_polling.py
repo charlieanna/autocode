@@ -19,7 +19,6 @@ from typing import BinaryIO
 
 READ_TIMEOUT = 5.0
 MAX_READS = 2
-MAX_OUTPUT = 2 * 1024 * 1024
 
 
 @dataclass
@@ -73,11 +72,9 @@ class StatusPoller:
                 continue
             read.child.wait()
             read.output.seek(0)
-            raw = read.output.read(MAX_OUTPUT + 1)
+            raw = read.output.read()
             read.output.close()
             error = f"status read exited {code}" if code else ""
-            if len(raw) > MAX_OUTPUT:
-                error = "status response exceeds 2 MiB"
             results.append((key, raw.decode("utf-8", errors="replace") if not error else "", error))
         keys = list(targets)
         if self.last in keys:

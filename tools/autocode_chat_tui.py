@@ -865,7 +865,12 @@ class ChatTUI:
                 self._composer.clear()  # a mistyped command; a sentence stays, to fix with //
             return None
         if not asking:
-            self._transcript.info("AutoCode is working", "Type / for commands. AutoCode asks here when it needs you.")
+            if self._view is None:
+                self._transcript.info("Reading run status", "Your text is kept; wait for the run's current view.")
+            else:
+                self._transcript.info(
+                    "AutoCode is working", "Type / for commands. AutoCode asks here when it needs you."
+                )
             return None
         if text.startswith("//"):
             self._composer.text, self._composer.cursor = text[1:], max(0, self._composer.cursor - 1)
@@ -1229,9 +1234,16 @@ class ChatTUI:
             return
         spinner = self._glyphs.spinner
         marker = spinner[self._frame % len(spinner)] if spinner else "*"
-        text = panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
+        reading = self._view is None
+        text = (
+            "Reading run status…"
+            if reading
+            else panel.doing(self._view) or self._transcript.activity or "AutoCode is working…"
+        )
         lead = f"  {marker} {text}"
         self._put(layout.status_start, 0, truncate(lead, layout.width), self._style("working"))
+        if reading:
+            return
         tail = "ctrl-c pause after this step"
         room = layout.width - display_width(lead) - 2
         if room >= display_width(tail):
@@ -1251,7 +1263,8 @@ class ChatTUI:
         inner = max(1, width - 6)
         self._put(layout.box_text, 2, glyphs.prompt, self._style("prompt" if active else "dim"))
         if not active and not self._composer.text:
-            self._put(layout.box_text, 4, truncate(WORKING_PLACEHOLDER, inner), self._style("placeholder"))
+            placeholder = "Reading run status… type / for commands" if self._view is None else WORKING_PLACEHOLDER
+            self._put(layout.box_text, 4, truncate(placeholder, inner), self._style("placeholder"))
             return
         if self._composer.text:
             shown, cursor = window(self._composer.text, self._composer.cursor, inner)
@@ -1275,6 +1288,8 @@ class ChatTUI:
             hints = "enter send · / commands · ↑↓ history · pgup/pgdn scroll · ctrl-d quit"
             if not self._glyphs.unicode:
                 hints = "enter send | / commands | up/down history | pgup/pgdn scroll | ctrl-d quit"
+        elif self._view is None:
+            hints = "/ commands · reading run status"
         else:
             hints = "/ commands · ctrl-c asks AutoCode to pause after this step"
         self._put(layout.hints_row, 2, truncate(hints, layout.width - 2), self._style("dim"))
@@ -1299,6 +1314,7 @@ class ChatTUI:
     def _animate(self) -> bool:
         return bool(
             not self._asking
+            and self._view is not None
             and (self._launched or (self._view or {}).get("liveness", {}).get("kind") in ("supervised", "unsupervised"))
         )
 

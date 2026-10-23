@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Terminal status polling preserves complete valid long-run histories instead of
+  rejecting responses above 2 MiB (#1951). Before the first view arrives, the
+  terminal shows that it is reading status rather than claiming a worker is running.
+
 - Discovery and revision report repairs receive the current exact criterion-reference
   inventory, so unchanged criteria can be retained without copying whole rows again (#1946).
   A superseded author draft keeps every value inline as exact changes from the complete
