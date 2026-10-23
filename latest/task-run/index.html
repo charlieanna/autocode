@@ -2094,7 +2094,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/d842f3dbfc6b7d41139eef5cdf18a71c1134880e/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/60e2894ea38a588c99c373ac13d38a1453b8731a/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2529,7 +2529,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/d842f3dbfc6b7d41139eef5cdf18a71c1134880e/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/60e2894ea38a588c99c373ac13d38a1453b8731a/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3047,7 +3047,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/d842f3dbfc6b7d41139eef5cdf18a71c1134880e/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/60e2894ea38a588c99c373ac13d38a1453b8731a/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -3491,7 +3491,7 @@ run is waiting for:</p>
 <tr>
 <td><code>retry_job</code></td>
 <td>inspection of a stopped workflow job</td>
-<td><code>job_retry_token</code>, <code>archive</code>, <code>write_diagnosis</code>, <code>recovery_hint</code>; <code>route</code> after quota, a content-filter refusal or an authenticated output limit</td>
+<td><code>job_retry_token</code>, <code>archive</code>, <code>write_diagnosis</code>, <code>recovery_hint</code>; <code>route</code> after quota, a content-filter refusal, an authenticated output limit, authentication failure or a fully stopped execution timeout</td>
 <td>Exact retry after restoring original source; with <code>route</code>, name another model first</td>
 </tr>
 <tr>
@@ -3662,7 +3662,7 @@ saved source, route and limits. The CLI equivalent is
 <code>--resume-paused --retry-failed-stage --job-retry-token TOKEN</code>. A plain resume
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.</p>
-<p>A job stopped by its provider's content filter or on quota also carries
+<p>A job stopped by its provider's content filter, on quota, or by its stage time limit also carries
 <code>needs.route</code> (the shape of the <code>answer</code> need's <code>route</code>: <code>question_id</code>, <code>role</code>,
 <code>job</code>, <code>current_model</code>, <code>engine</code>, <code>cause</code>, <code>stopped_model</code>, and <code>candidates</code> for a
 refusal). The same model is likely to refuse again, so before retrying, a person
@@ -3680,9 +3680,9 @@ make the exact retry stale), unless it puts back the model the retry is bound to
 The answer carries no other setting: given with a limit or another role's model it
 is refused and nothing is saved, and the CLI refuses it next to
 <code>--resume-paused --retry-failed-stage</code> (the retry needs the new token). After a
-refusal or output-limit stop, until a different model is named, the need's <code>action</code> is that answer
+refusal, output-limit or timeout stop, until a different model is named, the need's <code>action</code> is that answer
 (<code>--answer route-ROLE=MODEL --job-retry-token TOKEN</code>) and the recovery card offers
-no <code>retry_job</code> action, since the exact retry would replay the stopped model; the
+no <code>retry_job</code> action for a refusal or output-limit stop, since the exact retry would replay the stopped model; the
 CLI still accepts the shown token. A quota stop keeps the retry in both, for once
 the quota resets. Once a model
 is named, <code>progress.needs_you</code> and the recovery card's <code>what_happened</code> ask only for
@@ -3908,6 +3908,16 @@ It does not offer an ordinary Resume that would discard the job's retry boundary
 An old token, consumed authorization, different next stage or active attempt cannot
 revive a previous failed job. No automatic provider substitution or credential copy
 is performed.</p>
+<h3 id="model-choice-after-a-stopped-job-timeout">Model choice after a stopped job timeout<a class="headerlink" href="#model-choice-after-a-stopped-job-timeout" title="Permanent link">&para;</a></h3>
+<p>A fully stopped workflow job that exceeded its stage limit can name another model through the
+same exact job-token answer. <code>needs.route.cause</code> is <code>timeout</code>; choosing a model changes only that
+job's model, rotates its retry token and launches nothing. It preserves other roles (including a
+bug Investigator's Plan Reviewer), effort, limits, usage and the archived attempt. A same-model
+exact retry is still accepted, but can time out again; no model or time-limit change is automatic.</p>
+<p>A saved bug-Investigator timeout without a route question can expose one only when the archived
+rejected, timed-out attempt matches its source capture, launch route, configuration and archive.
+An active/uncertain attempt or a mismatch cannot gain that model action. The answer then rechecks
+source and configuration before it is saved, and the explicit retry checks the newly bound token.</p>
 
 
 
