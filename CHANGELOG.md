@@ -11,6 +11,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Discovery and revision report repairs receive the current exact criterion-reference
+  inventory, so unchanged criteria can be retained without copying whole rows again (#1946).
+  A superseded author draft stays available by its pinned artifact reference alongside
+  the complete latest draft, avoiding repeated full plans in bounded repair prompts.
+  Stale-reference checks and final-review approval requirements stay enforced.
+
 - Kilo launches verify explicitly selected reasoning variants against the selected
   model's native catalog before inference (#1940). Unsupported saved variants now
   require an explicit correction instead of silently using the provider default.

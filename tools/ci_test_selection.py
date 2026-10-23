@@ -143,7 +143,11 @@ CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         ("tests.test_brief_cli",),
     ),
     (
-        ("tools/autocode_planning_report_policy.py", "tools/units/autoplanner.py"),
+        (
+            "tools/autocode_planning_report_policy.py",
+            "tools/autocode_report_repair_context.py",
+            "tools/units/autoplanner.py",
+        ),
         ("tests.test_stage_repair_cli",),
     ),
     (

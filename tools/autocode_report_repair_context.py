@@ -140,6 +140,34 @@ def repair_payloads(state: RunState, stage: str) -> tuple[dict, dict | None]:
     return clarification, protected_contract
 
 
+def criterion_retention(clarification: dict, stage: str) -> tuple[str, dict]:
+    """Author repairs need exact current references, without repeating earlier plan reports."""
+    if stage not in retention.AUTHORS - retention.FINAL or not clarification.get("retained_contract"):
+        return "", {}
+    return retention.RULE, {"retained_criteria": copy.deepcopy(clarification["retained_criteria"])}
+
+
+def historical_author_report(stage: str, original: dict, latest: dict | None) -> tuple[str, dict | None]:
+    """Keep superseded author JSON available by its pin, alongside the complete latest draft."""
+    if latest is None:
+        return "", None
+    if (
+        stage not in retention.AUTHORS - retention.FINAL
+        or any(source.get("format") != "json" or source.get("truncated") for source in (original, latest))
+        or any(not isinstance(source.get("content"), dict) for source in (original, latest))
+    ):
+        return "", original
+    reference = {key: copy.deepcopy(value) for key, value in original.items() if key != "content"}
+    reference["reference_only"] = True
+    return (
+        "HISTORICAL PLANNING DRAFT. original_report is a reference to the superseded draft at its hash-pinned path; "
+        "the complete latest rejected_report and protected_contract are supplied below. Repair that latest draft. "
+        "The historical artifact remains available if a specific unresolved detail requires it; "
+        "do not reauthor the plan from the superseded draft.\n",
+        reference,
+    )
+
+
 def instruction(stage: str) -> str:
     """Explain how a planning report repair must use the saved clarification sources."""
     if stage not in PLANNING_STAGES:

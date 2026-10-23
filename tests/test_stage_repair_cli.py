@@ -301,6 +301,30 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual([False, True], [row["repair"] for row in attempts], trace)
         self.assertIn("was not changed", attempts[1]["error"])
 
+    def test_revision_repairs_a_stale_reference_using_the_current_inventory(self):
+        fixture = self.fixture_for("retained-criteria")
+        _, state, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
+        self.assertEqual(1, len(repairs), trace)
+        self.assertIn("Retained criterion reference is stale", repairs[0]["error"])
+        self.assertTrue(repairs[0]["used_current_retained_criteria"])
+        self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
+        self.assertFalse((fixture.project / "greet.py").exists())
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
+    def test_large_revision_repair_keeps_the_latest_draft_without_repeating_its_predecessor(self):
+        fixture = self.fixture_for("retained-criteria-large")
+        _, state, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        repairs = [row for row in trace if row["stage"] == "glm_revise" and row["repair"]]
+        self.assertEqual(2, len(repairs), trace)
+        self.assertTrue(all(row["used_current_retained_criteria"] for row in repairs))
+        self.assertIn("repair_fault", repairs[1]["error"])
+        self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
+        self.assertFalse((fixture.project / "greet.py").exists())
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+
     def test_concern_only_review_reaches_approval_without_contract_field_repairs(self):
         from autocode_taskrun import TaskRun
 

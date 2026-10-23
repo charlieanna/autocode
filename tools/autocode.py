@@ -1233,6 +1233,12 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
     for source in (original_source, rejected_source):
         pending["pins"].setdefault(source["path"], source["sha256"])
     clarification, protected_contract = report_repair_context.repair_payloads(state, original["stage"])
+    retention_instruction, retention_handoff = report_repair_context.criterion_retention(
+        clarification, original["stage"]
+    )
+    historical_instruction, historical_source = report_repair_context.historical_author_report(
+        original["stage"], original_source, rejected_source if pending.get("latest_rejected") else None
+    )
     receipt_instruction, receipt_handoff = receipt_repair_context.prompt_parts(pending)
     prompt = (
         prompts.get("fragments/autocode/execute-report-repair-15.md")
@@ -1253,6 +1259,8 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
         )
         + jobs.repair_rules(original["stage"])
         + receipt_instruction
+        + retention_instruction
+        + historical_instruction
         + "CURRENT HANDOFF DATA\n"
         + json.dumps(
             {
@@ -1265,8 +1273,9 @@ def execute_report_repair(state: RunState, run_dir, workspace, *, native=None):
                     original.get("rejection_reason", "Legacy report validation failed without a recorded error"),
                 ),
                 **receipt_handoff,
+                **retention_handoff,
                 "rejected_report": rejected_source,
-                "original_report": original_source if pending.get("latest_rejected") else None,
+                "original_report": historical_source,
                 "original": {
                     key: original[key]
                     for key in (
