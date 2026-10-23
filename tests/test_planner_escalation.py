@@ -103,19 +103,27 @@ class PlanSentBackTwice(unittest.TestCase):
     prepare = test_planning.JointFlow.prepare
     new_run_engine_args = ()
 
-    def plan(self, *limit):
+    def plan(self, review_call_limit=None):
         self.prepare()
-        self.launch(["Build a greeting tool", "--no-chat", *limit], 2)
+        if review_call_limit is not None:
+            # A new run's allowance from the user's config.toml (#1565); the fixture's XDG_CONFIG_HOME.
+            config = self.root / "config" / "autocode" / "config.toml"
+            config.parent.mkdir(parents=True, exist_ok=True)
+            config.write_text(f"plan_review_call_limit = {review_call_limit}\n")
+        self.launch(["Build a greeting tool", "--no-chat"], 2)
         run, _ = self.saved()
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
         return self.saved()
 
     def planning_stages(self, state):
-        return [(row["stage"], row.get("model")) for row in state["stages"] if row["stage"] != "requirements_gather"]
+        """The planning stages after the draft that answered the Requirements question, with their launch models."""
+        rows = [row for row in state["stages"] if row["stage"] != "requirements_gather"]
+        drafts = [index for index, row in enumerate(rows) if row["stage"] == "astra_discovery"]
+        return [(row["stage"], (row.get("launch_route") or {}).get("model")) for row in rows[drafts[-1] :]]
 
     def test_the_second_blocked_challenge_moves_the_next_revision_to_opus(self):
-        run, state = self.plan("--planning-review-call-limit", "3")
+        run, state = self.plan(3)
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         stages = [stage for stage, _model in self.planning_stages(state)]
         self.assertEqual(
