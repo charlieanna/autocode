@@ -130,6 +130,11 @@ jobs:
         # AC15 runs a real browser from the Python suite, before the Node gate.
         # Pin the version used for the local feature acceptance checks.
         run: |
+          # The Azure mirror can stall on the 61 MB CJK font archive before any tests run.
+          # Keep signed Ubuntu packages and use the official archive over HTTPS.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+          fi
           npm install --global agent-browser@0.25.3
           agent-browser install --with-deps
 
