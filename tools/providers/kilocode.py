@@ -6,6 +6,7 @@ Native support is not a configuration flag and cannot fall back to that path.
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -13,14 +14,20 @@ from . import command, kilocode_policy
 
 try:
     from .. import autocode_output_cap as output_cap
+    from .. import autocode_route_levels as route_levels
 except ImportError:
     import autocode_output_cap as output_cap
+    import autocode_route_levels as route_levels
 
 # The qualified Kilo release. On Linux, restricted stages already refuse another
 # version (autocode_tool_containment's kernel shell); this is the same pin at the
 # point a launch would otherwise reach the model, so a wrong install stops before
 # any spend. macOS checkers use Kilo's own shell instead (#1766), so it has no pin.
 RELEASE_VERSION = "7.8.3"
+
+
+class KiloEffortError(RuntimeError):
+    """The selected native reasoning variant is unsupported or cannot be verified."""
 
 
 def check_version(version, platform=None):
@@ -78,6 +85,7 @@ class KiloProvider(command.CommandProvider):
                 sandbox=sandbox,
                 env=env,
             )
+            self.validate_effort(model, effort, workspace, env=child)
             output_cap.apply(child, output_cap.KILO_VARIABLE)
             # Kilo's JSON CLI withholds text/reasoning until a block completes.
             # Forward real native deltas through the same bounded activity hook
@@ -109,7 +117,7 @@ class KiloProvider(command.CommandProvider):
             import autocode_native_role_isolation as native
         if type(isolation) is not native.KiloRoleIsolation:
             raise ValueError("Kilo native launch requires its exact original Kilo owner")
-        return isolation.launch(
+        result = isolation.launch(
             self,
             role,
             workspace,
@@ -127,6 +135,36 @@ class KiloProvider(command.CommandProvider):
             containment=containment,
             image_preparation=image_preparation,
         )
+        self.validate_effort(model, effort, workspace, env=result[1])
+        return result
+
+    def validate_effort(self, model, effort, workspace=None, *, env=None):
+        """Validate the exact native variant; an unknown name otherwise silently becomes the model default."""
+        if not effort:
+            return
+        try:
+            result = command.env_prep.preflight_run(
+                [self._config["command"][0], "models", model.split("/", 1)[0], "--verbose"],
+                self._preflight_environment(env),
+                cwd=workspace,
+                require_executable=env is not None,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise KiloEffortError(
+                f"Cannot verify Kilo reasoning variants for {model}; no model request was launched"
+            ) from error
+        levels = route_levels.parse(result.stdout) if result.returncode == 0 else {}
+        if model not in levels:
+            raise KiloEffortError(f"Cannot verify Kilo reasoning variants for {model}; no model request was launched")
+        if effort not in levels[model]:
+            supported = ", ".join(levels[model]) or "none (omit the explicit effort)"
+            raise KiloEffortError(
+                f"Kilo model {model} does not support reasoning variant {effort!r}; supported variants: {supported}. "
+                "Choose a supported variant explicitly; no model request was launched"
+            )
 
     def local_settings(self, workspace=None, *, env=None):
         settings = super().local_settings(workspace, env=env)

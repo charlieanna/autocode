@@ -50,6 +50,7 @@ await delta('text',' would you like?","constraints":["private constraint"]}');
             inherited = {"KILO_CONFIG_CONTENT": json.dumps({"plugin": ["file:///existing.mjs"], "model": "retained"})}
             with (
                 patch.object(provider, "_preflight_environment", return_value=inherited.copy()),
+                patch.object(provider, "validate_effort"),
                 patch.object(
                     kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *a, **kw: (argv, child)
                 ),
@@ -64,6 +65,7 @@ await delta('text',' would you like?","constraints":["private constraint"]}');
             self.assertTrue(config["plugin"][2].endswith("requirements_stream.mjs"))
             with (
                 patch.object(provider, "_preflight_environment", return_value=inherited.copy()),
+                patch.object(provider, "validate_effort"),
                 patch.object(
                     kilocode.kilocode_policy, "restrict", side_effect=lambda argv, child, *a, **kw: (argv, child)
                 ),

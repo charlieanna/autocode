@@ -916,6 +916,16 @@ For these routes the check also refuses a set
 routes, every selected model must match a declared prefix; add an
 `[[auth.routes]]` entry for another vendor before using it.
 
+Before a Kilo launch, AutoCode checks an explicit reasoning effort against that
+model's native `kilo models PROVIDER --verbose` variants. An unsupported or
+unverifiable effort stops before inference; it is never silently remapped.
+For example, GLM-5.3 declares `low`, `high` and `max`, not `medium`; an unrecognized
+variant can otherwise be ignored by Kilo and use the provider's default.
+The new bundled Kilo GLM default is High. Existing runs and operator-owned configs
+retain their selections and must explicitly correct an unsupported one using the
+corresponding `--ROLE-reasoning-effort` flag. A deliberately unspecified effort
+still uses the model's default.
+
 The bundled command uses Kilo's `--auto` for noninteractive stages: ordinary
 permission requests are approved once; effective explicit `deny` rules in
 Kilo's configuration and selected agent still block the tool. AutoCode does

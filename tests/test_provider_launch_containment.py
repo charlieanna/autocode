@@ -19,6 +19,17 @@ import tests  # noqa: F401 - runtime import path
 
 
 class LaunchContainment(unittest.TestCase):
+    def test_unsupported_kilo_variant_is_a_transport_refusal_not_a_sandbox_failure(self):
+        from providers.kilocode import KiloEffortError
+
+        self.adapter.launch.side_effect = KiloEffortError("Unsupported medium; supported: high, low, max")
+        for writing in (False, True):
+            with self.subTest(writing=writing), self.assertRaises(util.Paused) as raised:
+                launch.prepare(**{**self.options, "allow_write": writing})
+            self.assertEqual("PAUSED_TRANSPORT_UNVERIFIED", raised.exception.status)
+            self.assertNotIn("sandbox", str(raised.exception))
+            self.assertNotIn("Restore qualified", str(raised.exception))
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

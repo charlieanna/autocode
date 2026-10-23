@@ -106,9 +106,9 @@ def prepare(
         )
     native_launch = enforce_tool_boundary
     try:
-        from .providers.kilocode import KiloProvider
+        from .providers.kilocode import KiloEffortError, KiloProvider
     except ImportError:
-        from providers.kilocode import KiloProvider
+        from providers.kilocode import KiloEffortError, KiloProvider
     kilo_owner = type(native_role_isolation) is native_isolation.KiloRoleIsolation and type(adapter) is KiloProvider
     # A planning stage gets the same shell as a read-only checker (owner decision 2026-10-21): Planners compute the
     # exact literals the example rule asks for instead of working them out by hand. Report recovery keeps no tools.
@@ -239,6 +239,8 @@ def prepare(
                 **launch_kwargs,
                 **({"isolation": native_role_isolation} if native_role_isolation is not None else {}),
             )
+        except KiloEffortError as error:
+            raise util.Paused("PAUSED_TRANSPORT_UNVERIFIED", str(error)) from error
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
                 if type(adapter) is KiloProvider and (planning or not allow_write):

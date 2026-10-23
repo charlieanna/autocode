@@ -158,7 +158,13 @@ class NativeKiloPolicyTests(unittest.TestCase):
                     "npm": "@ai-sdk/openai-compatible",
                     "name": "Offline fixture",
                     "options": {"baseURL": "http://127.0.0.1:9/v1", "apiKey": "unused-offline-fixture"},
-                    "models": {"check": {"name": "Offline", "limit": {"context": 32000, "output": 1024}}},
+                    "models": {
+                        "check": {
+                            "name": "Offline",
+                            "variants": {"medium": {}},
+                            "limit": {"context": 32000, "output": 1024},
+                        }
+                    },
                 }
             },
         }
