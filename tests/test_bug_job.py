@@ -1,5 +1,6 @@
 """The bug-fix workflow's Investigator: diagnose before fixing and retain questions."""
 
+import copy
 import json
 import os
 import shlex
@@ -17,6 +18,8 @@ import autocode_workflows as workflows
 import autopilot
 from autocode_taskrun import TaskRun, TaskRunError
 from units import autoresolver
+
+from .test_job_failure_recovery import PROVIDER, JobHarness
 
 
 def state_for(workspace="/nowhere", task="Occasionally we renew the same domain twice after a timeout. Fix it."):
@@ -88,6 +91,35 @@ def diagnosis(outcome="reproduced", **overrides):
     return value
 
 
+class InvestigationRetryWorkflowTests(JobHarness):
+    def test_exact_retry_provider_receives_prior_attempt_leads_at_real_admission(self):
+        capture = self.workspace / ".autocode/provider-packets.jsonl"
+        self.env["INVESTIGATION_PACKETS"] = str(capture)
+        provider = PROVIDER.replace(
+            "sys.stdin.read()",
+            "text=sys.stdin.read()\n"
+            "data=json.loads(text.split('CURRENT HANDOFF DATA\\n',1)[1])\n"
+            "with Path(os.environ['INVESTIGATION_PACKETS']).open('a') as f:f.write(json.dumps(data)+'\\n')",
+        )
+        (self.workspace / ".autocode/bin/codex").write_text(provider)
+        run = self.start(workflow="bugfix")
+        held = run.status()
+        self.assertEqual("investigate_bug", held["needs"]["stage"])
+        first = json.loads(capture.read_text().splitlines()[-1])
+        self.assertNotIn("prior_failed_attempt", first)
+        after = run.retry_job(held["needs"]["job_retry_token"])
+        retried = json.loads(capture.read_text().splitlines()[-1])
+        prior = retried["prior_failed_attempt"]
+        self.assertEqual(held["needs"]["attempt_id"], prior["attempt_id"])
+        self.assertEqual(held["needs"]["source_identity"], prior["source_identity"])
+        self.assertEqual("unverified_leads_only", prior["evidence_status"])
+        self.assertTrue(Path(prior["previous_prompt"]).is_file())
+        self.assertTrue(Path(prior["previous_events"]).is_file())
+        self.assertNotEqual(first["investigation_workspace"], retried["investigation_workspace"])
+        self.assertEqual(held["needs"]["source_identity"], after["needs"]["source_identity"])
+        self.assertEqual(2, self.count())
+
+
 class RoutingTests(unittest.TestCase):
     def test_a_recognized_bug_goes_to_the_investigator_and_remembers_the_build_entry(self):
         state = state_for()
@@ -100,6 +132,59 @@ class RoutingTests(unittest.TestCase):
 
 
 class InvestigationPromptBoundaryTests(unittest.TestCase):
+    def retry_state(self):
+        state = state_for("/repo")
+        archive = "/repo/.autocode/runs/run/iterations/001/archived-bug-investigation-01-abc"
+        state["job_failure"] = {
+            "stage": "investigate_bug",
+            "attempt_id": "001/bug-investigation-01",
+            "job_retry_token": "jr:exact",
+            "source_identity": "original-source",
+            "archive": archive,
+        }
+        state["recovery_context"] = {
+            "kind": "job_failure",
+            "stage": "investigate_bug",
+            "attempt_id": "001/bug-investigation-01",
+            "events": archive + "/bug-investigation-01.jsonl",
+            "reason": "Stage timed out after its focused probe",
+        }
+        state["job_retry_authorization"] = {"stage": "investigate_bug", "token": "jr:exact", "consumed": False}
+        return state
+
+    def test_exact_retry_handoff_preserves_unverified_leads_without_accepting_them(self):
+        state = self.retry_state()
+        before = copy.deepcopy(state)
+        text, _ = bug_job.prompt(state, scratch_workspace="/repo/.autocode/investigation/new")
+        data = json.loads(text.split("CURRENT HANDOFF DATA\n", 1)[1])
+        prior = data["prior_failed_attempt"]
+        self.assertEqual("001/bug-investigation-01", prior["attempt_id"])
+        self.assertEqual("unverified_leads_only", prior["evidence_status"])
+        self.assertEqual(state["recovery_context"]["events"], prior["previous_events"])
+        self.assertEqual(prior["previous_events"].removesuffix(".jsonl") + ".prompt.md", prior["previous_prompt"])
+        self.assertEqual("/repo/.autocode/investigation/new", data["investigation_workspace"])
+        self.assertIsNone(data["prior_investigation"], "a timeout is not an accepted diagnosis")
+        self.assertIn("rerun the relevant focused probe", text)
+        self.assertEqual(before, state)
+
+    def test_retry_handoff_omits_unrelated_stale_or_unauthorized_attempts(self):
+        for section, key, value in (
+            ("job_failure", "stage", "review_change"),
+            ("recovery_context", "kind", "some_other_recovery"),
+            ("recovery_context", "stage", "sol"),
+            ("recovery_context", "attempt_id", "001/bug-investigation-02"),
+            ("recovery_context", "events", "/other/bug-investigation-01.jsonl"),
+            ("recovery_context", "events", self.retry_state()["job_failure"]["archive"] + "/other.jsonl"),
+            ("job_retry_authorization", "token", "jr:stale"),
+            ("job_retry_authorization", "consumed", True),
+            ("job_failure", "source_identity", ""),
+        ):
+            with self.subTest(section=section, key=key, value=value):
+                state = self.retry_state()
+                state[section][key] = value
+                self.assertNotIn("prior_failed_attempt", bug_job.packet(state))
+        self.assertNotIn("prior_failed_attempt", bug_job.packet(state_for()))
+
     def test_investigation_receives_saved_window_and_prioritizes_reproduction(self):
         state = state_for("/repo")
         state["settings"]["limits"] = {"stage_timeout_seconds": 600}
