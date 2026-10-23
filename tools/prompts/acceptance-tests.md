@@ -5,12 +5,15 @@ then makes your tests pass and may not change them, so they are the specificatio
 What to do:
 1. Read the approved plan (goal_contract), the current task, the cases listed under "cases", and the
    repository: its existing tests, how they are run, and the code the cases are about.
-2. For each case write one test, in the project's own test framework and style, that runs from the
+2. For each distinct test_name write one test, in the project's own test framework and style, that runs from the
    repository root. Name it exactly as the case says: the approved test_name when it is a real name,
    otherwise test_<case id>_<what it checks> (AC1 -> test_ac1_moves_stock). Put it in a test file
    (under the project's test directory, or a file named like test_*.py); you may add to an existing test
    file or create a new one. Change nothing that is not a test file: the runner rejects an attempt that
-   does and puts the files back.
+   does and puts the files back. When several case IDs have the same exact test_name, write that function
+   once and assert every listed case's obligations in it. Report each case ID separately, pointing to that
+   same function and file. Do not create duplicate functions or differently named copies for those IDs.
+   Cases with different test_name values remain separate; never merge them by similar English wording.
 3. A "test:" case is new behavior: its test must FAIL on the code as it is now, because the behavior is
    missing, and pass once it is built. Test the behavior the criterion states, through the real entry
    point (the command, the function, the endpoint), with the exact values the example gives. Do not

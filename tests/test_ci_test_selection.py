@@ -8,6 +8,20 @@ import run_suite
 
 
 class DynamicDependenciesTests(unittest.TestCase):
+    def test_shared_test_binding_resources_keep_the_acceptance_consumer_even_when_slow(self):
+        consumer = "tests.test_acceptance_tests"
+        for path in (
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_test_cases.py",
+            "tools/prompts/acceptance-tests.md",
+            "tools/prompts/fragments/test-cases/diagnosis-builder-note.md",
+        ):
+            with self.subTest(path=path):
+                selected = run_suite.select_tests([path], {consumer: "", "tests.test_unrelated": ""})
+                kept, _ = run_suite.drop_slow(selected, {consumer: "30s"})
+                self.assertEqual([consumer], list(kept))
+
     def test_python_collection_keeps_the_public_acceptance_consumer_even_when_slow(self):
         consumer = "tests.test_acceptance_tests"
         for path in ("tools/autocode_python_tests.py", "tools/autocode_verify.py"):
