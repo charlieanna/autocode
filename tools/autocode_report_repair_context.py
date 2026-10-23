@@ -145,7 +145,10 @@ def criterion_retention(clarification: dict, stage: str) -> tuple[str, dict]:
     """Author repairs need exact current references, without repeating earlier plan reports."""
     if stage not in retention.AUTHORS - retention.FINAL or not clarification.get("retained_contract"):
         return "", {}
-    return retention.RULE, {"retained_criteria": copy.deepcopy(clarification["retained_criteria"])}
+    return retention.RULE, {
+        "retained_criteria": copy.deepcopy(clarification["retained_criteria"]),
+        "retained_contract": clarification["retained_contract"],
+    }
 
 
 def _original_overlay(original, latest) -> dict:

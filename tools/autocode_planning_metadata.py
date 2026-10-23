@@ -15,8 +15,10 @@ if TYPE_CHECKING:
 import copy
 
 try:
+    from . import autocode_plan_retention as retention
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_plan_retention as retention
     import autocode_roles as roles
 
 PLANNING_STAGES = frozenset(roles.ALL_PLANNING_STAGES)
@@ -56,11 +58,15 @@ def _trace_identity(report, state: RunState):
     )
 
 
-def _addition_declarations(report, state: RunState):
+def _addition_declarations(report, state: RunState, stage):
     previous = (state.get("goal_contract") or {}).get("body")
     current, changes = report.get("contract"), report.get("contract_changes")
     if not isinstance(previous, dict) or not isinstance(current, dict) or not isinstance(changes, list):
         return
+    if isinstance(current.get("acceptance_criteria"), dict):
+        # Inspect the same exact expansion the controller will validate, while
+        # preserving the provider's compact report and its original evidence.
+        current = retention.expand(state, stage, report)["contract"]
     old, new = previous.get("acceptance_criteria"), current.get("acceptance_criteria")
     if not isinstance(old, list) or not isinstance(new, list):
         return
@@ -121,5 +127,5 @@ def normalize_planning_metadata(value, state: RunState | None, record):
         return value
     result = copy.deepcopy(value)
     _trace_identity(result, state)
-    _addition_declarations(result, state)
+    _addition_declarations(result, state, stage)
     return result

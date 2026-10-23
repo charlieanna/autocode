@@ -265,6 +265,29 @@ class ClarificationContextTests(unittest.TestCase):
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
 
+    def test_author_repair_offers_delta_only_when_its_pinned_schema_allows_it(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        before = copy.deepcopy(self.state)
+        for stage in ("astra_discovery", "glm_revise"):
+            for legacy in (False, True):
+                with self.subTest(stage=stage, legacy=legacy):
+                    self.state = copy.deepcopy(before)
+                    self.state["next_stage"] = stage
+                    schema = copy.deepcopy(runner.planning.SCHEMAS[stage])
+                    if not legacy:
+                        schema = retention.model_schema(schema, self.state, stage)
+                    path = self.run / f"{stage}-{legacy}.schema.json"
+                    path.write_text(json.dumps(schema))
+                    original_bytes = path.read_bytes()
+                    repair_fixtures.RepairTests.queue(self, stage=stage, role="glm", schema=str(path))
+                    request = repair_fixtures.RepairTests.repair_request(self)
+                    data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                    self.assertEqual(retention.token(self.state), data["retained_contract"])
+                    self.assertEqual(not legacy, retention.DELTA_RULE in request["prompt"])
+                    self.assertEqual(original_bytes, path.read_bytes())
+
     def test_criterion_author_repairs_receive_exact_current_retention_references(self):
         runner = repair_fixtures.runner
         approve_fixture(self.state, runner.goals)

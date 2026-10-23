@@ -28,6 +28,30 @@ from . import test_subprocess
 
 
 class PlanningTests(unittest.TestCase):
+    def test_author_handoff_binds_one_criteria_delta_to_the_current_contract(self):
+        state = self.state()
+        state["workspace"] = "/fixture"
+        state["settings"]["roles"] = {"glm": {}}
+        for stage in ("astra_discovery", "glm_revise"):
+            with self.subTest(stage=stage):
+                request = planning.prepare(state, stage, Path("/fixture/state.json"), None)
+                data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(planning.retention.token(state), data["retained_contract"])
+                self.assertIn(planning.retention.DELTA_RULE, request.prompt)
+                self.assertTrue(planning.retention.allows_delta(request.schema))
+                delta = {"retain_from": data["retained_contract"], "upsert": [], "remove": []}
+                criteria = request.schema["properties"]["contract"]["properties"]["acceptance_criteria"]
+                # The runtime validates the expanded canonical report; check
+                # the concrete generation branch here (the small runtime
+                # validator intentionally does not implement JSON anyOf).
+                support.validate_schema(delta, criteria["anyOf"][1])
+                with self.assertRaises(ValueError):
+                    support.validate_schema({**delta, "upsert": [{"id": "C1"}]}, criteria["anyOf"][1])
+        # Final review remains a verdict against the exact plan, not a delta author.
+        request = planning.prepare(state, "astra_finalize", Path("/fixture/state.json"), None)
+        self.assertFalse(planning.retention.allows_delta(request.schema))
+        self.assertNotIn(planning.retention.DELTA_RULE, request.prompt)
+
     def test_progressive_prompts_distinguish_the_product_milestone_from_slices(self):
         state = self.state()
         state["workspace"] = "/fixture"

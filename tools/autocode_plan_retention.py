@@ -32,6 +32,17 @@ When adding a new human source binding to an existing criterion, use a full row
 with its exact saved wording and proof; do not paraphrase the inherited behavior.
 A reference cannot add, remove or alter behavior, proofs, sources or permissions.
 """
+DELTA_RULE = """
+CRITERIA DELTA. Prefer contract.acceptance_criteria={"retain_from":retained_contract,
+"upsert":[],"remove":[]} instead of retranscribing every unchanged criterion or hash.
+Copy the one current retained_contract token exactly. In upsert put only full changed
+or new criterion rows, with their existing or new IDs; remove lists only IDs to remove.
+The runner preserves every other row exactly and in order, replaces existing rows
+in place, and appends new rows in upsert order. An empty delta retains every criterion.
+Do not repeat unchanged rows. Actual edits/removals still require the ordinary change
+receipts, source coverage and independent review; this syntax grants no authority.
+Other contract fields and concern responses are still required by the saved schema.
+"""
 FINAL_PROMPT = """You are the independent Plan Reviewer making the final planning decision.
 Settle EVERY concern by ID against the exact current plan and evidence-backed
 Planner responses. Check dependencies, safety, source coverage and the executable
@@ -82,6 +93,7 @@ def model_schema(schema, state: RunState, stage):
     result = copy.deepcopy(schema)
     body = result["properties"]["contract"]
     criteria = body["properties"]["acceptance_criteria"]
+    full_row = copy.deepcopy(criteria["items"])
     reference: dict = {
         "type": "object",
         "properties": {"retain_criterion": {"type": "string"}, "sha256": {"type": "string"}},
@@ -89,6 +101,22 @@ def model_schema(schema, state: RunState, stage):
         "additionalProperties": False,
     }
     criteria["items"] = {"anyOf": [reference, criteria["items"]]}
+    if stage not in FINAL:
+        body["properties"]["acceptance_criteria"] = {
+            "anyOf": [
+                criteria,
+                {
+                    "type": "object",
+                    "properties": {
+                        "retain_from": {"type": "string", "enum": [token(state)]},
+                        "upsert": {"type": "array", "items": full_row},
+                        "remove": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["retain_from", "upsert", "remove"],
+                    "additionalProperties": False,
+                },
+            ]
+        }
     if stage in FINAL:
         reference = {
             "type": "object",
@@ -105,6 +133,46 @@ def model_schema(schema, state: RunState, stage):
         reference["required"].append("open_blocking_questions")
         result["properties"]["contract"] = reference
     return result
+
+
+def allows_delta(schema):
+    """A repair must obey its pinned generation schema, including older array-only reports."""
+    criteria = schema.get("properties", {}).get("contract", {}).get("properties", {}).get("acceptance_criteria", {})
+    return any("retain_from" in branch.get("properties", {}) for branch in criteria.get("anyOf", []))
+
+
+def _expand_delta(state: RunState, stage, delta):
+    """Apply exact row operations to one hash-bound contract; never guess a copied identity."""
+    old = ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
+    upsert, remove = delta.get("upsert"), delta.get("remove")
+    if (
+        stage not in AUTHORS - FINAL
+        or set(delta) != {"retain_from", "upsert", "remove"}
+        or not token(state)
+        or delta["retain_from"] != token(state)
+        or not isinstance(upsert, list)
+        or not isinstance(remove, list)
+        or not isinstance(old, list)
+        or any(
+            not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"] for row in [*old, *upsert]
+        )
+        or any(not isinstance(cid, str) or not cid for cid in remove)
+    ):
+        raise ValueError("Retained criteria delta is stale, malformed or not a criterion-author report")
+    ids, changed = [row["id"] for row in old], [row["id"] for row in upsert]
+    if (
+        len(set(ids)) != len(ids)
+        or len(set(changed)) != len(changed)
+        or len(set(remove)) != len(remove)
+        or not set(remove) <= set(ids)
+        or set(remove) & set(changed)
+    ):
+        raise ValueError("Retained criteria delta has duplicate, unknown or conflicting IDs")
+    replacements = {row["id"]: row for row in upsert}
+    return copy.deepcopy(
+        [replacements.get(row["id"], row) for row in old if row["id"] not in remove]
+        + [row for row in upsert if row["id"] not in ids]
+    )
 
 
 def validated_trace(state: RunState):
@@ -175,6 +243,8 @@ def expand(state: RunState, stage, value):
     old = {
         row["id"]: row for row in ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
     }
+    if isinstance(body.get("acceptance_criteria"), dict):
+        body["acceptance_criteria"] = _expand_delta(state, stage, body["acceptance_criteria"])
     for index, row in enumerate(body.get("acceptance_criteria") or []):
         if not isinstance(row, dict) or "retain_criterion" not in row:
             continue

@@ -170,6 +170,11 @@ def main():
     event_rows = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
     case = os.environ["STAGE_REPAIR_CASE"]
     row = {"stage": stage, "repair": repair, "error": data.get("error", ""), "output": str(output)}
+    if stage == "astra_discovery" and case == "criteria-delta-weakened-proof":
+        # Mark the draft proof as runner-enforced. A free-form unapproved
+        # proposal may legitimately change, so it is not a protected-proof
+        # negative control (autocode_contract_revision.draft_proof_corrections).
+        value["contract"]["acceptance_criteria"][0]["verification_method"] = "test: test_c1_greeting"
     if stage == "astra_challenge" and case == "review-policy":
         # Follow the actual active writer commands, rather than returning PASS
         # regardless of the instructions. Contextual audit rules are data.
@@ -229,6 +234,34 @@ def main():
                 }
             ]
         row["spurious_rewording"] = True
+    elif stage == "glm_revise" and case.startswith("criteria-delta"):
+        if repair:
+            value = copy.deepcopy(data["rejected_report"]["content"])
+            value["summary"] = "Added whitespace case without retranscribing retained criteria"
+        else:
+            contract = data["goal_contract"]
+            value["contract"]["acceptance_criteria"] = {
+                "retain_from": f"r{contract['revision']}:{contract['hash']}",
+                "upsert": [],
+                "remove": [],
+            }
+            if case == "criteria-delta-repair":
+                value.pop("summary")  # one unrelated formatting fault
+        delta = value["contract"]["acceptance_criteria"]
+        row["delta_offered"] = "CRITERIA DELTA." in prompt
+        row["current_contract_offered"] = data.get("retained_contract") == delta["retain_from"]
+        if case == "criteria-delta-stale":
+            delta["retain_from"] = "r0:stale"
+        elif case == "criteria-delta-invalid-row":
+            delta["upsert"] = [{"id": "C1"}]
+        elif case == "criteria-delta-weakened-proof":
+            if repair:
+                original = data["protected_contract"]["acceptance_criteria"][0]
+            else:
+                original = data["goal_contract"]["body"]["acceptance_criteria"][0]
+            delta["upsert"] = [{**copy.deepcopy(original), "verification_method": "echo PASS"}]
+            value["contract_changes"] = []
+        row["criteria_delta"] = copy.deepcopy(delta)
     elif stage == "glm_revise" and case in ("retained-criteria", "retained-criteria-large"):
         if repair:
             references = {item["retain_criterion"]: item for item in data.get("retained_criteria", [])}
