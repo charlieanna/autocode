@@ -242,6 +242,26 @@ def _canonical_contract(body, proposal, criteria, limits, prior_disclosure=None)
     return canonical
 
 
+def _expand_retained(saved, reviewed):
+    """The saved final review may hold a retained-contract reference (#1858).
+
+    The runner expanded it from the contract it named when the review was
+    applied, so the retained text is the reviewed contract's own. What the
+    reviewer authored in the reference stays compared: its first task and any
+    blocking questions it raised.
+    """
+    if "retain_contract" not in saved:
+        return saved
+    expanded = copy.deepcopy(reviewed)
+    if "initial_task" in saved:
+        expanded["initial_task"] = copy.deepcopy(saved["initial_task"])
+    held = {row.get("id") for row in reviewed.get("open_blocking_questions") or [] if isinstance(row, dict)}
+    for row in saved.get("open_blocking_questions") or []:
+        if not isinstance(row, dict) or row.get("id") not in held:
+            expanded["open_blocking_questions"] = [*expanded.get("open_blocking_questions", []), row]
+    return expanded
+
+
 def clear_candidate(state: RunState):
     record = state.get(KEY)
     if record:
@@ -391,7 +411,11 @@ def prepare_seal(state: RunState, contract_token):
     if raw.get("progressive_proposal") != candidate["proposal"]:
         raise ValueError("saved final review differs from its accepted progressive proposal")
     raw_body = _canonical_contract(
-        raw.get("contract") or {}, candidate["proposal"], criteria, limits, candidate.get("prior_disclosure")
+        _expand_retained(raw.get("contract") or {}, final["report"]["contract"]),
+        candidate["proposal"],
+        criteria,
+        limits,
+        candidate.get("prior_disclosure"),
     )
     reviewed_body = _canonical_contract(
         final["report"]["contract"], candidate["proposal"], criteria, limits, candidate.get("prior_disclosure")

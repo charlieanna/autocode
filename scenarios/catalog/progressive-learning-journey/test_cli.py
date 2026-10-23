@@ -206,10 +206,20 @@ class ProgressiveCLI(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.scoped_permission(answer, restart=True)
 
+    @staticmethod
+    def published_contract(driver):
+        """The full first published contract. A final review that changes nothing saves only a
+        retained-contract reference (#1858), so the Planner's report holds the text."""
+        final = sorted(driver.run_dir.glob("iterations/*/plan-finalize-[0-9][0-9].json"))[0]
+        contract = json.loads(final.read_text())["contract"]
+        if "retain_contract" not in contract:
+            return contract
+        revised = sorted(driver.run_dir.glob("iterations/*/requirements-revise-[0-9][0-9].json"))[0]
+        return json.loads(revised.read_text())["contract"]
+
     def edited_body(self, driver, original, *, marker="valid", permission=False):
         # The model's published plan is user-editable input, not mutable run state.
-        report = sorted(driver.run_dir.glob("iterations/*/plan-finalize-[0-9][0-9].json"))[0]
-        body = json.loads(report.read_text())["contract"]
+        body = self.published_contract(driver)
         body.pop("initial_task", None)
         body["intended_outcome"] = "Retain durable lesson answers and expose a browsable lesson catalog"
         removes = body["required_behaviors"][1]
@@ -305,10 +315,8 @@ class ProgressiveCLI(unittest.TestCase):
             line = body["scope_exclusions"][0]
             shown = driver.call("show-goal", "--show-goal", action=True)
             self.assertIn(line, shown.stdout)
-            reviewed_path = sorted(driver.run_dir.glob("iterations/*/plan-finalize-[0-9][0-9].json"))[-1]
-            reviewed = json.loads(reviewed_path.read_text())["contract"]
-            self.assertIn(line, reviewed["scope_exclusions"])
-            self.assertIn(line, reviewed["constraints"])
+            # The declaration is shown twice: as the scope exclusion and as its constraint mirror.
+            self.assertGreaterEqual(shown.stdout.count(line), 2)
             with self.assertRaises(DriveError):
                 driver.call("stale-approval", "--approve-goal", original["contract_token"], action=True)
             self.assertFalse(driver.view()["progressive"]["retirements"])
