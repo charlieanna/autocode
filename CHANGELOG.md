@@ -11,6 +11,13 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- An authorized Builder classification retry on a run whose time, cost or iteration limit is
+  already spent, or whose provider transport changed, now pauses on that hold instead of
+  recording a failed classification and offering the same retry again (#1949). Raising the
+  limit, or `--accept-transport-change`, and resuming launches the same Investigator; no
+  classification is spent by the stop. A run saved before this fix
+  gets back the classifications those stops recorded, so its retry is offered again.
+
 - Planning revisions can retain all unchanged acceptance criteria with one exact
   contract reference and return only changed/new rows and explicit removals (#1958).
   This avoids retranscribing every criterion hash and the resulting report repairs.

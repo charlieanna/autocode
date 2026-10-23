@@ -127,6 +127,46 @@ class ClassificationRecoveryCLI(unittest.TestCase):
         self.assertEqual(0, oracle.returncode)
         self.assertEqual("hello\n", oracle.stdout)
 
+    def test_a_spent_time_limit_holds_the_retry_under_its_raise_instead_of_reoffering_it(self):
+        # #1949: with the active-time limit spent, the authorized retry stopped before the
+        # Investigator launched, was recorded as a failed classification, and the same retry was
+        # named again: a loop a client taking only the named action could not leave.
+        self.seed(planner_extra=["--max-seconds", "1000"])
+        self.env.update(BUILD_AUDIT_FAULT="no_change", FAILURE_ROUTING_DIAGNOSIS="stale")
+        self.drive(codes=(2,))
+        held = self.status()
+        self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", held["status"])
+        token = held["view"]["needs"]["job_retry_token"]
+        # The fake clock: record the run's active time past its 1,000 s budget at this pause.
+        path = self.run / "state.json"
+        saved = json.loads(path.read_text())
+        saved["active_seconds"] = 1001
+        path.write_text(json.dumps(saved, indent=2))
+
+        self.env.pop("BUILD_AUDIT_FAULT")
+        self.env["FAILURE_ROUTING_DIAGNOSIS"] = "execution"
+        self.drive("--resume-paused", "--retry-failed-stage", "--job-retry-token", token, codes=(2,))
+        limited = self.status()
+        need = limited["view"]["needs"]
+        # The time limit holds the run, under AutoResolver's request for that limit, not the retry.
+        self.assertEqual("PAUSED_TIME_LIMIT", need.get("pause_origin"), need)
+        self.assertNotEqual("retry_job", need.get("kind"))
+        self.assertNotIn("job_retry_token", need)
+        self.assertIn("--max-seconds", json.dumps(need))
+        self.assertEqual(1, len(self.trace("investigate_stuck")))
+        self.assertEqual(self.approved_token, limited["contract_token"])
+
+        self.drive("--resume-paused", "--max-seconds", "5000", codes=(0,))
+        completed = self.status()
+        self.assertEqual("TASK_COMPLETE", completed["status"], completed["view"]["needs"])
+        investigators = self.trace("investigate_stuck")
+        self.assertEqual(2, len(investigators))
+        self.assertEqual(
+            investigators[0]["handoff"]["builder_failure"]["failure_id"],
+            investigators[1]["handoff"]["builder_failure"]["failure_id"],
+        )
+        self.assertEqual(2, len(self.trace("terra")))
+
     def test_retry_preserves_the_existing_report_failure_limit(self):
         self.seed()
         self.env.update(BUILD_AUDIT_FAULT="no_change", FAILURE_ROUTING_DIAGNOSIS="stale")
@@ -619,6 +659,105 @@ class ClassificationOfferTests(unittest.TestCase):
                     recovery.admit(state, record, root)
                 self.assertEqual(before, state)
                 self.assertNotIn("classification_retry_token", record)
+
+    def drive_into(self, state, status):
+        """Drive the authorized retry into a boundary stop raised before any stage launches."""
+
+        def boundary(_state):
+            raise recovery.util.Paused(status, "Saved active-time limit reached at stage boundary")
+
+        dispatch = Mock()
+        with self.assertRaises(recovery.util.Paused) as stopped:
+            stuck.drive(
+                state,
+                dispatch,
+                before=boundary,
+                active=lambda value: value.get("status") == "RUNNING",
+                skip=object(),
+                paused=recovery.util.Paused,
+                investigate=True,
+            )
+        dispatch.assert_not_called()
+        return stopped.exception
+
+    def test_a_boundary_limit_before_launch_keeps_the_classification_queued(self):
+        # #1949: the saved active-time limit was spent, so each authorized retry stopped before
+        # the Investigator launched, was recorded as a failed classification and offered again.
+        for status in sorted(stuck.BOUNDARY_LIMITS):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as temporary:
+                state, _ = self.authorized(Path(temporary))
+                state["settings"]["roles"][stuck.ROUTE] = {"model": "derived"}
+                request = copy.deepcopy(state["stuck_investigation"])
+                history = copy.deepcopy(state["stuck_investigations"])
+                error = self.drive_into(state, status)
+                self.assertEqual(status, error.status)
+                self.assertNotIn("could not finish", str(error))
+                self.assertEqual(request, state["stuck_investigation"])
+                self.assertEqual(history, state["stuck_investigations"])
+                self.assertEqual("investigating", state["stuck_investigations"][-1]["outcome"])
+                self.assertNotIn("builder_failure_hold", state)
+                self.assertNotIn(stuck.ROUTE, state["settings"]["roles"])
+                self.assertEqual("investigate_stuck", state["next_stage"])
+                # The grant is still unspent: raising the bound and resuming launches it.
+                record = {"stage": "investigate_stuck"}
+                with patch.object(recovery.failure, "guard"):
+                    recovery.admit(state, record, Path(temporary))
+                self.assertEqual(request["classification_retry"]["token"], record["classification_retry_token"])
+
+    def test_raising_a_bound_or_accepting_a_transport_keeps_the_grant_but_other_settings_do_not(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state, _ = self.authorized(Path(temporary))
+            state["settings"]["limits"] = {"max_seconds": 5000, "max_cost_usd": 20, "iteration_ceiling": 9}
+            state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+            # --accept-transport-change records the provider identity the boundary check found.
+            state["settings"]["transport_identity"] = {"config_path": "/another/checkout/kilocode.toml"}
+            state["settings"]["transport_identities"] = {"opencode": state["settings"]["transport_identity"]}
+            raised = copy.deepcopy(state)
+            with patch.object(recovery.failure, "guard"):
+                recovery.admit(raised, {"stage": "investigate_stuck"}, Path(temporary))
+            self.assertTrue(raised["stuck_investigation"]["classification_retry"]["consumed"])
+            state["settings"]["limits"]["stage_timeout_seconds"] = 1
+            with patch.object(recovery.failure, "guard"), self.assertRaises(recovery.util.Paused):
+                recovery.admit(state, {"stage": "investigate_stuck"}, Path(temporary))
+
+    def test_any_other_stop_before_launch_still_restores_the_classification_hold(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state, _ = self.authorized(Path(temporary))
+            error = self.drive_into(state, "PAUSED_STALE_VALIDATION")
+            self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", error.status)
+            self.assertNotIn("stuck_investigation", state)
+            self.assertEqual("investigation_failed", state["stuck_investigations"][-1]["outcome"])
+
+    def test_older_boundary_stops_before_launch_do_not_spend_the_allowance(self):
+        # #1949: runs saved before the fix recorded each boundary stop as a failed classification
+        # until the allowance ran out, though no Investigator had started.
+        state = self.state()
+        limit = recovery.policy.classification_limit(state)
+        stopped = [
+            {
+                "identity": f"stopped-{i}",
+                "trigger": "builder_failure",
+                "milestone_key": recovery.policy.key(state),
+                "outcome": "investigation_failed",
+                "error": "Saved active-time limit reached at stage boundary",
+                "requested_at": f"2026-10-09T01:0{i}:00+00:00",
+                "finished_at": f"2026-10-09T01:0{i}:01+00:00",
+            }
+            for i in range(limit)
+        ]
+        state["stuck_investigations"][:0] = stopped
+        context = state["builder_failure_hold"]["classification_retry"]
+        context.update(history_index=limit, history_prefix=copy.deepcopy(stopped))
+        need = recovery.offer(state)
+        self.assertEqual("retry_job", need["kind"])
+        self.assertEqual({"used": 1, "limit": limit}, need["classification_attempts"])
+        # One that started an Investigator, or stopped for any other reason, still counts.
+        state["stages"].append({"stage": "investigate_stuck", "started_at": "2026-10-09T01:00:00.5+00:00"})
+        state["stuck_investigations"][1]["error"] = "Classification retry admission changed; no provider launched"
+        self.assertEqual(3, len(recovery.failure.classified(state)))
+        # A transport change found at the boundary before launch was not the Investigator's either.
+        state["stuck_investigations"][1]["error"] = "A joint-planning CLI/auth/provider configuration changed"
+        self.assertEqual(2, len(recovery.failure.classified(state)))
 
     def test_older_failed_hold_names_a_plan_correction_instead_of_plain_resume(self):
         state = self.state()

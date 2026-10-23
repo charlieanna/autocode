@@ -29,6 +29,7 @@ except ImportError:
 
 ACTION = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
 STAGE = "investigate_stuck"
+BOUNDARY_BOUNDS = ("max_seconds", "max_cost_usd", "iteration_ceiling")
 
 
 def _attempts(state: RunState, request):
@@ -91,6 +92,17 @@ def configuration(state: RunState):
     # prepare_stuck derives this temporary role from the bound source roles and
     # Investigator settings; abandon removes it. It is not a user route change.
     (settings.get("roles") or {}).pop("stuck_investigator", None)
+    # The run-wide bounds and the accepted transport identity are checked at every stage boundary,
+    # not by the grant: raising the bound or accepting the transport change that stopped a queued
+    # classification is what lets it launch (#1949). Its roles and every other setting still bind.
+    settings.pop("transport_identity", None)
+    settings.pop("transport_identities", None)
+    for key in ("limits", "budget_origins"):
+        kept = {name: value for name, value in (settings.get(key) or {}).items() if name not in BOUNDARY_BOUNDS}
+        if kept:
+            settings[key] = kept
+        else:
+            settings.pop(key, None)
     return settings
 
 
