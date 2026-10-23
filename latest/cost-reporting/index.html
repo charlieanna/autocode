@@ -2014,12 +2014,13 @@ switched on and no model is called.</p>
 </ul>
 <p>Cost has three bases, always kept apart: <strong>reported</strong> is the provider's own <code>cost_usd</code> (the built-in
 claude provider writes each call's share of Claude Code's cumulative session cost; a provider that
-reports none, or only a zero for a subscription plan, has none); <strong>estimated</strong> is tokens at the flat comparison rates below, and only for models listed
-there (today the GLM route); anything else is <strong>unknown, not zero</strong>. <code>complete</code> is false while a
-stage has no cost or is still running, so a total is then a floor. Stages the runner executes
-itself (the regression proof, the orchestrator) cost nothing. The OpenCode/Codex route reports
-tokens but no price, so its cost shows as unknown until a rate is added to
-<code>autocode_usage.REFERENCE_PRICES</code>.</p>
+reports none, or only a zero for a subscription plan, has none); <strong>estimated</strong> is tokens at the
+frozen comparison rates in <code>autocode_usage.REFERENCE_PRICES</code>, and only for the models listed there
+(today GLM-5.3 on the Z.AI coding plan and MiMo v2.6 Pro on the Xiaomi token plan); anything else is
+<strong>unknown, not zero</strong>. <code>complete</code> is false while a stage has no cost or is still running, so a total
+is then a floor. Stages the runner executes itself (the regression proof, the orchestrator) cost
+nothing. Any other model, such as an OpenAI route, has no comparison estimate until a rate is added
+there; the status view's <code>cost</code> field prices it from the dated table below instead.</p>
 <p>Parallel Builders are counted once, in their parent. A worker run keeps no ledger of its own: when a
 batch finishes, the parent copies each worker's finished stages, cost included, into its own record
 (<code>autocode_dispatch.account_workers</code>), so the parent's row holds them. While a batch is still running its

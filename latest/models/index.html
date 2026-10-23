@@ -2094,7 +2094,7 @@
 
 
 <h1 id="models-roles-and-escalation">Models, roles, and escalation<a class="headerlink" href="#models-roles-and-escalation" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/7854eb06fd885e4ef5c0891db5a938bf6fb2c99d/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/0b4947c9e5f29c49d24b6737878d9e7024c9f445/README.md">← Back to README</a></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
 <p>Every stage of a run has a <strong>role</strong>. Role names describe responsibilities, not
 mandatory models — each role can select any provider/model from <code>opencode models</code>
@@ -2250,7 +2250,7 @@ struggling pauses the run instead. The Builder instead gets its
 Builder on <code>openai/gpt-6-sol</code> (with GLM checkers), it climbs Sol Medium → High → XHigh
 → Max. No role other than the Resolver escalates onto GPT-6 Astra.</p>
 <p>Two scripted scenarios check these rows end to end, through <code>autocode --status --json</code>
-(<a href="https://github.com/charlieanna/autocode/blob/7854eb06fd885e4ef5c0891db5a938bf6fb2c99d/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
+(<a href="https://github.com/charlieanna/autocode/blob/0b4947c9e5f29c49d24b6737878d9e7024c9f445/scenarios/README.md#catalog">catalog</a>). In <code>escalation-converts</code> the Builder's stronger
 attempt fixes what its ordinary attempts could not: one row, from the Builder's route to GPT-6
 Sol XHigh, one attempt with its cost, <code>passed</code>, and the run completes; <code>escalation_outcomes</code>
 stamps that attempt and the ordinary retry before it <code>passed</code> too. In <code>escalation-ladder-end</code>
@@ -2590,8 +2590,9 @@ without a row, whose cost is then unknown rather than zero. The money cap
 <p>A provider that reports a used-up quota, usage limit or credits stops the stage with
 <code>PAUSED_BUDGET</code>, and so does a used-up daily, weekly or monthly plan limit sent as an
 HTTP 429 (Z.AI's "Weekly/Monthly Limit Exhausted"); a per-minute rate limit does not.
-The stopped attempt is kept, never replayed, and AutoCode asks you which model the
-role should continue on, for example:</p>
+The stopped attempt is kept and never replayed. Unless the run can switch the role on
+its own (see the end of this section), AutoCode asks you which model the role should
+continue on, for example:</p>
 <pre><code class="language-text">[route-sol] Tester's quota is exhausted; name the model to continue on
 </code></pre>
 <p>The question names the job on screen (Tester, Builder, Completion Reviewer, …). It has
@@ -2630,9 +2631,19 @@ launch passes (null for the model's own default), the <code>provider</code> tool
 route is what it is — and the changes under <code>route_assignments</code>; while the
 question is open, <code>needs.route</code> names the role and its current model. The new model
 stays on the role until you change it again, including past the next milestone.</p>
-<p>There is no fallback list, configuration table or automatic switch: a quota stop is
-always your decision. Capacity errors retry the same model, rate limits pause as
-before, and authentication failures never ask for a model.</p>
+<p>A run that chose its models automatically (<a href="#choosing-models-automatically">Choosing models automatically</a>)
+first switches the role on its own. It takes the next qualified model on an account the
+run already uses, keeps every checker independent of its producer, and prints a line such
+as <code>Builder: MODEL stopped (PAUSED_BUDGET); switched to NEW_MODEL on ACCOUNT without asking</code>.
+The switch sets the stopped attempt aside the same way an answer does, is recorded as a
+<code>route_assignment</code> whose actor is <code>runner</code>, and counts as an automatic recovery. AutoCode
+asks instead when no such model remains, when you pinned the role's model with a flag,
+when a pause was requested, and for native runs and workflow jobs. The same switch applies
+to content-filter and output-limit stops.</p>
+<p>A run on fixed routes (<code>--no-auto-select</code>, or a launch whose automatic selection fell
+back to them) has no fallback list or configuration table: its quota stop is always your
+decision. Capacity errors retry the same model, rate limits pause as before, and
+authentication failures never ask for a model.</p>
 <h3 id="when-the-stopped-role-is-a-workflow-job">When the stopped role is a workflow job<a class="headerlink" href="#when-the-stopped-role-is-a-workflow-job" title="Permanent link">&para;</a></h3>
 <p>A workflow job (the Code Reviewer, Designer, Design Reviewer, Analyst, bug-fix
 Investigator or Design inventory) that stops on quota pauses differently: its attempt is set aside at
@@ -2668,7 +2679,9 @@ stop names the job, the refused model and the provider's words:</p>
 <pre><code class="language-text">Builder: the provider's content filter refused the response on xiaomi-token-plan-sgp/mimo-v2.6-pro (ContentFilterError: The response was blocked by the provider's content filter); the same model is likely to refuse it again.
 </code></pre>
 <p>The same model is likely to refuse the same request again, so the attempt is kept and never
-replayed, and AutoCode asks the question a quota stop asks, answered the same way:</p>
+replayed. AutoCode handles it as a quota stop: a run that chose its models automatically
+switches on its own where it can (<a href="#when-a-roles-quota-runs-out">above</a>); otherwise it asks
+the question a quota stop asks, answered the same way:</p>
 <pre><code class="language-text">[route-terra] Builder's model was refused by its provider's content filter; name another model to continue on
 </code></pre>
 <p>The question also lists the run's other configured models, from other providers, that
@@ -2701,10 +2714,12 @@ view's <code>needs.action</code> is that answer and the recovery card offers no 
 job's own retry token still replays the refused model if you retry without naming
 one.</p>
 <h2 id="when-a-response-reaches-its-output-limit">When a response reaches its output limit<a class="headerlink" href="#when-a-response-reaches-its-output-limit" title="Permanent link">&para;</a></h2>
-<p>An authenticated terminal output-limit stop (<code>PAUSED_OUTPUT_CAP</code>) asks for another model
-on the same engine with the existing availability and checker-independence rules.
+<p>An authenticated terminal output-limit stop (<code>PAUSED_OUTPUT_CAP</code>) switches models on its
+own on a run that chose them automatically, as a quota stop does
+(<a href="#when-a-roles-quota-runs-out">above</a>). Otherwise it asks for another model on the same
+engine with the existing availability and checker-independence rules.
 The answer retains the incomplete attempt and usage; continuation is explicit. Builder
-and Requirements never automatically retry this stop. See <a href="../providers/#output-cap">Output cap</a>
+and Requirements never automatically retry this stop on the same model. See <a href="../providers/#output-cap">Output cap</a>
 for cap settings and the existing bounded read-only report repair.</p>
 <h2 id="a-parallel-builder-stopped-on-its-model">A parallel Builder stopped on its model<a class="headerlink" href="#a-parallel-builder-stopped-on-its-model" title="Permanent link">&para;</a></h2>
 <p>A Builder in a parallel batch that stops on quota, a content-filter refusal or an authenticated
