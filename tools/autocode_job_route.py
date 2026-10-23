@@ -145,12 +145,12 @@ def _no_route(failure, state: RunState, classify=None) -> str:
     if cause is None:
         return (
             f"The stopped {job} takes no other model: only a job stopped on quota, a content-filter "
-            f"refusal, output limit or provider authentication does, and this stop saved no model question; inspect its saved reason and retry it "
+            f"refusal, output limit, provider authentication or a stopped-job timeout does, and this stop saved no model question; inspect its saved reason and retry it "
             f"with {_RETRY}"
         )
     if cause not in quota_route.JOB_STATUSES:
         return (
-            f"The stopped {job} did not stop on quota, a content-filter refusal, output limit or provider authentication, so it takes no other "
+            f"The stopped {job} did not stop on quota, a content-filter refusal, output limit, provider authentication or a stopped-job timeout, so it takes no other "
             f"model; inspect it and retry it with {_RETRY}"
         )
     stopped = (
@@ -160,6 +160,8 @@ def _no_route(failure, state: RunState, classify=None) -> str:
         if cause == quota_route.OUTPUT_STATUS
         else "failed provider authentication"
         if cause == quota_route.AUTH_STATUS
+        else "exceeded its execution time limit"
+        if cause == quota_route.TIMEOUT_STATUS
         else "stopped on quota"
     )
     if "pause_status" not in failure:
@@ -175,6 +177,8 @@ def _no_route(failure, state: RunState, classify=None) -> str:
         if cause == quota_route.OUTPUT_STATUS
         else "after repairing provider authentication, retry it unchanged with "
         if cause == quota_route.AUTH_STATUS
+        else "only its exact retry applies, on the same model, which may time out again: "
+        if cause == quota_route.TIMEOUT_STATUS
         else "only its exact retry applies, on the same model, which is likely to refuse it again: "
     )
     return f"The stopped {job} {stopped}, but {why}, so it takes no other model; {retry}{_RETRY}"

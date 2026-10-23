@@ -926,9 +926,12 @@ def needs(state: RunState, *, stale_report_repair=False) -> dict | None:
             # Until a person names another model (job_failure.route_assignment), the exact retry of a
             # refused job would replay the refused model: the next step is the answer. job_retry_token
             # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
-            if need["route"]["cause"] in ("content_filter", "output_limit", "authentication") and not isinstance(
-                failure.get("route_assignment"), dict
-            ):
+            if need["route"]["cause"] in (
+                "content_filter",
+                "output_limit",
+                "authentication",
+                "timeout",
+            ) and not isinstance(failure.get("route_assignment"), dict):
                 need["action"] = (
                     f"--answer {need['route']['question_id']}=MODEL --job-retry-token - (reads AUTOCODE_JOB_RETRY_TOKEN)"
                 )
