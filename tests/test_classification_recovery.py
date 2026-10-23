@@ -704,6 +704,19 @@ class ClassificationOfferTests(unittest.TestCase):
                     recovery.admit(state, record, Path(temporary))
                 self.assertEqual(request["classification_retry"]["token"], record["classification_retry_token"])
 
+    def test_raising_a_boundary_bound_keeps_the_grant_but_a_route_change_does_not(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state, _ = self.authorized(Path(temporary))
+            state["settings"]["limits"] = {"max_seconds": 5000, "max_cost_usd": 20, "iteration_ceiling": 9}
+            state["settings"]["budget_origins"] = {"max_seconds": "user_explicit"}
+            raised = copy.deepcopy(state)
+            with patch.object(recovery.failure, "guard"):
+                recovery.admit(raised, {"stage": "investigate_stuck"}, Path(temporary))
+            self.assertTrue(raised["stuck_investigation"]["classification_retry"]["consumed"])
+            state["settings"]["limits"]["stage_timeout_seconds"] = 1
+            with patch.object(recovery.failure, "guard"), self.assertRaises(recovery.util.Paused):
+                recovery.admit(state, {"stage": "investigate_stuck"}, Path(temporary))
+
     def test_any_other_stop_before_launch_still_restores_the_classification_hold(self):
         with tempfile.TemporaryDirectory() as temporary:
             state, _ = self.authorized(Path(temporary))
