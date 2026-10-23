@@ -1021,6 +1021,10 @@ not be added together. `cost.breakdown.unpriced` says why the finished unpriced 
 cost (#1713): `usage_missing` (no input or output token count recorded), `model_unknown` (counts
 but no model identified) and `rate_unavailable` (counts, but the price table has no rate for the
 model), with those models in `models_without_rate`. They are counts of stages, never an amount.
+`cost.breakdown.price_bases` lists the dated rates the estimated stages were priced at, one entry
+per model and rate: `model`, `input`, `output`, `cached_input` where published, `source`,
+`retrieved`, `until` (the UTC date the rate stopped applying; null for the current rate) and
+`stages`. Each stage is priced at the rate in force when it finished.
 Each grouping plus `inherited_usd` reconciles with the known
 run total, subject to six-decimal rounding. Inherited spend has no stage attribution.
 Active attempts and unaccounted workers are excluded, just as in the money-cap

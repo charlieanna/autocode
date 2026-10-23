@@ -101,6 +101,7 @@ def carried(state: RunState):
 def view(state: RunState):
     """The status view's `cost` field. Never raises on a damaged state."""
     state = state if isinstance(state, dict) else {}
+    rows = usage.stage_rows(state, estimator=prices.estimate)
     known = spend(state)
     unpriced = known["unpriced_stages"]
     nothing_known = all(known[key] is None for key in ("reported_usd", "estimated_usd", "inherited_usd"))
@@ -120,8 +121,33 @@ def view(state: RunState):
         and not state.get("active_stage")
         and not usage.pending_workers(state),
         "prices_as_of": as_of,
-        "breakdown": breakdown.summary(usage.stage_rows(state, estimator=prices.estimate), state),
+        "breakdown": {**breakdown.summary(rows, state), "price_bases": price_bases(rows)},
     }
+
+
+def price_bases(rows):
+    """The dated rates the estimated stages were priced at: one entry per model and rate, with its stage count.
+
+    A stage is priced at the rate in force when it finished (autocode_prices.rate), so a run that spans a
+    tariff update shows both entries; `until` is null for the current rate.
+    """
+    bases = {}
+    for row in rows:
+        entry = prices.rate(row["model"], row.get("finished_at")) if row["basis"] == "estimated" else None
+        if entry is None:
+            continue
+        model = prices.key(row["model"])
+        group = bases.setdefault(
+            (model, entry.get("until")),
+            {
+                "model": model,
+                **{key: entry[key] for key in (*prices.RATES, "source", "retrieved") if key in entry},
+                "until": entry.get("until"),
+                "stages": 0,
+            },
+        )
+        group["stages"] += 1
+    return sorted(bases.values(), key=lambda group: (group["model"], group["until"] or "9999-12-31"))
 
 
 def spent(state: RunState):

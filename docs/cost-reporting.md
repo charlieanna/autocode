@@ -41,6 +41,12 @@ route is priced at, or "no rate". A bare model id (the Codex engine's) is priced
 and an OpenCode 2.x `#effort` suffix is ignored. A subscription or coding-plan route's row is the
 metered API price of the same model, so its spend is an API-equivalent figure, not the plan's bill.
 
+A row keeps the rates it replaced in `history`, each with `until`, the UTC date from which it no
+longer applies. A stage is priced at the rate in force on the UTC day it finished, so a tariff
+update never rewrites what an earlier stage cost or whether a resumed run is over its cap. Change a
+rate by moving the old one into `history` with `until` set to the new rate's first day; editing a
+rate in place reprices every earlier stage. A stage with no finish time is priced at today's rate.
+
 The status view's `cost` field and the `Cost: ...` line use this table: each finished stage counts
 its reported cost, else its tokens at the table's rates (cache reads at the cached rate when their
 count is known), else it is unpriced and not counted. The money cap (`--max-cost-usd`,
@@ -79,6 +85,9 @@ additive measurement projections, not new acceptance gates or model calls.
   not just a historical `TASK_COMPLETE`. A stale checkout contributes no current
   delivery; a state-only view without a fresh gate result keeps acceptance unknown.
   Unit metrics remain undefined without an accepted root outcome or complete usage.
+  `unit_metrics.reported_usd` divides only provider-reported cost; `unit_metrics.spent_usd`
+  divides the status view's `cost.spent_usd` (reported, else the dated-table estimate), so a
+  coding-plan run gets a figure too, and only while `cost.complete` is true.
   Experiment reports must additionally apply their external
   delivery oracle; the status projection cannot establish untested product quality.
 

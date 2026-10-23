@@ -109,5 +109,53 @@ class PriceTableTests(unittest.TestCase):
             prices.parse({**SHIPPED, "currency": "EUR"})
 
 
+class PriceHistoryTests(unittest.TestCase):
+    """A row keeps the rates it replaced, so a tariff update never reprices an earlier stage (#1867 S1a)."""
+
+    MODEL = "openai/gpt-6-sol"
+
+    def table(self, history):
+        document = copy.deepcopy(SHIPPED)
+        document["models"][self.MODEL]["history"] = history
+        return prices.parse(document)
+
+    def old(self, until="2026-10-15", **changes):
+        return {
+            "input": 1.0,
+            "output": 4.0,
+            "source": "https://example.test/old",
+            "retrieved": "2026-09-01",
+            "until": until,
+            **changes,
+        }
+
+    def test_a_stage_is_priced_at_the_rate_in_force_on_the_utc_day_it_finished(self):
+        from unittest import mock
+
+        with mock.patch.object(prices, "table", return_value=self.table([self.old()])):
+            current = SHIPPED["models"][self.MODEL]
+            self.assertEqual("2026-10-15", prices.rate(self.MODEL, "2026-10-14T23:59:59+00:00")["until"])
+            self.assertEqual(1.0, prices.rate(self.MODEL, "2026-10-14T23:59:59+00:00")["input"])
+            # 2026-10-14 20:00 in New York is already 10-15 in UTC: the new rate.
+            self.assertEqual(current["input"], prices.rate(self.MODEL, "2026-10-14T20:00:00-04:00")["input"])
+            self.assertNotIn("until", prices.rate(self.MODEL, "2026-10-15T00:00:00+00:00"))
+            self.assertNotIn("until", prices.rate(self.MODEL))  # no date: today's rate, as before
+            self.assertNotIn("until", prices.rate(self.MODEL, "not a date"))
+            tokens = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+            self.assertEqual(5.0, prices.estimate(self.MODEL, tokens, "2026-10-01T10:00:00Z"))
+
+    def test_a_history_out_of_order_or_without_its_fields_is_refused(self):
+        for name, history in {
+            "not a list": {"until": "2026-10-15"},
+            "bad date": [self.old(until="15 Oct 2026")],
+            "timestamp": [self.old(until="2026-10-15T00:00:00Z")],
+            "out of order": [self.old(until="2026-10-15"), self.old(until="2026-10-01")],
+            "no source": [self.old(source="")],
+            "negative": [self.old(input=-1)],
+        }.items():
+            with self.subTest(name), self.assertRaisesRegex(ValueError, "history"):
+                self.table(history)
+
+
 if __name__ == "__main__":
     unittest.main()
