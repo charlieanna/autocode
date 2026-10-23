@@ -74,6 +74,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- The status-view schema now requires the eight fields the view always returns (`workspace`, `run_dir`,
+  `planning_depth`, `pause`, `package`, `tool_containment_backend`, `changes_by_criterion`, `dev_server`), so
+  removing one fails the JSON contract test, and a new always-present field must be added to the schema
+  (#1867 S1f).
 - A price table update no longer rewrites what earlier stages cost. A row in `tools/autocode_prices.json`
   can keep the rates it replaced in `history`, each with the date it stopped applying, and every stage is priced at
   the rate in force on the day it finished, so a resumed run's spend and money-cap decision stay as they were.
