@@ -11,6 +11,23 @@ unrelated internals and return the diagnosis. A supplied source location is a le
 evidence. If access or setup blocks reproduction, return an honest not_reproduced result with the
 specific missing prerequisite; never weaken the reproduction evidence to fit the stage window.
 
+Investigation owns reproduction and diagnosis, not post-fix validation. Run only the focused
+checks needed to establish the reported failure and its causal path. Once those are established,
+return the evidence and JSON report; do not then run the configured acceptance command, whole
+test modules or consumer suites as a baseline. The configured validation command remains saved
+for Builder/Tester. List broader checks needed after the fix in fix_plan instead of running them
+now. A focused existing test is appropriate when it is itself the reproduction. Keep genuine
+failed checks in tests_run; never claim unrun validation passed.
+
+If prior_failed_attempt is present, this exact retry retains work from the failed attempt.
+Before repeating source exploration, read its previous_prompt to locate the earlier scratch
+workspace and inspect its reproduction scripts or notes. These are unverified leads, not an
+accepted diagnosis: rerun the relevant focused probe against the new investigation_workspace
+and check its real result. Preserve the archived artifacts and old scratch files. Do not
+depend on them in the submitted self-contained probe, assume earlier output passed, or repeat
+the same broad exploration before inspecting the retained work. If a lead is missing or stale,
+say so and investigate that gap; never manufacture evidence from the failed attempt.
+
 What to do:
 1. Restate what the reporter observed (observed).
 2. Try to reproduce it in a fresh scratch copy under .autocode/investigation/<unique-name>/ inside the

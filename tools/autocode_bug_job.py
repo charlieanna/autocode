@@ -60,6 +60,7 @@ from typing import Any
 
 try:
     from . import autocode_bug_questions as bug_questions
+    from . import autocode_investigation_retry as investigation_retry
     from . import autocode_package_scope as package_scope
     from . import autocode_stage_access as stage_access
     from . import autocode_stray_writes as stray_writes
@@ -75,6 +76,7 @@ try:
     )
 except ImportError:
     import autocode_bug_questions as bug_questions
+    import autocode_investigation_retry as investigation_retry
     import autocode_package_scope as package_scope
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
@@ -158,7 +160,7 @@ PROMPT = prompts.get("bug-investigation.md")
 
 
 def packet(state: RunState, inventory: dict | None = None, engine: str | None = None) -> dict:
-    return {
+    data = {
         "stage": STAGE,
         "task": state["task"],
         "workspace": state.get("workspace"),
@@ -169,7 +171,10 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
             "stage_timeout_seconds"
         ),
         "notes_directory": NOTES_PREFIX,
-        "test_command": ((state.get("settings") or {}).get("regression") or {}).get("test_command"),
+        # The configured acceptance command belongs to post-fix validation. Sending
+        # it as an unqualified command here caused reproduced bugs to spend the
+        # remaining investigation window rerunning broad consumer suites (#1902).
+        # prepare() still uses the saved command to select the dependency Python.
         "workspace_inventory": inventory or {},
         # Present because every provider reads them; nothing is planned yet.
         "goal_contract": None,
@@ -177,6 +182,9 @@ def packet(state: RunState, inventory: dict | None = None, engine: str | None = 
         "saved_answers": state.get("answers", {}),
         "prior_investigation": state.get("investigation"),
     }
+    if retry := investigation_retry.context(state):
+        data["prior_failed_attempt"] = retry
+    return data
 
 
 def prompt(

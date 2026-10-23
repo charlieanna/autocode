@@ -10,6 +10,7 @@ from unittest import mock
 import autocode_job_failure as job_failure
 import autocode_job_route as job_route
 import autocode_quota_route as quota_route
+import autocode_run_view as run_view
 import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
 
@@ -305,6 +306,41 @@ class InvestigatorRoutePolicyTests(unittest.TestCase):
             }
         ]
         return state
+
+    def test_bound_legacy_bug_timeout_offers_only_its_investigator_model(self):
+        state = self.state()
+        route = state["settings"]["roles"].pop("stuck_investigator")
+        state["settings"]["roles"]["investigator"] = route
+        state["settings"].pop("stuck_investigation")
+        config = job_failure.configuration(state)
+        failure = state["job_failure"]
+        failure.update(
+            stage="investigate_bug",
+            kind="timeout",
+            configuration=config,
+            reason="Stage exceeded 600 seconds",
+            write_diagnosis={},
+            unrestored=[],
+        )
+        failure.pop("pause_status")
+        row = state["stages"][0]
+        row.update(
+            stage="investigate_bug", route_role="investigator", timed_out=True, job_configuration=copy.deepcopy(config)
+        )
+        before = copy.deepcopy(state)
+        shown = run_view.view(state)
+        self.assertEqual("timeout", shown["needs"]["route"]["cause"])
+        self.assertIn("--answer route-investigator=MODEL --job-retry-token -", shown["next_command"])
+        self.assertEqual(before, state, "legacy projection cannot rewrite historical evidence")
+        for mutate in (
+            lambda s: s["stages"][0].update(timed_out=False),
+            lambda s: s["stages"][0]["launch_route"].update(model="other"),
+            lambda s: s["stages"][0]["job_source"].update(before_identity="other"),
+            lambda s: s.update(active_stage={"stage": "investigate_bug"}),
+        ):
+            changed = copy.deepcopy(state)
+            mutate(changed)
+            self.assertIsNone(quota_route.job_question(changed))
 
     def test_assignment_survives_preparation_and_preserves_packet_normalization(self):
         state = self.state()

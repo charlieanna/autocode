@@ -65,6 +65,66 @@ class JobModelRouteTests(JobHarness):
         self.env.update(REFUSE_KIND=kind, REFUSE_MODEL=model)
         return self.start(mode, workflow)
 
+    def test_timeout_can_explicitly_keep_its_model_without_launching_or_resetting_usage(self):
+        (self.workspace / ".autocode" / "bin" / "codex").write_text(PROVIDER)
+        run = self.start("timeout")
+        held = run.advance_until_input()
+        calls = self.calls.read_text()
+        token = held["needs"]["job_retry_token"]
+        model = held["routes"]["sol"]["model"]
+        assigned = run.assign_model("sol", model)
+        self.assertEqual(calls, self.calls.read_text())
+        self.assertEqual(held["usage"], assigned["usage"])
+        for role, route in held["routes"].items():
+            self.assertEqual(route["model"], assigned["routes"][role]["model"])
+            self.assertEqual(route["reasoning_effort"], assigned["routes"][role]["reasoning_effort"])
+        self.assertIn("--resume-paused --retry-failed-stage", assigned["next_command"])
+        next_token = assigned["needs"]["job_retry_token"]
+        self.assertNotEqual(token, next_token)
+        with self.assertRaises(TaskRunError):
+            run.retry_job(token)
+        self.assertEqual(calls, self.calls.read_text())
+        run.env["JOB_MODE"] = "success"
+        self.assertTrue(run.retry_job(next_token)["done"])
+
+    def test_timeout_model_answer_rotates_token_preserves_limits_and_retries_once(self):
+        (self.workspace / ".autocode" / "bin" / "codex").write_text(PROVIDER)
+        run = self.start("timeout")
+        held = run.advance_until_input()
+        need = held["needs"]
+        self.assertEqual("timeout", need["route"]["cause"])
+        self.assertIn("--answer route-sol=MODEL --job-retry-token -", held["next_command"])
+        calls = self.calls.read_text()
+        token = need["job_retry_token"]
+        with self.assertRaises(TaskRunError):
+            run.assign_model("sol", "gpt-6-luna", job_retry_token="jr:wrong")
+        blocked = self.cli(
+            run,
+            "--answer",
+            "route-sol=gpt-6-luna",
+            "--job-retry-token",
+            token,
+            "--max-seconds",
+            "1300",
+        )
+        self.assertEqual(2, blocked.returncode)
+        self.assertIn("configuration its exact retry is bound to", blocked.stderr)
+        self.assertEqual(held["needs"], run.status()["needs"])
+        assigned = run.assign_model("sol", "gpt-6-luna")
+        self.assertEqual(calls, self.calls.read_text(), "choosing a model cannot launch it")
+        self.assertEqual(held["usage"], assigned["usage"])
+        for role in set(held["routes"]) - {"sol"}:
+            self.assertEqual(held["routes"][role], assigned["routes"][role], role)
+        next_token = assigned["needs"]["job_retry_token"]
+        self.assertNotEqual(token, next_token)
+        with self.assertRaises(TaskRunError):
+            run.retry_job(token)
+        self.assertEqual(calls, self.calls.read_text())
+        run.env["JOB_MODE"] = "success"
+        done = run.retry_job(next_token)
+        self.assertEqual("TASK_COMPLETE", done["status"])
+        self.assertTrue(done["done"])
+
     def models(self):
         return [line.split(" ", 1)[1] for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
 
@@ -481,7 +541,7 @@ class JobModelRouteTests(JobHarness):
             "route-sol=gpt-6-luna",
             "--job-retry-token",
             need["job_retry_token"],
-            message="did not stop on quota, a content-filter refusal, output limit or provider authentication",
+            message="did not stop on quota, a content-filter refusal, output limit, provider authentication or a stopped-job timeout",
         )
 
 
@@ -735,14 +795,14 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
         message = self.answer(state)
         self.assertIn(
             "The stopped Code Reviewer takes no other model: only a job stopped on quota, a "
-            "content-filter refusal, output limit or provider authentication does",
+            "content-filter refusal, output limit, provider authentication or a stopped-job timeout does",
             message,
         )
         self.assertNotIn("did not stop on quota", message)
         # An archived error that is not about the model still says so.
         other = self.legacy_exit({"message": "connection reset by peer"})
         self.assertIn(
-            "did not stop on quota, a content-filter refusal, output limit or provider authentication",
+            "did not stop on quota, a content-filter refusal, output limit, provider authentication or a stopped-job timeout",
             self.answer(other, runner),
         )
 

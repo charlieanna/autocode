@@ -1092,6 +1092,8 @@ def boundary(runner, state: RunState, run_dir, workspace):
         policy.Blocker(support.digest(selected), kind, description, tuple(evidence)),
         context,
         evidence,
+        # Never "replan": a runtime decision cannot change the approved contract. A changed contract goes
+        # through fresh planning and a person's approval (1254fe712; docs/task-run.md, Resolver scopes).
         policy.Boundaries(frozenset({"continue", "retry", "escalate"}), frozenset()),
         proposal,
     )
@@ -1156,6 +1158,7 @@ def reset_for_resume(state: RunState):
 # until one exists. A
 # reviewer's own REWORK verdict keeps using the existing, unrelated
 # astra_resolve route.
+# A diagnosis may retry or escalate only; like every runtime decision it never replans the contract.
 DIAGNOSIS_BOUNDARIES = policy.Boundaries(frozenset({"retry", "escalate"}), frozenset())
 DIAGNOSTIC_CALL_DEFAULTS = {"max_calls_per_run": 2}
 
