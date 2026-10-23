@@ -2094,7 +2094,7 @@
 
 
 <h1 id="task-run-interface">Task-run interface<a class="headerlink" href="#task-run-interface" title="Permanent link">&para;</a></h1>
-<p><a href="https://github.com/charlieanna/autocode/blob/65ea8dd0c23538f739f0b498e84a5f08729f7193/README.md">← Back to README</a></p>
+<p><a href="https://github.com/charlieanna/autocode/blob/91fab732c69510dcc3919f757aecf1514b6a52dc/README.md">← Back to README</a></p>
 <p>How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
 code outside the runner (the scenario harness, <code>autocode issue</code>, the
@@ -2529,7 +2529,7 @@ recorded values, keeping fake and live profiles separate.</p>
 <h2 id="canonical-completion-evidence">Canonical completion evidence<a class="headerlink" href="#canonical-completion-evidence" title="Permanent link">&para;</a></h2>
 <p>Every newly completed task publishes <code>evidence.json</code> and <code>evidence.md</code> beside
 its <code>state.json</code>. The version 1 JSON schema is
-<a href="https://github.com/charlieanna/autocode/blob/65ea8dd0c23538f739f0b498e84a5f08729f7193/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
+<a href="https://github.com/charlieanna/autocode/blob/91fab732c69510dcc3919f757aecf1514b6a52dc/tools/autocode-schemas/evidence-report.schema.json"><code>tools/autocode-schemas/evidence-report.schema.json</code></a>.
 Markdown is rendered deterministically from that document. The report records
 the approved plan, checked source snapshot, criterion results, independent
 commands and their exit codes, artifact paths and hashes, roles/models and
@@ -3047,7 +3047,7 @@ blocking finding. Identical failures only support that exemption when the cited
 file and line range are verified unchanged in the actual applied scratch source;
 changed, unknown and out-of-range locations retain the blocker. Legacy findings
 and reviews without an explicit patch retain blocking behavior. This attribution
-applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/65ea8dd0c23538f739f0b498e84a5f08729f7193/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
+applies to review findings, not the task's acceptance criteria. See <a href="https://github.com/charlieanna/autocode/blob/91fab732c69510dcc3919f757aecf1514b6a52dc/docs/bugs/2026-10-19-review-patch-attribution.md">patch attribution</a>.</p>
 <p><code>proof_stability</code> is the proving tests' repeats: <code>repeats</code>, <code>unstable</code> (each
 test, which side, its kind and the run outcomes), <code>unrepeated</code>, <code>next_step</code> when
 a test disagreed, and <code>note</code>; <code>null</code> when the proof did not repeat tests.
@@ -3105,6 +3105,10 @@ not be added together. <code>cost.breakdown.unpriced</code> says why the finishe
 cost (#1713): <code>usage_missing</code> (no input or output token count recorded), <code>model_unknown</code> (counts
 but no model identified) and <code>rate_unavailable</code> (counts, but the price table has no rate for the
 model), with those models in <code>models_without_rate</code>. They are counts of stages, never an amount.
+<code>cost.breakdown.price_bases</code> lists the dated rates the estimated stages were priced at, one entry
+per model and rate: <code>model</code>, <code>input</code>, <code>output</code>, <code>cached_input</code> where published, <code>source</code>,
+<code>retrieved</code>, <code>until</code> (the UTC date the rate stopped applying; null for the current rate) and
+<code>stages</code>. Each stage is priced at the rate in force when it finished.
 Each grouping plus <code>inherited_usd</code> reconciles with the known
 run total, subject to six-decimal rounding. Inherited spend has no stage attribution.
 Active attempts and unaccounted workers are excluded, just as in the money-cap
