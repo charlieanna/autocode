@@ -55,6 +55,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- A Completion Reviewer can no longer mark a task complete while its own source verdict says FAIL or names an
+  uncovered sentence of the original request. The verdict was required but never read, so the reviewer's own
+  finding was dropped. Such a report now goes back through the bounded report repair for one consistent answer:
+  a PASS verdict, or a REWORK that covers the sentences. A report for another contract or task still pauses as
+  before (#1909).
 - A run paused with a repeated failure whose report repair is spent no longer tells the person to authorize an
   inspected retry that its own gate then refuses. A resume now reconciles the repair first: an exhausted or
   unlaunchable one is archived before the unchanged-failure hold, so the retry that hold names is admissible on
