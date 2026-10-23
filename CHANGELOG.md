@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- A callback socket closing after a verified clean stage deadline retains the timeout result
+  instead of reporting unknown process cleanup (#1920). Missing or uncertain cleanup, armed
+  ownership failures and unsuccessful keeper exits remain blocked; this grants no retry.
+
 - Exact Investigator retries receive links to the matching failed attempt's prompt and evidence
   instead of losing that recovery context and repeating the investigation (#1902). Links are
   unverified leads only; source/configuration admission and fresh reproduction checks stay required.
