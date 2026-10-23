@@ -33,7 +33,11 @@ project inside `workspace/autocode-projects/` and runs there. A destination
 named under the selected folder's `.autocode/runs` keeps its name: the run is
 created under the bootstrapped project instead, and commands may keep using the
 selected folder and that name as the run's handle. The status view names the
-effective `workspace` and `run_dir`.
+effective `workspace` and `run_dir`. When the launch does this bootstrapping, the
+run also says so once in its chat history (`view.chat.messages`, message id
+`workspace-bootstrap`), naming the folder that was selected and the project the
+work happens in, so a client shows the move instead of leaving the person to infer
+it from `view.workspace`.
 
 This example accepts the displayed plan and chooses question defaults or the first
 listed option. An interactive client should collect the person’s answer instead,

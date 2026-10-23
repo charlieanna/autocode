@@ -470,6 +470,7 @@ class AskTests(unittest.TestCase):
 
     def test_text_typed_while_autocode_works_is_kept_not_sent(self):
         ui = screen_ui(*"hello\n")
+        ui.observe({"liveness": {"kind": "supervised"}})
         self.assertIsNone(ui.wait(0.3))
         self.assertEqual("hello", ui._composer.text)
         self.assertEqual(
