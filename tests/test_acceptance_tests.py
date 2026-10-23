@@ -7,7 +7,9 @@ The status view, the stage artifacts and the workspace are the oracles.
 
 from __future__ import annotations
 
+import ast
 import dataclasses
+import json
 import os
 import shutil
 import sys
@@ -708,6 +710,129 @@ class RouteTests(unittest.TestCase):
             self.assertEqual([], acceptance.edited(state, added_only), "adding tests to the file is allowed")
 
 
+class SharedDiagnosisBindingTests(unittest.TestCase):
+    """The public generation packet keeps both obligations but names one shared function (#1969)."""
+
+    def state(self):
+        state = approved(
+            {
+                "AC1": "test: test_t1_mixed_values",
+                "AC2": "guard: test_t2_existing_values",
+                "AC3": "test: test_ac3_independent_boundary",
+            }
+        )
+        state["task"] = "Ignore negative values while preserving existing sums."
+        state["goal_contract"]["body"]["task_kind"] = "bugfix"
+        state["investigation"] = {
+            "outcome": "reproduced",
+            "test_cases": [
+                {"id": "T1", "given": "mixed values", "when": "sum", "then": "negatives ignored"},
+                {"id": "T2", "kind": "preserve", "given": "nonnegative values", "when": "sum", "then": "unchanged"},
+            ],
+        }
+        return state
+
+    def names(self, state, *, route=True):
+        from autocode_acceptance_tests_job import packet
+
+        if route:
+            acceptance.route(state)
+        return {row["id"]: row["test_name"] for row in packet(state)["cases"]}
+
+    def test_new_packet_reuses_exact_approved_names_without_dropping_case_ids(self):
+        names = self.names(self.state())
+        self.assertEqual(
+            {
+                "T1": "test_t1_mixed_values",
+                "T2": "test_t2_existing_values",
+                "AC1": "test_t1_mixed_values",
+                "AC2": "test_t2_existing_values",
+                "AC3": "test_ac3_independent_boundary",
+            },
+            names,
+        )
+        self.assertEqual(3, len(set(names.values())), "five ledger obligations need three test functions")
+
+    def test_builder_uses_the_same_approved_binding(self):
+        import autocode_test_cases as cases
+
+        note = cases.builder_note(self.state())
+        self.assertIn("test name: test_t1_mixed_values;", note)
+        self.assertIn("test name: test_t2_existing_values;", note)
+        self.assertNotIn("test_t1_<what it checks>", note)
+
+    def test_conflicting_kind_does_not_share_the_guard(self):
+        state = self.state()
+        state["goal_contract"]["body"]["acceptance_criteria"][1]["verification_method"] = (
+            "test: test_t2_existing_values"
+        )
+        names = self.names(state)
+        self.assertIn("<what it checks>", names["T2"])
+        self.assertEqual("test_t2_existing_values", names["AC2"])
+
+    def test_two_distinct_approved_names_do_not_choose_one_arbitrarily(self):
+        state = self.state()
+        state["goal_contract"]["body"]["acceptance_criteria"].append(
+            {"id": "AC4", "criterion": "another obligation", "verification_method": "test: test_t1_other"}
+        )
+        names = self.names(state)
+        self.assertIn("<what it checks>", names["T1"])
+        self.assertEqual("test_t1_other", names["AC4"])
+
+    def test_a_name_matching_two_diagnosis_ids_does_not_merge_their_obligations(self):
+        state = self.state()
+        state["investigation"]["test_cases"][1].pop("kind")
+        state["goal_contract"]["body"]["acceptance_criteria"] = [
+            {"id": "AC1", "criterion": "both", "verification_method": "test: test_t1_t2_combined"}
+        ]
+        names = self.names(state)
+        self.assertIn("<what it checks>", names["T1"])
+        self.assertIn("<what it checks>", names["T2"])
+        self.assertEqual("test_t1_t2_combined", names["AC1"])
+
+    def test_id_prefix_collision_does_not_establish_a_binding(self):
+        state = self.state()
+        state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = "test: test_t10_other"
+        names = self.names(state)
+        self.assertIn("<what it checks>", names["T1"])
+
+    def test_old_pending_job_keeps_its_original_id_based_naming_rule(self):
+        state = self.state()
+        state[acceptance.KEY] = {"pending_case_ids": ["T1", "T2", "AC1", "AC2", "AC3"]}
+        names = self.names(state, route=False)
+        self.assertIn("<what it checks>", names["T1"])
+        self.assertIn("<what it checks>", names["T2"])
+        self.assertEqual("test_t1_mixed_values", names["AC1"])
+
+    def test_a_changed_contract_does_not_reuse_a_stale_generation_binding(self):
+        state = self.state()
+        acceptance.route(state)
+        state["goal_contract"]["hash"] = "new-contract"
+        names = self.names(state, route=False)
+        self.assertIn("<what it checks>", names["T1"])
+
+    def test_a_new_shared_binding_cannot_report_copies_in_different_files(self):
+        import autocode_acceptance_tests_job as job
+
+        state = self.state()
+        names = self.names(state)
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root)
+            rows = [
+                {"case_id": cid, "test_name": name, "file": "test_other.py" if cid == "AC1" else "test_totals.py"}
+                for cid, name in names.items()
+            ]
+            value = {"tests": rows, "cannot_write": [], "already_passing": []}
+            with self.assertRaisesRegex(ValueError, "same function and file"):
+                job.apply(
+                    state,
+                    value,
+                    {"output": str(workspace / "report.json"), "changed_files": []},
+                    workspace,
+                    run_tests=lambda files: self.fail("Reject copied shared bindings before running a suite"),
+                )
+
+
 class AcceptanceTestsCliTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="acceptance-tests-cli-")
@@ -847,6 +972,78 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         results = view["acceptance_tests"]["results"]
         self.assertTrue(results)
         self.assertEqual({"fails"}, set(results.values()), "a reproduction must really fail before the fix")
+
+    def shared_binding_scenario(self, *, omit_extra=False, passing_restore=False):
+        loaded = catalog.load("bugfix-trivial")
+        directory = self.root / "shared-binding-scenario"
+        shutil.copytree(loaded.dir, directory)
+        seed = (directory / "seed/tests/test_pager.py").read_text().split('\n\nif __name__ == "__main__":')[0]
+        restore_result = 2 if passing_restore else 3
+        tests = (
+            "\n\nclass BindingTests(unittest.TestCase):\n"
+            "    def test_t1_partial_page(self):\n"
+            f"        self.assertEqual({restore_result}, page_count(11, 5))\n\n"
+            "    def test_t2_existing_multiple(self):\n"
+            "        self.assertEqual(2, page_count(10, 5))\n"
+        )
+        if not omit_extra:
+            tests += "\n    def test_ac3_single_item(self):\n        self.assertEqual(1, page_count(1, 5))\n"
+        (directory / "reference/tests/test_pager.py").write_text(seed + tests)
+        note = directory / "reference/docs/bugs/shared-bindings.json"
+        note.parent.mkdir(parents=True)
+        note.write_text(
+            json.dumps(
+                {
+                    "observed": "Partial pages are dropped",
+                    "reproduction": "page_count(11, 5) returns 2, expected 3",
+                    "root_cause": "integer division drops the partial final page",
+                    "invariant": "Count a partial page while preserving exact multiples",
+                    "affected_paths": ["pager/__init__.py"],
+                    "test_cases": [
+                        {"id": "T1", "given": "11 items", "when": "page_count(11, 5)", "then": "3"},
+                        {"id": "T2", "kind": "preserve", "given": "10 items", "when": "page_count(10, 5)", "then": "2"},
+                    ],
+                }
+            )
+        )
+        self.scenario = dataclasses.replace(
+            loaded,
+            dir=directory,
+            fake_fault="",
+            fake_criteria={
+                "AC1": "test: test_t1_partial_page",
+                "AC2": "guard: test_t2_existing_multiple",
+                "PLAN_EXTRA": "test: test_ac3_single_item",
+            },
+        )
+
+    def test_shared_bindings_complete_with_one_function_and_receipts_for_every_case(self):
+        self.shared_binding_scenario()
+        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
+        self.assertTrue(view["done"], self.details(view))
+        expected = {"T1": "fails", "T2": "passes", "AC1": "fails", "AC2": "passes", "PLAN_EXTRA": "fails"}
+        self.assertEqual(expected, view["acceptance_tests"]["results"])
+        tree = ast.parse((project / "tests/test_pager.py").read_text())
+        names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+        self.assertEqual(6, len(names), "three original tests plus three new functions cover all five obligations")
+        self.assertEqual(1, names.count("test_t1_partial_page"))
+        self.assertEqual(1, names.count("test_t2_existing_multiple"))
+        self.assertEqual(1, self.stage_order(run).count("acceptance-tests"))
+
+    def test_shared_bindings_do_not_hide_an_unmapped_missing_case(self):
+        self.shared_binding_scenario(omit_extra=True)
+        run, _, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", view["status"], self.details(view))
+        self.assertIn("PLAN_EXTRA", view["stop_reason"])
+        self.assertNotIn("builder", self.stage_order(run))
+
+    def test_shared_restore_that_already_passes_cannot_be_silently_relabelled(self):
+        self.shared_binding_scenario(passing_restore=True)
+        run, _, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", view["status"], self.details(view))
+        self.assertIn("T1", view["stop_reason"])
+        self.assertIn("diagnosis", view["stop_reason"])
+        self.assertNotIn("builder", self.stage_order(run))
 
     def test_bare_pytest_suite_completes_without_zero_collection_repairs_or_replanning(self):
         loaded = catalog.load("bugfix-trivial")

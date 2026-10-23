@@ -135,7 +135,7 @@ def render(state: RunState) -> str:
     return ""
 
 
-def _check_rows(value: dict, cases: list[dict]) -> None:
+def _check_rows(value: dict, cases: list[dict], *, shared_names=()) -> None:
     due = {case["id"] for case in cases}
     named = [row["case_id"] for key in ("tests", "cannot_write") for row in value[key]]
     unknown = sorted((set(named) | {row["case_id"] for row in value["already_passing"]}) - due)
@@ -148,6 +148,11 @@ def _check_rows(value: dict, cases: list[dict]) -> None:
         raise ValueError(
             f"A case reported in already_passing still needs its test in tests, so the runner can see it pass: {untested}"
         )
+    split = [
+        name for name in shared_names if len({row["file"] for row in value["tests"] if row["test_name"] == name}) > 1
+    ]
+    if split:
+        raise ValueError(f"Shared case bindings must report the same function and file, not copies: {sorted(split)}")
 
 
 def _pause(state: RunState, rows: list[str]) -> None:
@@ -268,7 +273,7 @@ def apply(
             "The Tester may change only test files; this attempt changed: " + ", ".join(stray), stray
         )
     cases = acceptance.job_cases(state)
-    _check_rows(value, cases)
+    _check_rows(value, cases, shared_names=set(acceptance.shared_test_names(state).values()))
     if value["cannot_write"]:
         _pause(state, [f"{row['case_id']} cannot be tested: {row['reason']}" for row in value["cannot_write"]])
         return

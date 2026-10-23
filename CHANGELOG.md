@@ -11,6 +11,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Spec-first bug fixes reuse an unambiguous approved test name for its diagnosis
+  case instead of requesting a duplicate function (#1969). Both case IDs still
+  need proof; guards, legacy jobs and protected test files retain their checks.
+
 - Draft proof corrections can update only the verification method through a bound
   criterion delta, retaining the saved wording and sources exactly (#1966). A
   literal Python suite mistakenly labeled as a test name can lose only that prefix

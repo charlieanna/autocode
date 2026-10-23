@@ -47,6 +47,8 @@ SUITE_CONSUMERS = (
 # Prefixes deliberately include resource fragments, whose callers generally do
 # not contain the fragment filename. These policy tests check their own handoffs.
 RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tools/prompts/acceptance-tests.md", ("tests.test_acceptance_tests",)),
+    ("tools/prompts/fragments/test-cases/diagnosis-builder-note.md", ("tests.test_acceptance_tests",)),
     ("tools/providers/configs/kilocode.toml", ("tests.test_planning",)),
     ("tests/resolver_recommendation_provider.py", ("tests.test_resolver_recommendation_cli",)),
     ("tools/prompts/bug-investigation.md", ("tests.test_bug_job",)),
@@ -134,6 +136,14 @@ RESOURCE_CONSUMERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # that previously broke master would remain. These are fake-provider consumers,
 # never a request to qualify against live models.
 CLI_CONSUMERS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        (
+            "tools/autocode_acceptance_tests.py",
+            "tools/autocode_acceptance_tests_job.py",
+            "tools/autocode_test_cases.py",
+        ),
+        ("tests.test_acceptance_tests",),
+    ),
     (("tools/autocode_python_tests.py", "tools/autocode_verify.py"), ("tests.test_acceptance_tests",)),
     (
         ("tools/autocode_plan_chat.py", "tools/autocode_requirements_handoff.py", "tools/prompts/plan-chat.md"),
