@@ -710,10 +710,22 @@ class AcceptanceTestsCliTests(unittest.TestCase):
         loaded = catalog.load("feature-stock-refusals")
         self.scenario = dataclasses.replace(loaded, fake_fault="", fake_criteria=dict(CASES))
 
-    def run_to_end(self, *planning, env=None):
+    def run_to_end(self, *planning, env=None, plan_messages=None):
         self.plan_approvals = []
         project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
         flags, provider_env = fake_setup(self.scenario, self.root, self.scenario.dir / "reference")
+        if plan_messages:
+            # Script only the declared replies. Runtime intent interpretation is still the provider's job.
+            provider = self.root / "bin" / "codex"
+            marker = "def report_for(stage: str, data: dict) -> dict:\n"
+            amendment = (
+                '    if stage == "requirements_gather" and data.get("message"):\n'
+                f'        intent, reply = {plan_messages!r}[data["message"]["text"]]\n'
+                '        return {"message_id": data["message"]["id"],\n'
+                '                "contract_token": data["message"]["contract_token"],\n'
+                '                "intent": intent, "assistant_reply": reply}\n'
+            )
+            provider.write_text(provider.read_text().replace(marker, marker + amendment))
         environment = {
             **provider_env,
             "AUTOCODE_HOME": str(self.root / "registry"),
@@ -873,7 +885,13 @@ def test_page_size_must_be_positive():
         # The scripted reproduction names test_first_page, which the seed already passes (#1869).
         loaded = catalog.load("bugfix-trivial")
         self.scenario = dataclasses.replace(loaded, fake_criteria={"C9": "test: test_first_page"})
-        run, project, view = self.run_to_end("--joint-planning", "--no-adaptive-planning", "--spec-first")
+        correction = "The reproduction passes: the diagnosis names the wrong cause; look again."
+        run, project, view = self.run_to_end(
+            "--joint-planning",
+            "--no-adaptive-planning",
+            "--spec-first",
+            plan_messages={correction: ("change", "I will revise the diagnosis and return the plan for approval.")},
+        )
         self.assertEqual("PAUSED_ACCEPTANCE_TESTS", view["status"], self.details(view))
         self.assertEqual("resume", view["needs"]["kind"])
         self.assertIn("--feedback", view["needs"]["action"])
@@ -883,10 +901,42 @@ def test_page_size_must_be_positive():
         self.assertIn("--feedback MESSAGE", offered["next_command"])
         self.assertIn("--feedback", view["next_command"])
         self.assertNotIn("--resume-paused", view["next_command"])
-        after = run.feedback("The reproduction passes: the diagnosis names the wrong cause; look again.")
+        after = run.feedback(correction)
         self.assertNotEqual("PAUSED_ACCEPTANCE_TESTS", after["status"], self.details(after))
         view = run.advance_until_input()
         self.assertEqual("approve_plan", view["needs"]["kind"], self.details(view))
+
+    def test_a_question_at_the_approved_acceptance_hold_does_not_restart_planning(self):
+        loaded = catalog.load("bugfix-trivial")
+        self.scenario = dataclasses.replace(loaded, fake_criteria={"C9": "test: test_first_page"})
+        question = "What needs changing here?"
+        reply = "The proposed reproduction already passes; a corrected diagnosis is needed before retrying."
+        correction = "Change the expected first-page result to a tuple."
+        run, project, before = self.run_to_end(
+            "--joint-planning",
+            "--no-adaptive-planning",
+            "--spec-first",
+            plan_messages={question: ("question", reply), correction: ("change", "I will revise the expected result.")},
+        )
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", before["status"], self.details(before))
+        order = self.stage_order(run)
+        approved = before["approved_contract"]
+        run.feedback(question)
+        answered = run.advance_until_input()
+        self.assertEqual("PAUSED_ACCEPTANCE_TESTS", answered["status"], self.details(answered))
+        self.assertEqual(before["stop_reason"], answered["stop_reason"])
+        self.assertEqual(approved, answered["approved_contract"])
+        self.assertEqual(order + ["requirements-gather"], self.stage_order(run))
+        self.assertEqual([question, reply], [row["text"] for row in answered["chat"]["messages"]][-2:])
+        self.assertEqual(1, len(self.plan_approvals))
+        self.assertNotIn("builder", self.stage_order(run))
+        # A real change still invalidates approval and must return to review, even after a discussion.
+        run.feedback(correction)
+        queued = run.advance_until_input()
+        self.assertEqual("approve_plan", queued["needs"]["kind"], self.details(queued))
+        self.assertNotEqual(approved["token"], queued["needs"]["token"])
+        with self.assertRaises(taskrun.TaskRunError):
+            run.approve_plan(approved["token"])
 
     def test_a_bug_fix_plans_case_that_already_works_goes_back_to_plan_review_as_a_guard(self):
         # A bug fix's plan can add test: cases beside the Investigator's reproduction (#1868). One that already
