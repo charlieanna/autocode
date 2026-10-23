@@ -103,14 +103,14 @@ class PlanSentBackTwice(unittest.TestCase):
     prepare = test_planning.JointFlow.prepare
     new_run_engine_args = ()
 
-    def plan(self, review_call_limit=None):
+    def plan(self, review_call_limit=None, *launch):
         self.prepare()
         if review_call_limit is not None:
             # A new run's allowance from the user's config.toml (#1565); the fixture's XDG_CONFIG_HOME.
             config = self.root / "config" / "autocode" / "config.toml"
             config.parent.mkdir(parents=True, exist_ok=True)
             config.write_text(f"plan_review_call_limit = {review_call_limit}\n")
-        self.launch(["Build a greeting tool", "--no-chat"], 2)
+        self.launch(["Build a greeting tool", "--no-chat", *launch], 2)
         run, _ = self.saved()
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
@@ -122,8 +122,13 @@ class PlanSentBackTwice(unittest.TestCase):
         drafts = [index for index, row in enumerate(rows) if row["stage"] == "astra_discovery"]
         return [(row["stage"], (row.get("launch_route") or {}).get("model")) for row in rows[drafts[-1] :]]
 
-    def test_the_second_blocked_challenge_moves_the_next_revision_to_opus(self):
-        run, state = self.plan(3)
+    def test_the_second_blocked_challenge_moves_the_next_revision_to_a_stronger_model(self):
+        # The fake provider lists GPT, GLM and MiMo models but no Claude one, so the launch keeps only the
+        # GPT-6 Sol rung; a MiMo Plan Reviewer leaves it outside the reviewer's family.
+        run, state = self.plan(3, "--plan-reviewer-model", "xiaomi-token-plan-sgp/mimo-v2.6-pro")
+        self.assertEqual(
+            [["openai/gpt-6-sol", "high", "GPT-6 Sol High"]], state["settings"]["route_ladders"]["planner"]
+        )
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         stages = [stage for stage, _model in self.planning_stages(state)]
         self.assertEqual(
@@ -131,11 +136,11 @@ class PlanSentBackTwice(unittest.TestCase):
             stages,
         )
         revisions = [model for stage, model in self.planning_stages(state) if stage == "glm_revise"]
-        self.assertEqual(["zai-coding-plan/glm-5.3", "anthropic/claude-opus-5-5"], revisions)
+        self.assertEqual(["zai-coding-plan/glm-5.3", "openai/gpt-6-sol"], revisions)
         [event] = [row for row in state["reasoning_escalations"] if row["role"] == "glm"]
         self.assertEqual("plan_sent_back", event["trigger"])
         self.assertIn("challenge 2", event["detail"])
-        self.assertEqual("anthropic/claude-opus-5-5", state["settings"]["roles"]["glm"]["model"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["glm"]["model"])
         rotated = [row for row in state.get("session_rotations", []) if row["role"] == "glm"]
         self.assertEqual(1, len(rotated))
         self.assertNotEqual(rotated[0]["old_session"], state["sessions"].get("glm"))
