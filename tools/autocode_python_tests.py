@@ -1,4 +1,4 @@
-"""Parse literal Python test commands and named unittest output without running them."""
+"""Parse Python test declarations, literal commands and results without running them."""
 
 import ast
 import re
@@ -19,6 +19,55 @@ UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected s
 UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
 
 TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
+
+
+def prefers_pytest(sources: dict[str, str]) -> bool:
+    """Declared pytest tests need pytest; explicit unittest load_tests hooks win.
+
+    Only default pytest module names imply collection without configuration.
+    Package markers are inspected for hooks, never treated as test modules.
+    """
+    found = False
+    for path, source in sources.items():
+        try:
+            nodes = ast.parse(source).body
+        except (SyntaxError, ValueError):
+            continue  # Execution still has to establish complete collection.
+        name = Path(path).name
+        collectable = name.startswith("test_") or name.endswith("_test.py")
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name == "load_tests":
+                    return False
+                found |= collectable and node.name.startswith("test_")
+            elif isinstance(node, (ast.Import, ast.ImportFrom)) and any(
+                (alias.asname or alias.name) == "load_tests" for alias in node.names
+            ):
+                return False
+            elif collectable and isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+                unittest_class = any(
+                    isinstance(base, ast.Attribute)
+                    and base.attr == "TestCase"
+                    or isinstance(base, ast.Name)
+                    and base.id == "TestCase"
+                    for base in node.bases
+                )
+                found |= not unittest_class and any(
+                    isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith("test_")
+                    for child in node.body
+                )
+    return found
+
+
+def prefers_pytest_in(directory, files, read) -> bool:
+    """Inspect only test modules and package collection hooks from the caller's inventory."""
+    return prefers_pytest(
+        {
+            path: read(directory / path)
+            for path in files
+            if TEST_MODULE.match(Path(path).name) or Path(path).name == "__init__.py"
+        }
+    )
 
 
 def unittest_package(source: str) -> bool:

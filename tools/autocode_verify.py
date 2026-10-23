@@ -541,21 +541,12 @@ def detect_framework(root, *, python=None, test_root=None, base=None, package=No
     ]
     if test_root is not None:
         return _rooted_python(root, test_roots.normalize(test_root), files, python, base=base)
-    names = {PurePosixPath(p).name for p in files}
     has_python = any(p.endswith(".py") for p in files)
     if has_python:
         python = python or python_for(root)
-        pyproject, setup_cfg, tox = _read(root / "pyproject.toml"), _read(root / "setup.cfg"), _read(root / "tox.ini")
-        requirements = " ".join(_read(root / p) for p in files if re.match(r"(.*/)?requirements.*\.(txt|in)$", p))
-        configured = (
-            "pytest.ini" in names
-            or "conftest.py" in names
-            or "[tool.pytest" in pyproject
-            or "[tool:pytest]" in setup_cfg
-            or "[pytest]" in tox
-            or re.search(r"\bpytest\b", requirements + pyproject)
-        )
-        if configured and _python_can_import(python, "pytest"):
+        configured = _pytest_configured(root, files)
+        style = python_tests.prefers_pytest_in(root, files, _read)
+        if style or (configured and _python_can_import(python, "pytest")):
             return Framework(
                 "pytest",
                 f"{shlex.quote(python)} -m pytest -q -p no:cacheprovider --continue-on-collection-errors",
@@ -692,6 +683,8 @@ def _rooted_python(workspace, test_root, files, python, *, base=None) -> Framewo
                     if PurePosixPath(path).name in _PYTEST_NATIVE_CONFIGS or PurePosixPath(path).name == "conftest.py":
                         read(policy_dir / path)
                 configured |= _pytest_configured(policy_dir, relative, read=read)
+                if policy_dir == directory:
+                    configured |= python_tests.prefers_pytest_in(policy_dir, relative, read)
             except (OSError, ValueError, RuntimeError):
                 return None  # Unknown policy cannot authorize a smaller or first suite.
     files = test_roots.inside(test_root, files)

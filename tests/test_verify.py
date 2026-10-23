@@ -118,6 +118,31 @@ class ProjectFixtureTests(unittest.TestCase):
         self.assertEqual([], [argv for argv in children if {"maintenance", "gc"} & set(argv)], children)
 
 
+class PythonStyleDetectionTests(unittest.TestCase):
+    def test_bare_function_suite_without_config_is_detected_as_pytest(self):
+        project = Project({"test_totals.py": "def test_sum():\n assert 1 + 1 == 2\n"})
+        self.addCleanup(project.close)
+        with mock.patch.object(verify, "_python_can_import", return_value=False):
+            framework = verify.detect_framework(project.root, python=sys.executable)
+        self.assertEqual("pytest", framework.name)
+        self.assertIn("-m pytest", framework.targeted(["test_totals.py"]))
+
+    def test_rooted_detection_retains_pinned_pytest_style_and_ignores_other_roots(self):
+        project = Project({"pkg/test_totals.py": "def test_sum():\n assert 1 + 1 == 2\n"})
+        self.addCleanup(project.close)
+        (project.root / "pkg/test_totals.py").write_text(
+            "import unittest\nclass Totals(unittest.TestCase):\n def test_sum(self): pass\n"
+        )
+        framework = verify.detect_framework(project.root, python=sys.executable, test_root="pkg", base=project.base)
+        self.assertEqual("pytest", framework.name)
+        (project.root / "other").mkdir()
+        (project.root / "other/test_legacy.py").write_text(
+            "import unittest\nclass Legacy(unittest.TestCase):\n def test_old(self): pass\n"
+        )
+        framework = verify.detect_framework(project.root, python=sys.executable, test_root="other", base=project.base)
+        self.assertEqual("unittest", framework.name)
+
+
 class ComponentCollectionTests(unittest.TestCase):
     def test_package_markers_and_comment_mentions_do_not_hide_go_or_node_suites(self):
         for marker in ("", "# load_tests and unittest.TestCase are not declarations\n", "VALUE = 'load_tests'\n"):

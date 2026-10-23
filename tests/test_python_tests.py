@@ -9,8 +9,32 @@ from unittest import mock
 
 import autocode_test_environment as test_environment
 import autocode_verify as verify
-from autocode_python_tests import parse, unittest_results, verbose_unittest
+from autocode_python_tests import parse, prefers_pytest, unittest_results, verbose_unittest
 from autocode_verification_schedule import collection_kind
+
+
+class DeclaredTestStyleTests(unittest.TestCase):
+    def test_real_pytest_declarations_select_the_collector_that_runs_them(self):
+        for source in (
+            "def test_positive():\n assert 1 == 1\n",
+            "class TestTotals:\n def test_positive(self):\n  assert 1 == 1\n",
+            "import unittest\nclass Legacy(unittest.TestCase):\n def test_old(self): pass\n"
+            "def test_positive():\n assert 1 == 1\n",
+        ):
+            with self.subTest(source=source):
+                self.assertTrue(prefers_pytest({"tests/test_totals.py": source}))
+
+    def test_comments_helpers_unittest_and_collection_hooks_do_not_switch_collectors(self):
+        for files in (
+            {"tests/test_totals.py": "# def test_example(): pass\nVALUE = 'def test_fake(): pass'\n"},
+            {"helpers.py": "def test_helper(): pass\n"},
+            {"tests.py": "def test_helper(): pass\n"},
+            {"test_totals.py": "import unittest\nclass TestTotals(unittest.TestCase):\n def test_sum(self): pass\n"},
+            {"test_totals.py": "def test_sum(): pass\ndef load_tests(loader, tests, pattern): return tests\n"},
+            {"test_totals.py": "def test_sum(): pass\n", "tests/__init__.py": "from hooks import load_tests\n"},
+        ):
+            with self.subTest(files=files):
+                self.assertFalse(prefers_pytest(files))
 
 
 class DeclaredPythonEnvironmentTests(unittest.TestCase):

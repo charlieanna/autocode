@@ -15,6 +15,11 @@ PR template asks for an entry here; a change without one is incomplete.
   and return to the same pause without invalidating the plan or repeating review (#1961).
   Actual or mixed change requests still require replanning and fresh approval.
 
+- Projects with declared pytest-style test functions or classes use pytest for
+  automatic acceptance and regression checks even without a pytest config (#1960).
+  Explicit commands and unittest collection hooks keep their authority; scoped
+  checks retain pinned-base framework evidence instead of collecting zero tests.
+
 - An authorized Builder classification retry on a run whose time, cost or iteration limit is
   already spent, or whose provider transport changed, now pauses on that hold instead of
   recording a failed classification and offering the same retry again (#1949). Raising the
