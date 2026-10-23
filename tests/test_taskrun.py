@@ -71,7 +71,12 @@ class RunViewTests(unittest.TestCase):
                 self.assertEqual("autocode --run-dir /runs/r1 --workspace /project --no-chat", shown["next_command"])
 
     def test_continue_with_a_retained_attempt_or_runner_check_names_no_advance(self):
-        for retained in ({"active_stage": {"stage": "terra"}}, {"active_runner_check": {"stage": "regression"}}):
+        for retained in (
+            {"active_stage": {"stage": "terra"}},
+            {"active_stage": {}},
+            {"active_runner_check": {"stage": "regression"}},
+            {"active_runner_check": {}},
+        ):
             with self.subTest(retained=retained):
                 shown = run_view.action({"status": "RUNNING", **retained})
                 self.assertEqual("continue", shown["needs"]["kind"])

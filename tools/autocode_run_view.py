@@ -780,8 +780,8 @@ def action(state: RunState, *, run_dir=None, workspace=None, stale_report_repair
         need = {**need, "command_inputs": inputs}
     ready_boundary = (
         (need or {}).get("kind") == "continue"
-        and not state.get("active_stage")
-        and not state.get("active_runner_check")
+        and state.get("active_stage") is None
+        and state.get("active_runner_check") is None
     )
     return {
         "needs": need,
