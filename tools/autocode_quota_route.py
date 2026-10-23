@@ -381,8 +381,8 @@ def question(
             question=f"{job} exceeded its execution time limit; name another model or retry unchanged",
             why=(
                 f"The {job} did not finish on {stopped_on} within its saved time limit. "
-                "An unchanged retry can time out again. Explicitly name another model for this job only, "
-                "or keep the exact retry. AutoCode never changes routes, effort or limits on its own; "
+                "An unchanged retry can time out again. Enter the current model to explicitly keep it, "
+                "or name another model for this job only. AutoCode never changes routes, effort or limits on its own; "
                 "the archived attempt and recorded usage are retained."
             ),
         )
@@ -646,12 +646,15 @@ def validate(
     cross_check,
     job: str | None = None,
     current: str | None = None,
+    allow_unchanged: bool = False,
 ) -> None:
     """Refuse a model a launch would refuse: wrong format for the engine, unchanged, or a cross-model clash.
 
     ``job`` names the role as the question does (``Tester``), never by its code name. ``current`` is the
     model the stopped attempt ran on when the role's saved route has moved since (a parallel Builder whose
     sibling's answer already moved it, #465); unchanged means unchanged from that model.
+    Only a retained, fully stopped timeout job permits ``allow_unchanged``: its
+    token-bound answer explicitly confirms the existing model without launching it.
     """
     settings = state.get("settings") or {}
     route = (settings.get("roles") or {}).get(role)
@@ -669,7 +672,7 @@ def validate(
         problem = f"{job} needs a model name without spaces"
     if problem:
         raise ValueError(problem)
-    if (current or route.get("model")) == model:
+    if not allow_unchanged and (current or route.get("model")) == model:
         raise ValueError(f"The {job} already uses {model}; name a different model")
     clash = _clashes(settings, role, model, cross_check)
     if clash:

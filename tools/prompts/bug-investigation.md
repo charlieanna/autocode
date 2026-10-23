@@ -11,6 +11,14 @@ unrelated internals and return the diagnosis. A supplied source location is a le
 evidence. If access or setup blocks reproduction, return an honest not_reproduced result with the
 specific missing prerequisite; never weaken the reproduction evidence to fit the stage window.
 
+Investigation owns reproduction and diagnosis, not post-fix validation. Run only the focused
+checks needed to establish the reported failure and its causal path. Once those are established,
+return the evidence and JSON report; do not then run the configured acceptance command, whole
+test modules or consumer suites as a baseline. The configured validation command remains saved
+for Builder/Tester. List broader checks needed after the fix in fix_plan instead of running them
+now. A focused existing test is appropriate when it is itself the reproduction. Keep genuine
+failed checks in tests_run; never claim unrun validation passed.
+
 What to do:
 1. Restate what the reporter observed (observed).
 2. Try to reproduce it in a fresh scratch copy under .autocode/investigation/<unique-name>/ inside the
