@@ -103,6 +103,10 @@ DIAGNOSE_ONLY = frozenset(
     {"PAUSED_REPORT_REPAIR_LIMIT", "PAUSED_BUILDER_RETRY_LIMIT", "PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_REPLAN"}
 )
 STATUSES = RETRYABLE | DIAGNOSE_ONLY
+# Run-wide bounds checked at every stage boundary. One reached before a queued Builder
+# classification launched stops the run, not the Investigator (#1949): the classification stays
+# queued under that pause, whose own raise lets it run, and no classification is spent.
+BOUNDARY_LIMITS = frozenset({"PAUSED_TIME_LIMIT", "PAUSED_COST_LIMIT", "PAUSED_ITERATION_LIMIT"})
 PLANNING = roles.ALL_PLANNING_STAGES
 # Diagnosticians are never themselves investigated.
 NEVER = (STAGE, "astra_diagnose", "astra_resolve")
@@ -638,6 +642,20 @@ def grant_one_attempt(state: RunState, request: dict) -> None:
         state["no_progress_batches"] = max(0, limit - 1)
 
 
+def launched(state: RunState, request: dict) -> bool:
+    """Whether a Builder classification's Investigator has started since it was queued.
+
+    Only that request waits out a boundary limit: any other investigation, or one that started,
+    is abandoned as before."""
+    if request.get("mode") != "builder_failure" or not request.get("requested_at"):
+        return True
+    return any(
+        (row.get("original_stage") or str(row.get("stage", "")).removesuffix("_report_repair")) == STAGE
+        and row.get("started_at", "") >= request["requested_at"]
+        for row in state.get("stages") or []
+    )
+
+
 def abandon(state: RunState, error: str) -> tuple[str, str]:
     """The investigation itself failed: restore the original pause, never a worse one."""
     request = state.pop("stuck_investigation")
@@ -788,6 +806,9 @@ def drive(
             if current and not current.get("in_force") and state.get("next_stage") == STAGE:
                 if state.get("active_stage"):
                     # An unreconciled attempt pauses like any stage; the investigation reruns after.
+                    raise
+                if status in BOUNDARY_LIMITS and not launched(state, current):
+                    release_route(state)
                     raise
                 status, reason = abandon(state, reason)
                 if persist:
