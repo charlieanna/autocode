@@ -120,3 +120,37 @@ class CostBreakdownTests(unittest.TestCase):
         [outcome] = view["breakdown"]["by_process_outcome"]
         self.assertEqual(("unknown", 2, 1), (outcome["process_outcome"], outcome["stages"], outcome["unpriced_stages"]))
         cost.line(view)
+
+
+class BillingBreakdownTests(unittest.TestCase):
+    """How each stage bills, so an API-equivalent figure is not read as a subscription's bill (#1924)."""
+
+    def stage(self, model):
+        tokens = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        return {"stage": "terra", "model": model, "metrics": {"provider_tokens": tokens}}
+
+    def test_stages_are_grouped_by_how_their_model_bills(self):
+        state = {
+            "settings": {
+                # An automatically selected run saved the billing discovery found for each candidate.
+                "route_selection": {"candidates": {"sol": [{"model": "openai/gpt-6-sol", "billing": "subscription"}]}}
+            },
+            "stages": [
+                # The plan reports 0, which events record as no reported cost: priced API-equivalent.
+                self.stage("zai-coding-plan/glm-5.3"),
+                self.stage("openai/gpt-6-sol"),
+                self.stage("kilo/openai/gpt-6-sol"),
+                self.stage("openai/gpt-5.6-terra"),  # an OpenAI login a saved run does not record
+                self.stage("gpt-5.6-sol"),  # a bare Codex id: the engine's own login decides
+            ],
+        }
+        detail = cost.view(state)["breakdown"]
+        groups = {row["billing"]: row for row in detail["by_billing"]}
+        self.assertEqual(
+            {"subscription": 2, "pay per token": 1, "unknown": 2}, {k: v["stages"] for k, v in groups.items()}
+        )
+        self.assertIsNone(groups["subscription"]["reported_usd"])
+        self.assertGreater(groups["subscription"]["estimated_usd"], 0)
+        self.assertEqual(
+            sum(row["stages"] for row in detail["by_stage"]), sum(row["stages"] for row in detail["by_billing"])
+        )

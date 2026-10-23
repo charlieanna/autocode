@@ -77,6 +77,22 @@ PR template asks for an entry here; a change without one is incomplete.
 - Time a run spent waiting for the person is now measured. Each question, plan approval or other request a
   person answered counts from when it became answerable to their response, under `efficiency.time`'s `waiting`
   category, so it is kept apart from execution time. The category had no source before (#1867 S1d).
+- `cost.breakdown.by_billing` groups a run's spend by how each stage's model bills (subscription, pay per token
+  or unknown), so an API-equivalent estimate for a coding-plan stage is no longer indistinguishable from a
+  metered one. The provider billing table moved from `model_catalogue` to `autocode_role_route` so the cost
+  view can use it; it is still one table (#1867 S1b).
+- Cost per accepted task is no longer always unknown on coding-plan routes. `efficiency.unit_metrics.spent_usd`
+  divides the run's own spend (`cost.spent_usd`: reported where the provider reported, else the dated-table
+  estimate) by the accepted deliveries, and stays null with a reason while any stage is unpriced, partial or
+  running. `reported_usd` is unchanged (#1867 S1c).
+- The status-view schema now requires the eight fields the view always returns (`workspace`, `run_dir`,
+  `planning_depth`, `pause`, `package`, `tool_containment_backend`, `changes_by_criterion`, `dev_server`), so
+  removing one fails the JSON contract test, and a new always-present field must be added to the schema
+  (#1867 S1f).
+- A price table update no longer rewrites what earlier stages cost. A row in `tools/autocode_prices.json`
+  can keep the rates it replaced in `history`, each with the date it stopped applying, and every stage is priced at
+  the rate in force on the day it finished, so a resumed run's spend and money-cap decision stay as they were.
+  `cost.breakdown.price_bases` lists the rates used (#1867 S1a).
 - `efficiency.repeats` in the status view now counts a check the runner executed again although the same
   obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
   an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was

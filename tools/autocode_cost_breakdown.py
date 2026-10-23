@@ -14,8 +14,10 @@ if TYPE_CHECKING:
     from .autocode_run_state import RunState
 
 try:
+    from . import autocode_role_route as role_route
     from . import autocode_roles as roles
 except ImportError:
+    import autocode_role_route as role_route
     import autocode_roles as roles
 
 
@@ -71,9 +73,12 @@ def summary(rows, state: RunState):
         if stage.endswith("_report_repair"):
             group["job"] += " (report repair)"
     unpriced = [row for row in rows if row["basis"] == "unknown"]
+    # How each stage bills (#1924): a subscription stage's estimate is the API-equivalent figure, not its bill.
+    billed = [{**row, "billing": role_route.billing(row.get("model"), settings) or "unknown"} for row in rows]
     return {
         "by_stage": by_stage,
         "by_process_outcome": _group(rows, "process_outcome"),
+        "by_billing": _group(billed, "billing"),
         # Why each unpriced stage has no cost (#1713); a count, never a guessed amount.
         "unpriced": {
             "usage_missing": sum(row["unpriced_reason"] == "usage_missing" for row in unpriced),

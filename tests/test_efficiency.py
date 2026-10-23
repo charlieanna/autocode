@@ -298,6 +298,28 @@ class OutcomeTests(unittest.TestCase):
         self.assertEqual(original["validation"]["design_results"], state["validation"]["design_results"])
         self.assertIsNone(after["visual"]["cases"][0]["first_accepted_at"])
 
+    def test_cost_per_accepted_task_uses_the_runs_spend_once_every_stage_is_priced(self):
+        # #1925: a coding-plan run reports no cost, so reported_usd per accepted task was always null.
+        import autocode_prices as prices
+
+        tokens = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        priced = attempt(model="zai-coding-plan/glm-5.3", metrics={"provider_tokens": tokens})
+        units = efficiency.summary({"status": "TASK_COMPLETE", "stages": [priced]}, completion_current=True)[
+            "unit_metrics"
+        ]
+        self.assertIsNone(units["reported_usd"]["value"])
+        self.assertAlmostEqual(prices.estimate("zai-coding-plan/glm-5.3", tokens), units["spent_usd"]["value"])
+        self.assertEqual(1, units["spent_usd"]["denominator"])
+        unpriced = {"status": "TASK_COMPLETE", "stages": [priced, attempt(identity="two")]}
+        units = efficiency.summary(unpriced, completion_current=True)["unit_metrics"]
+        self.assertIsNone(units["spent_usd"]["value"])
+        self.assertIn("Cost coverage is incomplete", units["spent_usd"]["reason"])
+        units = efficiency.summary({"status": "TASK_COMPLETE", "stages": [priced]}, completion_current=False)[
+            "unit_metrics"
+        ]
+        self.assertIsNone(units["spent_usd"]["value"])
+        self.assertEqual("No currently verified delivery", units["spent_usd"]["reason"])
+
     def test_generic_completion_is_available_but_pass_review_is_not_taskrun_done(self):
         for status, expected in (("PASS", False), ("RUNNING", False), ("TASK_COMPLETE", True), ("COMPLETE", True)):
             with self.subTest(status=status):

@@ -171,5 +171,48 @@ class CostProjectionTests(unittest.TestCase):
             cost.check(["not", "an", "object"])
 
 
+class TariffUpdateTests(unittest.TestCase):
+    """A rate change does not reprice what earlier stages cost, or flip a resumed run's cap (#1867 S1a)."""
+
+    def test_a_tariff_update_keeps_earlier_spend_and_the_cap_decision(self):
+        import copy
+        import json
+        from pathlib import Path
+        from unittest import mock
+
+        shipped = json.loads((Path(prices.__file__).with_name("autocode_prices.json")).read_text())
+        model = "openai/gpt-5.6-sol"
+        tokens = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        earlier = stage(model, tokens, finished_at="2026-10-10T12:00:00+00:00")
+        state = run(earlier, cap=None)
+        before = cost.view(state)["spent_usd"]
+        updated = copy.deepcopy(shipped)
+        row = updated["models"][model]
+        updated["models"][model] = {
+            **row,
+            "input": row["input"] * 3,
+            "output": row["output"] * 3,
+            "retrieved": "2026-10-20",
+            "history": [
+                {key: row[key] for key in ("input", "output", "source", "retrieved")} | {"until": "2026-10-20"}
+            ],
+        }
+        cap = round(before * 2, 6)
+        with mock.patch.object(prices, "table", return_value=prices.parse(updated)):
+            self.assertEqual(before, cost.view(state)["spent_usd"])
+            self.assertFalse(cost.exceeded(run(earlier, cap=cap)))
+            later = stage(model, tokens, finished_at="2026-10-21T09:00:00+00:00")
+            both = cost.view(run(earlier, later))
+            self.assertAlmostEqual(before * 4, both["spent_usd"])
+            self.assertEqual(
+                [("openai/gpt-5.6-sol", "2026-10-20", 1), ("openai/gpt-5.6-sol", None, 1)],
+                [(base["model"], base["until"], base["stages"]) for base in both["breakdown"]["price_bases"]],
+            )
+        # Without the history entry, the same update would have tripled the earlier stage.
+        updated["models"][model].pop("history")
+        with mock.patch.object(prices, "table", return_value=prices.parse(updated)):
+            self.assertAlmostEqual(before * 3, cost.view(state)["spent_usd"])
+
+
 if __name__ == "__main__":
     unittest.main()
