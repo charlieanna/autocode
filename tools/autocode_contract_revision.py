@@ -15,12 +15,14 @@ try:
     from . import autocode_contract_delta as delta
     from . import autocode_draft_examples as examples
     from . import autocode_protected_text as protected
+    from . import autocode_python_tests as python_tests
     from . import autocode_rewording_question as rewording
     from . import autocode_test_cases as test_cases
 except ImportError:
     import autocode_contract_delta as delta
     import autocode_draft_examples as examples
     import autocode_protected_text as protected
+    import autocode_python_tests as python_tests
     import autocode_rewording_question as rewording
     import autocode_test_cases as test_cases
 
@@ -74,6 +76,15 @@ def protected_proof(state: RunState, criterion: dict) -> bool:
     return False
 
 
+def _demarked_literal_suite(before, after):
+    """An invalid test-name binding may retain exactly the same literal Python suite."""
+    original = str(before or "").strip()
+    if test_cases.mark(original) != test_cases.MARK:
+        return False
+    command = original[len(test_cases.MARK) :].strip()
+    return str(after or "").strip() == command and python_tests.parse(command) is not None
+
+
 def draft_proof_corrections(state: RunState, before: dict, after: dict, reworded=()) -> set[str]:
     """Only planner-generated draft proofs may change without a saved user basis.
 
@@ -82,8 +93,9 @@ def draft_proof_corrections(state: RunState, before: dict, after: dict, reworded
     A criterion the unapproved-wording allowance may reword may correct its verification with
     the same revision: a live revision aligned AC9's README prose with the user's storage answer,
     kept the request quote, and was still refused because the proof had moved with the wording
-    (a live planning revision, 2026-10-21). A marked proof still never becomes an unmarked command, and a user-protected proof
-    never changes here.
+    (a live planning revision, 2026-10-21). A real marked test/guard never becomes an unmarked command.
+    Only a literal Python suite mistakenly prefixed test: may lose that exact prefix while keeping
+    the command identical. A user-protected proof never changes here.
     """
     contract = state.get("goal_contract") or {}
     if contract.get("approval_status") != "draft" or contract.get("approval_event"):
@@ -98,7 +110,11 @@ def draft_proof_corrections(state: RunState, before: dict, after: dict, reworded
         and old[cid].get("human_review") == new[cid].get("human_review")
         and str(new[cid].get("verification_method") or "").strip()
         and old[cid]["verification_method"] != new[cid]["verification_method"]
-        and not (marked(old[cid]["verification_method"]) and not marked(new[cid]["verification_method"]))
+        and not (
+            marked(old[cid]["verification_method"])
+            and not marked(new[cid]["verification_method"])
+            and not _demarked_literal_suite(old[cid]["verification_method"], new[cid]["verification_method"])
+        )
         and not protected_proof(state, old[cid])
     }
 

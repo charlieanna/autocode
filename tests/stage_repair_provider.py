@@ -175,6 +175,16 @@ def main():
         # proposal may legitimately change, so it is not a protected-proof
         # negative control (autocode_contract_revision.draft_proof_corrections).
         value["contract"]["acceptance_criteria"][0]["verification_method"] = "test: test_c1_greeting"
+    if stage == "astra_discovery" and case in (
+        "criteria-delta-proof-only",
+        "criteria-delta-proof-only-repair",
+        "criteria-delta-proof-weakened",
+    ):
+        value["contract"]["acceptance_criteria"][0]["verification_method"] = (
+            "test: test_c1_greeting"
+            if case == "criteria-delta-proof-weakened"
+            else "test: python3 -m unittest -v test_greet.py"
+        )
     if stage == "astra_challenge" and case == "review-policy":
         # Follow the actual active writer commands, rather than returning PASS
         # regardless of the instructions. Contextual audit rules are data.
@@ -245,7 +255,7 @@ def main():
                 "upsert": [],
                 "remove": [],
             }
-            if case == "criteria-delta-repair":
+            if case in ("criteria-delta-repair", "criteria-delta-proof-only-repair"):
                 value.pop("summary")  # one unrelated formatting fault
         delta = value["contract"]["acceptance_criteria"]
         row["delta_offered"] = "CRITERIA DELTA." in prompt
@@ -261,6 +271,24 @@ def main():
                 original = data["goal_contract"]["body"]["acceptance_criteria"][0]
             delta["upsert"] = [{**copy.deepcopy(original), "verification_method": "echo PASS"}]
             value["contract_changes"] = []
+        elif case in ("criteria-delta-proof-only", "criteria-delta-proof-only-repair", "criteria-delta-proof-weakened"):
+            original = (data["protected_contract"] if repair else data["goal_contract"]["body"])["acceptance_criteria"][
+                0
+            ]
+            delta["proofs"] = [
+                {
+                    "id": original["id"],
+                    "verification_method": (
+                        original["verification_method"][len("test:") :].strip()
+                        if case != "criteria-delta-proof-weakened"
+                        else "echo PASS"
+                    ),
+                }
+            ]
+            value["contract_changes"] = []
+            row["proof_rule_offered"] = "PROOF-ONLY DELTA" in prompt
+            if not repair:
+                row["criteria_before"] = copy.deepcopy(data["goal_contract"]["body"]["acceptance_criteria"])
         row["criteria_delta"] = copy.deepcopy(delta)
     elif stage == "glm_revise" and case in ("retained-criteria", "retained-criteria-large"):
         if repair:

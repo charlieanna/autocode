@@ -11,6 +11,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Changed
 
+- Draft proof corrections can update only the verification method through a bound
+  criterion delta, retaining the saved wording and sources exactly (#1966). A
+  literal Python suite mistakenly labeled as a test name can lose only that prefix
+  before approval; real test/guard obligations and user-protected proofs stay protected.
+
 - Collector regressions run on the interpreter owning the declared test dependency;
   multi-component fake repairs reconstruct historical JSON overlays while preserving
   original failures and evidence, and wrong-collector proof refusals stay covered (#1960).

@@ -149,6 +149,51 @@ class PlanRetentionTests(unittest.TestCase):
             with self.subTest(action=action), self.assertRaises(ValueError):
                 revision.revision_guard(state, expanded["contract"], [], "glm_revise")
 
+    def test_proof_delta_copies_every_other_criterion_field_exactly(self):
+        state = self.state()
+        state["goal_contract"]["approval_status"] = "draft"
+        before = copy.deepcopy(state)
+        proof = {"id": "AC8", "verification_method": "guard: test_all_bad_usage"}
+        report = {
+            "contract": {
+                **state["goal_contract"]["body"],
+                "acceptance_criteria": {**self.delta(state), "proofs": [proof]},
+            }
+        }
+        expanded = retention.expand(state, "glm_revise", report)
+        expected = copy.deepcopy(state["goal_contract"]["body"])
+        expected["acceptance_criteria"][0]["verification_method"] = proof["verification_method"]
+        self.assertEqual(expected, expanded["contract"])
+        self.assertEqual(before, state)
+        revision.revision_guard(state, expanded["contract"], [], "glm_revise")
+        state["goal_contract"]["approval_status"] = "approved"
+        with self.assertRaises(ValueError):
+            revision.revision_guard(state, expanded["contract"], [], "glm_revise")
+
+    def test_proof_delta_rejects_ambiguous_or_hidden_changes(self):
+        state = self.state()
+        proof = {"id": "AC8", "verification_method": "guard: test_all_bad_usage"}
+        for proofs, extras in (
+            ([proof, proof], {}),
+            ([{**proof, "id": "missing"}], {}),
+            ([{**proof, "criterion": "different behavior"}], {}),
+            ([{**proof, "verification_method": " "}], {}),
+            ([proof], {"remove": ["AC8"]}),
+            ([proof], {"upsert": [copy.deepcopy(state["goal_contract"]["body"]["acceptance_criteria"][0])]}),
+            ({}, {}),
+        ):
+            delta = {**self.delta(state), "proofs": proofs, **extras}
+            with self.subTest(delta=delta), self.assertRaisesRegex(ValueError, "criteria delta"):
+                retention.expand(state, "glm_revise", {"contract": {"acceptance_criteria": delta}})
+
+    def test_pinned_old_delta_schema_does_not_offer_the_new_proof_field(self):
+        state = self.state()
+        schema = retention.model_schema(planner.SCHEMAS["glm_revise"], state, "glm_revise")
+        self.assertIn("PROOF-ONLY DELTA", retention.delta_rule(schema))
+        branch = schema["properties"]["contract"]["properties"]["acceptance_criteria"]["anyOf"][1]
+        branch["properties"].pop("proofs")
+        self.assertNotIn("PROOF-ONLY DELTA", retention.delta_rule(schema))
+
     def test_author_schema_offers_delta_with_full_rows_but_keeps_legacy_array(self):
         state = self.state()
         source = copy.deepcopy(planner.SCHEMAS["glm_revise"])

@@ -74,6 +74,33 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     revision_guard(state, after, [], "astra_finalize")
 
+    def test_mismarked_literal_suite_can_lose_only_its_erroneous_test_marker_before_approval(self):
+        command = "python3 -m pytest test_totals.py -q"
+        state, after = self.inputs()
+        old = state["goal_contract"]["body"]["acceptance_criteria"][0]
+        old["verification_method"] = "test: " + command
+        after["acceptance_criteria"][0]["verification_method"] = command
+        revision_guard(state, after, [], "glm_revise")
+        for fields in ({"approval_status": "approved"}, {"origin": "user_cli_edit"}):
+            with self.subTest(fields=fields):
+                state["goal_contract"].update({"approval_status": "draft", "origin": "glm_draft", **fields})
+                with self.assertRaises(ValueError):
+                    revision_guard(state, after, [], "glm_revise")
+
+    def test_marker_correction_cannot_weaken_a_real_test_guard_or_change_the_command(self):
+        for old, new in (
+            ("test: test_ac5_suite", "python3 -m pytest test_totals.py -q"),
+            ("guard: python3 -m pytest test_totals.py -q", "python3 -m pytest test_totals.py -q"),
+            ("test: python3 -m pytest test_totals.py -q", "python3 -m pytest other.py -q"),
+            ("test: python3 -m pytest test_totals.py -q", "Run python3 -m pytest test_totals.py -q"),
+            ("test: python3 -m pytest; echo PASS", "python3 -m pytest; echo PASS"),
+        ):
+            state, after = self.inputs()
+            state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = old
+            after["acceptance_criteria"][0]["verification_method"] = new
+            with self.subTest(old=old, new=new), self.assertRaises(ValueError):
+                revision_guard(state, after, [], "glm_revise")
+
     def revision_report(self):
         state, after = self.inputs()
         before = state["goal_contract"]["body"]
