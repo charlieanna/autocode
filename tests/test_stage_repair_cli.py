@@ -346,8 +346,31 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual(1, sum(row["stage"] == "astra_finalize" for row in trace), trace)
         self.assertFalse(any(row["stage"] == "terra" for row in trace))
 
+    def test_proof_only_delta_keeps_criterion_and_sources_and_needs_only_plan_approval(self):
+        fixture = self.fixture_for("criteria-delta-proof-only")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        self.assertFalse(any(row["repair"] for row in trace), trace)
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual(1, len(revisions), trace)
+        self.assertTrue(revisions[0]["proof_rule_offered"])
+        before = revisions[0]["criteria_before"]
+        after = view["displayed_plan"]["acceptance_criteria"]
+        expected = copy.deepcopy(before)
+        expected[0]["verification_method"] = "python3 -m unittest -v test_greet.py"
+        self.assertEqual(expected, after)
+        self.assertEqual(1, sum(row["stage"] == "astra_challenge" for row in trace))
+        self.assertEqual(1, sum(row["stage"] == "astra_finalize" for row in trace))
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
+        self.assertNotIn("approved_contract", view)
+
     def test_invalid_criteria_deltas_cannot_reach_approval_or_builder(self):
-        for case in ("criteria-delta-stale", "criteria-delta-invalid-row", "criteria-delta-weakened-proof"):
+        for case in (
+            "criteria-delta-stale",
+            "criteria-delta-invalid-row",
+            "criteria-delta-weakened-proof",
+            "criteria-delta-proof-weakened",
+        ):
             with self.subTest(case=case):
                 fixture = self.fixture_for(case)
                 _, _, view, trace = self.plan(fixture)
@@ -355,6 +378,23 @@ class StageRepairCLI(unittest.TestCase):
                 self.assertFalse(view["done"])
                 self.assertTrue(any(row["repair"] for row in trace), trace)
                 self.assertFalse(any(row["stage"] in ("astra_finalize", "terra") for row in trace))
+                if case == "criteria-delta-proof-weakened":
+                    self.assertIn("without a user-backed", view.get("stop_reason", ""))
+                    self.assertIn("test: test_c1_greeting", view.get("stop_reason", ""))
+
+    def test_one_report_repair_preserves_the_pinned_proof_only_delta(self):
+        fixture = self.fixture_for("criteria-delta-proof-only-repair")
+        _, _, view, trace = self.plan(fixture)
+        self.assertEqual("approve_plan", view["needs"]["kind"], view.get("stop_reason"))
+        revisions = [row for row in trace if row["stage"] == "glm_revise"]
+        self.assertEqual([False, True], [row["repair"] for row in revisions])
+        self.assertTrue(revisions[1]["proof_rule_offered"])
+        self.assertEqual(revisions[0]["criteria_delta"], revisions[1]["criteria_delta"])
+        self.assertEqual(
+            "python3 -m unittest -v test_greet.py",
+            view["displayed_plan"]["acceptance_criteria"][0]["verification_method"],
+        )
+        self.assertFalse(any(row["stage"] == "terra" for row in trace))
 
     def test_large_revision_repair_keeps_the_latest_draft_without_repeating_its_predecessor(self):
         fixture = self.fixture_for("retained-criteria-large")

@@ -43,6 +43,18 @@ Do not repeat unchanged rows. Actual edits/removals still require the ordinary c
 receipts, source coverage and independent review; this syntax grants no authority.
 Other contract fields and concern responses are still required by the saved schema.
 """
+PROOF_RULE = """
+PROOF-ONLY DELTA. To correct only a criterion's verification_method, keep upsert=[]
+for that ID and add proofs=[{"id":"AC7","verification_method":"the corrected proof"}]
+to the criteria delta. The runner copies its criterion, sources, human_review and
+every other saved field exactly. Never retype or paraphrase a criterion merely to
+fix a test selector. Use upsert only for genuinely changed/new criterion content.
+All proof authority checks still apply. A valid test:/guard: obligation cannot
+become an ordinary command. In an unapproved model draft only, if test: was put
+before a literal Python suite command, correct it by removing exactly that prefix;
+keep the command identical, without adding prose. Approved or human-provided
+proofs still need their existing user authority.
+"""
 FINAL_PROMPT = """You are the independent Plan Reviewer making the final planning decision.
 Settle EVERY concern by ID against the exact current plan and evidence-backed
 Planner responses. Check dependencies, safety, source coverage and the executable
@@ -111,6 +123,15 @@ def model_schema(schema, state: RunState, stage):
                         "retain_from": {"type": "string", "enum": [token(state)]},
                         "upsert": {"type": "array", "items": full_row},
                         "remove": {"type": "array", "items": {"type": "string"}},
+                        "proofs": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {"id": {"type": "string"}, "verification_method": {"type": "string"}},
+                                "required": ["id", "verification_method"],
+                                "additionalProperties": False,
+                            },
+                        },
                     },
                     "required": ["retain_from", "upsert", "remove"],
                     "additionalProperties": False,
@@ -141,34 +162,57 @@ def allows_delta(schema):
     return any("retain_from" in branch.get("properties", {}) for branch in criteria.get("anyOf", []))
 
 
+def delta_rule(schema=None):
+    """Old pinned repair schemas must never be told to emit a new protocol field."""
+    criteria = (
+        (schema or {}).get("properties", {}).get("contract", {}).get("properties", {}).get("acceptance_criteria", {})
+    )
+    offered = schema is None or any("proofs" in branch.get("properties", {}) for branch in criteria.get("anyOf", []))
+    return DELTA_RULE + (PROOF_RULE if offered else "")
+
+
 def _expand_delta(state: RunState, stage, delta):
     """Apply exact row operations to one hash-bound contract; never guess a copied identity."""
     old = ((state.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria", [])
-    upsert, remove = delta.get("upsert"), delta.get("remove")
+    upsert, remove, proofs = delta.get("upsert"), delta.get("remove"), delta.get("proofs", [])
     if (
         stage not in AUTHORS - FINAL
-        or set(delta) != {"retain_from", "upsert", "remove"}
+        or set(delta) - {"proofs"} != {"retain_from", "upsert", "remove"}
         or not token(state)
         or delta["retain_from"] != token(state)
         or not isinstance(upsert, list)
         or not isinstance(remove, list)
         or not isinstance(old, list)
+        or not isinstance(proofs, list)
+        or any(
+            not isinstance(row, dict)
+            or set(row) != {"id", "verification_method"}
+            or any(not isinstance(row[key], str) or not row[key].strip() for key in ("id", "verification_method"))
+            for row in proofs
+        )
         or any(
             not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"] for row in [*old, *upsert]
         )
         or any(not isinstance(cid, str) or not cid for cid in remove)
     ):
         raise ValueError("Retained criteria delta is stale, malformed or not a criterion-author report")
-    ids, changed = [row["id"] for row in old], [row["id"] for row in upsert]
+    ids, changed, proof_ids = [row["id"] for row in old], [row["id"] for row in upsert], [row["id"] for row in proofs]
     if (
         len(set(ids)) != len(ids)
         or len(set(changed)) != len(changed)
         or len(set(remove)) != len(remove)
         or not set(remove) <= set(ids)
         or set(remove) & set(changed)
+        or len(set(proof_ids)) != len(proof_ids)
+        or not set(proof_ids) <= set(ids)
+        or set(proof_ids) & (set(changed) | set(remove))
     ):
         raise ValueError("Retained criteria delta has duplicate, unknown or conflicting IDs")
     replacements = {row["id"]: row for row in upsert}
+    originals = {row["id"]: row for row in old}
+    replacements.update(
+        {row["id"]: {**originals[row["id"]], "verification_method": row["verification_method"]} for row in proofs}
+    )
     return copy.deepcopy(
         [replacements.get(row["id"], row) for row in old if row["id"] not in remove]
         + [row for row in upsert if row["id"] not in ids]

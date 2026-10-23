@@ -1106,7 +1106,7 @@ def repair_rules(stage, schema):
         )
     return (
         REVISION_CONFLICT_RULE
-        + (retention.DELTA_RULE if retention.allows_delta(schema) else "")
+        + (retention.delta_rule(schema) if retention.allows_delta(schema) else "")
         + prompts.get("fragments/autoplanner/repair-citations.md")
         + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
         + (progressive_policy(stage) if "progressive_proposal" in fields else "")
@@ -1449,7 +1449,7 @@ def context(state: RunState, stage, state_path):
         packet["retained_contract"] = retention.token(state)
         retain_rule = retention.RULE
         if stage not in retention.FINAL:
-            retain_rule += retention.DELTA_RULE
+            retain_rule += retention.delta_rule()
         if stage in retention.FINAL:
             packet["retained_requirement_trace_available"] = retention.validated_trace(state) is not None
             retention.compact_final_packet(packet)
