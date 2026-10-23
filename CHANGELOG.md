@@ -74,6 +74,10 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- `cost.breakdown.by_billing` groups a run's spend by how each stage's model bills (subscription, pay per token
+  or unknown), so an API-equivalent estimate for a coding-plan stage is no longer indistinguishable from a
+  metered one. The provider billing table moved from `model_catalogue` to `autocode_role_route` so the cost
+  view can use it; it is still one table (#1867 S1b).
 - `efficiency.repeats` in the status view now counts a check the runner executed again although the same
   obligation already had a completed receipt, with its reason (a changed environment, a failed earlier attempt, or
   an approved command that always runs). The `repeat` observation was defined but never recorded, so the count was
