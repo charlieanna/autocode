@@ -14,6 +14,7 @@ except ImportError:
 
 
 import copy
+import json
 
 try:
     from . import autocode_goals as goals
@@ -138,6 +139,87 @@ def repair_payloads(state: RunState, stage: str) -> tuple[dict, dict | None]:
     clarification = clarification_context(state, stage)
     protected_contract = clarification.pop("protected_contract", None)
     return clarification, protected_contract
+
+
+def criterion_retention(clarification: dict, stage: str) -> tuple[str, dict]:
+    """Author repairs need exact current references, without repeating earlier plan reports."""
+    if stage not in retention.AUTHORS - retention.FINAL or not clarification.get("retained_contract"):
+        return "", {}
+    return retention.RULE, {"retained_criteria": copy.deepcopy(clarification["retained_criteria"])}
+
+
+def _original_overlay(original, latest) -> dict:
+    """Losslessly encode an older JSON value relative to the complete current value."""
+    delta: dict = {"remove": [], "replace": []}
+
+    def compare(old, new, path):
+        if isinstance(old, dict) and isinstance(new, dict):
+            delta["remove"].extend([*path, key] for key in new if key not in old)
+            for key, value in old.items():
+                if key in new:
+                    compare(value, new[key], [*path, key])
+                else:
+                    delta["replace"].append({"path": [*path, key], "value": copy.deepcopy(value)})
+        elif isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+            for index, (before, after) in enumerate(zip(old, new, strict=True)):
+                compare(before, after, [*path, index])
+        elif type(old) is not type(new) or old != new:
+            delta["replace"].append({"path": path, "value": copy.deepcopy(old)})
+
+    compare(original, latest, [])
+    return delta
+
+
+def historical_author_report(stage: str, original: dict, latest: dict | None) -> tuple[str, dict | None]:
+    """Keep every older author value inline without duplicating unchanged JSON subtrees."""
+    if latest is None:
+        return "", None
+    if (
+        stage not in retention.AUTHORS - retention.FINAL
+        or any(source.get("format") != "json" or source.get("truncated") for source in (original, latest))
+        or any(not isinstance(source.get("content"), dict) for source in (original, latest))
+    ):
+        return "", original
+    reference = {key: copy.deepcopy(value) for key, value in original.items() if key != "content"}
+    reference["content_base"] = "rejected_report.content"
+    reference["content_delta"] = _original_overlay(original["content"], latest["content"])
+    if len(json.dumps(reference, indent=2)) >= len(json.dumps(original, indent=2)):
+        return "", original
+    return (
+        "HISTORICAL PLANNING DRAFT. original_report encodes its complete older JSON inline relative to "
+        "rejected_report.content: copy that base, remove each content_delta.remove path, then replace each "
+        "content_delta.replace path with its exact supplied value. Path arrays name object keys or list indices; "
+        "an empty path replaces the root. No file access is needed. The original artifact path/hash stay pinned. "
+        "The complete latest rejected_report and protected_contract remain below; repair the latest draft, "
+        "not the superseded one.\n",
+        reference,
+    )
+
+
+def sources(pending: dict, read_source) -> tuple[dict, dict]:
+    """Load the original and current pinned report once, in their existing order."""
+    original = read_source(pending["original"])
+    latest = read_source(pending["latest_rejected"]) if pending.get("latest_rejected") else original
+    return original, latest
+
+
+def prompt_parts(
+    state: RunState, pending: dict, original: dict, latest: dict, receipt_parts: tuple
+) -> tuple[str, dict]:
+    """Assemble bounded planning context while keeping receipt policy with its caller."""
+    stage = pending["original"]["stage"]
+    clarification, protected = repair_payloads(state, stage)
+    retention_instruction, references = criterion_retention(clarification, stage)
+    historical_instruction, historical_source = historical_author_report(
+        stage, original, latest if pending.get("latest_rejected") else None
+    )
+    receipt_instruction, receipt_handoff = receipt_parts
+    return receipt_instruction + retention_instruction + historical_instruction, {
+        "header": {**receipt_handoff, **references},
+        "original_report": historical_source,
+        "protected_contract": protected,
+        "clarification": {"clarification_context": clarification} if stage == "astra_finalize" else {},
+    }
 
 
 def instruction(stage: str) -> str:

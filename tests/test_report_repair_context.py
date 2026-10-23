@@ -3,8 +3,10 @@
 import copy
 import json
 import unittest
+from pathlib import Path
 
 import autocode_goal_lifecycle as lifecycle
+import autocode_plan_retention as retention
 import autocode_report_repair_context as context
 import autocode_roles as roles
 from goal_fixtures import approve_fixture
@@ -13,6 +15,62 @@ from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
+    def test_historical_overlay_keeps_all_old_values_available_without_read_tools(self):
+        original = {
+            "shared": "retained text " * 500,
+            "flags": [False, 1.0, None],
+            "old_only": {"value": 0},
+            "nested": {"list": [1, 2], "a/b~key": "héllo"},
+        }
+        latest = {
+            "shared": original["shared"],
+            "flags": [0, 1, {}],
+            "new_only": True,
+            "nested": {"list": [1], "a/b~key": "changed"},
+        }
+        source = {"format": "json", "truncated": False, "content": original}
+        before = copy.deepcopy((source, latest))
+        instruction, compact = context.historical_author_report("glm_revise", source, {**source, "content": latest})
+        self.assertIn("No file access is needed", instruction)
+        self.assertEqual("rejected_report.content", compact["content_base"])
+        restored = copy.deepcopy(latest)
+        for path in compact["content_delta"]["remove"]:
+            parent = restored
+            for part in path[:-1]:
+                parent = parent[part]
+            del parent[path[-1]]
+        for change in compact["content_delta"]["replace"]:
+            path = change["path"]
+            if not path:
+                restored = copy.deepcopy(change["value"])
+                continue
+            parent = restored
+            for part in path[:-1]:
+                parent = parent[part]
+            parent[path[-1]] = copy.deepcopy(change["value"])
+        self.assertEqual(json.dumps(original, sort_keys=True), json.dumps(restored, sort_keys=True))
+        self.assertEqual(before, (source, latest))
+
+    def test_historical_compaction_is_skipped_when_distinct_content_would_grow(self):
+        original = {"format": "json", "truncated": False, "content": {"summary": "a" * 1000}}
+        latest = {**original, "content": {"summary": "b" * 1000}}
+        self.assertEqual(("", original), context.historical_author_report("glm_revise", original, latest))
+
+    def test_historical_reference_compaction_preserves_other_repair_baselines(self):
+        original = {"format": "json", "truncated": False, "content": {"summary": "original"}}
+        latest = {"format": "json", "truncated": False, "content": {"summary": "latest"}}
+        for stage in ("terra", "sol", "astra_finalize", "requirements_gather"):
+            with self.subTest(stage=stage):
+                self.assertEqual(("", original), context.historical_author_report(stage, original, latest))
+        for source in (
+            {**original, "format": "text", "content": "incomplete JSON"},
+            {**original, "truncated": True},
+            {**original, "content": []},
+        ):
+            with self.subTest(source=source):
+                self.assertEqual(("", source), context.historical_author_report("glm_revise", source, latest))
+                self.assertEqual(("", original), context.historical_author_report("glm_revise", original, source))
+
     def test_revision_and_finalization_repairs_get_only_the_current_planning_exchange(self):
         reports = {
             "astra_discovery": {"output": "current-discovery.json", "report": {"contract": {"scope": ["greet.py"]}}},
@@ -206,6 +264,85 @@ class ClarificationContextTests(unittest.TestCase):
 
 class DecisionRepairContextTests(unittest.TestCase):
     setUp = repair_fixtures.base.RetrofitTest.setUp
+
+    def test_criterion_author_repairs_receive_exact_current_retention_references(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        before = copy.deepcopy(self.state)
+        for stage in sorted(retention.AUTHORS - retention.FINAL):
+            with self.subTest(stage=stage):
+                self.state = copy.deepcopy(before)
+                self.state["next_stage"] = stage
+                expected = retention.inventory(self.state)
+                repair_fixtures.RepairTests.queue(
+                    self, stage=stage, role="glm", error=ValueError("Retained criterion reference is stale")
+                )
+                request = repair_fixtures.RepairTests.repair_request(self)
+                data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertIn("retained_criteria", data)
+                self.assertEqual(expected, data["retained_criteria"])
+                self.assertIn(retention.RULE, request["prompt"])
+                expanded = retention.expand(
+                    self.state, stage, {"contract": {"acceptance_criteria": data["retained_criteria"]}}
+                )
+                self.assertEqual(
+                    before["goal_contract"]["body"]["acceptance_criteria"],
+                    expanded["contract"]["acceptance_criteria"],
+                )
+
+    def test_unrelated_repair_does_not_receive_criterion_retention_references(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        repair_fixtures.RepairTests.queue(self, stage="terra", role="terra")
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertNotIn("retained_criteria", data)
+        self.assertNotIn(retention.RULE, request["prompt"])
+
+    def test_author_without_a_current_contract_gets_no_retention_rule_or_inventory(self):
+        self.state.pop("goal_contract", None)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["next_stage"] = "glm_revise"
+        repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="glm")
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertNotIn("retained_criteria", data)
+        self.assertNotIn(retention.RULE, request["prompt"])
+
+    def test_final_review_keeps_its_existing_contract_reference_context(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["next_stage"] = "astra_finalize"
+        repair_fixtures.RepairTests.queue(self, stage="astra_finalize", role="astra")
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertNotIn("retained_criteria", data)
+        self.assertEqual(retention.token(self.state), data["clarification_context"]["retained_contract"])
+        self.assertEqual(retention.inventory(self.state), data["clarification_context"]["retained_criteria"])
+
+    def test_superseded_author_draft_is_referenced_without_doubling_the_complete_latest_draft(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["glm"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        self.state["next_stage"] = "glm_revise"
+        original = {"summary": "retained " + "x" * 120000}
+        latest = {**original, "repair_fault": True}
+        pending = repair_fixtures.RepairTests.queue(self, stage="glm_revise", role="glm", report=json.dumps(original))
+        original_source = runner.repair_report_source(pending["original"])
+        with self.assertRaises(runner.ReportRepairQueued):
+            repair_fixtures.RepairTests.reject_repair(
+                self, 6, ValueError("Missing criterion citation"), report=json.dumps(latest)
+            )
+        request = repair_fixtures.RepairTests.repair_request(self)
+        data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(latest, data["rejected_report"]["content"])
+        self.assertNotIn("content", list(data["original_report"]))
+        self.assertEqual({"remove": [["repair_fault"]], "replace": []}, data["original_report"]["content_delta"])
+        for key in ("path", "sha256", "bytes", "format", "truncated"):
+            self.assertEqual(original_source[key], data["original_report"][key])
+        self.assertEqual(original, json.loads(Path(data["original_report"]["path"]).read_text()))
+        self.assertLess(len(request["prompt"].encode()), 262144)
 
     def test_discovery_repair_controller_supplies_the_approved_protected_contract(self):
         runner = repair_fixtures.runner
